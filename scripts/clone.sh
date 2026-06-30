@@ -28,8 +28,6 @@ rsync -a \
 
 cd "$TARGET"
 git init -q
+mise trust -q
 echo "yidam template copied to $TARGET"
-echo ""
-echo "next steps:"
-echo "  cd $TARGET"
-echo "  open BOOTSTRAP.md   # then invoke the bootstrap skill"
+open .
