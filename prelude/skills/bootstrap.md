@@ -154,13 +154,15 @@ Definitions for this step — three distinct concepts:
   not yet declared in any `.ont.yml` file. An implied edge is a *proposal*, not an edge.
   It becomes a `links:` entry in instance files only after the user approves it and it is
   wired in step 7. Do not add anything to any file in this step.
-- **Connector** — a crate-level retrieval adapter that bridges an external data source into
-  the corpus (see `directories.md`: `crates/` holds connectors). A connector is a *proposal*,
-  not a crate. It becomes a crate stub only after the user approves it and it is scaffolded
-  in step 7. Do not create any files in this step.
+- **Connector** — a retrieval bridge to an external data source (see `directories.md`:
+  `crates/` holds connectors). A connector is identified here as a *proposal*. Approved
+  connectors are invoked opportunistically during seeding (step 6) when demand is clear;
+  any that were not invoked during seeding are stubbed in step 7. Do not create any files
+  in this step.
 - **Calculator** — a domain computation that derives a value or relationship from corpus
-  data. A calculator is a *proposal*, not a skill. It becomes a skill stub only after the
-  user approves it and it is scaffolded in step 7. Do not create any files in this step.
+  data. A calculator is identified here as a *proposal*. Approved calculators are run
+  during step 7 if enough seeded instances exist to make the result meaningful; otherwise
+  they are stubbed. Do not create any files in this step.
 
 Before seeding any objects, read the full set of `.ont.yml` class definitions and reason
 about what the schema implies at the domain level. Then present a structured report to the
@@ -228,6 +230,13 @@ For domains with clear hierarchies, seed from the root down so that link targets
 they are referenced. Prefer depth over breadth: a well-linked instance with real content is
 worth more than several shallow stubs.
 
+**Opportunistic retrieval**: While seeding, watch for the demand threshold — five or more
+instances that share a missing property attributable to a single approved connector source.
+When that threshold is met, invoke the connector inline rather than deferring it: fetch the
+missing data, populate the instances, and commit the result as part of the seed. Respect
+rate limits: pause between requests; do not batch-hammer a source. Record what was fetched
+in the commit message.
+
 ### 7. Wire implied edges and scaffold connectors and calculators
 
 After all objects are seeded, read the full corpus — every `.ont.yml` class file, every
@@ -237,26 +246,29 @@ class directory, and every instance. Then act on what the user approved in step 
 relevant instance `.yml` files. An implied edge resolves a missing relationship between
 specific objects; it does not add new content to instances.
 
-**Connectors** — for each approved connector, scaffold a crate stub in `crates/`:
+**Connectors** — for each approved connector not already invoked during seeding, scaffold
+a crate stub in `crates/`:
 
 ```
 crates/<connector-name>/
 ```
 
-The stub should name the external source, describe what corpus classes it feeds, and
-define the retrieval interface. Do not implement — define the boundary.
+The stub should name the external source, describe what corpus classes it feeds, and define
+the retrieval interface. Connectors invoked during seeding need no stub — their invocation
+and the resulting epistemic commit are the record.
 
-**Calculators** — for each approved calculator, write a stub in `skills/`:
+**Calculators** — for each approved calculator: if the seeded corpus contains enough
+instances to produce a meaningful result, run it now and commit the output as an epistemic
+commit. Otherwise write a stub in `skills/`:
 
 ```
 skills/<calculator-name>.md
 ```
 
 The stub should describe what it computes, which corpus nodes it reads, and what it returns.
-Do not implement — define the interface.
 
-Commit implied edges as a single epistemic commit. Commit connector and calculator stubs
-together as a single operational commit.
+Commit implied edges as a single epistemic commit. Commit any remaining connector and
+calculator stubs together as a single operational commit.
 
 ### 8. Write the genesis commit
 
