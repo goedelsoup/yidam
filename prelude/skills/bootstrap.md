@@ -5,9 +5,9 @@ description: Initialize an yidam-derived repository from an empty or near-empty 
 
 # Skill: bootstrap
 
-Invoked when an agent enters an empty or near-empty repository with [BOOTSTRAP.md](../../BOOTSTRAP.md)
-as its entry prompt. Produces a fully scaffolded, yidam-derived repository with a seeded
-corpus and a legible genesis commit.
+Invoked when an agent enters a freshly cloned yidam repository with [BOOTSTRAP.md](../../BOOTSTRAP.md)
+as its entry prompt. Produces a fully scaffolded, ontology-grounded, corpus-seeded repository
+with a legible genesis commit.
 
 ## Steps
 
@@ -90,65 +90,153 @@ source →[relationship]→ target
 One row per node; one line per edge. No prose — the format is the signal that the sketch is
 ready to confirm.
 
-The ontology sketch is the blueprint for everything that follows. The genesis commit should
-be a faithful rendering of it — not a guess at what might be useful.
+### 3. Orient to the scaffold
 
-### 3. Scaffold the structure
+The repository's directory structure is already in place — yidam's clone process creates all
+directories with templated READMEs. Do not recreate or overwrite them.
 
-With the ontology confirmed, create the following directories and stub files if they do not
-exist. See [directory conventions](../guidelines/directories.md) for what belongs in each.
+Instead, read these four files to confirm the layout and understand what each directory is
+prepared to receive:
 
-- `agents/` — agent definitions specific to this repo
-- `catalog/` — data source registry; shallow refs for corpus edges
-- `corpus/` — knowledge nodes; the primary body of domain content
-- `crates/` — Rust crates implementing the retrieval and traversal toolkit
-- `packages/` — other-language packages in the same toolkit layer
-- `skills/` — skills available to agents in this repo
-- `web/` — web interface layer, if applicable
+- `agents/README.md`
+- `catalog/README.md`
+- `corpus/README.md`
+- `skills/README.md`
 
-Stubs should be minimal — a one-line header and a single orienting sentence. Do not
-pre-populate with placeholder content.
+If any directory is missing, recreate it with a minimal README stub. Otherwise, proceed.
 
-### 4. Seed the corpus
+### 4. Formalize the ontology
 
-Render the confirmed ontology sketch as corpus nodes. Each node should be a small, focused
-markdown file — one concept per file. Each node should:
+Render each node from the confirmed sketch as a domain class definition in `corpus/`:
 
-- Have a clear, specific title matching the concept name from the ontology
-- Contain 2–4 sentences establishing what it is and why it is irreducible here
-- Reference at least one related node (an edge) — use the ontology sketch as the edge map
+```
+corpus/<domain-class>.ont.yml
+```
 
-Prefer depth over breadth. Two well-linked nodes are better than five orphans.
+Each file defines what that class of thing is — its properties and its edge participation.
+One file per class; the filename matches the class name exactly.
 
-### 5. Write the genesis commit
+```yaml
+class: <name>
+label: <Human-Readable Label>
+description: <one sentence — what this class of thing is and why it is irreducible>
+properties:
+  - name: <field>
+    type: string | date | ref | text
+    description: <one line>
+edges:
+  - relationship: <verb phrase>
+    target: <class name>
+    direction: out | in
+    description: <one line>
+```
 
-Commit all scaffolding and seed nodes as a single genesis commit. The commit message should
-name the domain, describe the ontology sketch, and note what the initial edges are.
-This message is the first event in the knowledge graph; it should read like one.
+These files are the schema layer of the corpus. They define what kinds of things exist, not
+specific instances. Every class in the confirmed sketch gets a file. Do not add classes not
+in the confirmed sketch.
 
-If `samudaya/` was present, commit its removal immediately after the genesis commit as a
-separate consumption event. The message should record what samudaya contained and what it
-influenced (e.g., which axioms became seed nodes, which constraints shaped the scaffold).
-Samudaya's content is now preserved only in git history — that is by design.
+### 5. Identify connectors and calculators
 
-### 6. Report
+Before seeding any objects, read the full set of `.ont.yml` class definitions and reason
+about what the schema implies at the domain level. Then present a structured report to the
+user for confirmation:
 
-After committing, output a structured handoff with three sections:
+**Connector sources** — edge types between classes that are not yet explicit in the `.ont.yml`
+files but are implied by the domain. For each:
 
-**Ontology** — a compact restatement of the seed nodes and their edges. One sentence per
-node; the edge list from the confirmed sketch.
+| From | Relationship | To | Basis |
+|------|--------------|----|-------|
+| `class` | verb phrase | `class` | one line — why this edge exists |
 
-**What's ready** — one sentence on what the scaffolded structure is prepared to receive.
-Be specific: which directories are ready for real content, and what kind.
+**Calculators** — domain computations that follow naturally from the class structure. For each:
 
-**Next steps** — three concrete, ordered actions the user can take immediately:
+| Name | Computes | Reads | Returns |
+|------|----------|-------|---------|
+| `name` | what it derives | which classes/edges | what it produces |
+
+Do not wire connectors or implement calculators yet. This report is a checkpoint — present
+it and wait for the user to confirm, modify, or discard individual items before proceeding.
+Only carry forward what the user approves.
+
+### 6. Seed corpus objects
+
+For each class defined in step 4, instantiate at least one concrete object as a corpus
+markdown node:
+
+```
+corpus/<instance-name>.md
+```
+
+Each instance node should:
+
+- Open with a one-sentence statement of what this specific thing is
+- Link to its class definition (e.g., `[Ruling](ruling.ont.yml)`)
+- Carry at least one outgoing edge to another node (instance or class definition)
+- Be specific enough to be wrong — a vague placeholder is not an object
+
+For domains with clear hierarchies, seed from the root down so that edge targets exist when
+they are referenced. Prefer depth over breadth: a well-linked object with real content is
+worth more than several shallow stubs.
+
+### 7. Wire connectors and scaffold calculators
+
+After all objects are seeded, read the full corpus — every `.ont.yml` class file and every
+instance node. Then act on what the user approved in step 5:
+
+**Connectors** — add the approved edges as markdown links in the relevant instance nodes.
+A connector resolves a missing relationship between specific objects; it does not add new
+content to nodes.
+
+**Calculators** — for each approved calculator, write a stub in `skills/`:
+
+```
+skills/<calculator-name>.md
+```
+
+The stub should describe what it computes, which corpus nodes it reads, and what it returns.
+Do not implement — define the interface. Calculators are proposals that agents and developers
+can later implement.
+
+Commit connectors as a single epistemic commit. Commit calculator stubs as a separate
+operational commit.
+
+### 8. Write the genesis commit
+
+Commit all class definitions (`.ont.yml`), seed instances, and scaffolded skill stubs as a
+single genesis commit. The message should name the domain, summarize the class schema, and
+describe what seed objects were created and how they connect.
+
+This commit is the first event in the knowledge graph. It should read like one.
+
+If `samudaya/` was present, remove it in a separate commit immediately after. The message
+should record what samudaya contained and what it influenced — which axioms became class
+definitions, which constraints shaped the schema. Samudaya's content now lives only in
+history. That is by design.
+
+### 9. Report
+
+Output a structured handoff with four sections:
+
+**Ontology** — the class definitions written. One line per class; list the outgoing edges.
+
+**Objects seeded** — the instance nodes created. One line each; note which class each
+instantiates.
+
+**Connectors and calculators** — edges wired and skill stubs scaffolded. One line each.
+
+**Next steps** — three concrete, ordered actions:
 
 1. **First catalog entry** — identify the most authoritative data source for this domain
-   and add it to `catalog/` as the first provenance anchor. Name it specifically (a URL,
-   a publication, a database). This is the first operational act after genesis.
-2. **First corpus expansion** — name the one seed node most ready to grow (the one with
-   the most obvious real content behind it) and suggest the first question or sub-node to
-   add beneath it. This becomes the first epistemic commit after genesis.
-3. **First agent** — describe the simplest agent that would be immediately useful in this
-   repo given the domain and the RAG purpose. One sentence on what it does and what corpus
-   nodes it would draw from.
+   and add it to `catalog/` as the first provenance anchor. Name it specifically.
+2. **First corpus expansion** — name the instance node most ready to grow and suggest the
+   first sub-node or property to deepen it. This becomes the first epistemic commit after
+   genesis.
+3. **First agent** — describe the simplest agent immediately useful in this domain. One
+   sentence on what it does and which corpus nodes it draws from.
+
+Then ask:
+
+> **Continue?** I can enter a seed/scaffold loop — reading the corpus, identifying gaps,
+> and proposing new objects, connectors, or calculators until the corpus reaches a stable
+> initial state. Reply **yes** to continue, **no** to stop here, or describe a specific
+> area to focus on.
