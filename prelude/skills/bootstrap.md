@@ -13,10 +13,16 @@ with a legible genesis commit.
 
 ### 0. Read samudaya (if present)
 
-Before anything else, check whether `samudaya/` exists. If it does:
+Before anything else, check whether `samudaya/` exists. If it does, list its contents first:
 
-- Read every file in it — excluding `samudaya/examples/`, which contains format
-  templates for domain authors, not seeds. Note each file's `kind` frontmatter field.
+```
+ls samudaya/
+```
+
+If only `README.md` and `examples/` are present, there are no seeds — skip to step 1.
+
+Otherwise, read every file present — excluding `samudaya/examples/` and `samudaya/README.md`,
+which are not seeds. Note each seed file's `kind` frontmatter field.
 - **`axiom`** files: treat these concepts as pre-committed — they must appear in the corpus.
   Hold them in working memory as required nodes going into the ontology-discovery dialogue.
 - **`hint`** files: treat these as candidate relationships or directions to surface during
@@ -34,8 +40,9 @@ Samudaya does not replace the dialogue. It seeds it.
 
 ### 1. Internalize the prelude
 
-Read these files — in order — before doing anything else. Skip domain implementations and
-SDK source code; they are reference artifacts, not context for bootstrapping.
+Read these files — in order — before doing anything else. Read each file directly by its
+path; do not enumerate the `prelude/` directory. Skip domain implementations and SDK source
+code; they are reference artifacts, not context for bootstrapping.
 
 1. `prelude/IDENTITY.md` — what kind of knowledge artifact this repo is
 2. `prelude/GRAPH.md` — the graph model: nodes, edges, commit types, branch semantics
@@ -95,15 +102,19 @@ ready to confirm.
 The repository's directory structure is already in place — yidam's clone process creates all
 directories with templated READMEs. Do not recreate or overwrite them.
 
-Instead, read these four files to confirm the layout and understand what each directory is
-prepared to receive:
+Read these four files to confirm the layout and understand what each directory is prepared
+to receive:
 
 - `agents/README.md`
 - `catalog/README.md`
 - `corpus/README.md`
 - `skills/README.md`
 
-If any directory is missing, recreate it with a minimal README stub. Otherwise, proceed.
+If any directory is missing, recreate it with a minimal README stub.
+
+Each README may contain a `<!-- TEMPLATE -->` comment block marking fields that need
+domain-specific content. Fill every such block now, before proceeding. These are the only
+edits made in this step — do not add or remove files.
 
 ### 4. Formalize the ontology
 
@@ -135,14 +146,16 @@ These files are the schema layer of the corpus. They define what kinds of things
 specific instances. Every class in the confirmed sketch gets a file. Do not add classes not
 in the confirmed sketch.
 
-### 5. Identify connectors and calculators
+### 5. Identify implied edges and calculators
 
 Definitions for this step:
 
-- **Connector** — a named edge type between two classes that is implied by the domain but
-  not yet declared in any `.ont.yml` file. A connector is a *proposal*, not an edge. It
-  becomes an edge only after the user approves it and it is wired in step 7. Do not add
-  anything to any file in this step.
+- **Implied edge** — an edge type between two classes that is warranted by the domain but
+  not yet declared in any `.ont.yml` file. An implied edge is a *proposal*, not an edge.
+  It becomes a `links:` entry in instance files only after the user approves it and it is
+  wired in step 7. Do not add anything to any file in this step.
+  Note: "connectors" in `directories.md` refers to crate-level retrieval adapters in
+  `crates/` — an unrelated concept. Do not conflate the two.
 - **Calculator** — a domain computation that derives a value or relationship from corpus
   data. A calculator is a *proposal*, not a skill. It becomes a skill stub only after the
   user approves it and it is scaffolded in step 7. Do not create any files in this step.
@@ -151,7 +164,7 @@ Before seeding any objects, read the full set of `.ont.yml` class definitions an
 about what the schema implies at the domain level. Then present a structured report to the
 user for confirmation:
 
-**Connectors** — edge types implied by the domain but absent from the current `.ont.yml` files:
+**Implied edges** — edge types warranted by the domain but absent from the current `.ont.yml` files:
 
 | From | Relationship | To | Basis |
 |------|--------------|----|-------|
@@ -207,14 +220,14 @@ For domains with clear hierarchies, seed from the root down so that link targets
 they are referenced. Prefer depth over breadth: a well-linked instance with real content is
 worth more than several shallow stubs.
 
-### 7. Wire connectors and scaffold calculators
+### 7. Wire implied edges and scaffold calculators
 
 After all objects are seeded, read the full corpus — every `.ont.yml` class file, every
 class directory, and every instance. Then act on what the user approved in step 5:
 
-**Connectors** — add the approved edges as entries in the `links:` field of the relevant
-instance `.yml` files. A connector resolves a missing relationship between specific objects;
-it does not add new content to instances.
+**Implied edges** — add each approved edge as an entry in the `links:` field of the
+relevant instance `.yml` files. An implied edge resolves a missing relationship between
+specific objects; it does not add new content to instances.
 
 **Calculators** — for each approved calculator, write a stub in `skills/`:
 
@@ -226,7 +239,7 @@ The stub should describe what it computes, which corpus nodes it reads, and what
 Do not implement — define the interface. Calculators are proposals that agents and developers
 can later implement.
 
-Commit connectors as a single epistemic commit. Commit calculator stubs as a separate
+Commit implied edges as a single epistemic commit. Commit calculator stubs as a separate
 operational commit.
 
 ### 8. Write the genesis commit
@@ -237,10 +250,17 @@ describe what seed objects were created and how they connect.
 
 This commit is the first event in the knowledge graph. It should read like one.
 
-If `samudaya/` was present, remove it in a separate commit immediately after. The message
-should record what samudaya contained and what it influenced — which axioms became class
-definitions, which constraints shaped the schema. Samudaya's content now lives only in
-history. That is by design.
+If `samudaya/` was present, it is not included in the genesis commit. After the genesis
+commit is written, delete it and commit the deletion as a separate consumption event:
+
+```
+git rm -r samudaya/
+git commit -m "consume(samudaya): ..."
+```
+
+The deletion message should record what samudaya contained and what it influenced — which
+axioms became class definitions, which constraints shaped the schema. Samudaya's content
+now lives only in history. That is by design.
 
 ### 9. Report
 
@@ -251,7 +271,7 @@ Output a structured handoff with four sections:
 **Objects seeded** — the instance nodes created. One line each; note which class each
 instantiates.
 
-**Connectors and calculators** — edges wired and skill stubs scaffolded. One line each.
+**Implied edges and calculators** — edges wired and skill stubs scaffolded. One line each.
 
 **Next steps** — three concrete, ordered actions:
 
@@ -266,6 +286,6 @@ instantiates.
 Then ask:
 
 > **Continue?** I can enter a seed/scaffold loop — reading the corpus, identifying gaps,
-> and proposing new objects, connectors, or calculators until the corpus reaches a stable
+> and proposing new objects, implied edges, or calculators until the corpus reaches a stable
 > initial state. Reply **yes** to continue, **no** to stop here, or describe a specific
 > area to focus on.
