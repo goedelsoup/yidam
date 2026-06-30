@@ -13,9 +13,10 @@ This is not a software project. It is a research instrument.
 
 ## Before you act
 
-Load and internalize the prelude. This is not optional — the prelude is the cognitive foundation
-for everything that follows.
+Start with the scripture. Then load and internalize the prelude. Neither step is optional — the
+scripture gives you the why; the prelude gives you the how.
 
+- [Scripture](prelude/SCRIPTURE.md) — what yidam is and why it works this way; read this first
 - [Identity](prelude/IDENTITY.md) — what this kind of repository is
 - [Graph model](prelude/GRAPH.md) — how git encodes knowledge
 - [Agent conduct](prelude/guidelines/agent-conduct.md) — how to behave in this graph

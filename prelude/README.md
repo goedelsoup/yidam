@@ -5,6 +5,7 @@ before taking any action, establishing the cognitive and structural model for th
 
 It contains:
 
+- **[Scripture](SCRIPTURE.md)** — narrative orientation to the system's vocabulary and purpose; read this first
 - **[Identity](IDENTITY.md)** — what this kind of repository is and how to inhabit it
 - **[Graph model](GRAPH.md)** — how the git history encodes knowledge
 - **[Constitution](CONSTITUTION.md)** — the invariant constraints governing sangha resolutions
