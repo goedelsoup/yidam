@@ -146,16 +146,18 @@ These files are the schema layer of the corpus. They define what kinds of things
 specific instances. Every class in the confirmed sketch gets a file. Do not add classes not
 in the confirmed sketch.
 
-### 5. Identify implied edges and calculators
+### 5. Identify implied edges, connectors, and calculators
 
-Definitions for this step:
+Definitions for this step — three distinct concepts:
 
 - **Implied edge** — an edge type between two classes that is warranted by the domain but
   not yet declared in any `.ont.yml` file. An implied edge is a *proposal*, not an edge.
   It becomes a `links:` entry in instance files only after the user approves it and it is
   wired in step 7. Do not add anything to any file in this step.
-  Note: "connectors" in `directories.md` refers to crate-level retrieval adapters in
-  `crates/` — an unrelated concept. Do not conflate the two.
+- **Connector** — a crate-level retrieval adapter that bridges an external data source into
+  the corpus (see `directories.md`: `crates/` holds connectors). A connector is a *proposal*,
+  not a crate. It becomes a crate stub only after the user approves it and it is scaffolded
+  in step 7. Do not create any files in this step.
 - **Calculator** — a domain computation that derives a value or relationship from corpus
   data. A calculator is a *proposal*, not a skill. It becomes a skill stub only after the
   user approves it and it is scaffolded in step 7. Do not create any files in this step.
@@ -169,6 +171,12 @@ user for confirmation:
 | From | Relationship | To | Basis |
 |------|--------------|----|-------|
 | `class` | verb phrase | `class` | one line — why this edge is implied |
+
+**Connectors** — external data sources that could feed this corpus, and the crate adapter each would require:
+
+| Name | Source | Feeds | Notes |
+|------|--------|-------|-------|
+| `name` | external system or dataset | which classes | one line |
 
 **Calculators** — domain computations that follow naturally from the class structure:
 
@@ -220,7 +228,7 @@ For domains with clear hierarchies, seed from the root down so that link targets
 they are referenced. Prefer depth over breadth: a well-linked instance with real content is
 worth more than several shallow stubs.
 
-### 7. Wire implied edges and scaffold calculators
+### 7. Wire implied edges and scaffold connectors and calculators
 
 After all objects are seeded, read the full corpus — every `.ont.yml` class file, every
 class directory, and every instance. Then act on what the user approved in step 5:
@@ -229,6 +237,15 @@ class directory, and every instance. Then act on what the user approved in step 
 relevant instance `.yml` files. An implied edge resolves a missing relationship between
 specific objects; it does not add new content to instances.
 
+**Connectors** — for each approved connector, scaffold a crate stub in `crates/`:
+
+```
+crates/<connector-name>/
+```
+
+The stub should name the external source, describe what corpus classes it feeds, and
+define the retrieval interface. Do not implement — define the boundary.
+
 **Calculators** — for each approved calculator, write a stub in `skills/`:
 
 ```
@@ -236,11 +253,10 @@ skills/<calculator-name>.md
 ```
 
 The stub should describe what it computes, which corpus nodes it reads, and what it returns.
-Do not implement — define the interface. Calculators are proposals that agents and developers
-can later implement.
+Do not implement — define the interface.
 
-Commit implied edges as a single epistemic commit. Commit calculator stubs as a separate
-operational commit.
+Commit implied edges as a single epistemic commit. Commit connector and calculator stubs
+together as a single operational commit.
 
 ### 8. Write the genesis commit
 
@@ -271,7 +287,7 @@ Output a structured handoff with four sections:
 **Objects seeded** — the instance nodes created. One line each; note which class each
 instantiates.
 
-**Implied edges and calculators** — edges wired and skill stubs scaffolded. One line each.
+**Implied edges, connectors, and calculators** — edges wired, crate stubs and skill stubs scaffolded. One line each.
 
 **Next steps** — three concrete, ordered actions:
 
@@ -286,6 +302,6 @@ instantiates.
 Then ask:
 
 > **Continue?** I can enter a seed/scaffold loop — reading the corpus, identifying gaps,
-> and proposing new objects, implied edges, or calculators until the corpus reaches a stable
-> initial state. Reply **yes** to continue, **no** to stop here, or describe a specific
-> area to focus on.
+> and proposing new objects, implied edges, connectors, or calculators until the corpus
+> reaches a stable initial state. Reply **yes** to continue, **no** to stop here, or
+> describe a specific area to focus on.
