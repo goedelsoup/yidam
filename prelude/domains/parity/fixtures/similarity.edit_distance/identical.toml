@@ -1,0 +1,6 @@
+description = "edit distance between identical strings"
+[input]
+s1 = "cat"
+s2 = "cat"
+[expected]
+distance = 0

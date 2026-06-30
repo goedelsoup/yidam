@@ -1,0 +1,8 @@
+[package]
+name = "yidam-domain-similarity"
+version = "0.1.0"
+edition = "2021"
+description = "Yidam similarity domain — pure calculation functions"
+
+[dev-dependencies]
+toml = "0.8"

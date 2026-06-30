@@ -1,0 +1,6 @@
+description = "hub node with no triangles has coefficient 0.0"
+[input]
+degree = 4
+triangle_count = 0
+[expected]
+coefficient = 0.0

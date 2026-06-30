@@ -1,0 +1,9 @@
+function = "graph_metrics.degree_centrality"
+description = "center node of a 3-node path has centrality 1.0; endpoints 0.5"
+
+[input]
+degrees = [1, 2, 1]
+node_count = 3
+
+[expected]
+centrality = [0.5, 1.0, 0.5]

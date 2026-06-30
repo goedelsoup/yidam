@@ -1,0 +1,26 @@
+function = "extract_claims"
+description = "Four evidence tags: Verified, Inference, Open, and implicit (no tag)"
+
+[input]
+content = """
+Treatment effect is non-zero under standard assumptions. [verified]
+The effect may persist after conditioning on Z. [inferred]
+Whether unconfoundedness holds in practice remains unclear. [open]
+Structural assumptions are required throughout.
+"""
+
+[[expected]]
+text = "Treatment effect is non-zero under standard assumptions."
+tag = "Verified"
+
+[[expected]]
+text = "The effect may persist after conditioning on Z."
+tag = "Inference"
+
+[[expected]]
+text = "Whether unconfoundedness holds in practice remains unclear."
+tag = "Open"
+
+[[expected]]
+text = "Structural assumptions are required throughout."
+tag = "Implicit"

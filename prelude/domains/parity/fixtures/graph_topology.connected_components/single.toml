@@ -1,0 +1,6 @@
+description = "linear chain of 3 nodes is one component"
+[input]
+node_count = 3
+edges = [[0, 1], [1, 2]]
+[expected]
+components = 1

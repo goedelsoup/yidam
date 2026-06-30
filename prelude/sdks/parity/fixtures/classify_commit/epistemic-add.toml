@@ -1,0 +1,13 @@
+function = "classify_commit"
+description = "add: verb classifies as Epistemic"
+
+[input]
+hash = "a1b2c3d"
+message = "add: confounding as initial corpus concept\n\nCaptures the core distinction between spurious correlation and causal effect."
+verb = "add"
+subject = "confounding as initial corpus concept"
+
+[expected]
+kind = "Epistemic"
+verb = "add"
+subject = "confounding as initial corpus concept"

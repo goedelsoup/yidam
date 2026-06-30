@@ -1,0 +1,9 @@
+function = "causal.ate"
+description = "ATE is mean difference: mean(treated) - mean(control)"
+
+[input]
+treated = [2.0, 4.0]
+control = [1.0, 3.0]
+
+[expected]
+ate = 1.0

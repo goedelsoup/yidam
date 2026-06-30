@@ -1,0 +1,8 @@
+function = "information_theory.entropy"
+description = "uniform 4-way distribution has entropy of 2 bits"
+
+[input]
+probs = [0.25, 0.25, 0.25, 0.25]
+
+[expected]
+entropy = 2.0

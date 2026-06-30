@@ -1,0 +1,9 @@
+function = "graph_metrics.density"
+description = "complete graph on 3 nodes has density 1.0"
+
+[input]
+node_count = 3
+edge_count = 3
+
+[expected]
+density = 1.0

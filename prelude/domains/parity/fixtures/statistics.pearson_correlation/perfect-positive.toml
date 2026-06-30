@@ -1,0 +1,6 @@
+description = "perfect positive correlation"
+[input]
+xs = [0.0, 1.0]
+ys = [0.0, 1.0]
+[expected]
+r = 1.0

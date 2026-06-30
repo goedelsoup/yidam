@@ -1,0 +1,6 @@
+description = "cosine similarity of identical unit vectors"
+[input]
+a = [1.0, 0.0]
+b = [1.0, 0.0]
+[expected]
+similarity = 1.0

@@ -1,0 +1,9 @@
+function = "causal.confounding_score"
+description = "score is absolute product of both correlations"
+
+[input]
+r_treatment = 0.5
+r_outcome = 0.5
+
+[expected]
+score = 0.25

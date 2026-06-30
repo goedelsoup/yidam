@@ -1,0 +1,19 @@
+[tasks.build]
+description = "Build the yidam CLI."
+run = "cargo build --release"
+
+[tasks.test]
+description = "Run yidam CLI tests."
+run = "cargo test"
+
+[tasks.fmt]
+description = "Format the yidam CLI source."
+run = "cargo fmt --all"
+
+[tasks.lint]
+description = "Clippy on the yidam CLI."
+run = "cargo clippy -- -D warnings"
+
+[tasks.install]
+description = "Install the yidam binary to ~/.cargo/bin."
+run = "cargo install --path ."

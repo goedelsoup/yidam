@@ -1,0 +1,6 @@
+description = "cosine similarity of orthogonal vectors"
+[input]
+a = [1.0, 0.0]
+b = [0.0, 1.0]
+[expected]
+similarity = 0.0

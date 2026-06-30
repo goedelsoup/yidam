@@ -1,0 +1,6 @@
+description = "3 isolated nodes with no edges are 3 components"
+[input]
+node_count = 3
+edges = []
+[expected]
+components = 3

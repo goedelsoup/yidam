@@ -1,0 +1,9 @@
+function = "information_theory.kl_divergence"
+description = "identical distributions have KL divergence of zero"
+
+[input]
+p = [0.5, 0.5]
+q = [0.5, 0.5]
+
+[expected]
+kl = 0.0

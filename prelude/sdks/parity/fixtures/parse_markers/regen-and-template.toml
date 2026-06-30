@@ -1,0 +1,26 @@
+function = "parse_markers"
+description = "File with one TEMPLATE instruction and one REGEN section"
+
+[input]
+content = """
+# README
+
+<!-- TEMPLATE: fill in the domain name above -->
+
+## Status
+
+<!-- REGEN: yidam status
+Fields: node count, open questions, index freshness.
+-->
+_Run `yidam status` to populate._
+<!-- /REGEN -->
+"""
+
+[[expected]]
+kind = "Template"
+instruction = "fill in the domain name above"
+
+[[expected]]
+kind = "Regen"
+command = "yidam status"
+content = "_Run `yidam status` to populate._"

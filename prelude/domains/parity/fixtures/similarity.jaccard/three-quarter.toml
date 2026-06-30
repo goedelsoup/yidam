@@ -1,0 +1,6 @@
+description = "jaccard similarity — 3 shared out of 4 in union"
+[input]
+a = ["a", "b", "c"]
+b = ["a", "b", "c", "d"]
+[expected]
+similarity = 0.75

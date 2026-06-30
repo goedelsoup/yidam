@@ -1,0 +1,18 @@
+function = "extract_links"
+description = "Inline markdown links extracted; images and bare URLs excluded"
+
+[input]
+content = """
+See [confounding](confounding.md) and [identification](identification.md#formal-conditions).
+![diagram](diagram.png) should not appear.
+A bare URL https://example.com should not appear.
+"""
+
+[[expected]]
+label = "confounding"
+target = "confounding.md"
+
+[[expected]]
+label = "identification"
+target = "identification.md"
+anchor = "formal-conditions"

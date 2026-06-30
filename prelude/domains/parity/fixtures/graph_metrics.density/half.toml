@@ -1,0 +1,9 @@
+function = "graph_metrics.density"
+description = "half of all possible edges present in 4-node graph"
+
+[input]
+node_count = 4
+edge_count = 3
+
+[expected]
+density = 0.5

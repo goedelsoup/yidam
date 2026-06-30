@@ -1,0 +1,26 @@
+# Rust
+target/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+dist/
+*.egg-info/
+
+# Node / TypeScript
+node_modules/
+dist/
+.pnpm-store/
+*.tsbuildinfo
+
+# LanceDB
+*.lance/
+
+# mise
+.mise.local.toml
+
+# macOS
+.DS_Store

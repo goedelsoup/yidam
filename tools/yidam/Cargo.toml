@@ -1,0 +1,21 @@
+[package]
+name = "yidam"
+version = "0.1.0"
+edition = "2021"
+description = "Corpus analysis and index CLI for yidam-derived repositories"
+
+[lib]
+name = "yidam"
+path = "src/lib.rs"
+
+[[bin]]
+name = "yidam"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+walkdir = "2"
+pulldown-cmark = "0.11"
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"

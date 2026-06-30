@@ -1,0 +1,25 @@
+function = "parse_node"
+description = "Concept node with one verified claim and one outgoing link"
+
+[input]
+path = "corpus/confounding.md"
+content = """
+# Confounding
+
+A variable that distorts the apparent relationship between treatment and outcome. [verified]
+
+See also: [identification](identification.md).
+"""
+
+[expected]
+path = "corpus/confounding.md"
+title = "Confounding"
+kind = "Concept"
+
+[[expected.claims]]
+text = "A variable that distorts the apparent relationship between treatment and outcome."
+tag = "Verified"
+
+[[expected.links]]
+label = "identification"
+target = "identification.md"

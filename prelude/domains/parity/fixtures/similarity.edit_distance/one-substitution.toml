@@ -1,0 +1,6 @@
+description = "single character substitution"
+[input]
+s1 = "cat"
+s2 = "cut"
+[expected]
+distance = 1

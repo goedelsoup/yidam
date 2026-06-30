@@ -1,0 +1,7 @@
+description = "value one std_dev above the mean"
+[input]
+value = 3.0
+mean = 1.0
+std_dev = 2.0
+[expected]
+z_score = 1.0

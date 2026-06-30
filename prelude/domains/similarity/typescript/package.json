@@ -1,0 +1,12 @@
+{
+  "name": "@yidam/domain-similarity",
+  "version": "0.1.0",
+  "description": "Yidam similarity domain — pure calculation functions",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "test": "vitest run" },
+  "devDependencies": {
+    "vitest": "^2.0.0",
+    "smol-toml": "^1.3.0"
+  }
+}

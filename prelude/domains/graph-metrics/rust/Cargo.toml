@@ -1,0 +1,8 @@
+[package]
+name = "yidam-domain-graph-metrics"
+version = "0.1.0"
+edition = "2021"
+description = "Yidam graph metrics domain — pure graph calculation functions"
+
+[dev-dependencies]
+toml = "0.8"

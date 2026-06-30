@@ -1,0 +1,9 @@
+function = "causal.ate"
+description = "identical group means produce ATE of zero"
+
+[input]
+treated = [3.0, 3.0]
+control = [3.0, 3.0]
+
+[expected]
+ate = 0.0

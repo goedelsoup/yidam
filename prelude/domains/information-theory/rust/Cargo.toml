@@ -1,0 +1,8 @@
+[package]
+name = "yidam-domain-information-theory"
+version = "0.1.0"
+edition = "2021"
+description = "Yidam information theory domain — pure information-theoretic functions"
+
+[dev-dependencies]
+toml = "0.8"

@@ -1,0 +1,6 @@
+description = "jaccard similarity of identical sets"
+[input]
+a = ["x", "y"]
+b = ["x", "y"]
+[expected]
+similarity = 1.0

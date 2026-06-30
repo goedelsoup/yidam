@@ -1,0 +1,229 @@
+# mise.toml — toolchains and tasks for this yidam-derived repository.
+# https://mise.jdx.dev
+#
+# This file is part of the yidam template. Yidam itself uses it to
+# run the bootstrap harness (tests/harness/). Derived repos use it for both
+# the harness and the domain computer (crates/, packages/).
+#
+# `mise install` provisions the toolchains below.
+# `mise tasks`   lists every available task.
+# `mise run ci`  is what CI runs.
+
+[tools]
+# Rust — domain computer (crates/), bootstrap harness (tests/harness/), yidam CLI (tools/yidam/).
+# Must match rust-toolchain.toml in tests/harness/.
+rust = { version = "1.85.0", components = "rustfmt,clippy" }
+# Python — packages/ ML pipelines, embedding model SDKs, geospatial connectors.
+python = "3.12"
+# uv — fast Python package/venv manager; used in packages/.
+uv = "latest"
+# dafny: not in the mise registry — install via https://dafny.org/dafny/Installation
+# LEAN 4 / lake: not in the mise registry — install via elan (https://github.com/leanprover/elan)
+
+# ── yidam CLI — build ─────────────────────────────────────────────────
+# The `yidam` binary lives in tools/yidam/. In derived repos it is
+# installed from the registry; in this repo, build it first with:
+#   mise run yidam-build
+
+[tasks.yidam-build]
+description = "Compile and install the yidam binary from tools/yidam/ to ~/.cargo/bin."
+run = "cargo install --path tools/yidam"
+
+# ── yidam CLI — REGEN tasks ───────────────────────────────────────────
+# These tasks back the <!-- REGEN: yidam <subcommand> --> markers across
+# README files. Run `mise run yidam-build` once before using them here;
+# derived repos call the installed binary directly.
+#
+# Run a specific subcommand directly, or `mise run regen` to refresh all
+# REGEN sections in one pass.
+
+[tasks.status]
+description = "Repo overview: node count, open questions, catalog entries, index freshness, active phases, genesis date."
+run = "yidam status"
+
+[tasks.open-questions]
+description = "List corpus nodes with open questions (? titles or [open] claims)."
+run = "yidam open-questions"
+
+[tasks.corpus-index]
+description = "Regenerate corpus/README.md index table."
+run = "yidam corpus-index"
+
+[tasks.index-status]
+description = "Report vector index state: embedding model, coverage, freshness, retrieval latency."
+run = "yidam index-status"
+
+[tasks.catalog-audit]
+description = "Audit catalog/ entries: integrity status, citation count, stale sources."
+run = "yidam catalog-audit"
+
+[tasks.agents-index]
+description = "Regenerate agents/README.md index table."
+run = "yidam agents-index"
+
+[tasks.skills-index]
+description = "Regenerate skills/README.md index table."
+run = "yidam skills-index"
+
+[tasks.crates-index]
+description = "Regenerate crates/README.md index table."
+run = "yidam crates-index"
+
+[tasks.packages-index]
+description = "Regenerate packages/README.md index table."
+run = "yidam packages-index"
+
+[tasks.bundle-status]
+description = "Report web/ bundle state: contract version, feeds, last export timestamp, deploy status."
+run = "yidam bundle-status"
+
+[tasks.regen]
+description = "Regenerate all REGEN sections across READMEs in one pass."
+depends = [
+  "corpus-index",
+  "index-status",
+  "catalog-audit",
+  "agents-index",
+  "skills-index",
+  "crates-index",
+  "packages-index",
+  "bundle-status",
+]
+
+# ── domain computer (crates/) ──────────────────────────────────────────────
+# No-ops in yidam itself — crates/ has no Cargo workspace here. These
+# become the primary dev loop in derived repos once the workspace is
+# initialized alongside the domain connectors, calculators, and index crate.
+
+[tasks.build]
+description = "Build the domain computer (crates/ workspace)."
+run = "cargo build --workspace --manifest-path crates/Cargo.toml"
+
+[tasks.lint]
+description = "Clippy across the domain computer."
+run = "cargo clippy --workspace --manifest-path crates/Cargo.toml -- -D warnings"
+
+[tasks.test]
+description = "Run domain computer tests."
+run = "cargo test --workspace --manifest-path crates/Cargo.toml"
+
+[tasks.fmt]
+description = "Format domain computer Rust code."
+run = "cargo fmt --all --manifest-path crates/Cargo.toml"
+
+# ── parity + formal verification ──────────────────────────────────────────
+# `parity` enforces the MUST rule: every parity function must have at least
+# one fixture in prelude/sdks/parity/fixtures/<function>/ before SDK tests run.
+#
+# `verify` requires dafny (in [tools]) and lake (install via elan separately).
+
+[tasks.parity-check]
+description = "Verify all six parity functions have at least one fixture (enforced by parity)."
+run = """
+for fn in parse_node extract_claims extract_links classify_commit parse_markers update_regen; do
+  count=$(ls prelude/sdks/parity/fixtures/$fn/*.toml 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$count" -eq 0 ]; then
+    echo "ERROR: no fixture for parity function '$fn'"
+    echo "       add at least one fixture to prelude/sdks/parity/fixtures/$fn/"
+    exit 1
+  fi
+done
+echo "parity fixture check: all six functions covered"
+"""
+
+[tasks.parity]
+description = "Run cross-language parity tests across all three SDK implementations."
+depends = ["parity-check"]
+run = [
+  "cargo test --manifest-path prelude/sdks/rust/Cargo.toml -- parity",
+  "cd prelude/sdks/typescript && npm test -- --testPathPattern parity",
+  "cd prelude/sdks/python && uv run pytest tests/parity/",
+]
+
+[tasks.domain-parity-check]
+description = "Verify every domain function has at least one fixture in prelude/domains/parity/fixtures/."
+run = """
+fixture_dir="prelude/domains/parity/fixtures"
+if [ ! -d "$fixture_dir" ]; then
+  echo "domain-parity-check: no fixtures directory yet — skipping"
+  exit 0
+fi
+failed=0
+for fn_dir in "$fixture_dir"/*/; do
+  fn=$(basename "$fn_dir")
+  count=$(ls "$fn_dir"*.toml 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$count" -eq 0 ]; then
+    echo "ERROR: domain function '$fn' has no fixtures"
+    echo "       add at least one fixture to $fn_dir"
+    failed=1
+  fi
+done
+if [ "$failed" -eq 1 ]; then exit 1; fi
+echo "domain-parity-check: all domain functions covered"
+"""
+
+[tasks.domain-parity]
+description = "Run cross-language parity tests for all domain implementations."
+depends = ["domain-parity-check"]
+run = """
+for domain_dir in prelude/domains/*/; do
+  domain=$(basename "$domain_dir")
+  if [ "$domain" = "parity" ]; then continue; fi
+  if [ -f "$domain_dir/rust/Cargo.toml" ]; then
+    cargo test --manifest-path "$domain_dir/rust/Cargo.toml" -- parity
+  fi
+  if [ -f "$domain_dir/typescript/package.json" ]; then
+    (cd "$domain_dir/typescript" && npm test -- --testPathPattern parity)
+  fi
+  if [ -f "$domain_dir/python/pyproject.toml" ]; then
+    (cd "$domain_dir/python" && uv run pytest tests/parity/)
+  fi
+done
+"""
+
+[tasks.verify]
+description = "Formal verification: Dafny specs and LEAN 4 proofs (requires dafny + lake via elan)."
+run = [
+  "dafny verify prelude/sdks/spec/graph.dfy",
+  "dafny verify prelude/sdks/spec/sangha.dfy",
+  "lake build Yidam",
+]
+
+# ── bootstrap harness (tests/harness/) ────────────────────────────────────
+
+[tasks.harness-test]
+description = "Run bootstrap harness scenarios against the judge rubric."
+run = "cargo test --workspace --manifest-path tests/harness/Cargo.toml"
+
+[tasks.harness-lint]
+description = "Clippy on the bootstrap test harness."
+run = "cargo clippy --workspace --manifest-path tests/harness/Cargo.toml -- -D warnings"
+
+[tasks.harness-fmt]
+description = "Format harness Rust code."
+run = "cargo fmt --all --manifest-path tests/harness/Cargo.toml"
+
+# ── clone (template scaffolding) ─────────────────────────────────────────
+# Copies the yidam template into a new directory and initialises a fresh git
+# repo, ready for the bootstrap skill to be invoked.
+#
+# Usage:  mise run clone <target-directory>
+
+[tasks.clone]
+description = "Scaffold a new yidam-derived repo at TARGET. Usage: mise run clone <target-dir>"
+run = "bash scripts/clone.sh"
+
+# ── ci ────────────────────────────────────────────────────────────────────
+# Yidam's own CI gate. Derived repos should extend this to include
+# `lint`, `test`, and `build` once the domain computer crates are in place.
+
+[tasks.ci]
+description = "Full CI pass: harness + yidam CLI fmt-check, clippy, and test."
+run = [
+  "cargo fmt --all --manifest-path tests/harness/Cargo.toml -- --check",
+  "cargo clippy --workspace --manifest-path tests/harness/Cargo.toml -- -D warnings",
+  "cargo test --workspace --manifest-path tests/harness/Cargo.toml",
+  "cargo fmt --all --manifest-path tools/yidam/Cargo.toml -- --check",
+  "cargo clippy --manifest-path tools/yidam/Cargo.toml -- -D warnings",
+  "cargo test --manifest-path tools/yidam/Cargo.toml",
+]

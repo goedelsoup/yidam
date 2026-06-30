@@ -1,0 +1,8 @@
+[package]
+name = "yidam-domain-graph-topology"
+version = "0.1.0"
+edition = "2021"
+description = "Yidam graph topology domain — pure calculation functions"
+
+[dev-dependencies]
+toml = "0.8"
