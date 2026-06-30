@@ -133,8 +133,22 @@ Samudaya's content is now preserved only in git history — that is by design.
 
 ### 6. Report
 
-After committing, summarize:
+After committing, output a structured handoff with three sections:
 
-- The ontology: what the seed nodes are and how they relate
-- What the structure is ready for
-- Suggested next inquiry threads — what the graph most wants to grow toward
+**Ontology** — a compact restatement of the seed nodes and their edges. One sentence per
+node; the edge list from the confirmed sketch.
+
+**What's ready** — one sentence on what the scaffolded structure is prepared to receive.
+Be specific: which directories are ready for real content, and what kind.
+
+**Next steps** — three concrete, ordered actions the user can take immediately:
+
+1. **First catalog entry** — identify the most authoritative data source for this domain
+   and add it to `catalog/` as the first provenance anchor. Name it specifically (a URL,
+   a publication, a database). This is the first operational act after genesis.
+2. **First corpus expansion** — name the one seed node most ready to grow (the one with
+   the most obvious real content behind it) and suggest the first question or sub-node to
+   add beneath it. This becomes the first epistemic commit after genesis.
+3. **First agent** — describe the simplest agent that would be immediately useful in this
+   repo given the domain and the RAG purpose. One sentence on what it does and what corpus
+   nodes it would draw from.
