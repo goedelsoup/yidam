@@ -34,8 +34,25 @@ Samudaya does not replace the dialogue. It seeds it.
 
 ### 1. Internalize the prelude
 
-Read all files under `prelude/` as foundational context. They establish the identity, graph
-model, and conduct norms that govern everything that follows. This step is not optional.
+Read these files — in order — before doing anything else. Skip domain implementations and
+SDK source code; they are reference artifacts, not context for bootstrapping.
+
+1. `prelude/IDENTITY.md` — what kind of knowledge artifact this repo is
+2. `prelude/GRAPH.md` — the graph model: nodes, edges, commit types, branch semantics
+3. `prelude/CONSTITUTION.md` — the governance rules that constrain what you may do
+4. `prelude/HARNESS.md` — how scenarios and the judge rubric work
+5. `prelude/PHASES.md` — the named phases of inquiry
+6. `prelude/guidelines/agent-conduct.md` — specific conduct norms
+7. `prelude/guidelines/directories.md` — where things live and what belongs in each
+8. `prelude/skills/judge.md` — the judge's criteria; internalize so the genesis commit passes
+
+After reading all eight, output a brief synthesis before opening the dialogue:
+
+> **Prelude internalized.** Graph model: [one sentence]. Key constraints I'll honor: [two or
+> three bullet points from CONSTITUTION and agent-conduct]. Directory layout: [one sentence].
+
+This output is a checkpoint — it proves processing, not just scanning, and lets the user
+correct any misread before the dialogue begins.
 
 ### 2. Discover the ontology
 
@@ -55,6 +72,23 @@ For each concept surfaced, probe further:
 
 Continue until you can draw a coherent sketch of the initial graph: a small set of named
 nodes and the edges between them. Confirm this sketch with the user before proceeding.
+
+Present the sketch in this format:
+
+**Nodes**
+
+| Node | What it is |
+|------|------------|
+| `name` | one-line description |
+
+**Edges**
+
+```
+source →[relationship]→ target
+```
+
+One row per node; one line per edge. No prose — the format is the signal that the sketch is
+ready to confirm.
 
 The ontology sketch is the blueprint for everything that follows. The genesis commit should
 be a faithful rendering of it — not a guess at what might be useful.
