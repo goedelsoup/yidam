@@ -266,17 +266,19 @@ describe what seed objects were created and how they connect.
 
 This commit is the first event in the knowledge graph. It should read like one.
 
-If `samudaya/` was present, it is not included in the genesis commit. After the genesis
-commit is written, delete it and commit the deletion as a separate consumption event:
+If `samudaya/` exists, it is not included in the genesis commit. After the genesis commit
+is written, always delete it — regardless of whether it contained seeds — and commit the
+deletion as a separate consumption event:
 
 ```
 git rm -r samudaya/
 git commit -m "consume(samudaya): ..."
 ```
 
-The deletion message should record what samudaya contained and what it influenced — which
-axioms became class definitions, which constraints shaped the schema. Samudaya's content
-now lives only in history. That is by design.
+The deletion message should record what samudaya contained and what it influenced. If no
+seeds were present (only `README.md` and `examples/`), the message should say so explicitly:
+"no seeds present; directory removed." Samudaya's presence or absence is now part of the
+record. That is by design.
 
 ### 9. Report
 
