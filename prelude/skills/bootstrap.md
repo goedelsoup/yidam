@@ -137,26 +137,34 @@ in the confirmed sketch.
 
 ### 5. Identify connectors and calculators
 
+Definitions for this step:
+
+- **Connector** — a named edge type between two classes that is implied by the domain but
+  not yet declared in any `.ont.yml` file. A connector is a *proposal*, not an edge. It
+  becomes an edge only after the user approves it and it is wired in step 7. Do not add
+  anything to any file in this step.
+- **Calculator** — a domain computation that derives a value or relationship from corpus
+  data. A calculator is a *proposal*, not a skill. It becomes a skill stub only after the
+  user approves it and it is scaffolded in step 7. Do not create any files in this step.
+
 Before seeding any objects, read the full set of `.ont.yml` class definitions and reason
 about what the schema implies at the domain level. Then present a structured report to the
 user for confirmation:
 
-**Connector sources** — edge types between classes that are not yet explicit in the `.ont.yml`
-files but are implied by the domain. For each:
+**Connectors** — edge types implied by the domain but absent from the current `.ont.yml` files:
 
 | From | Relationship | To | Basis |
 |------|--------------|----|-------|
-| `class` | verb phrase | `class` | one line — why this edge exists |
+| `class` | verb phrase | `class` | one line — why this edge is implied |
 
-**Calculators** — domain computations that follow naturally from the class structure. For each:
+**Calculators** — domain computations that follow naturally from the class structure:
 
 | Name | Computes | Reads | Returns |
 |------|----------|-------|---------|
 | `name` | what it derives | which classes/edges | what it produces |
 
-Do not wire connectors or implement calculators yet. This report is a checkpoint — present
-it and wait for the user to confirm, modify, or discard individual items before proceeding.
-Only carry forward what the user approves.
+This step produces a report only. Do not modify any file. Wait for the user to confirm,
+modify, or discard individual items. Only what the user approves is carried into step 7.
 
 ### 6. Seed corpus objects
 
