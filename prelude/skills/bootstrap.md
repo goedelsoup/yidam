@@ -160,32 +160,53 @@ Only carry forward what the user approves.
 
 ### 6. Seed corpus objects
 
-For each class defined in step 4, instantiate at least one concrete object as a corpus
-markdown node:
+For each class defined in step 4, create a class directory and seed at least one concrete
+instance within it:
 
 ```
-corpus/<instance-name>.md
+corpus/<class>/README.md       — describes the class in prose; links to the .ont.yml
+corpus/<class>/ACTIONS.md      — operations, queries, and skills applicable to this class
+corpus/<class>/<instance>.yml  — a concrete object of this class
 ```
 
-Each instance node should:
+**`README.md`** — one paragraph describing what this class of thing is in the context of
+this domain. Link to the class definition (`../<class>.ont.yml`). Written for a domain
+contributor, not a schema reader.
 
-- Open with a one-sentence statement of what this specific thing is
-- Link to its class definition (e.g., `[Ruling](ruling.ont.yml)`)
-- Carry at least one outgoing edge to another node (instance or class definition)
-- Be specific enough to be wrong — a vague placeholder is not an object
+**`ACTIONS.md`** — a list of operations meaningful for this class: queries that retrieve
+instances, transitions an instance can undergo, skills that act on it, or calculators that
+derive from it. Stub entries are fine; this file grows over time.
 
-For domains with clear hierarchies, seed from the root down so that edge targets exist when
-they are referenced. Prefer depth over breadth: a well-linked object with real content is
+**`<instance>.yml`** — a concrete object. Structure:
+
+```yaml
+class: <class-name>
+label: <Human-Readable Instance Name>
+description: <one sentence — what this specific thing is>
+properties:
+  <field>: <value>
+links:
+  - target: ../<other-class>/<other-instance>.yml
+    relationship: <verb phrase>
+  - target: ../<class>.ont.yml
+    relationship: instance-of
+```
+
+Each instance must carry at least one outgoing link to another node. Be specific enough to
+be wrong — a vague placeholder is not an object.
+
+For domains with clear hierarchies, seed from the root down so that link targets exist when
+they are referenced. Prefer depth over breadth: a well-linked instance with real content is
 worth more than several shallow stubs.
 
 ### 7. Wire connectors and scaffold calculators
 
-After all objects are seeded, read the full corpus — every `.ont.yml` class file and every
-instance node. Then act on what the user approved in step 5:
+After all objects are seeded, read the full corpus — every `.ont.yml` class file, every
+class directory, and every instance. Then act on what the user approved in step 5:
 
-**Connectors** — add the approved edges as markdown links in the relevant instance nodes.
-A connector resolves a missing relationship between specific objects; it does not add new
-content to nodes.
+**Connectors** — add the approved edges as entries in the `links:` field of the relevant
+instance `.yml` files. A connector resolves a missing relationship between specific objects;
+it does not add new content to instances.
 
 **Calculators** — for each approved calculator, write a stub in `skills/`:
 
