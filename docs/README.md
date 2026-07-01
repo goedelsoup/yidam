@@ -9,27 +9,21 @@ scaffold that derived repos receive, see [sadhana/docs/](../sadhana/docs/README.
 
 ## Contents
 
-### [design-brief.md](design-brief.md)
-
-The primary reference document for the yidam system. Thirteen sections covering:
-
-| Section | Topic |
+| Document | Topic |
 |---|---|
-| 1 | What yidam is — the scripture, the knowledge graph model, the two commit kinds |
-| 2 | Vocabulary — all system terms defined as design tokens |
-| 3 | Information architecture — directory layout, node structure, instance and decision schemas |
-| 4 | The git branch model — `ma/<elector>` positions and `rigpa/<evolution>` evolutions |
-| 5 | The bootstrap flow — the ten-step onboarding sequence with quality criteria |
-| 6 | The sangha resolution flow — when and how to resolve, elector registration |
-| 7 | Constitutional governance — the six articles of the invariant constitution |
-| 8 | The domain computer layer — connectors, calculators, feature engineering, vector index |
-| 9 | The web interface layer — optional data export, bundle contracts, CLI-generated status |
-| 10 | Quality rubric — structural checks, scored quality criteria, regression thresholds |
-| 11 | Conduct norms — deliberate commits, generous linking, provenance preservation |
-| 12 | Test harness and multi-agent architecture — bootstrap/domain-owner/judge triad, scenario schema |
-| 13 | Aesthetic and tonal direction — naming register, design implications |
-
-Read the design brief before extending yidam or authoring bootstrap scenarios.
+| [what-yidam-is.md](what-yidam-is.md) | The scripture, the knowledge graph model, the two commit kinds |
+| [vocabulary.md](vocabulary.md) | All system terms defined; claim confidence markers |
+| [information-architecture.md](information-architecture.md) | Directory layout, node structure, instance and decision schemas |
+| [git-branch-model.md](git-branch-model.md) | `ma/<elector>` positions, `rigpa/<evolution>` evolutions, phase types |
+| [bootstrap-flow.md](bootstrap-flow.md) | The ten-step onboarding sequence with quality criteria |
+| [sangha-resolution-flow.md](sangha-resolution-flow.md) | When and how to resolve; elector registration |
+| [constitutional-governance.md](constitutional-governance.md) | The six articles of the invariant constitution |
+| [domain-computer.md](domain-computer.md) | Connectors, calculators, feature engineering, vector index |
+| [web-interface.md](web-interface.md) | Optional data export, bundle contracts, CLI-generated status fields |
+| [quality-rubric.md](quality-rubric.md) | Structural checks, scored quality criteria, regression thresholds |
+| [conduct-norms.md](conduct-norms.md) | Deliberate commits, generous linking, provenance preservation |
+| [test-harness.md](test-harness.md) | Bootstrap/domain-owner/judge triad, scenario schema, snapshot path |
+| [aesthetic-direction.md](aesthetic-direction.md) | Naming register and design implications |
 
 ## What belongs here
 
