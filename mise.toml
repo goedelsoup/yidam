@@ -215,11 +215,11 @@ run = "cargo fmt --all --manifest-path yidam/tests/harness/Cargo.toml"
 
 [tasks.clone]
 description = "Scaffold a new yidam-derived repo at TARGET. Usage: mise run clone <target-dir>"
-run = "bash scripts/clone.sh"
+run = "yidam clone"
 
 [tasks.overlay]
 description = "Overlay yidam infrastructure onto an existing repo. Usage: mise run overlay <repo-dir>"
-run = "bash scripts/overlay.sh"
+run = "yidam overlay"
 
 # ── ci ────────────────────────────────────────────────────────────────────
 # Yidam's own CI gate. Derived repos should extend this to include

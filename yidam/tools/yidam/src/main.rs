@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(
@@ -43,6 +44,16 @@ enum Command {
     /// Build LanceDB vector index from embeddings and export Arrow IPC for the web shell
     #[command(name = "index-build")]
     IndexBuild,
+    /// Copy the yidam template into TARGET and initialise a fresh git repo
+    Clone {
+        /// Directory to create (must not already exist)
+        target: PathBuf,
+    },
+    /// Overlay yidam infrastructure onto an existing git repo at TARGET
+    Overlay {
+        /// Root of an existing git repository
+        target: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -64,5 +75,7 @@ async fn main() -> Result<()> {
         Command::Bundle => yidam::bundle(),
         Command::Embed => yidam::embed(),
         Command::IndexBuild => yidam::index_build().await,
+        Command::Clone { target } => yidam::clone(&target),
+        Command::Overlay { target } => yidam::overlay(&target),
     }
 }
