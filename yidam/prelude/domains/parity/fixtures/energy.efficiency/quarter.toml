@@ -1,0 +1,9 @@
+function = "energy.efficiency"
+description = "25 J out of 100 J gives 0.25 efficiency"
+
+[input]
+output = 25.0
+input = 100.0
+
+[expected]
+ratio = 0.25

@@ -1,0 +1,8 @@
+description = "non-unit vectors in the same direction have cosine similarity 1.0"
+
+[input]
+a = [2.0, 0.0]
+b = [5.0, 0.0]
+
+[expected]
+similarity = 1.0

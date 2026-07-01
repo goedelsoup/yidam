@@ -1,0 +1,12 @@
+function = "extract_links"
+description = "link to a same-file anchor; no target file, only anchor"
+
+[input]
+content = """
+See [formal conditions](#formal-conditions) below.
+"""
+
+[[expected]]
+label = "formal conditions"
+target = ""
+anchor = "formal-conditions"

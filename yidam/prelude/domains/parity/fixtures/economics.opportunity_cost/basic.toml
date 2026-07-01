@@ -1,0 +1,9 @@
+function = "economics.opportunity_cost"
+description = "foregone 100, chosen 60 — opportunity cost is 40"
+
+[input]
+foregone = 100.0
+chosen = 60.0
+
+[expected]
+cost = 40.0

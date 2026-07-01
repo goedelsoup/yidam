@@ -1,0 +1,7 @@
+description = "symmetric negatives and positives have mean 0.0"
+
+[input]
+values = [-1.0, 1.0]
+
+[expected]
+mean = 0.0

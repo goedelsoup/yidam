@@ -1,0 +1,11 @@
+function = "geodesics.bearing_deg"
+description = "bearing from origin to 1° south is 180° (due south)"
+
+[input]
+lat1 = 0.0
+lon1 = 0.0
+lat2 = -1.0
+lon2 = 0.0
+
+[expected]
+degrees = 180.0

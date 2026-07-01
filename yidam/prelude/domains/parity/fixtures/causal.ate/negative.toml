@@ -1,0 +1,9 @@
+function = "causal.ate"
+description = "treated mean below control mean yields negative ATE"
+
+[input]
+treated = [1.0, 1.0]
+control = [3.0, 5.0]
+
+[expected]
+ate = -3.0

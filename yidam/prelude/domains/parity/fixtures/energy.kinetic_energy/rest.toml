@@ -1,0 +1,9 @@
+function = "energy.kinetic_energy"
+description = "object at rest has zero kinetic energy"
+
+[input]
+mass = 5.0
+velocity = 0.0
+
+[expected]
+joules = 0.0

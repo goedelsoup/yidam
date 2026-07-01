@@ -1,0 +1,9 @@
+function = "economics.opportunity_cost"
+description = "chosen value exceeds foregone — negative opportunity cost"
+
+[input]
+foregone = 50.0
+chosen = 80.0
+
+[expected]
+cost = -30.0

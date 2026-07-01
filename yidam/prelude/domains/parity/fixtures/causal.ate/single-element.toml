@@ -1,0 +1,9 @@
+function = "causal.ate"
+description = "single observation per group: ATE is the scalar difference"
+
+[input]
+treated = [5.0]
+control = [2.0]
+
+[expected]
+ate = 3.0

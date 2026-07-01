@@ -1,0 +1,8 @@
+description = "single deletion: removing one character from s1 yields s2"
+
+[input]
+s1 = "cats"
+s2 = "cat"
+
+[expected]
+distance = 1

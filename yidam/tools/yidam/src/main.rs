@@ -36,11 +36,17 @@ enum Command {
     GraphCheck,
     #[command(name = "decisions-log")]
     DecisionsLog,
-    /// Bundle ontology, corpus, skills, and decisions into .yidam/CONTEXT.md
+    /// Bundle ontology, corpus, skills, decisions, and vector index into .yidam/bundle.yiz
     Bundle,
+    /// Extract embedding text from corpus instances to .yidam/embeddings/
+    Embed,
+    /// Build LanceDB vector index from embeddings and export Arrow IPC for the web shell
+    #[command(name = "index-build")]
+    IndexBuild,
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Status => yidam::status(),
@@ -56,5 +62,7 @@ fn main() -> Result<()> {
         Command::GraphCheck => yidam::graph_check(),
         Command::DecisionsLog => yidam::decisions_log(),
         Command::Bundle => yidam::bundle(),
+        Command::Embed => yidam::embed(),
+        Command::IndexBuild => yidam::index_build().await,
     }
 }

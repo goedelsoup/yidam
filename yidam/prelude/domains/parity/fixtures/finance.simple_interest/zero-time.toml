@@ -1,0 +1,10 @@
+function = "finance.simple_interest"
+description = "zero time yields zero interest"
+
+[input]
+principal = 10000.0
+rate = 0.1
+time = 0.0
+
+[expected]
+interest = 0.0

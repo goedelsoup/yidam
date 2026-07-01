@@ -1,0 +1,9 @@
+function = "economics.price_elasticity"
+description = "30% quantity drop from 10% price rise gives elasticity -3.0 (elastic)"
+
+[input]
+pct_qty_change = -30.0
+pct_price_change = 10.0
+
+[expected]
+elasticity = -3.0

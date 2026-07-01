@@ -1,0 +1,8 @@
+[package]
+name = "yidam-domain-trade"
+version = "0.1.0"
+edition = "2021"
+description = "Yidam trade domain — international trade analysis functions"
+
+[dev-dependencies]
+toml = "0.8"

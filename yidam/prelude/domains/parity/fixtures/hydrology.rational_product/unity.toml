@@ -1,0 +1,10 @@
+function = "hydrology.rational_product"
+description = "all inputs equal 1 yields product of 1"
+
+[input]
+c = 1.0
+i = 1.0
+a = 1.0
+
+[expected]
+result = 1.0

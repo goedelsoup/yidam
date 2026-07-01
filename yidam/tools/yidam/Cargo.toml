@@ -21,6 +21,15 @@ walkdir = "2"
 pulldown-cmark = "0.11"
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
+serde_json = "1"
+fastembed = "3"
+lancedb = "0.13"
+# Arrow versions must match lancedb's transitive dependency; update together if needed.
+arrow-array = "52"
+arrow-schema = "52"
+arrow-ipc = "52"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+futures = "0.3"
 
 [dev-dependencies]
 tempfile = "3"

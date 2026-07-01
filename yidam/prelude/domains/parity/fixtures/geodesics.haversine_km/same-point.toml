@@ -1,0 +1,11 @@
+function = "geodesics.haversine_km"
+description = "same point has zero distance"
+
+[input]
+lat1 = 0.0
+lon1 = 0.0
+lat2 = 0.0
+lon2 = 0.0
+
+[expected]
+km = 0.0

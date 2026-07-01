@@ -1,0 +1,9 @@
+function = "trade.trade_balance"
+description = "imports exceed exports — trade deficit"
+
+[input]
+exports = 300.0
+imports = 500.0
+
+[expected]
+balance = -200.0

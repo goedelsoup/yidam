@@ -1,0 +1,9 @@
+function = "trade.trade_balance"
+description = "equal exports and imports give zero balance"
+
+[input]
+exports = 400.0
+imports = 400.0
+
+[expected]
+balance = 0.0

@@ -1,0 +1,8 @@
+[package]
+name = "yidam-domain-set-theory"
+version = "0.1.0"
+edition = "2021"
+description = "Yidam set theory domain — pure set operations"
+
+[dev-dependencies]
+toml = "0.8"

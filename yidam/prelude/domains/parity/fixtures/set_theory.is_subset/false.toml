@@ -1,0 +1,9 @@
+function = "set_theory.is_subset"
+description = "non-subset returns false when a has element not in b"
+
+[input]
+a = [1, 4]
+b = [1, 2, 3]
+
+[expected]
+result = false

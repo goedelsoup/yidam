@@ -1,0 +1,8 @@
+description = "V-shaped y values are uncorrelated with x: covariance is zero"
+
+[input]
+xs = [0.0, 1.0, 2.0]
+ys = [1.0, 0.0, 1.0]
+
+[expected]
+r = 0.0

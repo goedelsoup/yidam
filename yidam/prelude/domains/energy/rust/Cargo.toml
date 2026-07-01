@@ -1,0 +1,8 @@
+[package]
+name = "yidam-domain-energy"
+version = "0.1.0"
+edition = "2021"
+description = "Yidam energy domain — classical mechanics calculations"
+
+[dev-dependencies]
+toml = "0.8"

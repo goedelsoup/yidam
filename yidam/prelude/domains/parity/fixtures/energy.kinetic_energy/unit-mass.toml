@@ -1,0 +1,9 @@
+function = "energy.kinetic_energy"
+description = "0.5 * 1kg * (4 m/s)² = 8 J"
+
+[input]
+mass = 1.0
+velocity = 4.0
+
+[expected]
+joules = 8.0

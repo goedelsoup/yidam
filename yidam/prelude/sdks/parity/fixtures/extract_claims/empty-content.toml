@@ -1,0 +1,7 @@
+function = "extract_claims"
+description = "empty content yields no claims"
+
+[input]
+content = ""
+
+[[expected]]

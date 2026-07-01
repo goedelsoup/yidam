@@ -1,0 +1,8 @@
+[package]
+name = "yidam-domain-hydrology"
+version = "0.1.0"
+edition = "2021"
+description = "Yidam hydrology domain — surface-water calculation functions"
+
+[dev-dependencies]
+toml = "0.8"

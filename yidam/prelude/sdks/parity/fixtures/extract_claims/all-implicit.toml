@@ -1,0 +1,16 @@
+function = "extract_claims"
+description = "sentences with no inline tag markers are all classified as Implicit"
+
+[input]
+content = """
+Randomization eliminates confounding by design.
+The average treatment effect is identified under unconfoundedness.
+"""
+
+[[expected]]
+text = "Randomization eliminates confounding by design."
+tag = "Implicit"
+
+[[expected]]
+text = "The average treatment effect is identified under unconfoundedness."
+tag = "Implicit"

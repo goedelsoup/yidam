@@ -1,0 +1,9 @@
+function = "trade.tariff_revenue"
+description = "25% tariff on 1000 of imports = 250 revenue"
+
+[input]
+import_value = 1000.0
+rate = 0.25
+
+[expected]
+revenue = 250.0

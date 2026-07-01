@@ -1,0 +1,16 @@
+function = "extract_links"
+description = "relative path traversing up a directory level is preserved verbatim"
+
+[input]
+content = """
+Defined in [identification](../identification.md) and [ATE](../ate.md#definition).
+"""
+
+[[expected]]
+label = "identification"
+target = "../identification.md"
+
+[[expected]]
+label = "ATE"
+target = "../ate.md"
+anchor = "definition"

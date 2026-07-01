@@ -1,0 +1,9 @@
+function = "energy.power"
+description = "zero work yields zero power"
+
+[input]
+work = 0.0
+time = 10.0
+
+[expected]
+watts = 0.0

@@ -1,0 +1,10 @@
+function = "group_theory.modular_add"
+description = "sum below modulus does not wrap"
+
+[input]
+a = 2
+b = 3
+n = 10
+
+[expected]
+result = 5

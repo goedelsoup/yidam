@@ -1,0 +1,10 @@
+function = "energy.potential_energy"
+description = "3 kg at 4 m under unit gravity = 12 J"
+
+[input]
+mass = 3.0
+height = 4.0
+g = 1.0
+
+[expected]
+joules = 12.0

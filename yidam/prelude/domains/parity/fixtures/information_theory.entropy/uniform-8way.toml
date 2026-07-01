@@ -1,0 +1,8 @@
+function = "information_theory.entropy"
+description = "uniform distribution over 8 outcomes has entropy 3 bits"
+
+[input]
+probs = [0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125]
+
+[expected]
+entropy = 3.0

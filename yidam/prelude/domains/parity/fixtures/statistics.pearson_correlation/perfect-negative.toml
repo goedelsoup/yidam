@@ -1,0 +1,8 @@
+description = "perfectly anti-correlated pair has r = -1.0"
+
+[input]
+xs = [0.0, 1.0]
+ys = [1.0, 0.0]
+
+[expected]
+r = -1.0

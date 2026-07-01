@@ -69,8 +69,34 @@ description = "Render the decisions log from .yidam/decisions/."
 run = "yidam decisions-log"
 
 [tasks.bundle]
-description = "Package corpus, skills, decisions, and rendered indexes into .yidam/bundle.yiz."
+description = "Package corpus, skills, decisions, rendered indexes, and vector index into .yidam/bundle.yiz."
 run = "yidam bundle"
+
+# ── vector index pipeline ─────────────────────────────────────────────
+
+[tasks.embed]
+description = "Extract embedding text from corpus instances to .yidam/embeddings/."
+run = "yidam embed"
+
+[tasks.index-build]
+description = "Build LanceDB vector index from embeddings and export Arrow IPC. Downloads model (~22 MB) on first run."
+depends = ["embed"]
+run = "yidam index-build"
+
+# ── web shell ─────────────────────────────────────────────────────────
+
+[tasks.web-install]
+description = "Install packages/web/ npm dependencies."
+run = "cd packages/web && npm install"
+
+[tasks.web-dev]
+description = "Start corpus search dev server at localhost:5173."
+run = "cd packages/web && npm run dev"
+
+[tasks.web-build]
+description = "Build corpus search web shell to packages/web/dist/."
+depends = ["bundle"]
+run = "cd packages/web && npm run build"
 
 [tasks.regen]
 description = "Regenerate all REGEN sections across READMEs in one pass."

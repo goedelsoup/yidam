@@ -1,0 +1,11 @@
+function = "geodesics.haversine_km"
+description = "Paris to London ≈ 341.55 km"
+
+[input]
+lat1 = 48.8566
+lon1 = 2.3522
+lat2 = 51.5074
+lon2 = -0.1278
+
+[expected]
+km = 341.5495678109161

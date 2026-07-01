@@ -1,0 +1,8 @@
+description = "degree-4 node with 3 closed triangles has coefficient 0.5"
+
+[input]
+degree = 4
+triangle_count = 3
+
+[expected]
+coefficient = 0.5

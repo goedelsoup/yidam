@@ -1,0 +1,9 @@
+function = "set_theory.is_subset"
+description = "proper subset returns true"
+
+[input]
+a = [1, 2]
+b = [1, 2, 3]
+
+[expected]
+result = true

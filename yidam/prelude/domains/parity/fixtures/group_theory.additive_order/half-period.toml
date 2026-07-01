@@ -1,0 +1,9 @@
+function = "group_theory.additive_order"
+description = "2 in Z_6 has order 3 because gcd(2,6)=2, order=6/2=3"
+
+[input]
+a = 2
+n = 6
+
+[expected]
+order = 3

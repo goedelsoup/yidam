@@ -1,0 +1,9 @@
+function = "set_theory.difference"
+description = "difference when b is a superset of a returns empty"
+
+[input]
+a = [2, 3]
+b = [1, 2, 3, 4]
+
+[expected]
+elements = []

@@ -1,0 +1,8 @@
+description = "jaccard similarity when one set is a subset: 2 shared out of 4 in union"
+
+[input]
+a = ["a", "b"]
+b = ["a", "b", "c", "d"]
+
+[expected]
+similarity = 0.5

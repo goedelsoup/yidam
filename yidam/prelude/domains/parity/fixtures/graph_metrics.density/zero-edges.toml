@@ -1,0 +1,9 @@
+function = "graph_metrics.density"
+description = "no edges present: density is 0.0 regardless of node count"
+
+[input]
+node_count = 5
+edge_count = 0
+
+[expected]
+density = 0.0

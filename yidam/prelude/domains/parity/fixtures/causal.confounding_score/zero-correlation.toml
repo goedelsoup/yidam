@@ -1,0 +1,9 @@
+function = "causal.confounding_score"
+description = "zero correlation with treatment makes score zero regardless of outcome correlation"
+
+[input]
+r_treatment = 0.0
+r_outcome = 0.8
+
+[expected]
+score = 0.0

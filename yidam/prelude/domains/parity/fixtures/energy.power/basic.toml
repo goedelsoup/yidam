@@ -1,0 +1,9 @@
+function = "energy.power"
+description = "100 J over 5 s = 20 W"
+
+[input]
+work = 100.0
+time = 5.0
+
+[expected]
+watts = 20.0

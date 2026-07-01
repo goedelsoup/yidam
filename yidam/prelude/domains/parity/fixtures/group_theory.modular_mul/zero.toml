@@ -1,0 +1,10 @@
+function = "group_theory.modular_mul"
+description = "multiplication by zero yields zero"
+
+[input]
+a = 0
+b = 6
+n = 5
+
+[expected]
+result = 0

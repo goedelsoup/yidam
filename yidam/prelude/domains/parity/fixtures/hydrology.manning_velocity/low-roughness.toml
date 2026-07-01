@@ -1,0 +1,10 @@
+function = "hydrology.manning_velocity"
+description = "low Manning n=0.01, R=1, S=1 gives velocity 100"
+
+[input]
+n = 0.01
+r = 1.0
+s = 1.0
+
+[expected]
+velocity = 100.0

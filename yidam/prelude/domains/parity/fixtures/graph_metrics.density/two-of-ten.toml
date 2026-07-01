@@ -1,0 +1,9 @@
+function = "graph_metrics.density"
+description = "2 edges out of 10 possible in a 5-node graph"
+
+[input]
+node_count = 5
+edge_count = 2
+
+[expected]
+density = 0.2

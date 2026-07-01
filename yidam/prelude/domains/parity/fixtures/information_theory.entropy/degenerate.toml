@@ -1,0 +1,8 @@
+function = "information_theory.entropy"
+description = "deterministic distribution (one outcome with probability 1) has entropy 0 bits"
+
+[input]
+probs = [1.0]
+
+[expected]
+entropy = 0.0

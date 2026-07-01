@@ -1,0 +1,9 @@
+function = "trade.revealed_comparative_advantage"
+description = "country share half world average: RCA = 0.5"
+
+[input]
+country_share = 0.25
+world_share = 0.5
+
+[expected]
+rca = 0.5

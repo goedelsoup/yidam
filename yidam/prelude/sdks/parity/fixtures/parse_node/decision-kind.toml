@@ -1,0 +1,26 @@
+function = "parse_node"
+description = "Decision node is parsed with kind Decision"
+
+[input]
+path = "decisions/use-population-variance.md"
+content = """
+# Use population variance for corpus statistics
+
+Corpus node metrics are computed over the full population of nodes, not a sample.
+Consistency with the full-graph aggregation is more important than unbiased estimation. [verified]
+
+See also: [quality-rubric](../corpus/quality-rubric.md).
+"""
+
+[expected]
+path = "decisions/use-population-variance.md"
+title = "Use population variance for corpus statistics"
+kind = "Decision"
+
+[[expected.claims]]
+text = "Consistency with the full-graph aggregation is more important than unbiased estimation."
+tag = "Verified"
+
+[[expected.links]]
+label = "quality-rubric"
+target = "../corpus/quality-rubric.md"

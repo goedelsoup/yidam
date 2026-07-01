@@ -1,0 +1,9 @@
+function = "causal.confounding_score"
+description = "both negative correlations: score is the absolute product, which is positive"
+
+[input]
+r_treatment = -0.5
+r_outcome = -0.4
+
+[expected]
+score = 0.2

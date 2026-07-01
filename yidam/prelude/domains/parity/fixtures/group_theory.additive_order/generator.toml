@@ -1,0 +1,9 @@
+function = "group_theory.additive_order"
+description = "1 generates all of Z_5, order equals n"
+
+[input]
+a = 1
+n = 5
+
+[expected]
+order = 5

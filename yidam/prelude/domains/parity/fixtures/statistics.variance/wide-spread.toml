@@ -1,0 +1,7 @@
+description = "symmetric pair at distance 6 from mean has population variance 9.0"
+
+[input]
+values = [0.0, 6.0]
+
+[expected]
+variance = 9.0

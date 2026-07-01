@@ -1,0 +1,17 @@
+function = "parse_markers"
+description = "REGEN section with no body content between markers"
+
+[input]
+content = """
+## Open Questions
+
+<!-- REGEN: yidam open-questions
+Fields: question text, status.
+-->
+<!-- /REGEN -->
+"""
+
+[[expected]]
+kind = "Regen"
+command = "yidam open-questions"
+content = ""

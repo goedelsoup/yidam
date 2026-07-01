@@ -1,0 +1,8 @@
+description = "jaccard similarity of disjoint sets is 0.0"
+
+[input]
+a = ["x", "y"]
+b = ["z", "w"]
+
+[expected]
+similarity = 0.0

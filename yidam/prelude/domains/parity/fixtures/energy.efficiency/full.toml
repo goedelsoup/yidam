@@ -1,0 +1,9 @@
+function = "energy.efficiency"
+description = "perfectly efficient system returns ratio of 1.0"
+
+[input]
+output = 1000.0
+input = 1000.0
+
+[expected]
+ratio = 1.0

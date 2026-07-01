@@ -1,0 +1,10 @@
+function = "finance.present_value"
+description = "zero discount rate: PV equals FV"
+
+[input]
+fv = 100.0
+rate = 0.0
+periods = 5
+
+[expected]
+pv = 100.0

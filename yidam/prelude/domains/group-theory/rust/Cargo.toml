@@ -1,0 +1,8 @@
+[package]
+name = "yidam-domain-group-theory"
+version = "0.1.0"
+edition = "2021"
+description = "Yidam group theory domain — finite group arithmetic"
+
+[dev-dependencies]
+toml = "0.8"

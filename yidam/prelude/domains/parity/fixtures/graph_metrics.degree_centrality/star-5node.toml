@@ -1,0 +1,9 @@
+function = "graph_metrics.degree_centrality"
+description = "5-node star: hub has maximum centrality 1.0, each leaf has centrality 0.25"
+
+[input]
+degrees = [4, 1, 1, 1, 1]
+node_count = 5
+
+[expected]
+centrality = [1.0, 0.25, 0.25, 0.25, 0.25]

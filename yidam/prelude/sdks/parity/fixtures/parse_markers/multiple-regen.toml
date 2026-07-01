@@ -1,0 +1,31 @@
+function = "parse_markers"
+description = "File with two REGEN sections; both are parsed independently"
+
+[input]
+content = """
+## Status
+
+<!-- REGEN: yidam status
+Fields: node count, open questions.
+-->
+_Run `yidam status` to populate._
+<!-- /REGEN -->
+
+## Index
+
+<!-- REGEN: yidam corpus-index
+Fields: node titles and paths.
+-->
+_Run `yidam corpus-index` to populate._
+<!-- /REGEN -->
+"""
+
+[[expected]]
+kind = "Regen"
+command = "yidam status"
+content = "_Run `yidam status` to populate._"
+
+[[expected]]
+kind = "Regen"
+command = "yidam corpus-index"
+content = "_Run `yidam corpus-index` to populate._"

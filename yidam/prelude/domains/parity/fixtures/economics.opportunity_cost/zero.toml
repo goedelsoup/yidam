@@ -1,0 +1,9 @@
+function = "economics.opportunity_cost"
+description = "equal alternatives give zero opportunity cost"
+
+[input]
+foregone = 100.0
+chosen = 100.0
+
+[expected]
+cost = 0.0

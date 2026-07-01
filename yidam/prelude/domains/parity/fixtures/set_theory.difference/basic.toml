@@ -1,0 +1,9 @@
+function = "set_theory.difference"
+description = "difference removes elements present in b"
+
+[input]
+a = [1, 2, 3]
+b = [2, 3, 4]
+
+[expected]
+elements = [1]

@@ -1,0 +1,11 @@
+function = "geodesics.haversine_km"
+description = "quarter equator arc (0,0)→(0,90) ≈ 10007.54 km"
+
+[input]
+lat1 = 0.0
+lon1 = 0.0
+lat2 = 0.0
+lon2 = 90.0
+
+[expected]
+km = 10007.543398010286

@@ -1,0 +1,42 @@
+function = "update_regen"
+description = "Only the named REGEN section is replaced; the other section is preserved verbatim"
+
+[input]
+command = "yidam status"
+new_content = "**8 nodes** · 1 open · index fresh"
+content = """
+## Status
+
+<!-- REGEN: yidam status
+Fields: node count, open questions.
+-->
+_Run `yidam status` to populate._
+<!-- /REGEN -->
+
+## Index
+
+<!-- REGEN: yidam corpus-index
+Fields: node titles and paths.
+-->
+_Run `yidam corpus-index` to populate._
+<!-- /REGEN -->
+"""
+
+[expected]
+content = """
+## Status
+
+<!-- REGEN: yidam status
+Fields: node count, open questions.
+-->
+**8 nodes** · 1 open · index fresh
+<!-- /REGEN -->
+
+## Index
+
+<!-- REGEN: yidam corpus-index
+Fields: node titles and paths.
+-->
+_Run `yidam corpus-index` to populate._
+<!-- /REGEN -->
+"""

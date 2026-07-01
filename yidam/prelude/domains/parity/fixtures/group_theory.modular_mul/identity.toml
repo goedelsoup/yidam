@@ -1,0 +1,10 @@
+function = "group_theory.modular_mul"
+description = "1 is multiplicative identity"
+
+[input]
+a = 1
+b = 6
+n = 7
+
+[expected]
+result = 6

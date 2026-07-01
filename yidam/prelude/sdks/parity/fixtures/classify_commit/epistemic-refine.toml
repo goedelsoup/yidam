@@ -1,0 +1,13 @@
+function = "classify_commit"
+description = "refine: verb classifies as Epistemic"
+
+[input]
+hash = "b2c3d4e"
+message = "refine: tighten the definition of confounding\n\nDistinguishes confounders from mediators more precisely."
+verb = "refine"
+subject = "tighten the definition of confounding"
+
+[expected]
+kind = "Epistemic"
+verb = "refine"
+subject = "tighten the definition of confounding"

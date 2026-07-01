@@ -1,0 +1,11 @@
+function = "economics.gdp_expenditure"
+description = "typical economy: C+I+G+NX = 1550"
+
+[input]
+c = 1000.0
+i = 200.0
+g = 300.0
+nx = 50.0
+
+[expected]
+gdp = 1550.0

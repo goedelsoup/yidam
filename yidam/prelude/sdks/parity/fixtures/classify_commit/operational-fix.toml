@@ -1,0 +1,13 @@
+function = "classify_commit"
+description = "fix: verb classifies as Operational"
+
+[input]
+hash = "e5f6a7b"
+message = "fix: broken link in identification.md\n\nTarget path was missing the corpus/ prefix."
+verb = "fix"
+subject = "broken link in identification.md"
+
+[expected]
+kind = "Operational"
+verb = "fix"
+subject = "broken link in identification.md"

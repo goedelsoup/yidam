@@ -1,0 +1,11 @@
+function = "geodesics.central_angle_deg"
+description = "quarter equator arc spans 90° central angle"
+
+[input]
+lat1 = 0.0
+lon1 = 0.0
+lat2 = 0.0
+lon2 = 90.0
+
+[expected]
+degrees = 90.0

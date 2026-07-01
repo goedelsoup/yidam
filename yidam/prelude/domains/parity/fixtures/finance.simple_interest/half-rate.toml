@@ -1,0 +1,10 @@
+function = "finance.simple_interest"
+description = "500 at 50% for 2 years = 500 interest"
+
+[input]
+principal = 500.0
+rate = 0.5
+time = 2.0
+
+[expected]
+interest = 500.0

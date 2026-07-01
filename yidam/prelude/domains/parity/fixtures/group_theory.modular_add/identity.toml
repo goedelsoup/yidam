@@ -1,0 +1,10 @@
+function = "group_theory.modular_add"
+description = "0 + 0 = 0 (identity)"
+
+[input]
+a = 0
+b = 0
+n = 7
+
+[expected]
+result = 0

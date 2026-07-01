@@ -1,0 +1,10 @@
+function = "hydrology.rational_product"
+description = "product of typical runoff coefficient, intensity, and area"
+
+[input]
+c = 0.5
+i = 20.0
+a = 10.0
+
+[expected]
+result = 100.0

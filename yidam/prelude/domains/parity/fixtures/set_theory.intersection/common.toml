@@ -1,0 +1,9 @@
+function = "set_theory.intersection"
+description = "intersection of overlapping sets"
+
+[input]
+a = [1, 2, 3, 4]
+b = [2, 4, 6]
+
+[expected]
+elements = [2, 4]

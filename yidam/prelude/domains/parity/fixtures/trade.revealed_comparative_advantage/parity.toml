@@ -1,0 +1,9 @@
+function = "trade.revealed_comparative_advantage"
+description = "equal shares give RCA of 1.0 (no comparative advantage)"
+
+[input]
+country_share = 0.25
+world_share = 0.25
+
+[expected]
+rca = 1.0

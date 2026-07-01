@@ -1,0 +1,10 @@
+function = "energy.potential_energy"
+description = "zero height gives zero potential energy"
+
+[input]
+mass = 100.0
+height = 0.0
+g = 9.8
+
+[expected]
+joules = 0.0

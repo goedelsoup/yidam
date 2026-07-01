@@ -1,0 +1,10 @@
+function = "finance.future_value"
+description = "zero rate: FV equals PV regardless of periods"
+
+[input]
+pv = 100.0
+rate = 0.0
+periods = 10
+
+[expected]
+fv = 100.0

@@ -1,0 +1,7 @@
+function = "extract_links"
+description = "empty content yields no links"
+
+[input]
+content = ""
+
+[[expected]]

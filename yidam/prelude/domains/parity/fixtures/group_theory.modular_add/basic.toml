@@ -1,0 +1,10 @@
+function = "group_theory.modular_add"
+description = "3 + 4 wraps around mod 5"
+
+[input]
+a = 3
+b = 4
+n = 5
+
+[expected]
+result = 2

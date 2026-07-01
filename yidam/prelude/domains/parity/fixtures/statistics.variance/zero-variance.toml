@@ -1,0 +1,7 @@
+description = "all identical values have variance 0.0"
+
+[input]
+values = [4.0, 4.0, 4.0]
+
+[expected]
+variance = 0.0

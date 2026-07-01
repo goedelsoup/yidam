@@ -1,0 +1,9 @@
+function = "set_theory.difference"
+description = "difference with empty b returns a unchanged"
+
+[input]
+a = [1, 2, 3]
+b = []
+
+[expected]
+elements = [1, 2, 3]

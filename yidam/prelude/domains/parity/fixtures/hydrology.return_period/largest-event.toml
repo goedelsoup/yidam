@@ -1,0 +1,9 @@
+function = "hydrology.return_period"
+description = "largest event in 99-year record has return period 100 years"
+
+[input]
+record_years = 99.0
+rank = 1.0
+
+[expected]
+years = 100.0

@@ -1,0 +1,11 @@
+function = "geodesics.central_angle_deg"
+description = "same point has zero central angle"
+
+[input]
+lat1 = 0.0
+lon1 = 0.0
+lat2 = 0.0
+lon2 = 0.0
+
+[expected]
+degrees = 0.0

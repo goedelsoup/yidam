@@ -1,0 +1,21 @@
+function = "parse_markers"
+description = "File with only TEMPLATE instructions and no REGEN sections"
+
+[input]
+content = """
+# corpus/concept.md
+
+<!-- TEMPLATE: replace with the concept name -->
+
+One paragraph description.
+
+<!-- TEMPLATE: link to at least one related concept -->
+"""
+
+[[expected]]
+kind = "Template"
+instruction = "replace with the concept name"
+
+[[expected]]
+kind = "Template"
+instruction = "link to at least one related concept"

@@ -1,0 +1,23 @@
+function = "parse_node"
+description = "Node body with only outgoing links and no claim sentences"
+
+[input]
+path = "corpus/ate.md"
+content = """
+# Average Treatment Effect
+
+See also: [identification](identification.md), [confounding](confounding.md).
+"""
+
+[expected]
+path = "corpus/ate.md"
+title = "Average Treatment Effect"
+kind = "Concept"
+
+[[expected.links]]
+label = "identification"
+target = "identification.md"
+
+[[expected.links]]
+label = "confounding"
+target = "confounding.md"

@@ -1,0 +1,9 @@
+function = "hydrology.return_period"
+description = "5th of 9 events in 9-year record gives return period 2.0"
+
+[input]
+record_years = 9.0
+rank = 5.0
+
+[expected]
+years = 2.0

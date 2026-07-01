@@ -1,0 +1,9 @@
+function = "trade.revealed_comparative_advantage"
+description = "country holds 50% of good, world average 25%: RCA = 2.0"
+
+[input]
+country_share = 0.5
+world_share = 0.25
+
+[expected]
+rca = 2.0

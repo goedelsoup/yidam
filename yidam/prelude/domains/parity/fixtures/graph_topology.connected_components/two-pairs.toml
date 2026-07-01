@@ -1,0 +1,8 @@
+description = "4 nodes in two disconnected pairs are 2 components"
+
+[input]
+node_count = 4
+edges = [[0, 1], [2, 3]]
+
+[expected]
+components = 2

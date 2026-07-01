@@ -1,0 +1,8 @@
+description = "cosine similarity of antiparallel vectors is -1.0"
+
+[input]
+a = [1.0, 0.0]
+b = [-1.0, 0.0]
+
+[expected]
+similarity = -1.0

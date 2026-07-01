@@ -1,0 +1,39 @@
+function = "parse_node"
+description = "Concept node with claims of three different evidence tags"
+
+[input]
+path = "corpus/identification.md"
+content = """
+# Identification
+
+A causal effect is identified when it can be expressed as a function of the observed distribution. [verified]
+Identification may require untestable assumptions about the data-generating process. [inferred]
+Whether identification is achievable without randomization depends on the causal graph structure. [open]
+
+See also: [confounding](confounding.md), [do-calculus](do-calculus.md).
+"""
+
+[expected]
+path = "corpus/identification.md"
+title = "Identification"
+kind = "Concept"
+
+[[expected.claims]]
+text = "A causal effect is identified when it can be expressed as a function of the observed distribution."
+tag = "Verified"
+
+[[expected.claims]]
+text = "Identification may require untestable assumptions about the data-generating process."
+tag = "Inference"
+
+[[expected.claims]]
+text = "Whether identification is achievable without randomization depends on the causal graph structure."
+tag = "Open"
+
+[[expected.links]]
+label = "confounding"
+target = "confounding.md"
+
+[[expected.links]]
+label = "do-calculus"
+target = "do-calculus.md"

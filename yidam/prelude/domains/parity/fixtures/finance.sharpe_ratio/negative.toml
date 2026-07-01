@@ -1,0 +1,10 @@
+function = "finance.sharpe_ratio"
+description = "return below risk-free rate gives negative Sharpe"
+
+[input]
+ret = 0.01
+risk_free = 0.05
+std_dev = 0.04
+
+[expected]
+ratio = -1.0

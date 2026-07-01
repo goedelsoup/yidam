@@ -1,0 +1,9 @@
+function = "trade.terms_of_trade"
+description = "equal indices give TOT of 100 (base period)"
+
+[input]
+export_index = 100.0
+import_index = 100.0
+
+[expected]
+tot = 100.0

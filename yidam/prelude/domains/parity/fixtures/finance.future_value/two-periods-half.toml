@@ -1,0 +1,10 @@
+function = "finance.future_value"
+description = "50% rate, 2 periods: 100 * 1.5^2 = 225"
+
+[input]
+pv = 100.0
+rate = 0.5
+periods = 2
+
+[expected]
+fv = 225.0

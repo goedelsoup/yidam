@@ -1,0 +1,10 @@
+function = "hydrology.rational_product"
+description = "zero intensity yields zero product"
+
+[input]
+c = 0.8
+i = 0.0
+a = 5.0
+
+[expected]
+result = 0.0

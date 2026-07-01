@@ -1,0 +1,12 @@
+{
+  "name": "@yidam/domain-finance",
+  "version": "0.1.0",
+  "description": "Yidam finance domain — time-value-of-money and portfolio risk",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "test": "vitest run" },
+  "devDependencies": {
+    "vitest": "^2.0.0",
+    "smol-toml": "^1.3.0"
+  }
+}

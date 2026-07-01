@@ -1,0 +1,10 @@
+function = "group_theory.modular_mul"
+description = "3 * 4 = 12, 12 mod 5 = 2"
+
+[input]
+a = 3
+b = 4
+n = 5
+
+[expected]
+result = 2

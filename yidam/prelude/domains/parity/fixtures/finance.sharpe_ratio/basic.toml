@@ -1,0 +1,10 @@
+function = "finance.sharpe_ratio"
+description = "10% return, 2% risk-free, 4% std dev: Sharpe = 2.0"
+
+[input]
+ret = 0.1
+risk_free = 0.02
+std_dev = 0.04
+
+[expected]
+ratio = 2.0

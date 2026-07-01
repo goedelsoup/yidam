@@ -1,0 +1,10 @@
+function = "hydrology.manning_velocity"
+description = "all unit inputs: (1/1) * 1^(2/3) * 1^(1/2) = 1.0"
+
+[input]
+n = 1.0
+r = 1.0
+s = 1.0
+
+[expected]
+velocity = 1.0

@@ -1,0 +1,9 @@
+function = "trade.tariff_revenue"
+description = "zero tariff rate yields no revenue (free trade)"
+
+[input]
+import_value = 5000.0
+rate = 0.0
+
+[expected]
+revenue = 0.0

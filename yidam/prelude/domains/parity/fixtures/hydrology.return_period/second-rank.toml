@@ -1,0 +1,9 @@
+function = "hydrology.return_period"
+description = "second largest in 49-year record has return period 25 years"
+
+[input]
+record_years = 49.0
+rank = 2.0
+
+[expected]
+years = 25.0

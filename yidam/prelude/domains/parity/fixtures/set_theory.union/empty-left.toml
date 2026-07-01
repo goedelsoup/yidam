@@ -1,0 +1,9 @@
+function = "set_theory.union"
+description = "union with empty left set returns right set"
+
+[input]
+a = []
+b = [1, 2, 3]
+
+[expected]
+elements = [1, 2, 3]

@@ -1,0 +1,11 @@
+function = "geodesics.bearing_deg"
+description = "bearing from origin to 1° east is 90° (due east)"
+
+[input]
+lat1 = 0.0
+lon1 = 0.0
+lat2 = 0.0
+lon2 = 1.0
+
+[expected]
+degrees = 90.0

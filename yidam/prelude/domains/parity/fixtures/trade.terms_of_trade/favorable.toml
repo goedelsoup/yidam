@@ -1,0 +1,9 @@
+function = "trade.terms_of_trade"
+description = "export prices rising faster than import prices: TOT = 120"
+
+[input]
+export_index = 120.0
+import_index = 100.0
+
+[expected]
+tot = 120.0

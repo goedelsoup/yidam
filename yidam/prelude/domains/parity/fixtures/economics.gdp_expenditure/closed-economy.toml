@@ -1,0 +1,11 @@
+function = "economics.gdp_expenditure"
+description = "closed economy with zero net exports"
+
+[input]
+c = 600.0
+i = 150.0
+g = 250.0
+nx = 0.0
+
+[expected]
+gdp = 1000.0

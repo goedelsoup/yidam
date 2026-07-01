@@ -1,0 +1,10 @@
+function = "energy.potential_energy"
+description = "10 kg at 5 m under g=9.8 m/s² = 490 J"
+
+[input]
+mass = 10.0
+height = 5.0
+g = 9.8
+
+[expected]
+joules = 490.0

@@ -1,0 +1,22 @@
+function = "update_regen"
+description = "REGEN section with no inner comment block; only the outer markers are present"
+
+[input]
+command = "yidam open-questions"
+new_content = "- Is positivity testable empirically?"
+content = """
+## Open Questions
+
+<!-- REGEN: yidam open-questions -->
+_Run `yidam open-questions` to populate._
+<!-- /REGEN -->
+"""
+
+[expected]
+content = """
+## Open Questions
+
+<!-- REGEN: yidam open-questions -->
+- Is positivity testable empirically?
+<!-- /REGEN -->
+"""

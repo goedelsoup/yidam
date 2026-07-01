@@ -1,0 +1,9 @@
+function = "set_theory.intersection"
+description = "intersection of disjoint sets is empty"
+
+[input]
+a = [1, 2]
+b = [3, 4]
+
+[expected]
+elements = []

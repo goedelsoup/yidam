@@ -1,0 +1,9 @@
+function = "set_theory.union"
+description = "union of disjoint sets contains all elements sorted"
+
+[input]
+a = [1, 3]
+b = [2, 4]
+
+[expected]
+elements = [1, 2, 3, 4]

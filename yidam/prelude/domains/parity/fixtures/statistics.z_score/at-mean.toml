@@ -1,0 +1,9 @@
+description = "value equal to the mean has z-score 0.0"
+
+[input]
+value = 1.0
+mean = 1.0
+std_dev = 2.0
+
+[expected]
+z_score = 0.0

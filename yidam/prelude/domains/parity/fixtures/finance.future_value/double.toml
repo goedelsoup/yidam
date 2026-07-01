@@ -1,0 +1,10 @@
+function = "finance.future_value"
+description = "100% rate, 1 period: money doubles"
+
+[input]
+pv = 100.0
+rate = 1.0
+periods = 1
+
+[expected]
+fv = 200.0

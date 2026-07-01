@@ -1,0 +1,11 @@
+function = "geodesics.bearing_deg"
+description = "bearing from equator to 1° north is 0° (due north)"
+
+[input]
+lat1 = 0.0
+lon1 = 0.0
+lat2 = 1.0
+lon2 = 0.0
+
+[expected]
+degrees = 0.0

@@ -1,0 +1,11 @@
+function = "extract_claims"
+description = "single [open] claim is extracted as tag Open"
+
+[input]
+content = """
+Whether positivity holds in the observed sample is not established. [open]
+"""
+
+[[expected]]
+text = "Whether positivity holds in the observed sample is not established."
+tag = "Open"

@@ -29,3 +29,11 @@ pub fn yidam_skills_dir(root: &Path) -> PathBuf {
 pub fn yidam_decisions_dir(root: &Path) -> PathBuf {
     root.join(".yidam").join("decisions")
 }
+
+pub fn yidam_embeddings_dir(root: &Path) -> PathBuf {
+    root.join(".yidam").join("embeddings")
+}
+
+pub fn yidam_index_dir(root: &Path) -> PathBuf {
+    root.join(".yidam").join("index")
+}

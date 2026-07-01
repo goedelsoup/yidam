@@ -1,0 +1,9 @@
+function = "set_theory.union"
+description = "union of two overlapping sets"
+
+[input]
+a = [1, 3, 5]
+b = [2, 3, 4]
+
+[expected]
+elements = [1, 2, 3, 4, 5]

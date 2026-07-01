@@ -1,0 +1,10 @@
+function = "hydrology.manning_velocity"
+description = "zero slope yields zero velocity"
+
+[input]
+n = 0.025
+r = 2.0
+s = 0.0
+
+[expected]
+velocity = 0.0

@@ -1,0 +1,8 @@
+[package]
+name = "yidam-domain-finance"
+version = "0.1.0"
+edition = "2021"
+description = "Yidam finance domain — time-value-of-money and portfolio risk"
+
+[dev-dependencies]
+toml = "0.8"

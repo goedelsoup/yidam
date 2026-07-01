@@ -21,6 +21,7 @@ pub fn parse_frontmatter(text: &str) -> Frontmatter {
 pub struct CorpusInstance {
     pub class: Option<String>,
     pub label: Option<String>,
+    pub description: Option<String>,
     pub links: Option<Vec<CorpusLink>>,
 }
 

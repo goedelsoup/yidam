@@ -1,0 +1,8 @@
+description = "edit distance from empty string to a word equals the word length (all insertions)"
+
+[input]
+s1 = ""
+s2 = "cat"
+
+[expected]
+distance = 3
