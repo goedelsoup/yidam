@@ -17,6 +17,8 @@ rust = { version = "1.85.0", components = "rustfmt,clippy" }
 python = "3.12"
 # uv — fast Python package/venv manager; used in packages/.
 uv = "latest"
+# Node.js — docs site (yidam/web/docs/), packages/web/.
+node = "lts"
 # dafny: not in the mise registry — install via https://dafny.org/dafny/Installation
 # LEAN 4 / lake: not in the mise registry — install via elan (https://github.com/leanprover/elan)
 
@@ -235,3 +237,24 @@ run = [
   "cargo clippy --manifest-path yidam/cli/Cargo.toml -- -D warnings",
   "cargo test --manifest-path yidam/cli/Cargo.toml",
 ]
+
+# ── docs site (yidam/web/docs/) ───────────────────────────────────────────
+# Astro/Starlight docs server. Content is loaded live from docs/ at the repo
+# root; restart dev when docs/ files change (hot-reload is not wired for
+# out-of-project paths).
+
+[tasks.docs-install]
+description = "Install docs site dependencies (run once after clone)."
+run = "npm install --prefix yidam/web/docs"
+
+[tasks.docs-dev]
+description = "Start the docs dev server on http://localhost:4321/."
+run = "npm run --prefix yidam/web/docs dev -- --port 4321"
+
+[tasks.docs-build]
+description = "Build the docs site to yidam/web/docs/dist/."
+run = "npm run --prefix yidam/web/docs build"
+
+[tasks.docs-preview]
+description = "Preview the production docs build locally."
+run = "npm run --prefix yidam/web/docs preview"
