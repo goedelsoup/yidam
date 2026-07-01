@@ -1,0 +1,86 @@
+# mise.yidam.toml — yidam CLI tasks for a derived repository.
+#
+# Placed here by `mise run overlay`. Add to your mise.toml with:
+#
+#   extends = ["mise.yidam.toml"]
+#
+# or copy the [tasks.*] sections you need directly.
+#
+# Run `mise run yidam-build` once after overlay to compile the yidam binary.
+# Then use `mise run regen` to regenerate all README indexes.
+
+[tools]
+rust = { version = "1.85.0", components = "rustfmt,clippy" }
+
+# ── yidam CLI — build ─────────────────────────────────────────────────
+
+[tasks.yidam-build]
+description = "Compile and install the yidam binary from yidam/tools/yidam/ to ~/.cargo/bin."
+run = "cargo install --path yidam/tools/yidam"
+
+# ── yidam CLI — REGEN tasks ───────────────────────────────────────────
+
+[tasks.status]
+description = "Repo overview: node count, open questions, catalog entries, index freshness, active phases, genesis date."
+run = "yidam status"
+
+[tasks.open-questions]
+description = "List corpus nodes with open questions (? titles or [open] claims)."
+run = "yidam open-questions"
+
+[tasks.corpus-index]
+description = "Regenerate corpus/README.md index table."
+run = "yidam corpus-index"
+
+[tasks.index-status]
+description = "Report vector index state: embedding model, coverage, freshness, retrieval latency."
+run = "yidam index-status"
+
+[tasks.catalog-audit]
+description = "Audit catalog/ entries: integrity status, citation count, stale sources."
+run = "yidam catalog-audit"
+
+[tasks.agents-index]
+description = "Regenerate agents/README.md index table."
+run = "yidam agents-index"
+
+[tasks.skills-index]
+description = "Regenerate skills/README.md index table."
+run = "yidam skills-index"
+
+[tasks.crates-index]
+description = "Regenerate crates/README.md index table."
+run = "yidam crates-index"
+
+[tasks.packages-index]
+description = "Regenerate packages/README.md index table."
+run = "yidam packages-index"
+
+[tasks.bundle-status]
+description = "Report web/ bundle state: contract version, feeds, last export timestamp, deploy status."
+run = "yidam bundle-status"
+
+[tasks.graph-check]
+description = "Run graph integrity check: orphans, missing labels, broken links."
+run = "yidam graph-check"
+
+[tasks.decisions-log]
+description = "Render the decisions log from .yidam/decisions/."
+run = "yidam decisions-log"
+
+[tasks.bundle]
+description = "Package corpus, skills, decisions, and rendered indexes into .yidam/bundle.yiz."
+run = "yidam bundle"
+
+[tasks.regen]
+description = "Regenerate all REGEN sections across READMEs in one pass."
+depends = [
+  "corpus-index",
+  "index-status",
+  "catalog-audit",
+  "agents-index",
+  "skills-index",
+  "crates-index",
+  "packages-index",
+  "bundle-status",
+]

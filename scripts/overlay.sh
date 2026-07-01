@@ -70,13 +70,16 @@ if [ -d samudaya ]; then
   fi
 fi
 
+# mise.yidam.toml — yidam CLI tasks; user adds `extends = ["mise.yidam.toml"]` to their mise.toml
+cp mise.yidam.toml "$TARGET/mise.yidam.toml"
+echo "mise.yidam.toml → $TARGET/mise.yidam.toml"
+
 echo ""
 echo "yidam infrastructure overlaid on $TARGET"
 echo ""
 echo "Next steps:"
-echo "  1. Open $TARGET in your IDE"
-echo "  2. The agent will read BOOTSTRAP.md and enter existing-repo mode"
-echo "  3. To add yidam CLI tasks to your mise.toml, copy the relevant"
-echo "     [tasks.*] entries from $(pwd)/mise.toml"
+echo "  1. Add to your mise.toml:  extends = [\"mise.yidam.toml\"]"
+echo "  2. Open $TARGET in your IDE"
+echo "  3. The agent will read BOOTSTRAP.md and enter existing-repo mode"
 echo ""
 codium "$TARGET"
