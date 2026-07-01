@@ -5,7 +5,7 @@ description: Initialize an yidam-derived repository from an empty or near-empty 
 
 # Skill: bootstrap
 
-Invoked when an agent enters a freshly cloned yidam repository with [BOOTSTRAP.md](../../BOOTSTRAP.md)
+Invoked when an agent enters a freshly cloned yidam repository with [BOOTSTRAP.md](../../../BOOTSTRAP.md)
 as its entry prompt. Produces a fully scaffolded, ontology-grounded, corpus-seeded repository
 with a legible genesis commit.
 
@@ -60,19 +60,20 @@ Samudaya does not replace the dialogue. It seeds it.
 ### 1. Internalize the prelude
 
 Read these eight files — and **only** these eight files, in this exact order, using their
-exact paths. Do **not** run `ls`, `find`, or any directory enumeration of `prelude/` at any
-point during bootstrapping. Do not read any other file in `prelude/` (including
-`SCRIPTURE.md` or any file surfaced by enumeration). Do not read `prelude/skills/bootstrap.md`
-— it is the skill you are currently executing, not a file to internalize here.
+exact paths. Do **not** run `ls`, `find`, or any directory enumeration of `yidam/prelude/`
+at any point during bootstrapping. Do not read any other file in `yidam/prelude/` (including
+`SCRIPTURE.md` or any file surfaced by enumeration). Do not read
+`yidam/prelude/skills/bootstrap.md` — it is the skill you are currently executing, not a
+file to internalize here.
 
-1. `prelude/IDENTITY.md` — what kind of knowledge artifact this repo is
-2. `prelude/GRAPH.md` — the graph model: nodes, edges, commit types, branch semantics
-3. `prelude/CONSTITUTION.md` — the governance rules that constrain what you may do
-4. `prelude/HARNESS.md` — how scenarios and the judge rubric work
-5. `prelude/PHASES.md` — the named phases of inquiry
-6. `prelude/guidelines/agent-conduct.md` — specific conduct norms
-7. `prelude/guidelines/directories.md` — where things live and what belongs in each
-8. `prelude/skills/judge.md` — the judge's criteria; internalize so the genesis commit passes
+1. `yidam/prelude/IDENTITY.md` — what kind of knowledge artifact this repo is
+2. `yidam/prelude/GRAPH.md` — the graph model: nodes, edges, commit types, branch semantics
+3. `yidam/prelude/CONSTITUTION.md` — the governance rules that constrain what you may do
+4. `yidam/prelude/HARNESS.md` — how scenarios and the judge rubric work
+5. `yidam/prelude/PHASES.md` — the named phases of inquiry
+6. `yidam/prelude/guidelines/agent-conduct.md` — specific conduct norms
+7. `yidam/prelude/guidelines/directories.md` — where things live and what belongs in each
+8. `yidam/prelude/skills/judge.md` — the judge's criteria; internalize so the genesis commit passes
 
 After reading all eight, output the synthesis as a **standalone message** — do not append
 questions or any other content to it. Wait for the user to acknowledge before opening the
@@ -118,31 +119,77 @@ source →[relationship]→ target
 One row per node; one line per edge. No prose — the format is the signal that the sketch is
 ready to confirm.
 
-### 3. Orient to the scaffold
+After the user confirms, write the ontology decision record before proceeding to step 3:
 
-The repository's directory structure is already in place — yidam's clone process creates all
-directories with templated READMEs. Do not recreate or overwrite them.
+```
+.yidam/decisions/ontology.yml
+```
 
-Read these four files to confirm the layout and understand what each directory is prepared
-to receive:
+```yaml
+id: ontology
+summary: <one line — the domain and how many classes were confirmed>
+context: |
+  <what the ontology discovery dialogue surfaced; key choices made>
+decision: |
+  <the confirmed class list and edges>
+rationale: |
+  <why these classes; what was considered and discarded>
+```
 
-- `agents/README.md`
-- `catalog/README.md`
-- `corpus/README.md`
-- `skills/README.md`
+### 3. Orient to and scaffold the derived-repo structure
 
-If any directory is missing, recreate it with a minimal README stub.
+The sadhana directory (`sadhana/`) holds the template content for this derived repo. In this
+step, read the templates and create the derived-repo directory structure from them.
+
+**First, read the sadhana templates:**
+
+```
+ls sadhana/
+```
+
+Then read each template file in `sadhana/`:
+
+- `sadhana/agents/README.md`
+- `sadhana/catalog/README.md`
+- `sadhana/corpus/README.md`
+- `sadhana/crates/README.md`
+- `sadhana/docs/README.md`
+- `sadhana/packages/README.md`
+- `sadhana/sangha/README.md` (and PROTOCOL.md, electors.md, resolutions/ if present)
+- `sadhana/skills/README.md`
+- `sadhana/web/README.md`
+
+**Then create the derived-repo structure:**
+
+Top-level directories (created directly from sadhana templates):
+```
+agents/README.md
+crates/README.md
+docs/README.md
+packages/README.md
+web/README.md
+```
+
+`.yidam/` directories (created from sadhana templates):
+```
+.yidam/catalog/README.md
+.yidam/corpus/README.md
+.yidam/decisions/          ← new, empty; written to in steps 2 and 5
+.yidam/sangha/             ← all files from sadhana/sangha/
+.yidam/skills/README.md
+```
 
 Each README may contain a `<!-- TEMPLATE -->` comment block marking fields that need
 domain-specific content. Fill every such block now, before proceeding. These are the only
-edits made in this step — do not add or remove files.
+edits made to the scaffolded content in this step — do not add or remove files beyond what
+sadhana provides.
 
 ### 4. Formalize the ontology
 
-Render each node from the confirmed sketch as a domain class definition in `corpus/`:
+Render each node from the confirmed sketch as a domain class definition in `.yidam/corpus/`:
 
 ```
-corpus/<domain-class>.ont.yml
+.yidam/corpus/<domain-class>.ont.yml
 ```
 
 Each file defines what that class of thing is — its properties and its edge participation.
@@ -210,15 +257,32 @@ user for confirmation:
 This step produces a report only. Do not modify any file. Wait for the user to confirm,
 modify, or discard individual items. Only what the user approves is carried into step 7.
 
+After the user confirms, write the proposals decision record:
+
+```
+.yidam/decisions/proposals.yml
+```
+
+```yaml
+id: proposals
+summary: <one line — what was approved>
+context: |
+  <the full set of proposals presented>
+decision: |
+  <what the user approved, modified, or discarded — item by item>
+rationale: |
+  <any rationale provided; gaps or domain logic behind approvals>
+```
+
 ### 6. Seed corpus objects
 
 For each class defined in step 4, create a class directory and seed at least one concrete
 instance within it:
 
 ```
-corpus/<class>/README.md       — describes the class in prose; links to the .ont.yml
-corpus/<class>/ACTIONS.md      — operations, queries, and skills applicable to this class
-corpus/<class>/<instance>.yml  — a concrete object of this class
+.yidam/corpus/<class>/README.md       — describes the class in prose; links to the .ont.yml
+.yidam/corpus/<class>/ACTIONS.md      — operations, queries, and skills applicable to this class
+.yidam/corpus/<class>/<instance>.yml  — a concrete object of this class
 ```
 
 **`README.md`** — one paragraph describing what this class of thing is in the context of
@@ -280,10 +344,10 @@ and the resulting epistemic commit are the record.
 
 **Calculators** — for each approved calculator: if the seeded corpus contains enough
 instances to produce a meaningful result, run it now and commit the output as an epistemic
-commit. Otherwise write a stub in `skills/`:
+commit. Otherwise write a stub in `.yidam/skills/`:
 
 ```
-skills/<calculator-name>.md
+.yidam/skills/<calculator-name>.md
 ```
 
 The stub should describe what it computes, which corpus nodes it reads, and what it returns.
@@ -291,17 +355,17 @@ The stub should describe what it computes, which corpus nodes it reads, and what
 Commit implied edges as a single epistemic commit. Commit any remaining connector and
 calculator stubs together as a single operational commit.
 
-### 8. Write the genesis commit
+### 8. Write the genesis commit and consume transient layers
 
-Commit all class definitions (`.ont.yml`), seed instances, and scaffolded skill stubs as a
-single genesis commit. The message should name the domain, summarize the class schema, and
-describe what seed objects were created and how they connect.
+**Genesis commit** — stage and commit all class definitions (`.ont.yml`), seed instances,
+decision records, scaffolded skill stubs, and the `.yidam/` directory structure as a single
+genesis commit. Do not include `sadhana/` or `samudaya/` in this commit.
 
-This commit is the first event in the knowledge graph. It should read like one.
+The message should name the domain, summarize the class schema, and describe what seed
+objects were created and how they connect. This commit is the first event in the knowledge
+graph. It should read like one.
 
-If `samudaya/` exists, it is not included in the genesis commit. After the genesis commit
-is written, always delete it — regardless of whether it contained seeds — and commit the
-deletion as a separate consumption event.
+**Consume samudaya** — after the genesis commit is written, delete `samudaya/`:
 
 First try the tracked path:
 
@@ -310,8 +374,8 @@ git rm -r samudaya/
 git commit -m "consume(samudaya): ..."
 ```
 
-If `git rm` fails because samudaya files were never staged (they are untracked), delete the
-directory directly and record the event as an empty commit:
+If `git rm` fails because samudaya files were never staged (they are untracked), delete
+the directory directly and record the event as an empty commit:
 
 ```
 rm -rf samudaya/
@@ -319,17 +383,30 @@ git commit --allow-empty -m "consume(samudaya): ..."
 ```
 
 Do not ask the user to run either command manually — the deletion is part of the bootstrap
-protocol and must complete before the handoff report in step 9.
+protocol and must complete before step 9.
 
 The deletion message should record what samudaya contained and what it influenced. If no
-seeds were present (only `README.md` and `examples/`), the message should say so explicitly:
-"no seeds present; directory removed." Samudaya's presence or absence is now part of the
-record. That is by design.
+seeds were present (only `README.md` and `examples/`), say so explicitly: "no seeds present;
+directory removed."
+
+**Consume sadhana** — immediately after consuming samudaya, delete `sadhana/`:
+
+```
+git rm -r sadhana/
+git commit -m "consume(sadhana): scaffold template consumed; derived structure in place"
+```
+
+If sadhana files were untracked:
+
+```
+rm -rf sadhana/
+git commit --allow-empty -m "consume(sadhana): scaffold template consumed; derived structure in place"
+```
 
 ### 9. Report
 
-Do not begin this step until both the genesis commit and the consume(samudaya) commit are
-written. If either is unresolved, finish it before proceeding.
+Do not begin this step until the genesis commit, the consume(samudaya) commit, and the
+consume(sadhana) commit are all written. If any is unresolved, finish it before proceeding.
 
 Output a structured handoff with four sections:
 
@@ -343,7 +420,7 @@ instantiates.
 **Next steps** — three concrete, ordered actions:
 
 1. **First catalog entry** — identify the most authoritative data source for this domain
-   and add it to `catalog/` as the first provenance anchor. Name it specifically.
+   and add it to `.yidam/catalog/` as the first provenance anchor. Name it specifically.
 2. **First corpus expansion** — name the instance node most ready to grow and suggest the
    first sub-node or property to deepen it. This becomes the first epistemic commit after
    genesis.

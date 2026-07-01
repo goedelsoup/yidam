@@ -7,15 +7,16 @@ repositories: living knowledge artifacts whose git history is the knowledge grap
 ## If you are bootstrapping a new repo
 
 You have likely arrived via [BOOTSTRAP.md](BOOTSTRAP.md). Read it first, then follow
-the [bootstrap skill](prelude/skills/bootstrap.md). Do not scaffold anything before
+the [bootstrap skill](yidam/prelude/skills/bootstrap.md). Do not scaffold anything before
 completing the ontology-discovery dialogue with the user.
 
 ## If you are working in this repo directly
 
 This repo's own content lives in:
 
-- `prelude/` — meta-prompts, guidelines, and yidam-provided skills
-- `tests/` — test harness (Rust) and evaluation rubric for bootstrap runs
+- `yidam/prelude/` — meta-prompts, guidelines, and yidam-provided skills
+- `yidam/tests/` — test harness (Rust) and evaluation rubric for bootstrap runs
+- `sadhana/` — template content scaffolded into derived repos during bootstrap
 - `BOOTSTRAP.md` — the agent entry prompt consumed by derived repos
 
 You are not building an application. You are maintaining a template and its test harness.
@@ -39,7 +40,7 @@ contribution, not housekeeping.
 
 Read the prelude before taking substantive action:
 
-- [Identity](prelude/IDENTITY.md) — what yidam-derived repos are
-- [Graph model](prelude/GRAPH.md) — how git encodes knowledge
-- [Agent conduct](prelude/guidelines/agent-conduct.md) — full behavioral norms
-- [Directory conventions](prelude/guidelines/directories.md) — what belongs where
+- [Identity](yidam/prelude/IDENTITY.md) — what yidam-derived repos are
+- [Graph model](yidam/prelude/GRAPH.md) — how git encodes knowledge
+- [Agent conduct](yidam/prelude/guidelines/agent-conduct.md) — full behavioral norms
+- [Directory conventions](yidam/prelude/guidelines/directories.md) — what belongs where

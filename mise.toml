@@ -2,7 +2,7 @@
 # https://mise.jdx.dev
 #
 # This file is part of the yidam template. Yidam itself uses it to
-# run the bootstrap harness (tests/harness/). Derived repos use it for both
+# run the bootstrap harness (yidam/tests/harness/). Derived repos use it for both
 # the harness and the domain computer (crates/, packages/).
 #
 # `mise install` provisions the toolchains below.
@@ -10,8 +10,8 @@
 # `mise run ci`  is what CI runs.
 
 [tools]
-# Rust — domain computer (crates/), bootstrap harness (tests/harness/), yidam CLI (tools/yidam/).
-# Must match rust-toolchain.toml in tests/harness/.
+# Rust — domain computer (crates/), bootstrap harness (yidam/tests/harness/), yidam CLI (yidam/tools/yidam/).
+# Must match rust-toolchain.toml in yidam/tests/harness/.
 rust = { version = "1.85.0", components = "rustfmt,clippy" }
 # Python — packages/ ML pipelines, embedding model SDKs, geospatial connectors.
 python = "3.12"
@@ -21,13 +21,13 @@ uv = "latest"
 # LEAN 4 / lake: not in the mise registry — install via elan (https://github.com/leanprover/elan)
 
 # ── yidam CLI — build ─────────────────────────────────────────────────
-# The `yidam` binary lives in tools/yidam/. In derived repos it is
+# The `yidam` binary lives in yidam/tools/yidam/. In derived repos it is
 # installed from the registry; in this repo, build it first with:
 #   mise run yidam-build
 
 [tasks.yidam-build]
-description = "Compile and install the yidam binary from tools/yidam/ to ~/.cargo/bin."
-run = "cargo install --path tools/yidam"
+description = "Compile and install the yidam binary from yidam/tools/yidam/ to ~/.cargo/bin."
+run = "cargo install --path yidam/tools/yidam"
 
 # ── yidam CLI — REGEN tasks ───────────────────────────────────────────
 # These tasks back the <!-- REGEN: yidam <subcommand> --> markers across
@@ -91,7 +91,7 @@ depends = [
 ]
 
 # ── domain computer (crates/) ──────────────────────────────────────────────
-# No-ops in yidam itself — crates/ has no Cargo workspace here. These
+# No-ops in yidam itself — sadhana/crates/ has no Cargo workspace. These
 # become the primary dev loop in derived repos once the workspace is
 # initialized alongside the domain connectors, calculators, and index crate.
 
@@ -121,10 +121,10 @@ run = "cargo fmt --all --manifest-path crates/Cargo.toml"
 description = "Verify all six parity functions have at least one fixture (enforced by parity)."
 run = """
 for fn in parse_node extract_claims extract_links classify_commit parse_markers update_regen; do
-  count=$(ls prelude/sdks/parity/fixtures/$fn/*.toml 2>/dev/null | wc -l | tr -d ' ')
+  count=$(ls yidam/prelude/sdks/parity/fixtures/$fn/*.toml 2>/dev/null | wc -l | tr -d ' ')
   if [ "$count" -eq 0 ]; then
     echo "ERROR: no fixture for parity function '$fn'"
-    echo "       add at least one fixture to prelude/sdks/parity/fixtures/$fn/"
+    echo "       add at least one fixture to yidam/prelude/sdks/parity/fixtures/$fn/"
     exit 1
   fi
 done
@@ -135,15 +135,15 @@ echo "parity fixture check: all six functions covered"
 description = "Run cross-language parity tests across all three SDK implementations."
 depends = ["parity-check"]
 run = [
-  "cargo test --manifest-path prelude/sdks/rust/Cargo.toml -- parity",
-  "cd prelude/sdks/typescript && npm test -- --testPathPattern parity",
-  "cd prelude/sdks/python && uv run pytest tests/parity/",
+  "cargo test --manifest-path yidam/prelude/sdks/rust/Cargo.toml -- parity",
+  "cd yidam/prelude/sdks/typescript && npm test -- --testPathPattern parity",
+  "cd yidam/prelude/sdks/python && uv run pytest tests/parity/",
 ]
 
 [tasks.domain-parity-check]
-description = "Verify every domain function has at least one fixture in prelude/domains/parity/fixtures/."
+description = "Verify every domain function has at least one fixture in yidam/prelude/domains/parity/fixtures/."
 run = """
-fixture_dir="prelude/domains/parity/fixtures"
+fixture_dir="yidam/prelude/domains/parity/fixtures"
 if [ ! -d "$fixture_dir" ]; then
   echo "domain-parity-check: no fixtures directory yet — skipping"
   exit 0
@@ -166,7 +166,7 @@ echo "domain-parity-check: all domain functions covered"
 description = "Run cross-language parity tests for all domain implementations."
 depends = ["domain-parity-check"]
 run = """
-for domain_dir in prelude/domains/*/; do
+for domain_dir in yidam/prelude/domains/*/; do
   domain=$(basename "$domain_dir")
   if [ "$domain" = "parity" ]; then continue; fi
   if [ -f "$domain_dir/rust/Cargo.toml" ]; then
@@ -184,24 +184,24 @@ done
 [tasks.verify]
 description = "Formal verification: Dafny specs and LEAN 4 proofs (requires dafny + lake via elan)."
 run = [
-  "dafny verify prelude/sdks/spec/graph.dfy",
-  "dafny verify prelude/sdks/spec/sangha.dfy",
+  "dafny verify yidam/prelude/sdks/spec/graph.dfy",
+  "dafny verify yidam/prelude/sdks/spec/sangha.dfy",
   "lake build Yidam",
 ]
 
-# ── bootstrap harness (tests/harness/) ────────────────────────────────────
+# ── bootstrap harness (yidam/tests/harness/) ──────────────────────────────
 
 [tasks.harness-test]
 description = "Run bootstrap harness scenarios against the judge rubric."
-run = "cargo test --workspace --manifest-path tests/harness/Cargo.toml"
+run = "cargo test --workspace --manifest-path yidam/tests/harness/Cargo.toml"
 
 [tasks.harness-lint]
 description = "Clippy on the bootstrap test harness."
-run = "cargo clippy --workspace --manifest-path tests/harness/Cargo.toml -- -D warnings"
+run = "cargo clippy --workspace --manifest-path yidam/tests/harness/Cargo.toml -- -D warnings"
 
 [tasks.harness-fmt]
 description = "Format harness Rust code."
-run = "cargo fmt --all --manifest-path tests/harness/Cargo.toml"
+run = "cargo fmt --all --manifest-path yidam/tests/harness/Cargo.toml"
 
 # ── clone (template scaffolding) ─────────────────────────────────────────
 # Copies the yidam template into a new directory and initialises a fresh git
@@ -220,10 +220,10 @@ run = "bash scripts/clone.sh"
 [tasks.ci]
 description = "Full CI pass: harness + yidam CLI fmt-check, clippy, and test."
 run = [
-  "cargo fmt --all --manifest-path tests/harness/Cargo.toml -- --check",
-  "cargo clippy --workspace --manifest-path tests/harness/Cargo.toml -- -D warnings",
-  "cargo test --workspace --manifest-path tests/harness/Cargo.toml",
-  "cargo fmt --all --manifest-path tools/yidam/Cargo.toml -- --check",
-  "cargo clippy --manifest-path tools/yidam/Cargo.toml -- -D warnings",
-  "cargo test --manifest-path tools/yidam/Cargo.toml",
+  "cargo fmt --all --manifest-path yidam/tests/harness/Cargo.toml -- --check",
+  "cargo clippy --workspace --manifest-path yidam/tests/harness/Cargo.toml -- -D warnings",
+  "cargo test --workspace --manifest-path yidam/tests/harness/Cargo.toml",
+  "cargo fmt --all --manifest-path yidam/tools/yidam/Cargo.toml -- --check",
+  "cargo clippy --manifest-path yidam/tools/yidam/Cargo.toml -- -D warnings",
+  "cargo test --manifest-path yidam/tools/yidam/Cargo.toml",
 ]

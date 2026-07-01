@@ -10,6 +10,7 @@ fi
 
 rsync -a \
   --exclude='.git/' \
+  --exclude='docs/' \
   --exclude='target/' \
   --exclude='node_modules/' \
   --exclude='dist/' \
@@ -30,4 +31,4 @@ cd "$TARGET"
 git init -q
 mise trust -q
 echo "yidam template copied to $TARGET"
-open .
+codium .

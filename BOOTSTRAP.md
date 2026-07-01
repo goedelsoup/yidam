@@ -16,15 +16,15 @@ This is not a software project. It is a research instrument.
 Start with the scripture. Then load and internalize the prelude. Neither step is optional — the
 scripture gives you the why; the prelude gives you the how.
 
-- [Scripture](prelude/SCRIPTURE.md) — what yidam is and why it works this way; read this first
-- [Identity](prelude/IDENTITY.md) — what this kind of repository is
-- [Graph model](prelude/GRAPH.md) — how git encodes knowledge
-- [Agent conduct](prelude/guidelines/agent-conduct.md) — how to behave in this graph
-- [Bootstrap skill](prelude/skills/bootstrap.md) — the steps to execute
+- [Scripture](yidam/prelude/SCRIPTURE.md) — what yidam is and why it works this way; read this first
+- [Identity](yidam/prelude/IDENTITY.md) — what this kind of repository is
+- [Graph model](yidam/prelude/GRAPH.md) — how git encodes knowledge
+- [Agent conduct](yidam/prelude/guidelines/agent-conduct.md) — how to behave in this graph
+- [Bootstrap skill](yidam/prelude/skills/bootstrap.md) — the steps to execute
 
 ## Execute
 
-Once you have internalized the prelude, invoke the [bootstrap skill](prelude/skills/bootstrap.md).
+Once you have internalized the prelude, invoke the [bootstrap skill](yidam/prelude/skills/bootstrap.md).
 
 The skill will guide you through gathering context, scaffolding structure, seeding the corpus,
 and writing the genesis commit. Follow it in order. Do not skip the context-gathering step —
