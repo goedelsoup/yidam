@@ -145,8 +145,15 @@ different roles and where relationships themselves carry meaning worth querying.
 **None** — no foundational alignment. Classes are typed by domain convention only. Choose this
 if foundational ontology alignment is not a goal of the corpus, or if you want to commit later.
 
-Ask the user to choose one. Then write the ontology decision record, including the chosen
-alignment, before proceeding to step 3:
+Ask the user to choose one. Then ask:
+
+> **How many seed instances should the initial corpus contain?** [default: 13]
+
+The user may give a number or press enter to accept the default. Record it as `corpus_depth`
+in the decision record — step 6 distributes instances across classes to reach this target.
+
+Then write the ontology decision record, including the chosen alignment and corpus depth,
+before proceeding to step 3:
 
 ```
 .yidam/decisions/ontology.yml
@@ -155,6 +162,7 @@ alignment, before proceeding to step 3:
 ```yaml
 id: ontology
 summary: <one line — the domain, class count, and chosen foundational alignment>
+corpus_depth: 13        # target instance count for initial seeding; user-configurable
 context: |
   <what the ontology discovery dialogue surfaced; key choices made; examples used to explain
   the alignment options>
@@ -309,8 +317,9 @@ rationale: |
 
 ### 6. Seed corpus objects
 
-For each class defined in step 4, create a class directory and seed at least one concrete
-instance within it:
+Read `corpus_depth` from `.yidam/decisions/ontology.yml` (default 13 if absent). This is
+the target total instance count for the genesis corpus. Create a class directory for each
+class, then distribute instances across classes to reach the target:
 
 ```
 .yidam/corpus/<class>/README.md       — describes the class in prose; links to the .ont.yml
@@ -345,9 +354,11 @@ links:
 Each instance must carry at least one outgoing link to another node. Be specific enough to
 be wrong — a vague placeholder is not an object.
 
-For domains with clear hierarchies, seed from the root down so that link targets exist when
-they are referenced. Prefer depth over breadth: a well-linked instance with real content is
-worth more than several shallow stubs.
+**Distribution** — allocate instances across classes to hit `corpus_depth` total, with a
+minimum of 1 per class. Give more instances to hub classes (those with the most edge
+participation) and fewer to peripheral classes. Seed from root nodes down so link targets
+exist when referenced. Prefer depth over breadth: a well-linked instance with real content
+is worth more than several shallow stubs.
 
 **Opportunistic retrieval**: While seeding, watch for the demand threshold — five or more
 instances that share a missing property attributable to a single approved connector source.
