@@ -203,15 +203,23 @@ run = "cargo clippy --workspace --manifest-path yidam/tests/harness/Cargo.toml -
 description = "Format harness Rust code."
 run = "cargo fmt --all --manifest-path yidam/tests/harness/Cargo.toml"
 
-# ── clone (template scaffolding) ─────────────────────────────────────────
-# Copies the yidam template into a new directory and initialises a fresh git
-# repo, ready for the bootstrap skill to be invoked.
+# ── clone / overlay (template scaffolding) ───────────────────────────────
+# clone  — copies the full yidam template into a new directory and inits a
+#           fresh git repo, ready for the bootstrap skill (empty-repo mode).
+# overlay — copies only yidam infrastructure (yidam/, BOOTSTRAP.md, sadhana/,
+#           samudaya/ if seeds present) into an existing git repo, without
+#           touching the repo's own content, ready for existing-repo bootstrap.
 #
 # Usage:  mise run clone <target-directory>
+#         mise run overlay <existing-repo-directory>
 
 [tasks.clone]
 description = "Scaffold a new yidam-derived repo at TARGET. Usage: mise run clone <target-dir>"
 run = "bash scripts/clone.sh"
+
+[tasks.overlay]
+description = "Overlay yidam infrastructure onto an existing repo. Usage: mise run overlay <repo-dir>"
+run = "bash scripts/overlay.sh"
 
 # ── ci ────────────────────────────────────────────────────────────────────
 # Yidam's own CI gate. Derived repos should extend this to include
