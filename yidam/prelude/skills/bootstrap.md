@@ -230,7 +230,8 @@ foundational_type:           # omit this field entirely if alignment is "none"
   ontology: bfo | ufo
   type: <value>              # BFO: continuant | occurrent | quality | disposition | role | ...
                              # UFO: kind | subkind | role | phase | relator | mode | quality | event | situation
-description: <one sentence — what this class of thing is and why it is irreducible>
+description: |
+  <one sentence — what this class of thing is and why it is irreducible>
 properties:
   - name: <field>
     type: string | date | ref | text
@@ -330,7 +331,8 @@ derive from it. Stub entries are fine; this file grows over time.
 ```yaml
 class: <class-name>
 label: <Human-Readable Instance Name>
-description: <one sentence — what this specific thing is>
+description: |
+  <one or more sentences — what this specific thing is>
 properties:
   <field>: <value>
 links:
