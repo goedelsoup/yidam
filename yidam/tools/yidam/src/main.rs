@@ -32,6 +32,12 @@ enum Command {
     PackagesIndex,
     #[command(name = "bundle-status")]
     BundleStatus,
+    #[command(name = "graph-check")]
+    GraphCheck,
+    #[command(name = "decisions-log")]
+    DecisionsLog,
+    /// Bundle ontology, corpus, skills, and decisions into .yidam/CONTEXT.md
+    Bundle,
 }
 
 fn main() -> Result<()> {
@@ -47,5 +53,8 @@ fn main() -> Result<()> {
         Command::CratesIndex => yidam::crates_index(),
         Command::PackagesIndex => yidam::packages_index(),
         Command::BundleStatus => yidam::bundle_status(),
+        Command::GraphCheck => yidam::graph_check(),
+        Command::DecisionsLog => yidam::decisions_log(),
+        Command::Bundle => yidam::bundle(),
     }
 }

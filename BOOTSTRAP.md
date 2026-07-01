@@ -11,24 +11,15 @@ graph: every commit is an event, every file is a node, every markdown link is an
 
 This is not a software project. It is a research instrument.
 
-## Before you act
-
-Start with the scripture. Then load and internalize the prelude. Neither step is optional — the
-scripture gives you the why; the prelude gives you the how.
-
-- [Scripture](yidam/prelude/SCRIPTURE.md) — what yidam is and why it works this way; read this first
-- [Identity](yidam/prelude/IDENTITY.md) — what this kind of repository is
-- [Graph model](yidam/prelude/GRAPH.md) — how git encodes knowledge
-- [Agent conduct](yidam/prelude/guidelines/agent-conduct.md) — how to behave in this graph
-- [Bootstrap skill](yidam/prelude/skills/bootstrap.md) — the steps to execute
-
 ## Execute
 
-Once you have internalized the prelude, invoke the [bootstrap skill](yidam/prelude/skills/bootstrap.md).
+Read the [bootstrap skill](yidam/prelude/skills/bootstrap.md) and follow it from **Step 0**.
+Do not read any other file first — not SCRIPTURE.md, not the prelude, nothing. The skill
+specifies exactly what to read and in what order.
 
-The skill will guide you through gathering context, scaffolding structure, seeding the corpus,
-and writing the genesis commit. Follow it in order. Do not skip the context-gathering step —
-every yidam-derived repository has a specific identity, and the scaffold should reflect it.
+The skill will guide you through checking the seed layer, internalizing the prelude, gathering
+ontology context, scaffolding structure, seeding the corpus, and writing the genesis commit.
+Follow it in order without skipping steps.
 
 ## Providing your domain theme
 

@@ -25,8 +25,10 @@ route it to a research skill or workflow.
 
 If the genesis commit already exists, do not re-run bootstrap.
 
-If the repository has not been bootstrapped, immediately proceed to **Step 0** — do not read
-BOOTSTRAP.md or any prelude file before checking samudaya.
+If the repository has not been bootstrapped, immediately proceed to **Step 0**. The only file
+you should have read before reaching this skill is `BOOTSTRAP.md` at the repo root — that is
+the expected entry point. Do not read any other file before completing Step 0, including
+SCRIPTURE.md, any prelude file, or any file listed in BOOTSTRAP.md beyond the skill itself.
 
 ## Steps
 
@@ -119,7 +121,32 @@ source →[relationship]→ target
 One row per node; one line per edge. No prose — the format is the signal that the sketch is
 ready to confirm.
 
-After the user confirms, write the ontology decision record before proceeding to step 3:
+After the user confirms the sketch, present the foundational ontology alignment choice before
+writing any files. Describe each option concretely using 2–3 nodes from the confirmed sketch
+as examples:
+
+**BFO (Basic Formal Ontology)** — organizes entities along one axis: do they *persist through
+time* or *unfold through time*?  Things that exist at a moment and have no temporal parts are
+**continuants** (material entities, qualities, dispositions, sites). Things that happen over
+an interval and have temporal parts are **occurrents** (processes, events, process boundaries).
+Each class gets a `bfo_type:` field in its `.ont.yml`. Best fit for scientific, empirical, and
+physical-process domains where the object/event distinction carries analytical weight (e.g.,
+distinguishing a machine from the machining process it performs).
+
+**UFO (Unified Foundational Ontology)** — organizes entities around rigidity and relationality.
+A **Kind** is what something necessarily is (if it stops being one it ceases to exist as that
+thing). A **Role** is what something contingently plays in a relational context (the same entity
+may play different roles in different relationships). A **Relator** is a first-class node that
+mediates a relationship with its own identity and properties — rather than a bare edge, a
+relator carries the history and terms of the connection. Each class gets a `ufo_type:` field.
+Best fit for institutional, enterprise, and process-modeling domains where the same entity plays
+different roles and where relationships themselves carry meaning worth querying.
+
+**None** — no foundational alignment. Classes are typed by domain convention only. Choose this
+if foundational ontology alignment is not a goal of the corpus, or if you want to commit later.
+
+Ask the user to choose one. Then write the ontology decision record, including the chosen
+alignment, before proceeding to step 3:
 
 ```
 .yidam/decisions/ontology.yml
@@ -127,13 +154,14 @@ After the user confirms, write the ontology decision record before proceeding to
 
 ```yaml
 id: ontology
-summary: <one line — the domain and how many classes were confirmed>
+summary: <one line — the domain, class count, and chosen foundational alignment>
 context: |
-  <what the ontology discovery dialogue surfaced; key choices made>
+  <what the ontology discovery dialogue surfaced; key choices made; examples used to explain
+  the alignment options>
 decision: |
-  <the confirmed class list and edges>
+  <the confirmed class list and edges; the chosen foundational ontology (bfo | ufo | none)>
 rationale: |
-  <why these classes; what was considered and discarded>
+  <why these classes; what was considered and discarded; why this alignment was chosen>
 ```
 
 ### 3. Orient to and scaffold the derived-repo structure
@@ -198,6 +226,10 @@ One file per class; the filename matches the class name exactly.
 ```yaml
 class: <name>
 label: <Human-Readable Label>
+foundational_type:           # omit this field entirely if alignment is "none"
+  ontology: bfo | ufo
+  type: <value>              # BFO: continuant | occurrent | quality | disposition | role | ...
+                             # UFO: kind | subkind | role | phase | relator | mode | quality | event | situation
 description: <one sentence — what this class of thing is and why it is irreducible>
 properties:
   - name: <field>
@@ -403,10 +435,25 @@ rm -rf sadhana/
 git commit --allow-empty -m "consume(sadhana): scaffold template consumed; derived structure in place"
 ```
 
+**Vendor the prelude** — immediately after consuming sadhana, move the inherited prelude
+from the top-level `yidam/` into the `.yidam/` infrastructure namespace:
+
+Because `yidam/` was not staged in the genesis commit (it is untracked), use the filesystem
+move and stage the result directly:
+
+```
+mv yidam/ .yidam/.vendor/
+git add .yidam/.vendor/
+git commit -m "vendor(yidam): move inherited prelude into .yidam/.vendor/"
+```
+
+Do not ask the user to run this manually — the vendor step is part of the bootstrap
+protocol and must complete before step 9.
+
 ### 9. Report
 
-Do not begin this step until the genesis commit, the consume(samudaya) commit, and the
-consume(sadhana) commit are all written. If any is unresolved, finish it before proceeding.
+Do not begin this step until the genesis commit, consume(samudaya), consume(sadhana), and
+vendor(yidam) are all written. If any is unresolved, finish it before proceeding.
 
 Output a structured handoff with four sections:
 

@@ -17,9 +17,7 @@ After bootstrap, a derived repository has two tiers:
 - `.yidam/decisions/` — structured records of choices made during this repo's life
 - `.yidam/sangha/` — collective resolution protocol
 - `.yidam/skills/` — domain-specific skills
-
-**Inherited** — carried in from the template, stays until pinned separately:
-- `yidam/` — prelude, tools, and tests; not modified in derived repos
+- `.yidam/.vendor/` — inherited yidam prelude; not modified in derived repos
 
 ---
 
@@ -29,7 +27,7 @@ Agent definitions for agents that operate in this repository.
 
 **What belongs here:** Agent definitions (system prompts, role descriptions, capability
 declarations) for named agents whose purpose is specific to this domain. Generic agents
-inherited from yidam live in `yidam/prelude/`; domain-specific agents live here.
+inherited from yidam live in `.yidam/.vendor/prelude/`; domain-specific agents live here.
 
 ---
 
@@ -218,8 +216,23 @@ collective evolutions. See [GRAPH.md](../GRAPH.md) for the full encoding model.
 Reusable capabilities available to agents in this repository.
 
 **What belongs here:** Domain-specific skills — structured procedures agents can invoke
-when working in this repo. Generic skills inherited from yidam live in `yidam/prelude/`;
+when working in this repo. Generic skills inherited from yidam live in `.yidam/.vendor/prelude/`;
 skills that require knowledge of this domain's corpus or toolkit live here.
+
+---
+
+## `.yidam/.vendor/`
+
+The inherited yidam prelude — prelude files, tools, and tests carried in from the template
+and vendored into the derived repo during bootstrap.
+
+**What belongs here:** The full `yidam/` directory tree as it existed at bootstrap time,
+moved here by the `vendor(yidam)` commit. Content is read-only for agents and contributors
+in the derived repo; updates happen by re-running the vendor step against a newer yidam
+release. Do not modify files under `.yidam/.vendor/` in the course of domain work.
+
+**Note:** Paths to inherited skills and agents use `.yidam/.vendor/prelude/` — for example,
+the bootstrap skill lives at `.yidam/.vendor/prelude/skills/bootstrap.md` after genesis.
 
 ---
 
