@@ -10,3 +10,4 @@ pub use cmd::{
     decisions_log, embed, graph_check, index_build, index_status, open_questions, overlay,
     packages_index, skills_index, status,
 };
+pub use cmd::tonpa;

@@ -37,3 +37,11 @@ pub fn yidam_embeddings_dir(root: &Path) -> PathBuf {
 pub fn yidam_index_dir(root: &Path) -> PathBuf {
     root.join(".yidam").join("index")
 }
+
+pub fn tonpa_dir(root: &Path) -> PathBuf {
+    root.join(".yidam").join("tonpa")
+}
+
+pub fn tonpa_config_path(root: &Path) -> PathBuf {
+    root.join(".yidam").join("tonpa.toml")
+}

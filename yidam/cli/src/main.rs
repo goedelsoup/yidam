@@ -60,6 +60,11 @@ enum Command {
         #[arg(long, value_name = "REF", requires = "backfill")]
         backfill_ref: Option<String>,
     },
+    /// Manage bundle dependencies in .yidam/tonpa/
+    Tonpa {
+        #[command(subcommand)]
+        sub: yidam::tonpa::TonpaCommand,
+    },
 }
 
 #[tokio::main]
@@ -85,5 +90,6 @@ async fn main() -> Result<()> {
         Command::Overlay { target, backfill, backfill_ref } => {
             yidam::overlay(&target, backfill, backfill_ref.as_deref())
         }
+        Command::Tonpa { sub } => yidam::tonpa::run(sub).await,
     }
 }
