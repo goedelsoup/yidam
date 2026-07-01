@@ -1,0 +1,167 @@
+<!-- @dsCard group="Colors" viewport="920x320" name="Themes" subtitle="sid · tara · kal · manny — apply via data-theme" -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px;
+    background: var(--surface-overlay);
+    display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px;
+    min-height: 100vh;
+  }
+  .panel {
+    background: var(--surface-base);
+    border: 1px solid var(--border-ui);
+    border-radius: var(--radius-xl);
+    padding: 14px 14px 12px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .ramp { display: flex; gap: 3px; }
+  .sw { flex: 1; height: 28px; border-radius: var(--radius-sm); }
+  .labels { display: flex; gap: 3px; }
+  .lb { flex: 1; font-family: var(--font-mono); font-size: 8px;
+        color: var(--text-tertiary); text-align: center; }
+  .meta { display: flex; flex-direction: column; gap: 2px; }
+  .theme-name {
+    font-family: var(--font-mono); font-size: 20px; font-weight: 600;
+    color: var(--text-accent); letter-spacing: -0.02em; line-height: 1;
+  }
+  .deity {
+    font-family: var(--font-ui); font-size: 10px;
+    color: var(--text-tertiary); letter-spacing: 0.04em;
+  }
+  .divider { border: none; border-top: 1px solid var(--border-ui); margin: 0; }
+  .btn {
+    display: flex; align-items: center; justify-content: center;
+    background: var(--action-bg); color: var(--action-fg);
+    border: none; border-radius: var(--radius-md);
+    padding: 7px 12px; font-family: var(--font-ui);
+    font-size: 11px; font-weight: 500; width: 100%;
+  }
+  .samples { display: flex; flex-direction: column; gap: 6px; }
+  .link-row {
+    font-family: var(--font-ui); font-size: 11px;
+    color: var(--text-link);
+    text-decoration: underline; text-underline-offset: 2px;
+  }
+  .tint-box {
+    background: var(--surface-accent);
+    border: 1px solid var(--border-accent);
+    border-radius: var(--radius-sm);
+    padding: 6px 8px;
+    font-family: var(--font-mono); font-size: 9px;
+    color: var(--text-accent); line-height: 1.4;
+  }
+</style>
+</head>
+<body>
+
+  <!-- ── sid ── -->
+  <div class="panel" data-theme="sid">
+    <div class="ramp">
+      <div class="sw" style="background:var(--gold-950)"></div>
+      <div class="sw" style="background:var(--gold-700)"></div>
+      <div class="sw" style="background:var(--gold-500)"></div>
+      <div class="sw" style="background:var(--gold-300)"></div>
+      <div class="sw" style="background:var(--gold-50)"></div>
+    </div>
+    <div class="labels">
+      <div class="lb">950</div><div class="lb">700</div>
+      <div class="lb" style="font-weight:600;color:var(--text-accent)">500</div>
+      <div class="lb">300</div><div class="lb">50</div>
+    </div>
+    <div class="meta">
+      <div class="theme-name">sid</div>
+      <div class="deity">Siddharta · warm gold · default</div>
+    </div>
+    <hr class="divider">
+    <div class="btn">confirm node</div>
+    <div class="samples">
+      <div class="link-row">view in graph →</div>
+      <div class="tint-box">--action-bg: gold-500<br>--action-fg: ink-950</div>
+    </div>
+  </div>
+
+  <!-- ── tara ── -->
+  <div class="panel" data-theme="tara">
+    <div class="ramp">
+      <div class="sw" style="background:var(--jade-950)"></div>
+      <div class="sw" style="background:var(--jade-700)"></div>
+      <div class="sw" style="background:var(--jade-500)"></div>
+      <div class="sw" style="background:var(--jade-300)"></div>
+      <div class="sw" style="background:var(--jade-50)"></div>
+    </div>
+    <div class="labels">
+      <div class="lb">950</div><div class="lb">700</div>
+      <div class="lb" style="font-weight:600;color:var(--text-accent)">500</div>
+      <div class="lb">300</div><div class="lb">50</div>
+    </div>
+    <div class="meta">
+      <div class="theme-name">tara</div>
+      <div class="deity">Green Tara · emerald jade</div>
+    </div>
+    <hr class="divider">
+    <div class="btn">confirm node</div>
+    <div class="samples">
+      <div class="link-row">view in graph →</div>
+      <div class="tint-box">--action-bg: jade-500<br>--action-fg: #ffffff</div>
+    </div>
+  </div>
+
+  <!-- ── kal ── -->
+  <div class="panel" data-theme="kal">
+    <div class="ramp">
+      <div class="sw" style="background:var(--crimson-950)"></div>
+      <div class="sw" style="background:var(--crimson-700)"></div>
+      <div class="sw" style="background:var(--crimson-500)"></div>
+      <div class="sw" style="background:var(--crimson-300)"></div>
+      <div class="sw" style="background:var(--crimson-50)"></div>
+    </div>
+    <div class="labels">
+      <div class="lb">950</div><div class="lb">700</div>
+      <div class="lb" style="font-weight:600;color:var(--text-accent)">500</div>
+      <div class="lb">300</div><div class="lb">50</div>
+    </div>
+    <div class="meta">
+      <div class="theme-name">kal</div>
+      <div class="deity">Mahakala · deep crimson</div>
+    </div>
+    <hr class="divider">
+    <div class="btn">confirm node</div>
+    <div class="samples">
+      <div class="link-row">view in graph →</div>
+      <div class="tint-box">--action-bg: crimson-600<br>--action-fg: #ffffff</div>
+    </div>
+  </div>
+
+  <!-- ── manny ── -->
+  <div class="panel" data-theme="manny">
+    <div class="ramp">
+      <div class="sw" style="background:var(--saffron-950)"></div>
+      <div class="sw" style="background:var(--saffron-700)"></div>
+      <div class="sw" style="background:var(--saffron-500)"></div>
+      <div class="sw" style="background:var(--saffron-300)"></div>
+      <div class="sw" style="background:var(--saffron-50)"></div>
+    </div>
+    <div class="labels">
+      <div class="lb">950</div><div class="lb">700</div>
+      <div class="lb" style="font-weight:600;color:var(--text-accent)">500</div>
+      <div class="lb">300</div><div class="lb">50</div>
+    </div>
+    <div class="meta">
+      <div class="theme-name">manny</div>
+      <div class="deity">Manjushri · saffron flame</div>
+    </div>
+    <hr class="divider">
+    <div class="btn">confirm node</div>
+    <div class="samples">
+      <div class="link-row">view in graph →</div>
+      <div class="tint-box">--action-bg: saffron-500<br>--action-fg: ink-950</div>
+    </div>
+  </div>
+
+</body>
+</html>

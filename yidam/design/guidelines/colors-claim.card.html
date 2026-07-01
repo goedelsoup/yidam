@@ -1,0 +1,47 @@
+<!-- @dsCard group="Colors" viewport="700x130" name="Claim States" subtitle="Epistemic honesty in color — [verified] [inference] [open]" -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; padding: 20px 24px; background: var(--surface-base);
+    display: flex; gap: 16px; align-items: stretch; }
+  .block { flex: 1; border-radius: var(--radius-lg); padding: 14px 16px;
+    display: flex; flex-direction: column; gap: 8px; }
+  .marker { font-family: var(--font-mono); font-size: 12px; font-weight: 600; }
+  .desc { font-family: var(--font-ui); font-size: 11px; line-height: 1.4; }
+  .swatches { display: flex; gap: 4px; margin-top: 2px; }
+  .sw { height: 12px; flex: 1; border-radius: 2px; }
+</style>
+</head>
+<body>
+  <div class="block" style="background:var(--verified-bg);border:1px solid var(--verified-border)">
+    <div class="marker" style="color:var(--verified-fg)">[verified]</div>
+    <div class="desc" style="color:var(--verified-fg);opacity:.8">Supported by a committed primary source</div>
+    <div class="swatches">
+      <div class="sw" style="background:var(--verified-bg)"></div>
+      <div class="sw" style="background:var(--verified-border)"></div>
+      <div class="sw" style="background:var(--verified-fg)"></div>
+    </div>
+  </div>
+  <div class="block" style="background:var(--inference-bg);border:1px solid var(--inference-border)">
+    <div class="marker" style="color:var(--inference-fg)">[inference]</div>
+    <div class="desc" style="color:var(--inference-fg);opacity:.8">Reasonable conclusion; not directly witnessed</div>
+    <div class="swatches">
+      <div class="sw" style="background:var(--inference-bg)"></div>
+      <div class="sw" style="background:var(--inference-border)"></div>
+      <div class="sw" style="background:var(--inference-fg)"></div>
+    </div>
+  </div>
+  <div class="block" style="background:var(--open-bg);border:1px solid var(--open-border)">
+    <div class="marker" style="color:var(--open-fg)">[open]</div>
+    <div class="desc" style="color:var(--open-fg);opacity:.8">Live question; unknown or contested</div>
+    <div class="swatches">
+      <div class="sw" style="background:var(--open-bg)"></div>
+      <div class="sw" style="background:var(--open-border)"></div>
+      <div class="sw" style="background:var(--open-fg)"></div>
+    </div>
+  </div>
+</body>
+</html>

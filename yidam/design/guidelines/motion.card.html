@@ -1,0 +1,38 @@
+<!-- @dsCard group="Motion" viewport="700x120" name="Duration & Easing" subtitle="Slow and deliberate — 200ms standard, never bouncy" -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; padding: 16px 20px; background: var(--surface-base);
+    display: flex; flex-direction: column; gap: 10px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .chip { padding: 3px 10px; border: 1px solid var(--border-ui); border-radius: var(--radius-sm);
+    font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary);
+    display: flex; gap: 8px; align-items: center; }
+  .tok { color: var(--text-tertiary); }
+  .val { color: var(--text-primary); }
+  .head { font-family: var(--font-ui); font-size: 10px; font-weight: 500; color: var(--text-tertiary);
+    letter-spacing: 0.1em; text-transform: uppercase; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="head" style="width:80px">Duration</div>
+    <div class="chip"><span class="tok">instant</span><span class="val">0ms</span></div>
+    <div class="chip"><span class="tok">fast</span><span class="val">120ms</span></div>
+    <div class="chip"><span class="tok">base</span><span class="val">200ms ★</span></div>
+    <div class="chip"><span class="tok">slow</span><span class="val">350ms</span></div>
+    <div class="chip"><span class="tok">slower</span><span class="val">500ms</span></div>
+    <div class="chip"><span class="tok">glacial</span><span class="val">900ms</span></div>
+  </div>
+  <div class="row">
+    <div class="head" style="width:80px">Easing</div>
+    <div class="chip"><span class="tok">standard</span><span class="val">ease-in-out ★</span></div>
+    <div class="chip"><span class="tok">decelerate</span><span class="val">ease-out (enter)</span></div>
+    <div class="chip"><span class="tok">accelerate</span><span class="val">ease-in (exit)</span></div>
+    <div class="chip"><span class="tok">sharp</span><span class="val">mechanical</span></div>
+  </div>
+</body>
+</html>

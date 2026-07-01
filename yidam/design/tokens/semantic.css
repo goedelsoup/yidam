@@ -1,0 +1,149 @@
+/* ─────────────────────────────────────────────────────────────────
+   yidam · Semantic Tokens
+   Named by role, not value. Use these everywhere in components.
+   ───────────────────────────────────────────────────────────────── */
+
+:root {
+
+  /* ── Surfaces ────────────────────────────────────────────────────── */
+  --surface-base:      var(--ink-0);      /* page background           */
+  --surface-raised:    #ffffff;           /* cards, panels, popovers   */
+  --surface-overlay:   var(--ink-50);     /* subtle recessed areas     */
+  --surface-inverse:   var(--ink-900);    /* dark chips, inverted UI   */
+  --surface-accent:    var(--gold-50);    /* gold-tinted surface       */
+
+  /* ── Text ────────────────────────────────────────────────────────── */
+  --text-primary:    var(--ink-900);
+  --text-secondary:  var(--ink-600);
+  --text-tertiary:   var(--ink-400);
+  --text-disabled:   var(--ink-300);
+  --text-inverse:    var(--ink-50);
+  --text-accent:     var(--gold-700);
+  --text-link:       var(--rigpa-600);
+  --text-link-hover: var(--rigpa-700);
+
+  /* ── Borders ─────────────────────────────────────────────────────── */
+  --border-ui:         var(--ink-200);
+  --border-ui-strong:  var(--ink-300);
+  --border-ui-subtle:  var(--ink-100);
+  --border-focus:      var(--gold-400);
+  --border-accent:     var(--gold-300);
+
+  /* ── Interactive: primary (gold) ─────────────────────────────────── */
+  --action-bg:        var(--gold-500);
+  --action-bg-hover:  var(--gold-400);
+  --action-bg-active: var(--gold-600);
+  --action-fg:        var(--ink-950);
+
+  /* ── Interactive: secondary (ink ghost) ─────────────────────────── */
+  --action-ghost-bg:        transparent;
+  --action-ghost-bg-hover:  var(--ink-50);
+  --action-ghost-bg-active: var(--ink-100);
+  --action-ghost-fg:        var(--ink-700);
+  --action-ghost-border:    var(--ink-200);
+
+  /* ── Status ──────────────────────────────────────────────────────── */
+  --status-verified-bg:     var(--verified-bg);
+  --status-verified-fg:     var(--verified-fg);
+  --status-verified-border: var(--verified-border);
+
+  --status-inference-bg:     var(--inference-bg);
+  --status-inference-fg:     var(--inference-fg);
+  --status-inference-border: var(--inference-border);
+
+  --status-open-bg:     var(--open-bg);
+  --status-open-fg:     var(--open-fg);
+  --status-open-border: var(--open-border);
+
+  /* ── Phase colors ────────────────────────────────────────────────── */
+  --phase-investigation-bg: var(--rigpa-50);
+  --phase-investigation-fg: var(--rigpa-800);
+  --phase-extraction-bg:    var(--gold-50);
+  --phase-extraction-fg:    var(--gold-800);
+  --phase-synthesis-bg:     var(--ma-50);
+  --phase-synthesis-fg:     var(--ma-800);
+  --phase-assessment-bg:    #f0f5ee;
+  --phase-assessment-fg:    #1e4a28;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Named Themes
+   Apply data-theme="<name>" to <html> or any containing element.
+   The :root block above carries sid defaults as the fallback.
+
+   sid   — warm gold          Siddharta   (default; :root)
+   tara  — jade emerald       Green Tara
+   kal   — deep crimson       Mahakala
+   manny — saffron            Manjushri
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* sid — explicit alias; :root carries the same values ─────────────── */
+[data-theme="sid"] {}
+
+/* ── tara ── jade, emerald, compassionate ────────────────────────────── */
+[data-theme="tara"] {
+  --surface-accent:         var(--jade-50);
+  --text-accent:            var(--jade-700);
+  --text-link:              var(--jade-600);
+  --text-link-hover:        var(--jade-800);
+  --border-focus:           var(--jade-400);
+  --border-accent:          var(--jade-300);
+  --action-bg:              var(--jade-500);
+  --action-bg-hover:        var(--jade-400);
+  --action-bg-active:       var(--jade-600);
+  --action-fg:              #ffffff;
+  --phase-investigation-bg: var(--jade-50);
+  --phase-investigation-fg: var(--jade-800);
+  --phase-extraction-bg:    var(--jade-100);
+  --phase-extraction-fg:    var(--jade-900);
+  --phase-synthesis-bg:     var(--ma-50);
+  --phase-synthesis-fg:     var(--ma-800);
+  --phase-assessment-bg:    oklch(94% 0.025 155);
+  --phase-assessment-fg:    var(--jade-900);
+}
+
+/* ── kal ── crimson, wrathful, protective ────────────────────────────── */
+[data-theme="kal"] {
+  --surface-base:           oklch(97% 0.006 350);
+  --surface-overlay:        oklch(94% 0.009 350);
+  --surface-accent:         var(--crimson-50);
+  --text-accent:            var(--crimson-700);
+  --text-link:              var(--crimson-600);
+  --text-link-hover:        var(--crimson-800);
+  --border-focus:           var(--crimson-400);
+  --border-accent:          var(--crimson-300);
+  --action-bg:              var(--crimson-600);
+  --action-bg-hover:        var(--crimson-500);
+  --action-bg-active:       var(--crimson-700);
+  --action-fg:              #ffffff;
+  --phase-investigation-bg: var(--crimson-50);
+  --phase-investigation-fg: var(--crimson-800);
+  --phase-extraction-bg:    oklch(96% 0.010 350);
+  --phase-extraction-fg:    var(--crimson-900);
+  --phase-synthesis-bg:     var(--ma-50);
+  --phase-synthesis-fg:     var(--ma-800);
+  --phase-assessment-bg:    oklch(93% 0.012 350);
+  --phase-assessment-fg:    var(--crimson-950);
+}
+
+/* ── manny ── saffron, wisdom flame, incisive ───────────────────────── */
+[data-theme="manny"] {
+  --surface-accent:         var(--saffron-50);
+  --text-accent:            var(--saffron-700);
+  --text-link:              var(--saffron-700);
+  --text-link-hover:        var(--saffron-800);
+  --border-focus:           var(--saffron-400);
+  --border-accent:          var(--saffron-300);
+  --action-bg:              var(--saffron-500);
+  --action-bg-hover:        var(--saffron-400);
+  --action-bg-active:       var(--saffron-600);
+  --action-fg:              var(--ink-950);
+  --phase-investigation-bg: var(--saffron-50);
+  --phase-investigation-fg: var(--saffron-800);
+  --phase-extraction-bg:    var(--saffron-100);
+  --phase-extraction-fg:    var(--saffron-900);
+  --phase-synthesis-bg:     var(--ma-50);
+  --phase-synthesis-fg:     var(--ma-800);
+  --phase-assessment-bg:    oklch(94% 0.025 55);
+  --phase-assessment-fg:    var(--saffron-950);
+}

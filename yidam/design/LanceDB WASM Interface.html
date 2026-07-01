@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LanceDB · WASM Corpus Interface</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Spectral:ital,wght@0,400;0,500;1,400&family=DM+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <script src="./_ds_bundle.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body, #root { height: 100%; }
+    body { overflow: hidden; }
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-thumb { background: var(--ink-200); border-radius: 2px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    @keyframes spin    { to { transform: rotate(360deg); } }
+    @keyframes pulse   { 0%,100%{opacity:0.5} 50%{opacity:1} }
+    @keyframes fadein  { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:none} }
+    @keyframes blink   { 0%,49%{opacity:1} 50%,100%{opacity:0} }
+    @keyframes slidein { from{opacity:0;transform:translateX(28px)} to{opacity:1;transform:none} }
+    @keyframes popin   { from{opacity:0;transform:translateY(-6px) scale(0.98)} to{opacity:1;transform:none} }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { NodeCard, BranchRef, ClaimMarker } = window.YidamDesignSystem_76df35;
+const { useState, useEffect, useRef } = React;
+
+/* ── Data ──────────────────────────────────────────────────────────── */
+
+const NODES = [
+  { path:'hydrology/watershed-boundaries.md',   title:'Watershed Boundaries',    m:'verified',  out:3, inc:2, lines:148, age:'3d', excerpt:'The upper Animas watershed encompasses 1,843 km² of mixed terrain, bounded by the San Juan Mountains to the north and east. Geology is predominantly Precambrian granite with Quaternary alluvial deposits in valley floors.' },
+  { path:'hydrology/base-flow-regime.md',        title:'Base Flow Regime',         m:'inference', out:4, inc:5, lines:212, age:'1d', excerpt:'Base flow is maintained primarily by groundwater discharge from the fractured granite aquifer underlying the upper reaches. The relationship between aquifer recharge and surface flow has not been directly measured at this location.' },
+  { path:'hydrology/lowflow-thresholds.md',      title:'Lowflow Thresholds',       m:'verified',  out:2, inc:3, lines:97,  age:'5d', excerpt:'Critical lowflow threshold for aquatic habitat maintenance is defined at 0.42 m³/s at gauge 09380000, below which brook trout spawning success declines sharply.' },
+  { path:'hydrology/streamflow-seasonality.md',  title:'Streamflow Seasonality',   m:'inference', out:3, inc:2, lines:176, age:'2d', excerpt:'Peak discharge occurs in late May through early June, driven by snowmelt from elevations above 3,400 m. A secondary monsoon pulse appears in late July.' },
+  { path:'hydrology/sediment-transport.md',      title:'Sediment Transport',        m:'open',      out:1, inc:1, lines:134, age:'7d', excerpt:'The relationship between suspended sediment load and discharge remains poorly constrained at decadal timescales and warrants direct measurement.' },
+  { path:'hydrology/gauge-stations.md',          title:'Gauge Station Network',     m:'verified',  out:5, inc:4, lines:223, age:'1d', excerpt:'Five active gauges operate in the watershed. Station 09380000 has continuous record since 1982, providing the longest baseflow record available.' },
+  { path:'hydrology/aquifer-recharge.md',        title:'Aquifer Recharge Zones',    m:'inference', out:2, inc:3, lines:158, age:'4d', excerpt:'Recharge is concentrated in the upper granite terrain during spring snowmelt, with secondary contribution from summer convective events. Estimated annual recharge volume is 84×10⁶ m³.' },
+  { path:'hydrology/conductivity-correlates.md', title:'Conductivity Correlates',   m:'inference', out:1, inc:2, lines:89,  age:'6d', excerpt:'Specific conductance is inversely correlated with discharge, consistent with groundwater dilution during high flows.' },
+  { path:'hydrology/evapotranspiration.md',      title:'Evapotranspiration Est.',   m:'inference', out:2, inc:1, lines:112, age:'8d', excerpt:'Annual ET estimated at 420 mm using the Penman-Monteith method, accounting for elevation-dependent temperature lapse.' },
+  { path:'hydrology/snowpack-dynamics.md',       title:'Snowpack Dynamics',          m:'verified',  out:3, inc:2, lines:195, age:'2d', excerpt:'SNOTEL data from three stations shows peak SWE averaging 680 mm, with 85% of annual precipitation falling as snow above 3,200 m.' },
+  { path:'hydrology/channel-morphology.md',      title:'Channel Morphology',        m:'verified',  out:2, inc:2, lines:143, age:'10d',excerpt:'Reach-scale surveys classify the mainstem as a pool-riffle system with a mean gradient of 1.8%, transitioning to plane-bed above the confluence.' },
+  { path:'hydrology/water-quality.md',           title:'Water Quality Index',        m:'open',      out:1, inc:1, lines:201, age:'3d', excerpt:'Composite WQI incorporating dissolved oxygen, pH, turbidity, and metals. Long-term trend attribution remains an open question.' },
+];
+const BY_PATH = Object.fromEntries(NODES.map(n => [n.path, n]));
+const NODE_NAMES = NODES.map(n => n.path.split('/')[1].replace('.md',''));
+const pad = n => String(n).padStart(3, '0');
+
+const INITIAL_STAGES = [
+  { id:'embed',  cmd:'yidam embed',       desc:'Text extraction · corpus/',      out:'.yidam/embeddings/*.json', status:'done',    n:12, tot:12 },
+  { id:'index',  cmd:'yidam index-build', desc:'fastembed-rs + LanceDB',         out:'.yidam/index/',            status:'running', n:8,  tot:12 },
+  { id:'bundle', cmd:'yidam bundle',      desc:'Self-contained WASM artifact',   out:'.yidam/bundle.yiz',        status:'waiting', n:0,  tot:12 },
+];
+
+const INITIAL_LOGS = [
+  { t:'09:41:02', msg:'scanning corpus/ — found 12 markdown nodes' },
+  { t:'09:41:08', msg:'[embed] ✓ 12/12 complete · 0 errors', ok:true },
+  { t:'09:41:09', msg:'[index] loading nomic-embed-text-v1.5 via fastembed-rs' },
+  { t:'09:41:11', msg:'[index] model ready · 384-dimensional vectors' },
+  { t:'09:41:12', msg:'[index] opening LanceDB table: corpus_nodes' },
+  { t:'09:41:13', msg:'[index] watershed-boundaries → vec[001]' },
+  { t:'09:41:13', msg:'[index] base-flow-regime → vec[002]' },
+  { t:'09:41:14', msg:'[index] lowflow-thresholds → vec[003]' },
+  { t:'09:41:14', msg:'[index] streamflow-seasonality → vec[004]' },
+  { t:'09:41:15', msg:'[index] sediment-transport → vec[005]' },
+  { t:'09:41:15', msg:'[index] gauge-stations → vec[006]' },
+  { t:'09:41:16', msg:'[index] aquifer-recharge → vec[007]' },
+  { t:'09:41:17', msg:'[index] conductivity-correlates → vec[008]' },
+];
+
+const RESULTS = [
+  { path:'hydrology/base-flow-regime.md',        title:'Base Flow Regime',       score:0.947, markers:['inference'], outgoing:4, incoming:5, lineCount:212, lastModified:'1d ago', excerpt:BY_PATH['hydrology/base-flow-regime.md'].excerpt },
+  { path:'hydrology/aquifer-recharge.md',         title:'Aquifer Recharge Zones', score:0.873, markers:['inference'], outgoing:2, incoming:3, lineCount:158, lastModified:'4d ago', excerpt:BY_PATH['hydrology/aquifer-recharge.md'].excerpt },
+  { path:'hydrology/watershed-boundaries.md',    title:'Watershed Boundaries',   score:0.712, markers:['verified'],  outgoing:3, incoming:2, lineCount:148, lastModified:'3d ago', excerpt:BY_PATH['hydrology/watershed-boundaries.md'].excerpt },
+  { path:'hydrology/gauge-stations.md',           title:'Gauge Station Network',  score:0.641, markers:['verified'],  outgoing:5, incoming:4, lineCount:223, lastModified:'1d ago', excerpt:BY_PATH['hydrology/gauge-stations.md'].excerpt },
+];
+
+const DEFAULT_Q = 'What drives base flow in the watershed?';
+
+const ANS1 = [
+  { k:'text', v:'Base flow in the watershed is driven primarily by ' },
+  { k:'bold', v:'groundwater discharge' },
+  { k:'text', v:' from the fractured granite aquifer underlying the upper reaches ' },
+  { k:'mark', v:'inference' },
+  { k:'text', v:'. Recharge is concentrated in the upper granite terrain during spring snowmelt, with secondary contribution from summer convective events ' },
+  { k:'mark', v:'inference' },
+  { k:'text', v:'.' },
+];
+const ANS2 = [
+  { k:'text', v:'The relationship between aquifer recharge and surface flow has ' },
+  { k:'bold', v:'not been directly measured' },
+  { k:'text', v:' at this location ' },
+  { k:'mark', v:'open' },
+  { k:'text', v:'. Discharge rates have been recorded at gauge 09380000 since 1982 ' },
+  { k:'mark', v:'verified' },
+  { k:'text', v:'. Estimated annual recharge volume is 84×10⁶ m³, with peak recharge during May–June snowmelt.' },
+];
+
+const THEMES = [
+  { id:'sid',   dot:'#b88a00' },
+  { id:'tara',  dot:'oklch(57% 0.17 152)' },
+  { id:'kal',   dot:'oklch(55% 0.23 11)' },
+  { id:'manny', dot:'oklch(57% 0.22 50)' },
+];
+
+const MODELS = [
+  { id:'nomic-embed-text-v1.5', dims:384, note:'balanced' },
+  { id:'bge-small-en-v1.5',     dims:384, note:'retrieval-tuned' },
+  { id:'all-MiniLM-L6-v2',      dims:384, note:'fastest' },
+];
+
+const MARK_COLORS = {
+  verified:  { bg:'var(--verified-bg)',  fg:'var(--verified-fg)',  bd:'var(--verified-border)'  },
+  inference: { bg:'var(--inference-bg)', fg:'var(--inference-fg)', bd:'var(--inference-border)' },
+  open:      { bg:'var(--open-bg)',      fg:'var(--open-fg)',      bd:'var(--open-border)'      },
+};
+
+/* ── Atoms ─────────────────────────────────────────────────────────── */
+
+function Label({ children, right }) {
+  return (
+    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', paddingBottom:6 }}>
+      <span style={{ fontFamily:'var(--font-ui)', fontSize:10, fontWeight:600, color:'var(--text-tertiary)', textTransform:'uppercase', letterSpacing:'0.1em' }}>{children}</span>
+      {right && <span style={{ fontFamily:'var(--font-mono)', fontSize:10, color:'var(--text-tertiary)' }}>{right}</span>}
+    </div>
+  );
+}
+
+function Divider() { return <div style={{ height:1, background:'var(--border-subtle)', margin:'12px 0' }} />; }
+
+function MarkChip({ type, sm }) {
+  const c = MARK_COLORS[type] || MARK_COLORS.open;
+  return <span style={{ fontFamily:'var(--font-mono)', fontSize: sm?9:10, fontWeight:500, padding: sm?'1px 5px':'2px 6px', borderRadius:'var(--radius-sm)', background:c.bg, color:c.fg, border:`1px solid ${c.bd}`, whiteSpace:'nowrap' }}>[{type}]</span>;
+}
+
+function ScoreBadge({ score }) {
+  const pct = Math.round(score * 100);
+  const hi = score >= 0.9, mid = score >= 0.7;
+  return (
+    <span style={{ fontFamily:'var(--font-mono)', fontSize:10, fontWeight:500, padding:'2px 6px', borderRadius:'var(--radius-sm)', whiteSpace:'nowrap',
+      background: hi ? 'var(--verified-bg)' : mid ? 'var(--inference-bg)' : 'var(--surface-overlay)',
+      color:      hi ? 'var(--verified-fg)' : mid ? 'var(--inference-fg)' : 'var(--text-tertiary)',
+      border:`1px solid ${hi ? 'var(--verified-border)' : mid ? 'var(--inference-border)' : 'var(--border-ui)'}`,
+    }}>{pct}%</span>
+  );
+}
+
+function StatusIcon({ status }) {
+  if (status === 'done') return (
+    <span style={{ width:22, height:22, borderRadius:'50%', background:'var(--verified-bg)', border:'1px solid var(--verified-border)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+      <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 5.5l2.5 2.5 4.5-4.5" stroke="var(--verified-fg)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+    </span>
+  );
+  if (status === 'running') return (
+    <span style={{ width:22, height:22, borderRadius:'50%', border:'2px solid var(--action-bg)', borderTopColor:'transparent', display:'inline-block', animation:'spin 0.75s linear infinite', flexShrink:0 }} />
+  );
+  return <span style={{ width:22, height:22, borderRadius:'50%', background:'var(--surface-overlay)', border:'1px solid var(--border-ui)', display:'inline-block', flexShrink:0 }} />;
+}
+
+function SearchBar({ value, onChange, onSubmit, placeholder, large }) {
+  const [focus, setFocus] = useState(false);
+  return (
+    <div style={{ position:'relative', display:'flex', alignItems:'center' }}>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ position:'absolute', left: large ? 16 : 12, color:'var(--text-tertiary)', pointerEvents:'none', flexShrink:0 }}>
+        <circle cx="6" cy="6" r="4.2" stroke="currentColor" strokeWidth="1.3"/>
+        <path d="M9.5 9.5L12.5 12.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+      </svg>
+      <input
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && onSubmit()}
+        placeholder={placeholder || 'Query the corpus…'}
+        onFocus={() => setFocus(true)}
+        onBlur={() => setFocus(false)}
+        style={{
+          width:'100%',
+          paddingLeft: large ? 40 : 32,
+          paddingRight: large ? 96 : 78,
+          paddingTop: large ? 13 : 7,
+          paddingBottom: large ? 13 : 7,
+          fontFamily:'var(--font-serif)',
+          fontSize: large ? 'var(--text-lg)' : 'var(--text-sm)',
+          color:'var(--text-primary)',
+          background:'var(--surface-raised)',
+          border:`1px solid ${focus ? 'var(--border-focus)' : 'var(--border-ui)'}`,
+          borderRadius: large ? 'var(--radius-2xl)' : 'var(--radius-xl)',
+          boxShadow: focus
+            ? `0 0 0 3px color-mix(in oklch, var(--border-focus) 18%, transparent)${large ? ', var(--shadow-md)' : ''}`
+            : large ? 'var(--shadow-md)' : 'var(--shadow-xs)',
+          outline:'none',
+          transition:'border-color 0.15s, box-shadow 0.15s',
+        }}
+      />
+      <button onClick={onSubmit} style={{
+        position:'absolute', right: large ? 10 : 7,
+        padding: large ? '7px 16px' : '4px 12px',
+        fontFamily:'var(--font-ui)', fontSize:12, fontWeight:500,
+        background:'var(--action-bg)', color:'var(--action-fg)',
+        border:'none', borderRadius: large ? 'var(--radius-xl)' : 'var(--radius-lg)',
+        cursor:'pointer', flexShrink:0,
+      }}>Search</button>
+    </div>
+  );
+}
+
+function AnswerParagraph({ parts }) {
+  return (
+    <p style={{ fontFamily:'var(--font-serif)', fontSize:15, lineHeight:1.78, color:'var(--text-secondary)' }}>
+      {parts.map((p, i) => {
+        if (p.k === 'bold') return <strong key={i} style={{ fontWeight:600, color:'var(--text-primary)' }}>{p.v}</strong>;
+        if (p.k === 'mark') return <ClaimMarker key={i} type={p.v} />;
+        return <span key={i}>{p.v}</span>;
+      })}
+    </p>
+  );
+}
+
+function AnswerBlock({ query, sources, onSource }) {
+  return (
+    <div>
+      <div style={{ fontFamily:'var(--font-ui)', fontSize:10, fontWeight:600, color:'var(--text-tertiary)', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:12 }}>Composed answer</div>
+      {query && <h2 style={{ fontFamily:'var(--font-display)', fontSize:'var(--text-2xl)', fontWeight:500, color:'var(--text-primary)', lineHeight:1.3, marginBottom:16 }}>{query}</h2>}
+      <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+        <AnswerParagraph parts={ANS1} />
+        <AnswerParagraph parts={ANS2} />
+      </div>
+      {sources && (
+        <>
+          <Divider />
+          <div style={{ fontFamily:'var(--font-ui)', fontSize:10, fontWeight:600, color:'var(--text-tertiary)', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:10 }}>Sources · {sources.length}</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
+            {sources.map((r,i) => (
+              <div key={i} onClick={() => onSource && onSource(r)} style={{ display:'flex', alignItems:'center', gap:8, cursor: onSource ? 'pointer' : 'default' }}>
+                <ScoreBadge score={r.score} />
+                <span style={{ fontFamily:'var(--font-mono)', fontSize:11, color:'var(--text-link)' }}>{r.path}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function EmptyState({ msg }) {
+  return (
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', flex:1, gap:14, opacity:0.4, userSelect:'none', minHeight:160 }}>
+      <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+        <circle cx="20" cy="20" r="18" stroke="var(--ink-300)" strokeWidth="1.5" strokeDasharray="4 3"/>
+        <circle cx="20" cy="20" r="7" stroke="var(--ink-300)" strokeWidth="1.5"/>
+        <path d="M20 2v5M20 33v5M2 20h5M33 20h5" stroke="var(--ink-300)" strokeWidth="1.5" strokeLinecap="round"/>
+      </svg>
+      <span style={{ fontFamily:'var(--font-serif)', fontSize:13, fontStyle:'italic', color:'var(--text-tertiary)', textAlign:'center', maxWidth:240, lineHeight:1.6 }}>{msg}</span>
+    </div>
+  );
+}
+
+/* ── Node detail drawer ────────────────────────────────────────────── */
+
+const NEIGHBOR_SCORES = [0.88, 0.81, 0.74, 0.69];
+
+function DrawerMeta({ k, v }) {
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
+      <span style={{ fontFamily:'var(--font-ui)', fontSize:10, color:'var(--text-tertiary)', textTransform:'uppercase', letterSpacing:'0.07em' }}>{k}</span>
+      <span style={{ fontFamily:'var(--font-mono)', fontSize:13, color:'var(--text-primary)' }}>{v}</span>
+    </div>
+  );
+}
+
+function NodeDrawer({ node, onSelect, onClose }) {
+  if (!node) return null;
+  const markers   = node.markers || (node.m ? [node.m] : []);
+  const outgoing  = node.outgoing ?? node.out ?? 0;
+  const incoming  = node.incoming ?? node.inc ?? 0;
+  const lineCount = node.lineCount ?? node.lines ?? 0;
+  const excerpt   = node.excerpt || BY_PATH[node.path]?.excerpt || '';
+  const vecIdx    = NODES.findIndex(n => n.path === node.path) + 1;
+  const neighbors = NODES.filter(n => n.path !== node.path).slice(0, 4);
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(13,12,11,0.30)', zIndex:40, animation:'fadein 0.2s ease' }} />
+      <aside style={{ position:'fixed', top:0, right:0, bottom:0, width:410, background:'var(--surface-base)', borderLeft:'1px solid var(--border-ui)', boxShadow:'var(--shadow-xl)', zIndex:41, display:'flex', flexDirection:'column', animation:'slidein 0.28s cubic-bezier(0.2,0.7,0.2,1)' }}>
+        {/* Header */}
+        <div style={{ flexShrink:0, padding:'16px 20px', borderBottom:'1px solid var(--border-ui)', display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, background:'var(--surface-raised)' }}>
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontFamily:'var(--font-mono)', fontSize:11, color:'var(--text-tertiary)', marginBottom:5, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{node.path}</div>
+            <div style={{ fontFamily:'var(--font-display)', fontSize:'var(--text-2xl)', fontWeight:500, color:'var(--text-primary)', lineHeight:1.2 }}>{node.title}</div>
+          </div>
+          <button onClick={onClose} style={{ flexShrink:0, width:28, height:28, borderRadius:'var(--radius-md)', border:'1px solid var(--border-ui)', background:'var(--surface-raised)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--text-secondary)' }}>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex:1, overflowY:'auto', padding:'20px' }}>
+          {markers.length > 0 && (
+            <div style={{ display:'flex', gap:6, marginBottom:16 }}>{markers.map((m,i) => <MarkChip key={i} type={m} />)}</div>
+          )}
+          {excerpt && <p style={{ fontFamily:'var(--font-serif)', fontSize:14, lineHeight:1.7, color:'var(--text-secondary)', marginBottom:20 }}>{excerpt}</p>}
+
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'16px 12px', padding:'16px', background:'var(--surface-overlay)', borderRadius:'var(--radius-xl)', border:'1px solid var(--border-subtle)', marginBottom:20 }}>
+            <DrawerMeta k="Lines" v={lineCount} />
+            <DrawerMeta k="Vector" v={`vec[${pad(vecIdx)}]`} />
+            <DrawerMeta k="Outgoing" v={`${outgoing} edges`} />
+            <DrawerMeta k="Incoming" v={`${incoming} edges`} />
+            <DrawerMeta k="Dimensions" v="384" />
+            <DrawerMeta k="Modified" v={node.age ? `${node.age} ago` : (node.lastModified || '—')} />
+          </div>
+
+          {/* Nearest neighbors */}
+          <Label>Nearest neighbors</Label>
+          <div style={{ display:'flex', flexDirection:'column', gap:5, marginTop:2 }}>
+            {neighbors.map((n, i) => (
+              <div key={i} onClick={() => onSelect(n)} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', background:'var(--surface-raised)', border:'1px solid var(--border-ui)', borderRadius:'var(--radius-lg)', cursor:'pointer' }}>
+                <ScoreBadge score={NEIGHBOR_SCORES[i]} />
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontFamily:'var(--font-ui)', fontSize:12, fontWeight:500, color:'var(--text-primary)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{n.title}</div>
+                </div>
+                <MarkChip type={n.m} sm />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Footer actions */}
+        <div style={{ flexShrink:0, padding:'12px 20px', borderTop:'1px solid var(--border-ui)', display:'flex', gap:8, background:'var(--surface-raised)' }}>
+          <button style={{ flex:1, padding:'8px 12px', fontFamily:'var(--font-ui)', fontSize:12, fontWeight:500, background:'var(--action-bg)', color:'var(--action-fg)', border:'none', borderRadius:'var(--radius-lg)', cursor:'pointer' }}>Open in editor</button>
+          <button style={{ padding:'8px 12px', fontFamily:'var(--font-mono)', fontSize:12, background:'transparent', color:'var(--text-secondary)', border:'1px solid var(--action-ghost-border)', borderRadius:'var(--radius-lg)', cursor:'pointer' }}>Copy path</button>
+        </div>
+      </aside>
+    </>
+  );
+}
+
+/* ── Retrieval settings ────────────────────────────────────────────── */
+
+function Slider({ label, value, min, max, step, onChange, display }) {
+  return (
+    <div>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:7 }}>
+        <span style={{ fontFamily:'var(--font-ui)', fontSize:12, color:'var(--text-secondary)' }}>{label}</span>
+        <span style={{ fontFamily:'var(--font-mono)', fontSize:12, color:'var(--text-accent)', fontWeight:500 }}>{display}</span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={e => onChange(parseFloat(e.target.value))}
+        style={{ width:'100%', accentColor:'var(--action-bg)', cursor:'pointer' }} />
+    </div>
+  );
+}
+
+function SettingsPanel({ settings, setSettings, matchCount, onClose }) {
+  const set = patch => setSettings(s => ({ ...s, ...patch }));
+  return (
+    <>
+      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:30 }} />
+      <div style={{ position:'fixed', top:56, right:16, width:288, zIndex:31, background:'var(--surface-raised)', border:'1px solid var(--border-ui)', borderRadius:'var(--radius-2xl)', boxShadow:'var(--shadow-lg)', padding:'18px', animation:'popin 0.16s ease' }}>
+        <div style={{ fontFamily:'var(--font-ui)', fontSize:10, fontWeight:600, color:'var(--text-tertiary)', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:14 }}>Retrieval settings</div>
+
+        {/* Model */}
+        <div style={{ fontFamily:'var(--font-ui)', fontSize:12, color:'var(--text-secondary)', marginBottom:8 }}>Embedding model</div>
+        <div style={{ display:'flex', flexDirection:'column', gap:5, marginBottom:18 }}>
+          {MODELS.map(m => {
+            const active = settings.model === m.id;
+            return (
+              <button key={m.id} onClick={() => set({ model:m.id })} style={{
+                display:'flex', alignItems:'center', gap:9, padding:'8px 10px', textAlign:'left',
+                background: active ? 'var(--surface-accent)' : 'transparent',
+                border:`1px solid ${active ? 'var(--border-accent)' : 'var(--border-ui)'}`,
+                borderRadius:'var(--radius-lg)', cursor:'pointer',
+              }}>
+                <span style={{ width:12, height:12, borderRadius:'50%', flexShrink:0, border:`1.5px solid ${active ? 'var(--action-bg)' : 'var(--border-ui-strong)'}`, background: active ? 'var(--action-bg)' : 'transparent', boxShadow: active ? 'inset 0 0 0 2px var(--surface-raised)' : 'none' }} />
+                <span style={{ flex:1, minWidth:0 }}>
+                  <span style={{ display:'block', fontFamily:'var(--font-mono)', fontSize:11, color:'var(--text-primary)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{m.id}</span>
+                </span>
+                <span style={{ fontFamily:'var(--font-ui)', fontSize:10, color:'var(--text-tertiary)', flexShrink:0 }}>{m.note}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ display:'flex', flexDirection:'column', gap:18 }}>
+          <Slider label="Similarity threshold" value={settings.threshold} min={0.5} max={0.95} step={0.01} onChange={v => set({ threshold:v })} display={`${Math.round(settings.threshold*100)}%`} />
+          <Slider label="Top-K results" value={settings.topK} min={1} max={4} step={1} onChange={v => set({ topK:v })} display={settings.topK} />
+        </div>
+
+        <div style={{ marginTop:16, paddingTop:12, borderTop:'1px solid var(--border-subtle)', fontFamily:'var(--font-mono)', fontSize:11, color:'var(--text-secondary)', display:'flex', justifyContent:'space-between' }}>
+          <span style={{ color:'var(--text-tertiary)' }}>matching candidates</span>
+          <span>{matchCount} / {RESULTS.length}</span>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ── Pipeline ──────────────────────────────────────────────────────── */
+
+function StageCard({ stage }) {
+  const done = stage.status === 'done', run = stage.status === 'running';
+  const pct = (stage.n / stage.tot) * 100;
+  return (
+    <div style={{ background:'var(--surface-raised)', border:`1px solid ${run ? 'var(--border-accent)' : 'var(--border-ui)'}`, borderRadius:'var(--radius-xl)', padding:'14px 16px', boxShadow: run ? 'var(--shadow-sm)' : 'var(--shadow-xs)', transition:'border-color 0.3s' }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom: (done||run) ? 10 : 0 }}>
+        <div>
+          <div style={{ fontFamily:'var(--font-mono)', fontSize:12, fontWeight:500, color:'var(--text-primary)', marginBottom:3 }}>{stage.cmd}</div>
+          <div style={{ fontFamily:'var(--font-ui)', fontSize:12, color:'var(--text-secondary)' }}>{stage.desc}</div>
+        </div>
+        <StatusIcon status={stage.status} />
+      </div>
+      {(done || run) && (
+        <>
+          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}>
+            <span style={{ fontFamily:'var(--font-mono)', fontSize:11, color:'var(--text-tertiary)' }}>{stage.n} / {stage.tot} nodes</span>
+            <span style={{ fontFamily:'var(--font-mono)', fontSize:11, color: done ? 'var(--verified-fg)' : 'var(--text-accent)' }}>{Math.round(pct)}%</span>
+          </div>
+          <div style={{ height:3, background:'var(--surface-overlay)', borderRadius:2, overflow:'hidden', marginBottom:10 }}>
+            <div style={{ height:'100%', width:`${pct}%`, borderRadius:2, background: done ? 'var(--verified-fg)' : 'var(--action-bg)', animation: run ? 'pulse 1.8s ease-in-out infinite' : 'none', transition:'width 0.35s ease' }} />
+          </div>
+        </>
+      )}
+      <div style={{ fontFamily:'var(--font-mono)', fontSize:10, color:'var(--text-tertiary)', display:'flex', alignItems:'center', gap:4 }}>
+        <svg width="8" height="8" viewBox="0 0 8 8" fill="none"><path d="M1 4h6M5 1.5l2.5 2.5L5 6.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        {stage.out}
+      </div>
+    </div>
+  );
+}
+
+function RunButton({ phase, onRun, bundleSize }) {
+  const done = phase === 'done';
+  const busy = phase === 'indexing' || phase === 'bundling';
+  const label = phase === 'paused' ? 'Run to completion'
+    : phase === 'indexing' ? 'Indexing vectors…'
+    : phase === 'bundling' ? 'Packing bundle…'
+    : 'Bundle ready';
+  return (
+    <button onClick={onRun} disabled={phase !== 'paused'} style={{
+      width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8,
+      padding:'10px 14px', borderRadius:'var(--radius-xl)',
+      fontFamily:'var(--font-ui)', fontSize:13, fontWeight:500,
+      background: done ? 'var(--verified-bg)' : busy ? 'var(--surface-overlay)' : 'var(--action-bg)',
+      color: done ? 'var(--verified-fg)' : busy ? 'var(--text-secondary)' : 'var(--action-fg)',
+      border:`1px solid ${done ? 'var(--verified-border)' : busy ? 'var(--border-ui)' : 'transparent'}`,
+      cursor: phase === 'paused' ? 'pointer' : 'default', transition:'all 0.2s',
+    }}>
+      {phase === 'paused' && <svg width="11" height="11" viewBox="0 0 11 11" fill="currentColor"><path d="M2 1l7 4.5L2 10z"/></svg>}
+      {busy && <span style={{ width:12, height:12, borderRadius:'50%', border:'2px solid var(--text-tertiary)', borderTopColor:'transparent', display:'inline-block', animation:'spin 0.7s linear infinite' }} />}
+      {done && <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+      {label}
+      {done && bundleSize && <span style={{ fontFamily:'var(--font-mono)', fontSize:11, opacity:0.75 }}>· {bundleSize}</span>}
+    </button>
+  );
+}
+
+function LogStream({ logs, phase }) {
+  const ref = useRef(null);
+  useEffect(() => { if (ref.current) ref.current.scrollTop = ref.current.scrollHeight; }, [logs]);
+  const busy = phase === 'indexing' || phase === 'bundling';
+  return (
+    <div ref={ref} style={{ flex:1, overflowY:'auto', background:'var(--ink-950)', borderRadius:'var(--radius-xl)', border:'1px solid var(--ink-800)', padding:'14px 16px', fontFamily:'var(--font-mono)', fontSize:11, lineHeight:1.8 }}>
+      {logs.map((l, i) => (
+        <div key={i} style={{ display:'flex', gap:12, animation: i >= INITIAL_LOGS.length ? 'fadein 0.18s ease both' : 'none' }}>
+          <span style={{ color:'var(--ink-500)', flexShrink:0 }}>{l.t}</span>
+          <span style={{ color: l.ok ? '#6ee7a0' : 'var(--ink-300)' }}>{l.msg}</span>
+        </div>
+      ))}
+      {busy && (
+        <div style={{ display:'flex', gap:12 }}>
+          <span style={{ color:'var(--ink-500)', flexShrink:0 }}>··:··:··</span>
+          <span style={{ color:'var(--ink-400)' }}>working<span style={{ animation:'blink 1.1s step-start infinite' }}>▌</span></span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NodeBrowserRow({ node, indexed, onClick }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <div onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+      style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 10px', borderRadius:'var(--radius-lg)', background: hov ? 'var(--surface-raised)' : 'transparent', border:`1px solid ${hov ? 'var(--border-ui)' : 'transparent'}`, cursor:'pointer', transition:'all 0.12s' }}>
+      <span style={{ width:7, height:7, borderRadius:'50%', flexShrink:0, background: indexed ? 'oklch(57% 0.17 152)' : 'var(--ink-200)', transition:'background 0.3s' }} title={indexed ? 'Indexed' : 'Pending'} />
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontFamily:'var(--font-ui)', fontSize:12, fontWeight:500, color:'var(--text-primary)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{node.title}</div>
+        <div style={{ fontFamily:'var(--font-mono)', fontSize:10, color:'var(--text-tertiary)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{node.path.split('/')[1]}</div>
+      </div>
+      <MarkChip type={node.m} sm />
+    </div>
+  );
+}
+
+function PipelineView({ stages, logs, phase, bundleSize, indexedCount, onRun, onSelectNode }) {
+  return (
+    <div style={{ display:'grid', gridTemplateColumns:'252px 1fr 270px', gap:16, height:'100%', overflow:'hidden' }}>
+
+      {/* Col 1 — Stages + run */}
+      <div style={{ display:'flex', flexDirection:'column', gap:10, overflowY:'auto' }}>
+        <Label>Pipeline</Label>
+        <RunButton phase={phase} onRun={onRun} bundleSize={bundleSize} />
+        {stages.map(s => <StageCard key={s.id} stage={s} />)}
+        <div style={{ padding:'12px 14px', background:'var(--surface-overlay)', borderRadius:'var(--radius-xl)', border:'1px solid var(--border-subtle)' }}>
+          <Label>Manifest</Label>
+          {[['corpus','hydrology-corpus'],['nodes','12'],['indexed',`${indexedCount} / 12`],['model','nomic-embed-text-v1.5'],['dims','384'],['bundle', bundleSize || 'pending']].map(([k,v]) => (
+            <div key={k} style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+              <span style={{ fontFamily:'var(--font-mono)', fontSize:11, color:'var(--text-tertiary)' }}>{k}</span>
+              <span style={{ fontFamily:'var(--font-mono)', fontSize:11, color: k==='bundle' && bundleSize ? 'var(--verified-fg)' : 'var(--text-secondary)' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Col 2 — Logs */}
+      <div style={{ display:'flex', flexDirection:'column', gap:10, overflow:'hidden' }}>
+        <Label right={phase === 'done' ? 'complete' : phase === 'paused' ? 'paused' : 'streaming'}>Log stream</Label>
+        <LogStream logs={logs} phase={phase} />
+      </div>
+
+      {/* Col 3 — Corpus browser */}
+      <div style={{ display:'flex', flexDirection:'column', gap:10, overflow:'hidden' }}>
+        <Label right={`${indexedCount} / 12 indexed`}>Corpus nodes</Label>
+        <div style={{ flex:1, overflowY:'auto', display:'flex', flexDirection:'column', gap:2 }}>
+          {NODES.map((n, i) => <NodeBrowserRow key={i} node={n} indexed={i < indexedCount} onClick={() => onSelectNode(n)} />)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Query Modes ───────────────────────────────────────────────────── */
+
+function useFiltered(settings) {
+  return RESULTS.filter(r => r.score >= settings.threshold).slice(0, settings.topK);
+}
+
+function QueryListMode({ settings, onSelectNode }) {
+  const [q, setQ] = useState('');
+  const [sub, setSub] = useState(false);
+  const display = q || DEFAULT_Q;
+  const shown = useFiltered(settings);
+  return (
+    <div style={{ display:'flex', flexDirection:'column', height:'100%', gap:16, maxWidth:920, margin:'0 auto', width:'100%' }}>
+      <SearchBar value={q} onChange={setQ} onSubmit={() => setSub(true)} placeholder={DEFAULT_Q} large />
+      {sub ? (
+        <div style={{ flex:1, overflowY:'auto', display:'flex', flexDirection:'column', gap:10 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10, paddingBottom:2 }}>
+            <span style={{ fontFamily:'var(--font-serif)', fontSize:13, fontStyle:'italic', color:'var(--text-secondary)' }}>"{display}"</span>
+            <span style={{ fontFamily:'var(--font-mono)', fontSize:10, color:'var(--text-tertiary)' }}>· {shown.length} results · ≥{Math.round(settings.threshold*100)}% · 38ms · HNSW</span>
+          </div>
+          {shown.length ? shown.map((r, i) => (
+            <div key={r.path} style={{ position:'relative', animation:`fadein 0.22s ease ${i*0.07}s both` }}>
+              <NodeCard {...r} onClick={() => onSelectNode(r)} />
+              <div style={{ position:'absolute', top:14, right:14 }}><ScoreBadge score={r.score} /></div>
+            </div>
+          )) : <EmptyState msg="No candidates above the current similarity threshold — lower it in settings" />}
+        </div>
+      ) : <EmptyState msg="Enter a query to search the indexed corpus using vector similarity" />}
+    </div>
+  );
+}
+
+function QuerySplitMode({ settings, onSelectNode }) {
+  const [q, setQ] = useState('');
+  const [sub, setSub] = useState(false);
+  const [selPath, setSelPath] = useState(null);
+  const display = q || DEFAULT_Q;
+  const shown = useFiltered(settings);
+  const submit = () => { setSub(true); setSelPath(shown[0]?.path || null); };
+  return (
+    <div style={{ display:'grid', gridTemplateColumns:'326px 1fr', gap:16, height:'100%', overflow:'hidden' }}>
+      {/* Left */}
+      <div style={{ display:'flex', flexDirection:'column', gap:10, overflow:'hidden' }}>
+        <SearchBar value={q} onChange={setQ} onSubmit={submit} placeholder="Ask the corpus…" />
+        <div style={{ flex:1, overflowY:'auto', display:'flex', flexDirection:'column', gap:5 }}>
+          {sub ? (shown.length ? shown.map((r, i) => {
+            const active = selPath === r.path;
+            return (
+              <div key={r.path} onClick={() => setSelPath(r.path)}
+                style={{ padding:'10px 12px', background: active ? 'var(--surface-accent)' : 'var(--surface-raised)', border:`1px solid ${active ? 'var(--border-accent)' : 'var(--border-ui)'}`, borderRadius:'var(--radius-lg)', cursor:'pointer', animation:`fadein 0.2s ease ${i*0.06}s both`, transition:'all 0.15s' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8, marginBottom:3 }}>
+                  <span style={{ fontFamily:'var(--font-display)', fontSize:14, fontWeight:500, color:'var(--text-primary)', lineHeight:1.3 }}>{r.title}</span>
+                  <ScoreBadge score={r.score} />
+                </div>
+                <div style={{ fontFamily:'var(--font-mono)', fontSize:10, color:'var(--text-tertiary)', marginBottom:5 }}>{r.path}</div>
+                <div style={{ fontFamily:'var(--font-serif)', fontSize:12, color:'var(--text-secondary)', lineHeight:1.5, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{r.excerpt}</div>
+              </div>
+            );
+          }) : <EmptyState msg="No matches — lower the threshold" />) : <EmptyState msg="Results appear here" />}
+        </div>
+      </div>
+      {/* Right */}
+      <div style={{ overflow:'hidden', display:'flex' }}>
+        {sub && shown.length ? (
+          <div style={{ flex:1, background:'var(--surface-raised)', border:'1px solid var(--border-ui)', borderRadius:'var(--radius-xl)', padding:'28px 32px', overflowY:'auto', boxShadow:'var(--shadow-xs)', animation:'slidein 0.28s ease both' }}>
+            <AnswerBlock query={display} sources={shown} onSource={r => onSelectNode(r)} />
+          </div>
+        ) : <EmptyState msg="Submit a query to see a composed answer with citations" />}
+      </div>
+    </div>
+  );
+}
+
+function QueryConverseMode({ settings, onSelectNode }) {
+  const [q, setQ] = useState('');
+  const [sub, setSub] = useState(false);
+  const display = q || DEFAULT_Q;
+  const shown = useFiltered(settings);
+  return (
+    <div style={{ display:'flex', flexDirection:'column', height:'100%', maxWidth:680, margin:'0 auto', width:'100%', gap:16 }}>
+      <div style={{ flex:1, overflowY:'auto', display:'flex', flexDirection:'column', justifyContent: sub ? 'flex-start' : 'center' }}>
+        {sub ? (
+          <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+            <div style={{ display:'flex', justifyContent:'flex-end' }}>
+              <div style={{ maxWidth:'74%', padding:'12px 18px', background:'var(--action-bg)', borderRadius:'18px 18px 4px 18px', fontFamily:'var(--font-serif)', fontSize:15, color:'var(--action-fg)', lineHeight:1.55 }}>
+                {display}
+              </div>
+            </div>
+            <div style={{ animation:'fadein 0.3s ease 0.1s both' }}>
+              <div style={{ padding:'22px 24px', background:'var(--surface-raised)', border:'1px solid var(--border-ui)', borderRadius:'4px 18px 18px 18px', boxShadow:'var(--shadow-xs)' }}>
+                <AnswerBlock sources={null} />
+                <div style={{ marginTop:16, display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
+                  <span style={{ fontFamily:'var(--font-ui)', fontSize:10, color:'var(--text-tertiary)', textTransform:'uppercase', letterSpacing:'0.08em', marginRight:2 }}>Cited</span>
+                  {shown.map((r,i) => (
+                    <span key={i} onClick={() => onSelectNode(r)} style={{ fontFamily:'var(--font-mono)', fontSize:10, padding:'2px 8px', background:'var(--surface-overlay)', border:'1px solid var(--border-ui)', borderRadius:'var(--radius-sm)', color:'var(--text-link)', cursor:'pointer' }}>
+                      {r.path.replace('hydrology/','').replace('.md','')}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : <EmptyState msg="Ask the corpus a question and get a composed answer with epistemic markers" />}
+      </div>
+      <SearchBar value={q} onChange={setQ} onSubmit={() => setSub(true)} placeholder="Ask the corpus a question…" large />
+    </div>
+  );
+}
+
+function QueryView({ mode, settings, onSelectNode }) {
+  if (mode === 'list')     return <QueryListMode settings={settings} onSelectNode={onSelectNode} />;
+  if (mode === 'split')    return <QuerySplitMode settings={settings} onSelectNode={onSelectNode} />;
+  if (mode === 'converse') return <QueryConverseMode settings={settings} onSelectNode={onSelectNode} />;
+  return null;
+}
+
+/* ── App ───────────────────────────────────────────────────────────── */
+
+function App() {
+  const [view,  setView]  = useState('pipeline');
+  const [theme, setTheme] = useState('sid');
+  const [mode,  setMode]  = useState('split');
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState({ model:'nomic-embed-text-v1.5', threshold:0.6, topK:4 });
+
+  // Pipeline simulation state
+  const [stages, setStages] = useState(() => INITIAL_STAGES.map(s => ({ ...s })));
+  const [logs, setLogs] = useState(INITIAL_LOGS);
+  const [phase, setPhase] = useState('paused'); // paused | indexing | bundling | done
+  const [bundleSize, setBundleSize] = useState(null);
+  const clockRef = useRef(17);
+
+  const ts = () => {
+    clockRef.current += 1;
+    const total = clockRef.current;
+    const m = 41 + Math.floor(total / 60);
+    const s = total % 60;
+    return `09:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  };
+  const pushLog = (msg, ok) => setLogs(prev => [...prev, { t: ts(), msg, ok }]);
+
+  const indexStage = stages.find(s => s.id === 'index');
+  const indexedCount = phase === 'done' ? 12 : (indexStage ? indexStage.n : 8);
+  const matchCount = RESULTS.filter(r => r.score >= settings.threshold).length;
+
+  const runPipeline = () => { if (phase === 'paused') { setPhase('indexing'); advanceIndex(8); } };
+
+  const advanceIndex = (n) => {
+    if (n >= 12) {
+      setStages(p => p.map(s => s.id==='index' ? { ...s, n:12, status:'done' } : s));
+      pushLog('[index] ✓ 12/12 vectors written to LanceDB table', true);
+      setTimeout(startBundle, 600);
+      return;
+    }
+    const next = n + 1;
+    setStages(p => p.map(s => s.id==='index' ? { ...s, n:next } : s));
+    pushLog(`[index] ${NODE_NAMES[next-1]} → vec[${pad(next)}]`);
+    setTimeout(() => advanceIndex(next), 340);
+  };
+
+  const startBundle = () => {
+    setPhase('bundling');
+    setStages(p => p.map(s => s.id==='bundle' ? { ...s, status:'running' } : s));
+    pushLog('[bundle] packing .yidam/index/ + manifest.json');
+    advanceBundle(0);
+  };
+
+  const advanceBundle = (n) => {
+    if (n >= 12) {
+      setStages(p => p.map(s => s.id==='bundle' ? { ...s, n:12, status:'done' } : s));
+      setBundleSize('4.2 MB');
+      setPhase('done');
+      pushLog('[bundle] embedding Transformers.js + @lancedb/lancedb runtime');
+      pushLog('[bundle] ✓ wrote .yidam/bundle.yiz · 4.2 MB', true);
+      pushLog('ready — deploy dist/ or open fully offline', true);
+      return;
+    }
+    const next = n + 1;
+    setStages(p => p.map(s => s.id==='bundle' ? { ...s, n:next } : s));
+    setTimeout(() => advanceBundle(next), 150);
+  };
+
+  return (
+    <div data-theme={theme} style={{ height:'100vh', display:'flex', flexDirection:'column', background:'var(--surface-base)', color:'var(--text-primary)' }}>
+
+      {/* ── Top bar ── */}
+      <header style={{ height:50, flexShrink:0, display:'flex', alignItems:'center', padding:'0 16px', gap:12, borderBottom:'1px solid var(--border-ui)', background:'var(--surface-raised)' }}>
+
+        {/* Left: corpus identity */}
+        <div style={{ display:'flex', alignItems:'center', gap:10, flex:1, minWidth:0 }}>
+          <span style={{ fontFamily:'var(--font-mono)', fontSize:12, fontWeight:500, color:'var(--text-primary)', whiteSpace:'nowrap' }}>hydrology-corpus</span>
+          <div style={{ width:1, height:14, background:'var(--border-ui)', flexShrink:0 }} />
+          <BranchRef branch="main" commit="4a7c83e" />
+          <div style={{ width:1, height:14, background:'var(--border-ui)', flexShrink:0 }} />
+          <span style={{ display:'inline-flex', alignItems:'center', gap:5, fontFamily:'var(--font-mono)', fontSize:11, color:'var(--text-tertiary)', whiteSpace:'nowrap' }}>
+            <span style={{ width:6, height:6, borderRadius:'50%', background:'oklch(57% 0.17 152)', flexShrink:0 }} />
+            WASM · offline
+          </span>
+        </div>
+
+        {/* Center: view tabs */}
+        <div style={{ display:'flex', gap:2, background:'var(--surface-overlay)', borderRadius:'var(--radius-lg)', padding:3, flexShrink:0 }}>
+          {[['pipeline','Pipeline'],['query','Query']].map(([id, label]) => (
+            <button key={id} onClick={() => setView(id)} style={{
+              padding:'4px 18px',
+              background: view===id ? 'var(--surface-raised)' : 'transparent',
+              border:`1px solid ${view===id ? 'var(--border-ui)' : 'transparent'}`,
+              borderRadius:'var(--radius-md)', fontFamily:'var(--font-ui)', fontSize:12,
+              fontWeight: view===id ? 500 : 400,
+              color: view===id ? 'var(--text-primary)' : 'var(--text-secondary)',
+              cursor:'pointer', boxShadow: view===id ? 'var(--shadow-xs)' : 'none', transition:'all 0.15s',
+            }}>{label}</button>
+          ))}
+        </div>
+
+        {/* Right: mode pills + settings + theme */}
+        <div style={{ display:'flex', alignItems:'center', gap:12, flex:1, justifyContent:'flex-end' }}>
+          {view === 'query' && (
+            <div style={{ display:'flex', gap:1, background:'var(--surface-overlay)', borderRadius:'var(--radius-md)', padding:2 }}>
+              {[['list','List'],['split','Split'],['converse','Chat']].map(([id, label]) => (
+                <button key={id} onClick={() => setMode(id)} style={{
+                  padding:'3px 11px',
+                  background: mode===id ? 'var(--surface-raised)' : 'transparent',
+                  border:`1px solid ${mode===id ? 'var(--border-ui)' : 'transparent'}`,
+                  borderRadius:'var(--radius-sm)', fontFamily:'var(--font-ui)', fontSize:11,
+                  fontWeight: mode===id ? 500 : 400,
+                  color: mode===id ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                  cursor:'pointer', transition:'all 0.12s',
+                }}>{label}</button>
+              ))}
+            </div>
+          )}
+
+          {/* Settings gear */}
+          <button onClick={() => setSettingsOpen(o => !o)} title="Retrieval settings" style={{
+            width:28, height:28, borderRadius:'var(--radius-md)', display:'flex', alignItems:'center', justifyContent:'center',
+            background: settingsOpen ? 'var(--surface-accent)' : 'transparent',
+            border:`1px solid ${settingsOpen ? 'var(--border-accent)' : 'var(--border-ui)'}`,
+            color: settingsOpen ? 'var(--text-accent)' : 'var(--text-secondary)', cursor:'pointer', flexShrink:0, transition:'all 0.12s',
+          }}>
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+              <circle cx="7.5" cy="7.5" r="2.2" stroke="currentColor" strokeWidth="1.2"/>
+              <path d="M7.5 1v2M7.5 12v2M1 7.5h2M12 7.5h2M3 3l1.4 1.4M10.6 10.6L12 12M12 3l-1.4 1.4M4.4 10.6L3 12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+            </svg>
+          </button>
+
+          {/* Theme swatches */}
+          <div style={{ display:'flex', gap:5, alignItems:'center' }}>
+            {THEMES.map(t => (
+              <button key={t.id} onClick={() => setTheme(t.id)} title={t.id}
+                style={{ width:16, height:16, borderRadius:'50%', background:t.dot, padding:0, cursor:'pointer', flexShrink:0, border:`2px solid ${theme===t.id ? 'var(--text-primary)' : 'transparent'}`, outline: theme===t.id ? '2px solid var(--surface-raised)' : 'none', outlineOffset:-2, transition:'border 0.12s' }}
+              />
+            ))}
+          </div>
+        </div>
+      </header>
+
+      {/* ── Main ── */}
+      <main style={{ flex:1, overflow:'hidden', padding:16 }}>
+        {view === 'pipeline'
+          ? <PipelineView stages={stages} logs={logs} phase={phase} bundleSize={bundleSize} indexedCount={indexedCount} onRun={runPipeline} onSelectNode={setSelectedNode} />
+          : <QueryView mode={mode} settings={settings} onSelectNode={setSelectedNode} />}
+      </main>
+
+      {settingsOpen && <SettingsPanel settings={settings} setSettings={setSettings} matchCount={matchCount} onClose={() => setSettingsOpen(false)} />}
+      <NodeDrawer node={selectedNode} onSelect={setSelectedNode} onClose={() => setSelectedNode(null)} />
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
+

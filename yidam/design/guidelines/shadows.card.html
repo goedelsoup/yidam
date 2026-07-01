@@ -1,0 +1,25 @@
+<!-- @dsCard group="Spacing" viewport="700x130" name="Shadows" subtitle="Minimal elevation — xs and sm cover most surfaces" -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; padding: 20px 24px; background: var(--surface-overlay);
+    display: flex; gap: 16px; align-items: center; }
+  .card { background: var(--surface-raised); border-radius: var(--radius-xl);
+    width: 80px; height: 60px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 4px; }
+  .lbl { font-family: var(--font-mono); font-size: 9px; color: var(--text-tertiary); }
+</style>
+</head>
+<body>
+  <div class="card" style="box-shadow:var(--shadow-none);border:1px solid var(--border-ui)"><div class="lbl">none</div></div>
+  <div class="card" style="box-shadow:var(--shadow-xs)"><div class="lbl">xs</div></div>
+  <div class="card" style="box-shadow:var(--shadow-sm)"><div class="lbl">sm</div></div>
+  <div class="card" style="box-shadow:var(--shadow-md)"><div class="lbl">md</div></div>
+  <div class="card" style="box-shadow:var(--shadow-lg)"><div class="lbl">lg</div></div>
+  <div class="card" style="box-shadow:var(--shadow-xl)"><div class="lbl">xl</div></div>
+  <div class="card" style="box-shadow:var(--shadow-focus-gold);border:1px solid var(--gold-400)"><div class="lbl">focus</div><div style="font-family:var(--font-mono);font-size:8px;color:var(--gold-600)">gold</div></div>
+</body>
+</html>

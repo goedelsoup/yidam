@@ -1,0 +1,304 @@
+<!-- @startingPoint section="Interfaces" subtitle="Corpus browser — living knowledge graph" viewport="1280x800" -->
+<!-- @dsCard group="Corpus Browser" viewport="1280x800" name="Corpus Browser" subtitle="Interactive prototype — click nodes, switch views" -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-base); height: 100vh; overflow: hidden; font-family: var(--font-ui); }
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--ink-200); border-radius: 3px; }
+</style>
+</head>
+<body>
+<div id="root" style="height:100vh"></div>
+<script type="text/babel">
+const { Button, Badge, Tabs, Breadcrumb, NodeCard, ClaimMarker, PhaseTag, BranchRef, Avatar } = window.YidamDesignSystem_76df35;
+const { useState } = React;
+
+const NODES = [
+  { id:1, path:'hydrology/watershed-boundaries.md', title:'Watershed Boundaries', excerpt:'The study watershed encompasses 2,400 km² bounded by the Continental Divide to the north and the state line to the south, covering mixed agricultural and forested land use.', outgoing:4, incoming:7, lineCount:18, lastModified:'2 days ago', markers:['verified'] },
+  { id:2, path:'hydrology/base-flow-regime.md', title:'Base Flow Regime', excerpt:'Base flow in the watershed is maintained primarily by groundwater discharge from the fractured granite aquifer underlying the upper reaches.', outgoing:3, incoming:4, lineCount:22, lastModified:'5 days ago', markers:['inference'] },
+  { id:3, path:'hydrology/lowflow-thresholds.md', title:'Low-Flow Thresholds', excerpt:'The 7Q10 low-flow threshold, calculated from 40 years of USGS gauge data, is 0.28 m³/s at the watershed outlet.', outgoing:2, incoming:5, lineCount:14, lastModified:'1 week ago', markers:['verified'] },
+  { id:4, path:'hydrology/streamflow-seasonality.md', title:'Streamflow Seasonality', excerpt:'Peak flows occur in April–May driven by snowmelt from elevations above 3,000 m. Summer recession begins in June.', outgoing:5, incoming:3, lineCount:26, lastModified:'1 week ago', markers:['verified','inference'] },
+  { id:5, path:'hydrology/sediment-transport-drivers.md', title:'What drives sediment transport seasonality?', excerpt:'Whether seasonal flow variation or episodic precipitation events are the primary driver of suspended sediment load remains unresolved.', outgoing:2, incoming:1, lineCount:12, lastModified:'3 days ago', markers:['open'], isOpenQuestion:true },
+  { id:6, path:'water-quality/conductivity-correlates.md', title:'Conductivity Correlates', excerpt:'Specific conductance increases significantly during low-flow periods, suggesting increasing groundwater contribution and evaporative concentration.', outgoing:3, incoming:2, lineCount:19, lastModified:'4 days ago', markers:['inference'] },
+];
+
+const COMMITS = [
+  { hash:'a3f2b1c', msg:'Establish base flow as groundwater-driven inference', author:'ma/alice', date:'2 days ago', type:'epistemic' },
+  { hash:'e8f3a92', msg:'Add NWIS connector fixture for gauge 09380000', author:'ma/agent-01', date:'3 days ago', type:'operational' },
+  { hash:'c7d2b44', msg:'Open question: sediment transport seasonality', author:'ma/alice', date:'3 days ago', type:'epistemic' },
+  { hash:'b4a9f17', msg:'Verify watershed boundary extents against NHD dataset', author:'ma/alice', date:'1 week ago', type:'epistemic' },
+  { hash:'91f5e33', msg:'Operational: wire lowflow calculator', author:'ma/agent-01', date:'1 week ago', type:'operational' },
+];
+
+function LogoMark() {
+  return (
+    <svg width="32" height="22" viewBox="0 0 48 32" fill="none">
+      <defs><marker id="lm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
+        <path d="M1 1.5L9 5L1 8.5" fill="none" stroke="#b88a00" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+      </marker></defs>
+      <circle cx="5.5" cy="8" r="4.5" stroke="#413d36" strokeWidth="1.3" fill="none"/>
+      <circle cx="5.5" cy="24" r="4.5" stroke="#413d36" strokeWidth="1.3" fill="none"/>
+      <path d="M9.8 9.6L34.4 14.2" stroke="#b88a00" strokeWidth="1.1" strokeLinecap="round" markerEnd="url(#lm)"/>
+      <path d="M9.8 22.4L34.4 17.8" stroke="#b88a00" strokeWidth="1.1" strokeLinecap="round" markerEnd="url(#lm)"/>
+      <circle cx="42.5" cy="16" r="5.5" stroke="#413d36" strokeWidth="1.4" fill="none"/>
+      <circle cx="42.5" cy="16" r="2.2" fill="#b88a00"/>
+    </svg>
+  );
+}
+
+function Sidebar({ nav, setNav }) {
+  const items = [
+    { id:'overview', label:'Overview' },
+    { id:'corpus', label:'Corpus', count:24 },
+    { id:'catalog', label:'Catalog', count:8 },
+    { id:'graph', label:'Graph' },
+    { id:'sangha', label:'Sangha' },
+  ];
+  return (
+    <div style={{width:220,background:'var(--ink-50)',borderRight:'1px solid var(--border-ui)',display:'flex',flexDirection:'column',height:'100%',flexShrink:0}}>
+      <div style={{padding:'18px 18px 14px',borderBottom:'1px solid var(--border-subtle)',display:'flex',alignItems:'center',gap:10}}>
+        <LogoMark />
+        <div>
+          <div style={{fontFamily:'var(--font-display)',fontSize:15,fontWeight:500,color:'var(--text-primary)',letterSpacing:'0.02em',lineHeight:1.2}}>watershed-hydro</div>
+          <div style={{fontFamily:'var(--font-mono)',fontSize:10,color:'var(--text-tertiary)',marginTop:2}}>yidam/2024</div>
+        </div>
+      </div>
+      <div style={{padding:'10px 14px',borderBottom:'1px solid var(--border-subtle)'}}>
+        <BranchRef branch="ma/alice" />
+      </div>
+      <nav style={{flex:1,padding:'8px',display:'flex',flexDirection:'column',gap:2,overflowY:'auto'}}>
+        {items.map(item => (
+          <button key={item.id} onClick={() => setNav(item.id)} style={{
+            width:'100%',textAlign:'left',padding:'7px 12px',
+            background:nav===item.id?'var(--surface-raised)':'transparent',
+            border:nav===item.id?'1px solid var(--border-ui)':'1px solid transparent',
+            borderRadius:'var(--radius-md)',fontFamily:'var(--font-ui)',fontSize:13,
+            fontWeight:nav===item.id?500:400,
+            color:nav===item.id?'var(--text-primary)':'var(--text-secondary)',
+            cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',
+            boxShadow:nav===item.id?'var(--shadow-xs)':'none',
+          }}>
+            {item.label}
+            {item.count && <span style={{fontFamily:'var(--font-mono)',fontSize:10,color:'var(--text-tertiary)'}}>{item.count}</span>}
+          </button>
+        ))}
+      </nav>
+      <div style={{padding:'12px 14px',borderTop:'1px solid var(--border-subtle)',display:'flex',flexDirection:'column',gap:6}}>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          <Badge variant="open" size="sm" dot>3 open</Badge>
+          <Badge variant="verified" size="sm" dot>idx: fresh</Badge>
+        </div>
+        <div style={{fontFamily:'var(--font-mono)',fontSize:9,color:'var(--text-tertiary)'}}>last commit: 2 days ago</div>
+      </div>
+    </div>
+  );
+}
+
+function Overview() {
+  const stats = [
+    {label:'Corpus nodes',value:24,sub:'+3 this week'},
+    {label:'Open questions',value:3,sub:'2 under investigation'},
+    {label:'Catalog sources',value:8,sub:'nwis, echo, census…'},
+    {label:'Index freshness',value:'100%',sub:'HEAD indexed'},
+  ];
+  return (
+    <div style={{padding:'28px 32px',maxWidth:920}}>
+      <div style={{fontFamily:'var(--font-display)',fontSize:34,fontWeight:400,color:'var(--text-primary)',marginBottom:24,lineHeight:1.1}}>Overview</div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:32}}>
+        {stats.map((s,i) => (
+          <div key={i} style={{background:'var(--surface-raised)',border:'1px solid var(--border-ui)',borderRadius:'var(--radius-xl)',padding:'16px 18px',boxShadow:'var(--shadow-xs)'}}>
+            <div style={{fontFamily:'var(--font-display)',fontSize:36,fontWeight:400,color:'var(--text-primary)',lineHeight:1}}>{s.value}</div>
+            <div style={{fontFamily:'var(--font-ui)',fontSize:12,color:'var(--text-secondary)',marginTop:5}}>{s.label}</div>
+            <div style={{fontFamily:'var(--font-mono)',fontSize:10,color:'var(--text-tertiary)',marginTop:2}}>{s.sub}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{fontFamily:'var(--font-ui)',fontSize:11,fontWeight:500,letterSpacing:'0.1em',textTransform:'uppercase',color:'var(--text-tertiary)',marginBottom:12}}>Recent commits</div>
+      <div style={{background:'var(--surface-raised)',border:'1px solid var(--border-ui)',borderRadius:'var(--radius-xl)',overflow:'hidden',boxShadow:'var(--shadow-xs)'}}>
+        {COMMITS.map((c,i) => (
+          <div key={i} style={{display:'flex',alignItems:'center',gap:14,padding:'11px 18px',borderTop:i>0?'1px solid var(--border-subtle)':'none'}}>
+            <Badge variant={c.type==='epistemic'?'gold':'default'} size="sm">{c.type}</Badge>
+            <div style={{flex:1,fontFamily:'var(--font-ui)',fontSize:13,color:'var(--text-primary)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.msg}</div>
+            <BranchRef branch={c.author} short />
+            <span style={{fontFamily:'var(--font-mono)',fontSize:10,color:'var(--text-tertiary)',flexShrink:0}}>{c.hash}</span>
+            <span style={{fontFamily:'var(--font-ui)',fontSize:11,color:'var(--text-tertiary)',flexShrink:0,minWidth:72,textAlign:'right'}}>{c.date}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CorpusList({ onSelectNode }) {
+  return (
+    <div style={{padding:'28px 32px',maxWidth:900}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
+        <div style={{fontFamily:'var(--font-display)',fontSize:34,fontWeight:400,color:'var(--text-primary)',lineHeight:1.1}}>Corpus</div>
+        <div style={{display:'flex',gap:8}}><Badge>24 nodes</Badge><Badge variant="open" dot>3 open</Badge></div>
+      </div>
+      <div style={{display:'flex',flexDirection:'column',gap:10}}>
+        {NODES.map(node => (
+          <NodeCard key={node.id} path={`.yidam/corpus/${node.path}`} title={node.title}
+            excerpt={node.excerpt} outgoing={node.outgoing} incoming={node.incoming}
+            lineCount={node.lineCount} lastModified={node.lastModified} markers={node.markers}
+            isOpenQuestion={node.isOpenQuestion} onClick={() => onSelectNode(node)} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function NodeDetail({ node, onBack }) {
+  if (!node) return null;
+  return (
+    <div style={{padding:'20px 32px 40px',maxWidth:780}}>
+      <button onClick={onBack} style={{fontFamily:'var(--font-ui)',fontSize:12,color:'var(--text-tertiary)',background:'none',border:'none',cursor:'pointer',padding:'0 0 16px',display:'flex',alignItems:'center',gap:4}}>
+        ← back to corpus
+      </button>
+      <Breadcrumb mono items={[{label:'.yidam',href:'#'},{label:'corpus',href:'#'},{label:'hydrology',href:'#'},{label:node.path.split('/').pop()}]} />
+      <div style={{fontFamily:'var(--font-display)',fontSize:38,fontWeight:400,color:'var(--text-primary)',lineHeight:1.15,margin:'16px 0 10px'}}>
+        {node.isOpenQuestion?'? ':''}{node.title}
+      </div>
+      <div style={{display:'flex',gap:8,marginBottom:28,flexWrap:'wrap',alignItems:'center'}}>
+        <BranchRef branch="ma/alice" commit="a3f2b1c" />
+        <span style={{fontFamily:'var(--font-ui)',fontSize:12,color:'var(--text-tertiary)'}}>{node.lastModified}</span>
+        <PhaseTag phase="Investigation" />
+        {node.markers.map((m,i) => (
+          <span key={i} style={{background:`var(--${m==='verified'?'verified':m==='inference'?'inference':'open'}-bg)`,color:`var(--${m==='verified'?'verified':m==='inference'?'inference':'open'}-fg)`,border:`1px solid var(--${m==='verified'?'verified':m==='inference'?'inference':'open'}-border)`,padding:'1px 6px',borderRadius:'var(--radius-sm)',fontFamily:'var(--font-mono)',fontSize:11,fontWeight:500}}>[{m}]</span>
+        ))}
+      </div>
+      <div style={{fontFamily:'var(--font-serif)',fontSize:16,lineHeight:1.8,color:'var(--text-primary)',borderTop:'1px solid var(--border-subtle)',paddingTop:24,marginBottom:28}}>
+        <p style={{margin:'0 0 16px'}}>{node.excerpt} <ClaimMarker type={node.markers[0]||'open'} /></p>
+        <p style={{margin:0}}>Further investigation may reveal connections between this node and sediment transport dynamics <ClaimMarker type="open" /> and long-term water quality trends <ClaimMarker type="inference" /> in the downstream reach.</p>
+      </div>
+      <div style={{fontFamily:'var(--font-ui)',fontSize:11,fontWeight:500,letterSpacing:'0.1em',textTransform:'uppercase',color:'var(--text-tertiary)',marginBottom:10}}>Outgoing edges ({node.outgoing})</div>
+      <div style={{display:'flex',flexDirection:'column',gap:4}}>
+        {NODES.filter((_,i) => i < node.outgoing).map((n,i) => (
+          <div key={i} style={{display:'flex',alignItems:'center',gap:10,fontFamily:'var(--font-mono)',fontSize:12,color:'var(--text-secondary)',padding:'7px 12px',background:'var(--surface-overlay)',borderRadius:'var(--radius-md)'}}>
+            <span style={{color:'var(--gold-500)'}}>→</span>
+            <span>{`.yidam/corpus/${n.path}`}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function GraphView() {
+  const gNodes = [
+    {id:1,x:120,y:140,label:'Watershed\nBoundaries',type:'verified'},
+    {id:2,x:340,y:70,label:'Base Flow\nRegime',type:'inference'},
+    {id:3,x:340,y:220,label:'Lowflow\nThresholds',type:'verified'},
+    {id:4,x:560,y:140,label:'Streamflow\nSeasonality',type:'verified'},
+    {id:5,x:740,y:70,label:'? Sediment\nTransport',type:'open'},
+    {id:6,x:740,y:220,label:'Conductivity\nCorrelates',type:'inference'},
+  ];
+  const edges = [{s:1,t:2},{s:1,t:3},{s:2,t:4},{s:3,t:4},{s:4,t:5},{s:4,t:6}];
+  const fgColors = {verified:'var(--verified-fg)',inference:'var(--inference-fg)',open:'var(--open-fg)'};
+
+  return (
+    <div style={{padding:'28px 32px'}}>
+      <div style={{fontFamily:'var(--font-display)',fontSize:34,fontWeight:400,color:'var(--text-primary)',marginBottom:20,lineHeight:1.1}}>Graph</div>
+      <div style={{background:'var(--surface-raised)',border:'1px solid var(--border-ui)',borderRadius:'var(--radius-xl)',boxShadow:'var(--shadow-xs)',padding:24,overflow:'auto'}}>
+        <svg width="900" height="310" viewBox="0 0 900 310" style={{display:'block'}}>
+          <defs>
+            <marker id="ga" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+              <path d="M1 2L9 5L1 8" fill="none" stroke="#b88a00" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </marker>
+          </defs>
+          {edges.map((e,i) => {
+            const s = gNodes.find(n=>n.id===e.s), t = gNodes.find(n=>n.id===e.t);
+            if(!s||!t) return null;
+            const dx=t.x-s.x,dy=t.y-s.y,len=Math.sqrt(dx*dx+dy*dy);
+            const ux=dx/len,uy=dy/len;
+            return <line key={i} x1={s.x+ux*42} y1={s.y+uy*42} x2={t.x-ux*46} y2={t.y-uy*46} stroke="#b88a00" strokeWidth="1.2" opacity="0.6" markerEnd="url(#ga)"/>;
+          })}
+          {gNodes.map(n => (
+            <g key={n.id} transform={`translate(${n.x},${n.y})`}>
+              <circle r="40" fill="white" stroke={fgColors[n.type]} strokeWidth="1.5"/>
+              <circle r="9" fill={fgColors[n.type]} opacity="0.55"/>
+              {n.label.split('\n').map((line,li) => (
+                <text key={li} y={58+li*14} textAnchor="middle" style={{fontFamily:'var(--font-ui)',fontSize:11,fill:'var(--text-secondary)'}}>{line}</text>
+              ))}
+            </g>
+          ))}
+        </svg>
+      </div>
+      <div style={{display:'flex',gap:20,marginTop:14}}>
+        {[['verified','verified'],['inference','inference'],['open','open question']].map(([k,l]) => (
+          <div key={k} style={{display:'flex',alignItems:'center',gap:6,fontFamily:'var(--font-ui)',fontSize:11,color:'var(--text-tertiary)'}}>
+            <span style={{width:8,height:8,borderRadius:'50%',background:fgColors[k],display:'inline-block'}}/>
+            {l}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SanghaView() {
+  const electors = [
+    {name:'alice',branch:'ma/alice',commits:14,last:'2 days ago',variant:'human'},
+    {name:'agent-01',branch:'ma/agent-01',commits:6,last:'3 days ago',variant:'agent'},
+  ];
+  return (
+    <div style={{padding:'28px 32px',maxWidth:700}}>
+      <div style={{fontFamily:'var(--font-display)',fontSize:34,fontWeight:400,color:'var(--text-primary)',marginBottom:8,lineHeight:1.1}}>Sangha</div>
+      <div style={{fontFamily:'var(--font-serif)',fontSize:14,color:'var(--text-secondary)',lineHeight:1.6,marginBottom:28}}>
+        2 active electors. No pending resolutions. Next synthesis candidate: <BranchRef branch="rigpa/first-synthesis" />.
+      </div>
+      {electors.map((e,i) => (
+        <div key={i} style={{display:'flex',alignItems:'center',gap:16,padding:'16px 20px',background:'var(--surface-raised)',border:'1px solid var(--border-ui)',borderRadius:'var(--radius-xl)',marginBottom:10,boxShadow:'var(--shadow-xs)'}}>
+          <Avatar name={e.name} variant={e.variant} size="md" />
+          <div style={{flex:1}}>
+            <BranchRef branch={e.branch} />
+            <div style={{fontFamily:'var(--font-ui)',fontSize:12,color:'var(--text-tertiary)',marginTop:5}}>{e.commits} commits · last active {e.last}</div>
+          </div>
+          <Badge variant={e.variant==='human'?'ma':'rigpa'} dot>{e.variant}</Badge>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function App() {
+  const [nav, setNav] = useState('overview');
+  const [selectedNode, setSelectedNode] = useState(null);
+
+  function handleSelectNode(node) { setSelectedNode(node); setNav('node-detail'); }
+  function handleBack() { setSelectedNode(null); setNav('corpus'); }
+  function handleNav(id) { setNav(id); if (id !== 'node-detail') setSelectedNode(null); }
+
+  return (
+    <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
+      <Sidebar nav={nav==='node-detail'?'corpus':nav} setNav={handleNav} />
+      <main style={{flex:1,overflowY:'auto',background:'var(--surface-base)'}}>
+        {nav==='overview'    && <Overview />}
+        {nav==='corpus'      && <CorpusList onSelectNode={handleSelectNode} />}
+        {nav==='node-detail' && <NodeDetail node={selectedNode} onBack={handleBack} />}
+        {nav==='graph'       && <GraphView />}
+        {nav==='sangha'      && <SanghaView />}
+        {nav==='catalog'     && (
+          <div style={{padding:'28px 32px'}}>
+            <div style={{fontFamily:'var(--font-display)',fontSize:34,fontWeight:400,color:'var(--text-primary)',marginBottom:10,lineHeight:1.1}}>Catalog</div>
+            <div style={{fontFamily:'var(--font-serif)',fontSize:15,color:'var(--text-secondary)',lineHeight:1.7}}>8 data sources catalogued.<br/>Connectors active: <span style={{fontFamily:'var(--font-mono)',fontSize:13}}>nwis</span> · <span style={{fontFamily:'var(--font-mono)',fontSize:13}}>echo</span> · <span style={{fontFamily:'var(--font-mono)',fontSize:13}}>census</span></div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+/* ─────────────────────────────────────────────────────────────────
+   yidam Design System — Global Stylesheet Entry Point
+   Import this single file to receive all tokens and font-faces.
+   Do not add inline rules here; keep as @import declarations only.
+   ───────────────────────────────────────────────────────────────── */
+
+@import './tokens/fonts.css';
+@import './tokens/colors.css';
+@import './tokens/typography.css';
+@import './tokens/spacing.css';
+@import './tokens/borders.css';
+@import './tokens/shadows.css';
+@import './tokens/motion.css';
+@import './tokens/semantic.css';

@@ -1,0 +1,34 @@
+<!-- @dsCard group="Spacing" viewport="700x140" name="Borders & Radius" subtitle="Precision over softness — radii are small, borders are 1px" -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; padding: 16px 20px; background: var(--surface-base);
+    display: flex; flex-direction: column; gap: 14px; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .box { width: 40px; height: 40px; border: 1px solid var(--border-strong); background: var(--surface-raised); display: flex; align-items: center; justify-content: center; }
+  .lbl { font-family: var(--font-mono); font-size: 9px; color: var(--text-tertiary); text-align: center; margin-top: 3px; }
+  .item { display: flex; flex-direction: column; align-items: center; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="item"><div class="box" style="border-radius:var(--radius-none)"></div><div class="lbl">none<br>0px</div></div>
+    <div class="item"><div class="box" style="border-radius:var(--radius-xs)"></div><div class="lbl">xs<br>2px</div></div>
+    <div class="item"><div class="box" style="border-radius:var(--radius-sm)"></div><div class="lbl">sm<br>3px</div></div>
+    <div class="item"><div class="box" style="border-radius:var(--radius-md)"></div><div class="lbl">md<br>4px</div></div>
+    <div class="item"><div class="box" style="border-radius:var(--radius-lg)"></div><div class="lbl">lg<br>6px</div></div>
+    <div class="item"><div class="box" style="border-radius:var(--radius-xl)"></div><div class="lbl">xl<br>8px</div></div>
+    <div class="item"><div class="box" style="border-radius:var(--radius-2xl)"></div><div class="lbl">2xl<br>12px</div></div>
+    <div class="item"><div class="box" style="border-radius:var(--radius-full);width:40px;height:40px"></div><div class="lbl">full<br>∞</div></div>
+  </div>
+  <div class="row" style="gap:16px;">
+    <div style="height:1px;width:60px;background:var(--border-subtle)"></div><div style="font-family:var(--font-mono);font-size:9px;color:var(--text-tertiary)">--border-subtle</div>
+    <div style="height:1px;width:60px;background:var(--border-ui)"></div><div style="font-family:var(--font-mono);font-size:9px;color:var(--text-tertiary)">--border-ui</div>
+    <div style="height:1px;width:60px;background:var(--border-strong)"></div><div style="font-family:var(--font-mono);font-size:9px;color:var(--text-tertiary)">--border-strong</div>
+    <div style="height:2px;width:60px;background:var(--border-focus)"></div><div style="font-family:var(--font-mono);font-size:9px;color:var(--text-tertiary)">--border-focus (2px)</div>
+  </div>
+</body>
+</html>

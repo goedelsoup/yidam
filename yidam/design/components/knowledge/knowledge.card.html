@@ -1,0 +1,64 @@
+<!-- @dsCard group="Components" viewport="700x380" name="Knowledge" subtitle="ClaimMarker · NodeCard · PhaseTag · BranchRef" -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body { margin: 0; padding: 20px 24px; background: var(--surface-base); display:flex;flex-direction:column;gap:16px; }
+.sep { height: 1px; background: var(--border-subtle); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { ClaimMarker, NodeCard, PhaseTag, BranchRef } = window.YidamDesignSystem_76df35;
+function Preview() {
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:14}}>
+      {/* ClaimMarkers in prose */}
+      <div style={{fontFamily:'var(--font-serif)',fontSize:15,color:'var(--text-primary)',lineHeight:1.7,maxWidth:580}}>
+        Base flow <ClaimMarker type="verified" /> is maintained by groundwater discharge.
+        Peak flows <ClaimMarker type="inference" annotation="based on NWIS gauge 09380000" /> occur in spring.
+        Whether snowmelt drives timing <ClaimMarker type="open" /> remains under investigation.
+      </div>
+      <div className="sep" />
+      {/* Phase tags + branch refs */}
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <PhaseTag phase="Investigation" />
+        <PhaseTag phase="Extraction" />
+        <PhaseTag phase="Synthesis" />
+        <PhaseTag phase="Assessment" />
+        <span style={{marginLeft:8,borderLeft:'1px solid var(--border-subtle)',paddingLeft:16,display:'flex',gap:6,alignItems:'center'}}>
+          <BranchRef branch="ma/alice" />
+          <BranchRef branch="ma/agent-01" />
+          <BranchRef branch="rigpa/first-synthesis" />
+          <BranchRef branch="ma/alice" commit="a3f2b1c" short />
+        </span>
+      </div>
+      <div className="sep" />
+      {/* NodeCard */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <NodeCard
+          path=".yidam/corpus/hydrology/watershed-boundaries.md"
+          title="Watershed Boundaries"
+          excerpt="The study watershed encompasses 2,400 km² bounded by the Continental Divide."
+          outgoing={4} incoming={7} lineCount={18} lastModified="2 days ago"
+          markers={['verified']} onClick={()=>{}} />
+        <NodeCard
+          path=".yidam/corpus/hydrology/"
+          title="What drives sediment transport seasonality?"
+          excerpt="Whether seasonal flow or episodic precipitation drives suspended load remains unresolved."
+          outgoing={2} incoming={1} lineCount={12} lastModified="3 days ago"
+          markers={['open']} isOpenQuestion onClick={()=>{}} />
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Preview />);
+</script>
+</body>
+</html>

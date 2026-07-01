@@ -1,0 +1,1591 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="./styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="./_ds_bundle.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  textarea, input { font-family: inherit; }
+  textarea:focus, input:focus { outline: none; }
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-thumb { background: var(--ink-200); border-radius: 3px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { Button, Badge, BranchRef, Avatar, ClaimMarker } = window.YidamDesignSystem_76df35;
+const { useState, useRef } = React;
+
+/* ── Data ─────────────────────────────────────────────────────────── */
+const DRAFT = `Base flow in the watershed is maintained primarily by groundwater discharge [inference] from the fractured granite aquifer underlying the upper reaches. The relationship between aquifer recharge and surface flow [open] has not been directly measured at this location. Discharge rates [verified] have been recorded at gauge 09380000 since 1982.`;
+
+const OUT_LINKS = ['hydrology/watershed-boundaries.md','hydrology/lowflow-thresholds.md'];
+
+const ONT_CLASSES = [
+  { id:'Watershed',    desc:'A bounded hydrological catchment',    props:[['area_km2','float'],['datum','string'],['huc_code','string']],        edges:[['contains','GaugeStation','out'],['drains-to','Watershed','out']] },
+  { id:'GaugeStation', desc:'Instrumented flow measurement point',  props:[['site_id','string'],['parameter','string'],['period_start','date']],  edges:[['measures','Watershed','in'],['feeds','Connector','out']] },
+  { id:'Connector',    desc:'External async data adapter',          props:[['name','string'],['source_url','string'],['ttl_hours','int']],        edges:[['retrieves-from','GaugeStation','in'],['produces','CorpusNode','out']] },
+  { id:'Calculator',   desc:'Pure deterministic domain computation',props:[['name','string'],['formula','text'],['inputs','text']],              edges:[['consumes','CorpusNode','in']] },
+];
+const ONT_POS = { Watershed:[80,105], GaugeStation:[310,55], Connector:[540,55], Calculator:[540,195] };
+const BW=118, BH=46;
+const ONT_EDGES = [{from:'Watershed',to:'GaugeStation',label:'contains'},{from:'GaugeStation',to:'Connector',label:'feeds'},{from:'Connector',to:'Calculator',label:'produces'}];
+
+const ALICE_POS = [
+  { title:'Watershed Boundaries',   marker:'verified'  },
+  { title:'Base Flow Regime',       marker:'inference' },  /* CONFLICT */
+  { title:'Lowflow Thresholds',     marker:'verified'  },
+  { title:'Streamflow Seasonality', marker:'inference' },
+];
+const BOB_POS = [
+  { title:'Watershed Boundaries',       marker:'verified'  },
+  { title:'Base Flow Regime',           marker:'verified'  },  /* CONFLICT */
+  { title:'Sediment Transport Drivers', marker:'open'      },
+  { title:'Conductivity Correlates',    marker:'inference' },
+];
+
+const CS = {
+  verified:  { bg:'var(--verified-bg)',  fg:'var(--verified-fg)',  bd:'var(--verified-border)'  },
+  inference: { bg:'var(--inference-bg)', fg:'var(--inference-fg)', bd:'var(--inference-border)' },
+  open:      { bg:'var(--open-bg)',      fg:'var(--open-fg)',      bd:'var(--open-border)'      },
+};
+
+/* ── Helpers ─────────────────────────────────────────────────────── */
+function parseMarkers(text) {
+  return text.split(/(\[(?:verified|inference|open)\])/g).map((p,i) => {
+    const m = p.match(/^\[(verified|inference|open)\]$/);
+    return m ? <ClaimMarker key={i} type={m[1]}/> : <span key={i}>{p}</span>;
+  });
+}
+
+function MPill({ type, sm }) {
+  const s = CS[type] || CS.open;
+  return <span style={{padding:sm?'0 4px':'1px 6px',borderRadius:3,fontFamily:'var(--font-mono)',fontSize:sm?9:11,fontWeight:600,background:s.bg,color:s.fg,border:`1px solid ${s.bd}`,whiteSpace:'nowrap',lineHeight:1.6}}>[{type}]</span>;
+}
+
+function Div() { return <div style={{height:1,background:'var(--border-subtle)',flexShrink:0}}/>; }
+
+function Frame({ id, label, x, y, w, h, children }) {
+  return (
+    <div id={id} style={{position:'absolute',left:x,top:y,width:w}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
+        <a href={`#${id}`} style={{background:'var(--ink-900)',color:'var(--ink-50)',fontFamily:'var(--font-mono)',fontSize:11,fontWeight:700,padding:'2px 9px',borderRadius:'var(--radius-sm)',textDecoration:'none',flexShrink:0}}>{id}</a>
+        <span style={{fontFamily:'var(--font-ui)',fontSize:12,color:'var(--ink-500)',lineHeight:1.3}}>{label}</span>
+      </div>
+      <div style={{background:'white',borderRadius:12,overflow:'hidden',boxShadow:'0 2px 20px rgba(13,12,11,0.11)',height:h,display:'flex',flexDirection:'column'}}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function SLabel({ x, y, num, title, sub }) {
+  return (
+    <div style={{position:'absolute',left:x,top:y}}>
+      <div style={{fontFamily:'var(--font-display)',fontSize:28,fontWeight:400,color:'var(--ink-700)',lineHeight:1.1}}>
+        <span style={{fontFamily:'var(--font-mono)',fontSize:12,color:'var(--ink-400)',marginRight:10,verticalAlign:'middle'}}>{num}</span>
+        {title}
+      </div>
+      <div style={{fontFamily:'var(--font-serif)',fontSize:13,fontStyle:'italic',color:'var(--ink-500)',marginTop:3}}>{sub}</div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   01 — Node Editor · Writer's Desk
+   ═══════════════════════════════════════════════════════════════════ */
+function NodeEditor1a() {
+  const [content, setContent] = useState(DRAFT);
+  const [committing, setCommitting] = useState(false);
+  const [msg, setMsg] = useState('');
+  const taRef = useRef(null);
+
+  const lines = content.split('\n').reduce((n,l) => n + Math.max(1, Math.ceil(l.length/74)), 0);
+  const pct = Math.min(lines/40, 1);
+  const gaugeColor = pct > 0.87 ? '#c8342a' : pct > 0.67 ? 'var(--gold-500)' : 'var(--verified-fg)';
+
+  function insertAt(type) {
+    const ta = taRef.current;
+    const marker = ` [${type}]`;
+    if (ta) {
+      const start = ta.selectionStart, end = ta.selectionEnd;
+      const newVal = content.slice(0, start) + marker + content.slice(end);
+      setContent(newVal);
+      requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(start + marker.length, start + marker.length); });
+    } else {
+      setContent(c => { const t = c.trimEnd(); return t + marker + c.slice(t.length); });
+    }
+  }
+
+  return (
+    <>
+      {/* path bar */}
+      <div style={{padding:'8px 16px',background:'var(--ink-0)',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+        <BranchRef branch="ma/alice"/>
+        <span style={{fontFamily:'var(--font-mono)',fontSize:11,color:'var(--ink-300)'}}>›</span>
+        <span style={{fontFamily:'var(--font-mono)',fontSize:11,color:'var(--text-secondary)',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>hydrology/base-flow-regime.md</span>
+        <Badge variant="gold" size="sm">draft</Badge>
+      </div>
+      <Div/>
+
+      {/* marker toolbar */}
+      <div style={{padding:'5px 14px',background:'var(--surface-base)',display:'flex',alignItems:'center',gap:5,flexShrink:0}}>
+        {['verified','inference','open'].map(t => {
+          const s = CS[t];
+          return (
+            <button key={t} onClick={() => insertAt(t)} style={{display:'inline-flex',alignItems:'center',padding:'2px 8px',borderRadius:3,background:s.bg,color:s.fg,border:`1px solid ${s.bd}`,fontFamily:'var(--font-mono)',fontSize:10,fontWeight:700,cursor:'pointer'}}>
+              +[{t}]
+            </button>
+          );
+        })}
+        <span style={{width:1,height:14,background:'var(--border-ui)',flexShrink:0,margin:'0 3px'}}/>
+        <button style={{fontFamily:'var(--font-ui)',fontSize:11,color:'var(--text-secondary)',background:'none',border:'1px solid var(--border-ui)',borderRadius:3,padding:'2px 9px',cursor:'pointer'}}>Link →</button>
+        <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:6}}>
+          <div style={{width:54,height:3,background:'var(--ink-100)',borderRadius:2,overflow:'hidden'}}>
+            <div style={{width:`${pct*100}%`,height:'100%',background:gaugeColor,borderRadius:2,transition:'width 150ms'}}/>
+          </div>
+          <span style={{fontFamily:'var(--font-mono)',fontSize:9,color:pct>0.87?'#c8342a':'var(--text-tertiary)'}}>{lines}/40</span>
+        </div>
+      </div>
+      <Div/>
+
+      {/* split: edit | preview */}
+      <div style={{flex:1,display:'grid',gridTemplateColumns:'58% 42%',overflow:'hidden',minHeight:0}}>
+        <div style={{display:'flex',flexDirection:'column',borderRight:'1px solid var(--border-subtle)',overflow:'hidden'}}>
+          <div style={{padding:'3px 14px 2px',fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.12em',textTransform:'uppercase',color:'var(--text-tertiary)',background:'var(--ink-0)',flexShrink:0}}>source</div>
+          <textarea ref={taRef} value={content} onChange={e => setContent(e.target.value)}
+            style={{flex:1,resize:'none',border:'none',padding:'10px 14px',fontFamily:'var(--font-serif)',fontSize:14,lineHeight:1.82,color:'var(--text-primary)',background:'transparent'}}/>
+        </div>
+        <div style={{overflowY:'auto',padding:'10px 14px'}}>
+          <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.12em',textTransform:'uppercase',color:'var(--text-tertiary)',marginBottom:8}}>preview</div>
+          <div style={{fontFamily:'var(--font-display)',fontSize:17,fontWeight:500,color:'var(--text-primary)',marginBottom:9,lineHeight:1.2}}>Base Flow Regime</div>
+          <div style={{fontFamily:'var(--font-serif)',fontSize:13.5,lineHeight:1.82,color:'var(--text-primary)'}}>{parseMarkers(content)}</div>
+          <div style={{marginTop:14,paddingTop:10,borderTop:'1px solid var(--border-subtle)'}}>
+            <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.12em',textTransform:'uppercase',color:'var(--text-tertiary)',marginBottom:5}}>outgoing ({OUT_LINKS.length})</div>
+            {OUT_LINKS.map((l,i) => (
+              <div key={i} style={{fontFamily:'var(--font-mono)',fontSize:10,color:'var(--text-tertiary)',display:'flex',gap:4,alignItems:'center',marginBottom:3}}>
+                <span style={{color:'var(--gold-500)'}}>→</span>{l}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* commit strip */}
+      {!committing ? (
+        <><Div/><div style={{padding:'8px 16px',background:'var(--ink-0)',display:'flex',justifyContent:'flex-end',flexShrink:0}}><Button variant="primary" size="sm" onClick={() => setCommitting(true)}>Commit epistemic change ›</Button></div></>
+      ) : (
+        <div style={{padding:'12px 16px',background:'var(--gold-50)',borderTop:'1px solid var(--gold-200)',flexShrink:0}}>
+          <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.08em',color:'var(--gold-800)',marginBottom:5}}>COMMIT MESSAGE — testimony, not changelog</div>
+          <input value={msg} onChange={e => setMsg(e.target.value)}
+            placeholder="What changed in the world of knowledge?"
+            style={{width:'100%',fontFamily:'var(--font-serif)',fontSize:13.5,padding:'6px 10px',border:'1px solid var(--gold-300)',borderRadius:4,background:'white',marginBottom:7}}/>
+          <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+            <Button variant="ghost" size="sm" onClick={() => setCommitting(false)}>Cancel</Button>
+            <Button variant="primary" size="sm" disabled={!msg.trim()}>Record commit</Button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   02 — Ontology Canvas · Switchable Diagram / Table
+   ═══════════════════════════════════════════════════════════════════ */
+function OntologyCanvas({ importedNodes = [], importedEdges = [] }) {
+  const [view, setView] = useState('diagram');
+  const hasImport = importedNodes.length > 0;
+  const displayClasses = hasImport
+    ? importedNodes.map(n => ONT_CLASSES.find(c=>c.id===n.id) || {id:n.id,desc:n.desc,props:[],edges:[]})
+    : ONT_CLASSES;
+  const displayEdges = hasImport
+    ? importedEdges.map(e=>({from:e.from,to:e.to,label:e.rel}))
+    : ONT_EDGES;
+  const [sel, setSel] = useState(() => displayClasses[0]?.id || 'Watershed');
+  const [pos, setPos] = useState(() => {
+    const r={};
+    displayClasses.forEach((c,i) => {
+      r[c.id] = ONT_POS[c.id] ? [...ONT_POS[c.id]] : [60+(i%3)*185, 55+Math.floor(i/3)*115];
+    });
+    return r;
+  });
+  const [drag, setDrag] = useState(null);
+  const svgRef = useRef(null);
+  const moved = useRef(false);
+  const cls = displayClasses.find(c => c.id === sel);
+
+  function startDrag(e, id) {
+    e.preventDefault();
+    const svg = svgRef.current; if (!svg) return;
+    const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+    const sp = pt.matrixTransform(svg.getScreenCTM().inverse());
+    moved.current = false;
+    setDrag({ id, ox: sp.x - pos[id][0], oy: sp.y - pos[id][1] });
+  }
+
+  function onMove(e) {
+    if (!drag || !svgRef.current) return;
+    const pt = svgRef.current.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+    const sp = pt.matrixTransform(svgRef.current.getScreenCTM().inverse());
+    moved.current = true;
+    setPos(prev => ({ ...prev, [drag.id]: [Math.max(2, Math.min(660-BW, sp.x-drag.ox)), Math.max(2, Math.min(264-BH, sp.y-drag.oy))] }));
+  }
+
+  function endDrag() {
+    if (!moved.current && drag) setSel(drag.id);
+    setDrag(null);
+  }
+
+  return (
+    <>
+      {/* header + toggle */}
+      <div style={{padding:'7px 16px',background:'var(--ink-0)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <span style={{fontFamily:'var(--font-mono)',fontSize:12,color:'var(--text-secondary)'}}>watershed-hydro.ont.yml</span>
+          <Badge size="sm">{displayClasses.length} classes</Badge>
+          {hasImport && <Badge size="sm" variant="rigpa">from bootstrap</Badge>}
+        </div>
+        <div style={{display:'inline-flex',background:'var(--ink-100)',borderRadius:5,padding:2,gap:1}}>
+          {[['diagram','Diagram'],['table','Table']].map(([v,lbl]) => (
+            <button key={v} onClick={() => setView(v)}
+              style={{padding:'3px 14px',borderRadius:4,fontFamily:'var(--font-ui)',fontSize:11,fontWeight:500,background:view===v?'white':'transparent',border:'none',boxShadow:view===v?'var(--shadow-xs)':'none',color:view===v?'var(--text-primary)':'var(--text-secondary)',cursor:'pointer',transition:'all 120ms'}}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+      </div>
+      <Div/>
+
+      {/* diagram view */}
+      {view === 'diagram' && (
+        <div style={{display:'flex',flex:1,overflow:'hidden'}}>
+          <div style={{flex:1,background:'var(--ink-0)',position:'relative',overflow:'hidden'}}>
+            <div style={{position:'absolute',top:10,left:10,display:'flex',gap:6,zIndex:2}}>
+              <button style={{fontFamily:'var(--font-ui)',fontSize:11,padding:'4px 10px',background:'var(--gold-500)',color:'var(--ink-950)',border:'none',borderRadius:4,cursor:'pointer',fontWeight:500}}>+ Class</button>
+              <button style={{fontFamily:'var(--font-ui)',fontSize:11,padding:'4px 10px',background:'none',color:'var(--text-tertiary)',border:'1px solid var(--border-ui)',borderRadius:4,cursor:'pointer'}}>+ Relationship</button>
+            </div>
+            <svg ref={svgRef} width="100%" height="100%" viewBox="0 0 780 310" style={{display:'block',position:'absolute',inset:0,cursor:drag?'grabbing':'default'}} onMouseMove={onMove} onMouseUp={endDrag} onMouseLeave={endDrag}>
+              <defs>
+                <pattern id="gp" width="20" height="20" patternUnits="userSpaceOnUse">
+                  <path d="M20 0L0 0 0 20" fill="none" stroke="var(--ink-100)" strokeWidth="0.5"/>
+                </pattern>
+                <marker id="oc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M1 2L9 5L1 8" fill="none" stroke="#b88a00" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </marker>
+              </defs>
+              <rect width="780" height="310" fill="url(#gp)"/>
+              {displayEdges.map((e,i) => {
+                const sp=pos[e.from], tp=pos[e.to];
+                if(!sp||!tp) return null;
+                const x1=sp[0]+BW/2,y1=sp[1]+BH,x2=tp[0]+BW/2,y2=tp[1];
+                const my=(y1+y2)/2;
+                return (
+                  <g key={i}>
+                    <path d={`M${x1},${y1} C${x1},${my+20} ${x2},${my-20} ${x2},${y2}`} fill="none" stroke="var(--gold-400)" strokeWidth="1.2" opacity="0.7" markerEnd="url(#oc)"/>
+                    <text x={(x1+x2)/2+10} y={my} style={{fontFamily:'var(--font-ui)',fontSize:9,fill:'var(--text-tertiary)'}}>{e.label}</text>
+                  </g>
+                );
+              })}
+              {displayClasses.map(c => {
+                const p=pos[c.id]; if(!p) return null;
+                const active=sel===c.id;
+                return (
+                  <g key={c.id} onMouseDown={e => startDrag(e, c.id)} style={{cursor:drag?.id===c.id?'grabbing':'grab'}}>
+                    <rect x={p[0]} y={p[1]} width={BW} height={BH} rx="7"
+                      fill={active?'var(--gold-50)':'white'} stroke={active?'var(--gold-500)':'var(--border-ui)'} strokeWidth={active?2:1}/>
+                    <text x={p[0]+BW/2} y={p[1]+17} textAnchor="middle" style={{fontFamily:'var(--font-ui)',fontSize:12,fontWeight:active?600:500,fill:active?'var(--gold-800)':'var(--text-primary)'}}>{c.id}</text>
+                    <text x={p[0]+BW/2} y={p[1]+32} textAnchor="middle" style={{fontFamily:'var(--font-ui)',fontSize:9,fill:'var(--text-tertiary)'}}>{c.props.length}p · {c.edges.length}e</text>
+                  </g>
+                );
+              })}
+            </svg>
+          </div>
+          {/* class detail panel */}
+          <div style={{width:224,borderLeft:'1px solid var(--border-ui)',display:'flex',flexDirection:'column',background:'white',flexShrink:0}}>
+            <div style={{padding:'11px 14px',borderBottom:'1px solid var(--border-subtle)',background:'var(--ink-0)'}}>
+              <div style={{fontFamily:'var(--font-display)',fontSize:18,fontWeight:500,color:'var(--text-primary)'}}>{cls?.id}</div>
+              <div style={{fontFamily:'var(--font-serif)',fontSize:11,fontStyle:'italic',color:'var(--text-secondary)',marginTop:3,lineHeight:1.5}}>{cls?.desc}</div>
+            </div>
+            <div style={{flex:1,overflowY:'auto',padding:'11px 14px',display:'flex',flexDirection:'column',gap:12}}>
+              <div>
+                <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.12em',textTransform:'uppercase',color:'var(--text-tertiary)',marginBottom:5}}>Properties</div>
+                {cls?.props.map(([n,t],i) => (
+                  <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'4px 0',borderBottom:'1px solid var(--border-subtle)',alignItems:'baseline'}}>
+                    <span style={{fontFamily:'var(--font-mono)',fontSize:11,color:'var(--text-primary)',fontWeight:500}}>{n}</span>
+                    <span style={{fontFamily:'var(--font-mono)',fontSize:10,color:'var(--rigpa-600)'}}>{t}</span>
+                  </div>
+                ))}
+                <button style={{marginTop:5,fontFamily:'var(--font-ui)',fontSize:11,color:'var(--gold-700)',background:'none',border:'none',cursor:'pointer',padding:0}}>+ Add property</button>
+              </div>
+              <div>
+                <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.12em',textTransform:'uppercase',color:'var(--text-tertiary)',marginBottom:5}}>Edges</div>
+                {cls?.edges.map(([rel,target,dir],i) => (
+                  <div key={i} style={{display:'flex',alignItems:'center',gap:5,padding:'4px 0',borderBottom:'1px solid var(--border-subtle)'}}>
+                    <span style={{fontFamily:'var(--font-mono)',fontSize:10,color:'var(--text-secondary)',flex:1}}>{rel}</span>
+                    <span style={{color:'var(--gold-400)',fontSize:12}}>{dir==='out'?'→':'←'}</span>
+                    <span style={{fontFamily:'var(--font-mono)',fontSize:10,color:'var(--rigpa-600)',fontWeight:500}}>{target}</span>
+                  </div>
+                ))}
+                <button style={{marginTop:5,fontFamily:'var(--font-ui)',fontSize:11,color:'var(--gold-700)',background:'none',border:'none',cursor:'pointer',padding:0}}>+ Add edge</button>
+              </div>
+            </div>
+            <div style={{padding:'9px 14px',borderTop:'1px solid var(--border-subtle)',display:'flex',gap:6}}>
+              <Button variant="ghost" size="sm">Delete</Button>
+              <Button variant="primary" size="sm">Save class</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* table view */}
+      {view === 'table' && (
+        <div style={{display:'flex',flex:1,overflow:'hidden'}}>
+          <div style={{width:156,borderRight:'1px solid var(--border-ui)',display:'flex',flexDirection:'column',background:'var(--ink-0)',flexShrink:0}}>
+            <div style={{padding:'8px 12px',borderBottom:'1px solid var(--border-subtle)',fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.12em',textTransform:'uppercase',color:'var(--text-tertiary)'}}>Classes</div>
+            {displayClasses.map(c => (
+              <button key={c.id} onClick={() => setSel(c.id)}
+                style={{padding:'9px 12px',textAlign:'left',background:sel===c.id?'white':'none',border:'none',borderLeft:`2px solid ${sel===c.id?'var(--gold-500)':'transparent'}`,borderBottom:'1px solid var(--border-subtle)',fontFamily:'var(--font-ui)',fontSize:13,fontWeight:sel===c.id?500:400,color:sel===c.id?'var(--text-primary)':'var(--text-secondary)',cursor:'pointer'}}>
+                {c.id}
+                <div style={{fontFamily:'var(--font-mono)',fontSize:9,color:'var(--text-tertiary)',marginTop:1}}>{c.props.length}p · {c.edges.length}e</div>
+              </button>
+            ))}
+            <button style={{margin:10,padding:'6px',background:'none',border:'1px dashed var(--border-ui)',borderRadius:4,fontFamily:'var(--font-ui)',fontSize:11,color:'var(--text-tertiary)',cursor:'pointer'}}>+ New</button>
+          </div>
+          <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+            <div style={{padding:'11px 18px',background:'var(--ink-0)',borderBottom:'1px solid var(--border-subtle)',flexShrink:0,display:'flex',alignItems:'baseline',gap:12}}>
+              <div style={{fontFamily:'var(--font-display)',fontSize:22,fontWeight:500,color:'var(--text-primary)'}}>{cls?.id}</div>
+              <div style={{fontFamily:'var(--font-serif)',fontSize:12,fontStyle:'italic',color:'var(--text-secondary)'}}>{cls?.desc}</div>
+            </div>
+            <div style={{flex:1,overflowY:'auto',padding:'14px 18px'}}>
+              {[['Properties',cls?.props,['name','type','description']],['Relationships',cls?.edges,['verb','direction','target class']]].map(([section,rows,hdrs]) => (
+                <div key={section} style={{marginBottom:20}}>
+                  <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.12em',textTransform:'uppercase',color:'var(--text-tertiary)',marginBottom:7}}>{section}</div>
+                  <table style={{width:'100%',borderCollapse:'collapse'}}>
+                    <thead>
+                      <tr style={{borderBottom:'2px solid var(--border-ui)'}}>
+                        {hdrs.map(h => <th key={h} style={{padding:'4px 8px',textAlign:'left',fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,color:'var(--text-tertiary)',letterSpacing:'0.08em',textTransform:'uppercase'}}>{h}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(rows||[]).map((row,i) => (
+                        <tr key={i} style={{borderBottom:'1px solid var(--border-subtle)'}}>
+                          <td style={{padding:'6px 8px',fontFamily:'var(--font-mono)',fontSize:11,color:'var(--text-primary)',fontWeight:500}}>{row[0]}</td>
+                          <td style={{padding:'6px 8px',fontFamily:'var(--font-mono)',fontSize:11,color:section==='Relationships'?'var(--gold-500)':'var(--rigpa-600)',fontSize:section==='Relationships'?14:11}}>{section==='Relationships'?row[2]==='out'?'→':'←':row[1]}</td>
+                          <td style={{padding:'6px 8px',fontFamily:'var(--font-mono)',fontSize:11,color:section==='Relationships'?'var(--rigpa-700)':'var(--text-tertiary)',fontWeight:section==='Relationships'?500:400}}>{section==='Relationships'?row[1]:'—'}</td>
+                        </tr>
+                      ))}
+                      <tr><td colSpan={3} style={{padding:'5px 8px'}}><button style={{fontFamily:'var(--font-ui)',fontSize:11,color:'var(--gold-700)',background:'none',border:'none',cursor:'pointer',padding:0}}>+ Add {section==='Properties'?'property':'relationship'}</button></td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
+            <div style={{padding:'9px 18px',borderTop:'1px solid var(--border-subtle)',display:'flex',justifyContent:'flex-end',gap:8,flexShrink:0}}>
+              <Button variant="ghost" size="sm">Revert</Button>
+              <Button variant="primary" size="sm">Save class</Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   03 — Resolution · Three Columns with Article V provenance
+   ═══════════════════════════════════════════════════════════════════ */
+function Resolution3a({ synthTitles, setSynthTitles, conflictRes, setConflictRes }) {
+
+  function toggle(title) {
+    setSynthTitles(prev => {
+      const next = new Set(prev);
+      if (next.has(title)) next.delete(title); else next.add(title);
+      return next;
+    });
+  }
+
+  function getProv(title) {
+    const a = ALICE_POS.find(n => n.title === title);
+    const b = BOB_POS.find(n => n.title === title);
+    return { alice:a, bob:b, conflict:!!(a && b && a.marker !== b.marker) };
+  }
+
+  function getMarker(title) {
+    const {alice,bob,conflict} = getProv(title);
+    if (!conflict) return alice?.marker || bob?.marker || 'open';
+    const r = conflictRes[title];
+    if (r === 'alice') return alice?.marker;
+    if (r === 'bob') return bob?.marker;
+    if (r === 'open') return 'open';
+    return null;
+  }
+
+  const synthList = [...synthTitles];
+  const unresolved = synthList.filter(t => { const {conflict}=getProv(t); return conflict && !conflictRes[t]; });
+  const art5ok = unresolved.length === 0 && synthList.length > 0;
+  const pAlice = synthList.filter(t => { const {alice,bob}=getProv(t); return alice && !bob; }).length;
+  const pBob   = synthList.filter(t => { const {alice,bob}=getProv(t); return !alice && bob; }).length;
+  const pBoth  = synthList.filter(t => { const {alice,bob}=getProv(t); return alice && bob; }).length;
+
+  return (
+    <div style={{display:'flex',flexDirection:'column',flex:1,overflow:'hidden'}}>
+
+      {/* header */}
+      <div style={{padding:'8px 16px',background:'var(--ink-0)',display:'flex',alignItems:'center',gap:8,flexShrink:0,borderBottom:'1px solid var(--border-subtle)'}}>
+        <span style={{fontFamily:'var(--font-display)',fontSize:16,fontWeight:500,color:'var(--text-primary)'}}>Synthesis composer</span>
+        <span style={{fontFamily:'var(--font-ui)',fontSize:12,color:'var(--text-tertiary)'}}>→</span>
+        <BranchRef branch="rigpa/first-synthesis"/>
+        <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
+          {unresolved.length > 0 && <Badge variant="inference" size="sm" dot>{unresolved.length} conflict{unresolved.length>1?'s':''}</Badge>}
+          {art5ok && <Badge variant="verified" size="sm" dot>Art. V ✓</Badge>}
+        </div>
+      </div>
+
+      {/* 3 columns */}
+      <div style={{flex:1,display:'grid',gridTemplateColumns:'1fr 1fr 1fr',overflow:'hidden',minHeight:0}}>
+
+        {/* ── alice ── */}
+        <div style={{borderRight:'1px solid var(--border-ui)',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+          <div style={{padding:'6px 10px',background:'var(--ma-100)',borderBottom:'1px solid var(--ma-200)',display:'flex',gap:6,alignItems:'center',flexShrink:0}}>
+            <Avatar name="alice" variant="human" size="xs"/>
+            <BranchRef branch="ma/alice" short/>
+            <span style={{marginLeft:'auto',fontFamily:'var(--font-mono)',fontSize:9,color:'var(--ma-600)'}}>{ALICE_POS.length} nodes</span>
+          </div>
+          <div style={{flex:1,padding:'8px',overflowY:'auto'}}>
+            <div style={{fontFamily:'var(--font-ui)',fontSize:9,color:'var(--text-tertiary)',marginBottom:6,fontStyle:'italic'}}>Click node to include in synthesis</div>
+            {ALICE_POS.map((node,i) => {
+              const inSynth = synthTitles.has(node.title);
+              return (
+                <div key={i} onClick={() => toggle(node.title)} style={{padding:'7px 9px',background:'var(--ma-50)',border:'1px solid var(--ma-200)',borderRadius:6,marginBottom:5,cursor:'pointer',opacity:inSynth?0.35:1,transition:'opacity 150ms',userSelect:'none'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:6}}>
+                    <span style={{fontFamily:'var(--font-ui)',fontSize:11,fontWeight:500,color:'var(--text-primary)',lineHeight:1.4,flex:1}}>{node.title}</span>
+                    <MPill type={node.marker} sm/>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── synthesis (Article V enforced) ── */}
+        <div style={{borderRight:'1px solid var(--border-ui)',display:'flex',flexDirection:'column',overflow:'hidden',background:'var(--surface-base)'}}>
+          <div style={{flexShrink:0}}>
+            <div style={{padding:'6px 10px',background:'var(--gold-100)',display:'flex',alignItems:'center',gap:6}}>
+              <span style={{fontFamily:'var(--font-mono)',fontSize:11,color:'var(--gold-800)',fontWeight:700}}>synthesis</span>
+              <span title="Article V: synthesis is selection only — no new claims may be introduced" style={{display:'inline-flex',alignItems:'center',gap:3,padding:'1px 6px',borderRadius:3,background:'var(--gold-200)',color:'var(--gold-800)',fontFamily:'var(--font-ui)',fontSize:9,cursor:'default',userSelect:'none'}}>
+                <svg width="8" height="9" viewBox="0 0 8 9" fill="none"><rect x="1" y="4" width="6" height="5" rx="1" fill="currentColor" opacity=".45"/><path d="M2 4V3a2 2 0 014 0v1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
+                selection only
+              </span>
+              <span style={{marginLeft:'auto',fontFamily:'var(--font-mono)',fontSize:9,color:'var(--gold-600)'}}>{synthList.length} nodes</span>
+            </div>
+            {synthList.length > 0 ? (
+              <div title={`alice only: ${pAlice} · both: ${pBoth} · agent-01 only: ${pBob}`}
+                style={{display:'flex',height:4,background:'var(--gold-50)'}}>
+                {pAlice > 0 && <div style={{flex:pAlice,background:'var(--ma-400)'}}/>}
+                {pBoth  > 0 && <div style={{flex:pBoth, background:'var(--gold-400)'}}/>}
+                {pBob   > 0 && <div style={{flex:pBob,  background:'var(--rigpa-400)'}}/>}
+              </div>
+            ) : <div style={{height:1,background:'var(--gold-200)'}}/>}
+          </div>
+          <div style={{flex:1,padding:'8px',overflowY:'auto'}}>
+            {synthList.length === 0 && (
+              <div style={{fontFamily:'var(--font-serif)',fontSize:11,color:'var(--text-tertiary)',fontStyle:'italic',textAlign:'center',marginTop:24,lineHeight:1.7,padding:'0 8px'}}>Click nodes in either position column to include them</div>
+            )}
+            {synthList.map(title => {
+              const {alice,bob,conflict} = getProv(title);
+              const marker = getMarker(title);
+              const resolved = conflictRes[title];
+
+              return (
+                <div key={title} style={{background:'white',border:`1.5px solid ${conflict && !resolved?'var(--gold-400)':'var(--gold-200)'}`,borderRadius:7,marginBottom:7,overflow:'hidden'}}>
+
+                  {/* title + marker */}
+                  <div style={{padding:'7px 9px',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:6}}>
+                    <span style={{fontFamily:'var(--font-ui)',fontSize:11,fontWeight:500,color:'var(--text-primary)',lineHeight:1.4,flex:1}}>{title}</span>
+                    {marker
+                      ? <MPill type={marker} sm/>
+                      : <span style={{fontFamily:'var(--font-mono)',fontSize:9,color:'var(--gold-600)',fontWeight:700}}>⚑ unresolved</span>
+                    }
+                  </div>
+
+                  {/* Article V — inline conflict resolver */}
+                  {conflict && !resolved && (
+                    <div style={{padding:'7px 9px',background:'var(--gold-50)',borderTop:'1px solid var(--gold-200)'}}>
+                      <div style={{fontFamily:'var(--font-ui)',fontSize:9,color:'var(--gold-800)',fontWeight:700,letterSpacing:'0.05em',marginBottom:5}}>ART. V — MARKER CONFLICT</div>
+                      <div style={{display:'flex',gap:5,alignItems:'center',marginBottom:6,flexWrap:'wrap'}}>
+                        <span style={{fontFamily:'var(--font-ui)',fontSize:9,color:'var(--ma-700)'}}>ma/alice</span>
+                        <MPill type={alice.marker} sm/>
+                        <span style={{fontFamily:'var(--font-ui)',fontSize:9,color:'var(--text-tertiary)'}}>vs</span>
+                        <span style={{fontFamily:'var(--font-ui)',fontSize:9,color:'var(--rigpa-700)'}}>ma/agent-01</span>
+                        <MPill type={bob.marker} sm/>
+                      </div>
+                      <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+                        <button onClick={() => setConflictRes(r=>({...r,[title]:'alice'}))} style={{fontFamily:'var(--font-ui)',fontSize:9,padding:'2px 7px',borderRadius:3,background:'var(--ma-100)',color:'var(--ma-800)',border:'1px solid var(--ma-300)',cursor:'pointer'}}>use alice's [{alice.marker}]</button>
+                        <button onClick={() => setConflictRes(r=>({...r,[title]:'bob'}))} style={{fontFamily:'var(--font-ui)',fontSize:9,padding:'2px 7px',borderRadius:3,background:'var(--rigpa-100)',color:'var(--rigpa-800)',border:'1px solid var(--rigpa-200)',cursor:'pointer'}}>use agent-01's [{bob.marker}]</button>
+                        <button onClick={() => setConflictRes(r=>({...r,[title]:'open'}))} style={{fontFamily:'var(--font-ui)',fontSize:9,padding:'2px 7px',borderRadius:3,background:'var(--open-bg)',color:'var(--open-fg)',border:'1px solid var(--open-border)',cursor:'pointer'}}>make [open] tension</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Article V — conflict resolved banner */}
+                  {conflict && resolved && (
+                    <div style={{padding:'4px 9px',background:'var(--verified-bg)',borderTop:'1px solid var(--verified-border)',display:'flex',alignItems:'center',gap:4}}>
+                      <span style={{color:'var(--verified-fg)',fontSize:10,lineHeight:1}}>✓</span>
+                      <span style={{fontFamily:'var(--font-ui)',fontSize:9,color:'var(--verified-fg)',flex:1}}>resolved — used {resolved==='alice'?'ma/alice':resolved==='bob'?'ma/agent-01':'[open] tension'}</span>
+                      <button onClick={() => setConflictRes(r=>{const n={...r};delete n[title];return n;})} style={{fontFamily:'var(--font-ui)',fontSize:9,color:'var(--text-tertiary)',background:'none',border:'none',cursor:'pointer',padding:0}}>undo</button>
+                    </div>
+                  )}
+
+                  {/* Article V — provenance lineage strip */}
+                  <div style={{padding:'4px 9px',background:'var(--ink-0)',borderTop:'1px solid var(--border-subtle)',display:'flex',alignItems:'center',gap:8}}>
+                    {/* alice dot */}
+                    <span style={{display:'flex',alignItems:'center',gap:3,fontFamily:'var(--font-ui)',fontSize:9,color:alice?'var(--ma-700)':'var(--text-tertiary)'}}>
+                      <span style={{width:6,height:6,borderRadius:'50%',background:alice?'var(--ma-400)':'var(--ink-200)',flexShrink:0,display:'inline-block'}}/>
+                      alice
+                    </span>
+                    {/* agent-01 dot */}
+                    <span style={{display:'flex',alignItems:'center',gap:3,fontFamily:'var(--font-ui)',fontSize:9,color:bob?'var(--rigpa-700)':'var(--text-tertiary)'}}>
+                      <span style={{width:6,height:6,borderRadius:'50%',background:bob?'var(--rigpa-400)':'var(--ink-200)',flexShrink:0,display:'inline-block'}}/>
+                      agent-01
+                    </span>
+                    {/* provenance status */}
+                    <span style={{marginLeft:'auto',fontFamily:'var(--font-ui)',fontSize:9}}>
+                      {alice && bob && !conflict && <span style={{color:'var(--verified-fg)'}}>✓ both agree</span>}
+                      {alice && bob && conflict && !resolved && <span style={{color:'var(--gold-700)',fontWeight:600}}>⚑ resolve marker</span>}
+                      {alice && bob && conflict && resolved && <span style={{color:'var(--verified-fg)'}}>✓ resolved</span>}
+                      {alice && !bob && <span style={{color:'var(--text-tertiary)'}}>single source · Art. V ✓</span>}
+                      {!alice && bob && <span style={{color:'var(--text-tertiary)'}}>single source · Art. V ✓</span>}
+                    </span>
+                  </div>
+
+                  {/* remove */}
+                  <button onClick={() => toggle(title)} style={{width:'100%',padding:'3px',fontFamily:'var(--font-ui)',fontSize:9,color:'var(--text-tertiary)',background:'none',border:'none',borderTop:'1px solid var(--border-subtle)',cursor:'pointer'}}>remove from synthesis</button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── agent-01 ── */}
+        <div style={{display:'flex',flexDirection:'column',overflow:'hidden'}}>
+          <div style={{padding:'6px 10px',background:'var(--rigpa-100)',borderBottom:'1px solid var(--rigpa-200)',display:'flex',gap:6,alignItems:'center',flexShrink:0}}>
+            <Avatar name="agent-01" variant="agent" size="xs"/>
+            <BranchRef branch="ma/agent-01" short/>
+            <span style={{marginLeft:'auto',fontFamily:'var(--font-mono)',fontSize:9,color:'var(--rigpa-600)'}}>{BOB_POS.length} nodes</span>
+          </div>
+          <div style={{flex:1,padding:'8px',overflowY:'auto'}}>
+            <div style={{fontFamily:'var(--font-ui)',fontSize:9,color:'var(--text-tertiary)',marginBottom:6,fontStyle:'italic'}}>Click node to include in synthesis</div>
+            {BOB_POS.map((node,i) => {
+              const inSynth = synthTitles.has(node.title);
+              return (
+                <div key={i} onClick={() => toggle(node.title)} style={{padding:'7px 9px',background:'var(--rigpa-50)',border:'1px solid var(--rigpa-200)',borderRadius:6,marginBottom:5,cursor:'pointer',opacity:inSynth?0.35:1,transition:'opacity 150ms',userSelect:'none'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:6}}>
+                    <span style={{fontFamily:'var(--font-ui)',fontSize:11,fontWeight:500,color:'var(--text-primary)',lineHeight:1.4,flex:1}}>{node.title}</span>
+                    <MPill type={node.marker} sm/>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Article V footer */}
+      <div style={{padding:'8px 16px',borderTop:'1px solid var(--border-ui)',background:'var(--ink-0)',display:'flex',gap:8,alignItems:'center',flexShrink:0}}>
+        <div style={{flex:1}}>
+          {art5ok
+            ? <span style={{fontFamily:'var(--font-serif)',fontSize:11,color:'var(--verified-fg)',fontStyle:'italic'}}>✓ Article V — all {synthList.length} claims sourced from participating positions. No new claims introduced.</span>
+            : unresolved.length > 0
+              ? <span style={{fontFamily:'var(--font-serif)',fontSize:11,color:'var(--gold-700)',fontStyle:'italic'}}>⚑ Article V — {unresolved.length} marker conflict{unresolved.length>1?'s require':' requires'} resolution before synthesis is valid.</span>
+              : <span style={{fontFamily:'var(--font-serif)',fontSize:11,color:'var(--text-tertiary)',fontStyle:'italic'}}>Article V — synthesis may only include claims present in participating positions.</span>
+          }
+        </div>
+        <Button variant="ghost" size="sm">Cancel</Button>
+        <Button variant="primary" size="sm" disabled={!art5ok}>Create rigpa/ branch →</Button>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   04a — Bootstrap Wizard · Dialogue-driven with live sketch
+   ═══════════════════════════════════════════════════════════════════ */
+const SEED_NODES = [
+  { id:'Watershed',    desc:'bounded hydrological unit' },
+  { id:'GaugeStation', desc:'instrumented measurement point' },
+];
+const NEXT_NODES = [
+  { id:'Connector',   desc:'external async data adapter' },
+  { id:'Calculator',  desc:'domain computation' },
+  { id:'CorpusNode',  desc:'authored knowledge node' },
+];
+const NEXT_EDGES = [
+  {from:'Watershed',to:'GaugeStation',rel:'contains'},
+  {from:'GaugeStation',to:'Connector',rel:'feeds'},
+  {from:'Connector',to:'Calculator',rel:'produces'},
+];
+const SEED_CONV = [
+  { role:'system', text:'What domain is this corpus investigating? Describe it in one or two precise sentences.' },
+  { role:'user',   text:'The hydrological dynamics of a high-altitude watershed in the southern Rockies — specifically the relationship between snowmelt timing, groundwater recharge, and stream baseflow.' },
+  { role:'system', text:'Good. Who are the primary external data sources you expect to draw on?' },
+  { role:'user',   text:'USGS NWIS gauge records, the NHD+ dataset for watershed delineation, and peer-reviewed literature from 2000–2024.' },
+  { role:'system', text:'Name three to five core ontological concepts — the primary classes of thing this corpus will reason about.' },
+];
+
+function BootstrapWizardA({ nodes, setNodes, edges, setEdges }) {
+  const [conv, setConv] = useState(SEED_CONV);
+  const [input, setInput] = useState('');
+  const [stage, setStage] = useState('dialogue');
+  const [commitMsg, setCommitMsg] = useState('');
+
+  const FOLLOW_UPS = [
+    'What are the key relationships between those concepts? Describe as directed verb phrases (e.g. "contains", "feeds into", "is measured by").',
+    'Good. The schema sketch is taking shape. Review it and name any concept that is missing or mis-scoped.',
+    'The sketch is ready. Proceed to the genesis commit composer when you are satisfied.',
+  ];
+  const qIdx = conv.filter(m => m.role==='user').length - 2;
+
+  function submit() {
+    if (!input.trim()) return;
+    const next = [...conv, { role:'user', text:input.trim() }];
+    if (FOLLOW_UPS[qIdx]) next.push({ role:'system', text:FOLLOW_UPS[qIdx] });
+    if (qIdx === 0) setNodes(prev => {
+      const ids = new Set(prev.map(n=>n.id));
+      return [...prev, ...NEXT_NODES.filter(n=>!ids.has(n.id))];
+    });
+    if (qIdx === 1) setEdges(NEXT_EDGES);
+    setConv(next); setInput('');
+  }
+
+  return (
+    <div style={{display:'flex',flexDirection:'column',flex:1,overflow:'hidden'}}>
+
+      {/* step indicator */}
+      <div style={{padding:'7px 24px',background:'var(--ink-0)',borderBottom:'1px solid var(--border-subtle)',display:'flex',alignItems:'center',flexShrink:0}}>
+        {[['dialogue','Dialogue'],['schema','Schema'],['genesis','Genesis commit']].map(([s,lbl],i)=>{
+          const idx={'dialogue':0,'schema':1,'genesis':2}[stage];
+          const done=i<idx, active=i===idx;
+          return (<React.Fragment key={s}>
+            {i>0&&<div style={{flex:1,height:1,background:'var(--border-ui)',margin:'0 14px'}}/>}
+            <div style={{display:'flex',alignItems:'center',gap:5,flexShrink:0}}>
+              <span style={{width:17,height:17,borderRadius:'50%',border:`1.5px solid ${done||active?'var(--gold-500)':'var(--border-ui)'}`,background:done?'var(--gold-500)':active?'var(--gold-50)':'transparent',display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:8,color:done?'var(--ink-950)':active?'var(--gold-700)':'var(--text-tertiary)',fontWeight:700,flexShrink:0}}>{done?'✓':i+1}</span>
+              <span style={{fontFamily:'var(--font-ui)',fontSize:12,fontWeight:active?500:400,color:active?'var(--text-primary)':done?'var(--text-secondary)':'var(--text-tertiary)'}}>{lbl}</span>
+            </div>
+          </React.Fragment>);
+        })}
+      </div>
+
+      {/* Stage: Dialogue */}
+      {stage === 'dialogue' && (
+        <div style={{display:'flex',flex:1,overflow:'hidden'}}>
+          {/* conversation */}
+          <div style={{flex:1,display:'flex',flexDirection:'column',borderRight:'1px solid var(--border-subtle)',overflow:'hidden'}}>
+            <div style={{padding:'8px 14px',background:'var(--ink-0)',borderBottom:'1px solid var(--border-subtle)',flexShrink:0}}>
+              <div style={{fontFamily:'var(--font-display)',fontSize:14,fontWeight:500,color:'var(--text-primary)'}}>Bootstrap dialogue</div>
+              <div style={{fontFamily:'var(--font-mono)',fontSize:9,color:'var(--text-tertiary)',marginTop:1}}>watershed-hydro · new repository</div>
+            </div>
+            <div style={{flex:1,overflowY:'auto',padding:'12px 14px',display:'flex',flexDirection:'column',gap:9}}>
+              {conv.map((m,i) => (
+                <div key={i} style={{display:'flex',gap:8,alignItems:'flex-start'}}>
+                  {m.role==='system'
+                    ? <div style={{width:18,height:18,borderRadius:3,background:'var(--ink-800)',flexShrink:0,marginTop:2,display:'flex',alignItems:'center',justifyContent:'center'}}><div style={{width:5,height:5,borderRadius:'50%',background:'var(--gold-400)'}}/></div>
+                    : <Avatar name="alice" variant="human" size="xs" style={{marginTop:2,flexShrink:0}}/>
+                  }
+                  <div style={{background:m.role==='system'?'var(--surface-overlay)':'var(--rigpa-50)',border:`1px solid ${m.role==='system'?'var(--border-subtle)':'var(--rigpa-100)'}`,borderRadius:6,padding:'6px 10px',flex:1}}>
+                    <div style={{fontFamily:'var(--font-serif)',fontSize:12.5,lineHeight:1.65,color:'var(--text-primary)'}}>{m.text}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{padding:'9px 14px',borderTop:'1px solid var(--border-subtle)',display:'flex',gap:6,flexShrink:0,background:'var(--ink-0)'}}>
+              <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()}
+                placeholder="Answer and press Enter…"
+                style={{flex:1,fontFamily:'var(--font-serif)',fontSize:13,padding:'5px 9px',border:'1px solid var(--border-ui)',borderRadius:4,background:'var(--surface-raised)',outline:'none'}}/>
+              <Button variant="primary" size="sm" onClick={submit} disabled={!input.trim()}>→</Button>
+            </div>
+          </div>
+          {/* live sketch */}
+          <div style={{width:280,display:'flex',flexDirection:'column',background:'var(--surface-base)',overflow:'hidden'}}>
+            <div style={{padding:'8px 12px',background:'var(--ink-0)',borderBottom:'1px solid var(--border-subtle)',flexShrink:0}}>
+              <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.12em',textTransform:'uppercase',color:'var(--text-tertiary)'}}>live sketch</div>
+              <div style={{fontFamily:'var(--font-mono)',fontSize:9,color:'var(--text-tertiary)',marginTop:1}}>{nodes.length} classes · {edges.length} edges</div>
+            </div>
+            <div style={{flex:1,overflowY:'auto',padding:'10px 12px',display:'flex',flexDirection:'column',gap:5}}>
+              {nodes.map((n) => (
+                <div key={n.id} style={{padding:'6px 8px',background:'white',border:'1px solid var(--border-ui)',borderRadius:5,boxShadow:'var(--shadow-xs)'}}>
+                  <div style={{fontFamily:'var(--font-mono)',fontSize:11,fontWeight:600,color:'var(--text-primary)'}}>{n.id}</div>
+                  <div style={{fontFamily:'var(--font-serif)',fontSize:10,fontStyle:'italic',color:'var(--text-secondary)',marginTop:1}}>{n.desc}</div>
+                </div>
+              ))}
+              {edges.length > 0 && (
+                <div style={{marginTop:6}}>
+                  <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.12em',textTransform:'uppercase',color:'var(--text-tertiary)',marginBottom:5}}>Edges identified</div>
+                  {edges.map((e,i)=>(
+                    <div key={i} style={{display:'flex',alignItems:'center',gap:0,fontFamily:'var(--font-mono)',fontSize:10,color:'var(--text-secondary)',padding:'3px 0',borderBottom:'1px solid var(--border-subtle)'}}>
+                      <span style={{color:'var(--rigpa-600)',fontWeight:500,flex:1}}>{e.from}</span>
+                      <span style={{color:'var(--gold-500)',margin:'0 4px',fontSize:9}}>→{e.rel}→</span>
+                      <span style={{color:'var(--rigpa-600)',fontWeight:500,flex:1,textAlign:'right'}}>{e.to}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {edges.length === 0 && (
+                <div style={{padding:'6px 8px',background:'var(--surface-overlay)',border:'1px dashed var(--border-ui)',borderRadius:5,fontFamily:'var(--font-ui)',fontSize:9,color:'var(--text-tertiary)',textAlign:'center',fontStyle:'italic',marginTop:2}}>
+                  concepts appear as you answer
+                </div>
+              )}
+            </div>
+            <div style={{padding:'9px 12px',borderTop:'1px solid var(--border-subtle)',flexShrink:0,background:'var(--ink-0)'}}>
+              <Button variant={nodes.length>=3?'primary':'ghost'} size="sm" disabled={nodes.length<3}
+                style={{width:'100%',justifyContent:'center'}} onClick={()=>nodes.length>=3&&setStage('schema')}>
+                {nodes.length>=3 ? 'Continue to schema →' : `${3-nodes.length} more concept${3-nodes.length>1?'s':''} needed`}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stage: Schema */}
+      {stage === 'schema' && (
+        <div style={{display:'flex',flex:1,overflow:'hidden'}}>
+          <div style={{width:300,borderRight:'1px solid var(--border-ui)',display:'flex',flexDirection:'column',overflow:'hidden',background:'var(--ink-0)'}}>
+            <div style={{padding:'7px 14px',borderBottom:'1px solid var(--border-subtle)',fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.12em',textTransform:'uppercase',color:'var(--text-tertiary)',flexShrink:0}}>From dialogue</div>
+            <div style={{flex:1,overflowY:'auto',padding:'12px 14px',display:'flex',flexDirection:'column',gap:14}}>
+              {conv.filter(m=>m.role==='user').slice(0,4).map((m,i)=>{
+                const lbls=['Domain','Data sources','Concepts','Relationships'];
+                return (<div key={i}><div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,color:'var(--text-tertiary)',marginBottom:3,letterSpacing:'0.06em',textTransform:'uppercase'}}>{lbls[i]||`Answer ${i+1}`}</div><div style={{fontFamily:'var(--font-serif)',fontSize:12.5,lineHeight:1.65,color:'var(--text-secondary)'}}>{m.text}</div></div>);
+              })}
+            </div>
+          </div>
+          <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+            <div style={{padding:'8px 16px',borderBottom:'1px solid var(--border-subtle)',background:'var(--ink-0)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+              <div style={{fontFamily:'var(--font-display)',fontSize:17,fontWeight:500,color:'var(--text-primary)'}}>Schema sketch</div>
+              <div style={{display:'flex',gap:6}}><Badge size="sm">{nodes.length} classes</Badge><Badge size="sm" variant="gold">{edges.length} edges</Badge></div>
+            </div>
+            <div style={{flex:1,overflowY:'auto',padding:'14px 16px'}}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:14}}>
+                {nodes.map(n=>(
+                  <div key={n.id} style={{padding:'8px 10px',background:'white',border:'1px solid var(--border-ui)',borderRadius:6,boxShadow:'var(--shadow-xs)'}}>
+                    <div style={{fontFamily:'var(--font-mono)',fontSize:11,fontWeight:600,color:'var(--text-primary)'}}>{n.id}</div>
+                    <div style={{fontFamily:'var(--font-serif)',fontSize:10,fontStyle:'italic',color:'var(--text-secondary)',marginTop:2}}>{n.desc}</div>
+                  </div>
+                ))}
+                <button style={{padding:'8px',background:'none',border:'1px dashed var(--gold-300)',borderRadius:6,fontFamily:'var(--font-ui)',fontSize:11,color:'var(--gold-700)',cursor:'pointer'}}>+ Add class</button>
+              </div>
+              {edges.length>0&&(<>
+                <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.12em',textTransform:'uppercase',color:'var(--text-tertiary)',marginBottom:7}}>Relationships</div>
+                {edges.map((e,i)=>(
+                  <div key={i} style={{display:'flex',alignItems:'center',gap:8,fontFamily:'var(--font-mono)',fontSize:11,padding:'5px 0',borderBottom:'1px solid var(--border-subtle)'}}>
+                    <span style={{color:'var(--rigpa-600)',fontWeight:500}}>{e.from}</span>
+                    <span style={{color:'var(--gold-500)'}}>→ {e.rel} →</span>
+                    <span style={{color:'var(--rigpa-600)',fontWeight:500}}>{e.to}</span>
+                  </div>
+                ))}
+              </>)}
+            </div>
+            <div style={{padding:'9px 16px',borderTop:'1px solid var(--border-subtle)',display:'flex',justifyContent:'space-between',background:'var(--ink-0)',flexShrink:0}}>
+              <button onClick={()=>setStage('dialogue')} style={{fontFamily:'var(--font-ui)',fontSize:12,color:'var(--text-tertiary)',background:'none',border:'none',cursor:'pointer'}}>← back</button>
+              <Button variant="primary" size="sm" onClick={()=>setStage('genesis')}>Compose genesis commit →</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stage: Genesis */}
+      {stage === 'genesis' && (
+        <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+          <div style={{flex:1,overflowY:'auto',padding:'22px 28px'}}>
+            <div style={{fontFamily:'var(--font-display)',fontSize:26,fontWeight:400,color:'var(--text-primary)',lineHeight:1.1,marginBottom:5}}>Genesis commit</div>
+            <div style={{fontFamily:'var(--font-serif)',fontSize:13,fontStyle:'italic',color:'var(--text-secondary)',marginBottom:18}}>The first epistemic act. It sets the character of everything that follows.</div>
+            <div style={{display:'flex',gap:8,marginBottom:14}}><Badge variant="gold">epistemic</Badge><BranchRef branch="ma/alice"/></div>
+            <textarea rows={5} value={commitMsg} onChange={e=>setCommitMsg(e.target.value)}
+              placeholder="Establish the domain, name the ontology, and describe what is being committed to."
+              style={{resize:'none',width:'100%',fontFamily:'var(--font-serif)',fontSize:14,lineHeight:1.75,padding:'10px 12px',border:'1px solid var(--border-ui)',borderRadius:6,background:'var(--surface-raised)',outline:'none',marginBottom:14}}/>
+            <div style={{padding:'10px 14px',background:'var(--surface-overlay)',border:'1px solid var(--border-subtle)',borderRadius:6}}>
+              <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.08em',color:'var(--text-tertiary)',marginBottom:6}}>GENESIS COMMIT CRITERIA</div>
+              {['Names the domain precisely','Identifies the ontology (≥3 classes)','Names the primary electors','Acknowledges epistemic scope'].map((c,i)=>(
+                <div key={i} style={{display:'flex',gap:6,alignItems:'baseline',fontFamily:'var(--font-ui)',fontSize:11,color:'var(--text-secondary)',marginBottom:3}}>
+                  <span style={{color:commitMsg.length>40?'var(--verified-fg)':'var(--text-tertiary)',fontSize:10}}>{commitMsg.length>40?'✓':'○'}</span>{c}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{padding:'10px 24px',borderTop:'1px solid var(--border-subtle)',background:'var(--gold-50)',display:'flex',justifyContent:'space-between',flexShrink:0}}>
+            <button onClick={()=>setStage('schema')} style={{fontFamily:'var(--font-ui)',fontSize:12,color:'var(--text-tertiary)',background:'none',border:'none',cursor:'pointer'}}>← back to schema</button>
+            <Button variant="primary" size="sm" disabled={!commitMsg.trim()}>Record genesis commit</Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   04b — Bootstrap Wizard · Ceremony-driven, four commitment phases
+   ═══════════════════════════════════════════════════════════════════ */
+function BootstrapWizardB() {
+  const [phase, setPhase] = useState(0);
+  const [accepted, setAccepted] = useState(false);
+  const [domain, setDomain] = useState('');
+  const [commitMsg, setCommitMsg] = useState('');
+  const PHASES = ['Prelude','Domain','Schema','Genesis commit'];
+
+  return (
+    <div style={{display:'flex',height:'100%'}}>
+      {/* dark rail */}
+      <div style={{width:130,background:'var(--ink-950)',display:'flex',flexDirection:'column',flexShrink:0}}>
+        <div style={{padding:'16px 14px 10px',borderBottom:'1px solid rgba(255,255,255,0.06)'}}>
+          <div style={{fontFamily:'var(--font-display)',fontSize:14,fontWeight:400,color:'var(--ink-200)',letterSpacing:'0.04em'}}>watershed-hydro</div>
+          <div style={{fontFamily:'var(--font-mono)',fontSize:9,color:'var(--ink-600)',marginTop:3}}>new repository</div>
+        </div>
+        <div style={{flex:1,paddingTop:6}}>
+          {PHASES.map((p,i) => { const done=i<phase, active=i===phase; return (
+            <div key={i} style={{padding:'9px 14px',borderLeft:`2px solid ${active?'var(--gold-500)':'transparent'}`,background:active?'rgba(184,138,0,0.10)':'none',display:'flex',alignItems:'center',gap:8}}>
+              <span style={{width:14,height:14,borderRadius:'50%',border:`1.5px solid ${done||active?'var(--gold-500)':'var(--ink-700)'}`,background:done?'var(--gold-600)':'transparent',display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:8,color:'var(--ink-950)',flexShrink:0,fontWeight:700}}>{done?'✓':''}</span>
+              <span style={{fontFamily:'var(--font-ui)',fontSize:12,color:active?'var(--gold-300)':done?'var(--ink-500)':'var(--ink-700)'}}>{p}</span>
+            </div>
+          ); })}
+        </div>
+      </div>
+
+      {/* content pane */}
+      <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        {phase===0 && (<>
+          <div style={{flex:1,overflowY:'auto',padding:'22px 26px'}}>
+            <div style={{fontFamily:'var(--font-display)',fontSize:26,fontWeight:400,color:'var(--text-primary)',lineHeight:1.1,marginBottom:6}}>The prelude</div>
+            <div style={{fontFamily:'var(--font-serif)',fontSize:13,fontStyle:'italic',color:'var(--text-secondary)',marginBottom:18}}>Before the first commit, the commitment.</div>
+            <div style={{background:'var(--ink-50)',border:'1px solid var(--border-ui)',borderRadius:8,padding:'14px 16px',marginBottom:14}}>
+              <div style={{fontFamily:'var(--font-serif)',fontSize:13.5,lineHeight:1.82,color:'var(--text-primary)'}}>
+                This corpus will be a living artifact — partial, improvable, and committed to honesty about what it does not yet know.
+                {' '}<ClaimMarker type="open"/> marks live questions. <ClaimMarker type="inference"/> marks conclusions not yet witnessed directly.
+                {' '}<ClaimMarker type="verified"/> marks claims sourced to committed primary evidence.
+              </div>
+            </div>
+            <div style={{fontFamily:'var(--font-serif)',fontSize:13.5,lineHeight:1.82,color:'var(--text-secondary)',marginBottom:18}}>
+              Every elector — human or agent — contributes from their own branch. Synthesis happens by deliberate ceremony, not by overwriting. The git history is the knowledge record.
+            </div>
+            <label style={{display:'flex',alignItems:'flex-start',gap:10,cursor:'pointer'}}>
+              <input type="checkbox" checked={accepted} onChange={e=>setAccepted(e.target.checked)} style={{marginTop:3,accentColor:'var(--gold-500)',width:15,height:15,flexShrink:0,cursor:'pointer'}}/>
+              <span style={{fontFamily:'var(--font-serif)',fontSize:13.5,color:'var(--text-primary)',lineHeight:1.7}}>I have read the prelude. I accept the epistemic commitments described.</span>
+            </label>
+          </div>
+          <div style={{padding:'9px 18px',borderTop:'1px solid var(--border-subtle)',background:'var(--ink-0)',display:'flex',justifyContent:'flex-end',flexShrink:0}}>
+            <Button variant="primary" size="sm" disabled={!accepted} onClick={()=>setPhase(1)}>Begin domain framing →</Button>
+          </div>
+        </>)}
+
+        {phase===1 && (<>
+          <div style={{flex:1,overflowY:'auto',padding:'22px 26px',display:'flex',flexDirection:'column',gap:14}}>
+            <div style={{fontFamily:'var(--font-display)',fontSize:26,fontWeight:400,color:'var(--text-primary)',lineHeight:1.1,marginBottom:2}}>Domain framing</div>
+            <div>
+              <label style={{display:'block',fontFamily:'var(--font-ui)',fontSize:12,fontWeight:500,color:'var(--text-primary)',marginBottom:4}}>What domain is this corpus investigating?</label>
+              <textarea rows={3} value={domain} onChange={e=>setDomain(e.target.value)} placeholder="One or two precise sentences."
+                style={{resize:'none',width:'100%',fontFamily:'var(--font-serif)',fontSize:13.5,lineHeight:1.7,padding:'7px 10px',border:'1px solid var(--border-ui)',borderRadius:4,background:'var(--surface-raised)',outline:'none'}}/>
+            </div>
+            <div>
+              <label style={{display:'block',fontFamily:'var(--font-ui)',fontSize:12,fontWeight:500,color:'var(--text-primary)',marginBottom:4}}>Primary external data sources</label>
+              <textarea rows={2} placeholder="e.g. USGS NWIS gauge records, NHD+ watershed boundaries, peer-reviewed literature 2000–2024"
+                style={{resize:'none',width:'100%',fontFamily:'var(--font-serif)',fontSize:13.5,lineHeight:1.7,padding:'7px 10px',border:'1px solid var(--border-ui)',borderRadius:4,background:'var(--surface-raised)',outline:'none'}}/>
+            </div>
+            <div>
+              <label style={{display:'block',fontFamily:'var(--font-ui)',fontSize:12,fontWeight:500,color:'var(--text-primary)',marginBottom:6}}>Electors</label>
+              <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                {['alice (human)','agent-01 (agent)'].map((e,i)=>(
+                  <span key={i} style={{padding:'3px 10px',background:'var(--surface-overlay)',border:'1px solid var(--border-ui)',borderRadius:20,fontFamily:'var(--font-ui)',fontSize:12,color:'var(--text-secondary)'}}>{e}</span>
+                ))}
+                <button style={{padding:'3px 10px',background:'none',border:'1px dashed var(--border-ui)',borderRadius:20,fontFamily:'var(--font-ui)',fontSize:12,color:'var(--text-tertiary)',cursor:'pointer'}}>+ Add elector</button>
+              </div>
+            </div>
+          </div>
+          <div style={{padding:'9px 18px',borderTop:'1px solid var(--border-subtle)',background:'var(--ink-0)',display:'flex',justifyContent:'space-between',flexShrink:0}}>
+            <button onClick={()=>setPhase(0)} style={{fontFamily:'var(--font-ui)',fontSize:12,color:'var(--text-tertiary)',background:'none',border:'none',cursor:'pointer'}}>← back</button>
+            <Button variant="primary" size="sm" disabled={!domain.trim()} onClick={()=>setPhase(2)}>Continue to schema →</Button>
+          </div>
+        </>)}
+
+        {phase===2 && (<>
+          <div style={{flex:1,overflowY:'auto',padding:'22px 26px'}}>
+            <div style={{fontFamily:'var(--font-display)',fontSize:26,fontWeight:400,color:'var(--text-primary)',lineHeight:1.1,marginBottom:14}}>Schema sketch</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}}>
+              {[['Watershed','bounded hydrological unit'],['GaugeStation','measurement point'],['Connector','external data adapter'],['Calculator','domain computation']].map(([cls,desc])=>(
+                <div key={cls} style={{padding:'8px 10px',background:'white',border:'1px solid var(--border-ui)',borderRadius:6,boxShadow:'var(--shadow-xs)'}}>
+                  <div style={{fontFamily:'var(--font-mono)',fontSize:11,fontWeight:600,color:'var(--text-primary)'}}>{cls}</div>
+                  <div style={{fontFamily:'var(--font-serif)',fontSize:10,fontStyle:'italic',color:'var(--text-secondary)',marginTop:2}}>{desc}</div>
+                </div>
+              ))}
+            </div>
+            <button style={{fontFamily:'var(--font-ui)',fontSize:11,color:'var(--gold-700)',background:'none',border:'1px dashed var(--gold-300)',borderRadius:4,padding:'5px 12px',cursor:'pointer',width:'100%',marginBottom:14}}>+ Add class</button>
+            <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',color:'var(--text-tertiary)',marginBottom:7}}>Relationships</div>
+            {[['Watershed','contains →','GaugeStation'],['GaugeStation','feeds →','Connector'],['Connector','produces →','CorpusNode']].map(([a,v,b])=>(
+              <div key={a+b} style={{display:'flex',alignItems:'center',gap:8,fontFamily:'var(--font-mono)',fontSize:11,color:'var(--text-secondary)',padding:'5px 0',borderBottom:'1px solid var(--border-subtle)'}}>
+                <span style={{color:'var(--rigpa-600)',fontWeight:500}}>{a}</span>
+                <span style={{color:'var(--gold-500)',fontSize:10}}>{v}</span>
+                <span style={{color:'var(--rigpa-600)',fontWeight:500}}>{b}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{padding:'9px 18px',borderTop:'1px solid var(--border-subtle)',background:'var(--ink-0)',display:'flex',justifyContent:'space-between',flexShrink:0}}>
+            <button onClick={()=>setPhase(1)} style={{fontFamily:'var(--font-ui)',fontSize:12,color:'var(--text-tertiary)',background:'none',border:'none',cursor:'pointer'}}>← back</button>
+            <Button variant="primary" size="sm" onClick={()=>setPhase(3)}>Compose genesis commit →</Button>
+          </div>
+        </>)}
+
+        {phase===3 && (<>
+          <div style={{flex:1,overflowY:'auto',padding:'22px 26px'}}>
+            <div style={{fontFamily:'var(--font-display)',fontSize:26,fontWeight:400,color:'var(--text-primary)',lineHeight:1.1,marginBottom:5}}>Genesis commit</div>
+            <div style={{fontFamily:'var(--font-serif)',fontSize:13,fontStyle:'italic',color:'var(--text-secondary)',marginBottom:16}}>The first epistemic act. It sets the character of everything that follows.</div>
+            <div style={{display:'flex',gap:8,marginBottom:12}}>
+              <Badge variant="gold">epistemic</Badge><BranchRef branch="ma/alice"/>
+            </div>
+            <textarea rows={5} value={commitMsg} onChange={e=>setCommitMsg(e.target.value)}
+              placeholder="Establish the domain, name the ontology, and describe what is being committed to."
+              style={{resize:'none',width:'100%',fontFamily:'var(--font-serif)',fontSize:14,lineHeight:1.75,padding:'9px 11px',border:'1px solid var(--border-ui)',borderRadius:6,background:'var(--surface-raised)',outline:'none',marginBottom:12}}/>
+            <div style={{padding:'9px 12px',background:'var(--surface-overlay)',border:'1px solid var(--border-subtle)',borderRadius:6}}>
+              <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.08em',color:'var(--text-tertiary)',marginBottom:5}}>GENESIS COMMIT CRITERIA</div>
+              {['Names the domain precisely','Identifies the ontology (≥3 classes)','Names the primary electors','Acknowledges epistemic scope'].map((c,i)=>(
+                <div key={i} style={{display:'flex',gap:6,alignItems:'baseline',fontFamily:'var(--font-ui)',fontSize:11,color:'var(--text-secondary)',marginBottom:3}}>
+                  <span style={{color:commitMsg.length>40?'var(--verified-fg)':'var(--text-tertiary)',fontSize:10}}>{commitMsg.length>40?'✓':'○'}</span>{c}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{padding:'9px 18px',borderTop:'1px solid var(--border-subtle)',background:'var(--gold-50)',display:'flex',justifyContent:'space-between',flexShrink:0}}>
+            <button onClick={()=>setPhase(2)} style={{fontFamily:'var(--font-ui)',fontSize:12,color:'var(--text-tertiary)',background:'none',border:'none',cursor:'pointer'}}>← back</button>
+            <Button variant="primary" size="sm" disabled={!commitMsg.trim()}>Record genesis commit</Button>
+          </div>
+        </>)}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   05 — Health Dashboard · S1–S7 · Q1–Q7 · trends
+   ═══════════════════════════════════════════════════════════════════ */
+const S_CHECKS = [
+  { id:'S1', label:'Orphan nodes',           status:'pass', detail:'0 nodes with zero edges',                   affected:[] },
+  { id:'S2', label:'Min outgoing edges',      status:'warn', detail:'2 nodes have only 1 outgoing edge',         affected:['base-flow-regime.md','lowflow-thresholds.md'] },
+  { id:'S3', label:'Line length ≤40',         status:'pass', detail:'All nodes within 40-line ceiling',          affected:[] },
+  { id:'S4', label:'Index freshness',         status:'pass', detail:'Index matches HEAD (a3f2b1c)',               affected:[] },
+  { id:'S5', label:'Claim sourcing',          status:'fail', detail:'1 [inference] node has no source note',     affected:['streamflow-seasonality.md'] },
+  { id:'S6', label:'Open ratio',              status:'pass', detail:'12.5% open questions (3 of 24)',            affected:[] },
+  { id:'S7', label:'Connector fixtures',      status:'warn', detail:'nwis fixture is 6 days old (threshold: 5)', affected:['nwis'] },
+];
+const Q_CHECKS = [
+  { id:'Q1', label:'Single-concept nodes',    status:'pass', detail:'All nodes scoped to one concept',           affected:[] },
+  { id:'Q2', label:'Class scope consistency', status:'warn', detail:'2 Watershed instances differ in scope',     affected:['watershed-boundaries.md','watershed-overview.md'] },
+  { id:'Q3', label:'No duplicate concepts',   status:'pass', detail:'No duplicates detected',                   affected:[] },
+  { id:'Q4', label:'Meaningful edges',        status:'pass', detail:'All outgoing edges carry semantic content', affected:[] },
+  { id:'Q5', label:'Epistemic commits',       status:'warn', detail:'3 operational commit messages found',       affected:['e8f3a92','91f5e33','7b2d440'] },
+  { id:'Q6', label:'Edge density ≥2',         status:'warn', detail:'2 nodes have only 1 outgoing edge',        affected:['base-flow-regime.md','lowflow-thresholds.md'] },
+  { id:'Q7', label:'No orphan branches',      status:'pass', detail:'All branches are merge-capable',           affected:[] },
+];
+
+function HealthDashboard({ synthTitles = new Set(), conflictRes = {} }) {
+  const [expanded, setExpanded] = useState(null);
+  const W=130, H=38;
+
+  const synthList = [...synthTitles];
+  const synthUnresolved = synthList.filter(t => {
+    const a=ALICE_POS.find(n=>n.title===t), b=BOB_POS.find(n=>n.title===t);
+    return a && b && a.marker!==b.marker && !conflictRes[t];
+  });
+  const pendingOpen = synthList.filter(t => {
+    if (conflictRes[t]==='open') return true;
+    const a=ALICE_POS.find(n=>n.title===t), b=BOB_POS.find(n=>n.title===t);
+    return (a?.marker||b?.marker)==='open';
+  }).length;
+  const openCount = 3 + pendingOpen;
+  const s8status = synthList.length===0?'pass':synthUnresolved.length===0?'pass':'warn';
+  const s8detail = synthList.length===0
+    ? 'No active synthesis in progress'
+    : synthUnresolved.length===0
+      ? `${synthList.length} nodes selected \u00b7 conflicts resolved \u00b7 ready to create rigpa/`
+      : `${synthUnresolved.length} conflict${synthUnresolved.length>1?'s':''} pending resolution in frame 3a`;
+  const liveS = S_CHECKS.map(c => c.id==='S6'
+    ? {...c, status:openCount/24<0.2?'pass':'warn', detail:`${(openCount/24*100).toFixed(1)}% open questions (${openCount} of 24${pendingOpen>0?' \u00b7 +'+pendingOpen+' from synthesis':''})`}
+    : c
+  ).concat([{id:'S8',label:'Synthesis status',status:s8status,detail:s8detail,affected:synthList}]);
+
+  function spark(data) {
+    const mn=Math.min(...data), mx=Math.max(...data), rng=mx-mn||1;
+    return data.map((v,i)=>`${i===0?'M':'L'}${(i/(data.length-1))*W},${H-((v-mn)/rng)*(H-6)-3}`).join(' ');
+  }
+
+  const passN=[...liveS,...Q_CHECKS].filter(c=>c.status==='pass').length;
+  const warnN=[...liveS,...Q_CHECKS].filter(c=>c.status==='warn').length;
+  const failN=[...liveS,...Q_CHECKS].filter(c=>c.status==='fail').length;
+  const statusColor = { pass:'var(--verified-fg)', warn:'var(--gold-600)', fail:'#c8342a' };
+
+  function Row({c}) {
+    const open=expanded===c.id;
+    return (
+      <div style={{borderBottom:'1px solid var(--border-subtle)'}}>
+        <div onClick={()=>setExpanded(open?null:c.id)} style={{display:'flex',alignItems:'center',gap:7,padding:'7px 14px',cursor:'pointer',background:open?'var(--surface-overlay)':'transparent'}}>
+          <span style={{width:7,height:7,borderRadius:'50%',background:statusColor[c.status],flexShrink:0}}/>
+          <span style={{fontFamily:'var(--font-mono)',fontSize:10,color:'var(--text-tertiary)',width:22,flexShrink:0}}>{c.id}</span>
+          <span style={{fontFamily:'var(--font-ui)',fontSize:12,color:'var(--text-primary)',flex:1}}>{c.label}</span>
+          {c.status!=='pass'&&<span style={{fontFamily:'var(--font-ui)',fontSize:10,color:statusColor[c.status]}}>{c.affected.length}</span>}
+          <span style={{fontFamily:'var(--font-mono)',fontSize:8,color:'var(--text-tertiary)'}}>{open?'▲':'▼'}</span>
+        </div>
+        {open&&(
+          <div style={{padding:'5px 14px 9px 43px',background:'var(--surface-base)'}}>
+            <div style={{fontFamily:'var(--font-ui)',fontSize:11,color:'var(--text-secondary)',marginBottom:4}}>{c.detail}</div>
+            {c.affected.map((a,i)=><div key={i} style={{fontFamily:'var(--font-mono)',fontSize:10,color:'var(--rigpa-600)',padding:'1px 0'}}>{a}</div>)}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{display:'flex',flexDirection:'column',flex:1,overflow:'hidden'}}>
+      <div style={{padding:'8px 20px',background:'var(--ink-0)',borderBottom:'1px solid var(--border-subtle)',flexShrink:0,display:'flex',alignItems:'center',gap:12}}>
+        <span style={{fontFamily:'var(--font-display)',fontSize:16,fontWeight:500,color:'var(--text-primary)'}}>Corpus health</span>
+        <span style={{fontFamily:'var(--font-mono)',fontSize:11,color:'var(--text-tertiary)'}}>watershed-hydro · HEAD: a3f2b1c · 2 days ago</span>
+        <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+          {failN>0&&<Badge variant="open" dot size="sm">{failN} fail</Badge>}
+          {warnN>0&&<Badge variant="inference" dot size="sm">{warnN} warn</Badge>}
+          <Badge variant={failN===0&&warnN===0?'verified':'default'} dot size="sm">{passN} pass</Badge>
+        </div>
+      </div>
+
+      <div style={{flex:1,display:'grid',gridTemplateColumns:'1fr 1fr 300px',overflow:'hidden',minHeight:0}}>
+        <div style={{borderRight:'1px solid var(--border-ui)',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+          <div style={{padding:'5px 14px',background:'var(--surface-overlay)',borderBottom:'1px solid var(--border-subtle)',fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.12em',textTransform:'uppercase',color:'var(--text-tertiary)',flexShrink:0}}>Structural S1–S7</div>
+          <div style={{flex:1,overflowY:'auto'}}>{liveS.map(c=><Row key={c.id} c={c}/>)}</div>
+        </div>
+        <div style={{borderRight:'1px solid var(--border-ui)',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+          <div style={{padding:'5px 14px',background:'var(--surface-overlay)',borderBottom:'1px solid var(--border-subtle)',fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.12em',textTransform:'uppercase',color:'var(--text-tertiary)',flexShrink:0}}>Quality Q1–Q7</div>
+          <div style={{flex:1,overflowY:'auto'}}>{Q_CHECKS.map(c=><Row key={c.id} c={c}/>)}</div>
+        </div>
+
+        {/* metrics */}
+        <div style={{overflowY:'auto',padding:'12px 14px',display:'flex',flexDirection:'column',gap:14}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:7}}>
+            {[['24','corpus nodes'],['58','edges'],['3','open Qs'],['2','electors']].map(([v,l])=>(
+              <div key={l} style={{padding:'8px 9px',background:'var(--surface-raised)',border:'1px solid var(--border-subtle)',borderRadius:6}}>
+                <div style={{fontFamily:'var(--font-display)',fontSize:26,fontWeight:400,color:'var(--text-primary)',lineHeight:1}}>{v}</div>
+                <div style={{fontFamily:'var(--font-ui)',fontSize:10,color:'var(--text-tertiary)',marginTop:2}}>{l}</div>
+              </div>
+            ))}
+          </div>
+
+          {[['Node growth',[12,14,14,16,18,19,21,21,22,22,24],'var(--rigpa-400)','last 11 commits · +2 this week'],
+            ['Open questions',[1,1,2,2,2,2,3,3,3,3,3],'var(--open-fg)','stable at 3 · 12.5% of corpus']].map(([label,data,color,sub])=>(
+            <div key={label}>
+              <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.12em',textTransform:'uppercase',color:'var(--text-tertiary)',marginBottom:5}}>{label}</div>
+              <div style={{background:'var(--surface-raised)',border:'1px solid var(--border-subtle)',borderRadius:6,padding:'8px 10px'}}>
+                <svg width={W} height={H} style={{display:'block',overflow:'visible'}}>
+                  <path d={spark(data)} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <div style={{fontFamily:'var(--font-mono)',fontSize:9,color:'var(--text-tertiary)',marginTop:3}}>{sub}</div>
+              </div>
+            </div>
+          ))}
+
+          <div>
+            <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.12em',textTransform:'uppercase',color:'var(--text-tertiary)',marginBottom:5}}>Edge density</div>
+            <div style={{background:'var(--surface-raised)',border:'1px solid var(--border-subtle)',borderRadius:6,padding:'8px 10px'}}>
+              <div style={{display:'flex',gap:3,alignItems:'flex-end',height:34}}>
+                {[2,7,8,4,2,1].map((v,i)=>(
+                  <div key={i} style={{flex:1,background:i===0?'var(--gold-300)':'var(--rigpa-200)',borderRadius:'2px 2px 0 0',height:`${(v/8)*34}px`}}>
+                    <div style={{fontFamily:'var(--font-mono)',fontSize:7,color:'var(--text-tertiary)',textAlign:'center',marginTop:2}}>{i+1}{i===5?'+':''}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{fontFamily:'var(--font-mono)',fontSize:9,color:'var(--text-tertiary)',marginTop:6}}>outgoing edges per node</div>
+            </div>
+          </div>
+
+          <div>
+            <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.12em',textTransform:'uppercase',color:'var(--text-tertiary)',marginBottom:5}}>Check summary</div>
+            <div style={{height:5,borderRadius:3,overflow:'hidden',display:'flex',marginBottom:5}}>
+              <div style={{flex:passN,background:'var(--verified-fg)',opacity:0.7}}/>
+              <div style={{flex:warnN,background:'var(--gold-400)',marginLeft:1}}/>
+              <div style={{flex:failN,background:'#c8342a',marginLeft:1}}/>
+            </div>
+            <div style={{display:'flex',gap:10}}>
+              {[['pass',passN,'var(--verified-fg)'],['warn',warnN,'var(--gold-600)'],['fail',failN,'#c8342a']].map(([l,n,c])=>(
+                <span key={l} style={{fontFamily:'var(--font-mono)',fontSize:9,color:c}}>{n} {l}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   07 — Connector Status · External adapters, freshness, thresholds
+   ═══════════════════════════════════════════════════════════════════ */
+const CONNECTORS = [
+  { id:'nwis',   name:'NWIS',   desc:'USGS National Water Information System — gauge records, streamflow, water quality',
+    status:'stale', lastRun:'6 days ago', ttlHours:120, fixtureAge:6, nodesProduced:8, missingProps:7,
+    instances:[ { node:'base-flow-regime.md', prop:'mean_annual_flow_m3s', missing:true },
+                { node:'lowflow-thresholds.md', prop:'q7_10_m3s', missing:false },
+                { node:'streamflow-seasonality.md', prop:'peak_date_doy', missing:true } ] },
+  { id:'echo',   name:'ECHO',   desc:'EPA Enforcement and Compliance — point source discharge permits and monitoring',
+    status:'active', lastRun:'1 day ago', ttlHours:168, fixtureAge:1, nodesProduced:3, missingProps:2,
+    instances:[ { node:'point-sources.md', prop:'permit_id', missing:false },
+                { node:'discharge-limits.md', prop:'effluent_limit_mgl', missing:true } ] },
+  { id:'census', name:'Census', desc:'US Census TIGER — watershed boundary demographics, land use classification',
+    status:'offline', lastRun:'14 days ago', ttlHours:720, fixtureAge:14, nodesProduced:2, missingProps:4,
+    instances:[ { node:'watershed-boundaries.md', prop:'population_density', missing:true } ] },
+];
+
+function ConnectorStatus() {
+  const [sel, setSel] = useState('nwis');
+  const [refreshing, setRefreshing] = useState(null);
+  const conn = CONNECTORS.find(c=>c.id===sel);
+
+  const STATUS = {
+    active:  { dot:'var(--verified-fg)',  bg:'var(--verified-bg)',  bd:'var(--verified-border)',  label:'active'  },
+    stale:   { dot:'var(--gold-500)',     bg:'var(--gold-50)',      bd:'var(--gold-200)',          label:'stale'   },
+    offline: { dot:'#c8342a',            bg:'#fef2f2',             bd:'#f5c6c6',                 label:'offline' },
+  };
+
+  function handleRefresh(id) {
+    setRefreshing(id);
+    setTimeout(()=>setRefreshing(null), 1800);
+  }
+
+  const OPP_THRESHOLD = 5;
+  const totalMissing = CONNECTORS.reduce((s,c)=>s+c.missingProps, 0);
+
+  return (
+    <div style={{display:'flex',flexDirection:'column',flex:1,overflow:'hidden'}}>
+      {/* header */}
+      <div style={{padding:'8px 18px',background:'var(--ink-0)',borderBottom:'1px solid var(--border-subtle)',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+        <span style={{fontFamily:'var(--font-display)',fontSize:15,fontWeight:500,color:'var(--text-primary)'}}>Connectors</span>
+        <Badge size="sm">{CONNECTORS.length} configured</Badge>
+        {totalMissing >= OPP_THRESHOLD && (
+          <span style={{padding:'1px 8px',borderRadius:3,background:'var(--gold-50)',border:'1px solid var(--gold-300)',fontFamily:'var(--font-ui)',fontSize:10,color:'var(--gold-800)',fontWeight:600}}>
+            ⚡ {totalMissing} missing props — opportunistic retrieval recommended
+          </span>
+        )}
+      </div>
+
+      <div style={{display:'flex',flex:1,overflow:'hidden'}}>
+        {/* connector list */}
+        <div style={{width:170,borderRight:'1px solid var(--border-ui)',display:'flex',flexDirection:'column',background:'var(--ink-0)',flexShrink:0}}>
+          {CONNECTORS.map(c => {
+            const s = STATUS[c.status];
+            const active = sel===c.id;
+            return (
+              <button key={c.id} onClick={()=>setSel(c.id)} style={{padding:'11px 14px',textAlign:'left',background:active?'white':'transparent',border:'none',borderLeft:`2px solid ${active?'var(--gold-500)':'transparent'}`,borderBottom:'1px solid var(--border-subtle)',cursor:'pointer'}}>
+                <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:3}}>
+                  <span style={{width:7,height:7,borderRadius:'50%',background:s.dot,flexShrink:0,boxShadow:c.status==='active'?`0 0 0 2px ${s.bd}`:undefined}}/>
+                  <span style={{fontFamily:'var(--font-mono)',fontSize:12,fontWeight:600,color:'var(--text-primary)'}}>{c.id}</span>
+                </div>
+                <div style={{fontFamily:'var(--font-ui)',fontSize:10,color:'var(--text-tertiary)',paddingLeft:13}}>{c.nodesProduced} nodes · {c.missingProps} missing</div>
+              </button>
+            );
+          })}
+          <div style={{flex:1,padding:'14px',display:'flex',flexDirection:'column',gap:5,justifyContent:'flex-end'}}>
+            <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',color:'var(--text-tertiary)',marginBottom:2}}>Opp. threshold</div>
+            <div style={{height:4,background:'var(--ink-100)',borderRadius:2,overflow:'hidden'}}>
+              <div style={{height:'100%',width:`${Math.min(totalMissing/OPP_THRESHOLD,1)*100}%`,background:totalMissing>=OPP_THRESHOLD?'var(--gold-500)':'var(--rigpa-300)',borderRadius:2,transition:'width 350ms'}}/>
+            </div>
+            <div style={{fontFamily:'var(--font-mono)',fontSize:9,color:totalMissing>=OPP_THRESHOLD?'var(--gold-700)':'var(--text-tertiary)'}}>
+              {totalMissing}/{OPP_THRESHOLD} missing props{totalMissing>=OPP_THRESHOLD?' — invoke inline':''}
+            </div>
+          </div>
+        </div>
+
+        {/* detail */}
+        {conn && (
+          <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+            <div style={{padding:'12px 18px',background:'var(--ink-0)',borderBottom:'1px solid var(--border-subtle)',flexShrink:0}}>
+              <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4}}>
+                <div style={{fontFamily:'var(--font-display)',fontSize:20,fontWeight:500,color:'var(--text-primary)'}}>{conn.name}</div>
+                {(() => {const s=STATUS[conn.status]; return (
+                  <span style={{padding:'1px 8px',borderRadius:3,background:s.bg,border:`1px solid ${s.bd}`,fontFamily:'var(--font-ui)',fontSize:10,fontWeight:600,color:s.dot}}>{s.label}</span>
+                );})()}
+              </div>
+              <div style={{fontFamily:'var(--font-serif)',fontSize:12,fontStyle:'italic',color:'var(--text-secondary)',lineHeight:1.5}}>{conn.desc}</div>
+            </div>
+
+            <div style={{flex:1,overflowY:'auto',padding:'14px 18px',display:'flex',flexDirection:'column',gap:16}}>
+              {/* freshness */}
+              <div>
+                <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',color:'var(--text-tertiary)',marginBottom:8}}>Freshness</div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:10}}>
+                  {[['Last run',conn.lastRun],['TTL',`${conn.ttlHours}h`],['Fixture age',`${conn.fixtureAge}d`]].map(([l,v])=>(
+                    <div key={l} style={{padding:'8px 10px',background:'var(--surface-overlay)',border:'1px solid var(--border-subtle)',borderRadius:6}}>
+                      <div style={{fontFamily:'var(--font-display)',fontSize:20,fontWeight:400,color:'var(--text-primary)',lineHeight:1}}>{v}</div>
+                      <div style={{fontFamily:'var(--font-ui)',fontSize:10,color:'var(--text-tertiary)',marginTop:2}}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{height:5,background:'var(--ink-100)',borderRadius:3,overflow:'hidden',marginBottom:4}}>
+                  <div style={{height:'100%',width:`${Math.max(0,100-(conn.fixtureAge/( conn.ttlHours/24))*100)}%`,background:conn.status==='active'?'var(--verified-fg)':conn.status==='stale'?'var(--gold-400)':'#c8342a',borderRadius:3,transition:'width 350ms'}}/>
+                </div>
+                <div style={{fontFamily:'var(--font-mono)',fontSize:9,color:'var(--text-tertiary)'}}>
+                  fixture freshness · TTL {conn.ttlHours}h · {conn.fixtureAge>conn.ttlHours/24?'expired':'valid'}
+                </div>
+              </div>
+
+              {/* affected nodes */}
+              <div>
+                <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',color:'var(--text-tertiary)',marginBottom:7}}>Affected nodes ({conn.instances.length})</div>
+                {conn.instances.map((inst,i)=>(
+                  <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',background:inst.missing?'var(--gold-50)':'var(--surface-raised)',border:`1px solid ${inst.missing?'var(--gold-200)':'var(--border-subtle)'}`,borderRadius:5,marginBottom:5}}>
+                    <span style={{fontFamily:'var(--font-mono)',fontSize:10,color:'var(--text-secondary)',flex:1}}>{inst.node}</span>
+                    <span style={{fontFamily:'var(--font-mono)',fontSize:10,color:inst.missing?'var(--gold-700)':'var(--verified-fg)',fontStyle:'italic'}}>{inst.prop}</span>
+                    {inst.missing
+                      ? <span style={{fontFamily:'var(--font-ui)',fontSize:9,color:'var(--gold-700)',fontWeight:600}}>missing</span>
+                      : <span style={{fontSize:10,color:'var(--verified-fg)'}}>✓</span>
+                    }
+                  </div>
+                ))}
+              </div>
+
+              {/* offline mode notice */}
+              {conn.status==='offline' && (
+                <div style={{padding:'10px 12px',background:'#fef2f2',border:'1px solid #f5c6c6',borderRadius:6}}>
+                  <div style={{fontFamily:'var(--font-ui)',fontSize:10,fontWeight:700,color:'#c8342a',marginBottom:3}}>OFFLINE — falling back to committed fixtures</div>
+                  <div style={{fontFamily:'var(--font-serif)',fontSize:11,color:'#7a1f1f',lineHeight:1.5}}>Network unreachable. The last committed fixture ({conn.fixtureAge} days old) is in use. Invoke manually when connectivity is restored.</div>
+                </div>
+              )}
+
+              {/* opportunistic retrieval notice */}
+              {conn.missingProps >= OPP_THRESHOLD && (
+                <div style={{padding:'10px 12px',background:'var(--gold-50)',border:'1px solid var(--gold-200)',borderRadius:6}}>
+                  <div style={{fontFamily:'var(--font-ui)',fontSize:10,fontWeight:700,color:'var(--gold-800)',marginBottom:3}}>OPPORTUNISTIC THRESHOLD REACHED</div>
+                  <div style={{fontFamily:'var(--font-serif)',fontSize:11,color:'var(--gold-900)',lineHeight:1.5}}>{conn.missingProps} instances share a missing property from this source. Invoke inline rather than deferring.</div>
+                </div>
+              )}
+            </div>
+
+            <div style={{padding:'10px 18px',borderTop:'1px solid var(--border-subtle)',background:'var(--ink-0)',display:'flex',gap:8,justifyContent:'flex-end',flexShrink:0}}>
+              <Button variant="ghost" size="sm">View fixtures</Button>
+              <Button variant={conn.status==='offline'?'ghost':'primary'} size="sm"
+                disabled={conn.status==='offline'||refreshing===conn.id}
+                onClick={()=>handleRefresh(conn.id)}>
+                {refreshing===conn.id ? 'Fetching…' : '↻ Refresh now'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   08 — Phase Dashboard · Active inquiry phases, per-elector timeline
+   ═══════════════════════════════════════════════════════════════════ */
+const PHASES_DATA = [
+  { id:'p1', elector:'alice', variant:'human', type:'Investigation', status:'active',
+    question:'What determines base flow persistence during summer recession?',
+    start:'Jun 18', end:null, nodes:['base-flow-regime.md','lowflow-thresholds.md'],
+    notes:'Exploring groundwater discharge as primary mechanism. NWIS gauge 09380000 identified as key source.' },
+  { id:'p2', elector:'agent-01', variant:'agent', type:'Extraction', status:'active',
+    question:'Extract NWIS gauge records for 09380000, 1982–2024.',
+    start:'Jun 25', end:null, nodes:['base-flow-regime.md'],
+    notes:'Running nwis connector. 42-year discharge record extracted. Fixture committed at e8f3a92.' },
+  { id:'p3', elector:'alice', variant:'human', type:'Synthesis', status:'complete',
+    question:'Synthesise snowmelt timing and baseflow regime into a seasonal model.',
+    start:'Jun 10', end:'Jun 17', nodes:['streamflow-seasonality.md','watershed-boundaries.md'],
+    notes:'Merged 3 investigation threads. 2 open tensions carried forward to rigpa/first-synthesis.' },
+  { id:'p4', elector:'agent-01', variant:'agent', type:'Assessment', status:'complete',
+    question:'Evaluate competing hypotheses for peak flow timing.',
+    start:'Jun 12', end:'Jun 15', nodes:['streamflow-seasonality.md'],
+    notes:'Gauge record analysis narrows hypothesis space. Snowmelt confirmed as primary driver in 38/40 years.' },
+];
+
+const PHASE_COLORS = {
+  Investigation: { bg:'var(--phase-investigation-bg)', fg:'var(--phase-investigation-fg)', bd:'var(--rigpa-100)' },
+  Extraction:    { bg:'var(--phase-extraction-bg)',    fg:'var(--phase-extraction-fg)',    bd:'var(--gold-200)'  },
+  Synthesis:     { bg:'var(--phase-synthesis-bg)',     fg:'var(--phase-synthesis-fg)',     bd:'var(--ma-200)'    },
+  Assessment:    { bg:'var(--phase-assessment-bg)',    fg:'var(--phase-assessment-fg)',    bd:'#aad4b4'          },
+};
+
+function PhaseDashboard() {
+  const [sel, setSel] = useState('p1');
+  const [filter, setFilter] = useState('all');
+  const phase = PHASES_DATA.find(p=>p.id===sel);
+  const active = PHASES_DATA.filter(p=>p.status==='active');
+  const filtered = filter==='all' ? PHASES_DATA : PHASES_DATA.filter(p=>p.status===filter);
+
+  const ELECTORS = ['alice','agent-01'];
+
+  return (
+    <div style={{display:'flex',flexDirection:'column',flex:1,overflow:'hidden'}}>
+      {/* header */}
+      <div style={{padding:'8px 18px',background:'var(--ink-0)',borderBottom:'1px solid var(--border-subtle)',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+        <span style={{fontFamily:'var(--font-display)',fontSize:15,fontWeight:500,color:'var(--text-primary)'}}>Phases</span>
+        <Badge variant="rigpa" dot size="sm">{active.length} active</Badge>
+        <Badge size="sm">{PHASES_DATA.filter(p=>p.status==='complete').length} complete</Badge>
+        <div style={{marginLeft:'auto',display:'inline-flex',background:'var(--ink-100)',borderRadius:5,padding:2,gap:1}}>
+          {[['all','All'],['active','Active'],['complete','Done']].map(([v,l])=>(
+            <button key={v} onClick={()=>setFilter(v)} style={{padding:'2px 10px',borderRadius:4,fontFamily:'var(--font-ui)',fontSize:10,fontWeight:500,background:filter===v?'white':'transparent',border:'none',boxShadow:filter===v?'var(--shadow-xs)':'none',color:filter===v?'var(--text-primary)':'var(--text-secondary)',cursor:'pointer'}}>
+              {l}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{display:'flex',flex:1,overflow:'hidden'}}>
+        {/* swimlane timeline */}
+        <div style={{flex:1,borderRight:'1px solid var(--border-ui)',overflow:'hidden',display:'flex',flexDirection:'column'}}>
+          {/* elector headers */}
+          <div style={{display:'grid',gridTemplateColumns:'70px 1fr 1fr',borderBottom:'1px solid var(--border-subtle)',flexShrink:0}}>
+            <div style={{padding:'5px 8px',fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',color:'var(--text-tertiary)'}}>date</div>
+            {ELECTORS.map(e => (
+              <div key={e} style={{padding:'5px 10px',borderLeft:'1px solid var(--border-subtle)',display:'flex',alignItems:'center',gap:6,background:e==='alice'?'var(--ma-50)':'var(--rigpa-50)'}}>
+                <Avatar name={e} variant={e==='alice'?'human':'agent'} size="xs"/>
+                <span style={{fontFamily:'var(--font-mono)',fontSize:10,fontWeight:600,color:e==='alice'?'var(--ma-800)':'var(--rigpa-800)'}}>{e}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* rows */}
+          <div style={{flex:1,overflowY:'auto'}}>
+            {/* active row */}
+            <div style={{display:'grid',gridTemplateColumns:'70px 1fr 1fr',borderBottom:'1px solid var(--border-subtle)',minHeight:90}}>
+              <div style={{padding:'8px',display:'flex',alignItems:'flex-start',justifyContent:'center'}}>
+                <span style={{fontFamily:'var(--font-mono)',fontSize:9,color:'var(--text-tertiary)',writingMode:'vertical-rl',textOrientation:'mixed',transform:'rotate(180deg)',letterSpacing:'0.05em'}}>active</span>
+              </div>
+              {ELECTORS.map(e => {
+                const ep = filtered.filter(p=>p.elector===e&&p.status==='active');
+                return (
+                  <div key={e} style={{padding:'7px 8px',borderLeft:'1px solid var(--border-subtle)',display:'flex',flexDirection:'column',gap:5,background:e==='alice'?'var(--ma-50)':'var(--rigpa-50)',opacity:0.8}}>
+                    {ep.map(p => {
+                      const pc = PHASE_COLORS[p.type];
+                      return (
+                        <div key={p.id} onClick={()=>setSel(p.id)} style={{padding:'5px 7px',background:pc.bg,border:`1px solid ${sel===p.id?pc.fg:pc.bd}`,borderRadius:4,cursor:'pointer',boxShadow:sel===p.id?'var(--shadow-sm)':'none'}}>
+                          <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:2}}>
+                            <span style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',color:pc.fg}}>{p.type}</span>
+                            <span style={{width:5,height:5,borderRadius:'50%',background:'var(--verified-fg)',flexShrink:0,boxShadow:'0 0 0 1.5px rgba(26,82,48,0.3)'}}/>
+                          </div>
+                          <div style={{fontFamily:'var(--font-serif)',fontSize:10,color:'var(--text-secondary)',lineHeight:1.4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:220}}>{p.question}</div>
+                        </div>
+                      );
+                    })}
+                    {ep.length===0 && <div style={{fontFamily:'var(--font-ui)',fontSize:9,color:'var(--text-tertiary)',fontStyle:'italic',padding:'4px 0'}}>no active phase</div>}
+                  </div>
+                );
+              })}
+            </div>
+            {/* history rows */}
+            {[['Jun 10–17','Jun 10','Jun 17'],['Jun 12–15','Jun 12','Jun 15']].map(([label,s,e],ri) => {
+              return (
+                <div key={ri} style={{display:'grid',gridTemplateColumns:'70px 1fr 1fr',borderBottom:'1px solid var(--border-subtle)',minHeight:70}}>
+                  <div style={{padding:'8px',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                    <span style={{fontFamily:'var(--font-mono)',fontSize:8,color:'var(--text-tertiary)',textAlign:'center',lineHeight:1.5}}>{label}</span>
+                  </div>
+                  {ELECTORS.map(el => {
+                    const ep = filtered.filter(p=>p.elector===el&&p.status==='complete'&&p.start===(ri===0?'Jun 10':'Jun 12'));
+                    return (
+                      <div key={el} style={{padding:'7px 8px',borderLeft:'1px solid var(--border-subtle)',display:'flex',flexDirection:'column',gap:5}}>
+                        {ep.map(p => {
+                          const pc = PHASE_COLORS[p.type];
+                          return (
+                            <div key={p.id} onClick={()=>setSel(p.id)} style={{padding:'5px 7px',background:pc.bg,border:`1px solid ${sel===p.id?pc.fg:pc.bd}`,borderRadius:4,cursor:'pointer',opacity:0.75,boxShadow:sel===p.id?'var(--shadow-sm)':'none'}}>
+                              <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:1}}>
+                                <span style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',color:pc.fg}}>{p.type}</span>
+                                <span style={{fontFamily:'var(--font-mono)',fontSize:8,color:'var(--text-tertiary)'}}>{p.start}→{p.end}</span>
+                              </div>
+                              <div style={{fontFamily:'var(--font-serif)',fontSize:10,color:'var(--text-secondary)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:220}}>{p.question}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* detail panel */}
+        {phase && (
+          <div style={{width:260,display:'flex',flexDirection:'column',overflow:'hidden',flexShrink:0}}>
+            <div style={{padding:'10px 14px',borderBottom:'1px solid var(--border-subtle)',background:'var(--ink-0)',flexShrink:0}}>
+              <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
+                <Avatar name={phase.elector} variant={phase.variant} size="xs"/>
+                <BranchRef branch={`ma/${phase.elector}`} short/>
+                {phase.status==='active'
+                  ? <span style={{width:6,height:6,borderRadius:'50%',background:'var(--verified-fg)',flexShrink:0,marginLeft:'auto'}}/>
+                  : <span style={{fontFamily:'var(--font-mono)',fontSize:9,color:'var(--text-tertiary)',marginLeft:'auto'}}>done</span>}
+              </div>
+              {(() => { const pc=PHASE_COLORS[phase.type]; return (
+                <span style={{padding:'2px 8px',borderRadius:3,fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',background:pc.bg,color:pc.fg,border:`1px solid ${pc.bd}`}}>{phase.type}</span>
+              );})()}
+            </div>
+            <div style={{flex:1,overflowY:'auto',padding:'12px 14px',display:'flex',flexDirection:'column',gap:12}}>
+              <div>
+                <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',color:'var(--text-tertiary)',marginBottom:4}}>Driving question</div>
+                <div style={{fontFamily:'var(--font-serif)',fontSize:12.5,lineHeight:1.7,color:'var(--text-primary)',fontStyle:'italic'}}>"{phase.question}"</div>
+              </div>
+              <div>
+                <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',color:'var(--text-tertiary)',marginBottom:5}}>Affected nodes ({phase.nodes.length})</div>
+                {phase.nodes.map((n,i)=>(
+                  <div key={i} style={{display:'flex',alignItems:'center',gap:6,fontFamily:'var(--font-mono)',fontSize:10,color:'var(--text-secondary)',padding:'4px 0',borderBottom:'1px solid var(--border-subtle)'}}>
+                    <span style={{color:'var(--gold-500)'}}>→</span>{n}
+                  </div>
+                ))}
+              </div>
+              <div>
+                <div style={{fontFamily:'var(--font-ui)',fontSize:9,fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',color:'var(--text-tertiary)',marginBottom:4}}>Notes</div>
+                <div style={{fontFamily:'var(--font-serif)',fontSize:12,lineHeight:1.65,color:'var(--text-secondary)'}}>{phase.notes}</div>
+              </div>
+              {phase.status==='active' && (
+                <div style={{display:'flex',gap:6,flexDirection:'column'}}>
+                  <Button variant="ghost" size="sm">Add corpus node</Button>
+                  <Button variant="primary" size="sm">Close phase</Button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   06 — App Shell · Navigable product, all surfaces wired
+   ═══════════════════════════════════════════════════════════════════ */
+function AppShell({ nodes, setNodes, edges, setEdges, synthTitles, setSynthTitles, conflictRes, setConflictRes }) {
+  const [nav, setNav] = useState('corpus');
+  const synthList = [...synthTitles];
+  const openCount = 3 + synthList.filter(t=>conflictRes[t]==='open').length;
+  const unresolved = synthList.filter(t=>{
+    const a=ALICE_POS.find(n=>n.title===t), b=BOB_POS.find(n=>n.title===t);
+    return a&&b&&a.marker!==b.marker&&!conflictRes[t];
+  }).length;
+
+  const NAV = [
+    { id:'corpus',     label:'Node Editor',  meta:()=> 'draft · base-flow-regime.md' },
+    { id:'ontology',   label:'Ontology',     meta:()=> `${nodes.length} class${nodes.length!==1?'es':''}${nodes.length>2?' · from bootstrap':''}` },
+    { id:'resolution', label:'Resolution',   meta:()=> `${synthList.length} in synthesis` },
+    { id:'bootstrap',  label:'Bootstrap',    meta:()=> `${nodes.length} class${nodes.length!==1?'es':''} · ${edges.length} edge${edges.length!==1?'s':''}` },
+    { id:'health',     label:'Health',       meta:()=> `${openCount} open Qs` },
+  ];
+
+  return (
+    <div style={{display:'flex',height:'100%',overflow:'hidden'}}>
+      {/* sidebar */}
+      <div style={{width:192,background:'var(--ink-950)',display:'flex',flexDirection:'column',flexShrink:0}}>
+        <div style={{padding:'12px 16px 10px',borderBottom:'1px solid rgba(255,255,255,0.07)'}}>
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <svg width="30" height="20" viewBox="0 0 48 32" fill="none">
+              <defs><marker id="sm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M1 1.5L9 5L1 8.5" fill="none" stroke="#b88a00" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></marker></defs>
+              <circle cx="5.5" cy="8" r="4.5" stroke="#413d36" strokeWidth="1.3" fill="none"/>
+              <circle cx="5.5" cy="24" r="4.5" stroke="#413d36" strokeWidth="1.3" fill="none"/>
+              <path d="M9.8 9.6L34.4 14.2" stroke="#b88a00" strokeWidth="1.1" strokeLinecap="round" markerEnd="url(#sm)"/>
+              <path d="M9.8 22.4L34.4 17.8" stroke="#b88a00" strokeWidth="1.1" strokeLinecap="round" markerEnd="url(#sm)"/>
+              <circle cx="42.5" cy="16" r="5.5" stroke="#413d36" strokeWidth="1.4" fill="none"/>
+              <circle cx="42.5" cy="16" r="2.2" fill="#b88a00"/>
+            </svg>
+            <div>
+              <div style={{fontFamily:'var(--font-display)',fontSize:15,fontWeight:400,color:'var(--ink-200)',letterSpacing:'0.04em',lineHeight:1.1}}>yidam</div>
+              <div style={{fontFamily:'var(--font-mono)',fontSize:9,color:'var(--ink-600)',marginTop:2}}>watershed-hydro</div>
+            </div>
+          </div>
+        </div>
+        <div style={{flex:1,padding:'6px',display:'flex',flexDirection:'column',gap:1,overflowY:'auto'}}>
+          {NAV.map(item => {
+            const active=nav===item.id;
+            return (
+              <button key={item.id} onClick={()=>setNav(item.id)}
+                style={{width:'100%',textAlign:'left',padding:'8px 12px',background:active?'rgba(184,138,0,0.15)':'transparent',border:'none',borderLeft:`2px solid ${active?'var(--gold-500)':'transparent'}`,cursor:'pointer',transition:'all 120ms'}}>
+                <div style={{fontFamily:'var(--font-ui)',fontSize:12,fontWeight:active?500:400,color:active?'var(--gold-300)':'var(--ink-500)',lineHeight:1.2}}>{item.label}</div>
+                <div style={{fontFamily:'var(--font-mono)',fontSize:9,color:'var(--ink-700)',marginTop:2}}>{item.meta()}</div>
+              </button>
+            );
+          })}
+        </div>
+        <div style={{padding:'10px 14px',borderTop:'1px solid rgba(255,255,255,0.07)',display:'flex',flexDirection:'column',gap:5}}>
+          <BranchRef branch="ma/alice"/>
+          <div style={{fontFamily:'var(--font-mono)',fontSize:9,color:'var(--ink-600)'}}>
+            {synthList.length} in synthesis · {openCount} open Qs
+          </div>
+        </div>
+      </div>
+
+      {/* main */}
+      <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        {/* topbar */}
+        <div style={{padding:'6px 18px',background:'var(--ink-0)',borderBottom:'1px solid var(--border-subtle)',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+          <span style={{fontFamily:'var(--font-display)',fontSize:15,fontWeight:500,color:'var(--text-primary)'}}>{NAV.find(n=>n.id===nav)?.label}</span>
+          {nav==='ontology' && nodes.length>0 && <Badge size="sm" variant="rigpa">schema from bootstrap · {nodes.length} classes · {edges.length} edges</Badge>}
+          {nav==='ontology' && nodes.length===0 && <Badge size="sm">static · go to Bootstrap first</Badge>}
+          {nav==='resolution' && <Badge size="sm" variant={synthList.length>0?'inference':'default'}>{synthList.length} nodes · wired to health</Badge>}
+          {nav==='health' && <Badge size="sm" variant="verified" dot>live · wired to resolution</Badge>}
+          {nav==='bootstrap' && nodes.length>0 && <Badge size="sm" variant="gold">{nodes.length} classes → ontology</Badge>}
+          <div style={{marginLeft:'auto',fontFamily:'var(--font-mono)',fontSize:10,color:'var(--text-tertiary)'}}>
+            {(nav==='resolution'||nav==='health') && (synthList.length===0?'no synthesis active':unresolved>0?`⚑ ${unresolved} conflict${unresolved>1?'s':''} pending`:'✓ Art. V clear')}
+          </div>
+        </div>
+        {/* surface */}
+        <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
+          {nav==='corpus'     && <NodeEditor1a/>}
+          {nav==='ontology'   && <OntologyCanvas key={nodes.length} importedNodes={nodes} importedEdges={edges}/>}
+          {nav==='resolution' && <Resolution3a synthTitles={synthTitles} setSynthTitles={setSynthTitles} conflictRes={conflictRes} setConflictRes={setConflictRes}/>}
+          {nav==='bootstrap'  && <BootstrapWizardA nodes={nodes} setNodes={setNodes} edges={edges} setEdges={setEdges}/>}
+          {nav==='health'     && <HealthDashboard synthTitles={synthTitles} conflictRes={conflictRes}/>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   App — canvas layout
+   ═══════════════════════════════════════════════════════════════════ */
+const FULLW = 1600, HALFW = 900, GAP = 80;
+
+function App() {
+  const [synthTitles, setSynthTitles] = useState(new Set(['Watershed Boundaries','Lowflow Thresholds']));
+  const [conflictRes, setConflictRes] = useState({});
+  const [bootNodes, setBootNodes] = useState(SEED_NODES);
+  const [bootEdges, setBootEdges] = useState([]);
+  const sharedProps = { nodes:bootNodes, setNodes:setBootNodes, edges:bootEdges, setEdges:setBootEdges, synthTitles, setSynthTitles, conflictRes, setConflictRes };
+  return (
+    <div style={{position:'relative',width:FULLW+GAP*2,minHeight:5360,paddingBottom:80}}>
+      <SLabel x={GAP} y={28}   num="01" title="Node Editor"          sub="Writing and committing corpus nodes — authorship as testimony"/>
+      <Frame  id="1a" label="Writer's Desk — split edit/preview, inline claim toolbar, commit composer" x={GAP} y={96}   w={HALFW} h={560}><NodeEditor1a/></Frame>
+
+      <SLabel x={GAP} y={730}  num="02" title="Ontology Canvas"      sub="Designing the schema layer — spatial diagram or schema table, toggle between views"/>
+      <Frame  id="2"  label="Switchable: Spatial Diagram ↔ Schema Table — wired to Bootstrap (4a): classes + edges flow in when available" x={GAP} y={798}  w={FULLW} h={516}><OntologyCanvas key={bootNodes.length} importedNodes={bootNodes} importedEdges={bootEdges}/></Frame>
+
+      <SLabel x={GAP} y={1386} num="03" title="Resolution Interface"  sub="Synthesising ma/* positions — Article V provenance strip, inline marker conflict resolver"/>
+      <Frame  id="3a" label="Three Columns — wired to 5a: synthesis state drives S8 + open ratio live" x={GAP} y={1454} w={FULLW} h={634}><Resolution3a synthTitles={synthTitles} setSynthTitles={setSynthTitles} conflictRes={conflictRes} setConflictRes={setConflictRes}/></Frame>
+
+      <SLabel x={GAP} y={2168} num="04" title="Bootstrap Wizard"      sub="Dialogue → Schema → Genesis commit — conversation builds the live sketch, then advances through schema review"/>
+      <Frame  id="4a" label="Three connected stages — type + Enter advances dialogue; schema and Ontology Canvas share the same class list" x={GAP} y={2236} w={FULLW} h={620}><BootstrapWizardA nodes={bootNodes} setNodes={setBootNodes} edges={bootEdges} setEdges={setBootEdges}/></Frame>
+
+      <SLabel x={GAP} y={2896} num="05" title="Health Dashboard"      sub="S1–S7 structural checks and Q1–Q7 quality checks — click any row to expand affected nodes"/>
+      <Frame  id="5a" label="Full-width — wired to 3a: S8 synthesis status + S6 open ratio update live as you work" x={GAP} y={2964} w={FULLW} h={570}><HealthDashboard synthTitles={synthTitles} conflictRes={conflictRes}/></Frame>
+
+      <SLabel x={GAP} y={3614} num="06" title="App Shell" sub="All five surfaces in one navigable product — go to Bootstrap, answer questions, switch to Ontology to see the schema appear"/>
+      <Frame id="6a" label="Navigate: Bootstrap → Ontology (schema flows through) · Resolution → Health (synthesis state wired) · sidebar tracks live counts" x={GAP} y={3682} w={FULLW} h={800}><AppShell {...sharedProps}/></Frame>
+
+      <SLabel x={GAP} y={4562} num="07" title="Connector Status" sub="External async adapters — freshness, opportunistic retrieval threshold, fixture staleness, manual refresh"/>
+      <Frame id="7a" label="Connector panel — nwis / echo / census · freshness bars · opportunistic threshold indicator" x={GAP} y={4630} w={760} h={600}><ConnectorStatus/></Frame>
+
+      <SLabel x={GAP+760+GAP} y={4562} num="08" title="Phase Dashboard" sub="Active inquiry phases per elector — timeline, affected nodes, driving questions"/>
+      <Frame id="8a" label="Phase timeline — Investigation / Extraction / Synthesis / Assessment · per-elector swimlane" x={GAP+760+GAP} y={4630} w={760} h={600}><PhaseDashboard/></Frame>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
+

@@ -1,0 +1,9 @@
+/* ─────────────────────────────────────────────────────────────────
+   yidam · Web Fonts
+   All four families loaded from Google Fonts CDN.
+   ⚠ Substitution notice: These are the closest Google Fonts matches
+     to the intended typography. Replace with licensed font files
+     if exact brand fidelity is required (see readme.md).
+   ───────────────────────────────────────────────────────────────── */
+
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500;1,600&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300;1,9..40,400&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=Spectral:ital,wght@0,300;0,400;0,500;1,300;1,400;1,500&display=swap');
