@@ -10,6 +10,11 @@ export default defineConfig({
     starlight({
       title: 'yidam',
       description: 'A git-native knowledge graph system for structured domain research.',
+      logo: {
+        src: './src/assets/logo-mark.svg',
+        replacesTitle: false,
+      },
+      customCss: ['./src/styles/custom.css'],
       social: [
         {
           icon: 'github',
