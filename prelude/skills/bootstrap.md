@@ -25,6 +25,9 @@ route it to a research skill or workflow.
 
 If the genesis commit already exists, do not re-run bootstrap.
 
+If the repository has not been bootstrapped, immediately proceed to **Step 0** — do not read
+BOOTSTRAP.md or any prelude file before checking samudaya.
+
 ## Steps
 
 ### 0. Read samudaya (if present)
@@ -56,9 +59,11 @@ Samudaya does not replace the dialogue. It seeds it.
 
 ### 1. Internalize the prelude
 
-Read these files — in order — before doing anything else. Read each file directly by its
-path; do not enumerate the `prelude/` directory. Skip domain implementations and SDK source
-code; they are reference artifacts, not context for bootstrapping.
+Read these eight files — and **only** these eight files, in this exact order, using their
+exact paths. Do **not** run `ls`, `find`, or any directory enumeration of `prelude/` at any
+point during bootstrapping. Do not read any other file in `prelude/` (including
+`SCRIPTURE.md` or any file surfaced by enumeration). Do not read `prelude/skills/bootstrap.md`
+— it is the skill you are currently executing, not a file to internalize here.
 
 1. `prelude/IDENTITY.md` — what kind of knowledge artifact this repo is
 2. `prelude/GRAPH.md` — the graph model: nodes, edges, commit types, branch semantics
@@ -69,13 +74,13 @@ code; they are reference artifacts, not context for bootstrapping.
 7. `prelude/guidelines/directories.md` — where things live and what belongs in each
 8. `prelude/skills/judge.md` — the judge's criteria; internalize so the genesis commit passes
 
-After reading all eight, output a brief synthesis before opening the dialogue:
+After reading all eight, output the synthesis as a **standalone message** — do not append
+questions or any other content to it. Wait for the user to acknowledge before opening the
+Step 2 dialogue. This gives the user the opportunity to correct any misread before questions
+begin.
 
 > **Prelude internalized.** Graph model: [one sentence]. Key constraints I'll honor: [two or
 > three bullet points from CONSTITUTION and agent-conduct]. Directory layout: [one sentence].
-
-This output is a checkpoint — it proves processing, not just scanning, and lets the user
-correct any misread before the dialogue begins.
 
 ### 2. Discover the ontology
 
@@ -296,12 +301,25 @@ This commit is the first event in the knowledge graph. It should read like one.
 
 If `samudaya/` exists, it is not included in the genesis commit. After the genesis commit
 is written, always delete it — regardless of whether it contained seeds — and commit the
-deletion as a separate consumption event:
+deletion as a separate consumption event.
+
+First try the tracked path:
 
 ```
 git rm -r samudaya/
 git commit -m "consume(samudaya): ..."
 ```
+
+If `git rm` fails because samudaya files were never staged (they are untracked), delete the
+directory directly and record the event as an empty commit:
+
+```
+rm -rf samudaya/
+git commit --allow-empty -m "consume(samudaya): ..."
+```
+
+Do not ask the user to run either command manually — the deletion is part of the bootstrap
+protocol and must complete before the handoff report in step 9.
 
 The deletion message should record what samudaya contained and what it influenced. If no
 seeds were present (only `README.md` and `examples/`), the message should say so explicitly:
@@ -309,6 +327,9 @@ seeds were present (only `README.md` and `examples/`), the message should say so
 record. That is by design.
 
 ### 9. Report
+
+Do not begin this step until both the genesis commit and the consume(samudaya) commit are
+written. If either is unresolved, finish it before proceeding.
 
 Output a structured handoff with four sections:
 
