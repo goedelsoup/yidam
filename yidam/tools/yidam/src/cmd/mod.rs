@@ -1,3 +1,4 @@
+mod backfill;
 mod build;
 mod bundle;
 mod catalog;

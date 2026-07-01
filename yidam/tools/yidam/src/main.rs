@@ -53,6 +53,12 @@ enum Command {
     Overlay {
         /// Root of an existing git repository
         target: PathBuf,
+        /// Scan the repo's git history to accumulate knowledge and decisions into .yidam/
+        #[arg(long)]
+        backfill: bool,
+        /// Only scan history reachable from HEAD but not from this ref (e.g. v1.0.0, main~100)
+        #[arg(long, value_name = "REF", requires = "backfill")]
+        backfill_ref: Option<String>,
     },
 }
 
@@ -76,6 +82,8 @@ async fn main() -> Result<()> {
         Command::Embed => yidam::embed(),
         Command::IndexBuild => yidam::index_build().await,
         Command::Clone { target } => yidam::clone(&target),
-        Command::Overlay { target } => yidam::overlay(&target),
+        Command::Overlay { target, backfill, backfill_ref } => {
+            yidam::overlay(&target, backfill, backfill_ref.as_deref())
+        }
     }
 }

@@ -77,7 +77,7 @@ fn count_seeds(samudaya: &Path) -> usize {
         .count()
 }
 
-pub fn overlay(target: &Path) -> Result<()> {
+pub fn overlay(target: &Path, backfill: bool, backfill_ref: Option<&str>) -> Result<()> {
     if !target.exists() {
         bail!(
             "target does not exist: {}\n       use `yidam clone` to create a new repo from the template",
@@ -152,6 +152,11 @@ pub fn overlay(target: &Path) -> Result<()> {
     println!("  1. Add to your mise.toml:  extends = [\"mise.yidam.toml\"]");
     println!("  2. Open {} in your IDE", target.display());
     println!("  3. The agent will read BOOTSTRAP.md and enter existing-repo mode");
+
+    if backfill {
+        println!();
+        super::backfill::backfill_history(target, backfill_ref)?;
+    }
 
     Ok(())
 }
