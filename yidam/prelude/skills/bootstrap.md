@@ -1,13 +1,18 @@
 ---
 name: bootstrap
-description: Initialize an yidam-derived repository from an empty or near-empty state
+description: Initialize yidam in a repository — empty, near-empty, or an existing codebase
 ---
 
 # Skill: bootstrap
 
-Invoked when an agent enters a freshly cloned yidam repository with [BOOTSTRAP.md](../../../BOOTSTRAP.md)
+Invoked when an agent enters a yidam repository with [BOOTSTRAP.md](../../../BOOTSTRAP.md)
 as its entry prompt. Produces a fully scaffolded, ontology-grounded, corpus-seeded repository
-with a legible genesis commit.
+with a legible genesis commit. Works in two modes:
+
+- **Empty-repo mode** — the repo has no commits. Steps proceed in full.
+- **Existing-repo mode** — the repo has commits but `.yidam/` is absent. Yidam is applied
+  as a knowledge-graph overlay on the existing structure. Step 1.5 explores what is already
+  present before the ontology dialogue; steps 3, 6, and 8 adapt accordingly.
 
 ## Pre-flight
 
@@ -15,20 +20,20 @@ Before any step, run:
 
 ```
 git log --oneline
+ls .yidam/ 2>/dev/null && echo EXISTS
 ```
 
-If this returns no output, the repository has not been bootstrapped and you are in bootstrap
-mode. Do not invoke any other skill, workflow, or tool until the genesis commit is written
-in step 8. If the user's opening message contains domain context (a theme, subject, or
-research direction), hold it as seed material for the ontology dialogue in step 2 — do not
-route it to a research skill or workflow.
+Determine the mode:
 
-If the genesis commit already exists, do not re-run bootstrap.
+- **No commits** → empty-repo mode. Proceed to Step 0. The only file you should have read
+  is `BOOTSTRAP.md`. Do not read any other file before completing Step 0.
+- **Commits exist, `.yidam/` absent** → existing-repo mode. Proceed to Step 0, then follow
+  the existing-repo variants noted in steps 1.5, 3, 6, and 8.
+- **`.yidam/` present** → already bootstrapped. Do not re-run.
 
-If the repository has not been bootstrapped, immediately proceed to **Step 0**. The only file
-you should have read before reaching this skill is `BOOTSTRAP.md` at the repo root — that is
-the expected entry point. Do not read any other file before completing Step 0, including
-SCRIPTURE.md, any prelude file, or any file listed in BOOTSTRAP.md beyond the skill itself.
+In either active mode, do not invoke any other skill, workflow, or tool until the genesis
+commit is written in step 8. If the user's opening message contains domain context, hold it
+as seed material for the ontology dialogue in step 2.
 
 ## Steps
 
@@ -84,6 +89,28 @@ begin.
 
 > **Prelude internalized.** Graph model: [one sentence]. Key constraints I'll honor: [two or
 > three bullet points from CONSTITUTION and agent-conduct]. Directory layout: [one sentence].
+
+### 1.5. Explore the existing repository — existing-repo mode only
+
+Skip this step in empty-repo mode.
+
+Before opening the ontology dialogue, read the existing repository to ground the class sketch
+in what is actually present. The goal is a one-paragraph inventory, not a full audit.
+
+1. `ls -la` — note top-level directories. Flag which ones match sadhana's expected layout
+   (`agents/`, `crates/`, `docs/`, `packages/`, `web/`) — step 3 will skip creating those.
+2. Read `README.md` if present. Extract the domain framing in one sentence.
+3. Identify the primary artifact type and read enough to understand the structure:
+   - **Code repo**: find `Cargo.toml`, `go.mod`, `package.json`, or similar; skim one or two
+     key source files to understand what the repo does.
+   - **Data / research repo**: look for notebooks, dataset directories, experiment configs.
+   - **Documentation / knowledge repo**: scan the docs structure and any existing index files.
+4. Note any existing `sadhana/`, `samudaya/`, or `yidam/` directories — if absent, the
+   transient-layer consume steps in step 8 do not apply.
+
+Output a one-paragraph inventory before opening the step 2 dialogue. The ontology classes
+should reflect the existing artifact structure where natural — a Rust repo might yield `Crate`,
+`Module`, and `Trait`; a data repo might yield `Dataset`, `Experiment`, and `Model`.
 
 ### 2. Discover the ontology
 
@@ -219,6 +246,11 @@ Each README may contain a `<!-- TEMPLATE -->` comment block marking fields that 
 domain-specific content. Fill every such block now, before proceeding. These are the only
 edits made to the scaffolded content in this step — do not add or remove files beyond what
 sadhana provides.
+
+**Existing-repo mode**: if `sadhana/` is absent, skip the template reads and directory
+creation for top-level dirs — they either already exist or are not applicable to this repo.
+Create only the `.yidam/` subdirectories that are missing. Do not overwrite any existing
+file; if a target path already exists with content, leave it and note the conflict.
 
 ### 4. Formalize the ontology
 
@@ -360,6 +392,12 @@ participation) and fewer to peripheral classes. Seed from root nodes down so lin
 exist when referenced. Prefer depth over breadth: a well-linked instance with real content
 is worth more than several shallow stubs.
 
+**Existing-repo mode**: instances may represent existing repository artifacts directly. Add
+a `source_path:` property pointing to the relevant existing file or directory, and link to
+it as an evidence anchor. For example, a `Crate` instance for a Rust workspace member would
+carry `source_path: crates/my-crate/Cargo.toml`. This is how the corpus models what already
+exists rather than only what the bootstrap creates.
+
 **Opportunistic retrieval**: While seeding, watch for the demand threshold — five or more
 instances that share a missing property attributable to a single approved connector source.
 When that threshold is met, invoke the connector inline rather than deferring it: fetch the
@@ -410,7 +448,13 @@ The message should name the domain, summarize the class schema, and describe wha
 objects were created and how they connect. This commit is the first event in the knowledge
 graph. It should read like one.
 
-**Consume samudaya** — after the genesis commit is written, delete `samudaya/`:
+In existing-repo mode, open the message with `overlay:` instead of `genesis:` and note the
+pre-existing commit count: `overlay: <domain> — yidam applied to N-commit repository; M
+classes; K instances seeded`. This marks the graph's origin without misrepresenting the repo
+history.
+
+**Consume samudaya** — after the genesis commit is written, delete `samudaya/`. Skip if
+`samudaya/` does not exist (typical in existing-repo mode).
 
 First try the tracked path:
 
@@ -434,7 +478,8 @@ The deletion message should record what samudaya contained and what it influence
 seeds were present (only `README.md` and `examples/`), say so explicitly: "no seeds present;
 directory removed."
 
-**Consume sadhana** — immediately after consuming samudaya, delete `sadhana/`:
+**Consume sadhana** — immediately after consuming samudaya, delete `sadhana/`. Skip if
+`sadhana/` does not exist (typical in existing-repo mode).
 
 ```
 git rm -r sadhana/
@@ -449,7 +494,9 @@ git commit --allow-empty -m "consume(sadhana): scaffold template consumed; deriv
 ```
 
 **Vendor the prelude** — immediately after consuming sadhana, move the inherited prelude
-from the top-level `yidam/` into the `.yidam/` infrastructure namespace:
+from the top-level `yidam/` into the `.yidam/` infrastructure namespace. Skip if `yidam/`
+does not exist (typical in existing-repo mode; the vendor step only applies when bootstrapping
+from the yidam template).
 
 Because `yidam/` was not staged in the genesis commit (it is untracked), use the filesystem
 move and stage the result directly:
