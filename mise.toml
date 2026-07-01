@@ -10,7 +10,7 @@
 # `mise run ci`  is what CI runs.
 
 [tools]
-# Rust — domain computer (crates/), bootstrap harness (yidam/tests/harness/), yidam CLI (yidam/tools/yidam/).
+# Rust — domain computer (crates/), bootstrap harness (yidam/tests/harness/), yidam CLI (yidam/cli/).
 # Must match rust-toolchain.toml in yidam/tests/harness/.
 rust = { version = "1.85.0", components = "rustfmt,clippy" }
 # Python — packages/ ML pipelines, embedding model SDKs, geospatial connectors.
@@ -21,13 +21,13 @@ uv = "latest"
 # LEAN 4 / lake: not in the mise registry — install via elan (https://github.com/leanprover/elan)
 
 # ── yidam CLI — build ─────────────────────────────────────────────────
-# The `yidam` binary lives in yidam/tools/yidam/. In derived repos it is
+# The `yidam` binary lives in yidam/cli/. In derived repos it is
 # installed from the registry; in this repo, build it first with:
 #   mise run yidam-build
 
 [tasks.yidam-build]
-description = "Compile and install the yidam binary from yidam/tools/yidam/ to ~/.cargo/bin."
-run = "cargo install --path yidam/tools/yidam"
+description = "Compile and install the yidam binary from yidam/cli/ to ~/.cargo/bin."
+run = "cargo install --path yidam/cli"
 
 # ── yidam CLI — REGEN tasks ───────────────────────────────────────────
 # These tasks back the <!-- REGEN: yidam <subcommand> --> markers across
@@ -231,7 +231,7 @@ run = [
   "cargo fmt --all --manifest-path yidam/tests/harness/Cargo.toml -- --check",
   "cargo clippy --workspace --manifest-path yidam/tests/harness/Cargo.toml -- -D warnings",
   "cargo test --workspace --manifest-path yidam/tests/harness/Cargo.toml",
-  "cargo fmt --all --manifest-path yidam/tools/yidam/Cargo.toml -- --check",
-  "cargo clippy --manifest-path yidam/tools/yidam/Cargo.toml -- -D warnings",
-  "cargo test --manifest-path yidam/tools/yidam/Cargo.toml",
+  "cargo fmt --all --manifest-path yidam/cli/Cargo.toml -- --check",
+  "cargo clippy --manifest-path yidam/cli/Cargo.toml -- -D warnings",
+  "cargo test --manifest-path yidam/cli/Cargo.toml",
 ]

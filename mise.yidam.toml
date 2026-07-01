@@ -15,8 +15,8 @@ rust = { version = "1.85.0", components = "rustfmt,clippy" }
 # ── yidam CLI — build ─────────────────────────────────────────────────
 
 [tasks.yidam-build]
-description = "Compile and install the yidam binary from yidam/tools/yidam/ to ~/.cargo/bin."
-run = "cargo install --path yidam/tools/yidam"
+description = "Compile and install the yidam binary from yidam/cli/ to ~/.cargo/bin."
+run = "cargo install --path yidam/cli"
 
 # ── yidam CLI — REGEN tasks ───────────────────────────────────────────
 
