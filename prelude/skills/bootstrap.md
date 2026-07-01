@@ -9,6 +9,22 @@ Invoked when an agent enters a freshly cloned yidam repository with [BOOTSTRAP.m
 as its entry prompt. Produces a fully scaffolded, ontology-grounded, corpus-seeded repository
 with a legible genesis commit.
 
+## Pre-flight
+
+Before any step, run:
+
+```
+git log --oneline
+```
+
+If this returns no output, the repository has not been bootstrapped and you are in bootstrap
+mode. Do not invoke any other skill, workflow, or tool until the genesis commit is written
+in step 8. If the user's opening message contains domain context (a theme, subject, or
+research direction), hold it as seed material for the ontology dialogue in step 2 — do not
+route it to a research skill or workflow.
+
+If the genesis commit already exists, do not re-run bootstrap.
+
 ## Steps
 
 ### 0. Read samudaya (if present)

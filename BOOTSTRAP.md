@@ -29,3 +29,10 @@ Once you have internalized the prelude, invoke the [bootstrap skill](prelude/ski
 The skill will guide you through gathering context, scaffolding structure, seeding the corpus,
 and writing the genesis commit. Follow it in order. Do not skip the context-gathering step —
 every yidam-derived repository has a specific identity, and the scaffold should reflect it.
+
+## Providing your domain theme
+
+The skill will open an ontology dialogue in step 2 and ask for your domain. If you already
+have a theme in mind, wait until the agent outputs its **Prelude internalized** checkpoint
+before sharing it — providing it earlier risks it being treated as a research request rather
+than ontology seed material.
