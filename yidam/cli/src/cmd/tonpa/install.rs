@@ -39,11 +39,21 @@ pub fn sha256_hex(data: &[u8]) -> String {
 
 // ── extract ───────────────────────────────────────────────────────────────────
 
+/// Parsed subset of `manifest.yml` from a `.yiz` bundle archive.
+///
+/// Only the fields that `tonpa install` needs are decoded here. The full
+/// field list is documented on [`render_bundle`] in `cmd/bundle.rs`.
+/// Unknown fields in the YAML are silently ignored — consumers MUST treat
+/// unrecognised fields as non-breaking additions per the versioning policy.
 #[derive(Debug, Default, serde::Deserialize)]
 pub struct BundleManifest {
+    /// Short SHA of the HEAD commit when the bundle was produced.
     pub commit: Option<String>,
+    /// ISO date (YYYY-MM-DD) of the genesis (first) commit.
     pub genesis: Option<String>,
+    /// Name of the fastembed model used to build the vector index, if present.
     pub vector_index_model: Option<String>,
+    /// Number of corpus instance files included in the bundle.
     pub instances: Option<u64>,
 }
 

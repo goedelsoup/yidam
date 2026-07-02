@@ -2,6 +2,8 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+use yidam::ExportFormat;
+
 #[derive(Parser)]
 #[command(
     name = "yidam",
@@ -38,7 +40,20 @@ enum Command {
     #[command(name = "decisions-log")]
     DecisionsLog,
     /// Bundle ontology, corpus, skills, decisions, and vector index into .yidam/bundle.yiz
+    /// (backwards-compatible alias for `export --format bundle`)
     Bundle,
+    /// Export the domain model in the specified format
+    Export {
+        /// Output format (use --list to see available formats and their status)
+        #[arg(long, value_enum, required_unless_present = "list")]
+        format: Option<ExportFormat>,
+        /// Output path (default: format-specific, e.g. .yidam/bundle.yiz for bundle)
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// List available export formats and their implementation status
+        #[arg(long)]
+        list: bool,
+    },
     /// Extract embedding text from corpus instances to .yidam/embeddings/
     Embed,
     /// Build LanceDB vector index from embeddings and export Arrow IPC for the web shell
@@ -84,6 +99,14 @@ async fn main() -> Result<()> {
         Command::GraphCheck => yidam::graph_check(),
         Command::DecisionsLog => yidam::decisions_log(),
         Command::Bundle => yidam::bundle(),
+        Command::Export { format, out, list } => {
+            if list {
+                yidam::list_formats();
+                Ok(())
+            } else {
+                yidam::run_export(format.unwrap(), out.as_deref())
+            }
+        }
         Command::Embed => yidam::embed(),
         Command::IndexBuild => yidam::index_build().await,
         Command::Clone { target } => yidam::clone(&target),
