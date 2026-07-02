@@ -1,0 +1,360 @@
+//! MCP tools — retrieval and traversal over the domain computer.
+
+use serde_json::{json, Value};
+use std::collections::{BTreeSet, VecDeque};
+
+use super::resources::is_open_question;
+use super::{IndexState, ServerState};
+
+pub(crate) fn list() -> Value {
+    json!({"tools": [
+        {
+            "name": "retrieve",
+            "description": "Semantic search over corpus nodes. Returns the top-k nodes by \
+                            cosine similarity; degrades to keyword search (with \"degraded\": \
+                            true) when the vector index is absent.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Natural-language query"},
+                    "k": {"type": "integer", "description": "Number of results (default 5)"},
+                    "class": {"type": "string", "description": "Restrict results to one class"}
+                },
+                "required": ["query"]
+            }
+        },
+        {
+            "name": "get_node",
+            "description": "Fetch one corpus node by id (\"<class>/<name>\") — full YAML \
+                            content plus outgoing links.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Node id, e.g. \"concept/confounding\""}
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "neighbors",
+            "description": "Nodes linked to a given node, following edges in both directions \
+                            up to `depth` hops (default 1).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Node id, e.g. \"concept/confounding\""},
+                    "depth": {"type": "integer", "description": "Maximum hops (default 1)"}
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "open_questions",
+            "description": "All nodes flagged as open questions: label starts with \"?\" or \
+                            the body contains an [open] claim.",
+            "inputSchema": {"type": "object", "properties": {}}
+        }
+    ]})
+}
+
+/// Dispatch a tools/call. Tool-level failures come back as MCP tool errors
+/// (`isError: true`), not protocol errors — the agent can read and react.
+pub(crate) fn call(state: &ServerState, name: &str, args: &Value) -> Value {
+    let outcome = match name {
+        "retrieve" => retrieve(state, args),
+        "get_node" => get_node(state, args),
+        "neighbors" => neighbors(state, args),
+        "open_questions" => Ok(open_questions(state)),
+        other => Err(format!("unknown tool: {other}")),
+    };
+    match outcome {
+        Ok(result) => {
+            let text = serde_json::to_string_pretty(&result).unwrap_or_default();
+            json!({"content": [{"type": "text", "text": text}]})
+        }
+        Err(message) => {
+            json!({"content": [{"type": "text", "text": message}], "isError": true})
+        }
+    }
+}
+
+fn find_node<'a>(state: &'a ServerState, id: &str) -> Option<&'a super::Node> {
+    let id = id.trim().trim_end_matches(".yml");
+    state
+        .nodes
+        .iter()
+        .find(|n| n.id == id)
+        // Tolerate full repo paths like .yidam/corpus/<class>/<name>.yml
+        .or_else(|| {
+            state
+                .nodes
+                .iter()
+                .find(|n| id.ends_with(&format!("corpus/{}", n.id)))
+        })
+}
+
+fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
+    let query = args["query"]
+        .as_str()
+        .ok_or("missing required argument: query")?;
+    let k = args["k"].as_u64().unwrap_or(5).max(1) as usize;
+    let class_filter = args["class"].as_str();
+
+    match &state.index {
+        Some(index) => vector_retrieve(index, query, k, class_filter),
+        None => Ok(keyword_retrieve(state, query, k, class_filter)),
+    }
+}
+
+fn vector_retrieve(
+    index: &IndexState,
+    query: &str,
+    k: usize,
+    class_filter: Option<&str>,
+) -> Result<Value, String> {
+    let mut embedder = index.embedder.borrow_mut();
+    if embedder.is_none() {
+        let (model, _, _) = crate::cmd::index_build::resolve_model(&index.model_id)
+            .map_err(|e| format!("resolving embedding model: {e}"))?;
+        let loaded = fastembed::TextEmbedding::try_new(fastembed::InitOptions::new(model))
+            .map_err(|e| format!("loading embedding model {}: {e}", index.model_id))?;
+        *embedder = Some(loaded);
+    }
+    let query_vec = embedder
+        .as_ref()
+        .expect("embedder initialised above")
+        .embed(vec![query.to_string()], None)
+        .map_err(|e| format!("embedding query: {e}"))?
+        .remove(0);
+
+    // Index vectors are L2-normalized (see embed.config.json), so cosine
+    // similarity reduces to the dot product.
+    let mut scored: Vec<(&super::VectorRow, f32)> = index
+        .rows
+        .iter()
+        .filter(|r| class_filter.is_none_or(|c| r.class == c))
+        .map(|r| {
+            let score: f32 = r.vector.iter().zip(&query_vec).map(|(a, b)| a * b).sum();
+            (r, score)
+        })
+        .collect();
+    scored.sort_by(|a, b| b.1.total_cmp(&a.1));
+    scored.truncate(k);
+
+    Ok(json!({
+        "degraded": false,
+        "results": scored.iter().map(|(r, score)| json!({
+            "path": r.path,
+            "class": r.class,
+            "label": r.label,
+            "text": r.text,
+            "score": score,
+        })).collect::<Vec<_>>()
+    }))
+}
+
+/// Fallback when no vector index exists: case-insensitive term matching over
+/// label, description, and body, scored by the fraction of query terms hit.
+fn keyword_retrieve(
+    state: &ServerState,
+    query: &str,
+    k: usize,
+    class_filter: Option<&str>,
+) -> Value {
+    let terms: Vec<String> = query
+        .to_lowercase()
+        .split_whitespace()
+        .map(str::to_string)
+        .collect();
+
+    let mut scored: Vec<(&super::Node, f32)> = state
+        .nodes
+        .iter()
+        .filter(|n| class_filter.is_none_or(|c| n.class == c))
+        .filter_map(|n| {
+            let haystack = format!("{} {} {}", n.label, n.description, n.content).to_lowercase();
+            let hits = terms
+                .iter()
+                .filter(|t| haystack.contains(t.as_str()))
+                .count();
+            if hits == 0 || terms.is_empty() {
+                None
+            } else {
+                Some((n, hits as f32 / terms.len() as f32))
+            }
+        })
+        .collect();
+    scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.id.cmp(&b.0.id)));
+    scored.truncate(k);
+
+    json!({
+        "degraded": true,
+        "results": scored.iter().map(|(n, score)| json!({
+            "path": format!(".yidam/corpus/{}.yml", n.id),
+            "class": n.class,
+            "label": n.label,
+            "text": n.description,
+            "score": score,
+        })).collect::<Vec<_>>()
+    })
+}
+
+fn get_node(state: &ServerState, args: &Value) -> Result<Value, String> {
+    let id = args["id"].as_str().ok_or("missing required argument: id")?;
+    let node = find_node(state, id).ok_or_else(|| format!("node not found: {id}"))?;
+    Ok(json!({
+        "id": node.id,
+        "class": node.class,
+        "label": node.label,
+        "description": node.description,
+        "content": node.content,
+        "links": node.links.iter().map(|(target, rel)| json!({
+            "target": target,
+            "relationship": rel,
+        })).collect::<Vec<_>>()
+    }))
+}
+
+fn neighbors(state: &ServerState, args: &Value) -> Result<Value, String> {
+    let id = args["id"].as_str().ok_or("missing required argument: id")?;
+    let depth = args["depth"].as_u64().unwrap_or(1).max(1) as usize;
+    let start = find_node(state, id).ok_or_else(|| format!("node not found: {id}"))?;
+
+    // BFS over the undirected view of the graph; each reached node is
+    // reported once, at its shortest hop distance, with the edge direction
+    // relative to the node it was reached from.
+    let mut seen: BTreeSet<String> = BTreeSet::from([start.id.clone()]);
+    let mut queue: VecDeque<(String, usize)> = VecDeque::from([(start.id.clone(), 0)]);
+    let mut found: Vec<Value> = Vec::new();
+
+    while let Some((current, hop)) = queue.pop_front() {
+        if hop == depth {
+            continue;
+        }
+        let mut adjacent: Vec<(String, String, &str)> = Vec::new(); // (id, rel, direction)
+        if let Some(node) = state.nodes.iter().find(|n| n.id == current) {
+            for (target, rel) in &node.links {
+                adjacent.push((target.clone(), rel.clone(), "out"));
+            }
+        }
+        for other in &state.nodes {
+            for (target, rel) in &other.links {
+                if *target == current {
+                    adjacent.push((other.id.clone(), rel.clone(), "in"));
+                }
+            }
+        }
+
+        for (next_id, rel, direction) in adjacent {
+            if !seen.insert(next_id.clone()) {
+                continue;
+            }
+            let (label, description) = state
+                .nodes
+                .iter()
+                .find(|n| n.id == next_id)
+                .map(|n| (n.label.clone(), n.description.clone()))
+                .unwrap_or_default();
+            found.push(json!({
+                "id": next_id,
+                "label": label,
+                "description": description,
+                "relationship": rel,
+                "direction": direction,
+                "depth": hop + 1,
+            }));
+            queue.push_back((next_id, hop + 1));
+        }
+    }
+
+    Ok(json!({"id": start.id, "neighbors": found}))
+}
+
+fn open_questions(state: &ServerState) -> Value {
+    let questions: Vec<Value> = state
+        .nodes
+        .iter()
+        .filter(|n| is_open_question(n))
+        .map(|n| {
+            json!({
+                "id": n.id,
+                "label": n.label,
+                "path": format!(".yidam/corpus/{}.yml", n.id),
+            })
+        })
+        .collect();
+    json!({"open_questions": questions})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::tests::test_state;
+    use super::*;
+
+    fn call_ok(state: &ServerState, name: &str, args: Value) -> Value {
+        let result = call(state, name, &args);
+        assert!(
+            result["isError"].as_bool() != Some(true),
+            "tool {name} errored: {result}"
+        );
+        serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn retrieve_without_index_degrades_to_keyword() {
+        let state = test_state();
+        let result = call_ok(&state, "retrieve", json!({"query": "knowledge graph"}));
+        assert_eq!(result["degraded"], true);
+        let results = result["results"].as_array().unwrap();
+        assert!(!results.is_empty());
+        assert_eq!(results[0]["class"], "concept");
+        assert_eq!(results[0]["label"], "Knowledge graph");
+    }
+
+    #[test]
+    fn retrieve_honors_class_filter_and_k() {
+        let state = test_state();
+        let result = call_ok(
+            &state,
+            "retrieve",
+            json!({"query": "graph", "class": "nonexistent", "k": 1}),
+        );
+        assert!(result["results"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn get_node_returns_content_and_links() {
+        let state = test_state();
+        let result = call_ok(&state, "get_node", json!({"id": "concept/knowledge-graph"}));
+        assert_eq!(result["label"], "Knowledge graph");
+        assert_eq!(result["links"][0]["target"], "concept/traversal");
+        assert_eq!(result["links"][0]["relationship"], "enables");
+    }
+
+    #[test]
+    fn neighbors_walks_both_directions() {
+        let state = test_state();
+        // traversal has no outgoing links, but knowledge-graph points at it
+        let result = call_ok(&state, "neighbors", json!({"id": "concept/traversal"}));
+        let found = result["neighbors"].as_array().unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0]["id"], "concept/knowledge-graph");
+        assert_eq!(found[0]["direction"], "in");
+    }
+
+    #[test]
+    fn open_questions_flags_question_labels() {
+        let state = test_state();
+        let result = call_ok(&state, "open_questions", json!({}));
+        let qs = result["open_questions"].as_array().unwrap();
+        assert_eq!(qs.len(), 1);
+        assert_eq!(qs[0]["id"], "concept/traversal");
+    }
+
+    #[test]
+    fn unknown_tool_is_a_tool_error() {
+        let state = test_state();
+        let result = call(&state, "bogus", &json!({}));
+        assert_eq!(result["isError"], true);
+    }
+}

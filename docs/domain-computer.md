@@ -68,3 +68,33 @@ section rather than silently widened.
 
 A consumer that cannot satisfy the contract — the model or weights file is unavailable in
 its runtime — must degrade to keyword search, not embed with different settings.
+
+### The MCP server
+
+`yidam serve --mcp` exposes the domain computer to any MCP-capable agent over stdio.
+Register it in the consuming project's `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "yidam": {
+      "command": "yidam",
+      "args": ["serve", "--mcp"],
+      "cwd": "/path/to/derived-repo"
+    }
+  }
+}
+```
+
+**Resources** — `yidam://graph/summary` (classes, node count, open questions),
+`yidam://corpus/<class>` (class listing), `yidam://corpus/<class>/<name>` (one instance),
+`yidam://skills/<name>`, and `yidam://decisions/<name>`.
+
+**Tools** — `retrieve` (semantic search over the vector index; query embedding follows
+`embed.config.json`), `get_node` (full node content plus outgoing links), `neighbors`
+(linked nodes up to `depth` hops, both edge directions), and `open_questions`.
+
+All reads come from the already-built corpus and index on disk — no live git operations.
+Without a vector index, `retrieve` degrades to keyword search and marks responses with
+`"degraded": true`; if HEAD has advanced past the indexed commit, the server warns on
+startup (stderr) but keeps serving the stale index. Run `yidam index-build` to refresh.
