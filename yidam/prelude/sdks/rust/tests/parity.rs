@@ -45,14 +45,22 @@ fn parity_parse_node() {
 
         assert_eq!(node.path, expected["path"].as_str().unwrap(), "path");
         assert_eq!(node.title, expected["title"].as_str().unwrap(), "title");
-        assert_eq!(node.kind.as_str(), expected["kind"].as_str().unwrap(), "kind");
+        assert_eq!(
+            node.kind.as_str(),
+            expected["kind"].as_str().unwrap(),
+            "kind"
+        );
 
         let exp_claims = expected.get("claims").and_then(|v| v.as_array());
         let exp_claims = exp_claims.map(|a| a.as_slice()).unwrap_or(&[]);
         assert_eq!(node.claims.len(), exp_claims.len(), "claim count");
         for (claim, exp) in node.claims.iter().zip(exp_claims.iter()) {
             assert_eq!(claim.text, exp["text"].as_str().unwrap(), "claim.text");
-            assert_eq!(claim.tag.as_str(), exp["tag"].as_str().unwrap(), "claim.tag");
+            assert_eq!(
+                claim.tag.as_str(),
+                exp["tag"].as_str().unwrap(),
+                "claim.tag"
+            );
         }
 
         let exp_links = expected.get("links").and_then(|v| v.as_array());
@@ -82,7 +90,11 @@ fn parity_extract_claims() {
         assert_eq!(claims.len(), expected.len(), "claim count");
         for (claim, exp) in claims.iter().zip(expected.iter()) {
             assert_eq!(claim.text, exp["text"].as_str().unwrap(), "claim.text");
-            assert_eq!(claim.tag.as_str(), exp["tag"].as_str().unwrap(), "claim.tag");
+            assert_eq!(
+                claim.tag.as_str(),
+                exp["tag"].as_str().unwrap(),
+                "claim.tag"
+            );
         }
     }
 }
@@ -125,9 +137,17 @@ fn parity_classify_commit() {
             input["message"].as_str().unwrap(),
         );
 
-        assert_eq!(event.kind.as_str(), expected["kind"].as_str().unwrap(), "kind");
+        assert_eq!(
+            event.kind.as_str(),
+            expected["kind"].as_str().unwrap(),
+            "kind"
+        );
         assert_eq!(event.verb, expected["verb"].as_str().unwrap(), "verb");
-        assert_eq!(event.subject, expected["subject"].as_str().unwrap(), "subject");
+        assert_eq!(
+            event.subject,
+            expected["subject"].as_str().unwrap(),
+            "subject"
+        );
     }
 }
 

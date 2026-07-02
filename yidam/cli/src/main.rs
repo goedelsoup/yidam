@@ -77,13 +77,24 @@ enum Command {
     Overlay {
         /// Root of an existing git repository
         target: PathBuf,
-        /// Scan the repo's git history to accumulate knowledge and decisions into .yidam/
+        /// Scan the repo's git history and write a decision record into
+        /// .yidam/decisions/ for each epistemic commit (heuristic verb
+        /// classification; corpus nodes are not extracted)
         #[arg(long)]
         backfill: bool,
         /// Only scan history reachable from HEAD but not from this ref (e.g. v1.0.0, main~100)
         #[arg(long, value_name = "REF", requires = "backfill")]
         backfill_ref: Option<String>,
     },
+    /// Scan git history and write a decision record into .yidam/decisions/
+    /// for each epistemic commit (heuristic verb classification)
+    Backfill {
+        /// Only scan history reachable from HEAD but not from this ref (e.g. v1.0.0, main~100)
+        #[arg(long, value_name = "REF")]
+        since: Option<String>,
+    },
+    /// Show active inquiry phases (ma/* and rigpa/* branches)
+    Phases,
     /// Run corpus quality checks
     Lint {
         /// Report issues but always exit 0
@@ -137,6 +148,8 @@ async fn main() -> Result<()> {
             backfill,
             backfill_ref,
         } => yidam::overlay(&target, backfill, backfill_ref.as_deref()),
+        Command::Backfill { since } => yidam::backfill(since.as_deref()),
+        Command::Phases => yidam::phases(),
         Command::Lint { warn, suggest } => yidam::lint(warn, suggest),
         Command::SamudayaAudit => yidam::samudaya_audit(),
         Command::Tonpa { sub } => yidam::tonpa::run(sub).await,

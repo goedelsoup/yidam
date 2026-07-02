@@ -45,7 +45,10 @@ mod tests {
     use super::*;
 
     fn e(from: &str, to: &str) -> GraphEdge {
-        GraphEdge { from: from.into(), to: to.into() }
+        GraphEdge {
+            from: from.into(),
+            to: to.into(),
+        }
     }
 
     #[test]

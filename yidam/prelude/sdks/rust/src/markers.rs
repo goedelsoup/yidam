@@ -23,7 +23,9 @@ pub fn parse_markers(text: &str) -> Vec<Marker> {
         // Single-line TEMPLATE: <!-- TEMPLATE: instruction -->
         if let Some(rest) = trimmed.strip_prefix("<!-- TEMPLATE:") {
             if let Some(raw) = rest.strip_suffix("-->") {
-                markers.push(Marker::Template { instruction: raw.trim().to_string() });
+                markers.push(Marker::Template {
+                    instruction: raw.trim().to_string(),
+                });
                 continue;
             }
         }
@@ -79,6 +81,11 @@ pub fn update_regen(text: &str, command: &str, new_content: &str) -> String {
         // Clear the body without leaving a blank line between the markers.
         format!("{}\n{}", &text[..content_start], &text[close_abs..])
     } else {
-        format!("{}\n{}\n{}", &text[..content_start], new_content, &text[close_abs..])
+        format!(
+            "{}\n{}\n{}",
+            &text[..content_start],
+            new_content,
+            &text[close_abs..]
+        )
     }
 }
