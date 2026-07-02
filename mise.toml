@@ -13,6 +13,9 @@
 # Rust — domain computer (crates/), bootstrap harness (yidam/tests/harness/), yidam CLI (yidam/cli/).
 # Must match rust-toolchain.toml in yidam/tests/harness/.
 rust = { version = "1.85.0", components = "rustfmt,clippy" }
+# protoc — required by lance-encoding's build script (prost-build), a
+# transitive dependency of the yidam CLI via lancedb.
+protoc = "31"
 # Python — packages/ ML pipelines, embedding model SDKs, geospatial connectors.
 python = "3.12"
 # uv — fast Python package/venv manager; used in packages/.
