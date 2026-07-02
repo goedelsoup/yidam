@@ -81,5 +81,9 @@ export function updateRegen(text: string, command: string, newContent: string): 
   const closeAbs = text.indexOf(closeTag, contentStart)
   if (closeAbs === -1) return text
 
+  if (newContent === '') {
+    // Clear the body without leaving a blank line between the markers.
+    return `${text.slice(0, contentStart)}\n${text.slice(closeAbs)}`
+  }
   return `${text.slice(0, contentStart)}\n${newContent}\n${text.slice(closeAbs)}`
 }

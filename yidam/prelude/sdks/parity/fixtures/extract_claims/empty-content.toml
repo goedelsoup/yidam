@@ -1,7 +1,9 @@
 function = "extract_claims"
 description = "empty content yields no claims"
 
+# No claims. Must be a top-level `expected = []` declared before [input] —
+# a bare [[expected]] would create an array with one empty element.
+expected = []
+
 [input]
 content = ""
-
-[[expected]]

@@ -19,7 +19,7 @@ class CommitEvent:
 
 
 _OPERATIONAL_VERBS = frozenset(
-    ["extract", "refresh", "compute", "index", "bundle", "reconcile", "build"]
+    ["extract", "refresh", "compute", "index", "bundle", "reconcile", "build", "fix", "regen"]
 )
 
 

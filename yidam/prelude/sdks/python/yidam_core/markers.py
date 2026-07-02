@@ -79,4 +79,7 @@ def update_regen(text: str, command: str, new_content: str) -> str:
         return text
 
     close_abs = content_start + close_rel
+    if new_content == "":
+        # Clear the body without leaving a blank line between the markers.
+        return f"{text[:content_start]}\n{text[close_abs:]}"
     return f"{text[:content_start]}\n{new_content}\n{text[close_abs:]}"
