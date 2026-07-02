@@ -1,0 +1,38 @@
+function = "embed_config"
+description = "Same sentence embeds to matching vectors across fastembed (Rust), transformers.js (TS), and sentence-transformers (Python)"
+
+[input]
+text = "knowledge graph traversal"
+model_id = "Xenova/all-MiniLM-L6-v2"
+# fastembed resolves "Xenova/all-MiniLM-L6-v2" to its quantized variant
+# (AllMiniLML6V2Q). Consumers must load the same weights file: the fp32
+# export of the same model drifts ~1e-3 per element from these values.
+model_file = "onnx/model_quantized.onnx"
+pooling = "mean"
+normalize = true
+
+[expected]
+embedding_dim = 384
+# First 8 dimensions of the normalized output vector, from the Rust
+# reference run (fastembed). Tolerance is per element; float32 rounding
+# differs slightly across libraries.
+tolerance = 1e-5
+prefix = [
+  0.0008519883,
+  0.023440583,
+  -0.016719049,
+  0.054857034,
+  -0.009903844,
+  -0.05347952,
+  0.03820032,
+  -0.011892687,
+]
+
+# sentence-transformers cannot load the quantized ONNX export; it runs the
+# original fp32 PyTorch weights (sentence-transformers/all-MiniLM-L6-v2).
+# Same model, different precision: elements drift up to ~8e-3 from the
+# quantized reference (measured on this sentence). A consumer that cannot
+# load model_file must either accept this looser bound or degrade to
+# keyword search.
+[known_delta.sentence-transformers]
+tolerance = 1e-2

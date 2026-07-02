@@ -37,6 +37,7 @@ fn add_bytes<W: Write>(tar: &mut Builder<W>, path: &str, data: &[u8]) -> Result<
 /// index/skills.md       rendered skills table
 /// index/corpus.arrow    Arrow IPC for the WASM web shell (if index present)
 /// index/meta.json       vector index metadata (if index present)
+/// index/embed.config.json embedding reproducibility contract (if index present)
 /// ```
 ///
 /// ## `manifest.yml` fields
@@ -145,6 +146,13 @@ pub(crate) fn render_bundle(model: &DomainModel) -> Result<Vec<u8>> {
     if let Some(idx) = &model.index {
         add_bytes(&mut tar, "index/corpus.arrow", &idx.arrow_ipc)?;
         add_bytes(&mut tar, "index/meta.json", &idx.meta_raw)?;
+        if let Some(cfg) = &idx.embed_config {
+            add_bytes(
+                &mut tar,
+                "index/embed.config.json",
+                &serde_json::to_vec_pretty(cfg)?,
+            )?;
+        }
     }
 
     let gz = tar.into_inner()?;
@@ -178,4 +186,90 @@ pub fn bundle() -> Result<()> {
         output.display(),
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::embed_config::EmbedConfig;
+    use crate::model::{IndexData, Provenance, RenderedViews};
+    use flate2::read::GzDecoder;
+    use std::io::Read;
+
+    fn minimal_model(index: Option<IndexData>) -> DomainModel {
+        DomainModel {
+            classes: vec![],
+            instances: vec![],
+            skills: vec![],
+            decisions: vec![],
+            index,
+            provenance: Provenance {
+                commit: "abc1234".into(),
+                genesis: "2026-01-01".into(),
+                domain: "test".into(),
+                generated_at: 0,
+            },
+            rendered: RenderedViews {
+                corpus_index: String::new(),
+                graph_check: String::new(),
+                decisions_log: String::new(),
+                skills_index: String::new(),
+            },
+        }
+    }
+
+    fn archive_entries(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
+        let mut archive = tar::Archive::new(GzDecoder::new(bytes));
+        archive
+            .entries()
+            .unwrap()
+            .map(|e| {
+                let mut e = e.unwrap();
+                let path = e.path().unwrap().to_string_lossy().into_owned();
+                let mut data = Vec::new();
+                e.read_to_end(&mut data).unwrap();
+                (path, data)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn bundle_includes_embed_config_when_present() {
+        let cfg = EmbedConfig::for_fastembed_model(
+            "Xenova/all-MiniLM-L6-v2",
+            384,
+            "onnx/model_quantized.onnx",
+            "AllMiniLML6V2Q",
+        );
+        let index = IndexData {
+            arrow_ipc: b"stub".to_vec(),
+            meta_raw: b"{}".to_vec(),
+            meta: serde_json::json!({}),
+            embed_config: Some(cfg.clone()),
+        };
+        let bytes = render_bundle(&minimal_model(Some(index))).unwrap();
+
+        let entries = archive_entries(&bytes);
+        let (_, data) = entries
+            .iter()
+            .find(|(p, _)| p == "index/embed.config.json")
+            .expect("bundle should contain index/embed.config.json");
+        let parsed: EmbedConfig = serde_json::from_slice(data).unwrap();
+        assert_eq!(parsed, cfg);
+    }
+
+    #[test]
+    fn bundle_omits_embed_config_when_absent() {
+        let index = IndexData {
+            arrow_ipc: b"stub".to_vec(),
+            meta_raw: b"{}".to_vec(),
+            meta: serde_json::json!({}),
+            embed_config: None,
+        };
+        let bytes = render_bundle(&minimal_model(Some(index))).unwrap();
+
+        let entries = archive_entries(&bytes);
+        assert!(entries.iter().any(|(p, _)| p == "index/corpus.arrow"));
+        assert!(!entries.iter().any(|(p, _)| p == "index/embed.config.json"));
+    }
 }

@@ -186,6 +186,15 @@ for domain_dir in yidam/prelude/domains/*/; do
 done
 """
 
+[tasks.embed-parity]
+description = "Cross-runtime embedding reproducibility check (fastembed / transformers.js / sentence-transformers). Downloads model weights on first run; skipped by the default parity task."
+env = { YIDAM_EMBED_PARITY = "1" }
+run = [
+  "cargo test --manifest-path yidam/cli/Cargo.toml --test embed_parity",
+  "cd yidam/prelude/sdks/typescript && npm test -- embed_parity",
+  "cd yidam/prelude/sdks/python && uv run --extra dev --extra embed pytest tests/parity/test_embed_config.py",
+]
+
 [tasks.verify]
 description = "Formal verification: Dafny specs and LEAN 4 proofs (requires dafny + lake via elan)."
 run = [
