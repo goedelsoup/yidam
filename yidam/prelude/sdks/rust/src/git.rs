@@ -23,7 +23,15 @@ pub struct CommitEvent {
 }
 
 const OPERATIONAL_VERBS: &[&str] = &[
-    "extract", "refresh", "compute", "index", "bundle", "reconcile", "build", "fix", "regen",
+    "extract",
+    "refresh",
+    "compute",
+    "index",
+    "bundle",
+    "reconcile",
+    "build",
+    "fix",
+    "regen",
 ];
 
 pub fn classify_commit(hash: &str, message: &str) -> CommitEvent {
@@ -43,5 +51,11 @@ pub fn classify_commit(hash: &str, message: &str) -> CommitEvent {
         CommitKind::Epistemic
     };
 
-    CommitEvent { hash: hash.to_string(), kind, verb, subject, context: None }
+    CommitEvent {
+        hash: hash.to_string(),
+        kind,
+        verb,
+        subject,
+        context: None,
+    }
 }

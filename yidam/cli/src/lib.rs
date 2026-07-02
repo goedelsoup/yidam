@@ -11,8 +11,8 @@ pub mod model;
 
 pub use cmd::tonpa;
 pub use cmd::{
-    agents_index, bundle, bundle_status, catalog_audit, clone, corpus_index, crates_index,
-    decisions_log, diff_corpus, embed, export, graph_check, index_build, index_status, lint,
-    list_formats, open_questions, overlay, packages_index, run_export, samudaya_audit,
-    skills_index, status, ExportFormat,
+    agents_index, backfill, bundle, bundle_status, catalog_audit, clone, corpus_index,
+    crates_index, decisions_log, diff_corpus, embed, export, graph_check, index_build,
+    index_status, lint, list_formats, open_questions, overlay, packages_index, phases, run_export,
+    samudaya_audit, skills_index, status, ExportFormat,
 };

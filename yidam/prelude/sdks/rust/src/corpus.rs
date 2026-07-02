@@ -88,7 +88,11 @@ pub fn extract_links(text: &str) -> Vec<Link> {
                         }
                         None => (dest, None),
                     };
-                    links.push(Link { label, target, anchor });
+                    links.push(Link {
+                        label,
+                        target,
+                        anchor,
+                    });
                 }
             }
             Event::Text(t) | Event::Code(t) => {
@@ -126,13 +130,25 @@ pub fn extract_claims(text: &str) -> Vec<Claim> {
             continue;
         }
         if let Some(t) = line.strip_suffix(" [verified]") {
-            claims.push(Claim { text: t.to_string(), tag: EvidenceTag::Verified });
+            claims.push(Claim {
+                text: t.to_string(),
+                tag: EvidenceTag::Verified,
+            });
         } else if let Some(t) = line.strip_suffix(" [inferred]") {
-            claims.push(Claim { text: t.to_string(), tag: EvidenceTag::Inference });
+            claims.push(Claim {
+                text: t.to_string(),
+                tag: EvidenceTag::Inference,
+            });
         } else if let Some(t) = line.strip_suffix(" [open]") {
-            claims.push(Claim { text: t.to_string(), tag: EvidenceTag::Open });
+            claims.push(Claim {
+                text: t.to_string(),
+                tag: EvidenceTag::Open,
+            });
         } else if !contains_md_link(line) {
-            claims.push(Claim { text: line.to_string(), tag: EvidenceTag::Implicit });
+            claims.push(Claim {
+                text: line.to_string(),
+                tag: EvidenceTag::Implicit,
+            });
         }
     }
     claims

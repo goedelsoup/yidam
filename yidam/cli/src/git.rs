@@ -38,7 +38,7 @@ pub fn genesis_message(root: &Path) -> String {
 pub fn active_phase_count(root: &Path) -> usize {
     let out = std::process::Command::new("git")
         .current_dir(root)
-        .args(["branch", "--list", "ma/*"])
+        .args(["branch", "--list", "ma/*", "rigpa/*"])
         .output()
         .ok();
     out.and_then(|o| String::from_utf8(o.stdout).ok())
