@@ -102,6 +102,50 @@ for Gephi, Cytoscape, and yEd: one node per instance (stable `<class>/<name>` id
 and description attributes) and one directed edge per resolved link with the relationship
 as its `type`. Dangling links are warned and skipped, never fatal.
 
+### The portable vector DB
+
+`yidam export --format sqlite [--out corpus.db]` writes the vector index as a single-file
+SQLite database using the [sqlite-vec](https://github.com/asg017/sqlite-vec) extension: a
+`corpus_vec` vec0 virtual table (path, class, label, text, embedding) and a `corpus_meta`
+table carrying the embedding contract (model, dim, pooling, normalize — from
+`embed.config.json`, never hardcoded). Vectors are copied from the already-built Arrow
+index; nothing is re-embedded. Requires an index (`yidam embed && yidam index-build`).
+
+Query from Python:
+
+```python
+import sqlite3, struct
+import sqlite_vec  # pip install sqlite-vec
+
+conn = sqlite3.connect("corpus.db")
+conn.enable_load_extension(True)
+sqlite_vec.load(conn)
+
+model_id, dim, pooling, normalize = conn.execute(
+    "SELECT model_id, embedding_dim, pooling, normalize FROM corpus_meta").fetchone()
+# Embed the query with the SAME settings (see "Embedding reproducibility" above),
+# e.g. via sentence-transformers, then:
+blob = struct.pack(f"{dim}f", *query_vector)
+rows = conn.execute(
+    "SELECT label, path, distance FROM corpus_vec "
+    "WHERE embedding MATCH ? ORDER BY distance LIMIT 5", (blob,)).fetchall()
+```
+
+Query from JS (WASM SQLite in the browser or Node):
+
+```js
+// npm install sqlite-vec  (loadable into better-sqlite3, node:sqlite, or wa-sqlite)
+import * as sqliteVec from "sqlite-vec";
+import Database from "better-sqlite3";
+
+const db = new Database("corpus.db");
+sqliteVec.load(db);
+const rows = db.prepare(
+  `SELECT label, path, distance FROM corpus_vec
+   WHERE embedding MATCH ? ORDER BY distance LIMIT 5`
+).all(new Float32Array(queryVector));
+```
+
 ### The MCP server
 
 `yidam serve --mcp` exposes the domain computer to any MCP-capable agent over stdio.
