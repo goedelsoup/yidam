@@ -1,5 +1,6 @@
 mod cmd;
 mod config;
+pub mod embed_config;
 mod git;
 mod parse;
 mod paths;

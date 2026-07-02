@@ -11,6 +11,7 @@ use lancedb::query::ExecutableQuery;
 use std::sync::Arc;
 
 use crate::config::load_yidam_config;
+use crate::embed_config::{EmbedConfig, EMBED_CONFIG_FILENAME};
 use crate::git::head_commit_short;
 use crate::paths::{repo_root, yidam_embeddings_dir, yidam_index_dir};
 
@@ -25,11 +26,11 @@ struct EmbedRecord {
     text: String,
 }
 
-fn resolve_model(name: &str) -> Result<(EmbeddingModel, i32)> {
+fn resolve_model(name: &str) -> Result<(EmbeddingModel, i32, String)> {
     TextEmbedding::list_supported_models()
         .into_iter()
         .find(|m| m.model_code == name)
-        .map(|m| (m.model, m.dim as i32))
+        .map(|m| (m.model, m.dim as i32, m.model_file))
         .ok_or_else(|| {
             let list = TextEmbedding::list_supported_models()
                 .into_iter()
@@ -60,7 +61,7 @@ pub async fn index_build(model_arg: Option<String>) -> Result<()> {
         cfg.index.model.unwrap_or_else(|| DEFAULT_MODEL.to_string())
     };
 
-    let (embedding_model, embedding_dim) = resolve_model(&model_name)?;
+    let (embedding_model, embedding_dim, model_file) = resolve_model(&model_name)?;
 
     let mut records: Vec<EmbedRecord> = Vec::new();
     for entry in walkdir::WalkDir::new(&embeddings_dir)
@@ -83,7 +84,7 @@ pub async fn index_build(model_arg: Option<String>) -> Result<()> {
     println!("Initializing model ({model_name})…");
     println!("  (first run downloads model weights)");
 
-    let model = TextEmbedding::try_new(InitOptions::new(embedding_model))?;
+    let model = TextEmbedding::try_new(InitOptions::new(embedding_model.clone()))?;
 
     let texts: Vec<String> = records.iter().map(|r| r.text.clone()).collect();
     println!("Embedding {} texts…", texts.len());
@@ -184,6 +185,17 @@ pub async fn index_build(model_arg: Option<String>) -> Result<()> {
     std::fs::write(
         index_dir.join("meta.json"),
         serde_json::to_string_pretty(&meta)?,
+    )?;
+
+    let embed_config = EmbedConfig::for_fastembed_model(
+        &model_name,
+        embedding_dim,
+        &model_file,
+        &format!("{embedding_model:?}"),
+    );
+    std::fs::write(
+        index_dir.join(EMBED_CONFIG_FILENAME),
+        serde_json::to_string_pretty(&embed_config)?,
     )?;
 
     println!(

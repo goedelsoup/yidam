@@ -11,6 +11,9 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# Only needed for the embed_config parity runner (YIDAM_EMBED_PARITY=1);
+# the test skips itself when sentence-transformers is not installed.
+embed = ["sentence-transformers>=3"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

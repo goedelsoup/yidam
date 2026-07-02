@@ -60,3 +60,19 @@ function directory is missing or empty. This is not advisory — it is enforced 
 
 Fixture filenames have no semantic meaning beyond identification in failure output. Use
 kebab-case names that describe what the case exercises, not what it expects.
+
+## The embed_config fixtures
+
+`fixtures/embed_config/` is not part of the eight-function parity surface above. It holds
+the **embedding reproducibility contract**: the same sentence must embed to matching vectors
+across fastembed (Rust), transformers.js (TypeScript), and sentence-transformers (Python),
+so that every consumer of `embed.config.json` retrieves against the same vector space.
+
+These fixtures are run by `mise run embed-parity`, not the default `parity` task — the
+runners download model weights on first run and are gated behind `YIDAM_EMBED_PARITY=1`.
+Runners: `yidam/cli/tests/embed_parity.rs` (Rust reference — fill `expected.prefix` from
+its output), `typescript/tests/embed_parity.test.ts`, `python/tests/parity/test_embed_config.py`.
+
+A runtime that cannot load the exact weights in `input.model_file` declares its measured
+drift in a `[known_delta.<runtime>]` section with its own tolerance, rather than silently
+widening the shared one.

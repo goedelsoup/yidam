@@ -4,6 +4,7 @@ use std::path::Path;
 use crate::cmd::corpus::{render_corpus_index, render_graph_check};
 use crate::cmd::decisions::render_decisions_log;
 use crate::cmd::registry::render_skills_index;
+use crate::embed_config::{EmbedConfig, EMBED_CONFIG_FILENAME};
 use crate::git::{genesis_date, genesis_message, head_commit_short};
 use crate::paths::{yidam_corpus_dir, yidam_decisions_dir, yidam_index_dir, yidam_skills_dir};
 use crate::walk::{walk_corpus_instances, walk_decision_files, walk_md_files, walk_ont_files};
@@ -41,6 +42,10 @@ pub struct IndexData {
     pub meta_raw: Vec<u8>,
     /// Parsed metadata — used to extract field values (e.g. `model_name`).
     pub meta: serde_json::Value,
+    /// Embedding reproducibility contract — written to `index/embed.config.json`
+    /// in the bundle. `None` for indexes built before the contract existed;
+    /// rebuild with `yidam index-build` to emit it.
+    pub embed_config: Option<EmbedConfig>,
 }
 
 /// Immutable provenance fields stamped at load time.
@@ -150,10 +155,31 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
         let arrow_ipc = std::fs::read(&arrow_path)?;
         let meta_raw = std::fs::read(&meta_path)?;
         let meta = serde_json::from_slice(&meta_raw).unwrap_or(serde_json::Value::Null);
+        let embed_config_path = index_dir.join(EMBED_CONFIG_FILENAME);
+        let embed_config = if embed_config_path.exists() {
+            match serde_json::from_slice(&std::fs::read(&embed_config_path)?) {
+                Ok(cfg) => Some(cfg),
+                Err(e) => {
+                    eprintln!(
+                        "[warn] {} is not a valid embed config ({e}) — \
+                         rebuild with `yidam index-build`",
+                        embed_config_path.display()
+                    );
+                    None
+                }
+            }
+        } else {
+            eprintln!(
+                "[warn] index has no {EMBED_CONFIG_FILENAME} — \
+                 rebuild with `yidam index-build` to pin the embedding contract"
+            );
+            None
+        };
         Some(IndexData {
             arrow_ipc,
             meta_raw,
             meta,
+            embed_config,
         })
     } else {
         None
@@ -260,5 +286,48 @@ mod tests {
         assert_eq!(model.decisions.len(), 0);
         assert!(model.index.is_none());
         assert!(model.rendered.corpus_index.contains("alpha.yml"));
+    }
+
+    #[test]
+    fn load_domain_model_reads_embed_config() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        init_git_repo(root);
+
+        let index_dir = root.join(".yidam").join("index");
+        fs::create_dir_all(&index_dir).unwrap();
+        fs::write(index_dir.join("corpus.arrow"), b"stub").unwrap();
+        fs::write(index_dir.join("meta.json"), "{}").unwrap();
+        let cfg = EmbedConfig::for_fastembed_model(
+            "Xenova/all-MiniLM-L6-v2",
+            384,
+            "onnx/model_quantized.onnx",
+            "AllMiniLML6V2Q",
+        );
+        fs::write(
+            index_dir.join(EMBED_CONFIG_FILENAME),
+            serde_json::to_string_pretty(&cfg).unwrap(),
+        )
+        .unwrap();
+
+        let model = load_domain_model(root).unwrap();
+        let index = model.index.expect("index should load");
+        assert_eq!(index.embed_config, Some(cfg));
+    }
+
+    #[test]
+    fn load_domain_model_tolerates_missing_embed_config() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        init_git_repo(root);
+
+        let index_dir = root.join(".yidam").join("index");
+        fs::create_dir_all(&index_dir).unwrap();
+        fs::write(index_dir.join("corpus.arrow"), b"stub").unwrap();
+        fs::write(index_dir.join("meta.json"), "{}").unwrap();
+
+        let model = load_domain_model(root).unwrap();
+        let index = model.index.expect("index should load");
+        assert_eq!(index.embed_config, None);
     }
 }
