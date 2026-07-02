@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>yidam — domain computer</title>
+<link rel="stylesheet" href="assets/main.css">
+<!-- Exporter-injected configuration; see web.config.json for the same data.
+     Inlined so the page works when opened directly from disk, where fetch
+     of sibling files is blocked. -->
+<script type="application/json" id="web-config">__WEB_CONFIG_JSON__</script>
+</head>
+<body>
+<header>
+  <svg width="32" height="22" viewBox="0 0 48 32" fill="none" aria-hidden="true">
+    <circle cx="5.5" cy="8" r="4.5" stroke="#413d36" stroke-width="1.3"/>
+    <circle cx="5.5" cy="24" r="4.5" stroke="#413d36" stroke-width="1.3"/>
+    <path d="M9.8 9.6L34.4 14.2M9.8 22.4L34.4 17.8" stroke="#b88a00" stroke-width="1.1" stroke-linecap="round"/>
+    <circle cx="42.5" cy="16" r="5.5" stroke="#413d36" stroke-width="1.4"/>
+    <circle cx="42.5" cy="16" r="2.2" fill="#b88a00"/>
+  </svg>
+  <span class="domain" id="header-domain">yidam</span>
+  <span class="provenance" id="header-provenance"></span>
+  <span class="spacer"></span>
+</header>
+
+<div id="layout">
+  <main id="main">
+    <div class="column">
+
+      <!-- state 1 / 2 -->
+      <div id="load-state">
+        <div class="intro">A domain computer. Load a bundle to search its
+        knowledge graph — retrieval runs entirely in your browser.</div>
+        <div id="drop-target">Drop a <code>.yiz</code> bundle here, or click to choose one.
+          <input type="file" id="file-input" accept=".yiz" class="hidden">
+        </div>
+        <div id="load-stages" class="hidden"></div>
+        <div id="load-error" class="error-banner hidden"></div>
+      </div>
+
+      <!-- state 3 -->
+      <div id="search">
+        <input id="query" type="search" placeholder="Search the corpus…" autocomplete="off">
+        <div id="overview"></div>
+        <div id="results"></div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- states 4 / 5 / 6 -->
+  <aside id="panel">
+    <div class="tabs">
+      <button id="tab-detail" class="active">detail</button>
+      <button id="tab-chat">chat</button>
+    </div>
+    <div id="detail"></div>
+    <div id="chat" class="hidden"></div>
+  </aside>
+</div>
+
+<div id="status-bar"><span id="status">loading…</span></div>
+
+<script type="module" src="assets/main.js"></script>
+</body>
+</html>

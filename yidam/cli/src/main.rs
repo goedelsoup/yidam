@@ -55,6 +55,9 @@ enum Command {
         /// Output path (default: format-specific, e.g. .yidam/bundle.yiz for bundle)
         #[arg(long)]
         out: Option<PathBuf>,
+        /// WebLLM model id for the web format's chat panel (default: Llama-3.2-1B-Instruct)
+        #[arg(long, value_name = "MODEL_ID")]
+        webllm_model: Option<String>,
         /// List available export formats and their implementation status
         #[arg(long)]
         list: bool,
@@ -138,12 +141,18 @@ async fn main() -> Result<()> {
         Command::DecisionsLog => yidam::decisions_log(),
         Command::Diff { range } => yidam::diff_corpus(&range),
         Command::Bundle => yidam::bundle(),
-        Command::Export { format, out, list } => {
+        Command::Export {
+            format,
+            out,
+            webllm_model,
+            list,
+        } => {
             if list {
                 yidam::list_formats();
                 Ok(())
             } else {
-                yidam::run_export(format.unwrap(), out.as_deref())
+                let options = yidam::ExportOptions { webllm_model };
+                yidam::run_export(format.unwrap(), out.as_deref(), &options)
             }
         }
         Command::Embed => yidam::embed(),
