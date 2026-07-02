@@ -58,7 +58,11 @@ enum Command {
     Embed,
     /// Build LanceDB vector index from embeddings and export Arrow IPC for the web shell
     #[command(name = "index-build")]
-    IndexBuild,
+    IndexBuild {
+        /// Embedding model to use (overrides .yidam/config.toml [index] model and the default)
+        #[arg(long)]
+        model: Option<String>,
+    },
     /// Copy the yidam template into TARGET and initialise a fresh git repo
     Clone {
         /// Directory to create (must not already exist)
@@ -108,7 +112,7 @@ async fn main() -> Result<()> {
             }
         }
         Command::Embed => yidam::embed(),
-        Command::IndexBuild => yidam::index_build().await,
+        Command::IndexBuild { model } => yidam::index_build(model).await,
         Command::Clone { target } => yidam::clone(&target),
         Command::Overlay { target, backfill, backfill_ref } => {
             yidam::overlay(&target, backfill, backfill_ref.as_deref())

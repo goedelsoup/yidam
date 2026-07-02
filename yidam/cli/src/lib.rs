@@ -1,4 +1,5 @@
 mod cmd;
+mod config;
 mod git;
 mod parse;
 mod paths;

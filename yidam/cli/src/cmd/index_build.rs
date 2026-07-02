@@ -7,11 +7,11 @@ use futures::TryStreamExt;
 use lancedb::connect;
 use std::sync::Arc;
 
+use crate::config::load_yidam_config;
 use crate::git::head_commit_short;
 use crate::paths::{repo_root, yidam_embeddings_dir, yidam_index_dir};
 
-const MODEL_NAME: &str = "Xenova/all-MiniLM-L6-v2";
-const EMBEDDING_DIM: i32 = 384;
+const DEFAULT_MODEL: &str = "Xenova/all-MiniLM-L6-v2";
 const TABLE_NAME: &str = "corpus";
 
 #[derive(serde::Deserialize)]
@@ -22,7 +22,22 @@ struct EmbedRecord {
     text: String,
 }
 
-pub async fn index_build() -> Result<()> {
+fn resolve_model(name: &str) -> Result<(EmbeddingModel, i32)> {
+    TextEmbedding::list_supported_models()
+        .into_iter()
+        .find(|m| m.model_code == name)
+        .map(|m| (m.model, m.dim as i32))
+        .ok_or_else(|| {
+            let list = TextEmbedding::list_supported_models()
+                .into_iter()
+                .map(|m| format!("  {}", m.model_code))
+                .collect::<Vec<_>>()
+                .join("\n");
+            anyhow::anyhow!("unknown model {:?}\n\nSupported models:\n{}", name, list)
+        })
+}
+
+pub async fn index_build(model_arg: Option<String>) -> Result<()> {
     let root = repo_root()?;
     let embeddings_dir = yidam_embeddings_dir(&root);
     let index_dir = yidam_index_dir(&root);
@@ -33,6 +48,16 @@ pub async fn index_build() -> Result<()> {
             embeddings_dir.display()
         );
     }
+
+    // Model resolution: CLI arg → .yidam/config.toml → default
+    let model_name = if let Some(m) = model_arg {
+        m
+    } else {
+        let cfg = load_yidam_config(&root)?;
+        cfg.index.model.unwrap_or_else(|| DEFAULT_MODEL.to_string())
+    };
+
+    let (embedding_model, embedding_dim) = resolve_model(&model_name)?;
 
     let mut records: Vec<EmbedRecord> = Vec::new();
     for entry in walkdir::WalkDir::new(&embeddings_dir)
@@ -52,10 +77,10 @@ pub async fn index_build() -> Result<()> {
     }
 
     println!("Loaded {} embedding record(s).", records.len());
-    println!("Initializing model ({MODEL_NAME})…");
-    println!("  (first run downloads ~22 MB of model weights)");
+    println!("Initializing model ({model_name})…");
+    println!("  (first run downloads model weights)");
 
-    let model = TextEmbedding::try_new(InitOptions::new(EmbeddingModel::AllMiniLML6V2))?;
+    let model = TextEmbedding::try_new(InitOptions::new(embedding_model))?;
 
     let texts: Vec<String> = records.iter().map(|r| r.text.clone()).collect();
     println!("Embedding {} texts…", texts.len());
@@ -70,7 +95,7 @@ pub async fn index_build() -> Result<()> {
             "vector",
             DataType::FixedSizeList(
                 Arc::new(Field::new("item", DataType::Float32, true)),
-                EMBEDDING_DIM,
+                embedding_dim,
             ),
             false,
         ),
@@ -89,7 +114,7 @@ pub async fn index_build() -> Result<()> {
 
     let item_field = Arc::new(Field::new("item", DataType::Float32, true));
     let vector_array =
-        FixedSizeListArray::new(item_field, EMBEDDING_DIM, Arc::new(flat_floats), None);
+        FixedSizeListArray::new(item_field, embedding_dim, Arc::new(flat_floats), None);
 
     let batch = RecordBatch::try_new(
         schema.clone(),
@@ -140,13 +165,18 @@ pub async fn index_build() -> Result<()> {
 
     let commit = head_commit_short(&root);
     let node_count = records.len();
+    let generated_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
 
     let meta = serde_json::json!({
-        "model_name": MODEL_NAME,
-        "embedding_dim": EMBEDDING_DIM,
+        "model_name": model_name,
+        "embedding_dim": embedding_dim,
         "node_count": node_count,
         "indexed_commit": commit,
         "table": TABLE_NAME,
+        "generated_at": generated_at,
     });
     std::fs::write(
         index_dir.join("meta.json"),
@@ -154,7 +184,7 @@ pub async fn index_build() -> Result<()> {
     )?;
 
     println!(
-        "Index built: {node_count} node(s) → {} (model: {MODEL_NAME})",
+        "Index built: {node_count} node(s) → {} (model: {model_name})",
         index_dir.display(),
     );
     Ok(())
