@@ -87,8 +87,15 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
 
     let mut classes = Vec::new();
     for path in walk_ont_files(&corpus_dir) {
-        let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string();
-        classes.push(OntClass { filename, content: std::fs::read(&path)? });
+        let filename = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        classes.push(OntClass {
+            filename,
+            content: std::fs::read(&path)?,
+        });
     }
 
     let mut instances = Vec::new();
@@ -99,20 +106,42 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
             .and_then(|n| n.to_str())
             .unwrap_or("unknown")
             .to_string();
-        let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string();
-        instances.push(InstanceFile { class, filename, content: std::fs::read(&path)? });
+        let filename = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        instances.push(InstanceFile {
+            class,
+            filename,
+            content: std::fs::read(&path)?,
+        });
     }
 
     let mut skills = Vec::new();
     for path in walk_md_files(&skills_dir) {
-        let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string();
-        skills.push(SkillFile { filename, content: std::fs::read(&path)? });
+        let filename = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        skills.push(SkillFile {
+            filename,
+            content: std::fs::read(&path)?,
+        });
     }
 
     let mut decisions = Vec::new();
     for path in walk_decision_files(&decisions_dir) {
-        let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string();
-        decisions.push(DecisionFile { filename, content: std::fs::read(&path)? });
+        let filename = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        decisions.push(DecisionFile {
+            filename,
+            content: std::fs::read(&path)?,
+        });
     }
 
     let arrow_path = index_dir.join("corpus.arrow");
@@ -121,7 +150,11 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
         let arrow_ipc = std::fs::read(&arrow_path)?;
         let meta_raw = std::fs::read(&meta_path)?;
         let meta = serde_json::from_slice(&meta_raw).unwrap_or(serde_json::Value::Null);
-        Some(IndexData { arrow_ipc, meta_raw, meta })
+        Some(IndexData {
+            arrow_ipc,
+            meta_raw,
+            meta,
+        })
     } else {
         None
     };
@@ -164,8 +197,18 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
         skills,
         decisions,
         index,
-        provenance: Provenance { commit, genesis, domain, generated_at },
-        rendered: RenderedViews { corpus_index, graph_check, decisions_log, skills_index },
+        provenance: Provenance {
+            commit,
+            genesis,
+            domain,
+            generated_at,
+        },
+        rendered: RenderedViews {
+            corpus_index,
+            graph_check,
+            decisions_log,
+            skills_index,
+        },
     })
 }
 
@@ -181,7 +224,11 @@ mod tests {
             vec!["config", "user.email", "test@test.com"],
             vec!["config", "user.name", "Test"],
         ] {
-            std::process::Command::new("git").args(&args).current_dir(dir).status().unwrap();
+            std::process::Command::new("git")
+                .args(&args)
+                .current_dir(dir)
+                .status()
+                .unwrap();
         }
     }
 

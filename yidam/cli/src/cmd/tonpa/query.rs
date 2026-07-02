@@ -21,10 +21,7 @@ pub fn cmd_list(lock_path: &Path) -> Result<()> {
         .unwrap_or(4)
         .max(4);
 
-    println!(
-        "{:<w$}  {:>8}  {:<36}  {}",
-        "NAME", "NODES", "MODEL", "GENESIS"
-    );
+    println!("{:<w$}  {:>8}  {:<36}  GENESIS", "NAME", "NODES", "MODEL");
     println!("{}", "─".repeat(w + 55));
     for p in &lock.packages {
         println!(
@@ -40,11 +37,7 @@ pub fn cmd_list(lock_path: &Path) -> Result<()> {
 
 // ── status ────────────────────────────────────────────────────────────────────
 
-pub fn cmd_status(
-    tonpa_dir: &Path,
-    config_path: &Path,
-    lock_path: &Path,
-) -> Result<()> {
+pub fn cmd_status(tonpa_dir: &Path, config_path: &Path, lock_path: &Path) -> Result<()> {
     let config = load_config(config_path)?;
     let lock = load_lock(lock_path)?;
 
@@ -54,7 +47,7 @@ pub fn cmd_status(
     }
 
     let mut issues = 0usize;
-    for (name, _dep) in &config.dependencies {
+    for name in config.dependencies.keys() {
         let locked = lock.packages.iter().find(|p| &p.name == name);
         match locked {
             None => {
@@ -122,11 +115,7 @@ pub fn cmd_verify(tonpa_dir: &Path, lock_path: &Path) -> Result<()> {
 
 // ── install ───────────────────────────────────────────────────────────────────
 
-pub async fn cmd_install(
-    tonpa_dir: &Path,
-    config_path: &Path,
-    lock_path: &Path,
-) -> Result<()> {
+pub async fn cmd_install(tonpa_dir: &Path, config_path: &Path, lock_path: &Path) -> Result<()> {
     let config = load_config(config_path)?;
     let mut lock = load_lock(lock_path)?;
 
@@ -201,7 +190,11 @@ pub async fn cmd_update(
     for n in &targets {
         let dep = &config.dependencies[n];
         let url = resolve_url(dep)?;
-        let old_hash = lock.packages.iter().find(|p| &p.name == n).map(|p| p.sha256.clone());
+        let old_hash = lock
+            .packages
+            .iter()
+            .find(|p| &p.name == n)
+            .map(|p| p.sha256.clone());
 
         println!("Updating {n} …");
         let locked = install_package(n, &url, tonpa_dir, None).await?;

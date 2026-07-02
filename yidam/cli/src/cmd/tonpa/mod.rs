@@ -51,12 +51,8 @@ pub async fn run(sub: TonpaCommand) -> Result<()> {
         TonpaCommand::Add { source, name } => {
             add::cmd_add(&source, name.as_deref(), &dir, &config_path, &lock_path).await
         }
-        TonpaCommand::Install => {
-            query::cmd_install(&dir, &config_path, &lock_path).await
-        }
-        TonpaCommand::Remove { name } => {
-            remove::cmd_remove(&name, &dir, &config_path, &lock_path)
-        }
+        TonpaCommand::Install => query::cmd_install(&dir, &config_path, &lock_path).await,
+        TonpaCommand::Remove { name } => remove::cmd_remove(&name, &dir, &config_path, &lock_path),
         TonpaCommand::List => query::cmd_list(&lock_path),
         TonpaCommand::Status => query::cmd_status(&dir, &config_path, &lock_path),
         TonpaCommand::Verify => query::cmd_verify(&dir, &lock_path),

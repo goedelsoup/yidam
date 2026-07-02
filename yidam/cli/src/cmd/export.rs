@@ -1,9 +1,9 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
+use super::bundle::render_bundle;
 use crate::model::{load_domain_model, DomainModel};
 use crate::paths::repo_root;
-use super::bundle::render_bundle;
 
 /// Available export formats.
 ///
@@ -23,12 +23,12 @@ pub enum ExportFormat {
 impl ExportFormat {
     fn name(&self) -> &'static str {
         match self {
-            Self::Bundle  => "bundle",
-            Self::Web     => "web",
-            Self::Rdf     => "rdf",
+            Self::Bundle => "bundle",
+            Self::Web => "web",
+            Self::Rdf => "rdf",
             Self::GraphMl => "graphml",
-            Self::Sqlite  => "sqlite",
-            Self::Llms    => "llms",
+            Self::Sqlite => "sqlite",
+            Self::Llms => "llms",
         }
     }
 
@@ -43,13 +43,13 @@ impl ExportFormat {
 /// Print available export formats and their current implementation status.
 pub fn list_formats() {
     const FORMATS: &[(&str, &str)] = &[
-        ("bundle",  "✓ implemented"),
-        ("web",     "  planned (phase 1)"),
-        ("mcp",     "  run `yidam serve --mcp` (phase 2)"),
-        ("rdf",     "  planned (phase 3)"),
+        ("bundle", "✓ implemented"),
+        ("web", "  planned (phase 1)"),
+        ("mcp", "  run `yidam serve --mcp` (phase 2)"),
+        ("rdf", "  planned (phase 3)"),
         ("graphml", "  planned (phase 3)"),
-        ("sqlite",  "  planned (phase 4)"),
-        ("llms",    "  planned (phase 4)"),
+        ("sqlite", "  planned (phase 4)"),
+        ("llms", "  planned (phase 4)"),
     ];
     for (name, status) in FORMATS {
         println!("{name:<10} {status}");
@@ -70,7 +70,11 @@ pub fn export(model: &DomainModel, format: ExportFormat, out: &Path) -> Result<(
                 std::fs::create_dir_all(parent)?;
             }
             std::fs::write(out, &bytes)?;
-            let index_note = if model.index.is_some() { " + vector index" } else { "" };
+            let index_note = if model.index.is_some() {
+                " + vector index"
+            } else {
+                ""
+            };
             println!(
                 "Bundle written: {} classes, {} instances, {} skills, {} decisions{index_note}, \
                  {} bytes → {}",

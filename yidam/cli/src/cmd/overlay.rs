@@ -90,7 +90,7 @@ pub fn overlay(target: &Path, backfill: bool, backfill_ref: Option<&str>) -> Res
     // mise.yidam.toml — yidam CLI task definitions
     let mise_src = root.join("mise.yidam.toml");
     if mise_src.exists() {
-        std::fs::copy(&mise_src, &target.join("mise.yidam.toml"))
+        std::fs::copy(&mise_src, target.join("mise.yidam.toml"))
             .context("copying mise.yidam.toml")?;
         println!("mise.yidam.toml → {}/mise.yidam.toml", target.display());
     }

@@ -132,9 +132,11 @@ async fn main() -> Result<()> {
         Command::Embed => yidam::embed(),
         Command::IndexBuild { model } => yidam::index_build(model).await,
         Command::Clone { target } => yidam::clone(&target),
-        Command::Overlay { target, backfill, backfill_ref } => {
-            yidam::overlay(&target, backfill, backfill_ref.as_deref())
-        }
+        Command::Overlay {
+            target,
+            backfill,
+            backfill_ref,
+        } => yidam::overlay(&target, backfill, backfill_ref.as_deref()),
         Command::Lint { warn, suggest } => yidam::lint(warn, suggest),
         Command::SamudayaAudit => yidam::samudaya_audit(),
         Command::Tonpa { sub } => yidam::tonpa::run(sub).await,

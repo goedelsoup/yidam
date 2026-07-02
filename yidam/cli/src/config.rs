@@ -18,7 +18,7 @@ pub fn load_yidam_config(root: &Path) -> Result<YidamConfig> {
     if !path.exists() {
         return Ok(YidamConfig::default());
     }
-    let text = std::fs::read_to_string(&path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let text =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
 }

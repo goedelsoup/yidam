@@ -1,0 +1,6 @@
+# Prefer dependency versions whose declared rust-version fits the pinned
+# toolchain (see rust-version in Cargo.toml). Without this, a fresh resolve
+# (Cargo.lock is untracked, so CI resolves fresh) picks latest versions that
+# may require a newer rustc than the pin.
+[resolver]
+incompatible-rust-versions = "fallback"

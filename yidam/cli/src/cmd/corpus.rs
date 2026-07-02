@@ -85,7 +85,9 @@ pub(crate) fn render_graph_check(root: &Path, corpus: &Path) -> (String, usize) 
         match &inst.class {
             None => node_issues.push("missing 'class:' field".to_string()),
             Some(class) if !defined_classes.is_empty() && !defined_classes.contains(class) => {
-                node_issues.push(format!("unknown class '{class}': no matching {class}.ont.yml"));
+                node_issues.push(format!(
+                    "unknown class '{class}': no matching {class}.ont.yml"
+                ));
             }
             _ => {}
         }

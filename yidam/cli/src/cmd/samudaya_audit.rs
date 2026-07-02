@@ -123,7 +123,7 @@ pub fn samudaya_audit() -> Result<()> {
     println!();
     println!("Seeds found: {n} (across {m} kind(s))");
     let mut kinds: Vec<_> = kind_counts.iter().collect();
-    kinds.sort_by_key(|(k, _)| k.clone());
+    kinds.sort_by(|a, b| a.0.cmp(b.0));
     for (kind, count) in &kinds {
         println!("  {kind}: {count}");
     }

@@ -50,8 +50,7 @@ pub fn walk_ont_files(corpus: &Path) -> Vec<PathBuf> {
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| {
-            e.file_type().is_file()
-                && e.file_name().to_string_lossy().ends_with(".ont.yml")
+            e.file_type().is_file() && e.file_name().to_string_lossy().ends_with(".ont.yml")
         })
         .map(|e| e.path().to_owned())
         .collect();
