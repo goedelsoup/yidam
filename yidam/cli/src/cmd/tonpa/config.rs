@@ -90,12 +90,7 @@ pub fn name_from_url(url: &str) -> String {
     // "https://github.com/org/my-repo/releases/.../bundle.yiz" → "my-repo"
     url.trim_end_matches('/')
         .rsplit('/')
-        .find(|s| {
-            !s.is_empty()
-                && *s != "bundle.yiz"
-                && *s != "download"
-                && *s != "latest"
-        })
+        .find(|s| !s.is_empty() && *s != "bundle.yiz" && *s != "download" && *s != "latest")
         .unwrap_or("unknown")
         .trim_end_matches(".yiz")
         .to_string()
@@ -107,8 +102,8 @@ pub fn load_config(path: &Path) -> Result<TonpaConfig> {
     if !path.exists() {
         return Ok(TonpaConfig::default());
     }
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
 }
 
@@ -125,8 +120,8 @@ pub fn load_lock(path: &Path) -> Result<LockFile> {
     if !path.exists() {
         return Ok(LockFile::default());
     }
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
 }
 

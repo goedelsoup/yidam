@@ -45,9 +45,7 @@ pub fn diff_corpus(range: &str) -> Result<()> {
         }
 
         // Display path strips the leading `.yidam/` for brevity
-        let display = raw_path
-            .strip_prefix(".yidam/")
-            .unwrap_or(raw_path);
+        let display = raw_path.strip_prefix(".yidam/").unwrap_or(raw_path);
 
         match status {
             "A" => {
@@ -85,11 +83,14 @@ pub fn diff_corpus(range: &str) -> Result<()> {
                 };
                 node_lines.push(format!("~ node  {display:<55} [{note}]"));
 
-                let old_links: HashSet<String> =
-                    old_inst.links.unwrap_or_default().iter().map(link_key).collect();
+                let old_links: HashSet<String> = old_inst
+                    .links
+                    .unwrap_or_default()
+                    .iter()
+                    .map(link_key)
+                    .collect();
                 let new_links_vec = new_inst.links.unwrap_or_default();
-                let new_link_keys: HashSet<String> =
-                    new_links_vec.iter().map(link_key).collect();
+                let new_link_keys: HashSet<String> = new_links_vec.iter().map(link_key).collect();
 
                 for link in &new_links_vec {
                     if !old_links.contains(&link_key(link)) {
@@ -134,7 +135,14 @@ fn parse_range(range: &str) -> (String, String) {
     if let Some(idx) = range.find("..") {
         let before = range[..idx].to_string();
         let after = range[idx + 2..].to_string();
-        (before, if after.is_empty() { "HEAD".to_string() } else { after })
+        (
+            before,
+            if after.is_empty() {
+                "HEAD".to_string()
+            } else {
+                after
+            },
+        )
     } else {
         (range.to_string(), "HEAD".to_string())
     }
@@ -193,14 +201,14 @@ fn edge_line(sigil: char, source: &str, link: &CorpusLink, tag: &str) -> String 
 
 fn count_claim_changes(old: &str, new: &str) -> usize {
     // Count claim-tagged lines that appeared or disappeared
-    let extract = |text: &str| -> HashSet<&str> {
+    fn extract(text: &str) -> HashSet<&str> {
         text.lines()
             .map(|l| l.trim())
             .filter(|l| {
                 l.contains("[verified]") || l.contains("[inference]") || l.contains("[open]")
             })
             .collect()
-    };
+    }
     let old_claims = extract(old);
     let new_claims = extract(new);
     old_claims.symmetric_difference(&new_claims).count()

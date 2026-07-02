@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::parse::CorpusInstance;
 use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir};
@@ -205,6 +205,7 @@ pub fn lint(warn_only: bool, suggest: bool) -> Result<()> {
 mod tests {
     use super::*;
     use std::fs;
+    use std::path::Path;
     use tempfile::TempDir;
 
     fn make_corpus(root: &Path) -> PathBuf {

@@ -23,9 +23,7 @@ pub async fn cmd_add(
         .unwrap_or_else(|| name_from_url(&url));
 
     if config.dependencies.contains_key(&name) {
-        bail!(
-            "dependency '{name}' already declared — use `yidam tonpa update {name}` to refresh"
-        );
+        bail!("dependency '{name}' already declared — use `yidam tonpa update {name}` to refresh");
     }
 
     println!("Adding {name}");

@@ -72,5 +72,9 @@ pub fn skills_index() -> Result<()> {
     let skills_dir = yidam_skills_dir(&root);
     let content = render_skills_index(&skills_dir);
     println!("{content}");
-    update_file_regen(&skills_dir.join("README.md"), "yidam skills-index", &content)
+    update_file_regen(
+        &skills_dir.join("README.md"),
+        "yidam skills-index",
+        &content,
+    )
 }

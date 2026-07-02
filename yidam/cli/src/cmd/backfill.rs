@@ -55,7 +55,10 @@ pub fn backfill_history(target: &Path, since_ref: Option<&str>) -> Result<()> {
         println!("  {} [{kind:?}] {}", &c.hash[..8], c.subject);
     }
 
-    println!("Backfill scan complete ({} commit(s) — extraction not yet implemented)", commits.len());
+    println!(
+        "Backfill scan complete ({} commit(s) — extraction not yet implemented)",
+        commits.len()
+    );
     Ok(())
 }
 
@@ -93,8 +96,15 @@ enum CommitKind {
 
 // Matches the parity SDK spec (prelude/sdks/rust/src/git.rs OPERATIONAL_VERBS).
 // Replace with a direct dependency on the parity SDK crate when it lands.
-const OPERATIONAL_VERBS: &[&str] =
-    &["extract", "refresh", "compute", "index", "bundle", "reconcile", "build"];
+const OPERATIONAL_VERBS: &[&str] = &[
+    "extract",
+    "refresh",
+    "compute",
+    "index",
+    "bundle",
+    "reconcile",
+    "build",
+];
 
 /// Pre-parity placeholder. Extracts the verb before the first ": " and looks it
 /// up in OPERATIONAL_VERBS; everything else is Epistemic. Must be replaced with

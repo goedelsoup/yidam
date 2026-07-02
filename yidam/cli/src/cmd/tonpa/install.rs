@@ -54,12 +54,13 @@ pub struct BundleManifest {
     /// Name of the fastembed model used to build the vector index, if present.
     pub vector_index_model: Option<String>,
     /// Number of corpus instance files included in the bundle.
+    /// Decoded for forward compatibility; not consumed by any command yet.
+    #[allow(dead_code)]
     pub instances: Option<u64>,
 }
 
 pub fn extract_bundle(data: &[u8], dest: &Path) -> Result<BundleManifest> {
-    std::fs::create_dir_all(dest)
-        .with_context(|| format!("creating {}", dest.display()))?;
+    std::fs::create_dir_all(dest).with_context(|| format!("creating {}", dest.display()))?;
 
     // Cache the raw archive for future verify / reinstall without re-fetch
     std::fs::write(dest.join("bundle.yiz"), data)?;
@@ -91,8 +92,7 @@ pub fn extract_bundle(data: &[u8], dest: &Path) -> Result<BundleManifest> {
         }
     }
 
-    let manifest: BundleManifest =
-        serde_yaml::from_str(&manifest_yaml).unwrap_or_default();
+    let manifest: BundleManifest = serde_yaml::from_str(&manifest_yaml).unwrap_or_default();
     Ok(manifest)
 }
 
@@ -110,9 +110,7 @@ pub async fn install_package(
 
     if let Some(expected) = expected_sha256 {
         if sha256 != expected {
-            bail!(
-                "hash mismatch for {name}\n  expected: {expected}\n  got:      {sha256}"
-            );
+            bail!("hash mismatch for {name}\n  expected: {expected}\n  got:      {sha256}");
         }
     }
 
@@ -141,6 +139,8 @@ pub async fn install_package(
 }
 
 /// Re-extract a package from its cached `bundle.yiz` without re-fetching.
+/// Not wired to a CLI subcommand yet.
+#[allow(dead_code)]
 pub fn reinstall_from_cache(name: &str, tonpa_dir: &Path) -> Result<()> {
     let bundle_path = tonpa_dir.join(name).join("bundle.yiz");
     if !bundle_path.exists() {
@@ -155,11 +155,7 @@ pub fn reinstall_from_cache(name: &str, tonpa_dir: &Path) -> Result<()> {
 
 // ── verify ────────────────────────────────────────────────────────────────────
 
-pub fn verify_installed(
-    name: &str,
-    tonpa_dir: &Path,
-    locked: &LockedPackage,
-) -> Result<bool> {
+pub fn verify_installed(name: &str, tonpa_dir: &Path, locked: &LockedPackage) -> Result<bool> {
     let bundle_path = tonpa_dir.join(name).join("bundle.yiz");
     if !bundle_path.exists() {
         return Ok(false);

@@ -1,10 +1,13 @@
 use anyhow::{Context, Result};
-use arrow_array::{FixedSizeListArray, Float32Array, RecordBatch, RecordBatchIterator, StringArray};
+use arrow_array::{
+    FixedSizeListArray, Float32Array, RecordBatch, RecordBatchIterator, StringArray,
+};
 use arrow_ipc::writer::FileWriter;
 use arrow_schema::{DataType, Field, Schema};
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use futures::TryStreamExt;
 use lancedb::connect;
+use lancedb::query::ExecutableQuery;
 use std::sync::Arc;
 
 use crate::config::load_yidam_config;

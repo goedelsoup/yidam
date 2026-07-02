@@ -32,8 +32,7 @@ pub fn crates_index() -> Result<()> {
         for path in &crate_tomls {
             let text = std::fs::read_to_string(path).unwrap_or_default();
             let name = extract_toml_field(&text, "name").unwrap_or_else(|| "—".to_string());
-            let desc =
-                extract_toml_field(&text, "description").unwrap_or_else(|| "—".to_string());
+            let desc = extract_toml_field(&text, "description").unwrap_or_else(|| "—".to_string());
             let dir = path
                 .parent()
                 .and_then(|p| p.file_name())
@@ -64,9 +63,7 @@ pub fn packages_index() -> Result<()> {
             .filter(|e| {
                 let name = e.file_name().to_string_lossy();
                 e.depth() > 0
-                    && (name == "package.json"
-                        || name == "pyproject.toml"
-                        || name == "Cargo.toml")
+                    && (name == "package.json" || name == "pyproject.toml" || name == "Cargo.toml")
             })
             .map(|e| e.path().to_owned())
             .collect()
