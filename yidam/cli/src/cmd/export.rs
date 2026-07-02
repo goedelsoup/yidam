@@ -2,8 +2,16 @@ use anyhow::Result;
 use std::path::{Path, PathBuf};
 
 use super::bundle::render_bundle;
+use super::export_web::render_web;
 use crate::model::{load_domain_model, DomainModel};
 use crate::paths::repo_root;
+
+/// Format-specific options for [`export`].
+#[derive(Default)]
+pub struct ExportOptions {
+    /// WebLLM model id pinned into `web.config.json` (web format only).
+    pub webllm_model: Option<String>,
+}
 
 /// Available export formats.
 ///
@@ -35,6 +43,7 @@ impl ExportFormat {
     fn default_output(&self, root: &Path) -> PathBuf {
         match self {
             Self::Bundle => root.join(".yidam").join("bundle.yiz"),
+            Self::Web => root.join(".yidam").join("web"),
             other => root.join(other.name()),
         }
     }
@@ -44,7 +53,7 @@ impl ExportFormat {
 pub fn list_formats() {
     const FORMATS: &[(&str, &str)] = &[
         ("bundle", "✓ implemented"),
-        ("web", "  planned (phase 1)"),
+        ("web", "✓ implemented"),
         ("mcp", "  run `yidam serve --mcp` (phase 2)"),
         ("rdf", "  planned (phase 3)"),
         ("graphml", "  planned (phase 3)"),
@@ -62,7 +71,12 @@ pub fn list_formats() {
 /// (which takes `&DomainModel` and returns bytes), then writes to disk.
 /// To add a new format: add a variant to [`ExportFormat`], add a `render_<format>`
 /// function in its own module, and add an arm here.
-pub fn export(model: &DomainModel, format: ExportFormat, out: &Path) -> Result<()> {
+pub fn export(
+    model: &DomainModel,
+    format: ExportFormat,
+    out: &Path,
+    options: &ExportOptions,
+) -> Result<()> {
     match format {
         ExportFormat::Bundle => {
             let bytes = render_bundle(model)?;
@@ -86,6 +100,27 @@ pub fn export(model: &DomainModel, format: ExportFormat, out: &Path) -> Result<(
                 out.display(),
             );
         }
+        ExportFormat::Web => {
+            let files = render_web(model, options.webllm_model.as_deref())?;
+            for (rel, bytes) in &files {
+                let path = out.join(rel);
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&path, bytes)?;
+            }
+            let retrieval_note = if model.index.is_some() {
+                "semantic retrieval"
+            } else {
+                "keyword retrieval (no vector index — run `yidam index-build` for semantic search)"
+            };
+            println!(
+                "Web agent written: {} file(s) → {} ({retrieval_note})\n\
+                 Serve the directory or open index.html and drop the bundle onto the page.",
+                files.len(),
+                out.display(),
+            );
+        }
         other => anyhow::bail!("export format '{}' is not yet implemented", other.name()),
     }
     Ok(())
@@ -95,10 +130,10 @@ pub fn export(model: &DomainModel, format: ExportFormat, out: &Path) -> Result<(
 ///
 /// Resolves the output path from `out` or uses the format-specific default.
 /// This is the command-level entry point; [`export`] is the pure dispatch layer.
-pub fn run_export(format: ExportFormat, out: Option<&Path>) -> Result<()> {
+pub fn run_export(format: ExportFormat, out: Option<&Path>, options: &ExportOptions) -> Result<()> {
     let root = repo_root()?;
     let model = load_domain_model(&root)?;
     let default_out = format.default_output(&root);
     let out_path = out.unwrap_or(&default_out);
-    export(&model, format, out_path)
+    export(&model, format, out_path, options)
 }

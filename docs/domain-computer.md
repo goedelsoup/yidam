@@ -69,6 +69,19 @@ section rather than silently widened.
 A consumer that cannot satisfy the contract — the model or weights file is unavailable in
 its runtime — must degrade to keyword search, not embed with different settings.
 
+### The web agent
+
+`yidam export --format web [--out <dir>] [--webllm-model <id>]` produces a static,
+offline-capable browser agent (default output: `.yidam/web/`): `index.html`, assets, a
+`web.config.json` pinning model IDs and CDN URLs, and the `.yiz` bundle itself. Serve the
+directory (auto-loads the bundle) or open `index.html` directly and drop the bundle onto
+the page. Query embedding follows `embed.config.json` (transformers.js, matching dtype);
+retrieval is in-memory cosine over the bundled Arrow index, degrading to keyword search —
+labeled, never silent — when no index exists. When WebGPU is available, a chat panel
+offers RAG-grounded generation via WebLLM after explicit download consent; without WebGPU
+the panel states the limitation plainly. The UI contract lives in
+`yidam/design/ui_kits/web-agent/DESIGN.md`.
+
 ### The MCP server
 
 `yidam serve --mcp` exposes the domain computer to any MCP-capable agent over stdio.
