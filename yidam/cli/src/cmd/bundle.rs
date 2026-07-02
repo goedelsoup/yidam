@@ -100,19 +100,47 @@ pub(crate) fn render_bundle(model: &DomainModel) -> Result<Vec<u8>> {
         add_bytes(&mut tar, &format!("corpus/{}", cls.filename), &cls.content)?;
     }
     for inst in &model.instances {
-        add_bytes(&mut tar, &format!("corpus/{}/{}", inst.class, inst.filename), &inst.content)?;
+        add_bytes(
+            &mut tar,
+            &format!("corpus/{}/{}", inst.class, inst.filename),
+            &inst.content,
+        )?;
     }
     for skill in &model.skills {
-        add_bytes(&mut tar, &format!("skills/{}", skill.filename), &skill.content)?;
+        add_bytes(
+            &mut tar,
+            &format!("skills/{}", skill.filename),
+            &skill.content,
+        )?;
     }
     for decision in &model.decisions {
-        add_bytes(&mut tar, &format!("decisions/{}", decision.filename), &decision.content)?;
+        add_bytes(
+            &mut tar,
+            &format!("decisions/{}", decision.filename),
+            &decision.content,
+        )?;
     }
 
-    add_bytes(&mut tar, "index/corpus.md", model.rendered.corpus_index.as_bytes())?;
-    add_bytes(&mut tar, "index/graph.md", model.rendered.graph_check.as_bytes())?;
-    add_bytes(&mut tar, "index/decisions.md", model.rendered.decisions_log.as_bytes())?;
-    add_bytes(&mut tar, "index/skills.md", model.rendered.skills_index.as_bytes())?;
+    add_bytes(
+        &mut tar,
+        "index/corpus.md",
+        model.rendered.corpus_index.as_bytes(),
+    )?;
+    add_bytes(
+        &mut tar,
+        "index/graph.md",
+        model.rendered.graph_check.as_bytes(),
+    )?;
+    add_bytes(
+        &mut tar,
+        "index/decisions.md",
+        model.rendered.decisions_log.as_bytes(),
+    )?;
+    add_bytes(
+        &mut tar,
+        "index/skills.md",
+        model.rendered.skills_index.as_bytes(),
+    )?;
 
     if let Some(idx) = &model.index {
         add_bytes(&mut tar, "index/corpus.arrow", &idx.arrow_ipc)?;
