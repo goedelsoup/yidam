@@ -1,0 +1,11 @@
+function = "find_citations"
+description = "root node with no incoming edges returns empty list"
+
+[input]
+node_path = "corpus/a.md"
+edges = [
+  { from = "corpus/a.md", to = "corpus/b.md" },
+]
+
+[expected]
+citations = []

@@ -1,4 +1,4 @@
-use yidam_core::{corpus, git, markers};
+use yidam_core::{corpus, git, graph, markers};
 
 fn fixture_dir(function: &str) -> std::path::PathBuf {
     // CARGO_MANIFEST_DIR = prelude/sdks/rust/
@@ -162,6 +162,70 @@ fn parity_parse_markers() {
                 }
             }
         }
+    }
+}
+
+// ── find_reachable ────────────────────────────────────────────────────────────
+
+#[test]
+fn parity_find_reachable() {
+    let fixtures = load_fixtures("find_reachable");
+    assert!(!fixtures.is_empty(), "no find_reachable fixtures found");
+
+    for fx in &fixtures {
+        let input = &fx["input"];
+        let node_path = input["node_path"].as_str().unwrap();
+        let edges: Vec<graph::GraphEdge> = input["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| graph::GraphEdge {
+                from: e["from"].as_str().unwrap().to_string(),
+                to: e["to"].as_str().unwrap().to_string(),
+            })
+            .collect();
+
+        let reachable = graph::find_reachable(&edges, node_path);
+
+        let expected: Vec<&str> = fx["expected"]["reachable"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(reachable, expected, "find_reachable({node_path})");
+    }
+}
+
+// ── find_citations ────────────────────────────────────────────────────────────
+
+#[test]
+fn parity_find_citations() {
+    let fixtures = load_fixtures("find_citations");
+    assert!(!fixtures.is_empty(), "no find_citations fixtures found");
+
+    for fx in &fixtures {
+        let input = &fx["input"];
+        let node_path = input["node_path"].as_str().unwrap();
+        let edges: Vec<graph::GraphEdge> = input["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| graph::GraphEdge {
+                from: e["from"].as_str().unwrap().to_string(),
+                to: e["to"].as_str().unwrap().to_string(),
+            })
+            .collect();
+
+        let citations = graph::find_citations(&edges, node_path);
+
+        let expected: Vec<&str> = fx["expected"]["citations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(citations, expected, "find_citations({node_path})");
     }
 }
 

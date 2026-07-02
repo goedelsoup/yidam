@@ -1,0 +1,12 @@
+function = "find_reachable"
+description = "linear chain: start node reaches all downstream nodes"
+
+[input]
+node_path = "corpus/a.md"
+edges = [
+  { from = "corpus/a.md", to = "corpus/b.md" },
+  { from = "corpus/b.md", to = "corpus/c.md" },
+]
+
+[expected]
+reachable = ["corpus/b.md", "corpus/c.md"]

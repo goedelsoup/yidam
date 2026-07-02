@@ -1,0 +1,11 @@
+function = "find_reachable"
+description = "leaf node with no outgoing edges reaches nothing"
+
+[input]
+node_path = "corpus/b.md"
+edges = [
+  { from = "corpus/a.md", to = "corpus/b.md" },
+]
+
+[expected]
+reachable = []

@@ -14,6 +14,8 @@ is a build error — `mise run parity` enforces it before running any SDK tests.
 | `classify_commit` | Classify a commit message as `Epistemic` or `Operational` by its verb |
 | `parse_markers` | Parse `REGEN` and `TEMPLATE` markers from file content |
 | `update_regen` | Replace the content inside a named `REGEN` section, preserving the marker |
+| `find_reachable` | Return all nodes reachable from a given node following directed edges (BFS); result sorted |
+| `find_citations` | Return all nodes that have a directed edge pointing to a given node; result sorted |
 
 The parity surface is versioned in [`VERSION`](VERSION). Any change to a function's
 contract — input shape, output shape, or classification logic — requires bumping this

@@ -1,0 +1,12 @@
+function = "find_citations"
+description = "multiple nodes link to the same target; all are returned sorted"
+
+[input]
+node_path = "corpus/c.md"
+edges = [
+  { from = "corpus/a.md", to = "corpus/c.md" },
+  { from = "corpus/b.md", to = "corpus/c.md" },
+]
+
+[expected]
+citations = ["corpus/a.md", "corpus/b.md"]

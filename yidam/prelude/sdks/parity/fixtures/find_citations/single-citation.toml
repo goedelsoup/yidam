@@ -1,0 +1,12 @@
+function = "find_citations"
+description = "one node links to the target; that node is the sole citation"
+
+[input]
+node_path = "corpus/b.md"
+edges = [
+  { from = "corpus/a.md", to = "corpus/b.md" },
+  { from = "corpus/b.md", to = "corpus/c.md" },
+]
+
+[expected]
+citations = ["corpus/a.md"]
