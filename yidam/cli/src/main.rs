@@ -39,6 +39,11 @@ enum Command {
     GraphCheck,
     #[command(name = "decisions-log")]
     DecisionsLog,
+    /// Show corpus node and edge changes between two git refs
+    Diff {
+        /// Git range, e.g. `main..HEAD`, `HEAD~5`, `abc123..def456`
+        range: String,
+    },
     /// Bundle ontology, corpus, skills, decisions, and vector index into .yidam/bundle.yiz
     /// (backwards-compatible alias for `export --format bundle`)
     Bundle,
@@ -102,6 +107,7 @@ async fn main() -> Result<()> {
         Command::BundleStatus => yidam::bundle_status(),
         Command::GraphCheck => yidam::graph_check(),
         Command::DecisionsLog => yidam::decisions_log(),
+        Command::Diff { range } => yidam::diff_corpus(&range),
         Command::Bundle => yidam::bundle(),
         Command::Export { format, out, list } => {
             if list {

@@ -10,7 +10,8 @@ pub mod model;
 
 pub use cmd::{
     agents_index, bundle, bundle_status, catalog_audit, clone, corpus_index, crates_index,
-    decisions_log, embed, export, graph_check, index_build, index_status, list_formats,
-    open_questions, overlay, packages_index, run_export, skills_index, status, ExportFormat,
+    decisions_log, diff_corpus, embed, export, graph_check, index_build, index_status,
+    list_formats, open_questions, overlay, packages_index, run_export, skills_index, status,
+    ExportFormat,
 };
 pub use cmd::tonpa;

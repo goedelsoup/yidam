@@ -28,6 +28,7 @@ pub struct CorpusInstance {
 #[derive(serde::Deserialize, Default)]
 pub struct CorpusLink {
     pub target: Option<String>,
+    pub relationship: Option<String>,
 }
 
 /// A decision record (.yml file in .yidam/decisions/).
