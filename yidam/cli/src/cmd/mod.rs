@@ -4,6 +4,7 @@ mod build;
 mod bundle;
 mod catalog;
 mod clone;
+mod copy;
 pub(crate) mod corpus;
 pub(crate) mod decisions;
 mod embed;
