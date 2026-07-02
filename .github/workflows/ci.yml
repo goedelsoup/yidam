@@ -11,4 +11,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
+      # When the mise cache hits, `mise install` is a no-op and the rust
+      # toolchain gets auto-installed by rustup at the first cargo call —
+      # with the runner's default minimal profile, which lacks rustfmt and
+      # clippy. Provision the pinned toolchain (see [tools] in mise.toml)
+      # with its components explicitly; this is idempotent on cache misses.
+      - name: Ensure rustfmt and clippy for the pinned toolchain
+        run: mise exec -- rustup toolchain install 1.85.0 --profile minimal --component rustfmt --component clippy
       - run: mise run ci
