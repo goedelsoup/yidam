@@ -38,6 +38,24 @@ pub struct Decision {
     pub summary: Option<String>,
 }
 
+/// A seed file from samudaya/ (markdown with kind/constitutional frontmatter).
+#[derive(serde::Deserialize, Default)]
+pub struct SamudayaSeed {
+    pub kind: Option<String>,
+    pub constitutional: Option<bool>,
+}
+
+pub fn parse_samudaya_seed(text: &str) -> SamudayaSeed {
+    let body = text.trim_start();
+    let Some(rest) = body.strip_prefix("---\n") else {
+        return SamudayaSeed::default();
+    };
+    let Some(end) = rest.find("\n---") else {
+        return SamudayaSeed::default();
+    };
+    serde_yaml::from_str(&rest[..end]).unwrap_or_default()
+}
+
 pub fn extract_toml_field(text: &str, field: &str) -> Option<String> {
     let prefix = format!("{field} = ");
     for line in text.lines() {

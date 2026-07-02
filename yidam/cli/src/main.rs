@@ -84,6 +84,18 @@ enum Command {
         #[arg(long, value_name = "REF", requires = "backfill")]
         backfill_ref: Option<String>,
     },
+    /// Run corpus quality checks
+    Lint {
+        /// Report issues but always exit 0
+        #[arg(long)]
+        warn: bool,
+        /// Include suggested fixes in output (implies --warn)
+        #[arg(long)]
+        suggest: bool,
+    },
+    /// Inspect and validate samudaya/ seed files
+    #[command(name = "samudaya-audit")]
+    SamudayaAudit,
     /// Manage bundle dependencies in .yidam/tonpa/
     Tonpa {
         #[command(subcommand)]
@@ -123,6 +135,8 @@ async fn main() -> Result<()> {
         Command::Overlay { target, backfill, backfill_ref } => {
             yidam::overlay(&target, backfill, backfill_ref.as_deref())
         }
+        Command::Lint { warn, suggest } => yidam::lint(warn, suggest),
+        Command::SamudayaAudit => yidam::samudaya_audit(),
         Command::Tonpa { sub } => yidam::tonpa::run(sub).await,
     }
 }

@@ -38,6 +38,10 @@ pub fn yidam_index_dir(root: &Path) -> PathBuf {
     root.join(".yidam").join("index")
 }
 
+pub fn samudaya_dir(root: &Path) -> PathBuf {
+    root.join("samudaya")
+}
+
 pub fn tonpa_dir(root: &Path) -> PathBuf {
     root.join(".yidam").join("tonpa")
 }

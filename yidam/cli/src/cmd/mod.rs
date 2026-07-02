@@ -11,8 +11,10 @@ pub(crate) mod decisions;
 mod embed;
 mod export;
 mod index_build;
+mod lint;
 mod overlay;
 pub(crate) mod registry;
+mod samudaya_audit;
 mod status;
 mod web;
 
@@ -26,8 +28,10 @@ pub use decisions::decisions_log;
 pub use embed::embed;
 pub use export::{export, list_formats, run_export, ExportFormat};
 pub use index_build::index_build;
+pub use lint::lint;
 pub use overlay::overlay;
 pub use registry::{agents_index, skills_index};
+pub use samudaya_audit::samudaya_audit;
 pub use status::{index_status, status};
 pub use web::bundle_status;
 

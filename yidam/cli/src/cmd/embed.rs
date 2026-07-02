@@ -57,6 +57,7 @@ pub fn embed() -> Result<()> {
     std::fs::create_dir_all(&embeddings_dir)?;
 
     let mut count = 0;
+    let mut skipped = 0usize;
     for path in &instances {
         let yaml = std::fs::read_to_string(path)?;
         let inst: CorpusInstance = match serde_yaml::from_str(&yaml) {
@@ -64,6 +65,7 @@ pub fn embed() -> Result<()> {
             Err(e) => {
                 let rel = path.strip_prefix(&root).unwrap_or(path);
                 eprintln!("[warn] skipping {}: {e}", rel.display());
+                skipped += 1;
                 continue;
             }
         };
@@ -104,6 +106,16 @@ pub fn embed() -> Result<()> {
         count += 1;
     }
 
-    println!("Extracted {count} embedding record(s) → {}", embeddings_dir.display());
+    if skipped > 0 {
+        println!(
+            "embedded {count} instance(s) → {} ({skipped} skipped)",
+            embeddings_dir.display()
+        );
+    } else {
+        println!(
+            "embedded {count} instance(s) → {}",
+            embeddings_dir.display()
+        );
+    }
     Ok(())
 }
