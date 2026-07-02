@@ -58,6 +58,9 @@ enum Command {
         /// WebLLM model id for the web format's chat panel (default: Llama-3.2-1B-Instruct)
         #[arg(long, value_name = "MODEL_ID")]
         webllm_model: Option<String>,
+        /// RDF serialization for the rdf format (default: both Turtle and JSON-LD)
+        #[arg(long, value_enum, value_name = "FORMAT")]
+        rdf_format: Option<yidam::RdfFormat>,
         /// List available export formats and their implementation status
         #[arg(long)]
         list: bool,
@@ -145,13 +148,17 @@ async fn main() -> Result<()> {
             format,
             out,
             webllm_model,
+            rdf_format,
             list,
         } => {
             if list {
                 yidam::list_formats();
                 Ok(())
             } else {
-                let options = yidam::ExportOptions { webllm_model };
+                let options = yidam::ExportOptions {
+                    webllm_model,
+                    rdf_format,
+                };
                 yidam::run_export(format.unwrap(), out.as_deref(), &options)
             }
         }

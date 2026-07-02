@@ -41,6 +41,9 @@ toml = "0.8"
 # Parity SDK — reference implementations of classify_commit etc.; the CLI
 # must not re-implement the parity surface (see prelude/sdks/parity/README.md).
 yidam-core = { path = "../prelude/sdks/rust" }
+oxrdf = "0.2"
+oxttl = "0.1"
 
 [dev-dependencies]
+quick-xml = "0.37"
 tempfile = "3"

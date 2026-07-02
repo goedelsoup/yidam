@@ -2,15 +2,26 @@ use anyhow::Result;
 use std::path::{Path, PathBuf};
 
 use super::bundle::render_bundle;
+use super::export_graphml::render_graphml;
+use super::export_rdf::{render_rdf_jsonld, render_rdf_turtle};
 use super::export_web::render_web;
 use crate::model::{load_domain_model, DomainModel};
 use crate::paths::repo_root;
+
+/// RDF serialization selected by `--rdf-format`; omitted → both are written.
+#[derive(Debug, Clone, clap::ValueEnum)]
+pub enum RdfFormat {
+    Turtle,
+    Jsonld,
+}
 
 /// Format-specific options for [`export`].
 #[derive(Default)]
 pub struct ExportOptions {
     /// WebLLM model id pinned into `web.config.json` (web format only).
     pub webllm_model: Option<String>,
+    /// RDF serialization (rdf format only); `None` writes both.
+    pub rdf_format: Option<RdfFormat>,
 }
 
 /// Available export formats.
@@ -44,6 +55,8 @@ impl ExportFormat {
         match self {
             Self::Bundle => root.join(".yidam").join("bundle.yiz"),
             Self::Web => root.join(".yidam").join("web"),
+            Self::Rdf => root.join("corpus.ttl"),
+            Self::GraphMl => root.join("corpus.graphml"),
             other => root.join(other.name()),
         }
     }
@@ -55,8 +68,8 @@ pub fn list_formats() {
         ("bundle", "✓ implemented"),
         ("web", "✓ implemented"),
         ("mcp", "  run `yidam serve --mcp` (phase 2)"),
-        ("rdf", "  planned (phase 3)"),
-        ("graphml", "  planned (phase 3)"),
+        ("rdf", "✓ implemented"),
+        ("graphml", "✓ implemented"),
         ("sqlite", "  planned (phase 4)"),
         ("llms", "  planned (phase 4)"),
     ];
@@ -119,6 +132,42 @@ pub fn export(
                  Serve the directory or open index.html and drop the bundle onto the page.",
                 files.len(),
                 out.display(),
+            );
+        }
+        ExportFormat::Rdf => {
+            if let Some(parent) = out.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let (turtle, jsonld) = match options.rdf_format {
+                Some(RdfFormat::Turtle) => (true, false),
+                Some(RdfFormat::Jsonld) => (false, true),
+                None => (true, true),
+            };
+            if turtle {
+                std::fs::write(out, render_rdf_turtle(model)?)?;
+                println!("RDF (Turtle) written → {}", out.display());
+            }
+            if jsonld {
+                // With no explicit --rdf-format both are written: Turtle at
+                // `out`, JSON-LD beside it with the extension swapped.
+                let path = if turtle {
+                    out.with_extension("jsonld")
+                } else {
+                    out.to_path_buf()
+                };
+                std::fs::write(&path, render_rdf_jsonld(model)?)?;
+                println!("RDF (JSON-LD) written → {}", path.display());
+            }
+        }
+        ExportFormat::GraphMl => {
+            if let Some(parent) = out.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(out, render_graphml(model)?)?;
+            println!(
+                "GraphML written: {} node(s) → {}",
+                model.instances.len(),
+                out.display()
             );
         }
         other => anyhow::bail!("export format '{}' is not yet implemented", other.name()),

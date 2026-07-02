@@ -82,6 +82,26 @@ offers RAG-grounded generation via WebLLM after explicit download consent; witho
 the panel states the limitation plainly. The UI contract lives in
 `yidam/design/ui_kits/web-agent/DESIGN.md`.
 
+### Ontology interchange
+
+`yidam export --format rdf [--rdf-format turtle|jsonld]` serializes the corpus as RDF —
+Turtle (`corpus.ttl`) and JSON-LD (`corpus.jsonld`), both by default, carrying identical
+triple sets. Classes become `owl:Class` (with `skos:exactMatch` when the `.ont.yml`
+declares a `bfo_anchor:` URI), instances are typed individuals at
+`yidam://corpus/<class>/<name>`, links are `yidam:linksTo` triples (named relationships
+become `rdfs:subPropertyOf yidam:linksTo` properties), and the `owl:Ontology` header
+carries provenance (`prov:generatedAtTime`, commit, genesis date). Example SPARQL:
+
+```sparql
+PREFIX yidam: <https://yidam.dev/ontology#>
+SELECT ?node ?label WHERE { ?node a yidam:concept ; rdfs:label ?label . }
+```
+
+`yidam export --format graphml` serializes the link graph as GraphML (`corpus.graphml`)
+for Gephi, Cytoscape, and yEd: one node per instance (stable `<class>/<name>` ids, class
+and description attributes) and one directed edge per resolved link with the relationship
+as its `type`. Dangling links are warned and skipped, never fatal.
+
 ### The MCP server
 
 `yidam serve --mcp` exposes the domain computer to any MCP-capable agent over stdio.
