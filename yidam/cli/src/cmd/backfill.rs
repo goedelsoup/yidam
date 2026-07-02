@@ -87,22 +87,26 @@ impl CommitRecord {
 
 #[derive(Debug)]
 enum CommitKind {
-    Decision,
     Epistemic,
     Operational,
 }
 
-/// Heuristic pre-classifier — a placeholder until the parity SDK integration
-/// lands. Reads conventional-commit prefixes and subject keywords.
+// Matches the parity SDK spec (prelude/sdks/rust/src/git.rs OPERATIONAL_VERBS).
+// Replace with a direct dependency on the parity SDK crate when it lands.
+const OPERATIONAL_VERBS: &[&str] =
+    &["extract", "refresh", "compute", "index", "bundle", "reconcile", "build"];
+
+/// Pre-parity placeholder. Extracts the verb before the first ": " and looks it
+/// up in OPERATIONAL_VERBS; everything else is Epistemic. Must be replaced with
+/// a call to the parity SDK's `classify_commit` before write-out is implemented.
 fn classify_kind(subject: &str) -> CommitKind {
-    let s = subject.to_ascii_lowercase();
-    if s.starts_with("decide") || s.starts_with("decision") || s.starts_with("adr") {
-        return CommitKind::Decision;
+    let verb = subject
+        .find(": ")
+        .map(|pos| subject[..pos].trim())
+        .unwrap_or("");
+    if OPERATIONAL_VERBS.contains(&verb) {
+        CommitKind::Operational
+    } else {
+        CommitKind::Epistemic
     }
-    if s.starts_with("feat") || s.starts_with("chore") || s.starts_with("fix")
-        || s.starts_with("refactor") || s.starts_with("ci") || s.starts_with("build")
-    {
-        return CommitKind::Operational;
-    }
-    CommitKind::Epistemic
 }

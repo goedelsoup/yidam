@@ -59,7 +59,14 @@ pub fn embed() -> Result<()> {
     let mut count = 0;
     for path in &instances {
         let yaml = std::fs::read_to_string(path)?;
-        let inst: CorpusInstance = serde_yaml::from_str(&yaml).unwrap_or_default();
+        let inst: CorpusInstance = match serde_yaml::from_str(&yaml) {
+            Ok(v) => v,
+            Err(e) => {
+                let rel = path.strip_prefix(&root).unwrap_or(path);
+                eprintln!("[warn] skipping {}: {e}", rel.display());
+                continue;
+            }
+        };
 
         let class = path
             .parent()

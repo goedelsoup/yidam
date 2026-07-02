@@ -5,6 +5,7 @@ use crate::paths::repo_root;
 
 const EXCLUDE_DIRS: &[&str] = &[
     ".git",
+    "docs",
     "target",
     "node_modules",
     "dist",

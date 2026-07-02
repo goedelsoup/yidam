@@ -107,7 +107,10 @@ pub async fn index_build() -> Result<()> {
     }
     std::fs::create_dir_all(&index_dir)?;
 
-    let db_path = index_dir.to_string_lossy().to_string();
+    let db_path = index_dir
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("index path is not valid UTF-8: {}", index_dir.display()))?
+        .to_string();
     let db = connect(&db_path).execute().await?;
     db.create_table(
         TABLE_NAME,

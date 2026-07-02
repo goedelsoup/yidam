@@ -60,12 +60,25 @@ pub fn bundle() -> Result<()> {
     let gz = GzEncoder::new(Vec::new(), Compression::default());
     let mut tar = Builder::new(gz);
 
-    let domain = genesis_msg
-        .lines()
-        .next()
-        .unwrap_or("")
-        .trim_start_matches("chore: genesis — ")
-        .to_string();
+    let first_line = genesis_msg.lines().next().unwrap_or("").trim();
+    let domain = if let Some(name) = first_line
+        .strip_prefix("chore: genesis \u{2014} ")
+        .filter(|s| !s.is_empty())
+    {
+        name.to_string()
+    } else {
+        let fallback = root
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        eprintln!(
+            "[warn] genesis commit {:?} does not match expected format \
+             \"chore: genesis \u{2014} <name>\" — using directory name {:?} as domain",
+            first_line, fallback
+        );
+        fallback
+    };
 
     let index_line = if has_index {
         let meta_text = std::fs::read_to_string(&meta_path).unwrap_or_default();
