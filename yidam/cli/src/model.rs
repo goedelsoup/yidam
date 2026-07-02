@@ -238,11 +238,108 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
     })
 }
 
+/// One corpus instance parsed into graph form — the shared view consumed by
+/// the MCP server and the graph-shaped exporters (GraphML, RDF).
+pub struct NodeView {
+    /// `<class>/<name>` — the stable node id.
+    pub id: String,
+    pub class: String,
+    pub label: String,
+    pub description: String,
+    /// Raw YAML source of the instance file.
+    pub content: String,
+    /// Outgoing edges: (target node id, relationship).
+    pub links: Vec<(String, String)>,
+}
+
+/// Resolve a link target (a path relative to the source instance's class
+/// directory, e.g. `../other-class/thing.yml`) to a node id
+/// (`other-class/thing`). Targets that escape the corpus directory are
+/// returned verbatim.
+pub(crate) fn resolve_link_target(source_class: &str, target: &str) -> String {
+    let mut parts: Vec<&str> = vec![source_class];
+    for comp in target.split('/') {
+        match comp {
+            "." | "" => {}
+            ".." => {
+                if parts.pop().is_none() {
+                    return target.to_string();
+                }
+            }
+            other => parts.push(other),
+        }
+    }
+    let joined = parts.join("/");
+    joined
+        .strip_suffix(".yml")
+        .map(str::to_string)
+        .unwrap_or(joined)
+}
+
+pub(crate) fn file_stem(filename: &str) -> String {
+    Path::new(filename)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| filename.to_string())
+}
+
+/// Parse every corpus instance into a [`NodeView`], resolving link targets
+/// to node ids. Instances that fail YAML parsing degrade to empty fields
+/// rather than being dropped — the node exists even if malformed.
+pub fn corpus_nodes(model: &DomainModel) -> Vec<NodeView> {
+    model
+        .instances
+        .iter()
+        .map(|inst| {
+            let content = String::from_utf8_lossy(&inst.content).into_owned();
+            let parsed: crate::parse::CorpusInstance =
+                serde_yaml::from_str(&content).unwrap_or_default();
+            let name = file_stem(&inst.filename);
+            let links = parsed
+                .links
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|l| {
+                    l.target.as_ref().map(|t| {
+                        (
+                            resolve_link_target(&inst.class, t),
+                            l.relationship.clone().unwrap_or_else(|| "link".to_string()),
+                        )
+                    })
+                })
+                .collect();
+            NodeView {
+                id: format!("{}/{}", inst.class, name),
+                class: inst.class.clone(),
+                label: parsed.label.unwrap_or_default(),
+                description: parsed.description.unwrap_or_default(),
+                content,
+                links,
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
+
+    #[test]
+    fn resolve_link_targets_relative_paths() {
+        assert_eq!(resolve_link_target("reach", "alpha.yml"), "reach/alpha");
+        assert_eq!(
+            resolve_link_target("reach", "../concept/formation.yml"),
+            "concept/formation"
+        );
+        assert_eq!(resolve_link_target("reach", "./beta.yml"), "reach/beta");
+        // escapes the corpus dir — returned verbatim
+        assert_eq!(
+            resolve_link_target("reach", "../../skills/x.md"),
+            "../../skills/x.md"
+        );
+    }
 
     fn init_git_repo(dir: &Path) {
         for args in [

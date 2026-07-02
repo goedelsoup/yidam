@@ -21,22 +21,12 @@ use std::path::Path;
 
 use crate::embed_config::EmbedConfig;
 use crate::git::head_commit_short;
-use crate::model::load_domain_model;
-use crate::parse::CorpusInstance;
+use crate::model::{corpus_nodes, file_stem as stem, load_domain_model};
 use crate::paths::repo_root;
 
-/// One corpus instance, parsed for serving.
-pub(crate) struct Node {
-    /// `<class>/<name>` — the id accepted by `get_node` and `neighbors`.
-    pub id: String,
-    pub class: String,
-    pub label: String,
-    pub description: String,
-    /// Raw YAML source of the instance file.
-    pub content: String,
-    /// Outgoing edges: (target node id, relationship).
-    pub links: Vec<(String, String)>,
-}
+/// One corpus instance, parsed for serving. The id (`<class>/<name>`) is
+/// what `get_node` and `neighbors` accept.
+pub(crate) use crate::model::NodeView as Node;
 
 /// One row of the vector index (from `index/corpus.arrow`).
 pub(crate) struct VectorRow {
@@ -68,71 +58,11 @@ pub(crate) struct ServerState {
     pub indexed_commit: Option<String>,
 }
 
-/// Resolve a link target (a path relative to the source instance's class
-/// directory, e.g. `../other-class/thing.yml`) to a node id
-/// (`other-class/thing`). Targets that escape the corpus directory are
-/// returned verbatim.
-fn resolve_link_target(source_class: &str, target: &str) -> String {
-    let mut parts: Vec<&str> = vec![source_class];
-    for comp in target.split('/') {
-        match comp {
-            "." | "" => {}
-            ".." => {
-                if parts.pop().is_none() {
-                    return target.to_string();
-                }
-            }
-            other => parts.push(other),
-        }
-    }
-    let joined = parts.join("/");
-    joined
-        .strip_suffix(".yml")
-        .map(str::to_string)
-        .unwrap_or(joined)
-}
-
-fn stem(filename: &str) -> String {
-    Path::new(filename)
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| filename.to_string())
-}
-
 impl ServerState {
     pub(crate) fn load(root: &Path) -> Result<Self> {
         let model = load_domain_model(root)?;
 
-        let nodes = model
-            .instances
-            .iter()
-            .map(|inst| {
-                let content = String::from_utf8_lossy(&inst.content).into_owned();
-                let parsed: CorpusInstance = serde_yaml::from_str(&content).unwrap_or_default();
-                let name = stem(&inst.filename);
-                let links = parsed
-                    .links
-                    .unwrap_or_default()
-                    .iter()
-                    .filter_map(|l| {
-                        l.target.as_ref().map(|t| {
-                            (
-                                resolve_link_target(&inst.class, t),
-                                l.relationship.clone().unwrap_or_else(|| "link".to_string()),
-                            )
-                        })
-                    })
-                    .collect();
-                Node {
-                    id: format!("{}/{}", inst.class, name),
-                    class: inst.class.clone(),
-                    label: parsed.label.unwrap_or_default(),
-                    description: parsed.description.unwrap_or_default(),
-                    content,
-                    links,
-                }
-            })
-            .collect();
+        let nodes = corpus_nodes(&model);
 
         let skills = model
             .skills
@@ -361,21 +291,6 @@ fn handle(state: &ServerState, method: &str, params: &Value) -> Result<Value, Rp
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn resolve_link_targets_relative_paths() {
-        assert_eq!(resolve_link_target("reach", "alpha.yml"), "reach/alpha");
-        assert_eq!(
-            resolve_link_target("reach", "../concept/formation.yml"),
-            "concept/formation"
-        );
-        assert_eq!(resolve_link_target("reach", "./beta.yml"), "reach/beta");
-        // escapes the corpus dir — returned verbatim
-        assert_eq!(
-            resolve_link_target("reach", "../../skills/x.md"),
-            "../../skills/x.md"
-        );
-    }
 
     pub(crate) fn test_state() -> ServerState {
         ServerState {
