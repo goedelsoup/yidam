@@ -35,6 +35,7 @@ pub struct Link {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum NodeKind {
     Concept,
+    Decision,
     Authored,
     Generated,
 }
@@ -43,6 +44,7 @@ impl NodeKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             NodeKind::Concept => "Concept",
+            NodeKind::Decision => "Decision",
             NodeKind::Authored => "Authored",
             NodeKind::Generated => "Generated",
         }
@@ -145,6 +147,8 @@ pub fn parse_node(path: &str, text: &str) -> CorpusNode {
 
     let kind = if path.starts_with("corpus/") {
         NodeKind::Concept
+    } else if path.starts_with("decisions/") {
+        NodeKind::Decision
     } else {
         NodeKind::Authored
     };

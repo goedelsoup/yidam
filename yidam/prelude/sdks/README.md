@@ -59,7 +59,10 @@ that parsers and serializers produce identical values across all three.
 CorpusNode
   path        : string           — relative path from repo root
   title       : string           — first H1 heading in the file
-  kind        : NodeKind         — Authored | Generated
+  kind        : NodeKind         — Concept | Decision | Authored | Generated
+                                   Concept: path under corpus/; Decision: path under
+                                   decisions/; Authored: any other path; Generated is
+                                   reserved for derived artifacts
   claims      : Claim[]
   links       : Link[]           — outbound edges only
 
@@ -89,7 +92,7 @@ CommitEvent
 
 CommitKind = Epistemic | Operational
   — Epistemic verbs: establish, revise, link, synthesize, assess, open, close, retract
-  — Operational verbs: extract, refresh, compute, index, bundle, reconcile
+  — Operational verbs: extract, refresh, compute, index, bundle, reconcile, build, fix, regen
   — Unknown verb → Epistemic by default; operational is the marked case
 ```
 
@@ -161,7 +164,7 @@ ScoredNode
 
 ## The parity surface
 
-These six functions form the **parity contract** — the operations all three SDKs must
+These eight functions form the **parity contract** — the operations all three SDKs must
 implement identically, as verified by the fixture harness.
 
 ```
@@ -192,6 +195,13 @@ update_regen(text: string, command: string, new_content: string) -> string
   Replace the content between <!-- REGEN: command --> and <!-- /REGEN --> with new_content.
   Leaves all other text — including other REGEN sections — unchanged exactly.
   Idempotent: calling it twice with the same new_content returns the same string.
+  Empty new_content clears the body with no blank line left between the markers.
+
+find_reachable(edges: GraphEdge[], node_path: string) -> string[]
+  All nodes reachable from node_path following directed edges (BFS), sorted.
+
+find_citations(edges: GraphEdge[], node_path: string) -> string[]
+  All nodes with a directed edge pointing to node_path, sorted.
 ```
 
 Every parity fixture is a TOML file pairing one of these functions with a representative

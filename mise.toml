@@ -123,9 +123,9 @@ run = "cargo fmt --all --manifest-path crates/Cargo.toml"
 # `verify` requires dafny (in [tools]) and lake (install via elan separately).
 
 [tasks.parity-check]
-description = "Verify all six parity functions have at least one fixture (enforced by parity)."
+description = "Verify all eight parity functions have at least one fixture (enforced by parity)."
 run = """
-for fn in parse_node extract_claims extract_links classify_commit parse_markers update_regen; do
+for fn in parse_node extract_claims extract_links classify_commit parse_markers update_regen find_reachable find_citations; do
   count=$(ls yidam/prelude/sdks/parity/fixtures/$fn/*.toml 2>/dev/null | wc -l | tr -d ' ')
   if [ "$count" -eq 0 ]; then
     echo "ERROR: no fixture for parity function '$fn'"
@@ -133,7 +133,7 @@ for fn in parse_node extract_claims extract_links classify_commit parse_markers 
     exit 1
   fi
 done
-echo "parity fixture check: all six functions covered"
+echo "parity fixture check: all eight functions covered"
 """
 
 [tasks.parity]
@@ -141,8 +141,9 @@ description = "Run cross-language parity tests across all three SDK implementati
 depends = ["parity-check"]
 run = [
   "cargo test --manifest-path yidam/prelude/sdks/rust/Cargo.toml -- parity",
-  "cd yidam/prelude/sdks/typescript && npm test -- --testPathPattern parity",
-  "cd yidam/prelude/sdks/python && uv run pytest tests/parity/",
+  # vitest takes positional filename filters (--testPathPattern is a jest flag)
+  "cd yidam/prelude/sdks/typescript && npm test -- parity",
+  "cd yidam/prelude/sdks/python && uv run --extra dev pytest tests/parity/",
 ]
 
 [tasks.domain-parity-check]
@@ -178,10 +179,10 @@ for domain_dir in yidam/prelude/domains/*/; do
     cargo test --manifest-path "$domain_dir/rust/Cargo.toml" -- parity
   fi
   if [ -f "$domain_dir/typescript/package.json" ]; then
-    (cd "$domain_dir/typescript" && npm test -- --testPathPattern parity)
+    (cd "$domain_dir/typescript" && npm test -- parity)
   fi
   if [ -f "$domain_dir/python/pyproject.toml" ]; then
-    (cd "$domain_dir/python" && uv run pytest tests/parity/)
+    (cd "$domain_dir/python" && uv run --extra dev pytest tests/parity/)
   fi
 done
 """

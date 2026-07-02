@@ -27,6 +27,7 @@ class Link:
 
 class NodeKind(str, Enum):
     Concept = "Concept"
+    Decision = "Decision"
     Authored = "Authored"
     Generated = "Generated"
 
@@ -91,7 +92,12 @@ def parse_node(path: str, text: str) -> CorpusNode:
             title = line[2:].strip()
             break
 
-    kind = NodeKind.Concept if path.startswith("corpus/") else NodeKind.Authored
+    if path.startswith("corpus/"):
+        kind = NodeKind.Concept
+    elif path.startswith("decisions/"):
+        kind = NodeKind.Decision
+    else:
+        kind = NodeKind.Authored
 
     return CorpusNode(
         path=path,

@@ -9,7 +9,7 @@ export interface CommitEvent {
 }
 
 const OPERATIONAL_VERBS = new Set([
-  'extract', 'refresh', 'compute', 'index', 'bundle', 'reconcile', 'build',
+  'extract', 'refresh', 'compute', 'index', 'bundle', 'reconcile', 'build', 'fix', 'regen',
 ])
 
 export function classifyCommit(hash: string, message: string): CommitEvent {

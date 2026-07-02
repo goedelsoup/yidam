@@ -75,5 +75,10 @@ pub fn update_regen(text: &str, command: &str, new_content: &str) -> String {
         return text.to_string();
     };
     let close_abs = content_start + close_rel;
-    format!("{}\n{}\n{}", &text[..content_start], new_content, &text[close_abs..])
+    if new_content.is_empty() {
+        // Clear the body without leaving a blank line between the markers.
+        format!("{}\n{}", &text[..content_start], &text[close_abs..])
+    } else {
+        format!("{}\n{}\n{}", &text[..content_start], new_content, &text[close_abs..])
+    }
 }

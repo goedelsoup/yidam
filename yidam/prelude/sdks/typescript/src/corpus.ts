@@ -1,5 +1,5 @@
 export type EvidenceTag = 'Verified' | 'Inference' | 'Open' | 'Implicit'
-export type NodeKind = 'Concept' | 'Authored' | 'Generated'
+export type NodeKind = 'Concept' | 'Decision' | 'Authored' | 'Generated'
 
 export interface Claim {
   text: string
@@ -72,7 +72,11 @@ export function parseNode(path: string, text: string): CorpusNode {
     }
   }
 
-  const kind: NodeKind = path.startsWith('corpus/') ? 'Concept' : 'Authored'
+  const kind: NodeKind = path.startsWith('corpus/')
+    ? 'Concept'
+    : path.startsWith('decisions/')
+      ? 'Decision'
+      : 'Authored'
 
   return {
     path,

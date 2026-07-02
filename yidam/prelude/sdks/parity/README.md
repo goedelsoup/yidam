@@ -1,6 +1,6 @@
 # Parity
 
-Cross-language fixture suite for the six parity functions all three SDKs must implement
+Cross-language fixture suite for the eight parity functions all three SDKs must implement
 identically. Adding a new function to the parity surface without a fixture in this directory
 is a build error — `mise run parity` enforces it before running any SDK tests.
 

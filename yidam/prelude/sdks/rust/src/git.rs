@@ -22,8 +22,9 @@ pub struct CommitEvent {
     pub context: Option<String>,
 }
 
-const OPERATIONAL_VERBS: &[&str] =
-    &["extract", "refresh", "compute", "index", "bundle", "reconcile", "build"];
+const OPERATIONAL_VERBS: &[&str] = &[
+    "extract", "refresh", "compute", "index", "bundle", "reconcile", "build", "fix", "regen",
+];
 
 pub fn classify_commit(hash: &str, message: &str) -> CommitEvent {
     let first_line = message.lines().next().unwrap_or("").trim();
