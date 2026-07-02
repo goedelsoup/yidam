@@ -26,7 +26,7 @@ struct EmbedRecord {
     text: String,
 }
 
-fn resolve_model(name: &str) -> Result<(EmbeddingModel, i32, String)> {
+pub(crate) fn resolve_model(name: &str) -> Result<(EmbeddingModel, i32, String)> {
     TextEmbedding::list_supported_models()
         .into_iter()
         .find(|m| m.model_code == name)

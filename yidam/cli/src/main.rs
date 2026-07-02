@@ -95,6 +95,12 @@ enum Command {
     },
     /// Show active inquiry phases (ma/* and rigpa/* branches)
     Phases,
+    /// Serve the domain computer to MCP-capable agents
+    Serve {
+        /// Serve MCP over stdio (the only transport currently implemented)
+        #[arg(long)]
+        mcp: bool,
+    },
     /// Run corpus quality checks
     Lint {
         /// Report issues but always exit 0
@@ -150,6 +156,13 @@ async fn main() -> Result<()> {
         } => yidam::overlay(&target, backfill, backfill_ref.as_deref()),
         Command::Backfill { since } => yidam::backfill(since.as_deref()),
         Command::Phases => yidam::phases(),
+        Command::Serve { mcp } => {
+            if mcp {
+                yidam::serve_mcp()
+            } else {
+                anyhow::bail!("only the MCP transport is implemented — run `yidam serve --mcp`")
+            }
+        }
         Command::Lint { warn, suggest } => yidam::lint(warn, suggest),
         Command::SamudayaAudit => yidam::samudaya_audit(),
         Command::Tonpa { sub } => yidam::tonpa::run(sub).await,

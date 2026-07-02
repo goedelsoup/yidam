@@ -15,6 +15,7 @@ mod overlay;
 mod phases;
 pub(crate) mod registry;
 mod samudaya_audit;
+mod serve;
 mod status;
 pub mod tonpa;
 mod web;
@@ -35,6 +36,7 @@ pub use overlay::overlay;
 pub use phases::phases;
 pub use registry::{agents_index, skills_index};
 pub use samudaya_audit::samudaya_audit;
+pub use serve::serve_mcp;
 pub use status::{index_status, status};
 pub use web::bundle_status;
 
