@@ -11,6 +11,7 @@ mod embed;
 mod export;
 mod export_graphml;
 mod export_rdf;
+mod export_sqlite;
 mod export_web;
 mod index_build;
 mod lint;

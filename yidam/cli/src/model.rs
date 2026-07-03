@@ -238,6 +238,57 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
     })
 }
 
+/// One row of the vector index, decoded from `index/corpus.arrow`.
+pub struct VectorRow {
+    pub path: String,
+    pub class: String,
+    pub label: String,
+    pub text: String,
+    pub vector: Vec<f32>,
+}
+
+/// Decode the Arrow IPC index into rows — shared by the MCP server's
+/// `retrieve` and the sqlite export, so vectors are read one way everywhere.
+pub fn index_rows(index: &IndexData) -> Result<Vec<VectorRow>> {
+    use anyhow::Context;
+    use arrow_array::cast::AsArray;
+
+    let reader =
+        arrow_ipc::reader::FileReader::try_new(std::io::Cursor::new(&index.arrow_ipc), None)
+            .context("reading index/corpus.arrow")?;
+    let mut rows = Vec::new();
+    for batch in reader {
+        let batch = batch?;
+        let col = |name: &str| -> Result<&arrow_array::StringArray> {
+            batch
+                .column_by_name(name)
+                .and_then(|c| c.as_any().downcast_ref())
+                .with_context(|| format!("index column {name:?} missing or not a string"))
+        };
+        let paths = col("path")?;
+        let classes = col("class")?;
+        let labels = col("label")?;
+        let texts = col("text")?;
+        let vectors = batch
+            .column_by_name("vector")
+            .map(|c| c.as_fixed_size_list())
+            .context("index column \"vector\" missing")?;
+
+        for i in 0..batch.num_rows() {
+            let values = vectors.value(i);
+            let floats = values.as_primitive::<arrow_array::types::Float32Type>();
+            rows.push(VectorRow {
+                path: paths.value(i).to_string(),
+                class: classes.value(i).to_string(),
+                label: labels.value(i).to_string(),
+                text: texts.value(i).to_string(),
+                vector: floats.values().to_vec(),
+            });
+        }
+    }
+    Ok(rows)
+}
+
 /// One corpus instance parsed into graph form — the shared view consumed by
 /// the MCP server and the graph-shaped exporters (GraphML, RDF).
 pub struct NodeView {

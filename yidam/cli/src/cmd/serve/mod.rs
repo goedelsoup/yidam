@@ -11,8 +11,7 @@
 mod resources;
 mod tools;
 
-use anyhow::{Context, Result};
-use arrow_array::{cast::AsArray, types::Float32Type};
+use anyhow::Result;
 use fastembed::TextEmbedding;
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -21,21 +20,14 @@ use std::path::Path;
 
 use crate::embed_config::EmbedConfig;
 use crate::git::head_commit_short;
-use crate::model::{corpus_nodes, file_stem as stem, load_domain_model};
+use crate::model::{corpus_nodes, file_stem as stem, index_rows, load_domain_model};
 use crate::paths::repo_root;
 
 /// One corpus instance, parsed for serving. The id (`<class>/<name>`) is
 /// what `get_node` and `neighbors` accept.
 pub(crate) use crate::model::NodeView as Node;
-
 /// One row of the vector index (from `index/corpus.arrow`).
-pub(crate) struct VectorRow {
-    pub path: String,
-    pub class: String,
-    pub label: String,
-    pub text: String,
-    pub vector: Vec<f32>,
-}
+pub(crate) use crate::model::VectorRow;
 
 pub(crate) struct IndexState {
     pub rows: Vec<VectorRow>,
@@ -87,7 +79,7 @@ impl ServerState {
 
         let (index, indexed_commit) = match &model.index {
             Some(idx) => {
-                let rows = parse_arrow_rows(&idx.arrow_ipc)?;
+                let rows = index_rows(idx)?;
                 // The reproducibility contract is authoritative for the model;
                 // fall back to meta.json for indexes built before it existed.
                 let model_id = idx
@@ -119,42 +111,6 @@ impl ServerState {
             indexed_commit,
         })
     }
-}
-
-fn parse_arrow_rows(ipc_bytes: &[u8]) -> Result<Vec<VectorRow>> {
-    let reader = arrow_ipc::reader::FileReader::try_new(std::io::Cursor::new(ipc_bytes), None)
-        .context("reading index/corpus.arrow")?;
-    let mut rows = Vec::new();
-    for batch in reader {
-        let batch = batch?;
-        let col = |name: &str| -> Result<&arrow_array::StringArray> {
-            batch
-                .column_by_name(name)
-                .and_then(|c| c.as_any().downcast_ref())
-                .with_context(|| format!("index column {name:?} missing or not a string"))
-        };
-        let paths = col("path")?;
-        let classes = col("class")?;
-        let labels = col("label")?;
-        let texts = col("text")?;
-        let vectors = batch
-            .column_by_name("vector")
-            .map(|c| c.as_fixed_size_list())
-            .context("index column \"vector\" missing")?;
-
-        for i in 0..batch.num_rows() {
-            let values = vectors.value(i);
-            let floats = values.as_primitive::<Float32Type>();
-            rows.push(VectorRow {
-                path: paths.value(i).to_string(),
-                class: classes.value(i).to_string(),
-                label: labels.value(i).to_string(),
-                text: texts.value(i).to_string(),
-                vector: floats.values().to_vec(),
-            });
-        }
-    }
-    Ok(rows)
 }
 
 /// Serve the domain computer over MCP stdio. Blocks until stdin closes.

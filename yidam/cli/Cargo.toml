@@ -43,6 +43,8 @@ toml = "0.8"
 yidam-core = { path = "../prelude/sdks/rust" }
 oxrdf = "0.2"
 oxttl = "0.1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+sqlite-vec = "0.1.9"
 
 [dev-dependencies]
 quick-xml = "0.37"

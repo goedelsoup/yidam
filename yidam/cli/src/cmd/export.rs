@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use super::bundle::render_bundle;
 use super::export_graphml::render_graphml;
 use super::export_rdf::{render_rdf_jsonld, render_rdf_turtle};
+use super::export_sqlite::render_sqlite;
 use super::export_web::render_web;
 use crate::model::{load_domain_model, DomainModel};
 use crate::paths::repo_root;
@@ -57,6 +58,7 @@ impl ExportFormat {
             Self::Web => root.join(".yidam").join("web"),
             Self::Rdf => root.join("corpus.ttl"),
             Self::GraphMl => root.join("corpus.graphml"),
+            Self::Sqlite => root.join("corpus.db"),
             other => root.join(other.name()),
         }
     }
@@ -70,7 +72,7 @@ pub fn list_formats() {
         ("mcp", "  run `yidam serve --mcp` (phase 2)"),
         ("rdf", "✓ implemented"),
         ("graphml", "✓ implemented"),
-        ("sqlite", "  planned (phase 4)"),
+        ("sqlite", "✓ implemented"),
         ("llms", "  planned (phase 4)"),
     ];
     for (name, status) in FORMATS {
@@ -169,6 +171,12 @@ pub fn export(
                 model.instances.len(),
                 out.display()
             );
+        }
+        ExportFormat::Sqlite => {
+            if let Some(parent) = out.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            render_sqlite(model, out)?;
         }
         other => anyhow::bail!("export format '{}' is not yet implemented", other.name()),
     }
