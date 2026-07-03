@@ -61,6 +61,9 @@ enum Command {
         /// RDF serialization for the rdf format (default: both Turtle and JSON-LD)
         #[arg(long, value_enum, value_name = "FORMAT")]
         rdf_format: Option<yidam::RdfFormat>,
+        /// Approximate token budget for the llms format (1 token ≈ 4 chars; default: unlimited)
+        #[arg(long, value_name = "TOKENS")]
+        token_budget: Option<usize>,
         /// List available export formats and their implementation status
         #[arg(long)]
         list: bool,
@@ -149,6 +152,7 @@ async fn main() -> Result<()> {
             out,
             webllm_model,
             rdf_format,
+            token_budget,
             list,
         } => {
             if list {
@@ -158,6 +162,7 @@ async fn main() -> Result<()> {
                 let options = yidam::ExportOptions {
                     webllm_model,
                     rdf_format,
+                    token_budget,
                 };
                 yidam::run_export(format.unwrap(), out.as_deref(), &options)
             }

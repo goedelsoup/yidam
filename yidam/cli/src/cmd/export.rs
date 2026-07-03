@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use super::bundle::render_bundle;
 use super::export_graphml::render_graphml;
+use super::export_llms::render_llms;
 use super::export_rdf::{render_rdf_jsonld, render_rdf_turtle};
 use super::export_sqlite::render_sqlite;
 use super::export_web::render_web;
@@ -23,12 +24,13 @@ pub struct ExportOptions {
     pub webllm_model: Option<String>,
     /// RDF serialization (rdf format only); `None` writes both.
     pub rdf_format: Option<RdfFormat>,
+    /// Approximate token budget for the llms format; `None` emits everything.
+    pub token_budget: Option<usize>,
 }
 
 /// Available export formats.
 ///
-/// Formats that are not yet implemented will produce a clear error at runtime.
-/// Use `yidam export --list` to see current implementation status.
+/// Use `yidam export --list` to see the full list with default output paths.
 #[derive(Debug, Clone, clap::ValueEnum)]
 pub enum ExportFormat {
     Bundle,
@@ -41,17 +43,6 @@ pub enum ExportFormat {
 }
 
 impl ExportFormat {
-    fn name(&self) -> &'static str {
-        match self {
-            Self::Bundle => "bundle",
-            Self::Web => "web",
-            Self::Rdf => "rdf",
-            Self::GraphMl => "graphml",
-            Self::Sqlite => "sqlite",
-            Self::Llms => "llms",
-        }
-    }
-
     fn default_output(&self, root: &Path) -> PathBuf {
         match self {
             Self::Bundle => root.join(".yidam").join("bundle.yiz"),
@@ -59,7 +50,7 @@ impl ExportFormat {
             Self::Rdf => root.join("corpus.ttl"),
             Self::GraphMl => root.join("corpus.graphml"),
             Self::Sqlite => root.join("corpus.db"),
-            other => root.join(other.name()),
+            Self::Llms => root.join("llms.txt"),
         }
     }
 }
@@ -73,7 +64,7 @@ pub fn list_formats() {
         ("rdf", "✓ implemented"),
         ("graphml", "✓ implemented"),
         ("sqlite", "✓ implemented"),
-        ("llms", "  planned (phase 4)"),
+        ("llms", "✓ implemented"),
     ];
     for (name, status) in FORMATS {
         println!("{name:<10} {status}");
@@ -178,7 +169,23 @@ pub fn export(
             }
             render_sqlite(model, out)?;
         }
-        other => anyhow::bail!("export format '{}' is not yet implemented", other.name()),
+        ExportFormat::Llms => {
+            if let Some(parent) = out.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let text = render_llms(model, options.token_budget);
+            std::fs::write(out, &text)?;
+            let budget_note = match options.token_budget {
+                Some(budget) => format!(" (token budget: {budget})"),
+                None => String::new(),
+            };
+            println!(
+                "llms.txt written: {} node(s), ~{} tokens{budget_note} → {}",
+                model.instances.len(),
+                text.len() / 4,
+                out.display(),
+            );
+        }
     }
     Ok(())
 }
