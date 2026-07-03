@@ -10,6 +10,7 @@ mod diff;
 mod embed;
 mod export;
 mod export_graphml;
+mod export_llms;
 mod export_rdf;
 mod export_sqlite;
 mod export_web;

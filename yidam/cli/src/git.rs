@@ -59,6 +59,17 @@ pub fn genesis_message(root: &Path) -> String {
         .unwrap_or_default()
 }
 
+pub fn active_phase_count(root: &Path) -> usize {
+    let out = std::process::Command::new("git")
+        .current_dir(root)
+        .args(["branch", "--list", "ma/*", "rigpa/*"])
+        .output()
+        .ok();
+    out.and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.lines().filter(|l| !l.trim().is_empty()).count())
+        .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,15 +100,4 @@ mod tests {
         assert_eq!(genesis_message(root), "chore: genesis — my-domain");
         assert!(!genesis_date(root).is_empty());
     }
-}
-
-pub fn active_phase_count(root: &Path) -> usize {
-    let out = std::process::Command::new("git")
-        .current_dir(root)
-        .args(["branch", "--list", "ma/*", "rigpa/*"])
-        .output()
-        .ok();
-    out.and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.lines().filter(|l| !l.trim().is_empty()).count())
-        .unwrap_or(0)
 }

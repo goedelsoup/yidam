@@ -146,6 +146,21 @@ const rows = db.prepare(
 ).all(new Float32Array(queryVector));
 ```
 
+### The llms.txt context pack
+
+`yidam export --format llms [--out llms.txt] [--token-budget <tokens>]` flattens the corpus
+into a single plaintext file for dropping into any LLM's context window — the zero-dependency,
+maximum-reach export. Each node becomes a short named section (`## <class>/<name>`, label,
+description, `[[link]]` targets) under a provenance header (domain, generation date, commit,
+node count).
+
+With `--token-budget` the output is capped at approximately `budget × 4` characters
+(1 token ≈ 4 chars — deliberately an approximation, not a tokenizer). Nodes are ordered so
+truncation keeps the most useful context: open-question nodes first, then by outgoing link
+count descending. The first node that overflows is cut at `[truncated]`; everything after it
+is counted in a trailing `# Omitted: N nodes` line, so header count always equals sections
+emitted plus omitted.
+
 ### The MCP server
 
 `yidam serve --mcp` exposes the domain computer to any MCP-capable agent over stdio.

@@ -68,7 +68,7 @@ fn property_local_name(relationship: &str) -> String {
 }
 
 /// Unix seconds → ISO-8601 UTC (days-from-civil inverse, Hinnant's algorithm).
-fn unix_to_iso(secs: u64) -> String {
+pub(super) fn unix_to_iso(secs: u64) -> String {
     let days = (secs / 86400) as i64;
     let rem = secs % 86400;
     let (h, m, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
