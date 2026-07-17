@@ -24,6 +24,7 @@ scaffold that derived repos receive, see [sadhana/docs/](../sadhana/docs/README.
 | [conduct-norms.md](conduct-norms.md) | Deliberate commits, generous linking, provenance preservation |
 | [test-harness.md](test-harness.md) | Bootstrap/domain-owner/judge triad, scenario schema, snapshot path |
 | [aesthetic-direction.md](aesthetic-direction.md) | Naming register and design implications |
+| [rfcs/](rfcs/README.md) | Design documents under review — the downstream-integration-contract set (RFC-0001…0007) |
 
 ## What belongs here
 
