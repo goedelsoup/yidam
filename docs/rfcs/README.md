@@ -45,6 +45,7 @@ re-deriving it.
 | [0012](0012-elector-attestation.md) | G5 | Elector identity and attestation — model/version/config + commit signing | Draft |
 | [0013](0013-node-model-close.md) | I8 | Closing RFC-0002 — the node-model open questions | Draft |
 | [0014](0014-node-rename.md) | I9 | Node rename as a sanctioned operation — dangling-edge gate + atomic `yidam rename` | Draft |
+| [0015](0015-epistemic-log.md) | I10 | An epistemic-only history view (`yidam log --epistemic`) | Draft |
 
 ## Reading order
 
