@@ -42,6 +42,7 @@ re-deriving it.
 | [0009](0009-resolution-executor.md) | G2 | Resolution execution authority and the `synthesized-by` record | Draft |
 | [0010](0010-evolution-lineage.md) | G3 | Evolution lineage — forking, parentage, and explicit baselines | Draft |
 | [0011](0011-partial-sangha.md) | G4 | Partial-sangha resolutions and participant-scoped binding | Draft |
+| [0012](0012-elector-attestation.md) | G5 | Elector identity and attestation — model/version/config + commit signing | Draft |
 
 ## Reading order
 
