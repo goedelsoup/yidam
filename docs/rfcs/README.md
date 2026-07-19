@@ -43,6 +43,7 @@ re-deriving it.
 | [0010](0010-evolution-lineage.md) | G3 | Evolution lineage — forking, parentage, and explicit baselines | Draft |
 | [0011](0011-partial-sangha.md) | G4 | Partial-sangha resolutions and participant-scoped binding | Draft |
 | [0012](0012-elector-attestation.md) | G5 | Elector identity and attestation — model/version/config + commit signing | Draft |
+| [0013](0013-node-model-close.md) | I8 | Closing RFC-0002 — the node-model open questions | Draft |
 
 ## Reading order
 
