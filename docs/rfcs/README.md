@@ -41,6 +41,7 @@ re-deriving it.
 | [0008](0008-emergent-claims.md) | G1 | Emergent claims and the scope of synthesis — ratifying the strict reading of Article V | Draft |
 | [0009](0009-resolution-executor.md) | G2 | Resolution execution authority and the `synthesized-by` record | Draft |
 | [0010](0010-evolution-lineage.md) | G3 | Evolution lineage — forking, parentage, and explicit baselines | Draft |
+| [0011](0011-partial-sangha.md) | G4 | Partial-sangha resolutions and participant-scoped binding | Draft |
 
 ## Reading order
 
