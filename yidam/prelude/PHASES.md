@@ -36,8 +36,10 @@ often follow a period of investigation and extraction.
 
 ## Phase discipline
 
-- **One phase, one branch.** Open a branch when a phase begins; merge to main when its
-  outputs are settled. Branches represent in-progress phases; main represents settled knowledge.
+- **One phase, one branch.** Open a branch when a phase begins; settle its outputs onto the
+  baseline when they are ready. Branches carry in-progress phases; the baseline — an elector's
+  `ma/<name>` position, resolved collectively into a `rigpa/<evolution>` (see [GRAPH.md](GRAPH.md))
+  — carries settled knowledge.
 
 - **Commit legibly within the phase.** Each commit in a phase should be a legible step.
   The final commit should name the phase and summarize what it produced — this is the event
@@ -45,7 +47,7 @@ often follow a period of investigation and extraction.
 
 - **Bound phases.** A phase that never produces commits is an open inquiry thread, not a
   settled phase. If a phase stalls, mark it: open a question node naming what is blocking it
-  and return to main. Do not let branches accumulate without outputs.
+  and return to the baseline. Do not let branches accumulate without outputs.
 
 - **Do not mix phase types in one commit.** An extraction commit and a synthesis commit
   have different semantics and different validation requirements. Keeping them separate

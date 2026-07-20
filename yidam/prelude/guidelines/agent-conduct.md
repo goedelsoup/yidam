@@ -9,8 +9,8 @@ Every commit is a permanent node in the knowledge graph. Before committing:
 - Is the commit message legible as a graph event description?
 - Are new nodes linked to existing ones?
 
-Do not commit partial work or exploratory scratch to main. Use branches for open-ended
-exploration; commit to main when knowledge is settled.
+Do not commit partial work or exploratory scratch to the settled baseline. Use branches for
+open-ended exploration; commit to the baseline when knowledge is settled.
 
 ## Link generously
 
