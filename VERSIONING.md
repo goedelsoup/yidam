@@ -35,6 +35,12 @@ domain-owned content (corpus/, agents/, crates/) untouched.
 | Minor | New prelude document, new skill, new optional REGEN section |
 | Major | Directory layout change, REGEN marker format change, constitutional revision |
 
+**Prelude errata propagate by re-vendor, not by freezing.** A typo or vocabulary fix to the
+prelude is a **patch** bump (above). Derived repos adopt it by re-vendoring the prelude at the new
+tag — `claudesync upgrade --template` applies the forward change to the inherited `prelude/` while
+leaving domain content untouched. A derived repo is never frozen at its birth prelude: a correction
+made upstream reaches it on the next template bump it adopts.
+
 ---
 
 ## Layer 2 — SDKs
