@@ -240,16 +240,27 @@ run = "yidam overlay"
 # Yidam's own CI gate. Derived repos should extend this to include
 # `lint`, `test`, and `build` once the domain computer crates are in place.
 
-[tasks.ci]
-description = "Full CI pass: harness + yidam CLI fmt-check, clippy, and test."
+[tasks.ci-harness]
+description = "CI for the harness workspace: fmt-check, clippy, test."
 run = [
   "cargo fmt --all --manifest-path yidam/tests/harness/Cargo.toml -- --check",
   "cargo clippy --workspace --manifest-path yidam/tests/harness/Cargo.toml -- -D warnings",
   "cargo test --workspace --manifest-path yidam/tests/harness/Cargo.toml",
+]
+
+[tasks.ci-cli]
+description = "CI for the yidam CLI workspace: fmt-check, clippy, test."
+run = [
   "cargo fmt --all --manifest-path yidam/cli/Cargo.toml -- --check",
   "cargo clippy --manifest-path yidam/cli/Cargo.toml -- -D warnings",
   "cargo test --manifest-path yidam/cli/Cargo.toml",
 ]
+
+# Composite for local use (`mise run ci`); CI runs ci-harness and ci-cli as
+# separate parallel jobs (see .github/workflows/ci.yml).
+[tasks.ci]
+description = "Full CI pass: harness + yidam CLI fmt-check, clippy, and test."
+depends = ["ci-harness", "ci-cli"]
 
 # ── docs site (yidam/web/docs/) ───────────────────────────────────────────
 # Astro/Starlight docs server. Content is loaded live from docs/ at the repo

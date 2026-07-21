@@ -21,6 +21,19 @@ concurrency:
 
 jobs:
   ci:
+    # The harness and the CLI are independent Cargo workspaces with independent
+    # dependency trees. Run them on separate runners in parallel so wall-clock is
+    # max(harness, cli) instead of the sum. fail-fast: false so a failure in one
+    # still reports the other.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - workspace: harness
+            path: yidam/tests/harness
+          - workspace: cli
+            path: yidam/cli
+    name: ci (${{ matrix.workspace }})
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,14 +45,10 @@ jobs:
       # with its components explicitly; this is idempotent on cache misses.
       - name: Ensure rustfmt and clippy for the pinned toolchain
         run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
-      # Cache the cargo registry and each workspace's target dir. The two
-      # workspaces (CLI + harness) have independent target dirs; both are
-      # keyed on their Cargo.lock / Cargo.toml + the rustc version, so a cache
-      # hit recompiles only changed crates instead of the whole heavy dep tree
-      # (ort, lance, lancedb, fastembed, tokenizers, …).
+      # Cache only this job's workspace target dir + the shared cargo registry,
+      # keyed (via `key`) so the harness and CLI caches never collide.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            yidam/cli
-            yidam/tests/harness
-      - run: mise run ci
+          workspaces: ${{ matrix.path }}
+          key: ${{ matrix.workspace }}
+      - run: mise run ci-${{ matrix.workspace }}
