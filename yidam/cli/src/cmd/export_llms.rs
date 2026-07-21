@@ -1,4 +1,4 @@
-use super::export_rdf::unix_to_iso;
+use super::export::unix_to_iso;
 use super::has_open_claim;
 use crate::model::{corpus_nodes, DomainModel, NodeView};
 

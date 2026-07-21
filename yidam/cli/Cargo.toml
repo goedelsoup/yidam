@@ -17,6 +17,8 @@ name = "yidam"
 path = "src/main.rs"
 
 [dependencies]
+# ── base: the light `reports` build — the four reports + all pure-Rust
+#    commands. No protoc, no native libraries, no ML runtime. ───────────────
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 flate2 = "1"
@@ -26,25 +28,70 @@ pulldown-cmark = "0.11"
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 serde_json = "1"
-fastembed = "4"
-lancedb = "0.13"
-# Arrow versions must match lancedb's transitive dependency; update together if needed.
-arrow-array = "52"
-arrow-schema = "52"
-arrow-ipc = "52"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-futures = "0.3"
-reqwest = { version = "0.12", features = ["json"] }
 sha2 = "0.10"
 hex = "0.4"
 toml = "0.8"
 # Parity SDK — reference implementations of classify_commit etc.; the CLI
 # must not re-implement the parity surface (see prelude/sdks/parity/README.md).
 yidam-core = { path = "../prelude/sdks/rust" }
-oxrdf = "0.2"
-oxttl = "0.1"
-rusqlite = { version = "0.32", features = ["bundled"] }
-sqlite-vec = "0.1.9"
+
+# ── optional: `index` — semantic index build + MCP serve. Pulls the ML/native
+#    stack; lancedb's prost-build needs protoc 31 at build time. ────────────
+fastembed = { version = "4", optional = true }
+lancedb = { version = "0.13", optional = true }
+futures = { version = "0.3", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
+# Arrow decodes the vector index (model::index_rows); shared by `index` and
+# `export-sqlite`. Versions must match lancedb's transitive dependency — update
+# together if bumping either.
+arrow-array = { version = "52", optional = true }
+arrow-schema = { version = "52", optional = true }
+arrow-ipc = { version = "52", optional = true }
+
+# ── optional: `export-sqlite` — `export --format sqlite`. `bundled` compiles
+#    SQLite from C source. ──────────────────────────────────────────────────
+rusqlite = { version = "0.32", features = ["bundled"], optional = true }
+sqlite-vec = { version = "0.1.9", optional = true }
+
+# ── optional: `export-graph` — `export --format rdf`. Pure Rust. ───────────
+oxrdf = { version = "0.2", optional = true }
+oxttl = { version = "0.1", optional = true }
+
+# ── optional: `tonpa` — bundle dependency manager (async network fetch). ───
+reqwest = { version = "0.12", features = ["json"], optional = true }
+
+[features]
+default = ["reports"]
+# Light base: the four reports (graph-check, lint, corpus-index, open-questions)
+# plus every pure-Rust command. Adds no dependencies beyond the base set — no
+# protoc, no C compiler, no ML runtime.
+reports = []
+# Semantic index build + MCP serve + `retrieve`. fastembed (ONNX) + lancedb
+# (requires protoc 31) + arrow.
+index = [
+  "dep:fastembed",
+  "dep:lancedb",
+  "dep:futures",
+  "dep:tokio",
+  "dep:arrow-array",
+  "dep:arrow-schema",
+  "dep:arrow-ipc",
+]
+# `export --format sqlite` — bundled (from-source) SQLite + sqlite-vec; reads
+# the arrow vector index via model::index_rows.
+export-sqlite = [
+  "dep:rusqlite",
+  "dep:sqlite-vec",
+  "dep:arrow-array",
+  "dep:arrow-schema",
+  "dep:arrow-ipc",
+]
+# `export --format rdf` — pure-Rust RDF (no protoc, no C).
+export-graph = ["dep:oxrdf", "dep:oxttl"]
+# `tonpa` bundle dependency manager — async network fetch via reqwest.
+tonpa = ["dep:reqwest", "dep:tokio"]
+# Everything — reproduces the pre-partition monolith (`cargo install --features full`).
+full = ["reports", "index", "export-sqlite", "export-graph", "tonpa"]
 
 [dev-dependencies]
 quick-xml = "0.37"

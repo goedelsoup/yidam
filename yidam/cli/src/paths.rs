@@ -42,10 +42,12 @@ pub fn samudaya_dir(root: &Path) -> PathBuf {
     root.join("samudaya")
 }
 
+#[cfg(feature = "tonpa")]
 pub fn tonpa_dir(root: &Path) -> PathBuf {
     root.join(".yidam").join("tonpa")
 }
 
+#[cfg(feature = "tonpa")]
 pub fn tonpa_config_path(root: &Path) -> PathBuf {
     root.join(".yidam").join("tonpa.toml")
 }

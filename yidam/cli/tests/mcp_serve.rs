@@ -2,6 +2,8 @@
 //! fixture corpus (no vector index → keyword-degraded retrieve), speak MCP
 //! over its stdio, and assert on the responses.
 
+#![cfg(feature = "index")]
+
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
