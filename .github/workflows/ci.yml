@@ -3,7 +3,21 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+
+# Cancel superseded runs on the same ref (e.g. a force-push to a PR branch).
+# Never cancel main — keep its history green.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   ci:
@@ -18,4 +32,14 @@ jobs:
       # with its components explicitly; this is idempotent on cache misses.
       - name: Ensure rustfmt and clippy for the pinned toolchain
         run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
+      # Cache the cargo registry and each workspace's target dir. The two
+      # workspaces (CLI + harness) have independent target dirs; both are
+      # keyed on their Cargo.lock / Cargo.toml + the rustc version, so a cache
+      # hit recompiles only changed crates instead of the whole heavy dep tree
+      # (ort, lance, lancedb, fastembed, tokenizers, …).
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            yidam/cli
+            yidam/tests/harness
       - run: mise run ci
