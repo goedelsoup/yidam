@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use super::bundle::render_bundle;
 use super::export_graphml::render_graphml;
 use super::export_llms::render_llms;
+#[cfg(feature = "export-graph")]
 use super::export_rdf::{render_rdf_jsonld, render_rdf_turtle};
+#[cfg(feature = "export-sqlite")]
 use super::export_sqlite::render_sqlite;
 use super::export_web::render_web;
 use crate::model::{load_domain_model, DomainModel};
@@ -57,16 +59,33 @@ impl ExportFormat {
 
 /// Print available export formats and their current implementation status.
 pub fn list_formats() {
-    const FORMATS: &[(&str, &str)] = &[
+    // Formats behind optional features report their status for *this* build so
+    // `--list` never claims a capability the binary was not compiled with.
+    let rdf = if cfg!(feature = "export-graph") {
+        "✓ implemented"
+    } else {
+        "  needs --features export-graph"
+    };
+    let sqlite = if cfg!(feature = "export-sqlite") {
+        "✓ implemented"
+    } else {
+        "  needs --features export-sqlite"
+    };
+    let mcp = if cfg!(feature = "index") {
+        "  run `yidam serve --mcp`"
+    } else {
+        "  needs --features index"
+    };
+    let formats: &[(&str, &str)] = &[
         ("bundle", "✓ implemented"),
         ("web", "✓ implemented"),
-        ("mcp", "  run `yidam serve --mcp` (phase 2)"),
-        ("rdf", "✓ implemented"),
+        ("mcp", mcp),
+        ("rdf", rdf),
         ("graphml", "✓ implemented"),
-        ("sqlite", "✓ implemented"),
+        ("sqlite", sqlite),
         ("llms", "✓ implemented"),
     ];
-    for (name, status) in FORMATS {
+    for (name, status) in formats {
         println!("{name:<10} {status}");
     }
 }
@@ -128,28 +147,36 @@ pub fn export(
             );
         }
         ExportFormat::Rdf => {
-            if let Some(parent) = out.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            let (turtle, jsonld) = match options.rdf_format {
-                Some(RdfFormat::Turtle) => (true, false),
-                Some(RdfFormat::Jsonld) => (false, true),
-                None => (true, true),
-            };
-            if turtle {
-                std::fs::write(out, render_rdf_turtle(model)?)?;
-                println!("RDF (Turtle) written → {}", out.display());
-            }
-            if jsonld {
-                // With no explicit --rdf-format both are written: Turtle at
-                // `out`, JSON-LD beside it with the extension swapped.
-                let path = if turtle {
-                    out.with_extension("jsonld")
-                } else {
-                    out.to_path_buf()
+            #[cfg(not(feature = "export-graph"))]
+            anyhow::bail!(
+                "`rdf` export needs the `export-graph` feature — reinstall with \
+                 `cargo install yidam --features export-graph`"
+            );
+            #[cfg(feature = "export-graph")]
+            {
+                if let Some(parent) = out.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                let (turtle, jsonld) = match options.rdf_format {
+                    Some(RdfFormat::Turtle) => (true, false),
+                    Some(RdfFormat::Jsonld) => (false, true),
+                    None => (true, true),
                 };
-                std::fs::write(&path, render_rdf_jsonld(model)?)?;
-                println!("RDF (JSON-LD) written → {}", path.display());
+                if turtle {
+                    std::fs::write(out, render_rdf_turtle(model)?)?;
+                    println!("RDF (Turtle) written → {}", out.display());
+                }
+                if jsonld {
+                    // With no explicit --rdf-format both are written: Turtle at
+                    // `out`, JSON-LD beside it with the extension swapped.
+                    let path = if turtle {
+                        out.with_extension("jsonld")
+                    } else {
+                        out.to_path_buf()
+                    };
+                    std::fs::write(&path, render_rdf_jsonld(model)?)?;
+                    println!("RDF (JSON-LD) written → {}", path.display());
+                }
             }
         }
         ExportFormat::GraphMl => {
@@ -164,10 +191,18 @@ pub fn export(
             );
         }
         ExportFormat::Sqlite => {
-            if let Some(parent) = out.parent() {
-                std::fs::create_dir_all(parent)?;
+            #[cfg(not(feature = "export-sqlite"))]
+            anyhow::bail!(
+                "`sqlite` export needs the `export-sqlite` feature — reinstall with \
+                 `cargo install yidam --features export-sqlite`"
+            );
+            #[cfg(feature = "export-sqlite")]
+            {
+                if let Some(parent) = out.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                render_sqlite(model, out)?;
             }
-            render_sqlite(model, out)?;
         }
         ExportFormat::Llms => {
             if let Some(parent) = out.parent() {
@@ -200,4 +235,35 @@ pub fn run_export(format: ExportFormat, out: Option<&Path>, options: &ExportOpti
     let default_out = format.default_output(&root);
     let out_path = out.unwrap_or(&default_out);
     export(&model, format, out_path, options)
+}
+
+/// Unix seconds → ISO-8601 UTC (days-from-civil inverse, Hinnant's algorithm).
+/// Shared by the llms (light) and rdf (gated) exporters, so it lives in the
+/// base export module rather than either optional one.
+pub(super) fn unix_to_iso(secs: u64) -> String {
+    let days = (secs / 86400) as i64;
+    let rem = secs % 86400;
+    let (h, m, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if month <= 2 { y + 1 } else { y };
+    format!("{year:04}-{month:02}-{d:02}T{h:02}:{m:02}:{s:02}Z")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unix_to_iso;
+
+    #[test]
+    fn unix_to_iso_is_correct() {
+        assert_eq!(unix_to_iso(0), "1970-01-01T00:00:00Z");
+        assert_eq!(unix_to_iso(1_780_000_000), "2026-05-28T20:26:40Z");
+    }
 }

@@ -12,6 +12,10 @@ on:
       - '**/*.md'
       - 'docs/**'
       - 'LICENSE'
+  schedule:
+    # Weekly full-feature build (Mondays 06:00 UTC) — catches gated-code breakage
+    # and arrow/lancedb version-lock rot that the light PR builds never compile.
+    - cron: '0 6 * * 1'
 
 # Cancel superseded runs on the same ref (e.g. a force-push to a PR branch).
 # Never cancel main — keep its history green.
@@ -21,10 +25,10 @@ concurrency:
 
 jobs:
   ci:
-    # The harness and the CLI are independent Cargo workspaces with independent
-    # dependency trees. Run them on separate runners in parallel so wall-clock is
-    # max(harness, cli) instead of the sum. fail-fast: false so a failure in one
-    # still reports the other.
+    # The harness and the (light, default `reports`) CLI are independent Cargo
+    # workspaces. Run them on separate runners in parallel so wall-clock is
+    # max(harness, cli). Runs on every PR + push. fail-fast: false so a failure
+    # in one still reports the other.
     strategy:
       fail-fast: false
       matrix:
@@ -46,9 +50,28 @@ jobs:
       - name: Ensure rustfmt and clippy for the pinned toolchain
         run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
       # Cache only this job's workspace target dir + the shared cargo registry,
-      # keyed (via `key`) so the harness and CLI caches never collide.
+      # keyed (via `key`) so caches never collide across jobs.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ${{ matrix.path }}
           key: ${{ matrix.workspace }}
       - run: mise run ci-${{ matrix.workspace }}
+
+  cli-full:
+    # Full-feature CLI (index/sqlite/rdf/tonpa) — heavy: fastembed + lancedb +
+    # protoc + from-source SQLite. Runs on main push + the weekly schedule only,
+    # never on PRs, so PR latency stays on the light build. This is the guard
+    # against the reports and index paths drifting apart inside yidam (RFC-0003).
+    name: ci (cli · full features)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - name: Ensure rustfmt and clippy for the pinned toolchain
+        run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: yidam/cli
+          key: cli-full
+      - run: mise run ci-cli-full

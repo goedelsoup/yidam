@@ -6,6 +6,8 @@
 //! TypeScript and Python runners for the same fixtures live in
 //! `prelude/sdks/{typescript,python}/tests/`.
 
+#![cfg(feature = "index")]
+
 use fastembed::{InitOptions, TextEmbedding};
 use std::path::PathBuf;
 

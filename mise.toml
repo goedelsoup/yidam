@@ -31,8 +31,10 @@ node = "lts"
 #   mise run yidam-build
 
 [tasks.yidam-build]
-description = "Compile and install the yidam binary from yidam/cli/ to ~/.cargo/bin."
-run = "cargo install --path yidam/cli"
+description = "Compile and install the full-feature yidam binary from yidam/cli/ to ~/.cargo/bin."
+# `--features full` so the maintainer's install has index-build/serve/sqlite/rdf/
+# tonpa. The default build is the light `reports` binary (no protoc, no ML stack).
+run = "cargo install --path yidam/cli --features full"
 
 # ── yidam CLI — REGEN tasks ───────────────────────────────────────────
 # These tasks back the <!-- REGEN: yidam <subcommand> --> markers across
@@ -191,7 +193,7 @@ done
 description = "Cross-runtime embedding reproducibility check (fastembed / transformers.js / sentence-transformers). Downloads model weights on first run; skipped by the default parity task."
 env = { YIDAM_EMBED_PARITY = "1" }
 run = [
-  "cargo test --manifest-path yidam/cli/Cargo.toml --test embed_parity",
+  "cargo test --manifest-path yidam/cli/Cargo.toml --features index --test embed_parity",
   "cd yidam/prelude/sdks/typescript && npm test -- embed_parity",
   "cd yidam/prelude/sdks/python && uv run --extra dev --extra embed pytest tests/parity/test_embed_config.py",
 ]
@@ -254,6 +256,18 @@ run = [
   "cargo fmt --all --manifest-path yidam/cli/Cargo.toml -- --check",
   "cargo clippy --manifest-path yidam/cli/Cargo.toml -- -D warnings",
   "cargo test --manifest-path yidam/cli/Cargo.toml",
+]
+
+# Full-feature CLI build (index/sqlite/rdf/tonpa) — pulls fastembed/lancedb and
+# needs protoc. Heavy: CI runs this only on main + a weekly schedule (see
+# .github/workflows/ci.yml), not on every PR. `ci-cli` above builds the light
+# default (`reports`).
+[tasks.ci-cli-full]
+description = "Full-feature CI for the yidam CLI (all optional features)."
+run = [
+  "cargo fmt --all --manifest-path yidam/cli/Cargo.toml -- --check",
+  "cargo clippy --manifest-path yidam/cli/Cargo.toml --all-features -- -D warnings",
+  "cargo test --manifest-path yidam/cli/Cargo.toml --all-features",
 ]
 
 # Composite for local use (`mise run ci`); CI runs ci-harness and ci-cli as

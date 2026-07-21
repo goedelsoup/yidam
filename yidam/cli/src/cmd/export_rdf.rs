@@ -3,6 +3,7 @@ use oxrdf::{Graph, Literal, NamedNode, NamedNodeRef, Triple};
 use serde_json::json;
 use std::collections::BTreeMap;
 
+use super::export::unix_to_iso;
 use crate::model::{corpus_nodes, DomainModel};
 
 const YIDAM_NS: &str = "https://yidam.dev/ontology#";
@@ -65,24 +66,6 @@ fn property_local_name(relationship: &str) -> String {
     } else {
         out
     }
-}
-
-/// Unix seconds → ISO-8601 UTC (days-from-civil inverse, Hinnant's algorithm).
-pub(super) fn unix_to_iso(secs: u64) -> String {
-    let days = (secs / 86400) as i64;
-    let rem = secs % 86400;
-    let (h, m, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = if month <= 2 { y + 1 } else { y };
-    format!("{year:04}-{month:02}-{d:02}T{h:02}:{m:02}:{s:02}Z")
 }
 
 fn build_view(model: &DomainModel) -> RdfView {
@@ -499,11 +482,5 @@ mod tests {
         assert_eq!(property_local_name("relates to"), "relatesTo");
         assert_eq!(property_local_name("link"), "linksTo");
         assert_eq!(property_local_name("???"), "linksTo");
-    }
-
-    #[test]
-    fn unix_to_iso_is_correct() {
-        assert_eq!(unix_to_iso(0), "1970-01-01T00:00:00Z");
-        assert_eq!(unix_to_iso(1_780_000_000), "2026-05-28T20:26:40Z");
     }
 }

@@ -123,14 +123,22 @@ enum Command {
     #[command(name = "samudaya-audit")]
     SamudayaAudit,
     /// Manage bundle dependencies in .yidam/tonpa/
+    #[cfg(feature = "tonpa")]
     Tonpa {
         #[command(subcommand)]
         sub: yidam::tonpa::TonpaCommand,
     },
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+/// Build a Tokio runtime on demand for the async commands (`index-build`,
+/// `tonpa`). Only compiled when one of those features is on; the default
+/// `reports` build has no async work and links no runtime.
+#[cfg(any(feature = "index", feature = "tonpa"))]
+fn block_on<F: std::future::Future<Output = Result<()>>>(fut: F) -> Result<()> {
+    tokio::runtime::Runtime::new()?.block_on(fut)
+}
+
+fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Status => yidam::status(),
@@ -168,7 +176,20 @@ async fn main() -> Result<()> {
             }
         }
         Command::Embed => yidam::embed(),
-        Command::IndexBuild { model } => yidam::index_build(model).await,
+        Command::IndexBuild { model } => {
+            #[cfg(feature = "index")]
+            {
+                block_on(yidam::index_build(model))
+            }
+            #[cfg(not(feature = "index"))]
+            {
+                let _ = model;
+                anyhow::bail!(
+                    "`index-build` needs the `index` feature — reinstall with \
+                     `cargo install yidam --features index` (pulls fastembed/lancedb; requires protoc)"
+                )
+            }
+        }
         Command::Clone { target } => yidam::clone(&target),
         Command::Overlay {
             target,
@@ -178,14 +199,26 @@ async fn main() -> Result<()> {
         Command::Backfill { since } => yidam::backfill(since.as_deref()),
         Command::Phases => yidam::phases(),
         Command::Serve { mcp } => {
-            if mcp {
-                yidam::serve_mcp()
-            } else {
-                anyhow::bail!("only the MCP transport is implemented — run `yidam serve --mcp`")
+            #[cfg(feature = "index")]
+            {
+                if mcp {
+                    yidam::serve_mcp()
+                } else {
+                    anyhow::bail!("only the MCP transport is implemented — run `yidam serve --mcp`")
+                }
+            }
+            #[cfg(not(feature = "index"))]
+            {
+                let _ = mcp;
+                anyhow::bail!(
+                    "`serve` needs the `index` feature — reinstall with \
+                     `cargo install yidam --features index`"
+                )
             }
         }
         Command::Lint { warn, suggest } => yidam::lint(warn, suggest),
         Command::SamudayaAudit => yidam::samudaya_audit(),
-        Command::Tonpa { sub } => yidam::tonpa::run(sub).await,
+        #[cfg(feature = "tonpa")]
+        Command::Tonpa { sub } => block_on(yidam::tonpa::run(sub)),
     }
 }
