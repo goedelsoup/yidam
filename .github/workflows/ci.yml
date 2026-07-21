@@ -17,5 +17,5 @@ jobs:
       # clippy. Provision the pinned toolchain (see [tools] in mise.toml)
       # with its components explicitly; this is idempotent on cache misses.
       - name: Ensure rustfmt and clippy for the pinned toolchain
-        run: mise exec -- rustup toolchain install 1.85.0 --profile minimal --component rustfmt --component clippy
+        run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
       - run: mise run ci

@@ -10,7 +10,7 @@
 # Then use `mise run regen` to regenerate all README indexes.
 
 [tools]
-rust = { version = "1.85.0", components = "rustfmt,clippy" }
+rust = { version = "1.88.0", components = "rustfmt,clippy" }
 
 # ── yidam CLI — build ─────────────────────────────────────────────────
 
