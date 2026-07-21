@@ -37,7 +37,7 @@ pub(crate) fn resolve_model(name: &str) -> Result<(EmbeddingModel, i32, String)>
                 .map(|m| format!("  {}", m.model_code))
                 .collect::<Vec<_>>()
                 .join("\n");
-            anyhow::anyhow!("unknown model {:?}\n\nSupported models:\n{}", name, list)
+            anyhow::anyhow!("unknown model {name:?}\n\nSupported models:\n{list}")
         })
 }
 

@@ -201,9 +201,8 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
             .unwrap_or("unknown")
             .to_string();
         eprintln!(
-            "[warn] genesis commit {:?} does not match expected format \
-             \"chore: genesis \u{2014} <name>\" — using directory name {:?} as domain",
-            first_line, fallback
+            "[warn] genesis commit {first_line:?} does not match expected format \
+             \"chore: genesis \u{2014} <name>\" — using directory name {fallback:?} as domain"
         );
         fallback
     };
