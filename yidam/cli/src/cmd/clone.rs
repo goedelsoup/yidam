@@ -2,8 +2,9 @@ use anyhow::{bail, Context, Result};
 use std::path::Path;
 
 use crate::paths::repo_root;
+use crate::provenance::Provenance;
 
-use super::copy::copy_dir;
+use super::copy::copy_dir_excluding_top;
 
 pub fn clone(target: &Path) -> Result<()> {
     if target.exists() {
@@ -12,8 +13,22 @@ pub fn clone(target: &Path) -> Result<()> {
 
     let root = repo_root()?;
 
+    // Read before copying: `copy_dir` excludes `.git`, so once the copy is the only
+    // thing left there is nothing to read the origin commit from.
+    let provenance = Provenance::read(&root);
+
     println!("Copying template → {} …", target.display());
-    copy_dir(&root, target)?;
+    // Leave yidam's own docs/ (the RFC set and docs-site source) behind — it documents
+    // yidam, not the repo being created. `sadhana/docs/` is a different directory at a
+    // different depth and must ship: step 3 of the bootstrap skill reads it.
+    copy_dir_excluding_top(&root, target, &["docs"])?;
+
+    provenance.write(target)?;
+    println!(
+        "Pinned to yidam {} ({})",
+        &provenance.commit[..provenance.commit.len().min(8)],
+        provenance.template
+    );
 
     let init = std::process::Command::new("git")
         .args(["init", "-q"])
