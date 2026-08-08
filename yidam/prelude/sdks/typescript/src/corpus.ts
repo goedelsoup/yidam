@@ -52,8 +52,8 @@ export function extractClaims(text: string): Claim[] {
     if (line.startsWith('<!--')) continue
     if (line.endsWith(' [verified]')) {
       claims.push({ text: line.slice(0, -' [verified]'.length), tag: 'Verified' })
-    } else if (line.endsWith(' [inferred]')) {
-      claims.push({ text: line.slice(0, -' [inferred]'.length), tag: 'Inference' })
+    } else if (line.endsWith(' [inference]')) {
+      claims.push({ text: line.slice(0, -' [inference]'.length), tag: 'Inference' })
     } else if (line.endsWith(' [open]')) {
       claims.push({ text: line.slice(0, -' [open]'.length), tag: 'Open' })
     } else if (!containsMdLink(line)) {

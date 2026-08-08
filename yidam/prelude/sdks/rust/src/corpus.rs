@@ -134,7 +134,7 @@ pub fn extract_claims(text: &str) -> Vec<Claim> {
                 text: t.to_string(),
                 tag: EvidenceTag::Verified,
             });
-        } else if let Some(t) = line.strip_suffix(" [inferred]") {
+        } else if let Some(t) = line.strip_suffix(" [inference]") {
             claims.push(Claim {
                 text: t.to_string(),
                 tag: EvidenceTag::Inference,
