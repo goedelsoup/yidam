@@ -179,8 +179,24 @@ description = "Run graph integrity check: orphans, missing labels, broken links.
 run = "yidam graph-check"
 
 [tasks.graph-lint]
-description = "Lint corpus nodes: missing descriptions, unknown classes, orphans, broken link targets, uncited catalog entries."
+description = "Lint the corpus against the baseline ratchet: 12 checks over nodes, edges, catalog, and tables."
 run = "yidam lint"
+
+[tasks.graph-lint-explain]
+description = "Lint, printing each check's rationale alongside its findings."
+run = "yidam lint --explain"
+
+[tasks.graph-lint-commits]
+description = "Lint, also checking the git log against the closed commit vocabulary in GRAPH.md."
+run = "yidam lint --commits"
+
+[tasks.graph-lint-bless]
+description = "Record the corpus's current error-severity violations as its baseline. Review the diff before committing."
+run = "yidam lint --bless"
+
+[tasks.schema]
+description = "Emit JSON Schema for the corpus shapes into .yidam/schemas/ for in-editor validation."
+run = "yidam schema"
 
 [tasks.decisions-log]
 description = "Render the decisions log from .yidam/decisions/."

@@ -130,9 +130,35 @@ describes the source, not the knowledge derived from it.
 
 - Filename is a stable identifier for the source: author-year for papers (`pearl-2009.md`),
   slug for datasets and APIs (`world-bank-gdp.md`, `openai-embeddings-api.md`)
-- Content: source name, type, location or access method, a one-sentence description of what
-  it contains, and any access constraints
-- Optional: a `used-by` list of corpus node links — makes reverse traversal explicit
+- Frontmatter carries the structured fields; the body carries prose about the source
+
+```yaml
+---
+name: Pearl 2009
+description: Causality — models, reasoning, inference.
+type: paper                  # paper | dataset | api | database | other
+obtained: true               # absent means true; see below
+location:
+  - kind: url                # url | url_template | address | file
+    value: https://example.org/pearl-2009
+    description: publisher's copy   # required only when there are several locations
+used-by:
+  - ../corpus/concept/confounding.yml
+---
+```
+
+- **`obtained: false`** declares a source registered ahead of the extraction that will use
+  it. It exempts the entry from `catalog-uncited` — which is the honest reason for a source
+  nothing draws on yet. The exemption costs something: a node citing a source nobody has
+  retrieved is an error (`catalog-unobtained-but-cited`), because either the flag is stale
+  or the citation rests on something unread.
+- **`used-by`** is optional and hand-maintained, so it can drift; the citations cannot.
+  Both are kept so the disagreement is visible rather than averaged away
+  (`catalog-used-by-drift`). Declaring a list asserts it is current.
+
+Run `yidam schema` to emit JSON Schema for this shape (and for corpus nodes and class
+definitions) into `.yidam/schemas/`, then `yidam schema --settings` for the editor mapping
+that validates them as you type.
 
 **Relationship to `.yidam/corpus/`:** Corpus nodes link to catalog nodes as edges. A corpus
 node on a concept that draws on a source writes `[Pearl 2009](../../catalog/pearl-2009.md)`
