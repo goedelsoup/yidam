@@ -1,203 +1,192 @@
-use anyhow::Result;
-use std::collections::HashSet;
-use std::path::PathBuf;
+//! `yidam lint` — run every check, compare against the ratchet, report.
+//!
+//! The gate answers one question: *did this commit make the corpus less clean?* It does
+//! not answer *is the corpus clean?*, which for any repository with history is usually no.
+//! Conflating the two is what produces a gate that is either permanently red or
+//! permanently ignored; see [`baseline`].
 
-use crate::parse::CorpusInstance;
+mod baseline;
+mod checks;
+mod commits;
+mod model;
+
+use std::collections::HashSet;
+use std::path::Path;
+
+use anyhow::Result;
+
+pub use model::{Check, Severity};
+
 use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir};
 use crate::walk::{walk_corpus_instances, walk_md_files, walk_ont_files};
 
-struct Issue {
-    rel: String,
-    kind: &'static str,
-    message: String,
-    suggestion: &'static str,
+/// How `lint` was invoked.
+#[derive(Debug, Clone, Default)]
+pub struct Options {
+    /// Report everything, gate on nothing. Escape hatch, not a mode of operation.
+    pub warn_only: bool,
+    /// Print each check's rationale alongside its findings.
+    pub explain: bool,
+    /// Also check the git log against the commit vocabulary.
+    pub commits: bool,
+    /// Restrict the commit check to a revision range (e.g. `main..HEAD`).
+    pub range: Option<String>,
+    /// Rewrite the baseline from this run instead of gating on it.
+    pub bless: bool,
 }
 
-struct ParsedInstance {
-    path: PathBuf,
-    inst: CorpusInstance,
-}
-
-pub fn lint(warn_only: bool, suggest: bool) -> Result<()> {
-    let root = repo_root()?;
-    let corpus_dir = yidam_corpus_dir(&root);
-    let catalog_dir = yidam_catalog_dir(&root);
+/// Run every check against the repository at `root`.
+pub fn run_checks(root: &Path, opts: &Options) -> Vec<Check> {
+    let corpus_dir = yidam_corpus_dir(root);
+    let catalog_dir = yidam_catalog_dir(root);
 
     let instance_paths = walk_corpus_instances(&corpus_dir);
-    let ont_files = walk_ont_files(&corpus_dir);
+    let nodes = checks::load_nodes(root, &instance_paths);
 
-    let defined_classes: HashSet<String> = ont_files
+    let defined: HashSet<String> = walk_ont_files(&corpus_dir)
         .iter()
         .filter_map(|p| {
             p.file_name()
                 .and_then(|n| n.to_str())
                 .and_then(|n| n.strip_suffix(".ont.yml"))
-                .map(|s| s.to_string())
+                .map(str::to_string)
         })
         .collect();
 
-    // Parse all instances once
-    let parsed: Vec<ParsedInstance> = instance_paths
-        .iter()
-        .map(|p| {
-            let text = std::fs::read_to_string(p).unwrap_or_default();
-            let inst: CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
-            ParsedInstance {
-                path: p.clone(),
-                inst,
-            }
-        })
-        .collect();
-
-    // Build set of all link targets (absolute paths) to detect orphan-in
-    let mut all_targets: HashSet<PathBuf> = HashSet::new();
-    for p in &parsed {
-        let dir = p.path.parent().unwrap_or(p.path.as_path());
-        for link in p.inst.links.as_deref().unwrap_or(&[]) {
-            if let Some(target) = &link.target {
-                all_targets.insert(dir.join(target));
-            }
-        }
-    }
-
-    let mut issues: Vec<Issue> = Vec::new();
-
-    for p in &parsed {
-        let rel = p
-            .path
-            .strip_prefix(&root)
-            .unwrap_or(&p.path)
-            .to_string_lossy()
-            .to_string();
-
-        if p.inst.class.is_none() {
-            issues.push(Issue {
-                rel: rel.clone(),
-                kind: "missing-class",
-                message: "missing 'class:' field".to_string(),
-                suggestion: "Add 'class: <name>' matching an existing .ont.yml schema file",
-            });
-        }
-
-        if let Some(class) = &p.inst.class {
-            if !defined_classes.is_empty() && !defined_classes.contains(class) {
-                issues.push(Issue {
-                    rel: rel.clone(),
-                    kind: "unknown-class",
-                    message: format!("unknown class '{class}': no matching {class}.ont.yml"),
-                    suggestion:
-                        "Create the schema file or update 'class:' to match an existing one",
-                });
-            }
-        }
-
-        if p.inst.label.is_none() {
-            issues.push(Issue {
-                rel: rel.clone(),
-                kind: "missing-label",
-                message: "missing 'label:' field".to_string(),
-                suggestion: "Add 'label: <short name>' describing this instance",
-            });
-        }
-
-        if p.inst.description.is_none() {
-            issues.push(Issue {
-                rel: rel.clone(),
-                kind: "no-description",
-                message: "missing 'description:' field".to_string(),
-                suggestion: "Add 'description: <1–2 sentences>' explaining this concept",
-            });
-        }
-
-        let links = p.inst.links.as_deref().unwrap_or(&[]);
-
-        if links.is_empty() {
-            issues.push(Issue {
-                rel: rel.clone(),
-                kind: "orphan-out",
-                message: "no outgoing links — isolated node".to_string(),
-                suggestion: "Add at least one 'links:' entry connecting this node to the graph",
-            });
-        } else {
-            let dir = p.path.parent().unwrap_or(p.path.as_path());
-            for link in links {
-                match &link.target {
-                    None => issues.push(Issue {
-                        rel: rel.clone(),
-                        kind: "broken-link",
-                        message: "link entry missing 'target:' field".to_string(),
-                        suggestion: "Add 'target: <relative/path.yml>' to the link entry",
-                    }),
-                    Some(target) => {
-                        if !dir.join(target).exists() {
-                            issues.push(Issue {
-                                rel: rel.clone(),
-                                kind: "broken-link",
-                                message: format!("broken link target: {target}"),
-                                suggestion: "Verify the target path exists or update the link",
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        // Orphan-in: nothing else points to this node
-        if !all_targets.contains(&p.path) {
-            issues.push(Issue {
-                rel: rel.clone(),
-                kind: "orphan-in",
-                message: "no incoming links — nothing points to this node".to_string(),
-                suggestion: "Link to this node from at least one other corpus instance",
-            });
-        }
-    }
-
-    // Unused catalog entries
-    let catalog_entries = walk_md_files(&catalog_dir);
-    let corpus_texts: Vec<String> = instance_paths
+    let catalog_paths = walk_md_files(&catalog_dir);
+    let sources = checks::load_sources(root, &catalog_paths);
+    let node_texts: Vec<String> = instance_paths
         .iter()
         .map(|p| std::fs::read_to_string(p).unwrap_or_default())
         .collect();
+    let cites = checks::citations(&sources, &nodes, &node_texts);
 
-    for entry_path in &catalog_entries {
-        let slug = entry_path.file_stem().unwrap_or_default().to_string_lossy();
-        let citations = corpus_texts
+    // Tables are checked wherever a reader meets one: catalog entries and the READMEs
+    // that carry REGEN blocks.
+    let mut prose: Vec<(String, String)> = Vec::new();
+    for p in catalog_paths.iter().chain(
+        [corpus_dir.join("README.md"), catalog_dir.join("README.md")]
             .iter()
-            .filter(|t| t.contains(slug.as_ref()))
-            .count();
-        if citations == 0 {
-            issues.push(Issue {
-                rel: entry_path
-                    .strip_prefix(&root)
-                    .unwrap_or(entry_path)
-                    .to_string_lossy()
-                    .to_string(),
-                kind: "unused-catalog",
-                message: format!("catalog entry '{slug}' has zero citations in the corpus"),
-                suggestion: "Cite this source in at least one corpus instance, or remove the entry",
-            });
-        }
+            .filter(|p| p.exists()),
+    ) {
+        prose.push((
+            p.strip_prefix(root)
+                .unwrap_or(p)
+                .to_string_lossy()
+                .to_string(),
+            std::fs::read_to_string(p).unwrap_or_default(),
+        ));
     }
 
-    if issues.is_empty() {
-        println!("lint: {} instance(s) checked — all clean.", parsed.len());
+    let mut all = vec![
+        checks::missing_class(&nodes),
+        checks::unknown_class(&nodes, &defined),
+        checks::orphan_out(&nodes),
+        checks::dangling_edge(&nodes),
+        checks::catalog_unobtained_but_cited(&sources, &cites),
+        checks::missing_label(&nodes),
+        checks::missing_description(&nodes),
+        checks::catalog_used_by_drift(&sources, &cites),
+        checks::catalog_location_malformed(&sources),
+        checks::malformed_table(&prose),
+        checks::orphan_in(&nodes),
+        checks::catalog_uncited(&sources, &cites),
+    ];
+
+    if opts.commits {
+        let subjects = commits::read_subjects(root, opts.range.as_deref());
+        all.push(commits::unrecognized_verb(&subjects));
+    }
+
+    all
+}
+
+pub fn lint(opts: Options) -> Result<()> {
+    let root = repo_root()?;
+    let all = run_checks(&root, &opts);
+
+    if opts.bless {
+        let b = baseline::Baseline::from_checks(&all);
+        let count: usize = b.violations.values().map(|v| v.len()).sum();
+        b.write(&root)?;
+        println!(
+            "blessed {count} error-severity violation(s) into {}",
+            baseline::path(&root).display()
+        );
+        println!(
+            "this records the corpus's current state as its inherited debt — it does not fix it"
+        );
         return Ok(());
     }
 
-    for issue in &issues {
-        eprintln!("[{}] {}: {}", issue.kind, issue.rel, issue.message);
-        if suggest {
-            eprintln!("       → {}", issue.suggestion);
-        }
+    report(&all, &opts);
+
+    let committed = baseline::Baseline::load(&root)?;
+    let d = baseline::diff(&all, &committed);
+
+    if opts.warn_only {
+        let n: usize = all.iter().map(|c| c.violations.len()).sum();
+        eprintln!("lint: {n} finding(s) (reported, not failing)");
+        return Ok(());
     }
 
-    let n = issues.len();
-    if warn_only || suggest {
-        eprintln!("lint: {n} issue(s) (reported, not failing)");
-        Ok(())
-    } else {
-        anyhow::bail!("lint: {n} issue(s) found")
+    if d.is_clean() {
+        let n: usize = all.iter().map(|c| c.violations.len()).sum();
+        let errs: usize = all
+            .iter()
+            .filter(|c| c.severity == Severity::Error)
+            .map(|c| c.violations.len())
+            .sum();
+        if errs > 0 {
+            println!("lint: {n} finding(s); {errs} error(s), all baselined — no regression");
+        } else {
+            println!("lint: {n} finding(s), no errors");
+        }
+        return Ok(());
+    }
+
+    if !d.introduced.is_empty() {
+        eprintln!("\nnot in the baseline — introduced by this change:");
+        for (check, node) in &d.introduced {
+            eprintln!("  [{check}] {node}");
+        }
+    }
+    if !d.resolved.is_empty() {
+        eprintln!("\nin the baseline but no longer occurring — the baseline is stale:");
+        for (check, node) in &d.resolved {
+            eprintln!("  [{check}] {node}");
+        }
+        eprintln!(
+            "\nfixing a violation is good; leaving it listed is not. A baseline permitted to be\n\
+             wrong drifts, and one that over-lists silently re-permits what it over-lists."
+        );
+    }
+    eprintln!("\nrun `yidam lint --bless` to record the current state as the new baseline.");
+    anyhow::bail!(
+        "lint: {} introduced, {} stale",
+        d.introduced.len(),
+        d.resolved.len()
+    )
+}
+
+fn report(all: &[Check], opts: &Options) {
+    for check in all {
+        if check.passed() {
+            continue;
+        }
+        println!(
+            "\n{} [{}] {} — {} finding(s)",
+            check.severity.as_str().to_uppercase(),
+            check.id,
+            check.title,
+            check.violations.len()
+        );
+        if opts.explain {
+            println!("  {}", check.rationale);
+        }
+        for v in &check.violations {
+            println!("  {}: {}", v.node, v.detail);
+        }
     }
 }
 
@@ -205,108 +194,123 @@ pub fn lint(warn_only: bool, suggest: bool) -> Result<()> {
 mod tests {
     use super::*;
     use std::fs;
-    use std::path::Path;
     use tempfile::TempDir;
 
-    fn make_corpus(root: &Path) -> PathBuf {
-        let corpus = root.join(".yidam").join("corpus");
-        let class_dir = corpus.join("reach");
-        fs::create_dir_all(&class_dir).unwrap();
-        fs::write(corpus.join("reach.ont.yml"), "class: reach\n").unwrap();
-        corpus
-    }
-
-    #[test]
-    fn collect_issues_missing_description() {
+    /// A minimal well-formed corpus: two nodes pointing at each other.
+    fn clean_repo() -> TempDir {
         let tmp = TempDir::new().unwrap();
-        let corpus = make_corpus(tmp.path());
-        let class_dir = corpus.join("reach");
+        let corpus = tmp.path().join(".yidam/corpus");
+        let class = corpus.join("reach");
+        fs::create_dir_all(&class).unwrap();
+        fs::write(corpus.join("reach.ont.yml"), "class: reach\n").unwrap();
         fs::write(
-            class_dir.join("alpha.yml"),
-            "class: reach\nlabel: Alpha\nlinks:\n  - target: beta.yml\n    relationship: refines\n",
+            class.join("alpha.yml"),
+            "class: reach\nlabel: Alpha\ndescription: A.\nlinks:\n  - target: beta.yml\n    relationship: refines\n",
         )
         .unwrap();
         fs::write(
-            class_dir.join("beta.yml"),
-            "class: reach\nlabel: Beta\ndescription: A beta concept.\nlinks:\n  - target: alpha.yml\n    relationship: refines\n",
-        ).unwrap();
+            class.join("beta.yml"),
+            "class: reach\nlabel: Beta\ndescription: B.\nlinks:\n  - target: alpha.yml\n    relationship: refines\n",
+        )
+        .unwrap();
+        tmp
+    }
 
-        let instances = walk_corpus_instances(&corpus);
-        let parsed: Vec<ParsedInstance> = instances
+    fn errors(checks: &[Check]) -> usize {
+        checks
             .iter()
-            .map(|p| {
-                let text = fs::read_to_string(p).unwrap_or_default();
-                let inst: CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
-                ParsedInstance {
-                    path: p.clone(),
-                    inst,
-                }
-            })
-            .collect();
-
-        let alpha = parsed
-            .iter()
-            .find(|p| p.path.ends_with("alpha.yml"))
-            .unwrap();
-        assert!(
-            alpha.inst.description.is_none(),
-            "alpha should have no description"
-        );
-        let beta = parsed
-            .iter()
-            .find(|p| p.path.ends_with("beta.yml"))
-            .unwrap();
-        assert!(
-            beta.inst.description.is_some(),
-            "beta should have a description"
-        );
+            .filter(|c| c.severity == Severity::Error)
+            .map(|c| c.violations.len())
+            .sum()
     }
 
     #[test]
-    fn orphan_in_detection() {
-        let tmp = TempDir::new().unwrap();
-        let corpus = make_corpus(tmp.path());
-        let class_dir = corpus.join("reach");
-        // isolated: no other node links to it
+    fn a_clean_corpus_produces_no_errors() {
+        let tmp = clean_repo();
+        let all = run_checks(tmp.path(), &Options::default());
+        assert_eq!(errors(&all), 0, "{all:#?}");
+    }
+
+    #[test]
+    fn every_check_reports_even_when_it_passes() {
+        // A check that vanishes when it passes cannot be told from one that did not run.
+        let tmp = clean_repo();
+        let all = run_checks(tmp.path(), &Options::default());
+        assert_eq!(all.len(), 12);
+        let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
+        assert!(ids.contains("dangling-edge"));
+        assert!(ids.contains("catalog-used-by-drift"));
+    }
+
+    #[test]
+    fn a_dangling_edge_is_an_error() {
+        let tmp = clean_repo();
         fs::write(
-            class_dir.join("isolated.yml"),
-            "class: reach\nlabel: Isolated\ndescription: Alone.\nlinks:\n  - target: connected.yml\n    relationship: refines\n",
-        ).unwrap();
+            tmp.path().join(".yidam/corpus/reach/alpha.yml"),
+            "class: reach\nlabel: A\ndescription: A.\nlinks:\n  - target: nowhere.yml\n",
+        )
+        .unwrap();
+        let all = run_checks(tmp.path(), &Options::default());
+        assert!(errors(&all) > 0);
+    }
+
+    #[test]
+    fn the_commit_check_runs_only_when_asked() {
+        let tmp = clean_repo();
+        let without = run_checks(tmp.path(), &Options::default());
+        let with = run_checks(
+            tmp.path(),
+            &Options {
+                commits: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(with.len(), without.len() + 1);
+    }
+
+    #[test]
+    fn blessing_then_running_again_is_clean() {
+        let tmp = clean_repo();
         fs::write(
-            class_dir.join("connected.yml"),
-            "class: reach\nlabel: Connected\ndescription: Referenced.\nlinks:\n  - target: isolated.yml\n    relationship: refines\n",
-        ).unwrap();
+            tmp.path().join(".yidam/corpus/reach/alpha.yml"),
+            "class: reach\nlabel: A\ndescription: A.\nlinks:\n  - target: nowhere.yml\n",
+        )
+        .unwrap();
+        let all = run_checks(tmp.path(), &Options::default());
+        assert!(errors(&all) > 0);
 
-        let instances = walk_corpus_instances(&corpus);
-        let parsed: Vec<ParsedInstance> = instances
-            .iter()
-            .map(|p| {
-                let text = fs::read_to_string(p).unwrap_or_default();
-                let inst: CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
-                ParsedInstance {
-                    path: p.clone(),
-                    inst,
-                }
-            })
-            .collect();
+        baseline::Baseline::from_checks(&all)
+            .write(tmp.path())
+            .unwrap();
+        let again = run_checks(tmp.path(), &Options::default());
+        let loaded = baseline::Baseline::load(tmp.path()).unwrap();
+        assert!(baseline::diff(&again, &loaded).is_clean());
+    }
 
-        let mut all_targets: HashSet<PathBuf> = HashSet::new();
-        for p in &parsed {
-            let dir = p.path.parent().unwrap_or(p.path.as_path());
-            for link in p.inst.links.as_deref().unwrap_or(&[]) {
-                if let Some(t) = &link.target {
-                    all_targets.insert(dir.join(t));
-                }
-            }
-        }
+    #[test]
+    fn fixing_a_baselined_violation_makes_the_baseline_stale() {
+        let tmp = clean_repo();
+        let broken = tmp.path().join(".yidam/corpus/reach/alpha.yml");
+        fs::write(
+            &broken,
+            "class: reach\nlabel: A\ndescription: A.\nlinks:\n  - target: nowhere.yml\n",
+        )
+        .unwrap();
+        let all = run_checks(tmp.path(), &Options::default());
+        baseline::Baseline::from_checks(&all)
+            .write(tmp.path())
+            .unwrap();
 
-        // Both nodes are targeted by the other, so neither is orphan-in
-        for p in &parsed {
-            assert!(
-                all_targets.contains(&p.path),
-                "{} should have an incoming link",
-                p.path.display()
-            );
-        }
+        // Repair it.
+        fs::write(
+            &broken,
+            "class: reach\nlabel: A\ndescription: A.\nlinks:\n  - target: beta.yml\n",
+        )
+        .unwrap();
+        let after = run_checks(tmp.path(), &Options::default());
+        let loaded = baseline::Baseline::load(tmp.path()).unwrap();
+        let d = baseline::diff(&after, &loaded);
+        assert!(!d.resolved.is_empty(), "the fix must show as stale");
+        assert!(!d.is_clean());
     }
 }

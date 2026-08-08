@@ -23,6 +23,7 @@ mod overlay;
 mod phases;
 pub(crate) mod registry;
 mod samudaya_audit;
+mod schema;
 #[cfg(feature = "index")]
 mod serve;
 mod status;
@@ -42,11 +43,12 @@ pub use embed::embed;
 pub use export::{export, list_formats, run_export, ExportFormat, ExportOptions, RdfFormat};
 #[cfg(feature = "index")]
 pub use index_build::index_build;
-pub use lint::lint;
+pub use lint::{lint, Options as LintOptions};
 pub use overlay::overlay;
 pub use phases::phases;
 pub use registry::{agents_index, skills_index};
 pub use samudaya_audit::samudaya_audit;
+pub use schema::schema;
 #[cfg(feature = "index")]
 pub use serve::serve_mcp;
 pub use status::{index_status, status};

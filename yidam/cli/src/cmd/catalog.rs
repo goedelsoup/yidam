@@ -31,14 +31,23 @@ pub fn catalog_audit() -> Result<()> {
             vec![]
         };
 
+        // The REGEN marker in catalog/README.md promises source type and retrieval status
+        // alongside the citation count; both were specified and neither was emitted.
         let mut rows = vec![
-            "| Entry | Description | Citations |".to_string(),
-            "|---|---|---|".to_string(),
+            "| Entry | Type | Description | Obtained | Citations |".to_string(),
+            "|---|---|---|---|---|".to_string(),
         ];
         for path in &entries {
             let text = std::fs::read_to_string(path).unwrap_or_default();
             let fm = parse_frontmatter(&text);
             let desc = fm.description.unwrap_or_else(|| "—".to_string());
+            let kind = fm.r#type.unwrap_or_else(|| "—".to_string());
+            // Absent means obtained; only an explicit `false` claims otherwise.
+            let obtained = if fm.obtained.unwrap_or(true) {
+                "yes"
+            } else {
+                "not yet"
+            };
             let filename = path.file_name().unwrap_or_default().to_string_lossy();
             let slug = path.file_stem().unwrap_or_default().to_string_lossy();
             let citations = corpus_files
@@ -50,7 +59,7 @@ pub fn catalog_audit() -> Result<()> {
                 })
                 .count();
             rows.push(format!(
-                "| [{filename}]({filename}) | {desc} | {citations} |"
+                "| [{filename}]({filename}) | {kind} | {desc} | {obtained} | {citations} |"
             ));
         }
         rows.join("\n")
