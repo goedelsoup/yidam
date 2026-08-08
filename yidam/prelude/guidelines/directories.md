@@ -5,19 +5,27 @@ Guidelines for what belongs in each directory of a yidam-derived repository.
 After bootstrap, a derived repository has two tiers:
 
 **Top-level** — domain work visible to collaborators and tooling:
-- `agents/` — domain agent definitions
 - `crates/` — Rust domain computer (connectors, calculators, index)
-- `docs/` — repository documentation
-- `packages/` — other-language packages in the same toolkit layer
 - `web/` — optional web interface
+- `agents/` — domain agent definitions *(created on first use)*
+- `docs/` — repository documentation *(created on first use)*
+- `packages/` — other-language packages in the same toolkit layer *(created on first use)*
 
 **`.yidam/`** — yidam-managed infrastructure:
 - `.yidam/catalog/` — provenance anchors for corpus knowledge
 - `.yidam/corpus/` — the living knowledge graph
 - `.yidam/decisions/` — structured records of choices made during this repo's life
-- `.yidam/sangha/` — collective resolution protocol
 - `.yidam/skills/` — domain-specific skills
 - `.yidam/.vendor/` — inherited yidam prelude; not modified in derived repos
+- `.yidam/sangha/` — collective resolution protocol *(collective governance only)*
+
+**Created on first use.** Bootstrap does not scaffold `agents/`, `docs/`, or `packages/`.
+An empty directory holding only a README that describes what it would contain is
+indistinguishable from an abandoned one — and it stays empty: across the two repositories
+derived from this template, `agents/` and `packages/` never received a single file and
+`docs/` received exactly one. Create each the day something goes in it. The conventions
+below say what belongs where when that day comes; the `yidam` CLI treats all three as
+optional and its index commands are no-ops when the directory is absent.
 
 ---
 
@@ -196,7 +204,12 @@ when a decision is superseded, but a new decision may reference a prior one by `
 
 ---
 
-## `.yidam/sangha/`
+## `.yidam/sangha/` (collective governance only)
+
+Present only in repositories bootstrapped as `governance: collective`. A single-elector
+repository does not have this directory and does not need it — see
+[CONSTITUTION.md](../CONSTITUTION.md) for what it would govern, and adopt it by scaffolding
+this directory if a second elector ever appears.
 
 The collective resolution protocol. Encodes how multiple participants (agents and humans)
 maintain individual positions and synthesize them into shared understanding.

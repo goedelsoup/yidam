@@ -36,14 +36,28 @@ often follow a period of investigation and extraction.
 
 ## Phase discipline
 
-- **One phase, one branch.** Open a branch when a phase begins; settle its outputs onto the
-  baseline when they are ready. Branches carry in-progress phases; the baseline — an elector's
-  `ma/<name>` position, resolved collectively into a `rigpa/<evolution>` (see [GRAPH.md](GRAPH.md))
-  — carries settled knowledge.
+- **One phase, one branch — `phase/<name>`.** Open a branch when a phase begins; settle its
+  outputs onto the baseline when they are ready. The branch name is the phase name in
+  kebab-case: `phase/outcome-axis`, `phase/the-local-half`. The baseline is `main` in a
+  single-elector repository, or the elector's `ma/<name>` position in a collective one (see
+  [GRAPH.md](GRAPH.md)). Branches carry in-progress phases; the baseline carries settled
+  knowledge.
+
+- **Settle with a merge commit, then delete the branch.** Merging is the synthesis event —
+  keep it (`--no-ff`) so the phase is visible in the log as a unit rather than dissolving
+  into a run of individual commits. Then delete the branch. A merged branch left behind is
+  not a record of anything: the commits and the merge are the record, and the ref is
+  indistinguishable from a phase still in progress.
+
+  ```
+  git switch main && git merge --no-ff phase/<name>
+  git branch -d phase/<name>
+  ```
 
 - **Commit legibly within the phase.** Each commit in a phase should be a legible step.
   The final commit should name the phase and summarize what it produced — this is the event
-  that future readers will use to understand why the corpus changed.
+  that future readers will use to understand why the corpus changed. Use the `phase:` verb
+  for that commit; see the commit vocabulary in [GRAPH.md](GRAPH.md).
 
 - **Bound phases.** A phase that never produces commits is an open inquiry thread, not a
   settled phase. If a phase stalls, mark it: open a question node naming what is blocking it
@@ -70,7 +84,14 @@ which connectors and calculators to invoke, and synthesizes their outputs into c
 
 ## Phases and sangha
 
-Each elector's `ma/<name>` branch represents an active phase or set of phases. When
-positions are ready to be resolved into collective understanding, the sangha reads the
-phase outputs across `ma/*` branches and synthesizes them into a `rigpa/<evolution>`. A
-rigpa branch is the settled state produced by resolving a set of completed phases.
+*Applies only to repositories bootstrapped as `governance: collective`.*
+
+Each elector's `ma/<name>` branch is their baseline; phases branch from it and settle back
+onto it exactly as they do onto `main` in a single-elector repo. When positions are ready to
+be resolved into collective understanding, the sangha reads the phase outputs across `ma/*`
+branches and synthesizes them into a `rigpa/<evolution>`. A rigpa branch is the settled state
+produced by resolving a set of completed phases.
+
+In a single-elector repository there is no sangha and no `ma/*`: phases branch from `main`
+and settle back onto it. The phase discipline above is identical in both modes — only the
+name of the baseline changes.

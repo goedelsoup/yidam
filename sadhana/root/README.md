@@ -37,7 +37,14 @@ The model this repository runs on is vendored in
 | [`.yidam/skills/`](.yidam/skills/) | Domain skills — calculators and procedures agents invoke |
 | [`.yidam/.vendor/`](.yidam/.vendor/) | Inherited yidam prelude; read-only |
 | [`crates/`](crates/) | Domain computer: connectors, calculators, index |
-| [`docs/`](docs/) | Documentation about this repository |
+| [`web/`](web/) | Web interface over the corpus |
+
+<!-- TEMPLATE
+`agents/`, `packages/`, and `docs/` are conventions this repository has not needed yet.
+Add a row above the day one of them is created. Do not list a directory that does not exist.
+-->
+
+Phases run on `phase/<name>` branches and settle onto `main` with a merge commit.
 
 ## Status
 

@@ -13,8 +13,13 @@ This repository's knowledge graph lives in git. No external store is required.
 | Branch | Parallel inquiry thread — speculative or in-progress |
 | Merge commit | Synthesis — two threads of knowledge joined |
 | Tag | Stable checkpoint — a named state of the graph |
-| `refs/heads/rigpa/<evolution>` | Settled evolution — a named, stable collective understanding |
-| `refs/heads/ma/<elector>` | Elector position — one participant's current working knowledge |
+| `refs/heads/phase/<name>` | A bounded phase of inquiry in progress |
+| `refs/heads/rigpa/<evolution>` | *Collective mode only* — a settled, named collective understanding |
+| `refs/heads/ma/<elector>` | *Collective mode only* — one elector's current working position |
+
+The last two exist only in repositories bootstrapped as `governance: collective`. In a
+single-elector repository — the common case — the baseline is `main` and inquiry runs on
+`phase/<name>` branches. See [PHASES.md](PHASES.md).
 
 ## Nodes
 
@@ -61,7 +66,60 @@ but are not epistemic events. Write these by naming the pipeline step and its ou
 > `refresh: ECHO inventory — 3 new dischargers added since last pull`
 
 Both types appear in the git log and both are part of the graph's history. Keeping them
-visually distinct — by message style — preserves the log's readability as a knowledge record.
+distinct is what preserves the log's readability as a knowledge record — and "distinct by
+style" is not enough to do it. A reader can eyeball the difference; a tool cannot, and
+neither can a reader six months and four hundred commits later. The distinction is carried
+by a **closed vocabulary of leading verbs**.
+
+## Commit vocabulary
+
+Every commit's subject line begins `<verb>: `. The verb determines the commit's type. This
+list is closed: `yidam lint --commits` reports any verb outside it.
+
+**Epistemic** — understanding was added, revised, or retracted:
+
+| Verb | When |
+|---|---|
+| `establish` | New understanding committed — a node authored |
+| `revise` | Committed understanding corrected |
+| `assess` | Hypotheses weighed against evidence (an Assessment phase) |
+| `synthesize` | Nodes linked or merged across inquiry threads (a Synthesis phase) |
+| `withdraw` | A claim retracted — say what replaces it, or that nothing does |
+| `open` | A question opened |
+| `close` | A question resolved |
+| `decide` | A choice recorded in `.yidam/decisions/` |
+| `phase` | A phase settled — names the phase and what it produced |
+| `genesis` | The root commit of an empty-repo bootstrap |
+| `overlay` | The root graph commit of an existing-repo bootstrap |
+
+**Operational** — the pipeline advanced; no understanding changed:
+
+| Verb | When |
+|---|---|
+| `extract` | Structured data pulled from a primary source (an Extraction phase) |
+| `refresh` | A connector re-run against its source |
+| `compute` | A calculator run and its output committed |
+| `index` | The vector index rebuilt |
+| `bundle` | The export bundle regenerated |
+| `reconcile` | Catalog and corpus brought back into agreement |
+| `regen` | REGEN blocks refreshed |
+| `build` | The domain computer built or changed |
+| `implement` | A connector or calculator implemented |
+| `scaffold` | Structure created |
+| `catalog` | A source anchor added to `.yidam/catalog/` |
+| `migrate` | Data or schema moved |
+| `fix` | A defect corrected |
+| `vendor` | The prelude re-vendored |
+| `consume` | A transient bootstrap layer consumed |
+
+**Why closed.** An open vocabulary decays into one verb per commit. A repository derived
+from this template ran a hundred commits with roughly sixty distinct leading words — `lift`,
+`grain`, `void`, `worst`, `viewport` — each individually evocative and collectively useless:
+nothing could recover which commits changed what was known and which merely moved bytes.
+A verb outside this list is not a richer description, it is an unclassifiable one.
+
+Reach for the closest verb rather than inventing one. If a commit genuinely does not fit —
+that is a gap in the vocabulary, which is an yidam-level change, not a local one.
 
 Every commit of either type should answer:
 - What changed?
@@ -77,6 +135,9 @@ that may or may not be merged into the main graph. Merging is synthesis; abandon
 is a deliberate choice to exclude that thread. Both are valid knowledge acts.
 
 ## Collective resolution
+
+*Applies only to repositories bootstrapped as `governance: collective`. Skip this section
+if you are the sole elector.*
 
 When multiple participants maintain the graph, two ref namespaces encode their relationship:
 

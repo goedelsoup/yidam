@@ -182,8 +182,26 @@ Ask the user to choose one. Then ask:
 The user may give a number or press enter to accept the default. Record it as `corpus_depth`
 in the decision record — step 6 distributes instances across classes to reach this target.
 
-Then write the ontology decision record, including the chosen alignment and corpus depth,
-before proceeding to step 3:
+Finally, ask the governance question:
+
+> **Who will maintain this repository — one elector, or several?** [default: one]
+>
+> **One** — you (with agents acting on your behalf) are the sole elector. Phases run on
+> `phase/<name>` branches off the baseline. This is the common case.
+>
+> **Several** — multiple humans or independently-directed agents hold positions that are
+> expected to diverge and must be reconciled. This activates the sangha: each elector keeps
+> a `ma/<elector>` branch, and resolution events synthesize them into `rigpa/<evolution>`
+> baselines under the constitution.
+
+Record the answer as `governance: single-elector | collective`. Do not choose `collective`
+because it sounds more capable — it is a real protocol with real overhead, and a repository
+that adopts it and never runs a resolution has paid for machinery it does not use. If the
+user is unsure, take the default; a single-elector repo can adopt the sangha later by
+scaffolding `.yidam/sangha/` when a second elector actually appears.
+
+Then write the ontology decision record, including the chosen alignment, corpus depth, and
+governance mode, before proceeding to step 3:
 
 ```
 .yidam/decisions/ontology.yml
@@ -192,12 +210,14 @@ before proceeding to step 3:
 ```yaml
 id: ontology
 summary: <one line — the domain, class count, and chosen foundational alignment>
-corpus_depth: 13        # target instance count for initial seeding; user-configurable
+corpus_depth: 13              # target instance count for initial seeding; user-configurable
+governance: single-elector    # single-elector | collective
 context: |
   <what the ontology discovery dialogue surfaced; key choices made; examples used to explain
   the alignment options>
 decision: |
-  <the confirmed class list and edges; the chosen foundational ontology (bfo | ufo | none)>
+  <the confirmed class list and edges; the chosen foundational ontology (bfo | ufo | none);
+  the governance mode and what the user said about who maintains this>
 rationale: |
   <why these classes; what was considered and discarded; why this alignment was chosen>
 ```
@@ -215,26 +235,24 @@ ls sadhana/
 
 Then read each template file in `sadhana/`:
 
-- `sadhana/agents/README.md`
 - `sadhana/catalog/README.md`
 - `sadhana/corpus/README.md`
 - `sadhana/crates/README.md`
-- `sadhana/docs/README.md`
-- `sadhana/packages/README.md`
-- `sadhana/sangha/README.md` (and PROTOCOL.md, electors.md, resolutions/ if present)
 - `sadhana/skills/README.md`
 - `sadhana/web/README.md`
 - `sadhana/root/README.md`, `sadhana/root/AGENTS.md`, `sadhana/root/CLAUDE.md`, `sadhana/root/mise.toml`
 - `sadhana/github/workflows/ci.yml`
+- `sadhana/sangha/README.md` (and PROTOCOL.md, electors.md, resolutions/) — **only if
+  `governance: collective`**; skip these four reads entirely in single-elector mode
+
+`sadhana/agents/`, `sadhana/packages/`, and `sadhana/docs/` are deliberately not read here.
+They are templates for directories created on first use, not at genesis — see below.
 
 **Then create the derived-repo structure:**
 
 Top-level directories (created directly from sadhana templates):
 ```
-agents/README.md
 crates/README.md
-docs/README.md
-packages/README.md
 web/README.md
 ```
 
@@ -243,9 +261,26 @@ web/README.md
 .yidam/catalog/README.md
 .yidam/corpus/README.md
 .yidam/decisions/          ← new, empty; written to in steps 2 and 5
-.yidam/sangha/             ← all files from sadhana/sangha/
 .yidam/skills/README.md
 ```
+
+**Create on first use, not now:** `agents/`, `packages/`, and `docs/`. Their sadhana
+templates exist and are the right content — but scaffold them the day something goes in
+them, not at genesis. An empty directory with a README explaining what it would contain is
+indistinguishable from an abandoned one, and it stays that way: across the two repositories
+derived from this template, `agents/` and `packages/` never received a single file, and
+`docs/` received exactly one. Note them in step 9 instead, so the user knows they exist as
+conventions. The `yidam` CLI treats all three as optional — `agents-index` and
+`packages-index` are no-ops when the directory is absent.
+
+**`.yidam/sangha/` — only if `governance: collective`.** Read the governance mode recorded
+in `.yidam/decisions/ontology.yml` in step 2:
+
+- **`single-elector`** — do not create `.yidam/sangha/`. Do not copy `sadhana/sangha/`.
+  The constitution is vendored with the rest of the prelude and lies dormant; it governs
+  resolution events, and there will be none.
+- **`collective`** — create `.yidam/sangha/` with all files from `sadhana/sangha/`, and fill
+  `electors.md` with the participants the user named.
 
 Repository-root files. `sadhana/root/` and `sadhana/github/` are not directory mirrors —
 each file installs to a specific path, **overwriting yidam's own copy**:
@@ -592,6 +627,18 @@ instantiates.
 
 **Implied edges, connectors, and calculators** — edges wired, crate stubs and skill stubs scaffolded. One line each.
 
+**Conventions not yet scaffolded** — one line each, so the user knows these exist without
+finding an empty directory and guessing:
+
+- `agents/` — domain agent definitions. Create it when you write the first agent.
+- `packages/` — non-Rust toolkit code (Python/TypeScript connectors, ML pipelines). Create
+  it when a capability genuinely belongs outside `crates/`.
+- `docs/` — documentation about the repository, as distinct from the corpus's knowledge.
+  Create it when there is something to say that is not a corpus node.
+- `.yidam/sangha/` — collective resolution. State the governance mode chosen in step 2. In
+  single-elector mode, say that phases run on `phase/<name>` branches and that the sangha
+  can be adopted later if a second elector appears.
+
 **Next steps** — three concrete, ordered actions:
 
 1. **First catalog entry** — identify the most authoritative data source for this domain
@@ -600,7 +647,8 @@ instantiates.
    first sub-node or property to deepen it. This becomes the first epistemic commit after
    genesis.
 3. **First agent** — describe the simplest agent immediately useful in this domain. One
-   sentence on what it does and which corpus nodes it draws from.
+   sentence on what it does and which corpus nodes it draws from. Creating `agents/` with
+   that one definition is the action; do not create the directory to hold nothing.
 
 Then ask:
 
