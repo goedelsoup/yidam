@@ -2,6 +2,7 @@ use anyhow::{bail, Context, Result};
 use std::path::Path;
 
 use crate::paths::repo_root;
+use crate::provenance::Provenance;
 
 use super::copy::copy_dir;
 
@@ -45,6 +46,10 @@ pub fn overlay(target: &Path, backfill: bool, backfill_ref: Option<&str>) -> Res
     }
 
     let root = repo_root()?;
+
+    // Recorded before anything is copied — `copy_dir` excludes `.git`, and the target's
+    // own `.git` belongs to the existing repo, not to yidam.
+    let provenance = Provenance::read(&root);
 
     // yidam/ — prelude, skills, harness, CLI tools
     let yidam_src = root.join("yidam");
@@ -94,6 +99,15 @@ pub fn overlay(target: &Path, backfill: bool, backfill_ref: Option<&str>) -> Res
             .context("copying mise.yidam.toml")?;
         println!("mise.yidam.toml → {}/mise.yidam.toml", target.display());
     }
+
+    // .yidam.toml — provenance pin (see VERSIONING.md, Layer 1)
+    provenance.write(target)?;
+    println!(
+        ".yidam.toml → {}/.yidam.toml (pinned to {} · {})",
+        target.display(),
+        &provenance.commit[..provenance.commit.len().min(8)],
+        provenance.template
+    );
 
     println!();
     println!("yidam infrastructure overlaid on {}", target.display());

@@ -1,7 +1,7 @@
 # skills
 
 Domain-specific skills available to agents in this repository. Generic skills inherited
-from yidam live in [`prelude/skills/`](../prelude/skills/); skills that require
+from yidam live in [`.yidam/.vendor/prelude/skills/`](../.vendor/prelude/skills/); skills that require
 knowledge of this domain's corpus or toolkit live here.
 
 <!-- TEMPLATE
@@ -29,5 +29,5 @@ _Run `yidam skills-index` to populate._
 
 | Skill | Purpose |
 |---|---|
-| [`bootstrap`](../prelude/skills/bootstrap.md) | Repository initialization |
-| [`judge`](../prelude/skills/judge.md) | Bootstrap result evaluation (test harness) |
+| [`bootstrap`](../.vendor/prelude/skills/bootstrap.md) | Repository initialization |
+| [`judge`](../.vendor/prelude/skills/judge.md) | Bootstrap result evaluation (test harness) |

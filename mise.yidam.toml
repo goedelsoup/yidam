@@ -1,22 +1,136 @@
 # mise.yidam.toml — yidam CLI tasks for a derived repository.
 #
-# Placed here by `mise run overlay`. Add to your mise.toml with:
+# This is the INHERITED task layer. Add it to your mise.toml with:
 #
 #   extends = ["mise.yidam.toml"]
 #
-# or copy the [tasks.*] sections you need directly.
+# Keep domain tasks in mise.toml, not here: `mise run yidam-vendor-update` may
+# replace this file wholesale, and anything you wrote in it would go with it.
 #
-# Run `mise run yidam-build` once after overlay to compile the yidam binary.
-# Then use `mise run regen` to regenerate all README indexes.
+# Run `mise run yidam-build` once to install the yidam binary. Then use
+# `mise run regen` to regenerate all README indexes.
 
 [tools]
 rust = { version = "1.88.0", components = "rustfmt,clippy" }
 
 # ── yidam CLI — build ─────────────────────────────────────────────────
+# The CLI is NOT vendored into derived repos — a vendored copy is a fork that
+# never gets rebuilt. It is installed from the origin commit pinned in
+# .yidam.toml, so the binary and the vendored prelude always agree.
 
 [tasks.yidam-build]
-description = "Compile and install the yidam binary from yidam/cli/ to ~/.cargo/bin."
-run = "cargo install --path yidam/cli"
+description = "Install the yidam binary from the commit pinned in .yidam.toml."
+run = """
+set -eu
+if [ ! -f .yidam.toml ]; then
+  echo "ERROR: no .yidam.toml — this repo has no recorded yidam provenance." >&2
+  echo "       run 'mise run yidam-vendor-update' to create one." >&2
+  exit 1
+fi
+origin=$(sed -n 's/^ *origin *= *"\\(.*\\)"/\\1/p' .yidam.toml)
+commit=$(sed -n 's/^ *commit *= *"\\(.*\\)"/\\1/p' .yidam.toml)
+if [ -z "$commit" ] || [ "$commit" = "unknown" ]; then
+  echo "ERROR: .yidam.toml records no resolvable commit." >&2
+  echo "       repair it with 'mise run yidam-vendor-update'." >&2
+  exit 1
+fi
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+git clone --quiet --filter=blob:none "$origin" "$tmp/yidam"
+git -C "$tmp/yidam" checkout --quiet "$commit"
+# The light `reports` build: no protoc, no fastembed, no lancedb. Add
+# `--features full` if you need index-build/serve/sqlite/rdf/tonpa.
+cargo install --path "$tmp/yidam/yidam/cli" --locked
+"""
+
+# ── vendored prelude — status and update ──────────────────────────────
+# The prelude is not frozen at the repo's birth. These two tasks are how a
+# correction made upstream reaches this repository.
+
+[tasks.yidam-vendor-status]
+description = "Show the pinned yidam commit and whether the origin has moved past it."
+run = """
+set -eu
+if [ ! -f .yidam.toml ]; then
+  echo "no .yidam.toml — this repo has no recorded yidam provenance"
+  exit 1
+fi
+origin=$(sed -n 's/^ *origin *= *"\\(.*\\)"/\\1/p' .yidam.toml)
+commit=$(sed -n 's/^ *commit *= *"\\(.*\\)"/\\1/p' .yidam.toml)
+template=$(sed -n 's/^ *template *= *"\\(.*\\)"/\\1/p' .yidam.toml)
+committed=$(sed -n 's/^ *committed *= *"\\(.*\\)"/\\1/p' .yidam.toml)
+ref="${YIDAM_REF:-HEAD}"
+echo "origin    $origin"
+echo "pinned    $commit ($template, committed $committed)"
+remote=$(git ls-remote "$origin" "$ref" 2>/dev/null | cut -f1)
+if [ -z "$remote" ]; then
+  echo "remote    unreachable — cannot compare"
+  exit 0
+fi
+echo "origin/$ref  $remote"
+if [ "$remote" = "$commit" ]; then
+  echo
+  echo "up to date"
+else
+  echo
+  echo "origin has moved — run 'mise run yidam-vendor-update' to adopt it"
+fi
+"""
+
+[tasks.yidam-vendor-update]
+description = "Re-vendor .yidam/.vendor/prelude/ from the origin and re-pin .yidam.toml. Set YIDAM_REF to target a tag or branch."
+run = """
+set -eu
+origin="git@github.com:goedelsoup/yidam.git"
+if [ -f .yidam.toml ]; then
+  found=$(sed -n 's/^ *origin *= *"\\(.*\\)"/\\1/p' .yidam.toml)
+  [ -n "$found" ] && origin="$found"
+fi
+ref="${YIDAM_REF:-HEAD}"
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+echo "fetching $origin at $ref …"
+git clone --quiet --filter=blob:none "$origin" "$tmp/yidam"
+if [ "$ref" != "HEAD" ]; then
+  git -C "$tmp/yidam" checkout --quiet "$ref"
+fi
+commit=$(git -C "$tmp/yidam" rev-parse HEAD)
+template=$(git -C "$tmp/yidam" describe --tags --exact-match HEAD 2>/dev/null || echo untagged)
+committed=$(git -C "$tmp/yidam" log -1 --format=%as HEAD)
+if [ ! -d "$tmp/yidam/yidam/prelude" ]; then
+  echo "ERROR: $origin@$commit has no yidam/prelude/ — wrong origin?" >&2
+  exit 1
+fi
+# Wholesale replacement, not a merge: the prelude is read-only in a derived
+# repo, so there is nothing local to preserve. Anything that WAS edited locally
+# shows up in the diff below, which is the point.
+rm -rf .yidam/.vendor/prelude
+mkdir -p .yidam/.vendor
+cp -R "$tmp/yidam/yidam/prelude" .yidam/.vendor/prelude
+cat > .yidam.toml <<EOF
+# Provenance of the yidam template this repository was derived from.
+#
+# Written at clone/overlay time, when the yidam source was still a git
+# repository. Updated by \\`mise run yidam-vendor-update\\`.
+#
+# \\`commit\\` is the resolvable pin: it is what the re-vendor procedure and CI
+# check out. \\`template\\` is the release tag at that commit, or "untagged".
+# \\`committed\\` is that commit's date — how old the vendored prelude is.
+#
+# See .yidam/.vendor/prelude/guidelines/directories.md for the re-vendor procedure.
+
+[yidam]
+origin    = "$origin"
+commit    = "$commit"
+template  = "$template"
+committed = "$committed"
+EOF
+echo
+echo "re-vendored to $commit ($template)"
+echo "review the diff, then commit it as its own event:"
+echo "  git add .yidam/.vendor/prelude .yidam.toml"
+echo "  git commit -m 'vendor(yidam): re-vendor prelude at $commit — <what changed>'"
+"""
 
 # ── yidam CLI — REGEN tasks ───────────────────────────────────────────
 
@@ -63,6 +177,10 @@ run = "yidam bundle-status"
 [tasks.graph-check]
 description = "Run graph integrity check: orphans, missing labels, broken links."
 run = "yidam graph-check"
+
+[tasks.graph-lint]
+description = "Lint corpus nodes: missing descriptions, unknown classes, orphans, broken link targets, uncited catalog entries."
+run = "yidam lint"
 
 [tasks.decisions-log]
 description = "Render the decisions log from .yidam/decisions/."

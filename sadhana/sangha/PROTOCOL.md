@@ -1,7 +1,7 @@
 # Sangha Protocol
 
 The resolution algorithm for this repository's sangha. Read alongside
-[CONSTITUTION.md](../prelude/CONSTITUTION.md), which defines invariant constraints
+[CONSTITUTION.md](../.vendor/prelude/CONSTITUTION.md), which defines invariant constraints
 that this protocol may not override.
 
 This file is domain-specific — derived repositories should adapt it to their

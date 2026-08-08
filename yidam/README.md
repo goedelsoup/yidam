@@ -54,7 +54,7 @@ Build once with `mise run yidam-build`; the binary installs to `~/.cargo/bin/yid
 
 The Rust test harness runs bootstrap scenarios against the judge rubric in `tests/rubric.md`.
 Each scenario in `tests/scenarios/` describes an agent run; the harness evaluates the outcome
-against rubric criteria. See [HARNESS.md](prelude/HARNESS.md) for authoring scenarios.
+against rubric criteria. See [HARNESS.md](tests/HARNESS.md) for authoring scenarios.
 
 ## Lifecycle
 

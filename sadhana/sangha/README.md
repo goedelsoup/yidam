@@ -6,7 +6,7 @@
 It does not contain knowledge directly — knowledge lives in the corpus. Sangha is the
 mechanism by which multiple participants resolve their positions into a shared graph.
 
-All resolution events are governed by the [prelude constitution](../prelude/CONSTITUTION.md).
+All resolution events are governed by the [prelude constitution](../.vendor/prelude/CONSTITUTION.md).
 Domain-specific procedure is defined in this repo's `sangha/PROTOCOL.md`, but the
 constitutional articles are invariant — `PROTOCOL.md` may not contradict them.
 

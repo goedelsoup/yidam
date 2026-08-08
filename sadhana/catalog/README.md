@@ -2,7 +2,7 @@
 
 The catalog tracks data sources. Corpus nodes cite catalog entries as shallow provenance
 edges rather than embedding source metadata inline. See
-[catalog conventions](../prelude/guidelines/directories.md#catalog) for node format and
+[catalog conventions](../.vendor/prelude/guidelines/directories.md#catalog) for node format and
 the corpus/catalog relationship.
 
 ## Source registry

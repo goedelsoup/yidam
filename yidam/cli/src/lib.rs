@@ -5,6 +5,7 @@ pub mod embed_config;
 mod git;
 mod parse;
 mod paths;
+pub mod provenance;
 mod regen;
 mod walk;
 

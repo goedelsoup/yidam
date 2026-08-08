@@ -5,7 +5,7 @@ Use this directory when ecosystem access, ML frameworks, or upstream SDKs are be
 served by Python, TypeScript, or another runtime than Rust.
 
 The connector/calculator/feature-engineering distinction applies here equally — see
-[packages conventions](../prelude/guidelines/directories.md#packages).
+[packages conventions](../.yidam/.vendor/prelude/guidelines/directories.md#packages).
 
 <!-- TEMPLATE
 Describe which domain computer capabilities belong here rather than in crates/. Common

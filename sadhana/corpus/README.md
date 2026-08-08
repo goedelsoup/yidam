@@ -11,7 +11,7 @@ inference from observational data."
 Each file is one node. Nodes are small and focused — one concept, one relation, one artifact,
 or one open question. Every node must have at least one outgoing link.
 
-See [corpus conventions](../prelude/guidelines/directories.md#corpus) for authoring rules,
+See [corpus conventions](../.vendor/prelude/guidelines/directories.md#corpus) for authoring rules,
 the authored/generated node distinction, and `[verified]`/`[inference]`/`[open]` claim tags.
 
 ## Node index

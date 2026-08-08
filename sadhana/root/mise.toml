@@ -1,0 +1,58 @@
+# mise.toml — toolchains and tasks for this yidam-derived repository.
+# https://mise.jdx.dev
+#
+# `mise install`          provisions the toolchains below.
+# `mise tasks`            lists every available task.
+# `mise run yidam-build`  installs the yidam CLI (do this once).
+#
+# The yidam CLI tasks live in mise.yidam.toml, pulled in by `extends` below.
+# Domain tasks belong in THIS file — keep mise.yidam.toml as the inherited layer
+# so a future `mise run yidam-vendor-update` can replace it without clobbering
+# anything you wrote.
+
+extends = ["mise.yidam.toml"]
+
+[tools]
+# Rust — the domain computer in crates/.
+rust = { version = "1.88.0", components = "rustfmt,clippy" }
+# <!-- TEMPLATE
+# Uncomment or add what this domain actually needs. Do not carry toolchains
+# the repository does not use — every one of them is time on every CI run.
+# python = "3.12"
+# uv = "latest"
+# node = "lts"
+# -->
+
+# ── domain computer (crates/) ─────────────────────────────────────────────
+# No-ops until crates/Cargo.toml exists. CI skips these jobs until then; see
+# .github/workflows/ci.yml.
+
+[tasks.build]
+description = "Build the domain computer (crates/ workspace)."
+run = "cargo build --workspace --manifest-path crates/Cargo.toml"
+
+[tasks.test]
+description = "Run domain computer tests."
+run = "cargo test --workspace --manifest-path crates/Cargo.toml"
+
+[tasks.lint]
+description = "Clippy across the domain computer."
+run = "cargo clippy --workspace --all-targets --manifest-path crates/Cargo.toml -- -D warnings"
+
+[tasks.fmt]
+description = "Format domain computer Rust code."
+run = "cargo fmt --all --manifest-path crates/Cargo.toml"
+
+# ── ci ────────────────────────────────────────────────────────────────────
+# The local equivalent of what .github/workflows/ci.yml runs. `graph-check`
+# comes from mise.yidam.toml and works from the genesis commit onward, before
+# any crate exists.
+
+[tasks.ci]
+description = "Full local gate: corpus graph check, then the domain computer."
+run = [
+  "mise run graph-check",
+  "cargo fmt --all --manifest-path crates/Cargo.toml -- --check",
+  "cargo clippy --workspace --all-targets --manifest-path crates/Cargo.toml -- -D warnings",
+  "cargo test --workspace --manifest-path crates/Cargo.toml",
+]
