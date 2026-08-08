@@ -1,7 +1,7 @@
 # agents
 
 Domain-specific agent definitions. Generic agents inherited from yidam live in
-[`prelude/`](../prelude/); agents whose purpose is specific to this domain live here.
+[`.yidam/.vendor/prelude/`](../.yidam/.vendor/prelude/); agents whose purpose is specific to this domain live here.
 
 <!-- TEMPLATE
 List the named agents expected to operate in this domain, with a one-line description

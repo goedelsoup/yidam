@@ -7,6 +7,16 @@ the top-level layout of every derived repo — `agents/`, `catalog/`, `corpus/`,
 `docs/`, `packages/`, `sangha/`, `skills/`, `web/` — each seeded with a README carrying
 placeholder TEMPLATE comments and REGEN markers.
 
+Two subdirectories are not directory mirrors and install to a renamed path:
+
+| Sadhana path | Installs to | Why it exists |
+|---|---|---|
+| `root/` | repository root | The derived repo's own `README.md`, `AGENTS.md`, `mise.toml`, and `.claude/CLAUDE.md`. Yidam's copies of these describe *yidam* and must not survive genesis. |
+| `github/` | `.github/` | The derived repo's CI. Yidam's own workflow builds paths (`yidam/cli`, `yidam/tests/harness`) that the `vendor(yidam)` step removes, so inheriting it yields a build that compiles nothing. |
+
+`root/` and `github/` are spelled without a leading dot deliberately: `ls sadhana/` is a step
+in the bootstrap skill, and a dotfile directory would not appear in it.
+
 ## Purpose
 
 Where [samudaya](../samudaya/) provides domain influence, sadhana provides structural
@@ -33,6 +43,8 @@ Each subdirectory in `sadhana/` corresponds to a top-level directory in derived 
 | `sangha/` | Governance: sangha protocol, elector list, resolution records |
 | `skills/` | Domain-specific skills extending the prelude |
 | `web/` | Data export: web-facing JSON feeds, bundle contracts |
+| `root/` | Repository-root files: `README.md`, `AGENTS.md`, `mise.toml`, `.claude/CLAUDE.md` |
+| `github/` | `.github/` — the derived repo's CI workflow |
 
 Each README carries `<!-- TEMPLATE -->` comments guiding the bootstrap agent on what
 domain-specific text to write, and `<!-- REGEN: yidam <subcommand> -->` markers that

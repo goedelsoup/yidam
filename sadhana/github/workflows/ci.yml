@@ -1,0 +1,187 @@
+# CI for a yidam-derived repository.
+#
+# Installed to `.github/workflows/ci.yml` at genesis, replacing the yidam
+# template's own workflow. Yidam's CI builds yidam (its harness and CLI, at
+# `yidam/tests/harness` and `yidam/cli`); those paths do not survive the
+# `vendor(yidam)` step, so inheriting that workflow gives you a green build
+# that compiles nothing.
+#
+# What runs here instead:
+#
+#   corpus    — always. The graph gate works from the genesis commit onward,
+#               before a single crate exists. This is the job that matters on
+#               day one and it is the one a derived repo most often lacks.
+#   crates    — only once crates/Cargo.toml exists.
+#   packages  — only once packages/pyproject.toml exists.
+#   web       — only once web/package.json exists.
+#
+# The conditional jobs are not scaffolding for later: they are how this file
+# stays correct on the day the domain computer appears, without anyone
+# remembering to come back and wire it.
+#
+# Keep this hermetic. Connectors reach the network; CI must not. Commit the
+# fixtures a test reads, so a publisher's outage cannot turn the build red.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+    # Root-level prose only. NOT `**/*.md` — `.yidam/catalog/` is markdown and
+    # the corpus gate reads it, so a commit touching only catalog entries
+    # changes the gate's input. A gate whose input can change without the gate
+    # running is one commit away from being wrong.
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - 'LICENSE'
+  pull_request:
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - 'LICENSE'
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref. Never cancel main — keep its history
+# green and its failures attributable.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  detect:
+    name: detect layers
+    runs-on: ubuntu-latest
+    outputs:
+      crates: ${{ steps.check.outputs.crates }}
+      packages: ${{ steps.check.outputs.packages }}
+      web: ${{ steps.check.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          test -f crates/Cargo.toml     && echo "crates=true"   >> "$GITHUB_OUTPUT" || echo "crates=false"   >> "$GITHUB_OUTPUT"
+          test -f packages/pyproject.toml && echo "packages=true" >> "$GITHUB_OUTPUT" || echo "packages=false" >> "$GITHUB_OUTPUT"
+          test -f web/package.json      && echo "web=true"      >> "$GITHUB_OUTPUT" || echo "web=false"      >> "$GITHUB_OUTPUT"
+
+  corpus:
+    name: corpus (graph gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build the same yidam this repo was vendored from. `.yidam.toml` records the
+      # commit (see VERSIONING.md, Layer 1); pinning to it means the gate cannot
+      # drift from the prelude the corpus was written against. Re-pin with
+      # `mise run yidam-vendor-update`.
+      - name: Read the pinned yidam commit
+        id: pin
+        run: |
+          if [ ! -f .yidam.toml ]; then
+            echo "::error::.yidam.toml is missing — this repo has no recorded yidam provenance."
+            echo "::error::It was bootstrapped before the vendor step wrote one, or the file was deleted."
+            echo "::error::Recreate it with: mise run yidam-vendor-update"
+            exit 1
+          fi
+          commit=$(sed -n 's/^ *commit *= *"\(.*\)"/\1/p' .yidam.toml)
+          origin=$(sed -n 's/^ *origin *= *"\(.*\)"/\1/p' .yidam.toml)
+          if [ -z "$commit" ] || [ "$commit" = "unknown" ]; then
+            echo "::error::.yidam.toml records no resolvable commit (got '${commit:-empty}')."
+            echo "::error::Repair it with: mise run yidam-vendor-update"
+            exit 1
+          fi
+          # https:// so CI needs no deploy key; the repo is public.
+          origin=$(echo "$origin" | sed 's|^git@github.com:|https://github.com/|')
+          {
+            echo "source=$origin"
+            echo "commit=$commit"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # The light `reports` build — no protoc, no fastembed, no lancedb. The
+      # graph gate needs none of them, and the heavy feature set turns a
+      # 40-second job into a five-minute one.
+      - name: Install the yidam CLI (light build)
+        run: |
+          git clone --filter=blob:none --no-checkout "${{ steps.pin.outputs.source }}" /tmp/yidam
+          git -C /tmp/yidam checkout --quiet "${{ steps.pin.outputs.commit }}"
+          cargo install --path /tmp/yidam/yidam/cli --locked
+
+      - name: graph-check
+        run: yidam graph-check
+
+      - name: lint
+        run: yidam lint
+
+      # REGEN blocks are generated content. If a README's committed table no
+      # longer matches what the CLI produces, the index is stale and every
+      # reader of that README is reading a lie.
+      - name: REGEN blocks are current
+        run: |
+          yidam corpus-index
+          yidam catalog-audit
+          if ! git diff --quiet; then
+            echo "::error::REGEN blocks are stale. Run 'mise run regen' and commit the result."
+            git --no-pager diff --stat
+            exit 1
+          fi
+
+  crates:
+    name: crates (domain computer)
+    needs: detect
+    if: needs.detect.outputs.crates == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crates
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --workspace
+      # Doc links from a calculator to the corpus node that says what it is for
+      # are load-bearing, and they break silently.
+      - run: cargo doc --no-deps --workspace
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  packages:
+    name: packages
+    needs: detect
+    if: needs.detect.outputs.packages == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --all-extras
+      - run: uv run pytest
+
+  web:
+    name: web
+    needs: detect
+    if: needs.detect.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - run: npm ci
+      - run: npm run build --if-present
+      - run: npm test --if-present

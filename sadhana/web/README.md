@@ -3,7 +3,7 @@
 Web interface layer for this repository. Optional — add only when direct programmatic
 access to the domain computer is insufficient for the intended use.
 
-See [web conventions](../prelude/guidelines/directories.md#web) for what belongs here.
+See [web conventions](../.yidam/.vendor/prelude/guidelines/directories.md#web) for what belongs here.
 
 <!-- TEMPLATE
 Describe the intended web interface, if applicable:

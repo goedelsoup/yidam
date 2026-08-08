@@ -4,7 +4,7 @@ Rust crates implementing the domain computer — the retrieval, calculation, and
 engineering capabilities that agents use to work with the corpus without loading it
 wholesale into context.
 
-See [crates conventions](../prelude/guidelines/directories.md#crates) for the three
+See [crates conventions](../.yidam/.vendor/prelude/guidelines/directories.md#crates) for the three
 capability types (connectors, calculators, feature engineering) and the index layer.
 
 <!-- TEMPLATE
