@@ -1,0 +1,8 @@
+function = "is_recognized_verb"
+description = "extract: an operational verb is in the vocabulary"
+
+[input]
+verb = "extract"
+
+[expected]
+recognized = true

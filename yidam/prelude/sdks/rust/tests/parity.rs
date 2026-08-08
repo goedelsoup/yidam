@@ -151,6 +151,24 @@ fn parity_classify_commit() {
     }
 }
 
+// ── is_recognized_verb ────────────────────────────────────────────────────────
+
+#[test]
+fn parity_is_recognized_verb() {
+    let fixtures = load_fixtures("is_recognized_verb");
+    assert!(!fixtures.is_empty(), "no is_recognized_verb fixtures found");
+
+    for fx in &fixtures {
+        let verb = fx["input"]["verb"].as_str().unwrap();
+        let expected = fx["expected"]["recognized"].as_bool().unwrap();
+        assert_eq!(
+            git::is_recognized_verb(verb),
+            expected,
+            "is_recognized_verb({verb:?})"
+        );
+    }
+}
+
 // ── parse_markers ─────────────────────────────────────────────────────────────
 
 #[test]

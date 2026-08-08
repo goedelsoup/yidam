@@ -56,10 +56,11 @@ Three independently-versioned packages living under `prelude/sdks/`:
 Each package is tagged independently: `sdk/rust/v0.1.0`, `sdk/ts/v0.1.0`,
 `sdk/python/v0.1.0`.
 
-**Parity surface version.** The six parity functions (`parse_node`, `extract_claims`,
-`extract_links`, `classify_commit`, `parse_markers`, `update_regen`) are versioned
-jointly in `prelude/sdks/parity/VERSION`. A change to any parity function's contract
-requires:
+**Parity surface version.** The nine parity functions (`parse_node`, `extract_claims`,
+`extract_links`, `classify_commit`, `is_recognized_verb`, `parse_markers`, `update_regen`,
+`find_reachable`, `find_citations`) are versioned jointly in `prelude/sdks/parity/VERSION`.
+The authoritative list is the loop in the `parity-check` task in `mise.toml`, which fails
+if any of them has no fixture. A change to any parity function's contract requires:
 
 1. Bump `prelude/sdks/parity/VERSION`
 2. Update all three SDK implementations in the same PR

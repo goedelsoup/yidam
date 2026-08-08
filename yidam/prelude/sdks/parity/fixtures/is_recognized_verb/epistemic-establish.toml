@@ -1,0 +1,8 @@
+function = "is_recognized_verb"
+description = "establish: an epistemic verb is in the vocabulary"
+
+[input]
+verb = "establish"
+
+[expected]
+recognized = true

@@ -103,12 +103,40 @@ module YidamGraph {
   // ── classify_commit — totality ────────────────────────────────────────────────
 
   // Operational is the explicitly marked case; all other verbs are Epistemic.
+  // Mirrors the commit vocabulary in prelude/GRAPH.md and the OPERATIONAL_VERBS
+  // constant in each SDK. This set previously omitted "fix" and "regen", which all
+  // three implementations carried — the spec and the code disagreed.
   const OperationalVerbs: set<string> :=
-    {"extract", "refresh", "compute", "index", "bundle", "reconcile", "build"}
+    {"extract", "refresh", "compute", "index", "bundle", "reconcile", "regen",
+     "build", "implement", "scaffold", "catalog", "migrate", "fix", "vendor", "consume"}
+
+  // The other half of the closed vocabulary. ClassifyVerb does not consult it —
+  // Epistemic is the default, and that totality is what the lemmas below establish.
+  // It exists so a verb in neither set can be identified as outside the vocabulary.
+  const EpistemicVerbs: set<string> :=
+    {"establish", "revise", "assess", "synthesize", "withdraw", "open", "close",
+     "decide", "phase", "genesis", "overlay"}
 
   function ClassifyVerb(verb: string): CommitKind {
     if verb in OperationalVerbs then Operational else Epistemic
   }
+
+  // Vocabulary recognition — the predicate `yidam lint --commits` implements.
+  predicate Recognized(verb: string) {
+    verb in OperationalVerbs || verb in EpistemicVerbs
+  }
+
+  // The two halves do not overlap: no verb is both a knowledge event and pipeline work.
+  lemma VocabularyIsDisjoint()
+    ensures OperationalVerbs * EpistemicVerbs == {}
+  {}
+
+  // Recognition is strictly stronger than classification: every recognized verb still
+  // classifies, but classification alone says nothing about whether the verb is legible.
+  lemma RecognizedVerbsStillClassify(verb: string)
+    requires Recognized(verb)
+    ensures ClassifyVerb(verb) == Epistemic || ClassifyVerb(verb) == Operational
+  {}
 
   // Every verb maps to exactly one kind. No partial function; no panics.
   lemma ClassifyCommitTotal(verb: string)

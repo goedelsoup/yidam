@@ -46,9 +46,29 @@ Untagged inference is the problem the tags exist to prevent.
 
 ## The gate
 
-`mise run graph-check` and `yidam lint` are what CI runs. A commit that breaks an edge,
-orphans a node, or leaves a REGEN block stale will fail there. Run them before committing
-rather than after.
+`mise run graph-check` and `mise run graph-lint` are what CI runs. A commit that breaks an
+edge, orphans a node, or leaves a REGEN block stale will fail there. Run them before
+committing rather than after.
+
+`yidam lint` gates against `.yidam/lint-baseline.yml`, not against zero. It asks whether
+*this change* made the corpus less clean, because a gate that fails on inherited debt gets
+switched off and stays off. Two things fail it: an error-severity violation that is not in
+the baseline, and a baseline entry that no longer occurs. The second is not a bug — a
+baseline permitted to be wrong drifts, and one that over-lists silently re-permits whatever
+it over-lists. Fix the corpus, then `mise run graph-lint-bless` and commit the diff.
+
+`mise run graph-lint-explain` prints each check's rationale. Read it before deciding a
+check is wrong.
+
+## Validation while you type
+
+```
+mise run schema           # emit .yidam/schemas/*.json
+yidam schema --settings   # the editor mapping to paste into .vscode/settings.json
+```
+
+Read by `yaml-language-server` (the Red Hat YAML extension in VS Code; available to Neovim
+and Helix over LSP). Editors using none of these still get the check from `yidam lint`.
 
 <!-- TEMPLATE
 If this domain adds gates of its own — a corpus audit, a series reconciliation, a fixture

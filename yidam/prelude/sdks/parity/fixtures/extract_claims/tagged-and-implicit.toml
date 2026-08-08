@@ -4,7 +4,7 @@ description = "Four evidence tags: Verified, Inference, Open, and implicit (no t
 [input]
 content = """
 Treatment effect is non-zero under standard assumptions. [verified]
-The effect may persist after conditioning on Z. [inferred]
+The effect may persist after conditioning on Z. [inference]
 Whether unconfoundedness holds in practice remains unclear. [open]
 Structural assumptions are required throughout.
 """

@@ -110,14 +110,29 @@ enum Command {
         #[arg(long)]
         mcp: bool,
     },
-    /// Run corpus quality checks
+    /// Run corpus quality checks against the baseline ratchet
     Lint {
-        /// Report issues but always exit 0
+        /// Report findings but always exit 0
         #[arg(long)]
         warn: bool,
-        /// Include suggested fixes in output (implies --warn)
+        /// Print each check's rationale alongside its findings
         #[arg(long)]
-        suggest: bool,
+        explain: bool,
+        /// Also check the git log against the commit vocabulary in GRAPH.md
+        #[arg(long)]
+        commits: bool,
+        /// Restrict --commits to a revision range (e.g. main..HEAD)
+        #[arg(long, value_name = "RANGE", requires = "commits")]
+        range: Option<String>,
+        /// Rewrite .yidam/lint-baseline.yml from this run instead of gating on it
+        #[arg(long)]
+        bless: bool,
+    },
+    /// Emit JSON Schema for the corpus shapes into .yidam/schemas/
+    Schema {
+        /// Print the editor `yaml.schemas` mapping instead of writing schema files
+        #[arg(long)]
+        settings: bool,
     },
     /// Inspect and validate samudaya/ seed files
     #[command(name = "samudaya-audit")]
@@ -216,7 +231,20 @@ fn main() -> Result<()> {
                 )
             }
         }
-        Command::Lint { warn, suggest } => yidam::lint(warn, suggest),
+        Command::Lint {
+            warn,
+            explain,
+            commits,
+            range,
+            bless,
+        } => yidam::lint(yidam::LintOptions {
+            warn_only: warn,
+            explain,
+            commits,
+            range,
+            bless,
+        }),
+        Command::Schema { settings } => yidam::schema(settings),
         Command::SamudayaAudit => yidam::samudaya_audit(),
         #[cfg(feature = "tonpa")]
         Command::Tonpa { sub } => block_on(yidam::tonpa::run(sub)),

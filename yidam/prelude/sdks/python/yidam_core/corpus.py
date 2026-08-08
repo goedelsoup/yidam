@@ -76,8 +76,8 @@ def extract_claims(text: str) -> list[Claim]:
             continue
         if line.endswith(" [verified]"):
             claims.append(Claim(text=line[: -len(" [verified]")], tag=EvidenceTag.Verified))
-        elif line.endswith(" [inferred]"):
-            claims.append(Claim(text=line[: -len(" [inferred]")], tag=EvidenceTag.Inference))
+        elif line.endswith(" [inference]"):
+            claims.append(Claim(text=line[: -len(" [inference]")], tag=EvidenceTag.Inference))
         elif line.endswith(" [open]"):
             claims.append(Claim(text=line[: -len(" [open]")], tag=EvidenceTag.Open))
         elif not _contains_md_link(line):

@@ -3,7 +3,43 @@
 pub struct Frontmatter {
     pub name: Option<String>,
     pub description: Option<String>,
+    /// Catalog entries only. What kind of source this is — paper, dataset, api, database.
+    #[serde(default)]
+    pub r#type: Option<String>,
+    /// Catalog entries only. Whether the source has actually been retrieved.
+    ///
+    /// Absent means yes. `obtained: false` declares an entry registered ahead of the
+    /// extraction that will use it, which is the honest reason for a source nothing cites
+    /// yet — and it is checkable, because citing a source nobody has fetched is a defect
+    /// either way (see `catalog-unobtained-but-cited`).
+    #[serde(default)]
+    pub obtained: Option<bool>,
+    /// Catalog entries only. Where the source can be reached.
+    #[serde(default)]
+    pub location: Option<Vec<CatalogLocation>>,
+    /// Catalog entries only. Corpus nodes known to draw on this source.
+    ///
+    /// Hand-maintained, and therefore able to drift from the edges — which are
+    /// authoritative. Both are kept so the disagreement is visible rather than averaged
+    /// away; see `catalog-used-by-drift`.
+    #[serde(default, rename = "used-by")]
+    pub used_by: Option<Vec<String>>,
 }
+
+/// One typed place a catalog source can be reached.
+#[derive(serde::Deserialize, Default, Clone)]
+pub struct CatalogLocation {
+    /// `url`, `url_template`, `address`, or `file`. The type decides how a reader (or the
+    /// web export) should treat the value, so a value contradicting its type renders wrong.
+    pub kind: Option<String>,
+    pub value: Option<String>,
+    /// Distinguishes several locations on one entry. Optional when there is only one.
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+/// The location kinds a catalog entry may declare.
+pub const CATALOG_LOCATION_KINDS: &[&str] = &["url", "url_template", "address", "file"];
 
 pub fn parse_frontmatter(text: &str) -> Frontmatter {
     let body = text.trim_start();

@@ -1,0 +1,14 @@
+function = "is_recognized_verb"
+description = "viewport: an invented one-off verb is outside the vocabulary"
+
+# Drawn from a real derived repository, which ran ~60 distinct leading words across
+# 100 commits. Each was evocative; collectively they made the epistemic/operational
+# split unrecoverable. classify_commit still returns Epistemic for this input — that
+# is the default, not a judgement — which is exactly why recognition is a separate
+# question.
+
+[input]
+verb = "viewport"
+
+[expected]
+recognized = false

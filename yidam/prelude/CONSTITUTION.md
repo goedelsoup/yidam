@@ -1,5 +1,13 @@
 # Constitution of the Sangha
 
+> **Scope.** This document governs *collective resolution* — the reconciliation of positions
+> held by several electors. A repository bootstrapped as `governance: single-elector` has no
+> sangha, no `ma/*` branches, and no resolution events, and this constitution is dormant in
+> it: vendored with the rest of the prelude, binding on nothing, waiting for a second elector.
+> Nothing here is a prerequisite for maintaining a corpus. If you are the only one holding
+> positions in this repository, the articles below describe a mechanism you do not need —
+> read [PHASES.md](PHASES.md) for how inquiry is bounded instead.
+
 The prelude establishes how knowledge is maintained; this document establishes how the
 sangha — the collective of participants who maintain it — governs itself. Every resolution
 event is bound by these articles. Domain-specific procedure may vary; these constraints

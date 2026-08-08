@@ -13,12 +13,15 @@ pub(crate) fn render_corpus_index(root: &Path, corpus: &Path) -> String {
     if instances.is_empty() {
         return "_No corpus instances yet._".to_string();
     }
+    // `Claims` is verified / inference / open. It tells a reader how much of a node is
+    // measured against how much is supposed, without opening the file.
     let mut rows = vec![
-        "| Instance | Class | Label | Links out | Lines |".to_string(),
-        "|---|---|---|---|---|".to_string(),
+        "| Instance | Class | Label | Links out | Claims | Lines |".to_string(),
+        "|---|---|---|---|---|---|".to_string(),
     ];
     for path in &instances {
         let text = std::fs::read_to_string(path).unwrap_or_default();
+        let claims = crate::claims::count_in_source(&text).cell();
         let inst: CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
         let class = inst.class.unwrap_or_else(|| "—".to_string());
         let label = inst.label.unwrap_or_else(|| "—".to_string());
@@ -27,7 +30,7 @@ pub(crate) fn render_corpus_index(root: &Path, corpus: &Path) -> String {
         let rel = path.strip_prefix(root).unwrap_or(path);
         let filename = path.file_name().unwrap_or_default().to_string_lossy();
         rows.push(format!(
-            "| [{filename}]({}) | {class} | {label} | {links} | {lines} |",
+            "| [{filename}]({}) | {class} | {label} | {links} | {claims} | {lines} |",
             rel.display()
         ));
     }

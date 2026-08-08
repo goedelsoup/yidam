@@ -71,7 +71,11 @@ jobs:
     name: corpus (graph gate)
     runs-on: ubuntu-latest
     steps:
+      # Full history: the commit-vocabulary check needs origin/main to resolve a range
+      # against, and a depth-1 checkout does not have it.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # Build the same yidam this repo was vendored from. `.yidam.toml` records the
       # commit (see VERSIONING.md, Layer 1); pinning to it means the gate cannot
@@ -114,8 +118,16 @@ jobs:
       - name: graph-check
         run: yidam graph-check
 
+      # Gates against .yidam/lint-baseline.yml, not against zero. The question is
+      # whether this change made the corpus less clean — inherited debt is enumerable
+      # and listed; new debt is not. `yidam lint --bless` updates the baseline.
+      #
+      # --commits adds the vocabulary check over the commits under review. It is Warn
+      # severity, so it reports and never gates: history cannot be rewritten to fix a
+      # verb, and a check that fails on the past wedges every existing repo shut. The
+      # range keeps it to this change rather than re-reporting the whole log each run.
       - name: lint
-        run: yidam lint
+        run: yidam lint --commits --range origin/main..HEAD
 
       # REGEN blocks are generated content. If a README's committed table no
       # longer matches what the CLI produces, the index is stale and every

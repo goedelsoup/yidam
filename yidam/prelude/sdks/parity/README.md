@@ -1,6 +1,6 @@
 # Parity
 
-Cross-language fixture suite for the eight parity functions all three SDKs must implement
+Cross-language fixture suite for the nine parity functions all three SDKs must implement
 identically. Adding a new function to the parity surface without a fixture in this directory
 is a build error — `mise run parity` enforces it before running any SDK tests.
 
@@ -63,7 +63,7 @@ kebab-case names that describe what the case exercises, not what it expects.
 
 ## The embed_config fixtures
 
-`fixtures/embed_config/` is not part of the eight-function parity surface above. It holds
+`fixtures/embed_config/` is not part of the nine-function parity surface above. It holds
 the **embedding reproducibility contract**: the same sentence must embed to matching vectors
 across fastembed (Rust), transformers.js (TypeScript), and sentence-transformers (Python),
 so that every consumer of `embed.config.json` retrieves against the same vector space.

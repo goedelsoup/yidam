@@ -79,6 +79,16 @@ def test_parity_classify_commit():
         assert event.subject == exp["subject"], "subject"
 
 
+def test_parity_is_recognized_verb():
+    fixtures = load_fixtures("is_recognized_verb")
+    assert fixtures, "no is_recognized_verb fixtures"
+    for fx in fixtures:
+        verb = fx["input"]["verb"]
+        assert git.is_recognized_verb(verb) is fx["expected"]["recognized"], (
+            f"is_recognized_verb({verb!r})"
+        )
+
+
 def test_parity_parse_markers():
     fixtures = load_fixtures("parse_markers")
     assert fixtures, "no parse_markers fixtures"

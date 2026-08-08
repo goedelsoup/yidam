@@ -5,19 +5,27 @@ Guidelines for what belongs in each directory of a yidam-derived repository.
 After bootstrap, a derived repository has two tiers:
 
 **Top-level** — domain work visible to collaborators and tooling:
-- `agents/` — domain agent definitions
 - `crates/` — Rust domain computer (connectors, calculators, index)
-- `docs/` — repository documentation
-- `packages/` — other-language packages in the same toolkit layer
 - `web/` — optional web interface
+- `agents/` — domain agent definitions *(created on first use)*
+- `docs/` — repository documentation *(created on first use)*
+- `packages/` — other-language packages in the same toolkit layer *(created on first use)*
 
 **`.yidam/`** — yidam-managed infrastructure:
 - `.yidam/catalog/` — provenance anchors for corpus knowledge
 - `.yidam/corpus/` — the living knowledge graph
 - `.yidam/decisions/` — structured records of choices made during this repo's life
-- `.yidam/sangha/` — collective resolution protocol
 - `.yidam/skills/` — domain-specific skills
 - `.yidam/.vendor/` — inherited yidam prelude; not modified in derived repos
+- `.yidam/sangha/` — collective resolution protocol *(collective governance only)*
+
+**Created on first use.** Bootstrap does not scaffold `agents/`, `docs/`, or `packages/`.
+An empty directory holding only a README that describes what it would contain is
+indistinguishable from an abandoned one — and it stays empty: across the two repositories
+derived from this template, `agents/` and `packages/` never received a single file and
+`docs/` received exactly one. Create each the day something goes in it. The conventions
+below say what belongs where when that day comes; the `yidam` CLI treats all three as
+optional and its index commands are no-ops when the directory is absent.
 
 ---
 
@@ -122,9 +130,35 @@ describes the source, not the knowledge derived from it.
 
 - Filename is a stable identifier for the source: author-year for papers (`pearl-2009.md`),
   slug for datasets and APIs (`world-bank-gdp.md`, `openai-embeddings-api.md`)
-- Content: source name, type, location or access method, a one-sentence description of what
-  it contains, and any access constraints
-- Optional: a `used-by` list of corpus node links — makes reverse traversal explicit
+- Frontmatter carries the structured fields; the body carries prose about the source
+
+```yaml
+---
+name: Pearl 2009
+description: Causality — models, reasoning, inference.
+type: paper                  # paper | dataset | api | database | other
+obtained: true               # absent means true; see below
+location:
+  - kind: url                # url | url_template | address | file
+    value: https://example.org/pearl-2009
+    description: publisher's copy   # required only when there are several locations
+used-by:
+  - ../corpus/concept/confounding.yml
+---
+```
+
+- **`obtained: false`** declares a source registered ahead of the extraction that will use
+  it. It exempts the entry from `catalog-uncited` — which is the honest reason for a source
+  nothing draws on yet. The exemption costs something: a node citing a source nobody has
+  retrieved is an error (`catalog-unobtained-but-cited`), because either the flag is stale
+  or the citation rests on something unread.
+- **`used-by`** is optional and hand-maintained, so it can drift; the citations cannot.
+  Both are kept so the disagreement is visible rather than averaged away
+  (`catalog-used-by-drift`). Declaring a list asserts it is current.
+
+Run `yidam schema` to emit JSON Schema for this shape (and for corpus nodes and class
+definitions) into `.yidam/schemas/`, then `yidam schema --settings` for the editor mapping
+that validates them as you type.
 
 **Relationship to `.yidam/corpus/`:** Corpus nodes link to catalog nodes as edges. A corpus
 node on a concept that draws on a source writes `[Pearl 2009](../../catalog/pearl-2009.md)`
@@ -196,7 +230,12 @@ when a decision is superseded, but a new decision may reference a prior one by `
 
 ---
 
-## `.yidam/sangha/`
+## `.yidam/sangha/` (collective governance only)
+
+Present only in repositories bootstrapped as `governance: collective`. A single-elector
+repository does not have this directory and does not need it — see
+[CONSTITUTION.md](../CONSTITUTION.md) for what it would govern, and adopt it by scaffolding
+this directory if a second elector ever appears.
 
 The collective resolution protocol. Encodes how multiple participants (agents and humans)
 maintain individual positions and synthesize them into shared understanding.

@@ -27,6 +27,15 @@ pub fn status() -> Result<()> {
         })
         .count();
 
+    // How much of the corpus is measured against how much is supposed. This is the
+    // template's most-adopted convention by a wide margin and nothing reported on it.
+    let mut claims = crate::claims::ClaimCounts::default();
+    for p in &instances {
+        claims.add(crate::claims::count_in_source(
+            &std::fs::read_to_string(p).unwrap_or_default(),
+        ));
+    }
+
     let catalog_entries = walk_md_files(&catalog).len();
 
     let index_path = root.join(".yidam").join("index");
@@ -41,7 +50,8 @@ pub fn status() -> Result<()> {
 
     let content = format!(
         "**{node_count} nodes** · {open_count} open · {catalog_entries} sources · \
-         index {index_freshness} · {phases} active phase(s) · genesis {genesis}"
+         claims {} · index {index_freshness} · {phases} active phase(s) · genesis {genesis}",
+        claims.cell()
     );
 
     println!("{content}");

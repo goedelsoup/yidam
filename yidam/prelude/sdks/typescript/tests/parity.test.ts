@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { parse } from 'smol-toml'
 import { describe, it, expect } from 'vitest'
 import { parseNode, extractClaims, extractLinks } from '../src/corpus.ts'
-import { classifyCommit } from '../src/git.ts'
+import { classifyCommit, isRecognizedVerb } from '../src/git.ts'
 import { parseMarkers, updateRegen } from '../src/markers.ts'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -109,6 +109,21 @@ describe('parity: classify_commit', () => {
       expect(event.kind).toBe(exp['kind'])
       expect(event.verb).toBe(exp['verb'])
       expect(event.subject).toBe(exp['subject'])
+    })
+  }
+})
+
+// ── is_recognized_verb ────────────────────────────────────────────────────────
+
+describe('parity: is_recognized_verb', () => {
+  const fixtures = loadFixtures('is_recognized_verb')
+  it('has fixtures', () => expect(fixtures.length).toBeGreaterThan(0))
+
+  for (const fx of fixtures) {
+    const inp = fx['input'] as Record<string, string>
+    const exp = fx['expected'] as Record<string, boolean>
+    it(fx['description'] as string, () => {
+      expect(isRecognizedVerb(inp['verb'])).toBe(exp['recognized'])
     })
   }
 })
