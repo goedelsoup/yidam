@@ -1,0 +1,8 @@
+function = "is_recognized_verb"
+description = "a subject line with no 'verb: ' prefix yields an empty verb, which is not in the vocabulary"
+
+[input]
+verb = ""
+
+[expected]
+recognized = false

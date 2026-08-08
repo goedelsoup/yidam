@@ -1,0 +1,8 @@
+function = "is_recognized_verb"
+description = "consume: bootstrap housekeeping is operational, not a knowledge event"
+
+[input]
+verb = "consume"
+
+[expected]
+recognized = true
