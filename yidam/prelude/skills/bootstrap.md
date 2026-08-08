@@ -66,7 +66,7 @@ Samudaya does not replace the dialogue. It seeds it.
 
 ### 1. Internalize the prelude
 
-Read these eight files — and **only** these eight files, in this exact order, using their
+Read these seven files — and **only** these seven files, in this exact order, using their
 exact paths. Do **not** run `ls`, `find`, or any directory enumeration of `yidam/prelude/`
 at any point during bootstrapping. Do not read any other file in `yidam/prelude/` (including
 `SCRIPTURE.md` or any file surfaced by enumeration). Do not read
@@ -76,13 +76,16 @@ file to internalize here.
 1. `yidam/prelude/IDENTITY.md` — what kind of knowledge artifact this repo is
 2. `yidam/prelude/GRAPH.md` — the graph model: nodes, edges, commit types, branch semantics
 3. `yidam/prelude/CONSTITUTION.md` — the governance rules that constrain what you may do
-4. `yidam/prelude/HARNESS.md` — how scenarios and the judge rubric work
-5. `yidam/prelude/PHASES.md` — the named phases of inquiry
-6. `yidam/prelude/guidelines/agent-conduct.md` — specific conduct norms
-7. `yidam/prelude/guidelines/directories.md` — where things live and what belongs in each
-8. `yidam/prelude/skills/judge.md` — the judge's criteria; internalize so the genesis commit passes
+4. `yidam/prelude/PHASES.md` — the named phases of inquiry
+5. `yidam/prelude/guidelines/agent-conduct.md` — specific conduct norms
+6. `yidam/prelude/guidelines/directories.md` — where things live and what belongs in each
+7. `yidam/prelude/skills/judge.md` — the judge's criteria; internalize so the genesis commit passes
 
-After reading all eight, output the synthesis as a **standalone message** — do not append
+`yidam/tests/HARNESS.md` is deliberately absent from this list. It documents how the yidam
+template tests itself; it is not prelude, it is not vendored into the derived repo, and
+reading it teaches you nothing about the repository you are bootstrapping.
+
+After reading all seven, output the synthesis as a **standalone message** — do not append
 questions or any other content to it. Wait for the user to acknowledge before opening the
 Step 2 dialogue. This gives the user the opportunity to correct any misread before questions
 begin.
@@ -221,6 +224,8 @@ Then read each template file in `sadhana/`:
 - `sadhana/sangha/README.md` (and PROTOCOL.md, electors.md, resolutions/ if present)
 - `sadhana/skills/README.md`
 - `sadhana/web/README.md`
+- `sadhana/root/README.md`, `sadhana/root/AGENTS.md`, `sadhana/root/CLAUDE.md`, `sadhana/root/mise.toml`
+- `sadhana/github/workflows/ci.yml`
 
 **Then create the derived-repo structure:**
 
@@ -241,6 +246,23 @@ web/README.md
 .yidam/sangha/             ← all files from sadhana/sangha/
 .yidam/skills/README.md
 ```
+
+Repository-root files. `sadhana/root/` and `sadhana/github/` are not directory mirrors —
+each file installs to a specific path, **overwriting yidam's own copy**:
+
+```
+sadhana/root/README.md            → README.md            (overwrites yidam's)
+sadhana/root/AGENTS.md            → AGENTS.md            (overwrites yidam's)
+sadhana/root/CLAUDE.md            → .claude/CLAUDE.md    (overwrites yidam's)
+sadhana/root/mise.toml            → mise.toml            (overwrites yidam's)
+sadhana/github/workflows/ci.yml   → .github/workflows/ci.yml  (overwrites yidam's)
+```
+
+Yidam's copies of these five files describe yidam — its harness, its CLI workspace, its
+bootstrap-mode entry check. Left in place they are wrong the moment genesis is written, and
+yidam's `ci.yml` is worse than wrong: it builds `yidam/cli` and `yidam/tests/harness`, paths
+that step 8 removes, so it goes green having compiled nothing. Overwrite all five now. Do not
+merge yidam's content into them.
 
 Each README may contain a `<!-- TEMPLATE -->` comment block marking fields that need
 domain-specific content. Fill every such block now, before proceeding. These are the only
@@ -494,20 +516,66 @@ git commit --allow-empty -m "consume(sadhana): scaffold template consumed; deriv
 ```
 
 **Vendor the prelude** — immediately after consuming sadhana, move the inherited prelude
-from the top-level `yidam/` into the `.yidam/` infrastructure namespace. Skip if `yidam/`
-does not exist (typical in existing-repo mode; the vendor step only applies when bootstrapping
-from the yidam template).
+into the `.yidam/` infrastructure namespace and delete the rest of the template. Skip if
+`yidam/` does not exist (typical in existing-repo mode; the vendor step only applies when
+bootstrapping from the yidam template).
 
-Because `yidam/` was not staged in the genesis commit (it is untracked), use the filesystem
-move and stage the result directly:
+**Vendor exactly one directory.** `yidam/prelude/` is what a derived repo inherits. Everything
+else under `yidam/` is yidam's own machinery — the CLI source, the bootstrap test harness, the
+design notes, the docs site — and none of it is readable, runnable, or updatable from inside a
+derived repo. Carrying it produces a stale fork of the CLI that will never be rebuilt and a
+`HARNESS.md` whose links point at scenarios the repo does not have.
+
+Because `yidam/` was not staged in the genesis commit (it is untracked), use filesystem
+operations and stage the result directly:
 
 ```
-mv yidam/ .yidam/.vendor/
-git add .yidam/.vendor/
-git commit -m "vendor(yidam): move inherited prelude into .yidam/.vendor/"
+mkdir -p .yidam/.vendor
+mv yidam/prelude .yidam/.vendor/prelude
+rm -rf yidam/
 ```
 
-Do not ask the user to run this manually — the vendor step is part of the bootstrap
+**Then delete the template's own top-level files.** These describe yidam, not this repository.
+`README.md`, `AGENTS.md`, `.claude/CLAUDE.md`, `mise.toml`, and `.github/workflows/ci.yml` were
+already overwritten in step 3; what remains is:
+
+```
+rm -f BOOTSTRAP.md VERSIONING.md
+```
+
+`BOOTSTRAP.md` is the entry prompt for a repo that has not been bootstrapped — this one now
+has. `VERSIONING.md` documents how yidam releases its own three layers. Keep `LICENSE`,
+`.gitignore`, `.gitattributes`, and `mise.yidam.toml`: the first three are generic and the
+last is the inherited task layer that `mise.toml` extends.
+
+**Confirm the provenance pin.** `.yidam.toml` records which yidam this repo came from; `yidam
+clone` and `yidam overlay` write it. Check that it exists and carries a real commit:
+
+```
+cat .yidam.toml
+```
+
+If the file is missing — the template was copied by hand rather than by `yidam clone` — write
+it now, with `commit = "unknown"` if the source SHA is genuinely unavailable. Do not guess a
+commit. An honest `unknown` can be repaired by hand; a wrong SHA silently upgrades the repo
+against the wrong baseline.
+
+```toml
+[yidam]
+origin    = "git@github.com:goedelsoup/yidam.git"
+commit    = "<40-char sha, or unknown>"
+template  = "untagged"
+committed = "<YYYY-MM-DD — the date of that commit>"
+```
+
+Then commit the whole vendor step as one event:
+
+```
+git add -A
+git commit -m "vendor(yidam): prelude into .yidam/.vendor/; template files removed"
+```
+
+Do not ask the user to run any of this manually — the vendor step is part of the bootstrap
 protocol and must complete before step 9.
 
 ### 9. Report

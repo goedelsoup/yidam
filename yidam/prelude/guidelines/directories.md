@@ -223,16 +223,69 @@ skills that require knowledge of this domain's corpus or toolkit live here.
 
 ## `.yidam/.vendor/`
 
-The inherited yidam prelude — prelude files, tools, and tests carried in from the template
-and vendored into the derived repo during bootstrap.
+The inherited yidam prelude, moved here by the `vendor(yidam)` commit during bootstrap.
 
-**What belongs here:** The full `yidam/` directory tree as it existed at bootstrap time,
-moved here by the `vendor(yidam)` commit. Content is read-only for agents and contributors
-in the derived repo; updates happen by re-running the vendor step against a newer yidam
-release. Do not modify files under `.yidam/.vendor/` in the course of domain work.
+**What belongs here:** `prelude/` and nothing else. The vendor step moves `yidam/prelude/`
+to `.yidam/.vendor/prelude/` and deletes the rest of the template.
+
+**What deliberately does not belong here:** yidam's CLI source, its bootstrap test harness,
+its design notes, and its docs site. None of them are readable, runnable, or updatable from
+inside a derived repo. A vendored copy of the CLI is a fork that will never be rebuilt — the
+`yidam` binary is installed from the pinned origin (`mise run yidam-build`), not compiled
+from a snapshot. A vendored copy of the harness brings `HARNESS.md`, whose links point at
+scenario files the derived repo does not have.
+
+**Read-only.** Do not modify anything under `.yidam/.vendor/` in the course of domain work.
+An edit here is silently discarded the next time the prelude is re-vendored, and until then
+it is a local divergence nobody can see. A defect in the prelude is fixed upstream in yidam
+and adopted by re-vendoring.
 
 **Note:** Paths to inherited skills and agents use `.yidam/.vendor/prelude/` — for example,
 the bootstrap skill lives at `.yidam/.vendor/prelude/skills/bootstrap.md` after genesis.
+
+---
+
+## `.yidam.toml` (repository root)
+
+The provenance pin: which yidam this repository was derived from. Written by `yidam clone`
+or `yidam overlay`, confirmed by the bootstrap vendor step, and updated by
+`mise run yidam-vendor-update`.
+
+```toml
+[yidam]
+origin    = "git@github.com:goedelsoup/yidam.git"
+commit    = "4f2a…"      # the resolvable pin — what re-vendor and CI check out
+template  = "v0.1.0"     # release tag at that commit, or "untagged"
+committed = "2026-08-08" # that commit's date — how old this prelude is
+```
+
+`commit` is the field that does the work. `template` is a semantic version and is only
+meaningful once the origin is tagged; a pin that records a version but no commit points at
+nothing. `committed` is the *upstream* commit's date, not the date this repo last ran the
+vendor step — it answers how old the prelude is, which is what staleness turns on. See
+[VERSIONING.md](https://github.com/goedelsoup/yidam/blob/main/VERSIONING.md) for the three
+release layers.
+
+**Re-vendoring.** The prelude is not frozen at the repository's birth. Corrections made
+upstream reach a derived repo when it re-vendors:
+
+```
+mise run yidam-vendor-status    # what you are pinned to, and what is newer
+mise run yidam-vendor-update    # fetch, replace prelude/, re-pin .yidam.toml
+```
+
+The update replaces `.yidam/.vendor/prelude/` wholesale and rewrites `.yidam.toml`. It
+touches nothing else — `corpus/`, `catalog/`, `decisions/`, `skills/`, `crates/`, and every
+top-level file are domain-owned and are never overwritten by an update. Review the resulting
+diff and commit it as its own event:
+
+```
+git commit -m "vendor(yidam): re-vendor prelude at <commit> — <what changed>"
+```
+
+Re-vendor deliberately, not reflexively. A prelude change can alter what the graph gate
+accepts; adopting one is a decision worth its own commit and, if it changes conventions the
+corpus depends on, its own record in `.yidam/decisions/`.
 
 ---
 
