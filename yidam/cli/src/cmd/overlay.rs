@@ -113,7 +113,8 @@ pub fn overlay(target: &Path, backfill: bool, backfill_ref: Option<&str>) -> Res
     println!("yidam infrastructure overlaid on {}", target.display());
     println!();
     println!("Next steps:");
-    println!("  1. Add to your mise.toml:  extends = [\"mise.yidam.toml\"]");
+    println!("  1. Add to your mise.toml:  [task_config]");
+    println!("                             includes = [\"mise.yidam.toml\"]");
     println!("  2. Open {} in your IDE", target.display());
     println!("  3. The agent will read BOOTSTRAP.md and enter existing-repo mode");
 
