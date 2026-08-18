@@ -28,8 +28,8 @@ export const OPERATIONAL_VERBS = new Set([
  * entirely; see `isRecognizedVerb`.
  */
 export const EPISTEMIC_VERBS = new Set([
-  'establish', 'revise', 'assess', 'synthesize', 'withdraw', 'open', 'close',
-  'decide', 'phase', 'genesis', 'overlay',
+  'establish', 'revise', 'assess', 'scope', 'synthesize', 'withdraw', 'open', 'close',
+  'resolve', 'adopt', 'decide', 'phase', 'genesis', 'overlay',
 ])
 
 /**

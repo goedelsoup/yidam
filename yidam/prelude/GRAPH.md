@@ -76,6 +76,12 @@ by a **closed vocabulary of leading verbs**.
 Every commit's subject line begins `<verb>: `. The verb determines the commit's type. This
 list is closed: `yidam lint --commits` reports any verb outside it.
 
+**The verb stands alone — no conventional-commits `(scope)` suffix.** Everything before the
+first `: ` is the verb, so `vendor(yidam): …` is read as the verb `vendor(yidam)`, which is
+in no list. That costs twice: the lint reports it as outside the vocabulary, and
+classification falls through to Epistemic, silently filing an operational commit as a change
+in understanding. Put the scope in the subject instead — `vendor: yidam prelude into …`.
+
 **Epistemic** — understanding was added, revised, or retracted:
 
 | Verb | When |
@@ -83,14 +89,33 @@ list is closed: `yidam lint --commits` reports any verb outside it.
 | `establish` | New understanding committed — a node authored |
 | `revise` | Committed understanding corrected |
 | `assess` | Hypotheses weighed against evidence (an Assessment phase) |
+| `scope` | A sweep widened or bounded — names what the wider net caught |
 | `synthesize` | Nodes linked or merged across inquiry threads (a Synthesis phase) |
 | `withdraw` | A claim retracted — say what replaces it, or that nothing does |
 | `open` | A question opened |
 | `close` | A question resolved |
+| `resolve` | A resolution event settled — *collective mode only* |
+| `adopt` | A settled baseline taken into an elector's position — *collective mode only* |
 | `decide` | A choice recorded in `.yidam/decisions/` |
 | `phase` | A phase settled — names the phase and what it produced |
 | `genesis` | The root commit of an empty-repo bootstrap |
 | `overlay` | The root graph commit of an existing-repo bootstrap |
+
+`scope` is the verb for the act that precedes a finding: the search was widened from one
+instrument to every instrument on the thread, from one member to the whole commission, and
+the commit reports what the wider net caught. It is distinct from `establish`, which authors
+a node, and from `assess`, which weighs hypotheses already held. A sweep that finds nothing
+is still a `scope` commit and still worth writing — a negative result about coverage is the
+only durable record that the coverage was checked.
+
+`resolve` and `adopt` are the two acts of collective mode, and until a derived repository
+needed them the vocabulary had neither: the constitution makes resolution events
+first-class and this document gives them a ref namespace, but nothing named the commit that
+performs one. `resolve` produces the `rigpa/<evolution>` tip. `adopt` is each elector taking
+that settled baseline back into their own `ma/<elector>` position afterwards — the routine
+follow-on, which happens once per elector per resolution and is the single most repeated act
+in a collective repository. Neither is `consume`, which means one thing only: a transient
+bootstrap layer consumed at genesis.
 
 **Operational** — the pipeline advanced; no understanding changed:
 
@@ -121,6 +146,20 @@ A verb outside this list is not a richer description, it is an unclassifiable on
 Reach for the closest verb rather than inventing one. If a commit genuinely does not fit —
 that is a gap in the vocabulary, which is an yidam-level change, not a local one.
 
+**Merge commits.** A merge whose subject git wrote — `Merge branch 'phase/outcome-axis'` —
+is exempt: nobody chose that verb, so nothing can be said about the choice. But a merge *is*
+a synthesis event, and git's default subject says only which ref was read, not what joining
+it meant. Prefer to write one:
+
+```
+git merge --no-ff -m "phase: the local half — 11 nodes, two questions closed" phase/the-local-half
+```
+
+A merge subject that carries a verb is checked like any other commit. Exemption is detected
+by parent count rather than by subject text, so every form git generates is covered —
+including `Merge <ref>`, which the prefix test used to miss and which is what a derived
+repository produced ten times.
+
 Every commit of either type should answer:
 - What changed?
 - Why? (What prompted this — what question, what source, what finding?)
@@ -150,4 +189,12 @@ positions have been synthesized into shared understanding. A resolution event re
 `ma/*` tips, identifies agreement and tension, and produces a new rigpa branch as a named
 collective baseline. Elector branches diverge again from there.
 
-See [sangha/](../sangha/README.md) for the full resolution protocol.
+These two namespaces hold each elector's **corpus**. They do not hold their **argument** —
+why they hold what they hold, what they conceded, which of their own earlier grounds they
+withdrew — and a resolution turns on the argument. That goes in `sangha/positions/`, as a
+file, before the resolution reads it; once the resolution merges, an unwritten argument is
+gone into the merge base.
+
+See [sangha/](../../sangha/README.md) for the full resolution protocol. The path is relative
+to this document's home in a derived repository, `.yidam/.vendor/prelude/` — the sangha
+lives at `.yidam/sangha/`, one level above the vendor directory rather than inside it.

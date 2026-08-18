@@ -1,0 +1,8 @@
+function = "is_recognized_verb"
+description = "resolve: collective mode's central act is in the vocabulary"
+
+[input]
+verb = "resolve"
+
+[expected]
+recognized = true

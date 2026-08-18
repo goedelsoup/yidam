@@ -114,8 +114,8 @@ module YidamGraph {
   // Epistemic is the default, and that totality is what the lemmas below establish.
   // It exists so a verb in neither set can be identified as outside the vocabulary.
   const EpistemicVerbs: set<string> :=
-    {"establish", "revise", "assess", "synthesize", "withdraw", "open", "close",
-     "decide", "phase", "genesis", "overlay"}
+    {"establish", "revise", "assess", "scope", "synthesize", "withdraw", "open", "close",
+     "resolve", "adopt", "decide", "phase", "genesis", "overlay"}
 
   function ClassifyVerb(verb: string): CommitKind {
     if verb in OperationalVerbs then Operational else Epistemic

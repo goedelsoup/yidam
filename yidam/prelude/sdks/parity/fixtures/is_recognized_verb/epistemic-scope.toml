@@ -1,0 +1,8 @@
+function = "is_recognized_verb"
+description = "scope: the verb for a widened sweep is in the vocabulary"
+
+[input]
+verb = "scope"
+
+[expected]
+recognized = true
