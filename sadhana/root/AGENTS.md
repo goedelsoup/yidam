@@ -19,6 +19,8 @@ negotiable from inside the repo:
   including the `[verified]` / `[inference]` / `[open]` claim tags
 - [Directory conventions](.yidam/.vendor/prelude/guidelines/directories.md) — what belongs where
 - [Phases](.yidam/.vendor/prelude/PHASES.md) — how a unit of inquiry is bounded and committed
+- [Constitution](.yidam/.vendor/prelude/CONSTITUTION.md) — binding on every resolution event
+  *(collective governance only; dormant in a single-elector repository)*
 
 Files under `.yidam/.vendor/` are read-only. A defect in the prelude is fixed by re-vendoring
 against a newer yidam release (`mise run yidam-vendor-update`), never by editing in place —
@@ -28,8 +30,12 @@ an edit there is silently discarded on the next update.
 
 **Commit deliberately.** Every commit is a permanent knowledge event. The message should read
 as a legible description of what changed and why — not a diff summary. Keep epistemic commits
-(understanding added or revised) distinct in style from operational commits (extraction,
-refresh, regeneration).
+(understanding added or revised) distinct from operational commits (extraction, refresh,
+regeneration) — and the distinction is carried by the **closed verb vocabulary** in
+[GRAPH.md](.yidam/.vendor/prelude/GRAPH.md), not by style alone. Every subject begins
+`<verb>: `, the verb stands alone with no `(scope)` suffix, and `yidam lint --commits`
+reports anything outside the list. A merge deserves a written subject too; git's default
+names the ref and not what joining it meant.
 
 **Link generously.** New nodes must connect to existing ones. Orphan files weaken the graph.
 
@@ -43,6 +49,25 @@ contribution, not housekeeping.
 
 **Tag your claims.** Non-obvious claims carry `[verified]`, `[inference]`, or `[open]`.
 Untagged inference is the problem the tags exist to prevent.
+
+<!-- TEMPLATE
+Delete this whole section in a single-elector repository. Keep and fill it if governance is
+collective — name the electors and say where positions go.
+-->
+## Governance
+
+This repository is `governance: collective`. Electors are listed in
+[`.yidam/sangha/electors.md`](.yidam/sangha/electors.md); the resolution algorithm is in
+[`.yidam/sangha/PROTOCOL.md`](.yidam/sangha/PROTOCOL.md). Commit your working position to
+your own `ma/<elector>` branch. Do not synthesize another elector's position into yours
+outside a resolution event — Article V limits resolution to synthesis of what electors
+actually hold.
+
+Before a resolution, **write your position down** in
+[`.yidam/sangha/positions/`](.yidam/sangha/positions/). The branch tip records which nodes
+you hold; it does not record why, what you conceded, or which of your own earlier grounds
+you are withdrawing — and that is what the resolution turns on. After the resolution, take
+the new baseline by merge, not rebase: `adopt: the baseline after <evolution>`.
 
 ## The gate
 
