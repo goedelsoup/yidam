@@ -76,6 +76,27 @@ relevant to a phase rather than loading the full corpus.
 **Conventions:** Standard Rust crate layout. Each crate exposes a library interface;
 binaries are secondary. Prefer composability over monolithic capability.
 
+**Committed fixtures are records, and git will edit them.** A connector's offline fixture is
+a record of what a source said when it was asked. Git's line-ending normalization rewrites
+that record on checkout, and for most fixtures nobody notices. For some, the line endings
+*are* the property under test — a bulk export served with classic-Mac `CR` endings, a
+register that serves `CRLF` — and normalizing them silently deletes the thing the fixture
+exists to pin. The test then passes against what git produced rather than against what the
+source served, which is the failure mode a hermetic fixture was supposed to prevent.
+
+Mark those paths `-text` in `.gitattributes`, and say in the comment which property is being
+protected:
+
+```gitattributes
+# The SoS bulk exports use classic-Mac CR line endings and these fixtures exist to pin
+# that. Normalizing them would quietly delete the property under test.
+crates/committee-graph/data/*.csv -text
+```
+
+Found in a derived repository by a commit whose message says it exactly: *the fixtures were
+being normalised, so the committed record was of what git did rather than what the register
+said.*
+
 ---
 
 ## `docs/`
@@ -87,6 +108,28 @@ that shaped its structure.
 users of this domain. This is distinct from the corpus (which holds knowledge claims) and
 the prelude (which holds yidam's model). Documentation here describes the *repository*,
 not the domain.
+
+**Prose that asserts a number about the corpus must be gated.** Every node is checked and
+for a long time nothing checked the account of them — which is how a document here ends up
+saying the corpus has 45 nodes across 4 classes when it has 84 across 13, in a sentence that
+was true when it was written. The number does not rot loudly. It sits in a table looking
+exactly like a number that is still true.
+
+Two mechanisms, in order of preference:
+
+- **A REGEN block**, where the figure is one the CLI already computes. It is regenerated
+  rather than checked, so it cannot drift at all. See `yidam status`, `corpus-index`,
+  `catalog-audit`.
+- **A test**, where the prose is narrative and a REGEN block would flatten it. Read the
+  document, parse the figures it publishes, and assert them against the corpus — along with
+  the existence of every repo-relative path it links. A derived repository does this for its
+  roadmap after three stale records surfaced in three sessions.
+
+State the limit where you build the second one, because it has one: this catches **drift** —
+a figure that was right when written and stopped being right while the sentence stayed put.
+It cannot catch a false claim about *work*. "These four nodes have been rewritten" is a
+sentence about what somebody did, not about what is true of the tree, and no assertion over
+the working tree can tell it from a true one. That still needs a reader.
 
 ---
 
@@ -114,6 +157,33 @@ Web interface layer, if applicable.
 browsing the corpus, issuing retrieval queries, visualizing the graph, or surfacing synthesis.
 Optional; add only when direct programmatic access to the crates/packages layer is
 insufficient for the intended use.
+
+---
+
+## A directory these conventions do not name
+
+The list above is what yidam knows how to scaffold and check. It is not a closed set, and a
+domain will eventually need something not on it.
+
+The rule is about the corpus's boundary, not about the count of directories. **A new
+top-level directory is fine. Widening `.yidam/corpus/` to hold something that is not a
+documentary claim is not.** The corpus's discipline — every node a claim, every claim
+tagged, `graph-check` and `lint` over all of it — is worth exactly as much as the narrowest
+thing admitted to it.
+
+The worked case is a repository that took on an advocacy purpose and needed somewhere to
+*argue*, which the corpus forbids by construction. Putting argument in the corpus would have
+meant relaxing the rule against asserting intent. It created a `dossier/` alongside the
+corpus instead, with its own gate crate checking every assertion there back against the
+corpus claims beneath it, and the corpus's semantics were untouched. The new purpose made
+the evidentiary rules *harder*, because the output became public.
+
+When you add one:
+
+- Say in `AGENTS.md` what the directory is for and what rule it does *not* get to relax
+- Record it in `.yidam/decisions/` — a new top-level directory is a structural choice
+- Give it a gate. A directory outside `graph-check` is a directory nothing checks; if what
+  it holds derives from the corpus, the gate is the derivation
 
 ---
 
@@ -152,6 +222,15 @@ used-by:
   nothing draws on yet. The exemption costs something: a node citing a source nobody has
   retrieved is an error (`catalog-unobtained-but-cited`), because either the flag is stale
   or the citation rests on something unread.
+- **`obtained: true` means fetched, not read.** The flag is about retrieval and nothing
+  else, and an entry can be honestly marked retrieved while every claim inside the document
+  has gone unexamined. A derived repository audited all 23 of its entries and found three
+  such documents — one located, fetched, cited by nothing, summarized nowhere — while the
+  `[open]` claims those documents answered had been carried for months. Nothing detects
+  this: the flag is true, the entry is well-formed, and every check passes. So write the
+  body to close the gap. **When an entry is created for one fact, say in its body what else
+  the document holds, or say plainly that nobody has looked.** The second sentence is the
+  useful one; it is the only thing that distinguishes an unread source from a read one.
 - **`used-by`** is optional and hand-maintained, so it can drift; the citations cannot.
   Both are kept so the disagreement is visible rather than averaged away
   (`catalog-used-by-drift`). Declaring a list asserts it is current.
@@ -240,13 +319,46 @@ this directory if a second elector ever appears.
 The collective resolution protocol. Encodes how multiple participants (agents and humans)
 maintain individual positions and synthesize them into shared understanding.
 
-**What belongs here:** Protocol documents only — not knowledge. `PROTOCOL.md` (resolution
-algorithm), `resolutions/` (records of past resolution events), `electors.md` (recognized
-participants). Knowledge lives in the corpus; sangha is the governance layer above it.
+**What belongs here:** Protocol documents and the record of governance — not domain
+knowledge. `PROTOCOL.md` (resolution algorithm), `electors.md` (recognized participants),
+`positions/` (what each elector argued, per question), `resolutions/` (records of past
+resolution events). Knowledge lives in the corpus; sangha is the governance layer above it.
 
 **Ref store:** Sangha's live state is in git refs, not in files. `refs/heads/ma/<elector>`
 tracks each participant's working position; `refs/heads/rigpa/<evolution>` records settled
 collective evolutions. See [GRAPH.md](../GRAPH.md) for the full encoding model.
+
+**The refs hold the corpus, not the argument.** This directory listed protocol documents
+only for the whole of the template's early life, on the reasoning that a position is a
+branch and a branch is a ref. That is right about which nodes an elector holds and wrong
+about why they hold them — and a resolution turns on the why. Once the resolution merges,
+an unwritten argument is gone into the merge base, and Articles III and IV have nothing left
+to be satisfied by. `positions/<elector>-<question>.md` is where the argument is durable.
+A derived repository accumulated 24 of them across 12 resolutions before the conventions had
+a slot for them.
+
+---
+
+## `.yidam/private-paths` (optional)
+
+Paths whose content must not sit in a public repository. One per line; `#` comments and
+blank lines ignored. Absent, nothing is declared private and the CI job that reads it passes
+immediately.
+
+```
+# Worked lines of attack and material the publication gate computes as [open].
+dossier/
+```
+
+The CI job fails when the repository is public and any listed path holds a file other than
+its `README.md` or `.gitkeep`. It reads `github.event.repository.private` from the event
+payload the runner already has — no API call, so CI stays hermetic.
+
+**Why a file rather than a convention.** A repository whose privacy is load-bearing usually
+has that fact written in a decision record and nowhere else, which makes it an assumption:
+true, relied upon, and unenforced. An assumption about access control that looks enforced
+and is not is worse than one everybody knows is manual, because nobody checks the second
+kind by hand. Declaring the paths is what turns the assumption into a gate.
 
 ---
 
@@ -262,7 +374,7 @@ skills that require knowledge of this domain's corpus or toolkit live here.
 
 ## `.yidam/.vendor/`
 
-The inherited yidam prelude, moved here by the `vendor(yidam)` commit during bootstrap.
+The inherited yidam prelude, moved here by the `vendor:` commit during bootstrap.
 
 **What belongs here:** `prelude/` and nothing else. The vendor step moves `yidam/prelude/`
 to `.yidam/.vendor/prelude/` and deletes the rest of the template.
@@ -310,16 +422,26 @@ upstream reach a derived repo when it re-vendors:
 
 ```
 mise run yidam-vendor-status    # what you are pinned to, and what is newer
-mise run yidam-vendor-update    # fetch, replace prelude/, re-pin .yidam.toml
+mise run yidam-vendor-update    # fetch, replace prelude/ and mise.yidam.toml, re-pin .yidam.toml
 ```
 
-The update replaces `.yidam/.vendor/prelude/` wholesale and rewrites `.yidam.toml`. It
-touches nothing else — `corpus/`, `catalog/`, `decisions/`, `skills/`, `crates/`, and every
-top-level file are domain-owned and are never overwritten by an update. Review the resulting
-diff and commit it as its own event:
+The update replaces `.yidam/.vendor/prelude/` wholesale, rewrites `.yidam.toml`, and
+replaces `mise.yidam.toml`. It touches nothing else — `corpus/`, `catalog/`, `decisions/`,
+`skills/`, `crates/`, and every other top-level file are domain-owned and are never
+overwritten by an update.
+
+`mise.yidam.toml` is on that list because it is inherited, not domain-owned: it is the task
+layer, as much yidam's to correct as the prelude is, and it sits at the repo root only
+because mise has to find it there. It was omitted originally on the reasoning that the
+update should touch nothing outside `.yidam/` — which left it with no update path at all. A
+derived repository froze the copy it was born with permanently, including a prescribed
+commit verb this project later found its own lint rejects. **Keep domain tasks in
+`mise.toml`; anything written into `mise.yidam.toml` is replaced on the next update.**
+
+Review the resulting diff and commit it as its own event:
 
 ```
-git commit -m "vendor(yidam): re-vendor prelude at <commit> — <what changed>"
+git commit -m "vendor: re-vendor prelude at <commit> — <what changed>"
 ```
 
 Re-vendor deliberately, not reflexively. A prelude change can alter what the graph gate

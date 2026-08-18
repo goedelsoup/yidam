@@ -1,0 +1,26 @@
+# Committed fixtures are records, and git will edit them.
+#
+# A connector's offline fixture records what a source said when it was asked. Git
+# normalizes line endings on checkout, and for most fixtures nobody notices. For
+# some, the line endings ARE the property under test — a bulk export served with
+# classic-Mac CR endings, a register that serves CRLF — and normalizing them
+# silently deletes the thing the fixture exists to pin. The test then passes
+# against what git produced rather than against what the source served, which is
+# the failure a hermetic fixture was supposed to prevent.
+#
+# A derived repository found this the way you would expect to: by committing a
+# fixture, watching the test pass, and discovering later that "the committed
+# record was of what git did rather than what the register said."
+#
+# Mark those paths `-text` as you add each connector, and say in the comment
+# which property is being protected. A bare `-text` with no comment gets deleted
+# by the next person tidying this file.
+#
+# Example:
+#
+#   # The SoS bulk exports use classic-Mac CR line endings and these fixtures
+#   # exist to pin that. Normalizing them would delete the property under test.
+#   crates/committee-graph/data/*.csv -text
+#
+#   # The lobbying register serves CRLF. Same reasoning.
+#   crates/ohio-lobbying/data/*.html -text
