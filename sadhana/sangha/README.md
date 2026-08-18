@@ -35,6 +35,14 @@ understandings, added edges. The branch reflects their current state without req
 to be globally settled. Elector branches are expected to diverge from each other and from
 the current rigpa baseline.
 
+### The ref store is not the whole position
+
+The table above is where an elector's *corpus* lives — the nodes they hold, at which tags.
+It is not where their *argument* lives, and a resolution turns on the argument. Each elector
+writes theirs to [`positions/`](positions/README.md) before the resolution reads it;
+without that file the reasoning survives only until the merge base swallows the divergence,
+which leaves Articles III and IV with nothing to be satisfied by.
+
 ## Resolution
 
 Resolution is the act of synthesizing `ma/*` positions into a new `rigpa/<evolution>`.
@@ -42,7 +50,8 @@ It is a deliberate knowledge event — more like a synthesis commit than a mecha
 
 A resolution event:
 
-1. Reads the tips of all participating `ma/<elector>` branches
+1. Reads the stated [positions](positions/README.md) and the tips of all participating
+   `ma/<elector>` branches
 2. Identifies agreement, tension, and gap across positions
 3. Synthesizes a corpus that represents collective understanding — resolving conflicting
    nodes, preserving distinct valid perspectives where they genuinely coexist
