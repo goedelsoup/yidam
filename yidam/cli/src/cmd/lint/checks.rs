@@ -18,6 +18,34 @@ pub struct Node {
     pub inst: CorpusInstance,
 }
 
+/// A class definition parsed once — `<class>.ont.yml`.
+pub struct Class {
+    pub rel: String,
+    /// The `description` field: the text that says what kind of thing an instance is.
+    /// Deliberately the only field [`class_asserts_purpose`] reads; see there.
+    pub description: String,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct ClassFields {
+    #[serde(default)]
+    description: Option<String>,
+}
+
+pub fn load_classes(root: &Path, paths: &[PathBuf]) -> Vec<Class> {
+    paths
+        .iter()
+        .map(|p| {
+            let text = std::fs::read_to_string(p).unwrap_or_default();
+            let fields: ClassFields = serde_yaml::from_str(&text).unwrap_or_default();
+            Class {
+                rel: rel_of(root, p),
+                description: fields.description.unwrap_or_default(),
+            }
+        })
+        .collect()
+}
+
 /// A catalog entry parsed once.
 pub struct Source {
     pub rel: String,
@@ -68,6 +96,79 @@ pub fn load_sources(root: &Path, paths: &[PathBuf]) -> Vec<Source> {
             }
         })
         .collect()
+}
+
+// ── class definitions ─────────────────────────────────────────────────────────
+
+/// Phrasings that assert a reason rather than describe a kind.
+///
+/// Each is a purpose construction: it says the thing was done *in order to* bring something
+/// about, which is a claim about somebody's intent. Kept small on purpose — a longer list
+/// buys recall at the cost of the check being switched off.
+const PURPOSE_PHRASES: &[&str] = &[
+    "designed to",
+    "deployed to",
+    "intended to",
+    "calculated to",
+    "engineered to",
+    "contrived to",
+    "orchestrated to",
+    "in order to",
+    "so as to",
+    "for the purpose of",
+    "with the aim of",
+    "with the intent",
+];
+
+/// Class definitions whose `description` asserts a purpose.
+///
+/// **Why this check exists where no instance-level check could.** Every other rule in a
+/// yidam corpus runs on claim tags, and a tag attaches to a claim somebody makes on a node.
+/// A class definition is not that: it is the meaning every instance takes on by being filed
+/// under the class — asserted identically, silently, untagged, and for each. So a class
+/// defined as "a procedural mechanism *deployed to obtain* an outcome the ordinary path
+/// would not yield" makes every one of its instances assert a purpose, and no amount of
+/// tagging on the instances can reach it. That definition is real: it survived five
+/// resolutions and three separate arguments about its instances in a derived repository,
+/// because every safeguard that repository had was pointed at instances.
+///
+/// **Only `description` is read.** That field says what kind of thing an instance is, and
+/// is what an instance silently asserts. A class may perfectly well *discuss* purpose in
+/// `analytic_note` — the corrected version of the class above does exactly that, quoting
+/// "designed to produce this outcome" in order to forbid it — and reading commentary would
+/// flag the discussion of the rule as a violation of it.
+///
+/// **Warn, and a prompt rather than a proof.** This is a check over wording. It cannot see
+/// a purpose asserted in words that are not on the list, and a description can name a
+/// purpose someone else attributed without asserting it. Read the finding; do not clear it.
+pub fn class_asserts_purpose(classes: &[Class]) -> Check {
+    let violations = classes
+        .iter()
+        .filter_map(|c| {
+            let lowered = c.description.to_lowercase();
+            let hit = PURPOSE_PHRASES.iter().find(|p| lowered.contains(**p))?;
+            Some(Violation::new(
+                &c.rel,
+                format!("`description` says \"{hit}\" — a purpose, not a kind"),
+            ))
+        })
+        .collect();
+    Check::new(
+        "class-asserts-purpose",
+        "Class definition asserts a purpose rather than describing a kind",
+        Severity::Warn,
+        "A claim tag attaches to a claim somebody makes on a node. A class definition is \
+         not that — it is the meaning every instance takes on by being filed under the \
+         class, asserted identically and untagged for each. So a class whose description \
+         states a reason ('deployed to obtain an outcome the ordinary path would not \
+         yield') puts that assertion beyond the reach of every other check here, which all \
+         run on tags. The case this was written from survived five resolutions and three \
+         arguments about its instances. Rewrite the description to say what an instance IS \
+         — the observable shape, the admission conditions — and move any characterization \
+         of why to a field that attributes it, or to `analytic_note`, which this check does \
+         not read.",
+        violations,
+    )
 }
 
 // ── corpus structure ──────────────────────────────────────────────────────────
@@ -640,5 +741,78 @@ mod tests {
         // No delimiter row, so this is prose that happens to contain pipes.
         let text = "the grammar is `a | b | c` in this notation\n";
         assert!(malformed_table(&[("f.md".into(), text.into())]).passed());
+    }
+
+    // ── class-asserts-purpose ─────────────────────────────────────────────────
+
+    fn class(rel: &str, description: &str) -> Class {
+        Class {
+            rel: rel.into(),
+            description: description.into(),
+        }
+    }
+
+    #[test]
+    fn the_definition_that_motivated_the_check_is_caught() {
+        // Verbatim from a derived repository's genesis. Every instance of this class
+        // asserted a purpose by existing, and no instance-level tag could reach it.
+        let c = class_asserts_purpose(&[class(
+            ".yidam/corpus/maneuver.ont.yml",
+            "A procedural mechanism deployed to obtain an outcome the ordinary path \
+             would not yield.",
+        )]);
+        assert_eq!(c.violations.len(), 1);
+        assert!(
+            c.violations[0].detail.contains("deployed to"),
+            "{}",
+            c.violations[0].detail
+        );
+    }
+
+    #[test]
+    fn the_documentary_rewrite_of_that_definition_passes() {
+        // The same class after it was redefined: an observable shape and its admission
+        // conditions, with no claim about anyone's reason.
+        assert!(class_asserts_purpose(&[class(
+            ".yidam/corpus/maneuver.ont.yml",
+            "A dated procedural sequence that departed from a baseline the record fixed \
+             before the sequence and independently of it. The departure is the whole of \
+             the class's content, and it is a comparison rather than a motive.",
+        )])
+        .passed());
+    }
+
+    #[test]
+    fn commentary_outside_description_is_not_read() {
+        // `analytic_note` is where a class discusses the purpose rule — often by quoting
+        // the forbidden phrasing in order to forbid it. Reading it would flag the
+        // discussion of the rule as a violation of the rule.
+        let text = "class: maneuver\ndescription: A dated procedural sequence.\n\
+                    analytic_note: |\n  \"designed to produce this outcome\" is an \
+                    allegation, not a record.\n";
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("maneuver.ont.yml");
+        std::fs::write(&p, text).unwrap();
+        let loaded = load_classes(dir.path(), &[p]);
+        assert_eq!(loaded[0].description.trim(), "A dated procedural sequence.");
+        assert!(class_asserts_purpose(&loaded).passed());
+    }
+
+    #[test]
+    fn the_match_is_case_insensitive() {
+        let c = class_asserts_purpose(&[class("x.ont.yml", "An instrument Designed To pass.")]);
+        assert_eq!(c.violations.len(), 1);
+    }
+
+    #[test]
+    fn a_class_with_no_description_passes() {
+        assert!(class_asserts_purpose(&[class("x.ont.yml", "")]).passed());
+    }
+
+    #[test]
+    fn the_check_warns_rather_than_gates() {
+        // A heuristic over wording. Gating on it would make every false positive a
+        // blocked commit, and the check would be switched off within a week.
+        assert_eq!(class_asserts_purpose(&[]).severity, Severity::Warn);
     }
 }

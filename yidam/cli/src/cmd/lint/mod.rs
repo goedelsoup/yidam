@@ -43,7 +43,9 @@ pub fn run_checks(root: &Path, opts: &Options) -> Vec<Check> {
     let instance_paths = walk_corpus_instances(&corpus_dir);
     let nodes = checks::load_nodes(root, &instance_paths);
 
-    let defined: HashSet<String> = walk_ont_files(&corpus_dir)
+    let ont_paths = walk_ont_files(&corpus_dir);
+    let classes = checks::load_classes(root, &ont_paths);
+    let defined: HashSet<String> = ont_paths
         .iter()
         .filter_map(|p| {
             p.file_name()
@@ -91,6 +93,7 @@ pub fn run_checks(root: &Path, opts: &Options) -> Vec<Check> {
         checks::malformed_table(&prose),
         checks::orphan_in(&nodes),
         checks::catalog_uncited(&sources, &cites),
+        checks::class_asserts_purpose(&classes),
     ];
 
     if opts.commits {
@@ -236,10 +239,11 @@ mod tests {
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 12);
+        assert_eq!(all.len(), 13);
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
+        assert!(ids.contains("class-asserts-purpose"));
     }
 
     #[test]
