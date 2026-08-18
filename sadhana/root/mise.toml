@@ -5,12 +5,18 @@
 # `mise tasks`            lists every available task.
 # `mise run yidam-build`  installs the yidam CLI (do this once).
 #
-# The yidam CLI tasks live in mise.yidam.toml, pulled in by `extends` below.
+# The yidam CLI tasks live in mise.yidam.toml, pulled in by `includes` below.
 # Domain tasks belong in THIS file — keep mise.yidam.toml as the inherited layer
 # so a future `mise run yidam-vendor-update` can replace it without clobbering
 # anything you wrote.
+#
+# `[task_config] includes` and not a top-level `extends`: mise accepts `extends`
+# on an individual task, never on a config file. It warns about the unknown field
+# and carries on, so the failure looks like nothing at all — every inherited task
+# just isn't there, and `mise run graph-check` reports an unknown task.
 
-extends = ["mise.yidam.toml"]
+[task_config]
+includes = ["mise.yidam.toml"]
 
 [tools]
 # Rust — the domain computer in crates/.
