@@ -1,0 +1,8 @@
+function = "is_recognized_verb"
+description = "adopt: an elector taking the settled baseline is in the vocabulary"
+
+[input]
+verb = "adopt"
+
+[expected]
+recognized = true

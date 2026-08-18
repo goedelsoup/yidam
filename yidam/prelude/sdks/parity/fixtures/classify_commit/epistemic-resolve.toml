@@ -1,0 +1,13 @@
+function = "classify_commit"
+description = "resolve: a resolution event classifies as Epistemic"
+
+[input]
+hash = "e7f8a90"
+message = "resolve: two schema questions, both refused — and the structure defended as sufficient did not yet say what both electors assumed\n\nRead ma/goedelsoup@f0c212e and ma/auditor@cf3265e."
+verb = "resolve"
+subject = "two schema questions, both refused — and the structure defended as sufficient did not yet say what both electors assumed"
+
+[expected]
+kind = "Epistemic"
+verb = "resolve"
+subject = "two schema questions, both refused — and the structure defended as sufficient did not yet say what both electors assumed"

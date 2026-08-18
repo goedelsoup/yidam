@@ -49,10 +49,18 @@ often follow a period of investigation and extraction.
   not a record of anything: the commits and the merge are the record, and the ref is
   indistinguishable from a phase still in progress.
 
+  Write the merge subject rather than letting git write it. `Merge branch 'phase/x'` names
+  the ref that was read and says nothing about what joining it meant — which is the one
+  thing a synthesis event exists to record. Give it the `phase:` verb and the summary:
+
   ```
-  git switch main && git merge --no-ff phase/<name>
+  git switch main
+  git merge --no-ff -m "phase: <name> — <what it produced>" phase/<name>
   git branch -d phase/<name>
   ```
+
+  An authored merge subject is checked against the vocabulary like any other commit; a
+  git-generated one is exempt. See [GRAPH.md](GRAPH.md), "Commit vocabulary".
 
 - **Commit legibly within the phase.** Each commit in a phase should be a legible step.
   The final commit should name the phase and summarize what it produced — this is the event
