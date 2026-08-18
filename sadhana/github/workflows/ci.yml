@@ -3,7 +3,7 @@
 # Installed to `.github/workflows/ci.yml` at genesis, replacing the yidam
 # template's own workflow. Yidam's CI builds yidam (its harness and CLI, at
 # `yidam/tests/harness` and `yidam/cli`); those paths do not survive the
-# `vendor(yidam)` step, so inheriting that workflow gives you a green build
+# `vendor:` step, so inheriting that workflow gives you a green build
 # that compiles nothing.
 #
 # What runs here instead:
@@ -27,18 +27,22 @@ name: ci
 on:
   push:
     branches: [main]
-    # Root-level prose only. NOT `**/*.md` — `.yidam/catalog/` is markdown and
-    # the corpus gate reads it, so a commit touching only catalog entries
-    # changes the gate's input. A gate whose input can change without the gate
-    # running is one commit away from being wrong.
+    # Almost nothing is ignored, and the reasoning is the comment that used to sit
+    # here: `.yidam/catalog/` is markdown and the corpus gate reads it, so a commit
+    # touching only catalog entries changes the gate's input, and a gate whose input
+    # can change without the gate running is one commit away from being wrong.
+    #
+    # That argument was right and was applied one directory too narrowly. `*.md` and
+    # `docs/**` were ignored, and both are gated inputs: the root README carries a
+    # REGEN block the `corpus` job below polices, and anything in `docs/` that
+    # publishes a figure about the corpus should be gated by a test (see the
+    # directory conventions). A commit touching only those ran no jobs at all —
+    # exactly the commits most likely to break those two gates. Found by audit in a
+    # derived repository. LICENSE is the only file no gate reads.
     paths-ignore:
-      - '*.md'
-      - 'docs/**'
       - 'LICENSE'
   pull_request:
     paths-ignore:
-      - '*.md'
-      - 'docs/**'
       - 'LICENSE'
   workflow_dispatch:
 
@@ -52,6 +56,68 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # ── Paths that may not sit in a public repository ──────────────────────────
+  #
+  # Opt-in. Absent `.yidam/private-paths`, this job passes immediately and costs
+  # a runner-second; it is wired in from genesis so that the day a repository
+  # grows material it does not want published, the rule is one file away rather
+  # than a workflow edit nobody remembers to make.
+  #
+  # Why it exists at all: a repository took on an advocacy layer holding worked
+  # lines of attack and material its own publication gate computes as `[open]`,
+  # which its governing resolution says goes NOWHERE. That the repository was
+  # private was an assumption — true, load-bearing, and unenforced. An assumption
+  # about access control that looks enforced and is not is worse than one
+  # everybody knows is manual.
+  #
+  # `.yidam/private-paths` is one path per line; `#` comments and blanks ignored.
+  # A directory holding only its README (or a .gitkeep) counts as empty, so the
+  # scaffold itself never trips this.
+  #
+  # Reads the event payload, which the runner already has. No `gh api`, no
+  # network: CI is hermetic and stays so.
+  privacy:
+    name: privacy (private paths stay private)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Listed paths may not sit in a public repository
+        env:
+          IS_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          set -euo pipefail
+          manifest=.yidam/private-paths
+          if [ ! -f "$manifest" ]; then
+            echo "no $manifest; nothing declared private."
+            exit 0
+          fi
+          # `find` per entry so a new subdirectory is covered without anyone
+          # remembering to add it.
+          content=""
+          while IFS= read -r line || [ -n "$line" ]; do
+            entry="${line%%#*}"
+            entry="$(printf '%s' "$entry" | tr -d '[:space:]')"
+            [ -z "$entry" ] && continue
+            [ -e "$entry" ] || continue
+            found=$(find "$entry" -type f ! -name README.md ! -name .gitkeep | sort)
+            [ -n "$found" ] && content="$content$found"$'\n'
+          done < "$manifest"
+          if [ -z "$content" ]; then
+            echo "declared paths hold no material; nothing to protect."
+            exit 0
+          fi
+          if [ "$IS_PRIVATE" = "true" ]; then
+            echo "repository is private; declared material is protected."
+            exit 0
+          fi
+          echo "::error::This repository is PUBLIC and holds material declared private in $manifest."
+          echo "Files:"
+          printf '%s' "$content" | sed 's/^/  /'
+          echo
+          echo "Either make the repository private again, or remove these files and"
+          echo "the entry in $manifest that covers them. Do not silence this job."
+          exit 1
+
   detect:
     name: detect layers
     runs-on: ubuntu-latest
