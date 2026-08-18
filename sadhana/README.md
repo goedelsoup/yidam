@@ -11,10 +11,11 @@ Two subdirectories are not directory mirrors and install to a renamed path:
 
 | Sadhana path | Installs to | Why it exists |
 |---|---|---|
-| `root/` | repository root | The derived repo's own `README.md`, `AGENTS.md`, `mise.toml`, and `.claude/CLAUDE.md`. Yidam's copies of these describe *yidam* and must not survive genesis. |
-| `github/` | `.github/` | The derived repo's CI. Yidam's own workflow builds paths (`yidam/cli`, `yidam/tests/harness`) that the `vendor(yidam)` step removes, so inheriting it yields a build that compiles nothing. |
+| `root/` | repository root | The derived repo's own `README.md`, `AGENTS.md`, `mise.toml`, `.gitattributes`, and `.claude/CLAUDE.md`. Yidam's copies of these describe *yidam* and must not survive genesis. |
+| `github/` | `.github/` | The derived repo's CI. Yidam's own workflow builds paths (`yidam/cli`, `yidam/tests/harness`) that the `vendor:` step removes, so inheriting it yields a build that compiles nothing. |
 
-`root/` and `github/` are spelled without a leading dot deliberately: `ls sadhana/` is a step
+`root/`, `github/`, and `root/gitattributes` are spelled without a leading dot deliberately:
+`ls sadhana/` is a step
 in the bootstrap skill, and a dotfile directory would not appear in it.
 
 ## Purpose
@@ -40,10 +41,10 @@ Each subdirectory in `sadhana/` corresponds to a top-level directory in derived 
 | `crates/` | Domain computer: Rust workspace (calculators, connectors, index) |
 | `docs/` | Prose documentation: field notes, memos, synthesis reports |
 | `packages/` | ML pipelines and embedding model packages (Python/uv) |
-| `sangha/` | Governance: sangha protocol, elector list, resolution records |
+| `sangha/` | Governance: sangha protocol, elector list, stated positions, resolution records |
 | `skills/` | Domain-specific skills extending the prelude |
 | `web/` | Data export: web-facing JSON feeds, bundle contracts |
-| `root/` | Repository-root files: `README.md`, `AGENTS.md`, `mise.toml`, `.claude/CLAUDE.md` |
+| `root/` | Repository-root files: `README.md`, `AGENTS.md`, `mise.toml`, `gitattributes` → `.gitattributes`, `.claude/CLAUDE.md` |
 | `github/` | `.github/` — the derived repo's CI workflow |
 
 Each README carries `<!-- TEMPLATE -->` comments guiding the bootstrap agent on what

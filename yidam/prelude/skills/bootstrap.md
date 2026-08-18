@@ -242,8 +242,8 @@ Then read each template file in `sadhana/`:
 - `sadhana/web/README.md`
 - `sadhana/root/README.md`, `sadhana/root/AGENTS.md`, `sadhana/root/CLAUDE.md`, `sadhana/root/mise.toml`
 - `sadhana/github/workflows/ci.yml`
-- `sadhana/sangha/README.md` (and PROTOCOL.md, electors.md, resolutions/) — **only if
-  `governance: collective`**; skip these four reads entirely in single-elector mode
+- `sadhana/sangha/README.md` (and PROTOCOL.md, electors.md, resolutions/, positions/) —
+  **only if `governance: collective`**; skip these five reads entirely in single-elector mode
 
 `sadhana/agents/`, `sadhana/packages/`, and `sadhana/docs/` are deliberately not read here.
 They are templates for directories created on first use, not at genesis — see below.
@@ -290,14 +290,21 @@ sadhana/root/README.md            → README.md            (overwrites yidam's)
 sadhana/root/AGENTS.md            → AGENTS.md            (overwrites yidam's)
 sadhana/root/CLAUDE.md            → .claude/CLAUDE.md    (overwrites yidam's)
 sadhana/root/mise.toml            → mise.toml            (overwrites yidam's)
+sadhana/root/gitattributes        → .gitattributes       (overwrites yidam's)
 sadhana/github/workflows/ci.yml   → .github/workflows/ci.yml  (overwrites yidam's)
 ```
 
-Yidam's copies of these five files describe yidam — its harness, its CLI workspace, its
+Yidam's copies of these six files describe yidam — its harness, its CLI workspace, its
 bootstrap-mode entry check. Left in place they are wrong the moment genesis is written, and
 yidam's `ci.yml` is worse than wrong: it builds `yidam/cli` and `yidam/tests/harness`, paths
-that step 8 removes, so it goes green having compiled nothing. Overwrite all five now. Do not
+that step 8 removes, so it goes green having compiled nothing. Overwrite all six now. Do not
 merge yidam's content into them.
+
+`gitattributes` is spelled without its dot for the same reason `root/` and `github/` are:
+`ls sadhana/` is a step in this skill and a dotfile would not appear in it. It installs as
+`.gitattributes` and arrives holding only comments — the rule about connector fixtures and
+line endings, which costs nothing until the first connector lands and is unrecoverable
+advice afterwards.
 
 Each README may contain a `<!-- TEMPLATE -->` comment block marking fields that need
 domain-specific content. Fill every such block now, before proceeding. These are the only
@@ -517,7 +524,7 @@ First try the tracked path:
 
 ```
 git rm -r samudaya/
-git commit -m "consume(samudaya): ..."
+git commit -m "consume: samudaya — ..."
 ```
 
 If `git rm` fails because samudaya files were never staged (they are untracked), delete
@@ -525,7 +532,7 @@ the directory directly and record the event as an empty commit:
 
 ```
 rm -rf samudaya/
-git commit --allow-empty -m "consume(samudaya): ..."
+git commit --allow-empty -m "consume: samudaya — ..."
 ```
 
 Do not ask the user to run either command manually — the deletion is part of the bootstrap
@@ -540,14 +547,14 @@ directory removed."
 
 ```
 git rm -r sadhana/
-git commit -m "consume(sadhana): scaffold template consumed; derived structure in place"
+git commit -m "consume: sadhana — scaffold template consumed; derived structure in place"
 ```
 
 If sadhana files were untracked:
 
 ```
 rm -rf sadhana/
-git commit --allow-empty -m "consume(sadhana): scaffold template consumed; derived structure in place"
+git commit --allow-empty -m "consume: sadhana — scaffold template consumed; derived structure in place"
 ```
 
 **Vendor the prelude** — immediately after consuming sadhana, move the inherited prelude
@@ -581,7 +588,7 @@ rm -f BOOTSTRAP.md VERSIONING.md
 `BOOTSTRAP.md` is the entry prompt for a repo that has not been bootstrapped — this one now
 has. `VERSIONING.md` documents how yidam releases its own three layers. Keep `LICENSE`,
 `.gitignore`, `.gitattributes`, and `mise.yidam.toml`: the first three are generic and the
-last is the inherited task layer that `mise.toml` extends.
+last is the inherited task layer that `mise.toml` includes.
 
 **Confirm the provenance pin.** `.yidam.toml` records which yidam this repo came from; `yidam
 clone` and `yidam overlay` write it. Check that it exists and carries a real commit:
@@ -607,7 +614,7 @@ Then commit the whole vendor step as one event:
 
 ```
 git add -A
-git commit -m "vendor(yidam): prelude into .yidam/.vendor/; template files removed"
+git commit -m "vendor: yidam prelude into .yidam/.vendor/; template files removed"
 ```
 
 Do not ask the user to run any of this manually — the vendor step is part of the bootstrap
@@ -615,8 +622,8 @@ protocol and must complete before step 9.
 
 ### 9. Report
 
-Do not begin this step until the genesis commit, consume(samudaya), consume(sadhana), and
-vendor(yidam) are all written. If any is unresolved, finish it before proceeding.
+Do not begin this step until the genesis commit, both `consume:` commits, and the `vendor:`
+commit are all written. If any is unresolved, finish it before proceeding.
 
 Output a structured handoff with four sections:
 
