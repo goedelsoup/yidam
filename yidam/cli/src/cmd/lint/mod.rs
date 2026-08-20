@@ -156,29 +156,46 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
 
     // ── Prose links ─────────────────────────────────────────────────────────────
     //
-    // Authored markdown only. `.yidam/.vendor/` is excluded because it is read-only here:
-    // a defect in the prelude is fixed upstream and adopted by re-vendoring, so reporting
-    // one to a derived repo hands it a finding it cannot act on. `docs/` is included —
-    // documentation about the repository is authored, and its links rot the same way.
+    // Authored markdown, and what counts as authored is declared rather than hard-coded:
+    // see [`crate::authorship`]. `.yidam/.vendor/` used to be named here as the single
+    // exception, on a rationale that generalizes — a defect in the prelude is fixed
+    // upstream and adopted by re-vendoring, so reporting one to a derived repo hands it a
+    // finding it cannot act on. It is now the built-in instance of the general mechanism,
+    // and a repository that is not a vendoring repository can say the same about a
+    // generated directory or a frozen import of its own.
     //
-    // Not `crates/` or `web/`, whose READMEs carry illustrative targets rather than
-    // references to files that are supposed to exist.
-    let vendor_dir = root.join(".yidam").join(".vendor");
-    let mut prose_link_paths: Vec<std::path::PathBuf> = walk_linkable_files(&root.join(".yidam"))
-        .into_iter()
-        .filter(|p| !p.starts_with(&vendor_dir))
-        .collect();
+    // `docs/` is included — documentation about the repository is authored, and its links
+    // rot the same way. Not `crates/` or `web/`, whose READMEs carry illustrative targets
+    // rather than references to files that are supposed to exist.
+    let authorship = crate::authorship::Authorship::load_or_default(root);
+    let mut prose_link_paths: Vec<std::path::PathBuf> = walk_linkable_files(&root.join(".yidam"));
     prose_link_paths.extend(walk_linkable_files(&root.join("docs")));
+
     let mut prose_links: Vec<checks::ProseLink> = Vec::new();
+    let mut unauthored: Vec<checks::UnauthoredLink> = Vec::new();
     for p in &prose_link_paths {
         let rel = p
             .strip_prefix(root)
             .unwrap_or(p)
             .to_string_lossy()
             .to_string();
+        let region = authorship.covering(&rel);
+        // `excluded` is the one kind that means *do not look*; the file is not even read.
+        if region.is_some_and(|r| !r.kind.reportable()) {
+            continue;
+        }
         let dir = p.parent().unwrap_or(root);
-        prose_links.extend(checks::prose_links(&rel, dir, &overlay.read(p)));
+        let links = checks::prose_links(&rel, dir, &overlay.read(p));
+        match region {
+            Some(region) => unauthored.extend(
+                links
+                    .into_iter()
+                    .map(|link| checks::UnauthoredLink { region, link }),
+            ),
+            None => prose_links.extend(links),
+        }
     }
+    let stale_regions = crate::authorship::stale(root, &authorship);
 
     let mut all = vec![
         checks::missing_class(&nodes),
@@ -197,6 +214,8 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::resolution_annotation_malformed(&annotations),
         checks::resolution_annotation_decides(&annotations),
         checks::broken_prose_link(&prose_links),
+        checks::unauthored_prose_link(&unauthored),
+        checks::authorship_region_stale(&stale_regions),
     ];
 
     if opts.commits {
@@ -209,6 +228,11 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
 
 pub fn lint(opts: Options) -> Result<()> {
     let root = repo_root()?;
+    // Read the manifest here, where there is an error channel. `run_checks` degrades to the
+    // built-ins so the editor keeps answering mid-edit; a gate that did the same would
+    // re-scan every region the file declares and report the flood as a corpus that got
+    // worse, rather than as a file with a typo in it.
+    crate::authorship::Authorship::load(&root)?;
     let all = run_checks(&root, &opts);
 
     // JSON short-circuits the prose path entirely rather than interleaving with it: the
@@ -386,7 +410,7 @@ mod tests {
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 16);
+        assert_eq!(all.len(), 18);
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
@@ -397,6 +421,146 @@ mod tests {
         assert!(ids.contains("resolution-annotation-malformed"));
         assert!(ids.contains("resolution-annotation-decides"));
         assert!(ids.contains("broken-prose-link"));
+        assert!(ids.contains("unauthored-prose-link"));
+        assert!(ids.contains("authorship-region-stale"));
+    }
+
+    fn check<'a>(all: &'a [Check], id: &str) -> &'a Check {
+        all.iter().find(|c| c.id == id).expect(id)
+    }
+
+    /// A file with one link that goes nowhere, at `rel` under the repo.
+    fn broken_link_at(root: &Path, rel: &str) {
+        let p = root.join(rel);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(&p, "See [the thing](./nowhere.md).\n").unwrap();
+    }
+
+    fn declare(root: &Path, body: &str) {
+        fs::create_dir_all(root.join(".yidam")).unwrap();
+        fs::write(root.join(crate::authorship::MANIFEST), body).unwrap();
+    }
+
+    /// The measured case: a directory whose own README says it is a frozen copy of an
+    /// upstream project. The link is broken, it is real, and it is not this repo's to fix.
+    #[test]
+    fn a_broken_link_in_an_imported_region_is_reported_but_does_not_gate() {
+        let tmp = clean_repo();
+        broken_link_at(tmp.path(), "docs/reference/upstream/notes.md");
+        declare(
+            tmp.path(),
+            "imported:\n  - path: docs/reference/upstream/\n    from: acme/gis at the fork point\n",
+        );
+        let all = run_checks(tmp.path(), &Options::default());
+        assert!(check(&all, "broken-prose-link").passed());
+
+        let scoped = check(&all, "unauthored-prose-link");
+        assert_eq!(scoped.violations.len(), 1);
+        assert_eq!(scoped.severity, Severity::Info);
+        let detail = &scoped.violations[0].detail;
+        assert!(detail.contains("acme/gis at the fork point"), "{detail}");
+        assert!(detail.contains("falsify"), "{detail}");
+        assert_eq!(errors(&all), 0);
+    }
+
+    /// A declared region is not a blanket finding: only links that actually fail to
+    /// resolve are reported, exactly as in authored material.
+    #[test]
+    fn a_resolving_link_in_a_declared_region_is_not_a_finding() {
+        let tmp = clean_repo();
+        let dir = tmp.path().join("docs/reference/upstream");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("target.md"), "# There\n").unwrap();
+        fs::write(dir.join("notes.md"), "See [there](./target.md).\n").unwrap();
+        declare(
+            tmp.path(),
+            "imported:\n  - path: docs/reference/upstream/\n    from: acme/gis\n",
+        );
+        let all = run_checks(tmp.path(), &Options::default());
+        assert!(check(&all, "unauthored-prose-link").passed());
+    }
+
+    /// The mutation. Delete the declaration and the same link is an error that gates —
+    /// which is what makes the declaration, rather than the path, the thing doing the work.
+    #[test]
+    fn without_the_declaration_the_same_link_gates() {
+        let tmp = clean_repo();
+        broken_link_at(tmp.path(), "docs/reference/upstream/notes.md");
+        let all = run_checks(tmp.path(), &Options::default());
+        assert_eq!(check(&all, "broken-prose-link").violations.len(), 1);
+        assert!(check(&all, "unauthored-prose-link").passed());
+        assert_eq!(errors(&all), 1);
+    }
+
+    /// `generated` names the generator, so the finding arrives addressed to it.
+    #[test]
+    fn a_generated_region_reports_against_the_generator() {
+        let tmp = clean_repo();
+        broken_link_at(tmp.path(), ".yidam/reports/coverage.md");
+        declare(
+            tmp.path(),
+            "generated:\n  - path: .yidam/reports/\n    by: yidam report\n",
+        );
+        let all = run_checks(tmp.path(), &Options::default());
+        assert!(check(&all, "broken-prose-link").passed());
+        let detail = &check(&all, "unauthored-prose-link").violations[0].detail;
+        assert!(detail.contains("yidam report"), "{detail}");
+        assert!(detail.contains("the generator's"), "{detail}");
+    }
+
+    /// The escape hatch, and the only kind that produces silence.
+    #[test]
+    fn an_excluded_region_is_not_read_at_all() {
+        let tmp = clean_repo();
+        broken_link_at(tmp.path(), "docs/scratch/notes.md");
+        declare(
+            tmp.path(),
+            "excluded:\n  - path: docs/scratch/\n    why: working notes\n",
+        );
+        let all = run_checks(tmp.path(), &Options::default());
+        assert!(check(&all, "broken-prose-link").passed());
+        assert!(check(&all, "unauthored-prose-link").passed());
+    }
+
+    /// The special case became an instance: no manifest, same treatment.
+    #[test]
+    fn the_vendored_prelude_needs_no_declaration() {
+        let tmp = clean_repo();
+        broken_link_at(tmp.path(), ".yidam/.vendor/prelude/GRAPH.md");
+        let all = run_checks(tmp.path(), &Options::default());
+        assert!(check(&all, "broken-prose-link").passed());
+        assert_eq!(check(&all, "unauthored-prose-link").violations.len(), 1);
+    }
+
+    #[test]
+    fn a_declaration_that_matches_nothing_is_reported_and_does_not_gate() {
+        let tmp = clean_repo();
+        declare(
+            tmp.path(),
+            "imported:\n  - path: docs/reference/gone/\n    from: acme/gis\n",
+        );
+        let all = run_checks(tmp.path(), &Options::default());
+        let stale = check(&all, "authorship-region-stale");
+        assert_eq!(stale.violations.len(), 1);
+        assert_eq!(stale.severity, Severity::Warn);
+        // The manifest is the offending file, so an editor squiggles the entry itself.
+        assert_eq!(stale.violations[0].node, crate::authorship::MANIFEST);
+        assert_eq!(errors(&all), 0);
+    }
+
+    /// A manifest that exists and cannot be read must be reported as that, not absorbed
+    /// into the flood of findings it was written to scope.
+    #[test]
+    fn an_unreadable_manifest_fails_the_command() {
+        let tmp = clean_repo();
+        declare(
+            tmp.path(),
+            "imported:\n  - path: docs/x\n    from: a\n    why: b\n",
+        );
+        assert!(crate::authorship::Authorship::load(tmp.path()).is_err());
+        // …while the checks themselves keep answering, for the editor's sake.
+        let all = run_checks(tmp.path(), &Options::default());
+        assert_eq!(all.len(), 18);
     }
 
     #[test]

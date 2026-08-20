@@ -1,3 +1,4 @@
+mod authorship;
 mod claims;
 mod cmd;
 #[cfg(feature = "index")]
