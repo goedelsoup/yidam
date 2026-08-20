@@ -26,6 +26,16 @@
           "type": "string",
           "default": "",
           "markdownDescription": "Absolute path to the `yidam` binary. Leave empty to resolve from `PATH`, then from the workspace's mise shims.\n\nThe extension never downloads or builds a binary: `.yidam.toml` records which yidam governs this corpus, and only it gets to say."
+        },
+        "yidam.lint.showBaselined": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show violations the committed baseline already records, as faded Hints.\n\nThey are inherited debt rather than regressions and never fail CI. A repository carrying a lot of it can turn them off \u2014 the debt is still in `.yidam/lint-baseline.yml` and still in the gate, so nothing a reader needs is lost."
+        },
+        "yidam.diagnostics.debounceMs": {
+          "type": "number",
+          "default": 400,
+          "markdownDescription": "How long to wait after a save before re-running the reports. They walk the whole corpus per run."
         }
       }
     },
@@ -33,6 +43,14 @@
       {
         "command": "yidam.showBinaryStatus",
         "title": "yidam: Show binary and contract status"
+      },
+      {
+        "command": "yidam.refreshDiagnostics",
+        "title": "yidam: Re-run lint and graph-check"
+      },
+      {
+        "command": "yidam.blessBaseline",
+        "title": "yidam: Bless the lint baseline"
       }
     ]
   },
