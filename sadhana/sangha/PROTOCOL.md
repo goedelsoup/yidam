@@ -171,6 +171,48 @@ asserted. Ancestry is not only which commits were read; it is which claims were 
 and by whom, and a record that names its positions can be audited by someone who was not
 there. `rounds: 1` is a fine number — see [When to stop](#when-to-stop).
 
+## Annotating an open item after the fact
+
+A resolution is a dated record of an event, and its `What remains open` is a statement
+about the world on that date. The world moves. **A resolution written last month that still
+reads *"unproposed by any elector"* about something proposed the next day is the same defect
+this repository gates for in its corpus** — a sentence that was true when written and reads
+as current.
+
+Until there was a convention for it there was no way to say so, because no resolution had
+ever been annotated and inventing the practice inside one commit would have been a
+governance act dressed as a correction.
+
+**The original text is never edited.** An item that has moved gets a dated annotation
+appended beneath it, as a block quote:
+
+```markdown
+> **Moved YYYY-MM-DD.** What has since happened, and where it now lives.
+```
+
+Three constraints, and the third is the one that makes this safe:
+
+1. **The annotation is additive.** The sentence above it stays exactly as written. A dated
+   record that gets rewritten is no longer a record of what was decided.
+2. **It carries its own date**, which is the date of the movement and not of the resolution.
+3. **An annotation records movement and never outcome.** It may say a question was proposed,
+   retrieved, measured, or superseded. It may not say it was *settled* — **an open item is
+   closed only by a later resolution**, because closing one is synthesis and Article V puts
+   synthesis in resolution events.
+
+The third constraint is not about annotations being wrong. It is about what an annotation
+structurally *is*: a place where one elector, in one commit, having read no `ma/*` tip and
+having transported nothing, could perform a resolution in a file the protocol never routes
+through one. An annotation that decides something is a resolution written in the wrong
+place.
+
+Annotate under `What remains open` and nowhere else. Annotating `What was resolved` would
+edit history rather than extend it.
+
+**What this does not catch: an open item that moved and was never annotated.** That is the
+same shape one layer up, it is not solved here, and saying so is cheaper than a check that
+would have to know what the world is doing.
+
 ## Baseline update
 
 After resolution, each participating elector takes the new `rigpa/<evolution>` tip into

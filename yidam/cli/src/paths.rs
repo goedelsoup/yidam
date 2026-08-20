@@ -30,6 +30,13 @@ pub fn yidam_decisions_dir(root: &Path) -> PathBuf {
     root.join(".yidam").join("decisions")
 }
 
+/// The sangha's governance records: `PROTOCOL.md`, `electors.md`, `positions/`,
+/// `resolutions/`. Absent in single-elector repositories, where collective mode is
+/// opt-in — every caller must tolerate it not existing.
+pub fn yidam_sangha_dir(root: &Path) -> PathBuf {
+    root.join(".yidam").join("sangha")
+}
+
 pub fn yidam_embeddings_dir(root: &Path) -> PathBuf {
     root.join(".yidam").join("embeddings")
 }
