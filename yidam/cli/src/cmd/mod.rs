@@ -32,6 +32,7 @@ mod serve;
 mod status;
 #[cfg(feature = "tonpa")]
 pub mod tonpa;
+mod vocabulary;
 mod web;
 
 pub use backfill::backfill;
@@ -58,6 +59,7 @@ pub use schema::schema;
 #[cfg(feature = "index")]
 pub use serve::serve_mcp;
 pub use status::{index_status, status};
+pub use vocabulary::vocabulary;
 pub use web::bundle_status;
 
 fn has_open_claim(text: &str) -> bool {

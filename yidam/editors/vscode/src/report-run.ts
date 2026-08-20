@@ -29,6 +29,7 @@ import type {
   StatusReport,
 } from './reports.ts'
 import type { Spawn } from './runner.ts'
+import type { VocabularyReport } from './vocabulary.ts'
 
 export type Outcome =
   | {
@@ -47,7 +48,7 @@ export type Outcome =
  * Null rather than a throw: a view whose report is missing renders as unavailable, and one
  * failed report must not take the other six with it.
  */
-async function fetchReport<T>(
+export async function fetchReport<T>(
   bin: string,
   args: string[],
   cwd: string,
@@ -127,4 +128,21 @@ export async function runRefViews(bin: string, cwd: string, run: Spawn): Promise
     fetchReport<SanghaReport>(bin, ['sangha'], cwd, run),
   ])
   return { phases, sangha }
+}
+
+/**
+ * The commit vocabulary, and optionally one subject checked against it.
+ *
+ * One command for both because the two are the same question asked twice — what may I
+ * write, and is this it — and a client needs the list to offer completion and the verdict
+ * to draw a squiggle.
+ */
+export async function runVocabulary(
+  bin: string,
+  cwd: string,
+  run: Spawn,
+  check?: string,
+): Promise<VocabularyReport | null> {
+  const args = check === undefined ? ['vocabulary'] : ['vocabulary', '--check', check]
+  return fetchReport<VocabularyReport>(bin, args, cwd, run)
 }

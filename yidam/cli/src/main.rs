@@ -205,6 +205,17 @@ enum Command {
     /// Inspect and validate samudaya/ seed files
     #[command(name = "samudaya-audit")]
     SamudayaAudit,
+    /// Print the closed commit vocabulary, optionally checking one subject against it
+    Vocabulary {
+        /// Check this subject line against the vocabulary, the way `lint --commits`
+        /// checks a committed one — but before the commit exists
+        #[arg(long, value_name = "SUBJECT")]
+        check: Option<String>,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Report the sangha: electors, positions, and settled resolutions
     Sangha {
         /// Output format. `json` emits the machine-readable report contract
@@ -343,6 +354,7 @@ fn main() -> Result<()> {
         Command::Schema { settings } => yidam::schema(settings),
         Command::SamudayaAudit => yidam::samudaya_audit(),
         Command::Sangha { format } => yidam::sangha(format),
+        Command::Vocabulary { check, format } => yidam::vocabulary(check, format),
         #[cfg(feature = "tonpa")]
         Command::Tonpa { sub } => block_on(yidam::tonpa::run(sub)),
     }

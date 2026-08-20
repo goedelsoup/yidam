@@ -171,6 +171,18 @@ const COMMANDS: &[(&str, &[&str])] = &[
     ("log-epistemic", &["log", "--epistemic"]),
     ("index-status", &["index-status"]),
     ("sangha", &["sangha"]),
+    ("vocabulary", &["vocabulary"]),
+    // The fixture carries no vendored GRAPH.md, so this golden also pins the
+    // no-document arm: every `when` empty, and `drift` empty rather than thirty
+    // rows of "missing".
+    (
+        "vocabulary-check",
+        &[
+            "vocabulary",
+            "--check",
+            "vendor(yidam): the prelude at 4e1a2b0",
+        ],
+    ),
 ];
 
 #[test]

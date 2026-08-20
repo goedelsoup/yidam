@@ -28,6 +28,7 @@ import {
   runCorpusViews,
   runRefViews,
   runReports,
+  runVocabulary,
   type CorpusViews,
   type Outcome,
   type RefViews,
@@ -43,6 +44,13 @@ import {
   statusLine,
 } from './tree/model.ts'
 import { NodeTree } from './tree/provider.ts'
+import {
+  completions,
+  inVerbPosition,
+  marks,
+  subjectLine,
+  type VocabularyReport,
+} from './vocabulary.ts'
 
 const run = promisify(execFile)
 
@@ -84,13 +92,41 @@ const corpusViews = new Cached<CorpusViews>()
 let refGeneration = 0
 const refViews = new Cached<RefViews>()
 
+/**
+ * The verb list, fetched once and re-fetched when the vendored prelude changes.
+ *
+ * Held rather than re-run per keystroke: the list is a property of the pinned binary and
+ * the vendored `GRAPH.md`, neither of which moves while somebody types a commit message.
+ * The *check* is per-message and does re-run — debounced.
+ */
+let vocabulary: VocabularyReport | null = null
+let commitDiagnostics: vscode.DiagnosticCollection
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0)
   status.command = 'yidam.showHealth'
   context.subscriptions.push(status)
 
   diagnostics = vscode.languages.createDiagnosticCollection('yidam')
-  context.subscriptions.push(diagnostics)
+  commitDiagnostics = vscode.languages.createDiagnosticCollection('yidam-commit')
+  context.subscriptions.push(diagnostics, commitDiagnostics)
+
+  // The commit input is a real text document with language id `scminput`, so language
+  // features register against it like any other.
+  const SCM: vscode.DocumentSelector = { language: 'scminput' }
+  context.subscriptions.push(
+    vscode.languages.registerCompletionItemProvider(SCM, { provideCompletionItems: verbs }),
+  )
+  const checkCommit = debounce(debounceMs(), (doc: vscode.TextDocument) => void checkSubject(doc))
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeTextDocument((e) => {
+      if (e.document.languageId !== 'scminput') return
+      checkCommit(e.document)
+    }),
+    vscode.workspace.onDidCloseTextDocument((doc) => {
+      if (doc.languageId === 'scminput') commitDiagnostics.delete(doc.uri)
+    }),
+  )
 
   views = {
     corpus: new NodeTree(workspaceFolder),
@@ -144,8 +180,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // corpus, so editing it is exactly when a stale resolution becomes wrong.
   const folder = workspaceFolder()
   if (folder) {
+    // `.yidam.toml` says which yidam governs this corpus; the vendored GRAPH.md carries
+    // the vocabulary's prose. Both are re-read on change — the second because
+    // re-vendoring is exactly how `resolve`, `scope` and `adopt` arrived.
     const watcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(folder, '.yidam.toml'),
+      new vscode.RelativePattern(folder, '{.yidam.toml,.yidam/.vendor/prelude/GRAPH.md}'),
     )
     watcher.onDidChange(() => void refresh())
     watcher.onDidCreate(() => void refresh())
@@ -174,6 +213,59 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 export function deactivate(): void {
   status?.dispose()
   diagnostics?.dispose()
+  commitDiagnostics?.dispose()
+}
+
+/**
+ * Completion in the commit box, from the vocabulary the pinned binary reports.
+ *
+ * Offered only in the verb position — once `: ` is behind the cursor the user is writing
+ * prose, and thirty verbs there is noise rather than help.
+ */
+function verbs(
+  document: vscode.TextDocument,
+  position: vscode.Position,
+): vscode.CompletionItem[] {
+  if (!vocabulary) return []
+  const line = document.lineAt(position.line).text
+  if (!inVerbPosition(line, position.character, position.line)) return []
+  return completions(vocabulary).map((c) => {
+    const item = new vscode.CompletionItem(c.label, vscode.CompletionItemKind.Keyword)
+    item.detail = c.detail
+    item.documentation = new vscode.MarkdownString(c.documentation)
+    item.insertText = c.insertText
+    item.sortText = c.sortText
+    return item
+  })
+}
+
+/** Check the subject line as it is typed, and publish what the CLI says about it. */
+async function checkSubject(document: vscode.TextDocument): Promise<void> {
+  const folder = workspaceFolder()
+  if (!folder || !state?.resolution.command) return
+  const subject = subjectLine(document.getText()).trim()
+  if (subject.length === 0) {
+    commitDiagnostics.delete(document.uri)
+    return
+  }
+  const report = await runVocabulary(state.resolution.command, folder, spawn, subject)
+  if (!report?.subject) {
+    commitDiagnostics.delete(document.uri)
+    return
+  }
+  commitDiagnostics.set(
+    document.uri,
+    marks(report.subject).map((m) => {
+      const d = new vscode.Diagnostic(
+        new vscode.Range(0, m.start, 0, m.end),
+        m.message,
+        severityOf(m.severity === 'error' ? 'error' : m.severity === 'warn' ? 'warning' : 'information'),
+      )
+      d.code = m.code
+      d.source = 'yidam (vocabulary)'
+      return d
+    }),
+  )
 }
 
 /** Drop every cached answer and ask again. One button, all five views. */
@@ -367,6 +459,10 @@ async function refresh(): Promise<void> {
   }
 
   state = { resolution, handshake }
+  vocabulary =
+    resolution.command && handshake?.ok
+      ? await runVocabulary(resolution.command, folder, spawn)
+      : null
   render()
   await report()
 }

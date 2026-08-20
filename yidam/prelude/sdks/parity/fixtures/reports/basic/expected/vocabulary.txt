@@ -1,0 +1,33 @@
+Epistemic — understanding was added, revised, or retracted
+  establish
+  revise
+  assess
+  scope
+  synthesize
+  withdraw
+  open
+  close
+  transport
+  resolve
+  adopt
+  decide
+  phase
+  genesis
+  overlay
+
+Operational — the pipeline advanced; no understanding changed
+  extract
+  refresh
+  compute
+  index
+  bundle
+  reconcile
+  regen
+  build
+  implement
+  scaffold
+  catalog
+  migrate
+  fix
+  vendor
+  consume

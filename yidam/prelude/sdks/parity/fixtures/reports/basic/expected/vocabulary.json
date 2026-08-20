@@ -1,0 +1,165 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "reports"
+    ]
+  },
+  "root": "<ROOT>",
+  "source": "",
+  "verbs": [
+    {
+      "verb": "establish",
+      "kind": "epistemic",
+      "when": ""
+    },
+    {
+      "verb": "revise",
+      "kind": "epistemic",
+      "when": ""
+    },
+    {
+      "verb": "assess",
+      "kind": "epistemic",
+      "when": ""
+    },
+    {
+      "verb": "scope",
+      "kind": "epistemic",
+      "when": ""
+    },
+    {
+      "verb": "synthesize",
+      "kind": "epistemic",
+      "when": ""
+    },
+    {
+      "verb": "withdraw",
+      "kind": "epistemic",
+      "when": ""
+    },
+    {
+      "verb": "open",
+      "kind": "epistemic",
+      "when": ""
+    },
+    {
+      "verb": "close",
+      "kind": "epistemic",
+      "when": ""
+    },
+    {
+      "verb": "transport",
+      "kind": "epistemic",
+      "when": ""
+    },
+    {
+      "verb": "resolve",
+      "kind": "epistemic",
+      "when": ""
+    },
+    {
+      "verb": "adopt",
+      "kind": "epistemic",
+      "when": ""
+    },
+    {
+      "verb": "decide",
+      "kind": "epistemic",
+      "when": ""
+    },
+    {
+      "verb": "phase",
+      "kind": "epistemic",
+      "when": ""
+    },
+    {
+      "verb": "genesis",
+      "kind": "epistemic",
+      "when": ""
+    },
+    {
+      "verb": "overlay",
+      "kind": "epistemic",
+      "when": ""
+    },
+    {
+      "verb": "extract",
+      "kind": "operational",
+      "when": ""
+    },
+    {
+      "verb": "refresh",
+      "kind": "operational",
+      "when": ""
+    },
+    {
+      "verb": "compute",
+      "kind": "operational",
+      "when": ""
+    },
+    {
+      "verb": "index",
+      "kind": "operational",
+      "when": ""
+    },
+    {
+      "verb": "bundle",
+      "kind": "operational",
+      "when": ""
+    },
+    {
+      "verb": "reconcile",
+      "kind": "operational",
+      "when": ""
+    },
+    {
+      "verb": "regen",
+      "kind": "operational",
+      "when": ""
+    },
+    {
+      "verb": "build",
+      "kind": "operational",
+      "when": ""
+    },
+    {
+      "verb": "implement",
+      "kind": "operational",
+      "when": ""
+    },
+    {
+      "verb": "scaffold",
+      "kind": "operational",
+      "when": ""
+    },
+    {
+      "verb": "catalog",
+      "kind": "operational",
+      "when": ""
+    },
+    {
+      "verb": "migrate",
+      "kind": "operational",
+      "when": ""
+    },
+    {
+      "verb": "fix",
+      "kind": "operational",
+      "when": ""
+    },
+    {
+      "verb": "vendor",
+      "kind": "operational",
+      "when": ""
+    },
+    {
+      "verb": "consume",
+      "kind": "operational",
+      "when": ""
+    }
+  ],
+  "drift": []
+}
