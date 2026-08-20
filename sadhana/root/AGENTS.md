@@ -66,8 +66,17 @@ actually hold.
 Before a resolution, **write your position down** in
 [`.yidam/sangha/positions/`](.yidam/sangha/positions/). The branch tip records which nodes
 you hold; it does not record why, what you conceded, or which of your own earlier grounds
-you are withdrawing — and that is what the resolution turns on. After the resolution, take
-the new baseline by merge, not rebase: `adopt: the baseline after <evolution>`.
+you are withdrawing — and that is what the resolution turns on.
+
+Then **transport it onto the baseline**, unmodified, so the other electors can answer it:
+`transport: <whose position, and what it says>`, naming the `ma/<elector>@<hash>` you read
+it from. Carrying a file verbatim introduces nothing its author did not hold, which is why
+it is legal outside a resolution event — but editing what you carry is not. A position left
+on your own branch is one nobody can answer and no corpus node can cite.
+
+The resolution procedure is a loop: state, transport, read the others, answer, repeat until
+a round adds nothing. One round is a complete cycle. After the resolution, take the new
+baseline by merge, not rebase: `adopt: the baseline after <evolution>`.
 
 ## The gate
 

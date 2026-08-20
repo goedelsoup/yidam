@@ -337,6 +337,14 @@ to be satisfied by. `positions/<elector>-<question>.md` is where the argument is
 A derived repository accumulated 24 of them across 12 resolutions before the conventions had
 a slot for them.
 
+**A position is authored on a branch and lives on the baseline.** It is written on the
+elector's own `ma/*` branch and then carried here by a `transport:` commit, verbatim.
+Authorship and residence are separate questions, and conflating them cost the same derived
+repository four corpus nodes whose citations resolved for their author and for nobody else,
+plus two resolutions standing on the baseline whose arguments were not. Files under
+`positions/` are therefore expected to arrive by transport rather than to be authored in
+place — and never to be edited by anyone but the elector whose name they carry.
+
 ---
 
 ## `.yidam/private-paths` (optional)

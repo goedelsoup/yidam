@@ -4,8 +4,20 @@ One elector's stated position on one question, written down before a resolution 
 
 `positions/<elector>-<question>.md` — the elector is the branch name without `ma/`, the
 question is the `rigpa/<evolution>` name the resolution will carry. A resolution over three
-electors and one question has up to three files here, and they are committed to each
-elector's own `ma/*` branch, not to the baseline.
+electors and one question has up to three files here.
+
+**A position is authored on its elector's `ma/*` branch and then carried onto the baseline
+by a `transport:` commit, unmodified.** Authorship and residence are different questions:
+the branch records who holds it, the baseline is where everyone else can read it. See
+[PROTOCOL](../PROTOCOL.md) step 2 for the mechanics and for why verbatim carriage is legal
+outside a resolution event when synthesis is not.
+
+Both halves are load-bearing, and the second was missing for the whole of this template's
+early life. A position that stays on its author's branch is one no other elector can answer
+and no corpus node can cite. A derived repository ran twenty resolutions before adding the
+step and found exactly that: four corpus nodes citing position files that resolved for
+their author and for nobody else, and two resolutions standing on the baseline whose
+arguments were not.
 
 ## Why these exist when the branch tip is already the position
 
@@ -53,3 +65,11 @@ Positions are permanent. A superseded position is not deleted or edited into agr
 is the record of what was held, and the next resolution's record links back to it. An
 elector who changes their mind writes a new position for the new question and says in it
 which earlier ground of theirs did not survive.
+
+Within a single resolution the loop is different from supersession. An elector answering a
+round they have now read extends their *own* position file with `revise:` on their own
+branch, and it is transported again — that is the argument developing, and the history of
+it is the branch. What an elector must never do is edit somebody else's file, in transport
+or anywhere else. Article V confines synthesis to resolution events; improving another
+elector's argument on the baseline is a resolution performed by one seat that has read
+nobody.
