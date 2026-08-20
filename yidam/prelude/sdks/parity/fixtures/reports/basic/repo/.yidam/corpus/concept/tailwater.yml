@@ -1,0 +1,6 @@
+class: concept
+label: Tailwater
+description: Water downstream of a structure. The control node — it trips nothing.
+links:
+  - target: ../concept/low-flow.yml
+    relationship: relates-to

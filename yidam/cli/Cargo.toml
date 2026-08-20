@@ -94,5 +94,6 @@ tonpa = ["dep:reqwest", "dep:tokio"]
 full = ["reports", "index", "export-sqlite", "export-graph", "tonpa"]
 
 [dev-dependencies]
+walkdir = "2"
 quick-xml = "0.37"
 tempfile = "3"

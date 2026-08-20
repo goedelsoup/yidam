@@ -1,0 +1,6 @@
+class: concept
+label: Low flow
+description: A discharge regime. Carries one deliberately broken edge.
+links:
+  - target: ../concept/assimilative-capacit.yml
+    relationship: depends-on

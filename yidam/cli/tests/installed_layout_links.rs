@@ -311,7 +311,7 @@ fn the_mapping_agrees_with_bootstrap() {
             continue;
         }
         // `dest (overwrites yidam's)` — the parenthetical is commentary.
-        let dst = rhs.trim().split_whitespace().next().unwrap_or("").trim();
+        let dst = rhs.split_whitespace().next().unwrap_or("");
         if dst.is_empty() {
             continue;
         }

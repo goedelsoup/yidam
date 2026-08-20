@@ -1,0 +1,146 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "reports"
+    ]
+  },
+  "root": "<ROOT>",
+  "gate": {
+    "passed": false,
+    "new_violations": 1,
+    "baselined_violations": 0,
+    "stale_baseline_entries": []
+  },
+  "checks": [
+    {
+      "id": "missing-class",
+      "title": "Instance declaring no class",
+      "severity": "error",
+      "rationale": "An instance's class is what binds it to a schema. Without one there is nothing to validate the node against and nothing to render it as — it is a YAML file in a corpus directory, not a node.",
+      "violations": []
+    },
+    {
+      "id": "unknown-class",
+      "title": "Instance of a class that has no schema",
+      "severity": "error",
+      "rationale": "Either the class file was never written or the instance misspells it. Both leave the node unvalidatable, and a misspelling additionally splits one class into two that no query will join.",
+      "violations": []
+    },
+    {
+      "id": "orphan-out",
+      "title": "Node connected to nothing",
+      "severity": "error",
+      "rationale": "Every node must carry at least one outgoing edge. A node with none is unreachable by traversal from anywhere, which in a graph whose value is its connectivity means it is not in the graph at all.",
+      "violations": []
+    },
+    {
+      "id": "dangling-edge",
+      "title": "Edge pointing at nothing",
+      "severity": "error",
+      "rationale": "A broken edge is worse than a missing one: it asserts a relationship to something that is not there, so a reader following it learns nothing and a traversal counting it overstates the graph's connectivity. Renaming a node severs every edge into it, which is why node filenames are meant to be stable.",
+      "violations": [
+        {
+          "node": ".yidam/corpus/concept/low-flow.yml",
+          "detail": "target does not exist: ../concept/assimilative-capacit.yml",
+          "in_baseline": false,
+          "span": {
+            "line": 5
+          }
+        }
+      ]
+    },
+    {
+      "id": "catalog-unobtained-but-cited",
+      "title": "Source nobody has fetched, cited anyway",
+      "severity": "error",
+      "rationale": "This is the price of the `obtained: false` exemption, which is otherwise the cheapest way to silence `catalog-uncited`. A node drawing on a source the catalog says was never retrieved is one of two things and both are defects: the flag is stale and was not cleared when the source arrived, or the citation rests on something nobody has read.",
+      "violations": []
+    },
+    {
+      "id": "missing-label",
+      "title": "Instance with no human-readable label",
+      "severity": "warn",
+      "rationale": "The label is what every index, export, and graph rendering shows. Without it a reader gets a filename, which is an identifier chosen for stability rather than for saying what the thing is.",
+      "violations": []
+    },
+    {
+      "id": "missing-description",
+      "title": "Instance with no description",
+      "severity": "warn",
+      "rationale": "The description is the node's content. An instance with properties and links but nothing said about it records that something exists without recording what is known about it.",
+      "violations": []
+    },
+    {
+      "id": "catalog-used-by-drift",
+      "title": "`used-by` list disagreeing with the citations",
+      "severity": "warn",
+      "rationale": "The citations are authoritative — they cannot drift from the corpus, and a hand-maintained list can. Both are kept so the disagreement is visible rather than averaged away. The list is optional; an entry that declares one is asserting it is current.",
+      "violations": []
+    },
+    {
+      "id": "catalog-location-malformed",
+      "title": "Catalog location missing or mistyped",
+      "severity": "warn",
+      "rationale": "A `location` is a list of typed places. The type decides whether a reader is offered a link, so a value whose shape contradicts its type renders wrongly; and where an entry has several locations, the description is the only thing distinguishing them.",
+      "violations": []
+    },
+    {
+      "id": "malformed-table",
+      "title": "Markdown table whose rows disagree on width",
+      "severity": "warn",
+      "rationale": "A ragged table does not render as a table. Every reader of that file sees a paragraph of pipes instead of the thing the author was trying to show, and the author usually never looks at the rendered output again.",
+      "violations": []
+    },
+    {
+      "id": "orphan-in",
+      "title": "Node nothing points to",
+      "severity": "info",
+      "rationale": "Reported rather than gated: a node authored this morning legitimately has no inbound edges yet, and the hub nodes of a young corpus often point outward at everything while nothing points back. Worth seeing, not worth blocking on.",
+      "violations": [
+        {
+          "node": ".yidam/corpus/concept/tailwater.yml",
+          "detail": "nothing links to this node",
+          "in_baseline": false
+        }
+      ]
+    },
+    {
+      "id": "catalog-uncited",
+      "title": "Registered source nothing draws from",
+      "severity": "info",
+      "rationale": "A catalog entry describes a source, not knowledge, so an uncited one is not an error. It is either a source registered ahead of the extraction that will use it, or a claim resting on evidence that never became a node. The two look identical from here and are worth telling apart — which is what `obtained: false` declares. Entries that have said they are the former are not reported.",
+      "violations": []
+    },
+    {
+      "id": "class-asserts-purpose",
+      "title": "Class definition asserts a purpose rather than describing a kind",
+      "severity": "warn",
+      "rationale": "A claim tag attaches to a claim somebody makes on a node. A class definition is not that — it is the meaning every instance takes on by being filed under the class, asserted identically and untagged for each. So a class whose description states a reason ('deployed to obtain an outcome the ordinary path would not yield') puts that assertion beyond the reach of every other check here, which all run on tags. The case this was written from survived five resolutions and three arguments about its instances. Rewrite the description to say what an instance IS — the observable shape, the admission conditions — and move any characterization of why to a field that attributes it, or to `analytic_note`, which this check does not read.",
+      "violations": []
+    },
+    {
+      "id": "resolution-annotation-malformed",
+      "title": "Resolution annotation is malformed or in the wrong section",
+      "severity": "error",
+      "rationale": "Both halves are structural rather than a judgement about wording, which is why this gates where its sibling does not. An annotation with no date cannot be read against the record it extends — the whole point is that the record speaks for its own date and the annotation for a later one. An annotation under `What was resolved` or `What changed` edits history instead of extending it, and those sections are the ones a reader trusts to describe a settled past.",
+      "violations": []
+    },
+    {
+      "id": "resolution-annotation-decides",
+      "title": "Resolution annotation announces an outcome",
+      "severity": "warn",
+      "rationale": "An annotation may say a question was proposed, retrieved, measured or superseded in fact; it may not say it was settled. Closing an open item is synthesis, and Article V puts synthesis in resolution events — so an annotation that decides something is a resolution performed by one elector, in one commit, in a file the protocol never routes through a resolution. Warn rather than Error because this is a heuristic over wording: it cannot see an outcome announced in words that are not on the list, and gating on it would make every false positive a blocked commit and the check would be switched off within a week.",
+      "violations": []
+    },
+    {
+      "id": "broken-prose-link",
+      "title": "A markdown link in prose does not resolve",
+      "severity": "error",
+      "rationale": "A link resolves against the directory of the file it sits in — that is what a reader's client does — so a path spelled from the repository root is broken in every file that is not at the root. Error severity, which puts it under the baseline ratchet: a link listed there and since repaired fails the build exactly as a new break does, because a list permitted to be wrong drifts and one that over-lists silently re-permits whatever it over-lists. Fenced and inline code are not read, so an example path in a shell command is not a finding.",
+      "violations": []
+    }
+  ]
+}
