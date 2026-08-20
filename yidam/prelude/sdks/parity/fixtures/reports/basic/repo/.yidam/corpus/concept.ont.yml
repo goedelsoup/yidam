@@ -5,6 +5,12 @@ properties:
   - name: datum
     type: string
     description: Which vertical datum the values are read against.
+  # A typed evidence tag. Declaring it is what lets a value like `claim_tag: open` be
+  # counted at all — without the declaration only a bracketed token in the serialized
+  # text is seen, and a corpus storing the tag rather than prose about it reads as empty.
+  - name: claim_tag
+    type: claim
+    description: The evidence standing of this node, as a tag rather than as prose.
 edges:
   - relationship: relates-to
     target: concept

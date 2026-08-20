@@ -1,5 +1,4 @@
 use super::export::unix_to_iso;
-use super::has_open_claim;
 use crate::model::{corpus_nodes, DomainModel, NodeView};
 
 /// Render the corpus as an llms.txt context pack: a flat plaintext file where
@@ -14,9 +13,16 @@ use crate::model::{corpus_nodes, DomainModel, NodeView};
 /// accounts for everything that didn't fit.
 pub fn render_llms(model: &DomainModel, token_budget: Option<usize>) -> String {
     let mut nodes = corpus_nodes(model);
+    // Open questions sort first, so the fields that decide "open" have to be loaded before
+    // the comparison rather than inside it.
+    let fields = crate::paths::repo_root()
+        .map(|r| crate::claims::ClaimFields::load(&crate::paths::yidam_corpus_dir(&r)))
+        .unwrap_or_default();
     nodes.sort_by(|a, b| {
-        let open_a = has_open_claim(&a.content);
-        let open_b = has_open_claim(&b.content);
+        let open_a =
+            crate::claims::is_open_question(&a.label, &a.content, fields.for_class(&a.class));
+        let open_b =
+            crate::claims::is_open_question(&b.label, &b.content, fields.for_class(&b.class));
         open_b
             .cmp(&open_a)
             .then_with(|| b.links.len().cmp(&a.links.len()))

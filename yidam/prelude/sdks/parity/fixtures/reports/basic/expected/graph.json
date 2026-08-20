@@ -49,6 +49,11 @@
           "name": "datum",
           "type": "string",
           "description": "Which vertical datum the values are read against."
+        },
+        {
+          "name": "claim_tag",
+          "type": "claim",
+          "description": "The evidence standing of this node, as a tag rather than as prose."
         }
       ],
       "edges": [

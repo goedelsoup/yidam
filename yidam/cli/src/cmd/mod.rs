@@ -71,6 +71,6 @@ pub use status::{index_status, status};
 pub use vocabulary::vocabulary;
 pub use web::bundle_status;
 
-fn has_open_claim(text: &str) -> bool {
-    text.contains("[open]")
-}
+// `has_open_claim` lived here and was a `text.contains("[open]")`. It is
+// `claims::is_open_question` now — one predicate, reading structure as well as prose. See
+// `claims.rs` for what a text-only scan cost a consumer: 2 open questions found out of 26.

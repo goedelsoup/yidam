@@ -51,6 +51,41 @@ readers and agents can assess the node's reliability without reading sources:
 - A synthesis node will typically contain all three: verified facts it draws on, inferences
   it makes, and open questions it generates. This is expected and good.
 
+### A tag may be a field rather than a sentence
+
+Inline tags are the default and stay the default: a claim is usually a sentence, and the tag
+belongs where the sentence is.
+
+A corpus whose evidence markers are **structured** — a typed vocabulary stored as a value
+rather than written into prose — declares the field in its class, with `type: claim`:
+
+```yaml
+# concept.ont.yml
+properties:
+  - name: claim_tag
+    type: claim
+    description: The evidence standing of this node, as a tag rather than as prose.
+```
+
+```yaml
+# concept/low-flow.yml
+properties:
+  claim_tag: open        # `[open]` is read the same way
+```
+
+Then `open-questions`, `status`, `corpus-index` and the MCP server all see it.
+
+**Why the class has to declare it.** Without a declaration the only thing readable is the
+bracketed token in a file's bytes — which makes "is this node open?" a property of the node's
+*serialization* rather than of the node. A consumer with a typed vocabulary found this by
+running the binary over its own mirror: **2 open questions reported against its own count of
+26**. The other 24 said they were open, in a machine-readable field, and were counted as
+nothing.
+
+It could not be fixed by matching a bare `open` under any key, either: a node with
+`status: open` would become an open claim, and no corpus could opt out of that. So the corpus
+names the field, and only that field is read.
+
 ### `[verified]` is a claim about provenance, not about confidence
 
 The distinction decides the hard cases. A figure can be almost certainly correct and still
