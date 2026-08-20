@@ -90,7 +90,7 @@ fn slash(p: &Path) -> String {
 }
 
 /// Resolve `.` and `..` without touching the filesystem.
-fn normalize(p: &Path) -> PathBuf {
+pub(crate) fn normalize(p: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for c in p.components() {
         match c {
@@ -130,7 +130,7 @@ pub(crate) fn relative_target(from_id: &str, to_id: &str) -> String {
 }
 
 /// The `target:` value on this line, with its byte range, or none.
-fn target_on(line: &str) -> Option<(usize, usize, String)> {
+pub(crate) fn target_on(line: &str) -> Option<(usize, usize, String)> {
     let key = line.find("target:")?;
     let after = key + "target:".len();
     let rest = &line[after..];
@@ -173,7 +173,15 @@ pub(crate) fn plan(root: &Path, corpus: &Path, old: &str, new: &str) -> RenameRe
 
     let old_path = corpus.join(&from);
     let new_path = corpus.join(&to);
-    if !old_path.is_file() {
+    // Instance, not merely a file under the corpus. `walk_corpus_instances`'s rule: depth ≥ 2,
+    // and `<class>.ont.yml` at depth 1 is a class definition rather than a node.
+    //
+    // Found by a test on the LSP's `prepareRename`, which offered F2 on `concept.ont.yml` —
+    // and this would have moved it. Renaming a class definition without renaming the directory
+    // beside it breaks every instance in that class at once, because `graph-check` matches the
+    // two by name. That is a different operation and it is not this one.
+    let is_instance = from.contains('/') && !from.ends_with(".ont.yml");
+    if !old_path.is_file() || !is_instance {
         report.blocked.push(format!("{from} is not a corpus node"));
     }
     if new_path.exists() {
@@ -526,6 +534,18 @@ mod tests {
         let r = plan(&root, &corpus, "concept/a", "concept/b");
         assert!(r.blocked.iter().any(|b| b.contains("already exists")));
         assert!(r.edits.is_empty(), "a blocked plan touches nothing");
+    }
+
+    /// A class definition is not a node.
+    ///
+    /// Renaming `<class>.ont.yml` without the directory beside it breaks every instance in
+    /// that class at once — `graph-check` matches the two by name. Found by a test on the
+    /// LSP's `prepareRename`, which offered F2 on one; this refused nothing until it did.
+    #[test]
+    fn a_class_definition_is_not_renameable_as_a_node() {
+        let (_t, root, corpus) = corpus();
+        let r = plan(&root, &corpus, "concept.ont.yml", "notion.ont.yml");
+        assert!(r.blocked.iter().any(|b| b.contains("not a corpus node")));
     }
 
     #[test]

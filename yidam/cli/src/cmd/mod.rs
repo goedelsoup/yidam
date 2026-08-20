@@ -21,6 +21,7 @@ pub(crate) mod graph;
 mod index_build;
 mod lint;
 mod log;
+mod lsp;
 mod overlay;
 mod phases;
 mod regen;
@@ -51,6 +52,8 @@ pub use graph::{graph, neighbors};
 #[cfg(feature = "index")]
 pub use index_build::index_build;
 pub use lint::{lint, Options as LintOptions};
+pub use lsp::serve_lsp;
+
 pub use log::{log, Filter as LogFilter};
 pub use overlay::overlay;
 pub use phases::phases;
