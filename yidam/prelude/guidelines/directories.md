@@ -456,6 +456,52 @@ Re-vendor deliberately, not reflexively. A prelude change can alter what the gra
 accepts; adopting one is a decision worth its own commit and, if it changes conventions the
 corpus depends on, its own record in `.yidam/decisions/`.
 
+**Staleness is invisible from the inside, so it is reported from the outside.** The derived
+repo CI prints how far behind the pin is on every run, and escalates to a warning when
+`GRAPH.md` has moved — that is where the closed commit vocabulary lives, it is the part of
+the prelude this repository has already written history against, and history cannot be
+rewritten to match a verb. `yidam-vendor-update` prints which verbs were added or removed
+between the old pin and the new one, for the same reason.
+
+Neither gates. A repository is entitled to stay pinned, and a build that goes red because
+upstream moved is a build somebody switches off.
+
+### Sending a finding back
+
+Re-vendoring carries corrections **downstream**. Nothing carries findings **up**, and a
+derived repository is where most defects in this template are actually discovered — it is
+the only place the conventions meet a real corpus.
+
+The cost of having no return path is not hypothetical. On one day, upstream added a verb to
+the closed vocabulary, citing a derived repository's use of it as the evidence the
+vocabulary had a gap; that same repository spent four commits the same day removing the
+verb, on the correct reasoning that no gap existed in the prelude *it* could see. Both were
+right about their own evidence. Neither could see the other, and the derived repo ended
+further from upstream than it started.
+
+So: when domain work here runs into a defect in the prelude, the CI, the CLI, or these
+conventions, **open an issue upstream** rather than working around it locally. A local
+workaround is invisible to every other derived repository and is discarded at the next
+re-vendor.
+
+```
+gh issue create --repo goedelsoup/yidam --label "from:derived-repo"
+```
+
+What makes such a report actionable, in rough order of value:
+
+- **The file and line in the prelude or CLI**, not just the symptom.
+- **What it cost here** — the commits spent, the checks that passed while wrong, the
+  workaround now in place. This is the part upstream cannot reconstruct and the part that
+  decides priority.
+- **The pin you are on**, from `.yidam.toml`. A defect already fixed upstream is a
+  re-vendor, not an issue.
+- **Whether you worked around it**, and where, so the workaround can be removed when the
+  fix lands.
+
+Do not send corpus content. A finding is about the template; the domain material that
+exposed it usually should not leave the repository, and often may not.
+
 ---
 
 ## `samudaya/` (transient — present only before and during bootstrap)

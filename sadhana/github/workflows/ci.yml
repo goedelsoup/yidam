@@ -190,6 +190,53 @@ jobs:
           git -C /tmp/yidam checkout --quiet "${{ steps.pin.outputs.commit }}"
           cargo install --path /tmp/yidam/yidam/cli --locked
 
+      # ── How far behind is the vendored prelude? ─────────────────────────────
+      #
+      # A report, never a gate. A repository is entitled to stay pinned, and a build
+      # that goes red because upstream moved is a build somebody switches off.
+      #
+      # It exists because staleness is invisible from inside a derived repo, and the
+      # cost is not theoretical. On one day, upstream ADDED a verb to the closed
+      # vocabulary — citing a derived repo's use of it as the evidence the vocabulary
+      # had a gap — while that same repo REMOVED the verb, reverting four commits, on
+      # the ground that no gap existed. Both reasoned correctly from what they could
+      # see. Neither could see the other, and the derived repo ended further from
+      # upstream than it started.
+      #
+      # The commit count and age are printed always and escalate to nothing. The
+      # WARNING is tied to one concrete hazard: `GRAPH.md` moving. That is where the
+      # closed commit vocabulary lives, it is the part of the prelude a repository has
+      # already written history against, and history cannot be rewritten to match it.
+      # An age threshold would be arbitrary — the collision above happened at nine
+      # days.
+      - name: Report how stale the vendored prelude is
+        continue-on-error: true
+        run: |
+          set -eu
+          pin='${{ steps.pin.outputs.commit }}'
+          cd /tmp/yidam
+          if ! git rev-parse --verify --quiet "origin/HEAD" >/dev/null; then
+            echo "::notice::cannot resolve origin/HEAD; skipping the staleness report."
+            exit 0
+          fi
+          behind=$(git rev-list --count "$pin..origin/HEAD" 2>/dev/null || echo 0)
+          if [ "$behind" -eq 0 ]; then
+            echo "::notice::vendored prelude is current with upstream."
+            exit 0
+          fi
+          pinned_at=$(git log -1 --format=%at "$pin")
+          days=$(( ( $(date +%s) - pinned_at ) / 86400 ))
+          moved=$(git diff --name-only "$pin" origin/HEAD -- yidam/prelude/ | wc -l | tr -d ' ')
+          echo "This repository is pinned $behind commit(s) behind upstream, $days day(s) old."
+          echo "$moved file(s) under yidam/prelude/ have changed since. Re-pin with:"
+          echo "  mise run yidam-vendor-update"
+          if git diff --name-only "$pin" origin/HEAD -- yidam/prelude/GRAPH.md | grep -q .; then
+            echo "::warning::GRAPH.md has moved upstream since this pin — the closed commit \
+          vocabulary may have gained or lost a verb. Your log is already written against \
+          the old one and cannot be rewritten to match. Review before writing more history: \
+          mise run yidam-vendor-update"
+          fi
+
       - name: graph-check
         run: yidam graph-check
 

@@ -67,7 +67,11 @@ committed=$(sed -n 's/^ *committed *= *"\\(.*\\)"/\\1/p' .yidam.toml)
 ref="${YIDAM_REF:-HEAD}"
 echo "origin    $origin"
 echo "pinned    $commit ($template, committed $committed)"
-remote=$(git ls-remote "$origin" "$ref" 2>/dev/null | cut -f1)
+# `head -n1`: `git ls-remote <url> HEAD` can match more than one ref — HEAD itself and
+# a refs/remotes/origin/HEAD the origin happens to carry — and every extra line went
+# into $remote, so the equality test below could never be true. This task reported
+# "origin has moved" unconditionally, including when the pin was exactly current.
+remote=$(git ls-remote "$origin" "$ref" 2>/dev/null | cut -f1 | head -n1)
 if [ -z "$remote" ]; then
   echo "remote    unreachable — cannot compare"
   exit 0
@@ -76,9 +80,46 @@ echo "origin/$ref  $remote"
 if [ "$remote" = "$commit" ]; then
   echo
   echo "up to date"
-else
+  exit 0
+fi
+echo
+echo "origin has moved — run 'mise run yidam-vendor-update' to adopt it"
+# "Has moved" is a boolean, and a boolean is not enough to act on. How far, how old,
+# and — the part that actually costs something — whether the CLOSED COMMIT VOCABULARY
+# changed, because that is what this repository has already written history against
+# and history cannot be rewritten to match a verb.
+#
+# The clone happens only on this branch: the ls-remote above answers the common case
+# for free, and nobody pays for a fetch to be told they are current.
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+if ! git clone --quiet --filter=blob:none --no-checkout "$origin" "$tmp/y" 2>/dev/null; then
+  echo "(could not fetch $origin for detail)"
+  exit 0
+fi
+behind=$(git -C "$tmp/y" rev-list --count "$commit..origin/HEAD" 2>/dev/null || echo 0)
+pinned_at=$(git -C "$tmp/y" log -1 --format=%at "$commit" 2>/dev/null || echo "")
+if [ -n "$pinned_at" ]; then
+  days=$(( ( $(date +%s) - pinned_at ) / 86400 ))
   echo
-  echo "origin has moved — run 'mise run yidam-vendor-update' to adopt it"
+  echo "behind    $behind commit(s), pinned $days day(s) ago"
+fi
+moved=$(git -C "$tmp/y" diff --name-only "$commit" origin/HEAD -- yidam/prelude/ 2>/dev/null | wc -l | tr -d ' ')
+echo "prelude   $moved file(s) changed since the pin"
+if git -C "$tmp/y" diff --name-only "$commit" origin/HEAD -- yidam/prelude/GRAPH.md 2>/dev/null | grep -q .; then
+  before="$tmp/vb"; after="$tmp/va"
+  git -C "$tmp/y" show "$commit:yidam/prelude/GRAPH.md" 2>/dev/null \\
+    | sed -n 's/^| `\\([a-z]*\\)` |.*/\\1/p' | sort -u > "$before" || true
+  git -C "$tmp/y" show "origin/HEAD:yidam/prelude/GRAPH.md" 2>/dev/null \\
+    | sed -n 's/^| `\\([a-z]*\\)` |.*/\\1/p' | sort -u > "$after" || true
+  added=$(comm -13 "$before" "$after" || true)
+  removed=$(comm -23 "$before" "$after" || true)
+  if [ -n "$added" ] || [ -n "$removed" ]; then
+    echo
+    echo "the closed commit vocabulary moved:"
+    [ -n "$added" ]   && printf '%s\\n' "$added"   | sed 's/^/  + /'
+    [ -n "$removed" ] && printf '%s\\n' "$removed" | sed 's/^/  - /'
+  fi
 fi
 """
 
@@ -92,6 +133,12 @@ if [ -f .yidam.toml ]; then
   [ -n "$found" ] && origin="$found"
 fi
 ref="${YIDAM_REF:-HEAD}"
+# The pin being replaced, captured before .yidam.toml is overwritten below. It is what
+# makes the vocabulary report at the end possible.
+previous=""
+if [ -f .yidam.toml ]; then
+  previous=$(sed -n 's/^ *commit *= *"\\(.*\\)"/\\1/p' .yidam.toml)
+fi
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 echo "fetching $origin at $ref …"
@@ -144,6 +191,34 @@ committed = "$committed"
 EOF
 echo
 echo "re-vendored to $commit ($template)"
+# What moved in the CLOSED VOCABULARY, specifically. Everything else in the prelude is
+# a document you can read at leisure; the vocabulary is the part this repository has
+# already written history against, and history cannot be rewritten to match a verb.
+# A derived repo once spent four commits reverting a verb that upstream had blessed
+# the same day, because nothing told it either fact.
+if [ -n "$previous" ] && [ "$previous" != "unknown" ] && [ "$previous" != "$commit" ]; then
+  verbs_at() {
+    git -C "$tmp/yidam" show "$1:yidam/prelude/GRAPH.md" 2>/dev/null \\
+      | sed -n 's/^| `\\([a-z]*\\)` |.*/\\1/p' | sort -u
+  }
+  before=$(verbs_at "$previous")
+  after=$(verbs_at "$commit")
+  if [ -n "$before" ] && [ -n "$after" ]; then
+    # Temp files rather than process substitution: these tasks run under POSIX sh,
+    # where <( ) does not exist and would fail at the first repository to run it.
+    printf '%s\\n' "$before" > "$tmp/verbs.before"
+    printf '%s\\n' "$after"  > "$tmp/verbs.after"
+    added=$(comm -13 "$tmp/verbs.before" "$tmp/verbs.after" || true)
+    removed=$(comm -23 "$tmp/verbs.before" "$tmp/verbs.after" || true)
+    if [ -n "$added" ] || [ -n "$removed" ]; then
+      echo
+      echo "the closed commit vocabulary moved:"
+      [ -n "$added" ]   && printf '%s\\n' "$added"   | sed 's/^/  + /'
+      [ -n "$removed" ] && printf '%s\\n' "$removed" | sed 's/^/  - /'
+      echo "  read .yidam/.vendor/prelude/GRAPH.md before writing more commits."
+    fi
+  fi
+fi
 echo "review the diff, then commit it as its own event:"
 echo "  git add .yidam/.vendor/prelude .yidam.toml mise.yidam.toml"
 echo "  git commit -m 'vendor: re-vendor prelude at $commit — <what changed>'"
