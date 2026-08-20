@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::path::Path;
 
 use crate::paths::repo_root;
@@ -49,22 +49,22 @@ fn humanize(slug: &str) -> String {
 }
 
 pub(crate) fn collect_phases(root: &Path) -> Result<Vec<PhaseRow>> {
-    let refs = git_stdout(
-        root,
-        &[
-            "for-each-ref",
-            "refs/heads/ma",
-            "refs/heads/rigpa",
-            "--format=%(refname:short)",
-        ],
-    )
-    .context("listing ma/* and rigpa/* refs")?;
+    // Local *and* remote-tracking, via `crate::git::phase_refs`. This listed
+    // `refs/heads/{ma,rigpa}` only, which is invisible in a fresh clone — see that
+    // function for what it cost.
+    let phases = crate::git::phase_refs(root);
 
     let base = base_branch(root);
     let mut rows = Vec::new();
 
-    for ref_name in refs.lines().map(str::trim).filter(|l| !l.is_empty()) {
-        let slug = ref_name.split_once('/').map(|(_, s)| s).unwrap_or(ref_name);
+    for phase in &phases {
+        // The ref to read is not the phase's name when the phase lives only on a remote.
+        let ref_name = phase.git_ref.as_str();
+        let slug = phase
+            .name
+            .split_once('/')
+            .map(|(_, s)| s)
+            .unwrap_or(&phase.name);
 
         let owner = git_stdout(root, &["log", "-1", "--format=%an", ref_name])
             .unwrap_or_else(|| "unknown".to_string());
@@ -201,6 +201,67 @@ mod tests {
         git(&root, &["add", "."]);
         git(&root, &["commit", "-q", "-m", "chore: genesis — test"]);
         (tmp, root)
+    }
+
+    /// A phase that exists only as a remote-tracking ref is found and read.
+    ///
+    /// This is the fresh-clone shape — the one CI has — and it used to score zero.
+    /// Built by fetching from a second repository rather than by writing the ref by
+    /// hand, so the ref is real and `git log` against it resolves.
+    #[test]
+    fn collect_phases_finds_a_remote_only_phase() {
+        let (_origin_tmp, origin) = init_repo();
+        git(&origin, &["checkout", "-q", "-b", "ma/auditor"]);
+        std::fs::write(origin.join("b.txt"), "b").unwrap();
+        git(&origin, &["add", "."]);
+        git(
+            &origin,
+            &["commit", "-q", "-m", "establish: the auditor's first node"],
+        );
+        git(&origin, &["checkout", "-q", "main"]);
+
+        let (_tmp, root) = init_repo();
+        git(
+            &root,
+            &["remote", "add", "origin", origin.to_str().unwrap()],
+        );
+        git(&root, &["fetch", "-q", "origin"]);
+
+        // No local ma/* branch exists here at all.
+        let rows = collect_phases(&root).unwrap();
+        assert_eq!(
+            rows.len(),
+            1,
+            "{:?}",
+            rows.iter().map(|r| &r.ref_name).collect::<Vec<_>>()
+        );
+        assert_eq!(rows[0].name, "Auditor");
+        assert_eq!(rows[0].ref_name, "origin/ma/auditor");
+        assert_eq!(rows[0].owner, "Tester");
+        assert_eq!(crate::git::active_phase_count(&root), 1);
+    }
+
+    /// The same phase locally and on the remote is one row, read from the local ref.
+    #[test]
+    fn a_phase_on_both_sides_is_one_row() {
+        let (_origin_tmp, origin) = init_repo();
+        git(&origin, &["branch", "rigpa/schema-reach"]);
+
+        let (_tmp, root) = init_repo();
+        git(
+            &root,
+            &["remote", "add", "origin", origin.to_str().unwrap()],
+        );
+        git(&root, &["fetch", "-q", "origin"]);
+        git(
+            &root,
+            &["branch", "rigpa/schema-reach", "origin/rigpa/schema-reach"],
+        );
+
+        let rows = collect_phases(&root).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].ref_name, "rigpa/schema-reach");
+        assert_eq!(crate::git::active_phase_count(&root), 1);
     }
 
     #[test]
