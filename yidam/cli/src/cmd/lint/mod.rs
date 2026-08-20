@@ -18,7 +18,7 @@ use anyhow::Result;
 pub use model::{Check, Severity};
 
 use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir};
-use crate::walk::{walk_corpus_instances, walk_md_files, walk_ont_files};
+use crate::walk::{walk_corpus_instances, walk_linkable_files, walk_md_files, walk_ont_files};
 
 /// How `lint` was invoked.
 #[derive(Debug, Clone, Default)]
@@ -96,6 +96,36 @@ pub fn run_checks(root: &Path, opts: &Options) -> Vec<Check> {
         ));
     }
 
+    // ── Prose links ─────────────────────────────────────────────────────────────
+    //
+    // Authored markdown only. `.yidam/.vendor/` is excluded because it is read-only here:
+    // a defect in the prelude is fixed upstream and adopted by re-vendoring, so reporting
+    // one to a derived repo hands it a finding it cannot act on. `docs/` is included —
+    // documentation about the repository is authored, and its links rot the same way.
+    //
+    // Not `crates/` or `web/`, whose READMEs carry illustrative targets rather than
+    // references to files that are supposed to exist.
+    let vendor_dir = root.join(".yidam").join(".vendor");
+    let mut prose_link_paths: Vec<std::path::PathBuf> = walk_linkable_files(&root.join(".yidam"))
+        .into_iter()
+        .filter(|p| !p.starts_with(&vendor_dir))
+        .collect();
+    prose_link_paths.extend(walk_linkable_files(&root.join("docs")));
+    let mut prose_links: Vec<checks::ProseLink> = Vec::new();
+    for p in &prose_link_paths {
+        let rel = p
+            .strip_prefix(root)
+            .unwrap_or(p)
+            .to_string_lossy()
+            .to_string();
+        let dir = p.parent().unwrap_or(root);
+        prose_links.extend(checks::prose_links(
+            &rel,
+            dir,
+            &std::fs::read_to_string(p).unwrap_or_default(),
+        ));
+    }
+
     let mut all = vec![
         checks::missing_class(&nodes),
         checks::unknown_class(&nodes, &defined),
@@ -112,6 +142,7 @@ pub fn run_checks(root: &Path, opts: &Options) -> Vec<Check> {
         checks::class_asserts_purpose(&classes),
         checks::resolution_annotation_malformed(&annotations),
         checks::resolution_annotation_decides(&annotations),
+        checks::broken_prose_link(&prose_links),
     ];
 
     if opts.commits {
@@ -257,7 +288,7 @@ mod tests {
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 15);
+        assert_eq!(all.len(), 16);
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
@@ -267,6 +298,7 @@ mod tests {
         // that was never wired in.
         assert!(ids.contains("resolution-annotation-malformed"));
         assert!(ids.contains("resolution-annotation-decides"));
+        assert!(ids.contains("broken-prose-link"));
     }
 
     #[test]

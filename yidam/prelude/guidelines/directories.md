@@ -507,7 +507,9 @@ exposed it usually should not leave the repository, and often may not.
 ## `samudaya/` (transient — present only before and during bootstrap)
 
 A transient bootstrap influence layer, consumed and committed away as part of the genesis
-event. See [samudaya/README.md](../../../samudaya/README.md) for the full protocol.
+event. See [samudaya/README.md](https://github.com/goedelsoup/yidam/blob/main/samudaya/README.md) for the full
+protocol — the directory itself is deleted at genesis, so a relative link to it is
+broken in every derived repository.
 
 **Presence after genesis is an error state.**
 
