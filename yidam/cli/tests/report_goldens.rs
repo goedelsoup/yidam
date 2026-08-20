@@ -172,6 +172,16 @@ const COMMANDS: &[(&str, &[&str])] = &[
     ("index-status", &["index-status"]),
     ("sangha", &["sangha"]),
     ("graph", &["graph"]),
+    // A plan, not a rename: the golden must not mutate the fixture the other goldens read.
+    (
+        "rename",
+        &[
+            "rename",
+            "concept/low-flow.yml",
+            "concept/base-flow.yml",
+            "--dry-run",
+        ],
+    ),
     (
         "neighbors",
         &["neighbors", "concept/tailwater.yml", "--depth", "2"],

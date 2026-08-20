@@ -62,6 +62,20 @@ enum Command {
     BundleStatus,
     /// Refresh every REGEN block in one pass.
     Regen,
+    /// Rename a corpus node, rewriting every edge into it
+    Rename {
+        /// Node to rename, e.g. `concept/old.yml` or `concept/old`
+        old: String,
+        /// Its new id, e.g. `concept/new` — may move it to another class
+        new: String,
+        /// Print the plan and change nothing
+        #[arg(long)]
+        dry_run: bool,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Report the corpus graph: nodes, resolved edges, and the classes that license them
     Graph {
         /// Output format. `json` emits the machine-readable report contract
@@ -272,6 +286,12 @@ fn main() -> Result<()> {
         Command::PackagesIndex => yidam::packages_index(),
         Command::BundleStatus => yidam::bundle_status(),
         Command::Regen => yidam::regen(),
+        Command::Rename {
+            old,
+            new,
+            dry_run,
+            format,
+        } => yidam::rename(&old, &new, dry_run, format),
         Command::Graph { format } => yidam::graph(format),
         Command::Neighbors {
             node,
