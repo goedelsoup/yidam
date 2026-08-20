@@ -160,6 +160,59 @@ vocabulary in `prelude/GRAPH.md`"*. Three comments, three languages, nothing ver
 `vocabulary` parses the tables to fetch their **When** prose, so comparing them costs
 nothing — `drift` is a field on the report rather than a hope.
 
+## Three guards
+
+### Claim tags
+
+`[verified]` / `[inference]` / `[open]` tinted inline, from the design system's claim
+palette. `docs/aesthetic-direction.md` already calls these "first-class visual states"; this
+is the first surface that makes them so.
+
+**Matched wherever `count_in_source` counts** — exact bracketed tokens, anywhere in the
+file. Not "inside a `description:` block", which is the narrower reading: the corpus records
+absence in properties too (`estimate: "[open] — not computed"`), and a decoration that
+skipped those would disagree with `yidam status` about what a claim is. That disagreement is
+invisible and permanent.
+
+Off in high-contrast themes whatever the setting says. A high-contrast theme is a stated
+accessibility choice, and tinting text against it overrides a decision the reader made
+deliberately.
+
+The palette is transcribed from `yidam/design/tokens/colors.css`, and a test parses that
+file and fails when the copy drifts. The dark triad was added there for this feature and
+*derived* rather than picked: the light theme's border tone becomes the dark foreground,
+because it is already the mid-lightness member of each triad and therefore the one legible
+against both grounds.
+
+### The read-only vendor guard
+
+`.yidam/.vendor/` is read-only, and an edit there "is silently discarded on the next update"
+(`sadhana/root/AGENTS.md`). **Nothing enforced it.** The failure is quiet and delayed: the
+edit works locally, survives review, and disappears at the next
+`mise run yidam-vendor-update`.
+
+`files.readonlyInclude` at workspace scope, applied at activation, idempotent — activation
+runs on every window, and a guard that rewrote the setting each time would put a settings
+diff in every session's git status. Turning `yidam.vendor.protect` off *removes* the entry
+rather than setting it `false`, so the setting is left as it was found.
+
+### Schema wiring
+
+`yidam schema --settings` works, and it is the entire editor story today: a third-party
+extension, a manual step at genesis, and a second manual step whenever the schema set
+changes. The copy-paste becomes a notification with a button.
+
+**Merged, never replaced.** `yaml.schemas` is somewhere people put their own mappings, and
+an "apply" that overwrote them would be a worse failure than the copy-paste it replaces.
+
+### And the tasks
+
+`regen`, `graph-check`, `graph-lint`, `embed`, `index-build` — as palette commands and as a
+`TaskProvider`, so they reach `Run Task` too. Deliberately not every task in
+`mise.yidam.toml`: it carries a dozen REGEN generators that `regen` runs in one pass, and
+offering them individually re-creates the two-lists problem `yidam regen` exists to have
+solved.
+
 ## Layout
 
 | Path | |
@@ -172,6 +225,8 @@ nothing — `drift` is a field on the report rather than a hope.
 | `src/report-run.ts` | one pass over the reports, in two cached groups. No `vscode` import. |
 | `src/tree/model.ts` | the five views, as data. No `vscode` import. |
 | `src/vocabulary.ts` | what to offer, where to underline. No `vscode` import. |
+| `src/claims.ts` | claim tokens, their spans, the palette. No `vscode` import. |
+| `src/settings.ts` | what to write into settings, and when not to. No `vscode` import. |
 | `src/tree/provider.ts` | `TreeNode` → `vscode.TreeItem`. The adapter, with no judgement in it. |
 | `src/extension.ts` | activation, status bar, terminal actions. Thin by design. |
 | `test/` | `node --test`, no Electron |
