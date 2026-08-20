@@ -63,6 +63,7 @@ Not every divergence warrants resolution. Call one when:
 
    ```
    git switch -c rigpa/<evolution>
+   git add <the corpus files step 3 wrote>
    git commit -m "resolve: <what was settled, and what it cost>"
    ```
 
