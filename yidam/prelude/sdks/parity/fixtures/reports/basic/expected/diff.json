@@ -9,13 +9,6 @@
   },
   "root": "<ROOT>",
   "range": "HEAD~1..HEAD",
-  "nodes": [
-    {
-      "node": "corpus/concept/tailwater.yml",
-      "status": "modified",
-      "label": "Tailwater",
-      "claims_changed": 1
-    }
-  ],
+  "nodes": [],
   "edges": []
 }

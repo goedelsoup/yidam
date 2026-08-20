@@ -266,6 +266,10 @@ run = "yidam packages-index"
 description = "Report web/ bundle state: contract version, feeds, last export timestamp, deploy status."
 run = "yidam bundle-status"
 
+[log]
+description = "Commit history classified as testimony or pipeline work. --epistemic for testimony only."
+run = "yidam log"
+
 [graph-check]
 description = "Run graph integrity check: orphans, missing labels, broken links."
 run = "yidam graph-check"

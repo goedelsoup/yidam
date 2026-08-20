@@ -19,6 +19,7 @@ mod export_web;
 #[cfg(feature = "index")]
 mod index_build;
 mod lint;
+mod log;
 mod overlay;
 mod phases;
 mod regen;
@@ -45,6 +46,7 @@ pub use export::{export, list_formats, run_export, ExportFormat, ExportOptions, 
 #[cfg(feature = "index")]
 pub use index_build::index_build;
 pub use lint::{lint, Options as LintOptions};
+pub use log::{log, Filter as LogFilter};
 pub use overlay::overlay;
 pub use phases::phases;
 pub use regen::regen;
