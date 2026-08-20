@@ -1,0 +1,20 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "reports"
+    ]
+  },
+  "root": "<ROOT>",
+  "sources": [
+    {
+      "entry": "gauge-record.md",
+      "type": "dataset",
+      "description": "A stream gauge series, registered and unretrieved.",
+      "obtained": false,
+      "citations": 0
+    }
+  ]
+}

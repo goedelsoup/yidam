@@ -1,0 +1,33 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "reports"
+    ]
+  },
+  "root": "<ROOT>",
+  "nodes": [
+    {
+      "node": "concept/low-flow.yml",
+      "class": "concept",
+      "label": "Low flow",
+      "links_out": 1,
+      "claims_verified": 0,
+      "claims_inference": 0,
+      "claims_open": 0,
+      "lines": 6
+    },
+    {
+      "node": "concept/tailwater.yml",
+      "class": "concept",
+      "label": "Tailwater",
+      "links_out": 1,
+      "claims_verified": 0,
+      "claims_inference": 1,
+      "claims_open": 0,
+      "lines": 6
+    }
+  ]
+}
