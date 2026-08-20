@@ -163,6 +163,24 @@ A verb outside this list is not a richer description, it is an unclassifiable on
 Reach for the closest verb rather than inventing one. If a commit genuinely does not fit —
 that is a gap in the vocabulary, which is an yidam-level change, not a local one.
 
+**A step that produces a commit names its verb, in the step.** Any instruction — in a
+protocol, a skill, a convention, a README — that tells a reader to commit something must
+say which verb, beside the instruction rather than a document away. This is the only
+mechanism in the system that acts *before* the commit exists. `yidam lint --commits` is
+Warn severity and correctly so, since history cannot be rewritten to fix a verb; that also
+means it reports drift only after the drift is permanent. A derived repository put four
+consecutive resolution commits on the wrong verb and the finding sat in a warning nobody
+read. Its own remedy was to record the verb at the step that writes the commit, which is
+the only place the next one can be caught.
+
+**Naming the *kind* is not naming the verb.** "Commit this as an epistemic commit" leaves
+the reader to pick one, and the kind is derived from the verb rather than the other way
+around — `classify_commit` takes the verb and returns the kind. This template prescribed
+four commits that way, two of them in consecutive sentences, and every one had an obvious
+right verb nobody had written down. `no_step_names_a_commit_kind_instead_of_its_verb`
+gates that shape; it cannot see a step that says "commit this" with no qualification at
+all, and no check can.
+
 **Merge commits.** A merge whose subject git wrote — `Merge branch 'phase/outcome-axis'` —
 is exempt: nobody chose that verb, so nothing can be said about the choice. But a merge *is*
 a synthesis event, and git's default subject says only which ref was read, not what joining
