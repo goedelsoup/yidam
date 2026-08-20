@@ -122,8 +122,9 @@ fn the_documented_format_version_is_the_declared_one() {
             .map(str::to_string)
     };
     let documented = quoted(&versioning()).expect("VERSIONING.md quotes FORMAT_VERSION");
-    let declared = quoted(&std::fs::read_to_string(repo_root().join("yidam/cli/src/report.rs")).unwrap())
-        .expect("report.rs declares FORMAT_VERSION");
+    let declared =
+        quoted(&std::fs::read_to_string(repo_root().join("yidam/cli/src/report.rs")).unwrap())
+            .expect("report.rs declares FORMAT_VERSION");
     assert_eq!(
         documented, declared,
         "VERSIONING.md says format_version is {documented:?} and report.rs says {declared:?}"
