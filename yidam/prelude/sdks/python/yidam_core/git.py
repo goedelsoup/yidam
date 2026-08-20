@@ -58,6 +58,7 @@ EPISTEMIC_VERBS = frozenset(
         "withdraw",
         "open",
         "close",
+        "transport",
         "resolve",
         "adopt",
         "decide",

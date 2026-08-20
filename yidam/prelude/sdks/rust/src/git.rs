@@ -59,6 +59,7 @@ pub const EPISTEMIC_VERBS: &[&str] = &[
     "withdraw",
     "open",
     "close",
+    "transport",
     "resolve",
     "adopt",
     "decide",
