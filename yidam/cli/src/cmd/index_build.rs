@@ -187,12 +187,20 @@ pub async fn index_build(model_arg: Option<String>) -> Result<()> {
         serde_json::to_string_pretty(&meta)?,
     )?;
 
+    // The witness, embedded with the model that just built the index — so what travels with
+    // the index is a number produced by the same weights rather than a number copied from a
+    // fixture that might have moved.
+    let probe = model.embed(
+        vec![crate::embed_config::VERIFICATION_PROBE.to_string()],
+        None,
+    )?;
     let embed_config = EmbedConfig::for_fastembed_model(
         &model_name,
         embedding_dim,
         &model_file,
         &format!("{embedding_model:?}"),
-    );
+    )
+    .with_verification(probe.first().map(Vec::as_slice).unwrap_or(&[]));
     std::fs::write(
         index_dir.join(EMBED_CONFIG_FILENAME),
         serde_json::to_string_pretty(&embed_config)?,
