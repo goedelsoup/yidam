@@ -268,6 +268,22 @@ run = [
   "cargo test --manifest-path yidam/cli/Cargo.toml --all-features",
 ]
 
+# The editor client. Not a cargo workspace, so it is not in the `ci` composite below —
+# `mise run ci` is the Rust gate and stays fast. CI runs this as its own job.
+#
+# `//yidam/editors/vscode:ci` would be the natural spelling, but this repo is not in mise
+# monorepo mode: the subproject mise.toml files exist for local use inside a directory,
+# and the root defines the CI entry points. Keeping both in step is why this duplicates
+# the subproject's task rather than delegating to it.
+[tasks.ci-vscode]
+description = "CI for the VS Code extension: compile (src + tests), lint, unit tests."
+dir = "yidam/editors/vscode"
+run = [
+  "npm run compile",
+  "npm run lint",
+  "npm run test:unit",
+]
+
 # Composite for local use (`mise run ci`); CI runs ci-harness and ci-cli as
 # separate parallel jobs (see .github/workflows/ci.yml).
 [tasks.ci]

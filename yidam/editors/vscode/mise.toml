@@ -1,0 +1,19 @@
+[tasks.install]
+description = "Install extension dependencies."
+run = "npm install"
+
+[tasks.compile]
+description = "Type-check and build the extension."
+run = "npm run compile"
+
+[tasks.lint]
+description = "Lint the extension source."
+run = "npm run lint"
+
+[tasks.test]
+description = "Unit tests — the logic that does not need an editor."
+run = "npm run test:unit"
+
+[tasks.ci]
+description = "Full extension gate: compile, lint, unit tests."
+run = ["npm run compile", "npm run lint", "npm run test:unit"]

@@ -57,6 +57,33 @@ jobs:
           key: ${{ matrix.workspace }}
       - run: mise run ci-${{ matrix.workspace }}
 
+  vscode:
+    # The editor client. Separate from the Rust matrix because it shares no toolchain
+    # with it, and because it needs a yidam BINARY rather than a cargo workspace: the
+    # contract tests drive the extension's reader against the same `reports/` golden
+    # corpora that certify the reports themselves. A fixture whose output changes then
+    # fails the parity run and these tests together, which is the point.
+    name: ci (vscode)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: yidam/cli
+          key: vscode-cli
+      # The light default (`reports`) — no protoc, no fastembed. The extension needs a
+      # binary that speaks the contract, not the full feature set.
+      - name: Install the yidam CLI so the contract tests have something to read
+        run: cargo install --path yidam/cli --locked
+      - run: npm install
+        working-directory: yidam/editors/vscode
+      # Skipping is a courtesy to contributors without the CLI; it must never be how
+      # this job goes green. This turns an absent or stale binary into a failure.
+      - run: mise run ci-vscode
+        env:
+          YIDAM_REQUIRE_CONTRACT: "1"
+
   cli-full:
     # Full-feature CLI (index/sqlite/rdf/tonpa) — heavy: fastembed + lancedb +
     # protoc + from-source SQLite. Runs on main push + the weekly schedule only,
