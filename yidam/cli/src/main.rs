@@ -141,6 +141,21 @@ enum Command {
         #[arg(long, value_name = "REF")]
         since: Option<String>,
     },
+    /// Show commit history classified as testimony or pipeline work
+    Log {
+        /// Show only epistemic commits — the testimony
+        #[arg(long, conflicts_with = "operational")]
+        epistemic: bool,
+        /// Show only operational commits — the pipeline
+        #[arg(long)]
+        operational: bool,
+        /// Git range, e.g. `main..HEAD`, `HEAD~20`. Defaults to the current ref's history.
+        range: Option<String>,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Show active inquiry phases (ma/* and rigpa/* branches)
     Phases {
         /// Output format. `json` emits the machine-readable report contract
@@ -263,6 +278,22 @@ fn main() -> Result<()> {
             backfill_ref,
         } => yidam::overlay(&target, backfill, backfill_ref.as_deref()),
         Command::Backfill { since } => yidam::backfill(since.as_deref()),
+        Command::Log {
+            epistemic,
+            operational,
+            range,
+            format,
+        } => {
+            // Neither flag is the documented default: both kinds, each tagged. See
+            // `cmd::log::Filter::All` for why testimony is a discoverable flag rather
+            // than a silent default.
+            let filter = match (epistemic, operational) {
+                (true, _) => yidam::LogFilter::Epistemic,
+                (_, true) => yidam::LogFilter::Operational,
+                _ => yidam::LogFilter::All,
+            };
+            yidam::log(range, filter, format)
+        }
         Command::Phases { format } => yidam::phases(format),
         Command::Serve { mcp } => {
             #[cfg(feature = "index")]

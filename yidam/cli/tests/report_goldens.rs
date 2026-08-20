@@ -70,6 +70,12 @@ fn stage() -> tempfile::TempDir {
     .unwrap();
     git(&["add", "-A"]);
     commit("revise: tailwater carries a claim tag");
+
+    // One operational commit, so the log goldens show the split rather than a column of
+    // [E]. A fixture whose history is all one kind cannot demonstrate a classifier.
+    std::fs::write(tmp.path().join(".yidam/corpus/.gitkeep"), "").unwrap();
+    git(&["add", "-A"]);
+    commit("regen: REGEN blocks refreshed");
     tmp
 }
 
@@ -155,6 +161,8 @@ const COMMANDS: &[(&str, &[&str])] = &[
     ("catalog-audit", &["catalog-audit"]),
     ("phases", &["phases"]),
     ("diff", &["diff", "HEAD~1..HEAD"]),
+    ("log", &["log"]),
+    ("log-epistemic", &["log", "--epistemic"]),
 ];
 
 #[test]

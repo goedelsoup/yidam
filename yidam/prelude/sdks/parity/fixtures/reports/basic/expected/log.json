@@ -1,0 +1,45 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "reports"
+    ]
+  },
+  "root": "<ROOT>",
+  "range": "HEAD",
+  "filter": "all",
+  "total": 3,
+  "epistemic": 2,
+  "operational": 1,
+  "entries": [
+    {
+      "hash": "0de68fe3be8a0ca39191a9c3f873a5eee77ad632",
+      "short": "0de68fe3",
+      "kind": "operational",
+      "verb": "regen",
+      "subject": "regen: REGEN blocks refreshed",
+      "author": "Fixture",
+      "date": "2026-01-01T00:00:00Z"
+    },
+    {
+      "hash": "37bf09359dcd134b92b4109908a07fb80afabcd7",
+      "short": "37bf0935",
+      "kind": "epistemic",
+      "verb": "revise",
+      "subject": "revise: tailwater carries a claim tag",
+      "author": "Fixture",
+      "date": "2026-01-01T00:00:00Z"
+    },
+    {
+      "hash": "620f511feee1e53157a12311f2390eb93c077b90",
+      "short": "620f511f",
+      "kind": "epistemic",
+      "verb": "genesis",
+      "subject": "genesis: reports fixture",
+      "author": "Fixture",
+      "date": "2026-01-01T00:00:00Z"
+    }
+  ]
+}

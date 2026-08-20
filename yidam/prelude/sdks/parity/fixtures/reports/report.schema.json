@@ -4,26 +4,39 @@
   "title": "yidam report envelope",
   "description": "The machine-readable report contract (RFC-0016 Phase 0). Every `yidam <command> --format json` emits this envelope with the command's own fields flattened alongside. Consumers MUST ignore unknown fields: adding one is not a breaking change, and `format_version` is bumped only when a consumer that understood the previous version would mis-read this one.",
   "type": "object",
-  "required": ["format_version", "yidam", "root"],
+  "required": [
+    "format_version",
+    "yidam",
+    "root"
+  ],
   "properties": {
     "format_version": {
       "type": "string",
       "const": "1",
-      "description": "Contract major version. A consumer reading an unknown value MUST degrade loudly — disable verdict features and say why — and MUST NOT attempt to parse the rest."
+      "description": "Contract major version. A consumer reading an unknown value MUST degrade loudly \u2014 disable verdict features and say why \u2014 and MUST NOT attempt to parse the rest."
     },
     "yidam": {
       "type": "object",
-      "required": ["version", "commit", "features"],
+      "required": [
+        "version",
+        "commit",
+        "features"
+      ],
       "description": "Which yidam produced this. The handshake: a consumer is versioned independently of the binary a repository pins in .yidam.toml, so it must be able to detect skew.",
       "properties": {
-        "version": { "type": "string", "description": "Crate version." },
+        "version": {
+          "type": "string",
+          "description": "Crate version."
+        },
         "commit": {
           "type": "string",
           "description": "Short commit of the build, or the literal `unknown` when built without git. Never omitted, so 'not recorded' is distinguishable from 'absent'."
         },
         "features": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Cargo features compiled in. `reports` is the light default; others gate whole subcommands, so a consumer can tell 'this binary cannot do that' from 'that failed'."
         }
       }
@@ -32,11 +45,15 @@
       "type": "string",
       "description": "Absolute path of the repository the report was computed over."
     },
-
     "gate": {
       "type": "object",
-      "description": "`lint` only. The verdict — a consumer MUST NOT recompute it.",
-      "required": ["passed", "new_violations", "baselined_violations", "stale_baseline_entries"],
+      "description": "`lint` only. The verdict \u2014 a consumer MUST NOT recompute it.",
+      "required": [
+        "passed",
+        "new_violations",
+        "baselined_violations",
+        "stale_baseline_entries"
+      ],
       "properties": {
         "passed": {
           "type": "boolean",
@@ -52,13 +69,20 @@
         },
         "stale_baseline_entries": {
           "type": "array",
-          "description": "Baseline entries with no corresponding violation. These fail CI too — a baseline permitted to be wrong drifts.",
+          "description": "Baseline entries with no corresponding violation. These fail CI too \u2014 a baseline permitted to be wrong drifts.",
           "items": {
             "type": "object",
-            "required": ["check", "node"],
+            "required": [
+              "check",
+              "node"
+            ],
             "properties": {
-              "check": { "type": "string" },
-              "node": { "type": "string" }
+              "check": {
+                "type": "string"
+              },
+              "node": {
+                "type": "string"
+              }
             }
           }
         }
@@ -66,38 +90,69 @@
     },
     "checks": {
       "type": "array",
-      "description": "`lint` only. Every check that ran, including those that found nothing — a check that vanishes when it passes cannot be told from one that never ran.",
+      "description": "`lint` only. Every check that ran, including those that found nothing \u2014 a check that vanishes when it passes cannot be told from one that never ran.",
       "items": {
         "type": "object",
-        "required": ["id", "title", "severity", "rationale", "violations"],
+        "required": [
+          "id",
+          "title",
+          "severity",
+          "rationale",
+          "violations"
+        ],
         "properties": {
-          "id": { "type": "string", "description": "Stable identifier; half of a violation's identity in the baseline." },
-          "title": { "type": "string" },
+          "id": {
+            "type": "string",
+            "description": "Stable identifier; half of a violation's identity in the baseline."
+          },
+          "title": {
+            "type": "string"
+          },
           "severity": {
-            "enum": ["error", "warn", "info"],
+            "enum": [
+              "error",
+              "warn",
+              "info"
+            ],
             "description": "Only `error` gates, and only `error` is ever baselined."
           },
-          "rationale": { "type": "string", "description": "Why the check exists." },
+          "rationale": {
+            "type": "string",
+            "description": "Why the check exists."
+          },
           "violations": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["node", "detail", "in_baseline"],
+              "required": [
+                "node",
+                "detail",
+                "in_baseline"
+              ],
               "properties": {
                 "node": {
                   "type": "string",
                   "description": "The violation's identity, exactly as the baseline compares it. Unaffected by `span`."
                 },
-                "detail": { "type": "string" },
+                "detail": {
+                  "type": "string"
+                },
                 "in_baseline": {
                   "type": "boolean",
-                  "description": "Whether the committed baseline already records this violation. ONLY MEANINGFUL WHEN severity IS error — the baseline records error-severity violations and nothing else, so a warn or info violation is always false here. Read this together with `severity`, never alone."
+                  "description": "Whether the committed baseline already records this violation. ONLY MEANINGFUL WHEN severity IS error \u2014 the baseline records error-severity violations and nothing else, so a warn or info violation is always false here. Read this together with `severity`, never alone."
                 },
                 "span": {
                   "type": "object",
-                  "description": "Best-effort location. Output-only and never part of the violation's identity: a line number in the baseline's comparison would make it churn on every edit above a violation. Absent is a normal outcome — anchor at line 1.",
-                  "required": ["line"],
-                  "properties": { "line": { "type": "integer", "minimum": 1 } }
+                  "description": "Best-effort location. Output-only and never part of the violation's identity: a line number in the baseline's comparison would make it churn on every edit above a violation. Absent is a normal outcome \u2014 anchor at line 1.",
+                  "required": [
+                    "line"
+                  ],
+                  "properties": {
+                    "line": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  }
                 }
               }
             }
@@ -105,40 +160,175 @@
         }
       }
     },
-
-    "passed": { "type": "boolean", "description": "`graph-check` only. The gate verdict." },
-    "corpus_empty": { "type": "boolean", "description": "`graph-check` only. Neither instances nor class definitions — a fresh repository, not a failure." },
-    "total_instances": { "type": "integer", "description": "`graph-check` only." },
-    "clean_instances": { "type": "integer", "description": "`graph-check` only." },
-    "classes_defined": { "type": "integer", "description": "`graph-check` only." },
+    "passed": {
+      "type": "boolean",
+      "description": "`graph-check` only. The gate verdict."
+    },
+    "corpus_empty": {
+      "type": "boolean",
+      "description": "`graph-check` only. Neither instances nor class definitions \u2014 a fresh repository, not a failure."
+    },
+    "total_instances": {
+      "type": "integer",
+      "description": "`graph-check` only."
+    },
+    "clean_instances": {
+      "type": "integer",
+      "description": "`graph-check` only."
+    },
+    "classes_defined": {
+      "type": "integer",
+      "description": "`graph-check` only."
+    },
     "nodes_with_issues": {
       "type": "array",
       "description": "`graph-check` only.",
       "items": {
         "type": "object",
-        "required": ["node", "issues"],
+        "required": [
+          "node",
+          "issues"
+        ],
         "properties": {
-          "node": { "type": "string" },
-          "issues": { "type": "array", "items": { "type": "string" } }
+          "node": {
+            "type": "string"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         }
       }
     },
-    "classes_without_instances": { "type": "array", "items": { "type": "string" }, "description": "`graph-check` only. Reported, never gated." },
-
-    "nodes": { "type": "array", "description": "`corpus-index` (index rows) and `diff` (changed nodes)." },
-    "open_questions": { "type": "array", "description": "`open-questions` only." },
-    "sources": { "type": "array", "description": "`catalog-audit` only." },
-    "phases": { "type": "array", "description": "`phases` only." },
-    "edges": { "type": "array", "description": "`diff` only." },
-    "range": { "type": "string", "description": "`diff` only. The git range reported on." },
-    "blessed": { "type": "object", "description": "`lint --bless` only. No gate ran, so no `gate` block is emitted." },
-
-    "index_present": { "type": "boolean", "description": "`status` only." },
-    "active_phases": { "type": "integer", "description": "`status` only." },
-    "genesis": { "type": "string", "description": "`status` only." },
-    "catalog_entries": { "type": "integer", "description": "`status` only." },
-    "claims_verified": { "type": "integer", "description": "`status` only." },
-    "claims_inference": { "type": "integer", "description": "`status` only." },
-    "claims_open": { "type": "integer", "description": "`status` only." }
+    "classes_without_instances": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "`graph-check` only. Reported, never gated."
+    },
+    "nodes": {
+      "type": "array",
+      "description": "`corpus-index` (index rows) and `diff` (changed nodes)."
+    },
+    "open_questions": {
+      "type": "array",
+      "description": "`open-questions` only."
+    },
+    "sources": {
+      "type": "array",
+      "description": "`catalog-audit` only."
+    },
+    "phases": {
+      "type": "array",
+      "description": "`phases` only."
+    },
+    "edges": {
+      "type": "array",
+      "description": "`diff` only."
+    },
+    "range": {
+      "type": "string",
+      "description": "`diff` only. The git range reported on."
+    },
+    "blessed": {
+      "type": "object",
+      "description": "`lint --bless` only. No gate ran, so no `gate` block is emitted."
+    },
+    "index_present": {
+      "type": "boolean",
+      "description": "`status` only."
+    },
+    "active_phases": {
+      "type": "integer",
+      "description": "`status` only."
+    },
+    "genesis": {
+      "type": "string",
+      "description": "`status` only."
+    },
+    "catalog_entries": {
+      "type": "integer",
+      "description": "`status` only."
+    },
+    "claims_verified": {
+      "type": "integer",
+      "description": "`status` only."
+    },
+    "claims_inference": {
+      "type": "integer",
+      "description": "`status` only."
+    },
+    "claims_open": {
+      "type": "integer",
+      "description": "`status` only."
+    },
+    "filter": {
+      "enum": [
+        "all",
+        "epistemic",
+        "operational"
+      ],
+      "description": "`log` only. Which filter produced this view."
+    },
+    "total": {
+      "type": "integer",
+      "description": "`log` only. Commits in the range BEFORE filtering \u2014 a filtered view still reports what it hid."
+    },
+    "epistemic": {
+      "type": "integer",
+      "description": "`log` only. Epistemic commits in the range, before filtering."
+    },
+    "operational": {
+      "type": "integer",
+      "description": "`log` only. Operational commits in the range, before filtering."
+    },
+    "entries": {
+      "type": "array",
+      "description": "`log` only. The commits the filter admitted.",
+      "items": {
+        "type": "object",
+        "required": [
+          "hash",
+          "short",
+          "kind",
+          "verb",
+          "subject",
+          "author",
+          "date"
+        ],
+        "properties": {
+          "hash": {
+            "type": "string"
+          },
+          "short": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "epistemic",
+              "operational"
+            ],
+            "description": "From the parity-certified `classify_commit`. Operational verbs are the explicitly marked case; every other verb is epistemic, a totality the Dafny spec proves."
+          },
+          "verb": {
+            "type": "string",
+            "description": "Leading verb, or empty when the subject carries none."
+          },
+          "subject": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string",
+            "description": "Author date, ISO-8601."
+          }
+        }
+      }
+    }
   }
 }
