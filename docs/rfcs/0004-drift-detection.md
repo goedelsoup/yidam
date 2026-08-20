@@ -3,7 +3,7 @@
 - **Status:** Draft
 - **Track:** I4
 - **Relates to:** RFC-0001 (report contract), RFC-0003 (light reports-only binary), RFC-0006 (embed drift)
-- **Versioning layers touched:** template (the `.yidam.toml` schema + the bootstrap scaffold); tooling (the `yidam` CLI, which is not itself one of the three release trains)
+- **Versioning layers touched:** template (the `.yidam.toml` schema + the bootstrap scaffold); tooling (the `yidam` CLI — [Layer 4](../../VERSIONING.md), which this RFC predates)
 - **Downstream reference case:** Project BOSC (watermark-directory)
 
 ## Summary

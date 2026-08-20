@@ -1,6 +1,6 @@
 # Versioning
 
-Yidam has three independent versioning layers. They share a monorepo but are released
+Yidam has four independent versioning layers. They share a monorepo but are released
 on separate trains with separate semantics. Understand the layers before bumping anything.
 
 ---
@@ -45,26 +45,26 @@ made upstream reaches it on the next template bump it adopts.
 
 ## Layer 2 — SDKs
 
-Three independently-versioned packages living under `prelude/sdks/`:
+Three independently-versioned packages living under `yidam/prelude/sdks/`:
 
 | Package | Manifest | Registry |
 |---|---|---|
-| `yidam-core` | `prelude/sdks/rust/Cargo.toml` | crates.io |
-| `@yidam/core` | `prelude/sdks/typescript/package.json` | npm |
-| `yidam-core` | `prelude/sdks/python/pyproject.toml` | PyPI |
+| `yidam-core` | `yidam/prelude/sdks/rust/Cargo.toml` | crates.io |
+| `@yidam/core` | `yidam/prelude/sdks/typescript/package.json` | npm |
+| `yidam-core` | `yidam/prelude/sdks/python/pyproject.toml` | PyPI |
 
 Each package is tagged independently: `sdk/rust/v0.1.0`, `sdk/ts/v0.1.0`,
 `sdk/python/v0.1.0`.
 
 **Parity surface version.** The nine parity functions (`parse_node`, `extract_claims`,
 `extract_links`, `classify_commit`, `is_recognized_verb`, `parse_markers`, `update_regen`,
-`find_reachable`, `find_citations`) are versioned jointly in `prelude/sdks/parity/VERSION`.
+`find_reachable`, `find_citations`) are versioned jointly in `yidam/prelude/sdks/parity/VERSION`.
 The authoritative list is the loop in the `parity-check` task in `mise.toml`, which fails
 if any of them has no fixture. A change to any parity function's contract requires:
 
-1. Bump `prelude/sdks/parity/VERSION`
+1. Bump `yidam/prelude/sdks/parity/VERSION`
 2. Update all three SDK implementations in the same PR
-3. Update parity fixtures in `prelude/sdks/parity/fixtures/`
+3. Update parity fixtures in `yidam/prelude/sdks/parity/fixtures/`
 4. All three SDK packages release with a matching major bump (if breaking)
 
 SDK packages may diverge from each other on non-parity additions. They must never
@@ -89,7 +89,7 @@ and the judge rubric thresholds.
 The protocol version is a `const` in the harness crate:
 
 ```rust
-// tests/harness/yidam-harness/src/lib.rs
+// yidam/tests/harness/yidam-harness/src/lib.rs
 pub const PROTOCOL_VERSION: &str = "0.1.0";
 ```
 
@@ -115,14 +115,79 @@ commits the new baseline snapshots.
 
 ---
 
+## Layer 4 — Tooling
+
+The tooling layer covers the two things a *person* runs rather than a derived repo
+inherits: the `yidam` CLI and the editor client.
+
+| Artifact | Manifest | Tag | Registry |
+|---|---|---|---|
+| `yidam` CLI | `yidam/cli/Cargo.toml` | `cli/v{major}.{minor}.{patch}` | crates.io |
+| `goedelsoup.yidam` extension | `yidam/editors/vscode/package.json` | `editor/v{major}.{minor}.{patch}` | VS Code Marketplace, Open VSX |
+
+**Two artifacts, one layer — the same shape as Layer 2.** The SDKs are three packages on
+three registries with three tags, held together by one jointly-versioned contract
+(`yidam/prelude/sdks/parity/VERSION`). This layer is the same arrangement with two artifacts and
+a different contract: `format_version`.
+
+That is what makes separate tags safe. A Marketplace release needs a public, semver-shaped
+version and its own cadence; a CLI patch should not imply an extension release, and an
+extension patch should not imply a CLI one. Neither version is what the two negotiate on.
+
+### The contract between them is `format_version`
+
+```rust
+// yidam/cli/src/report.rs
+pub const FORMAT_VERSION: &str = "1";
+```
+
+Every `yidam <command> --format json` carries it, alongside the CLI's own version and build
+commit. A consumer versioned independently of the binary a repository pins reads it first
+and **degrades loudly** on an unknown major — says so, and disables verdict features rather
+than mis-parsing.
+
+| Bump | What changed |
+|---|---|
+| No bump | A **new field**. Consumers must ignore what they do not know, so adding one is not a break. |
+| Major | A removed field, a changed meaning, a narrowed type — anything a consumer that understood the previous version would mis-read. |
+
+There is no minor or patch: it answers one question, and the answer is yes or no.
+
+**Semver meaning for the CLI and the extension:**
+
+| Bump | What changed |
+|---|---|
+| Patch | Bug fix; no new command, flag, or report field |
+| Minor | New command, new flag, new report field, new editor affordance |
+| Major | A command or flag removed; the meaning of an existing verdict changed; `format_version` bumped |
+
+### Pinning in derived repos
+
+Nothing new in `.yidam.toml`. The CLI is already pinned by the `commit` field that records
+which yidam a corpus was vendored from — [`[yidam-build]`](mise.yidam.toml) builds from it —
+and the editor client resolves a binary rather than bundling one, so a repository never has
+two opinions about which yidam governs it.
+
+`format_version` is the compatibility axis, and it is carried in the data rather than
+declared in a manifest. A third pin would be a third thing to get out of step.
+
+### What this layer is not
+
+Not the vendored prelude — that is Layer 1, and a derived repo carries none of `yidam/cli/`
+or `yidam/editors/`. Not the parity SDKs, which the CLI depends on and does not release.
+
+---
+
 ## Release process
 
-1. **Decide which layers are affected** by the changeset.
+1. **Decide which layers are affected** by the changeset. Four now, not three — the
+   tooling layer is the one an RFC header means when it writes "tooling (`yidam` CLI)".
 2. **Update the relevant manifests** (`Cargo.toml` version, `package.json`, `pyproject.toml`,
-   `PROTOCOL_VERSION` const, or `prelude/sdks/parity/VERSION`).
+   `PROTOCOL_VERSION` const, or `yidam/prelude/sdks/parity/VERSION`).
 3. **Run `mise run ci`** — all tests must pass.
 4. **For SDK changes**, run `mise run parity` — all three SDK parity suites must pass.
-5. **Tag** the affected layers (`git tag -s v0.2.0`, `git tag -s sdk/rust/v0.2.0`, etc.).
+5. **Tag** the affected layers (`git tag -s v0.2.0`, `git tag -s sdk/rust/v0.2.0`,
+   `git tag -s cli/v0.2.0`, `git tag -s editor/v0.2.0`, etc.).
 6. **Push tags** to origin. CI publishes to registries on matching tag patterns.
 
 Never bump a layer as a side effect of another layer's release. Each bump is an
