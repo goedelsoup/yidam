@@ -6,7 +6,11 @@
 #   includes = ["mise.yidam.toml"]
 #
 # This is a mise *task file*, not a standalone config: tables are task names
-# directly (`[graph]
+# directly (`[rename]
+description = "Rename a corpus node, rewriting every edge into it — `mise run rename -- concept/old concept/new --dry-run`."
+run = "yidam rename"
+
+[graph]
 description = "Report the corpus graph: nodes, resolved edges, and the classes that license them."
 run = "yidam graph"
 

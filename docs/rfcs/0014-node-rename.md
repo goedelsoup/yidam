@@ -60,12 +60,24 @@ outgoing links") — orphans forbid a node with *no* edge; this forbids an edge 
 - `git mv`s the node file (history preserved);
 - scans the corpus walk (`walk_corpus_instances`) for every inbound link whose `target` resolves to
   `old`, and rewrites it to `new`;
-- commits as an **operational** event — a rename is infrastructure, not an epistemic act
+- is committed as an **operational** event — a rename is infrastructure, not an epistemic act
   ([`GRAPH.md:47-64`](../../yidam/prelude/GRAPH.md#L47-L64)) — with a message naming the count, e.g.
-  `rename: old-slug → new-slug (7 inbound links rewritten)`.
+  `migrate: concept/old.yml → concept/new.yml (7 inbound links rewritten)`.
 
-Because the rewrite and the move are one commit, the tree never passes through the broken state the
-gate forbids. The reverse scan is the one new piece of machinery (graph-check's forward per-node check
+  **`migrate`, not `rename`.** This RFC said `rename:` until the command was built, and `rename` is
+  in no verb list — `yidam lint --commits` reports it, and `classify_commit` files an operational
+  commit as Epistemic, which is the double cost GRAPH.md names. `migrate` ("Data or schema moved")
+  is the closest verb that exists, and GRAPH.md is explicit that reaching for the closest one beats
+  inventing one. Nothing could have caught this: `every_prescribed_commit_uses_a_recognized_verb`
+  scans `git commit -m` invocations under `yidam/prelude`, `sadhana` and `mise.yidam.toml`, and an
+  RFC naming a message in prose is neither a shell command nor in scope.
+
+  The command prints the subject rather than making the commit; see below.
+
+**As built, the command rewrites and moves but does not commit.** The property this paragraph wanted
+holds anyway: the gate reads the working tree, every edit lands before the move, and the working tree
+is never broken. Committing on a user's behalf — from an editor's F2, say — is a larger surprise than
+printing the subject and letting them. The reverse scan is the one new piece of machinery (graph-check's forward per-node check
 does not build a reverse index), but it rides the corpus walk and link parser that already exist.
 
 **3 — Defer immutable frontmatter IDs.** Stable IDs — so a node's identity survives a rename with no

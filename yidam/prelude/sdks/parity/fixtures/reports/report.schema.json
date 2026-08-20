@@ -511,7 +511,7 @@
     },
     "corpus_dir": {
       "type": "string",
-      "description": "`corpus-index`, `graph` and `neighbors`. Repository-relative corpus root; every `node` path in the same report is relative to it. Emitted so a consumer never hardcodes `.yidam/corpus` — the one path in this contract a repository could plausibly move."
+      "description": "`corpus-index`, `graph`, `neighbors` and `rename`. Repository-relative corpus root; every `node` path in the same report is relative to it. Emitted so a consumer never hardcodes `.yidam/corpus` — the one path in this contract a repository could plausibly move."
     },
     "classes": {
       "type": "array",
@@ -659,6 +659,111 @@
           }
         }
       }
+    },
+    "from": {
+      "type": "string",
+      "description": "`rename` only. Corpus-relative source."
+    },
+    "to": {
+      "type": "string",
+      "description": "`rename` only. Corpus-relative destination; may name a different class."
+    },
+    "applied": {
+      "type": "boolean",
+      "description": "`rename` only. Whether anything was written. False for `--dry-run`, and false whenever `blocked` is non-empty. A client rendering a preview MUST check this before claiming the rename happened."
+    },
+    "moves": {
+      "type": "array",
+      "description": "`rename` only. The file move — one entry, or none when blocked.",
+      "items": {
+        "type": "object",
+        "required": [
+          "file",
+          "line",
+          "from",
+          "to"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Repository-relative."
+          },
+          "line": {
+            "type": "integer",
+            "description": "1-based. Zero on a `moves` entry, which is about a file rather than a line in one."
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "edits": {
+      "type": "array",
+      "description": "`rename` only. Every `target:` rewrite, located. Covers inbound edges AND the moved node's own outgoing links, which need re-relativizing when it changes class — a same-directory target survives a rename inside one class and breaks the moment the node leaves it.",
+      "items": {
+        "type": "object",
+        "required": [
+          "file",
+          "line",
+          "from",
+          "to"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Repository-relative."
+          },
+          "line": {
+            "type": "integer",
+            "description": "1-based. Zero on a `moves` entry, which is about a file rather than a line in one."
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "unhandled": {
+      "type": "array",
+      "description": "`rename` only. Markdown references to the old path. Reported, NEVER rewritten: RFC-0014 scopes the rewrite to the corpus walk, and the difference between 'renamed' and 'renamed and quietly broke the README' is whether anybody was told.",
+      "items": {
+        "type": "object",
+        "required": [
+          "file",
+          "line",
+          "text"
+        ],
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer"
+          },
+          "text": {
+            "type": "string",
+            "description": "The line, trimmed."
+          }
+        }
+      }
+    },
+    "blocked": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "`rename` only. Why this cannot proceed. Non-empty means NOTHING was touched and the process exits nonzero."
+    },
+    "commit_subject": {
+      "type": "string",
+      "description": "`rename` only. A suggested subject in the closed commit vocabulary. `migrate:` and not `rename:` — RFC-0014's own example uses a verb that is in no list, which `lint --commits` reports and which makes `classify_commit` file an operational commit as Epistemic."
     },
     "filter": {
       "enum": [
