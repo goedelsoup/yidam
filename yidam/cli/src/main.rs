@@ -36,6 +36,24 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// Check an embedding provider against an index's reproducibility contract
+    #[command(name = "index-verify")]
+    IndexVerify {
+        /// Index directory (default: `.yidam/index`)
+        #[arg(long)]
+        index: Option<PathBuf>,
+        /// Command that embeds the probe: reads it on stdin, writes a JSON array of
+        /// floats on stdout
+        #[arg(long, value_name = "CMD")]
+        provider: Option<String>,
+        /// Name this runtime, so a `known_delta` declared for it can apply
+        #[arg(long, value_name = "NAME")]
+        runtime: Option<String>,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     #[command(name = "index-status")]
     IndexStatus {
         /// Output format. `json` emits the machine-readable report contract
@@ -289,6 +307,12 @@ fn main() -> Result<()> {
         Command::Status { format } => yidam::status(format),
         Command::OpenQuestions { format } => yidam::open_questions(format),
         Command::CorpusIndex { format } => yidam::corpus_index(format),
+        Command::IndexVerify {
+            index,
+            provider,
+            runtime,
+            format,
+        } => yidam::index_verify(index, provider, runtime, format),
         Command::IndexStatus { format } => yidam::index_status(format),
         Command::CatalogAudit { format } => yidam::catalog_audit(format),
         Command::AgentsIndex => yidam::agents_index(),

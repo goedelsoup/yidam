@@ -19,6 +19,7 @@ mod export_web;
 pub(crate) mod graph;
 #[cfg(feature = "index")]
 mod index_build;
+mod index_verify;
 mod lint;
 mod log;
 mod lsp;
@@ -51,6 +52,7 @@ pub use export::{export, list_formats, run_export, ExportFormat, ExportOptions, 
 pub use graph::{graph, neighbors};
 #[cfg(feature = "index")]
 pub use index_build::index_build;
+pub use index_verify::index_verify;
 pub use lint::{lint, Options as LintOptions};
 pub use lsp::serve_lsp;
 

@@ -162,7 +162,7 @@
     },
     "passed": {
       "type": "boolean",
-      "description": "`graph-check` and `regen --check`. The gate verdict. A consumer MUST NOT recompute it."
+      "description": "`graph-check`, `regen --check` and `index-verify`. The gate verdict. A consumer MUST NOT recompute it."
     },
     "corpus_empty": {
       "type": "boolean",
@@ -785,6 +785,46 @@
           }
         }
       }
+    },
+    "verdict": {
+      "enum": [
+        "match",
+        "known-delta",
+        "mismatch",
+        "unverifiable"
+      ],
+      "description": "`index-verify` only. `match` — same vector space. `known-delta` — a DIFFERENT space, within a bound that runtime declared in advance; passes, and is meant to be surfaced rather than swallowed. `mismatch` — beyond every bound, or the wrong shape; degrade to keyword search. `unverifiable` — the index carries no witness, which is every index built before the field existed and is not the consumer's fault."
+    },
+    "index": {
+      "type": "string",
+      "description": "`index-verify` only. The index directory examined."
+    },
+    "model_id": {
+      "type": "string",
+      "description": "`index-verify` only. From the index's `embed.config.json`."
+    },
+    "probe": {
+      "type": "string",
+      "description": "`index-verify` only. The sentence the witness was taken on. Absent when the index carries no witness."
+    },
+    "max_drift": {
+      "type": "number",
+      "description": "`index-verify` only. Largest per-element difference between the provider's embedding and the witness. Absent when nothing was compared — a wrong dimensionality is not drift."
+    },
+    "tolerance": {
+      "type": "number",
+      "description": "`index-verify` only. The bound applied, which is the runtime's `known_delta` when one was granted."
+    },
+    "runtime": {
+      "type": "string",
+      "description": "`index-verify` only. The runtime a `known-delta` verdict was granted to. A consumer that does not name itself is held to the strict tolerance — inferring a bound would make the declaration a discount."
+    },
+    "problems": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "`index-verify` only. What is wrong, and what to do about it."
     },
     "filter": {
       "enum": [

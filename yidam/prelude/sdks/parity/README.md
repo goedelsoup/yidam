@@ -91,3 +91,13 @@ its output), `typescript/tests/embed_parity.test.ts`, `python/tests/parity/test_
 A runtime that cannot load the exact weights in `input.model_file` declares its measured
 drift in a `[known_delta.<runtime>]` section with its own tolerance, rather than silently
 widening the shared one.
+
+**These numbers now travel.** `yidam index-build` writes the same probe, prefix, tolerance
+and known deltas into every index's `embed.config.json`, and `yidam index-verify --provider
+<cmd>` checks a consumer against them. A test asserts the shipped constants and this fixture
+have not come apart — a witness proven here and a different witness shipped there would leave
+both proving nothing.
+
+The reason it matters is that a fixture never leaves CI. A consumer holding an index
+directory and its own embedder had no probe to check itself against, so loading fp32 weights
+where the index is quantized produced plausible cosine scores that were quietly wrong.
