@@ -94,6 +94,7 @@ in understanding. Put the scope in the subject instead — `vendor: yidam prelud
 | `withdraw` | A claim retracted — say what replaces it, or that nothing does |
 | `open` | A question opened |
 | `close` | A question resolved |
+| `transport` | An elector's position carried onto the baseline, verbatim — *collective mode only* |
 | `resolve` | A resolution event settled — *collective mode only* |
 | `adopt` | A settled baseline taken into an elector's position — *collective mode only* |
 | `decide` | A choice recorded in `.yidam/decisions/` |
@@ -108,13 +109,29 @@ a node, and from `assess`, which weighs hypotheses already held. A sweep that fi
 is still a `scope` commit and still worth writing — a negative result about coverage is the
 only durable record that the coverage was checked.
 
-`resolve` and `adopt` are the two acts of collective mode, and until a derived repository
-needed them the vocabulary had neither: the constitution makes resolution events
-first-class and this document gives them a ref namespace, but nothing named the commit that
-performs one. `resolve` produces the `rigpa/<evolution>` tip. `adopt` is each elector taking
-that settled baseline back into their own `ma/<elector>` position afterwards — the routine
-follow-on, which happens once per elector per resolution and is the single most repeated act
-in a collective repository. Neither is `consume`, which means one thing only: a transient
+`transport`, `resolve` and `adopt` are the three acts of collective mode, and the
+vocabulary had none of them until derived repositories needed them: the constitution makes
+resolution events first-class and this document gives them a ref namespace, but nothing
+named the commits that perform one. They occur in that order.
+
+`transport` carries an elector's position file from their `ma/<elector>` branch onto the
+baseline, **unmodified**, so that the other electors and the eventual resolution can read
+it. It is carriage and not synthesis, which is what makes it legal outside a resolution
+event: Article V confines synthesis to resolutions, and copying a file verbatim introduces
+no node, edge or claim that its author did not hold. That constraint is the whole of the
+verb — a `transport` commit that edits the position it carries is a resolution performed in
+the wrong place, by one elector, having read nobody.
+
+Without it a position is committed to a branch nobody else is on. A derived repository ran
+twenty resolutions that way and found what it costs: four corpus nodes citing position
+files that resolved for their author and for nobody else, and two resolutions standing on
+the baseline whose arguments were not. It coined this verb itself, used it twenty-six
+times, and never wrote it down anywhere but its commit bodies.
+
+`resolve` produces the `rigpa/<evolution>` tip. `adopt` is each elector taking that settled
+baseline back into their own `ma/<elector>` position afterwards — the routine follow-on,
+which happens once per elector per resolution and is the single most repeated act in a
+collective repository. None of them is `consume`, which means one thing only: a transient
 bootstrap layer consumed at genesis.
 
 **Operational** — the pipeline advanced; no understanding changed:

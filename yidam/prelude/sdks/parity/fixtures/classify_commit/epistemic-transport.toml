@@ -1,0 +1,13 @@
+function = "classify_commit"
+description = "transport: carriage of a position classifies as Epistemic, alongside resolve and adopt"
+
+[input]
+hash = "16defe3"
+message = "transport: the owner's payload-budget position onto main\n\nThe position is authored on ma/goedelsoup and read here unmodified. Article V limits synthesis to resolution events; this is transport."
+verb = "transport"
+subject = "the owner's payload-budget position onto main"
+
+[expected]
+kind = "Epistemic"
+verb = "transport"
+subject = "the owner's payload-budget position onto main"

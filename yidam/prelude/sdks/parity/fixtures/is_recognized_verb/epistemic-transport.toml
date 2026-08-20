@@ -1,0 +1,8 @@
+function = "is_recognized_verb"
+description = "transport: carrying an elector's position onto the baseline is in the vocabulary"
+
+[input]
+verb = "transport"
+
+[expected]
+recognized = true

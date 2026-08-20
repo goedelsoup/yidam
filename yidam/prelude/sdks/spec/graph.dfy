@@ -115,7 +115,7 @@ module YidamGraph {
   // It exists so a verb in neither set can be identified as outside the vocabulary.
   const EpistemicVerbs: set<string> :=
     {"establish", "revise", "assess", "scope", "synthesize", "withdraw", "open", "close",
-     "resolve", "adopt", "decide", "phase", "genesis", "overlay"}
+     "transport", "resolve", "adopt", "decide", "phase", "genesis", "overlay"}
 
   function ClassifyVerb(verb: string): CommitKind {
     if verb in OperationalVerbs then Operational else Epistemic
