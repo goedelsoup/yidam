@@ -6,7 +6,7 @@ description: Evaluate a bootstrap result against the yidam rubric and produce a 
 # Skill: judge
 
 Invoked by the test harness after a bootstrap run completes. Reads the resulting repo state
-and the test scenario, scores the result against [rubric.md](../../tests/rubric.md), and
+and the test scenario, scores the result against [rubric.md](https://github.com/goedelsoup/yidam/blob/main/yidam/tests/rubric.md), and
 produces a structured quality report.
 
 ## Inputs

@@ -5,7 +5,7 @@ description: Initialize yidam in a repository — empty, near-empty, or an exist
 
 # Skill: bootstrap
 
-Invoked when an agent enters a yidam repository with [BOOTSTRAP.md](../../../BOOTSTRAP.md)
+Invoked when an agent enters a yidam repository with [BOOTSTRAP.md](https://github.com/goedelsoup/yidam/blob/main/BOOTSTRAP.md)
 as its entry prompt. Produces a fully scaffolded, ontology-grounded, corpus-seeded repository
 with a legible genesis commit. Works in two modes:
 
