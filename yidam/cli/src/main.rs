@@ -71,7 +71,15 @@ enum Command {
         list: bool,
     },
     /// Extract embedding text from corpus instances to .yidam/embeddings/
-    Embed,
+    Embed {
+        /// Do not embed `.yidam/catalog/` — corpus nodes only.
+        ///
+        /// The catalog is walked by default: in a real derived corpus it was 51.3% of the
+        /// indexable text against the corpus's 41.9%, and leaving it out was a scope
+        /// decision nobody had made on purpose.
+        #[arg(long)]
+        no_catalog: bool,
+    },
     /// Build LanceDB vector index from embeddings and export Arrow IPC for the web shell
     #[command(name = "index-build")]
     IndexBuild {
@@ -193,7 +201,9 @@ fn main() -> Result<()> {
                 yidam::run_export(format.unwrap(), out.as_deref(), &options)
             }
         }
-        Command::Embed => yidam::embed(),
+        Command::Embed { no_catalog } => yidam::embed(yidam::EmbedOptions {
+            catalog: !no_catalog,
+        }),
         Command::IndexBuild { model } => {
             #[cfg(feature = "index")]
             {

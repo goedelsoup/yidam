@@ -301,7 +301,10 @@ run = "yidam bundle"
 # ── vector index pipeline ─────────────────────────────────────────────
 
 [embed]
-description = "Extract embedding text from corpus instances to .yidam/embeddings/."
+description = "Extract embedding text from corpus instances and catalog sources to .yidam/embeddings/."
+# The catalog is included by default. `yidam embed --no-catalog` for corpus nodes only —
+# a repository whose catalog holds material it does not want retrievable should say so
+# once rather than by not knowing.
 run = "yidam embed"
 
 [index-build]

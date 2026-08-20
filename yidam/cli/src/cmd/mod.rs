@@ -40,7 +40,7 @@ pub use clone::clone;
 pub use corpus::{corpus_index, graph_check, open_questions};
 pub use decisions::decisions_log;
 pub use diff::diff_corpus;
-pub use embed::embed;
+pub use embed::{embed, EmbedOptions};
 pub use export::{export, list_formats, run_export, ExportFormat, ExportOptions, RdfFormat};
 #[cfg(feature = "index")]
 pub use index_build::index_build;

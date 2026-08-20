@@ -52,6 +52,25 @@ pub fn parse_frontmatter(text: &str) -> Frontmatter {
     serde_yaml::from_str(&rest[..end]).unwrap_or_default()
 }
 
+/// The prose beneath a file's YAML frontmatter, or the whole text when there is none.
+///
+/// [`parse_frontmatter`] reads the header and discards this; for a catalog entry the body
+/// is the substance — what the source holds, what was retrieved, what it does not answer.
+pub fn frontmatter_body(text: &str) -> &str {
+    let trimmed = text.trim_start();
+    let Some(rest) = trimmed.strip_prefix("---\n") else {
+        return trimmed;
+    };
+    match rest.find("\n---") {
+        // 4 = the newline plus `---`; skip to the end of that line.
+        Some(end) => {
+            let after = &rest[end + 4..];
+            after.strip_prefix('\n').unwrap_or(after)
+        }
+        None => trimmed,
+    }
+}
+
 /// A corpus instance object (.yml file inside a class subdirectory).
 #[derive(serde::Deserialize, Default)]
 pub struct CorpusInstance {
