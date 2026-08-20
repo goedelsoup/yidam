@@ -1091,3 +1091,274 @@ Whether block-quoted host error text should be indexed.
         assert!(resolution_annotation_decides(&[]).passed());
     }
 }
+
+// ── Prose links ──────────────────────────────────────────────────────────────
+//
+// `graph-check` validates the corpus's own `links:` edges. Nothing read the markdown
+// links in the prose beside them, and they break silently: a node cites a resolution, a
+// resolution cites a position, a convention cites a guideline, and any of those can be
+// moved or removed by a commit that never touches the citing file.
+//
+// In a derived repository the gap had eleven live instances — four citations to position
+// files that had never left their author's branch, and seven naming files that are not
+// there, including two pointing one directory short at the code behind a published figure.
+
+/// One markdown link found in prose.
+pub struct ProseLink {
+    pub file: String,
+    pub line: usize,
+    /// The target exactly as written, for the message.
+    pub target: String,
+    /// Where it resolves from the directory of the file it sits in — which is what a
+    /// reader's markdown client does, and the whole reason a repo-root-relative link in
+    /// a nested file is broken.
+    pub resolved: PathBuf,
+}
+
+/// Whether a link target points outside the filesystem and is therefore not ours to check.
+fn is_external(target: &str) -> bool {
+    target.is_empty()
+        || target.starts_with('#')
+        || target.contains("://")
+        || target.starts_with("mailto:")
+        || target.starts_with("tel:")
+        // Root-relative. In a repository these are ambiguous — repo root or site root —
+        // and resolving them either way produces findings nobody can act on.
+        || target.starts_with('/')
+}
+
+/// Strip a markdown title and any angle-bracket wrapper: `<a b> "title"` → `a b`.
+fn link_path(raw: &str) -> String {
+    let t = raw.trim();
+    let t = match (t.strip_prefix('<'), t.find('>')) {
+        (Some(_), Some(end)) => &t[1..end],
+        _ => t.split_whitespace().next().unwrap_or(t),
+    };
+    // Drop an anchor: the file is what exists, the heading is not ours to verify.
+    t.split('#').next().unwrap_or(t).trim().to_string()
+}
+
+/// Every checkable markdown link in one file.
+///
+/// `dir` is the directory the file sits in — links resolve against it, not against the
+/// repository root.
+///
+/// **Fenced code blocks are skipped.** A path inside a fence is an example, a shell
+/// command, or a directory tree drawing; these documents are full of them and every one
+/// would be a false positive. Inline code spans are skipped for the same reason.
+pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
+    let mut out = Vec::new();
+    let mut fence: Option<String> = None;
+    for (i, raw) in text.lines().enumerate() {
+        let trimmed = raw.trim_start();
+        // Fence open/close. The marker is repeated to allow ``` inside a ~~~ block.
+        if let Some(open) = &fence {
+            if trimmed.starts_with(open.as_str()) {
+                fence = None;
+            }
+            continue;
+        }
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            fence = Some(trimmed.chars().take(3).collect());
+            continue;
+        }
+        // Blank out inline code spans so a `[a](b)` shown as code is not read as a link.
+        let line = blank_code_spans(raw);
+        let bytes = line.as_bytes();
+        let mut j = 0;
+        while j < bytes.len() {
+            let Some(open) = line[j..].find("](") else {
+                break;
+            };
+            let at = j + open;
+            j = at + 2;
+            let Some(close_rel) = line[j..].find(')') else {
+                break;
+            };
+            let target_raw = &line[j..j + close_rel];
+            j += close_rel + 1;
+            let target = link_path(target_raw);
+            if is_external(&target) {
+                continue;
+            }
+            out.push(ProseLink {
+                file: file.to_string(),
+                line: i + 1,
+                target: target.clone(),
+                resolved: dir.join(&target),
+            });
+        }
+    }
+    out
+}
+
+/// Replace the contents of `` `…` `` spans with spaces, preserving byte offsets.
+fn blank_code_spans(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut in_code = false;
+    for c in line.chars() {
+        if c == '`' {
+            in_code = !in_code;
+            out.push(c);
+        } else if in_code {
+            // Keep the byte count identical so offsets stay meaningful.
+            for _ in 0..c.len_utf8() {
+                out.push(' ');
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+pub fn broken_prose_link(links: &[ProseLink]) -> Check {
+    let violations = links
+        .iter()
+        .filter(|l| !l.resolved.exists())
+        .map(|l| {
+            Violation::new(
+                format!("{}:{}", l.file, l.line),
+                format!("`{}` does not resolve from this file's directory", l.target),
+            )
+        })
+        .collect();
+    Check::new(
+        "broken-prose-link",
+        "A markdown link in prose does not resolve",
+        Severity::Error,
+        "A link resolves against the directory of the file it sits in — that is what a \
+         reader's client does — so a path spelled from the repository root is broken in \
+         every file that is not at the root. Error severity, which puts it under the \
+         baseline ratchet: a link listed there and since repaired fails the build exactly \
+         as a new break does, because a list permitted to be wrong drifts and one that \
+         over-lists silently re-permits whatever it over-lists. Fenced and inline code are \
+         not read, so an example path in a shell command is not a finding.",
+        violations,
+    )
+}
+
+#[cfg(test)]
+mod prose_link_tests {
+    use super::*;
+
+    fn scan(dir: &Path, text: &str) -> Vec<ProseLink> {
+        prose_links("docs/x.md", dir, text)
+    }
+
+    fn fixture() -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("sub")).unwrap();
+        std::fs::write(tmp.path().join("there.md"), "x").unwrap();
+        std::fs::write(tmp.path().join("sub/deep.md"), "x").unwrap();
+        tmp
+    }
+
+    /// The defect this exists for: a path spelled from the repository root, sitting in a
+    /// file that is not at the root.
+    #[test]
+    fn a_root_relative_link_in_a_nested_file_is_broken() {
+        let tmp = fixture();
+        let links = scan(tmp.path(), "See [it](docs/there.md).");
+        assert_eq!(links.len(), 1);
+        let c = broken_prose_link(&links);
+        assert_eq!(c.violations.len(), 1);
+        assert!(c.violations[0].detail.contains("docs/there.md"));
+    }
+
+    #[test]
+    fn a_link_relative_to_its_own_file_resolves() {
+        let tmp = fixture();
+        let links = scan(tmp.path(), "See [it](there.md) and [deep](sub/deep.md).");
+        assert_eq!(links.len(), 2);
+        assert!(broken_prose_link(&links).passed());
+    }
+
+    /// Every document here is full of example paths in shell blocks and tree drawings.
+    /// Reading them would make the check unusable on its first run.
+    #[test]
+    fn fenced_code_is_not_read() {
+        let tmp = fixture();
+        let text = "\
+Before.
+
+```
+git checkout ma/x -- [a](does/not/exist.md)
+```
+
+After [it](there.md).
+";
+        let links = scan(tmp.path(), text);
+        assert_eq!(
+            links.len(),
+            1,
+            "{:?}",
+            links.iter().map(|l| &l.target).collect::<Vec<_>>()
+        );
+        assert_eq!(links[0].target, "there.md");
+    }
+
+    #[test]
+    fn tilde_fences_and_nested_backticks_are_handled() {
+        let tmp = fixture();
+        let text = "~~~\n[a](nope.md)\n```\n[b](nope2.md)\n~~~\n[c](there.md)\n";
+        let links = scan(tmp.path(), text);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].target, "there.md");
+    }
+
+    #[test]
+    fn inline_code_is_not_read() {
+        let tmp = fixture();
+        let links = scan(tmp.path(), "Write `[label](path/to/thing.md)` in the file.");
+        assert!(
+            links.is_empty(),
+            "{:?}",
+            links.iter().map(|l| &l.target).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn external_and_anchor_targets_are_skipped() {
+        let tmp = fixture();
+        let text = "[a](https://example.com/x) [b](#section) [c](mailto:x@y.z) [d](/abs/path)";
+        assert!(scan(tmp.path(), text).is_empty());
+    }
+
+    /// The file is what exists; the heading is not ours to verify.
+    #[test]
+    fn an_anchor_is_stripped_before_resolving() {
+        let tmp = fixture();
+        let links = scan(tmp.path(), "[a](there.md#a-heading)");
+        assert_eq!(links[0].target, "there.md");
+        assert!(broken_prose_link(&links).passed());
+    }
+
+    #[test]
+    fn titles_and_angle_brackets_are_stripped() {
+        let tmp = fixture();
+        let links = scan(tmp.path(), "[a](there.md \"Title\") and [b](<there.md>)");
+        assert_eq!(links.len(), 2);
+        assert!(broken_prose_link(&links).passed());
+    }
+
+    #[test]
+    fn two_links_on_one_line_are_both_found() {
+        let tmp = fixture();
+        let links = scan(tmp.path(), "[a](there.md) then [b](gone.md)");
+        assert_eq!(links.len(), 2);
+        assert_eq!(broken_prose_link(&links).violations.len(), 1);
+    }
+
+    #[test]
+    fn a_link_to_a_directory_resolves() {
+        let tmp = fixture();
+        let links = scan(tmp.path(), "[the subdir](sub/)");
+        assert!(broken_prose_link(&links).passed());
+    }
+
+    #[test]
+    fn no_links_is_clean() {
+        assert!(broken_prose_link(&[]).passed());
+    }
+}

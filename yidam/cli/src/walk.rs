@@ -19,6 +19,33 @@ pub fn walk_md_files(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
+/// Every file under `dir` that can carry a markdown link in prose: `.md` at any depth,
+/// and `.yml`, because a corpus node's description is markdown inside YAML and is where
+/// this repository's citations actually live.
+///
+/// Deliberately unlike [`walk_md_files`], which is `max_depth(1)` and skips `README.md`
+/// because it feeds the table generators. Reusing it for links scanned almost nothing:
+/// every README, every nested document, and every corpus node was invisible — including
+/// the node whose broken citation motivated the check.
+pub fn walk_linkable_files(dir: &Path) -> Vec<PathBuf> {
+    if !dir.exists() {
+        return vec![];
+    }
+    let mut files: Vec<PathBuf> = walkdir::WalkDir::new(dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.file_type().is_file()
+                && e.path()
+                    .extension()
+                    .is_some_and(|x| x == "md" || x == "yml")
+        })
+        .map(|e| e.path().to_owned())
+        .collect();
+    files.sort();
+    files
+}
+
 // Instance .yml files live at depth >= 2 inside the corpus dir (inside class subdirs).
 // Depth 1 files ending in .ont.yml are class schema files, not instances.
 pub fn walk_corpus_instances(corpus: &Path) -> Vec<PathBuf> {
