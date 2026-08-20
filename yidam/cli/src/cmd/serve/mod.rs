@@ -48,6 +48,12 @@ pub(crate) struct ServerState {
     pub index: Option<IndexState>,
     /// Commit the index was built at, from `index/meta.json`.
     pub indexed_commit: Option<String>,
+    /// Which properties of each class carry an evidence tag.
+    ///
+    /// Loaded here so the MCP server's open-question answer is the reports' answer. It was a
+    /// second copy of the predicate, and a corpus with structured tags was under-reported by
+    /// both in the same way — which is the kind of agreement that looks like correctness.
+    pub claim_fields: crate::claims::ClaimFields,
 }
 
 impl ServerState {
@@ -101,6 +107,7 @@ impl ServerState {
             None => (None, None),
         };
 
+        let claim_fields = crate::claims::ClaimFields::load(&crate::paths::yidam_corpus_dir(root));
         Ok(ServerState {
             domain: model.provenance.domain,
             commit: model.provenance.commit,
@@ -109,6 +116,7 @@ impl ServerState {
             decisions,
             index,
             indexed_commit,
+            claim_fields,
         })
     }
 }
@@ -280,6 +288,9 @@ mod tests {
             decisions: vec![("adr-1".into(), "id: adr-1\nsummary: choice\n".into())],
             index: None,
             indexed_commit: None,
+            // No class declares a claim field here, so the predicate reads prose only —
+            // which is what these fixtures are written in.
+            claim_fields: Default::default(),
         }
     }
 

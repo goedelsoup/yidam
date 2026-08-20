@@ -92,7 +92,18 @@ pub fn corpus_ontology_schema() -> Value {
                     "type": "object",
                     "properties": {
                         "name": non_empty_string(),
-                        "type": { "type": "string", "enum": ["string", "date", "ref", "text"] },
+                        "type": {
+                            "type": "string",
+                            "enum": ["string", "date", "ref", "text", "claim"],
+                            "description": "`claim` marks a property whose value IS an \
+                                            evidence tag — `verified`, `inference`, or \
+                                            `open` — rather than prose that mentions one. \
+                                            Declaring it is what lets a corpus with a typed \
+                                            claim vocabulary be counted at all: without it, \
+                                            only the bracketed token in serialized text is \
+                                            seen, and a consumer storing `claim_tag: open` \
+                                            had 2 of its 26 open questions found."
+                        },
                         "description": non_empty_string()
                     },
                     "required": ["name", "type", "description"],

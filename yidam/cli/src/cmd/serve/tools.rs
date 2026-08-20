@@ -292,7 +292,7 @@ fn open_questions(state: &ServerState) -> Value {
     let questions: Vec<Value> = state
         .nodes
         .iter()
-        .filter(|n| is_open_question(n))
+        .filter(|n| is_open_question(state, n))
         .map(|n| {
             json!({
                 "id": n.id,

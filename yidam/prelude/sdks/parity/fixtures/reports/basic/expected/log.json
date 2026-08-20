@@ -15,8 +15,8 @@
   "operational": 1,
   "entries": [
     {
-      "hash": "11ac22428ae53674847acaa956dbf68d320e94a2",
-      "short": "11ac2242",
+      "hash": "3d5295444aef8d12935a64de5247580cdab437ed",
+      "short": "3d529544",
       "kind": "operational",
       "verb": "regen",
       "subject": "regen: REGEN blocks refreshed",
@@ -24,8 +24,8 @@
       "date": "2026-01-01T00:00:00Z"
     },
     {
-      "hash": "8b9aa4cb6f72200671085e451280bb29308e8cbf",
-      "short": "8b9aa4cb",
+      "hash": "9e8654ebcc4854052ec017a655abe0f3da13ae22",
+      "short": "9e8654eb",
       "kind": "epistemic",
       "verb": "revise",
       "subject": "revise: tailwater carries a claim tag",
@@ -33,8 +33,8 @@
       "date": "2026-01-01T00:00:00Z"
     },
     {
-      "hash": "59b7d2e57dd0df288e6a00a20445dc08ca7bc0a0",
-      "short": "59b7d2e5",
+      "hash": "c39f22cc43e80ee2d23635496f91bfc1309d1e86",
+      "short": "c39f22cc",
       "kind": "epistemic",
       "verb": "genesis",
       "subject": "genesis: reports fixture",

@@ -7,8 +7,6 @@ use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir, yidam_index_d
 use crate::regen::update_file_regen;
 use crate::walk::{walk_corpus_instances, walk_md_files};
 
-use super::has_open_claim;
-
 #[derive(serde::Serialize)]
 struct StatusReport {
     nodes: usize,
@@ -29,6 +27,7 @@ pub fn status(format: crate::report::Format) -> Result<()> {
 
     let instances = walk_corpus_instances(&corpus);
     let node_count = instances.len();
+    let fields = crate::claims::ClaimFields::load(&corpus);
 
     let open_count = instances
         .iter()
@@ -36,7 +35,8 @@ pub fn status(format: crate::report::Format) -> Result<()> {
             let text = std::fs::read_to_string(p).unwrap_or_default();
             let inst: CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
             let label = inst.label.unwrap_or_default();
-            label.starts_with('?') || has_open_claim(&text)
+            let class = inst.class.unwrap_or_default();
+            crate::claims::is_open_question(&label, &text, fields.for_class(&class))
         })
         .count();
 
@@ -44,8 +44,11 @@ pub fn status(format: crate::report::Format) -> Result<()> {
     // template's most-adopted convention by a wide margin and nothing reported on it.
     let mut claims = crate::claims::ClaimCounts::default();
     for p in &instances {
-        claims.add(crate::claims::count_in_source(
-            &std::fs::read_to_string(p).unwrap_or_default(),
+        let text = std::fs::read_to_string(p).unwrap_or_default();
+        let inst: CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
+        claims.add(crate::claims::count_in_node(
+            &text,
+            fields.for_class(inst.class.as_deref().unwrap_or_default()),
         ));
     }
 

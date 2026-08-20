@@ -8,5 +8,10 @@
     ]
   },
   "root": "<ROOT>",
-  "open_questions": []
+  "open_questions": [
+    {
+      "node": ".yidam/corpus/concept/low-flow.yml",
+      "label": "Low flow"
+    }
+  ]
 }

@@ -11,8 +11,18 @@ fn text_contents(uri: &str, text: String) -> Value {
 
 /// True when the node counts as an open question: `?`-prefixed label or an
 /// `[open]` claim in the body. Shared with the `open_questions` tool.
-pub(crate) fn is_open_question(node: &super::Node) -> bool {
-    node.label.starts_with('?') || node.content.contains("[open]")
+/// One predicate, shared with the reports.
+///
+/// This was a second copy of `label.starts_with('?') || content.contains("[open]")`, so a
+/// corpus whose tags are structured was under-reported by the MCP server and by
+/// `open-questions` in exactly the same way — which is the kind of agreement that looks like
+/// correctness.
+pub(crate) fn is_open_question(state: &ServerState, node: &super::Node) -> bool {
+    crate::claims::is_open_question(
+        &node.label,
+        &node.content,
+        state.claim_fields.for_class(&node.class),
+    )
 }
 
 fn classes(state: &ServerState) -> BTreeMap<String, usize> {
@@ -118,7 +128,11 @@ pub(crate) fn read(state: &ServerState, uri: &str) -> Result<Value, RpcError> {
 }
 
 fn graph_summary(state: &ServerState) -> String {
-    let open = state.nodes.iter().filter(|n| is_open_question(n)).count();
+    let open = state
+        .nodes
+        .iter()
+        .filter(|n| is_open_question(state, n))
+        .count();
     let class_lines: Vec<String> = classes(state)
         .iter()
         .map(|(class, count)| format!("  {class}: {count} instance(s)"))

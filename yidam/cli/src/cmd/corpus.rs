@@ -6,8 +6,6 @@ use crate::paths::{repo_root, yidam_corpus_dir};
 use crate::regen::update_file_regen;
 use crate::walk::{line_count, walk_corpus_instances, walk_ont_files};
 
-use super::has_open_claim;
-
 /// A path as a markdown link target: `/`-separated on every platform.
 ///
 /// `Path::display` emits the host separator. This table is committed and then compared
@@ -70,12 +68,14 @@ pub(crate) fn render_corpus_index(link_prefix: &str, corpus: &Path) -> String {
 /// lands, and neither may assume the other's depth.
 pub(crate) fn render_open_questions(root: &Path, corpus: &Path) -> String {
     let instances = walk_corpus_instances(corpus);
+    let fields = crate::claims::ClaimFields::load(corpus);
     let mut items = Vec::new();
     for path in &instances {
         let text = std::fs::read_to_string(path).unwrap_or_default();
         let inst: CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
         let label = inst.label.clone().unwrap_or_default();
-        if label.starts_with('?') || has_open_claim(&text) {
+        let class = inst.class.clone().unwrap_or_default();
+        if crate::claims::is_open_question(&label, &text, fields.for_class(&class)) {
             let rel = path.strip_prefix(root).unwrap_or(path);
             items.push(format!("- [{label}]({})", slash_path(rel)));
         }
@@ -288,12 +288,16 @@ pub struct CorpusIndexReport {
 }
 
 pub(crate) fn corpus_index_data(root: &Path, corpus: &Path) -> CorpusIndexReport {
+    let fields = crate::claims::ClaimFields::load(corpus);
     let nodes = walk_corpus_instances(corpus)
         .iter()
         .map(|path| {
             let text = std::fs::read_to_string(path).unwrap_or_default();
-            let claims = crate::claims::count_in_source(&text);
             let inst: CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
+            let claims = crate::claims::count_in_node(
+                &text,
+                fields.for_class(inst.class.as_deref().unwrap_or_default()),
+            );
             let rel = path.strip_prefix(corpus).unwrap_or(path);
             IndexRow {
                 node: slash_path(rel),
@@ -325,13 +329,15 @@ pub struct OpenQuestionsReport {
 }
 
 pub(crate) fn open_questions_data(root: &Path, corpus: &Path) -> OpenQuestionsReport {
+    let fields = crate::claims::ClaimFields::load(corpus);
     let open_questions = walk_corpus_instances(corpus)
         .iter()
         .filter_map(|path| {
             let text = std::fs::read_to_string(path).unwrap_or_default();
             let inst: CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
             let label = inst.label.clone().unwrap_or_default();
-            if !(label.starts_with('?') || has_open_claim(&text)) {
+            let class = inst.class.clone().unwrap_or_default();
+            if !crate::claims::is_open_question(&label, &text, fields.for_class(&class)) {
                 return None;
             }
             let rel = path.strip_prefix(root).unwrap_or(path);

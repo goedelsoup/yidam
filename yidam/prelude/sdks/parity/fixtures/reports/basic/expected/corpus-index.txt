@@ -1,4 +1,4 @@
 | Instance | Class | Label | Links out | Claims | Lines |
 |---|---|---|---|---|---|
-| [low-flow.yml](concept/low-flow.yml) | concept | Low flow | 1 | — | 6 |
+| [low-flow.yml](concept/low-flow.yml) | concept | Low flow | 1 | — | 8 |
 | [tailwater.yml](concept/tailwater.yml) | concept | Tailwater | 1 | 0v / 1i / 0o | 6 |

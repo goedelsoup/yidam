@@ -11,6 +11,9 @@
 
 # Rust
 target/
+# `cargo --target-dir` output under any name. `target/` alone missed `target-pin/`, which a
+# `git add -A` then swept 567 build artifacts out of.
+target-*/
 
 # Python
 __pycache__/
