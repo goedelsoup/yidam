@@ -62,3 +62,73 @@ export interface GraphCheckReport extends Envelope {
   nodes_with_issues: { node: string; issues: string[] }[]
   classes_without_instances: string[]
 }
+
+export interface StatusReport extends Envelope {
+  nodes: number
+  open_questions: number
+  catalog_entries: number
+  claims_verified: number
+  claims_inference: number
+  claims_open: number
+  index_present: boolean
+  active_phases: number
+  genesis: string
+}
+
+export interface IndexRow {
+  node: string
+  class: string
+  label: string
+  links_out: number
+  claims_verified: number
+  claims_inference: number
+  claims_open: number
+  lines: number
+}
+
+export interface CorpusIndexReport extends Envelope {
+  nodes: IndexRow[]
+}
+
+export interface OpenQuestionsReport extends Envelope {
+  open_questions: { node: string; label: string }[]
+}
+
+export interface PhasesReport extends Envelope {
+  phases: { name: string; ref_name: string; owner: string; started: string; commits: number }[]
+}
+
+/**
+ * `index-status`. Carries `built_at` and no age string, deliberately: an age is a function
+ * of when you ask, so the CLI reports the stamp and the client renders the age.
+ */
+export interface IndexStatusReport extends Envelope {
+  index_present: boolean
+  meta_present: boolean
+  built_at: number | null
+  built: string | null
+  model: string | null
+  embedding_dim: number | null
+  node_count: number | null
+  stale_nodes: number
+}
+
+export interface Elector {
+  name: string
+  branch: string
+  role: string
+  branch_present: boolean
+}
+
+export interface SanghaReport extends Envelope {
+  collective: boolean
+  electors: Elector[]
+  positions: { file: string; elector: string; question: string }[]
+  resolutions: {
+    file: string
+    evolution: string
+    date: string
+    tips: string[]
+    branch_present: boolean
+  }[]
+}

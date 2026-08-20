@@ -1,0 +1,1 @@
+_Index not initialized. Run `yidam index-build` to build._

@@ -30,7 +30,7 @@
         "yidam.lint.showBaselined": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Show violations the committed baseline already records, as faded Hints.\n\nThey are inherited debt rather than regressions and never fail CI. A repository carrying a lot of it can turn them off \u2014 the debt is still in `.yidam/lint-baseline.yml` and still in the gate, so nothing a reader needs is lost."
+          "markdownDescription": "Show violations the committed baseline already records, as faded Hints.\n\nThey are inherited debt rather than regressions and never fail CI. A repository carrying a lot of it can turn them off — the debt is still in `.yidam/lint-baseline.yml` and still in the gate, so nothing a reader needs is lost."
         },
         "yidam.diagnostics.debounceMs": {
           "type": "number",
@@ -51,8 +51,76 @@
       {
         "command": "yidam.blessBaseline",
         "title": "yidam: Bless the lint baseline"
+      },
+      {
+        "command": "yidam.refreshViews",
+        "title": "yidam: Refresh the views",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "yidam.checkoutPhase",
+        "title": "yidam: Switch to a phase branch"
+      },
+      {
+        "command": "yidam.regen",
+        "title": "yidam: Refresh REGEN blocks (mise run regen)"
+      },
+      {
+        "command": "yidam.buildIndex",
+        "title": "yidam: Build the semantic index (mise run index-build)"
+      },
+      {
+        "command": "yidam.vendorStatus",
+        "title": "yidam: Check the vendored prelude against its pin"
+      },
+      {
+        "command": "yidam.showHealth",
+        "title": "yidam: Show repository health"
       }
-    ]
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "yidam",
+          "title": "yidam",
+          "icon": "resources/yidam.svg"
+        }
+      ]
+    },
+    "views": {
+      "yidam": [
+        {
+          "id": "yidam.corpus",
+          "name": "Corpus"
+        },
+        {
+          "id": "yidam.openQuestions",
+          "name": "Open questions"
+        },
+        {
+          "id": "yidam.phases",
+          "name": "Phases"
+        },
+        {
+          "id": "yidam.health",
+          "name": "Health"
+        },
+        {
+          "id": "yidam.sangha",
+          "name": "Sangha",
+          "when": "yidam.collective"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "yidam.refreshViews",
+          "when": "view =~ /^yidam\\./",
+          "group": "navigation"
+        }
+      ]
+    }
   },
   "scripts": {
     "compile": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",

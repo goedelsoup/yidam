@@ -8,13 +8,12 @@
     ]
   },
   "root": "<ROOT>",
-  "nodes": 2,
-  "open_questions": 0,
-  "catalog_entries": 1,
-  "claims_verified": 0,
-  "claims_inference": 1,
-  "claims_open": 0,
   "index_present": false,
-  "active_phases": 2,
-  "genesis": "2026-01-01"
+  "meta_present": false,
+  "built_at": null,
+  "built": null,
+  "model": null,
+  "embedding_dim": null,
+  "node_count": null,
+  "stale_nodes": 0
 }

@@ -7,11 +7,11 @@
  * each is a string typo.
  *
  * It is checked here in plain node rather than under `@vscode/test-electron` deliberately.
- * The Electron harness is worth its cost once there is behaviour to assert — diagnostics,
- * tree views — and at that point it belongs with the feature that introduced them. Today
- * the only `vscode`-importing code is status-bar wiring, and an Electron download that
- * asserts a status-bar string is ceremony. These assertions catch the same defects and run
- * anywhere.
+ * The `vscode`-importing code is the status bar, the diagnostic collection, and one
+ * `TreeDataProvider` adapter with no judgement in it — every shape decision is settled in
+ * `tree/model.ts` against plain data. An Electron download that asserts VS Code renders a
+ * `TreeItem` is testing VS Code. These assertions catch the defects that are actually ours
+ * — a view id nothing provides, a command id nothing registers — and run anywhere.
  */
 
 import assert from 'node:assert/strict'
@@ -73,4 +73,63 @@ test('the configured setting the code reads is the one the manifest declares', (
     extensionSrc.includes("getConfiguration('yidam')") && extensionSrc.includes("get<string>('path')"),
     'yidam.path is declared but never read',
   )
+})
+
+test('every contributed view is provided at activation', () => {
+  const views: { id: string }[] = Object.values(manifest.contributes?.views ?? {}).flat() as {
+    id: string
+  }[]
+  assert.equal(views.length, 5, 'RFC-0016 Phase 1 is five views')
+  for (const { id } of views) {
+    assert.ok(
+      extensionSrc.includes(`createTreeView('${id}'`),
+      `${id} is contributed but nothing provides it`,
+    )
+  }
+})
+
+test('the views live in the container the manifest declares, and its icon exists', () => {
+  const containers = manifest.contributes?.viewsContainers?.activitybar ?? []
+  assert.equal(containers.length, 1)
+  const container = containers[0]
+  assert.ok(
+    Object.keys(manifest.contributes?.views ?? {}).every((k) => k === container.id),
+    'a view group keyed to no declared container renders nowhere',
+  )
+  assert.ok(
+    fs.existsSync(path.join(ROOT, container.icon)),
+    `${container.icon} is declared but not shipped`,
+  )
+})
+
+/**
+ * The sangha view is gated on a context key, and something has to set it.
+ *
+ * Ungated, every repository that governs itself individually gets a permanently empty box
+ * for a mode it has not opted into.
+ */
+test('the sangha view is gated on a context key the code sets', () => {
+  const views: { id: string; when?: string }[] = Object.values(
+    manifest.contributes?.views ?? {},
+  ).flat() as { id: string; when?: string }[]
+  const sangha = views.find((v) => v.id === 'yidam.sangha')!
+  assert.equal(sangha.when, 'yidam.collective')
+  assert.ok(
+    extensionSrc.includes("'yidam.collective'"),
+    'the context key is declared in `when` but never set',
+  )
+})
+
+/** A menu pointing at a command id nothing declares renders a button that does nothing. */
+test('every menu entry names a contributed command', () => {
+  const declared = new Set(
+    (manifest.contributes?.commands ?? []).map((c: { command: string }) => c.command),
+  )
+  const entries: { command: string }[] = Object.values(manifest.contributes?.menus ?? {}).flat() as {
+    command: string
+  }[]
+  assert.ok(entries.length > 0, 'no menu entries — the scan is broken')
+  for (const { command } of entries) {
+    assert.ok(declared.has(command), `${command} is in a menu but not contributed`)
+  }
 })

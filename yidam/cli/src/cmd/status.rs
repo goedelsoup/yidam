@@ -88,52 +88,103 @@ pub fn status(format: crate::report::Format) -> Result<()> {
     update_file_regen(&root.join("README.md"), "yidam status", &content)
 }
 
-pub fn index_status() -> Result<()> {
-    let root = repo_root()?;
-    let index_dir = yidam_index_dir(&root);
+/// What `index-status` found, before it is turned into prose.
+///
+/// Deliberately carries `built_at` as the raw timestamp and no age string: an age is a
+/// function of when you ask, and a report field that changes every minute cannot be a
+/// golden. Humanizing it is the client's job — an affordance, not a verdict.
+#[derive(Debug, serde::Serialize)]
+pub struct IndexStatusReport {
+    /// Whether `.yidam/index/` exists at all.
+    pub index_present: bool,
+    /// Whether it carries a readable `meta.json`. An index without one is present and
+    /// undescribable, which is a different state from absent.
+    pub meta_present: bool,
+    pub built_at: Option<u64>,
+    /// Civil date of `built_at`, so a reader does not have to convert one.
+    pub built: Option<String>,
+    pub model: Option<String>,
+    pub embedding_dim: Option<u64>,
+    pub node_count: Option<u64>,
+    /// Corpus files modified since the build. This is the freshness verdict.
+    pub stale_nodes: usize,
+}
 
-    let content = if !index_dir.exists() {
-        "_Index not initialized. Run `yidam index-build` to build._".to_string()
-    } else {
-        let meta_path = index_dir.join("meta.json");
-        match std::fs::read_to_string(&meta_path) {
-            Err(_) => "Index present — no metadata file found.".to_string(),
-            Ok(meta_str) => {
-                let meta: serde_json::Value =
-                    serde_json::from_str(&meta_str).unwrap_or(serde_json::Value::Null);
-
-                let generated_at = meta["generated_at"].as_u64().unwrap_or(0);
-                let model_name = meta["model_name"].as_str().unwrap_or("unknown");
-                let node_count = meta["node_count"].as_u64().unwrap_or(0);
-                let dim = meta["embedding_dim"].as_u64().unwrap_or(0);
-
-                let corpus = yidam_corpus_dir(&root);
-                let stale = count_stale_corpus_files(&corpus, generated_at);
-
-                let now_ts = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(generated_at);
-                let age_secs = now_ts.saturating_sub(generated_at);
-                let date_str = unix_to_date_str(generated_at);
-                let age_str = humanize_age(age_secs);
-
-                if stale > 0 {
-                    format!(
-                        "Vector index: built {date_str} ({age_str})\n\
-                         Stale nodes:  {stale} corpus instance(s) added or modified since last build\n\
-                         Action:       run `yidam index-build` to refresh"
-                    )
-                } else {
-                    format!(
-                        "Vector index: built {date_str} ({age_str}), up-to-date\n\
-                         Model:        {model_name} ({dim} dims)\n\
-                         Nodes:        {node_count}"
-                    )
-                }
-            }
-        }
+pub(crate) fn index_status_data(root: &Path) -> IndexStatusReport {
+    let index_dir = yidam_index_dir(root);
+    let absent = IndexStatusReport {
+        index_present: index_dir.exists(),
+        meta_present: false,
+        built_at: None,
+        built: None,
+        model: None,
+        embedding_dim: None,
+        node_count: None,
+        stale_nodes: 0,
     };
+    if !index_dir.exists() {
+        return absent;
+    }
+    let Ok(meta_str) = std::fs::read_to_string(index_dir.join("meta.json")) else {
+        return absent;
+    };
+    let meta: serde_json::Value =
+        serde_json::from_str(&meta_str).unwrap_or(serde_json::Value::Null);
+    let generated_at = meta["generated_at"].as_u64().unwrap_or(0);
+    IndexStatusReport {
+        index_present: true,
+        meta_present: true,
+        built_at: Some(generated_at),
+        built: Some(unix_to_date_str(generated_at)),
+        model: Some(meta["model_name"].as_str().unwrap_or("unknown").to_string()),
+        embedding_dim: Some(meta["embedding_dim"].as_u64().unwrap_or(0)),
+        node_count: Some(meta["node_count"].as_u64().unwrap_or(0)),
+        stale_nodes: count_stale_corpus_files(&yidam_corpus_dir(root), generated_at),
+    }
+}
+
+/// The prose, rendered *from* the report, so the two cannot say different things.
+pub(crate) fn render_index_status(r: &IndexStatusReport, now: u64) -> String {
+    if !r.index_present {
+        return "_Index not initialized. Run `yidam index-build` to build._".to_string();
+    }
+    if !r.meta_present {
+        return "Index present — no metadata file found.".to_string();
+    }
+    let generated_at = r.built_at.unwrap_or(0);
+    let date_str = r.built.clone().unwrap_or_default();
+    let age_str = humanize_age(now.saturating_sub(generated_at));
+    if r.stale_nodes > 0 {
+        let stale = r.stale_nodes;
+        format!(
+            "Vector index: built {date_str} ({age_str})\n\
+             Stale nodes:  {stale} corpus instance(s) added or modified since last build\n\
+             Action:       run `yidam index-build` to refresh"
+        )
+    } else {
+        format!(
+            "Vector index: built {date_str} ({age_str}), up-to-date\n\
+             Model:        {} ({} dims)\n\
+             Nodes:        {}",
+            r.model.clone().unwrap_or_default(),
+            r.embedding_dim.unwrap_or(0),
+            r.node_count.unwrap_or(0)
+        )
+    }
+}
+
+pub fn index_status(format: crate::report::Format) -> Result<()> {
+    let root = repo_root()?;
+    let data = index_status_data(&root);
+    if format.is_json() {
+        return crate::report::emit(&root, data);
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or_else(|_| data.built_at.unwrap_or(0));
+    let content = render_index_status(&data, now);
 
     println!("{content}");
     let corpus = yidam_corpus_dir(&root);

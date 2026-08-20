@@ -24,8 +24,25 @@ import * as vscode from 'vscode'
 import { pinPath, resolveBinary, type Resolution } from './binary.ts'
 import { DEFAULT_OPTIONS, type Finding, type RepoCondition } from './diagnostics.ts'
 import { describe, readHandshake, type Handshake } from './handshake.ts'
-import { runReports, type Outcome } from './report-run.ts'
+import {
+  runCorpusViews,
+  runRefViews,
+  runReports,
+  type CorpusViews,
+  type Outcome,
+  type RefViews,
+} from './report-run.ts'
 import { Cached, debounce, headOid, spawn, type CacheKey } from './runner.ts'
+import {
+  corpusTree,
+  healthTree,
+  localRef,
+  openQuestionsTree,
+  phasesTree,
+  sanghaTree,
+  statusLine,
+} from './tree/model.ts'
+import { NodeTree } from './tree/provider.ts'
 
 const run = promisify(execFile)
 
@@ -38,6 +55,16 @@ let state: State | null = null
 let status: vscode.StatusBarItem
 let diagnostics: vscode.DiagnosticCollection
 let conditions: RepoCondition[] = []
+let summary: string | null = null
+
+interface Views {
+  corpus: NodeTree
+  open: NodeTree
+  phases: NodeTree
+  health: NodeTree
+  sangha: NodeTree
+}
+let views: Views | null = null
 
 /**
  * Bumped by every save. The reports read the working tree, not the commit, so an OID
@@ -46,22 +73,50 @@ let conditions: RepoCondition[] = []
  */
 let generation = 0
 const cache = new Cached<Outcome>()
+const corpusViews = new Cached<CorpusViews>()
+
+/**
+ * Bumped by a ref change or a sangha edit, and by nothing else.
+ *
+ * `phases` costs three git processes per ref — 1.26s against a repository with 23
+ * settled resolutions — so it must not ride the save path. See `report-run.ts`.
+ */
+let refGeneration = 0
+const refViews = new Cached<RefViews>()
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0)
-  status.command = 'yidam.showBinaryStatus'
+  status.command = 'yidam.showHealth'
   context.subscriptions.push(status)
 
   diagnostics = vscode.languages.createDiagnosticCollection('yidam')
   context.subscriptions.push(diagnostics)
 
+  views = {
+    corpus: new NodeTree(workspaceFolder),
+    open: new NodeTree(workspaceFolder),
+    phases: new NodeTree(workspaceFolder),
+    health: new NodeTree(workspaceFolder),
+    sangha: new NodeTree(workspaceFolder),
+  }
+  context.subscriptions.push(
+    vscode.window.createTreeView('yidam.corpus', { treeDataProvider: views.corpus }),
+    vscode.window.createTreeView('yidam.openQuestions', { treeDataProvider: views.open }),
+    vscode.window.createTreeView('yidam.phases', { treeDataProvider: views.phases }),
+    vscode.window.createTreeView('yidam.health', { treeDataProvider: views.health }),
+    vscode.window.createTreeView('yidam.sangha', { treeDataProvider: views.sangha }),
+  )
+
   context.subscriptions.push(
     vscode.commands.registerCommand('yidam.showBinaryStatus', showStatus),
-    vscode.commands.registerCommand('yidam.refreshDiagnostics', () => {
-      cache.invalidate()
-      return report()
-    }),
+    vscode.commands.registerCommand('yidam.refreshDiagnostics', refreshAll),
+    vscode.commands.registerCommand('yidam.refreshViews', refreshAll),
     vscode.commands.registerCommand('yidam.blessBaseline', blessBaseline),
+    vscode.commands.registerCommand('yidam.checkoutPhase', checkoutPhase),
+    vscode.commands.registerCommand('yidam.regen', () => task('regen')),
+    vscode.commands.registerCommand('yidam.buildIndex', () => task('index-build')),
+    vscode.commands.registerCommand('yidam.vendorStatus', () => task('yidam-vendor-status')),
+    vscode.commands.registerCommand('yidam.showHealth', showHealth),
   )
 
   const debounced = debounce(debounceMs(), () => void report())
@@ -69,7 +124,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // On save: the reports read the working tree, so this is when the answer changes.
     vscode.workspace.onDidSaveTextDocument((doc) => {
       if (!doc.uri.fsPath.includes('.yidam')) return
-      generation += 1
+      // A sangha edit changes the sangha view and nothing the corpus reports say. Sending
+      // it down the ref path keeps `phases` off the save path, which is the whole reason
+      // the two groups exist.
+      if (doc.uri.fsPath.includes('.yidam/sangha')) refGeneration += 1
+      else generation += 1
       debounced()
     }),
     // On ref change: a checkout moves the corpus without touching a file.
@@ -102,7 +161,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ? vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, '.git/HEAD'))
     : null
   if (gitHead) {
-    gitHead.onDidChange(() => void report())
+    gitHead.onDidChange(() => {
+      refGeneration += 1
+      void report()
+    })
     context.subscriptions.push(gitHead)
   }
 
@@ -112,6 +174,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 export function deactivate(): void {
   status?.dispose()
   diagnostics?.dispose()
+}
+
+/** Drop every cached answer and ask again. One button, all five views. */
+function refreshAll(): Promise<void> {
+  cache.invalidate()
+  corpusViews.invalidate()
+  refViews.invalidate()
+  return report()
 }
 
 function debounceMs(): number {
@@ -145,6 +215,35 @@ async function report(): Promise<void> {
 
   conditions = outcome.mapped.conditions
   publish(folder, outcome.mapped.findings)
+
+  const oid = key.oid
+  const [corpus, refs] = await Promise.all([
+    corpusViews.get({ oid, generation }, () => runCorpusViews(bin, folder, spawn)),
+    refViews.get({ oid, generation: refGeneration }, () => runRefViews(bin, folder, spawn)),
+  ])
+
+  if (views) {
+    views.corpus.replace(
+      corpus.corpusIndex && corpus.openQuestions
+        ? corpusTree(corpus.corpusIndex, corpus.openQuestions)
+        : [],
+    )
+    views.open.replace(corpus.openQuestions ? openQuestionsTree(corpus.openQuestions) : [])
+    views.phases.replace(refs.phases ? phasesTree(refs.phases) : [])
+    views.health.replace(
+      healthTree({ lint: outcome.lint, graph: outcome.graph, index: corpus.indexStatus }),
+    )
+    views.sangha.replace(refs.sangha ? sanghaTree(refs.sangha) : [])
+    // The sangha view is hidden until there is one, rather than showing an empty box in
+    // every repository that governs itself individually.
+    void vscode.commands.executeCommand(
+      'setContext',
+      'yidam.collective',
+      refs.sangha?.collective ?? false,
+    )
+  }
+
+  summary = statusLine(corpus.status, corpus.indexStatus)
   render()
 }
 
@@ -203,6 +302,50 @@ function severityOf(level: Finding['level']): vscode.DiagnosticSeverity {
 async function blessBaseline(): Promise<void> {
   const term = vscode.window.createTerminal('yidam lint --bless')
   term.sendText('yidam lint --bless')
+  term.show()
+}
+
+/**
+ * The status bar's click target.
+ *
+ * Health when there is a corpus to be healthy; the binary dialog when there is not. The
+ * status bar is one control and the question behind it changes: before a binary resolves,
+ * "which yidam is this" is the only answer worth giving.
+ */
+async function showHealth(): Promise<void> {
+  if (!state?.resolution.command || state.handshake?.ok === false) {
+    await showStatus()
+    return
+  }
+  await vscode.commands.executeCommand('yidam.health.focus')
+}
+
+/** Run a mise task where the user can watch it. */
+function task(name: string): void {
+  const term = vscode.window.createTerminal(`mise run ${name}`)
+  term.sendText(`mise run ${name}`)
+  term.show()
+}
+
+/**
+ * Switching branch is confirmed, then run in a terminal.
+ *
+ * Not because a checkout is dangerous, but because a *click in a tree* moving the working
+ * tree under an unsaved editor is a surprise. The confirmation is what makes the row safe
+ * to click by accident; the terminal is what makes the result readable when git refuses.
+ */
+async function checkoutPhase(ref: unknown): Promise<void> {
+  if (typeof ref !== 'string' || ref.length === 0) return
+  const target = localRef(ref)
+  const go = 'Switch'
+  const choice = await vscode.window.showWarningMessage(
+    `Switch to ${target}?`,
+    { modal: true, detail: 'Runs `git switch` in a terminal.' },
+    go,
+  )
+  if (choice !== go) return
+  const term = vscode.window.createTerminal(`git switch ${target}`)
+  term.sendText(`git switch ${target}`)
   term.show()
 }
 
@@ -274,16 +417,22 @@ function render(): void {
     status.show()
     return
   }
+  // The corpus summary once there is one; the handshake until then. A reader wants to know
+  // how big the corpus is and how much of it is open — not which binary answered, which is
+  // a question they ask once.
+  const line = summary ?? describe(handshake!)
+  const provenance = `${describe(handshake!)}\nResolved from ${resolution.reason}\n${resolution.command}`
+
   const stale = conditions.filter((c) => c.kind === 'stale-baseline').length
   const gate = conditions.some((c) => c.kind === 'graph-gate')
   if (stale > 0 || gate) {
-    status.text = `$(alert) ${describe(handshake!)}`
-    status.tooltip = conditions.map((c) => c.message).join('\n\n')
+    status.text = `$(alert) ${line}`
+    status.tooltip = `${conditions.map((c) => c.message).join('\n\n')}\n\n${provenance}`
     status.show()
     return
   }
-  status.text = `$(check) ${describe(handshake!)}`
-  status.tooltip = `Resolved from ${resolution.reason}\n${resolution.command}`
+  status.text = `$(check) ${line}`
+  status.tooltip = provenance
   status.show()
 }
 

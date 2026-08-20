@@ -1,0 +1,55 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "reports"
+    ]
+  },
+  "root": "<ROOT>",
+  "collective": true,
+  "electors": [
+    {
+      "name": "hydrologist",
+      "branch": "ma/hydrologist",
+      "role": "Holds the discharge position.",
+      "branch_present": true
+    },
+    {
+      "name": "gauge-reader",
+      "branch": "ma/gauge-reader",
+      "role": "Registered ahead of the branch — reports as absent.",
+      "branch_present": false
+    }
+  ],
+  "positions": [
+    {
+      "file": ".yidam/sangha/positions/gauge-reader-tailwater-regime.md",
+      "elector": "gauge-reader",
+      "question": "tailwater-regime"
+    },
+    {
+      "file": ".yidam/sangha/positions/hydrologist-tailwater-regime.md",
+      "elector": "hydrologist",
+      "question": "tailwater-regime"
+    },
+    {
+      "file": ".yidam/sangha/positions/unregistered-drift.md",
+      "elector": "",
+      "question": "unregistered-drift"
+    }
+  ],
+  "resolutions": [
+    {
+      "file": ".yidam/sangha/resolutions/tailwater-regime.md",
+      "evolution": "tailwater-regime",
+      "date": "2026-01-01",
+      "tips": [
+        "ma/hydrologist@aaaaaaa",
+        "ma/gauge-reader@bbbbbbb"
+      ],
+      "branch_present": true
+    }
+  ]
+}

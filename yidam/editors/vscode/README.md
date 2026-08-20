@@ -74,6 +74,51 @@ So lint owns the marks and `graph-check` fills only the gap: any node it objects
 lint did not mention, plus its own pass/fail as a repository condition. It is a gate CI runs
 and its verdict is not dropped.
 
+## The views
+
+Five trees in one activity-bar container, all fed by `--format json`.
+
+| View | Report | |
+|---|---|---|
+| **Corpus** | `corpus-index` + `open-questions` | classes, then instances. Open questions marked. |
+| **Open questions** | `open-questions` | flat. Previously answerable only by reading a REGEN table in a README — which is to say, correct as of the last time somebody ran the generator. |
+| **Phases** | `phases` | `ma/*` and `rigpa/*`, grouped. The branch model is the most distinctive thing about these repositories and was invisible in every editor. |
+| **Health** | `lint` + `graph-check` + `index-status` | three gates and two acts — see below. |
+| **Sangha** | `sangha` | electors, their positions, the settled record. Read-only. |
+
+The Sangha view is hidden unless `sangha --format json` reports `collective: true`, which is
+keyed on registered electors rather than on the directory: the template ships `sangha/` with
+a placeholder table, so a directory test would show the view in every derived repository
+from its genesis commit.
+
+**Read-only is constitutional, not a scoping decision.** Article V confines synthesis to
+resolution events, so a surface that wrote a position or drafted a resolution would be
+performing one outside the protocol that routes them. RFCs 0009 / 0011 / 0012 have to settle
+first.
+
+### Three gates and two acts
+
+`graph-check`, `lint` and `index-status` each answer a verdict, and the Health view renders
+it. **REGEN freshness and vendored-prelude drift do not**: nothing reports whether a REGEN
+block is stale without rewriting it, and drift against the pin is not knowable without the
+network. So those two rows are offered as things to run, and they say so. A green tick on
+either would be this extension asserting something no command answered.
+
+A report that fails to arrive renders as *unavailable* — its own state, not a failure.
+Folding it into red would show an X about the corpus because a subprocess died.
+
+Blessing the baseline is offered as the Lint row's action only when the debt is **stale and
+nothing is new**. One click that turns fresh violations into inherited debt would make
+laundering a regression the easiest thing on the screen.
+
+### Why two cached groups
+
+Measured against a real 105-node corpus with 23 settled resolutions: seven of the eight
+reports finish in under 200 ms, and `phases` takes **1.26 s** — it spawns three git
+processes per ref, and a sangha has dozens. So what a *save* can change is one cache, and
+what a *ref* can change is another. A sangha edit bumps the ref generation, because that is
+the view it moves.
+
 ## Layout
 
 | Path | |
@@ -83,11 +128,13 @@ and its verdict is not dropped.
 | `src/reports.ts` | typed views of the contract. Transcription only — nothing is derived here. |
 | `src/diagnostics.ts` | the severity mapping. No `vscode` import. |
 | `src/runner.ts` | spawn, per-OID cache, debounce. No `vscode` import. |
-| `src/report-run.ts` | one pass: run both reports, map both, merge. No `vscode` import. |
+| `src/report-run.ts` | one pass over the reports, in two cached groups. No `vscode` import. |
+| `src/tree/model.ts` | the five views, as data. No `vscode` import. |
+| `src/tree/provider.ts` | `TreeNode` → `vscode.TreeItem`. The adapter, with no judgement in it. |
 | `src/extension.ts` | activation, status bar, terminal actions. Thin by design. |
 | `test/` | `node --test`, no Electron |
 
-The two modules that carry logic import nothing from `vscode`, so they are exercised by
+Every module that carries logic imports nothing from `vscode`, so they are exercised by
 plain node. `test/contract.test.ts` drives them against the same `reports/` golden corpora
 that certify the CLI's own output: a fixture whose output changes fails the parity run and
 these tests together.
@@ -106,9 +153,9 @@ failures, so skipping can never be how this job goes green.
 
 ## Not here yet
 
-`@vscode/test-electron`. The only `vscode`-importing code today is status-bar wiring, and an
-Electron download that asserts a status-bar string is ceremony. `test/manifest.test.ts`
-catches the class of defect that actually needs an editor to surface — a `main` pointing at
-nothing, a contributed command nobody registers, an activation event that never fires — in
-plain node. The Electron harness earns its cost with the first real UI behaviour, which is
-diagnostics.
+`@vscode/test-electron`. The `vscode`-importing code is the status bar, the diagnostic
+collection, and one `TreeDataProvider` adapter with no judgement in it — every shape
+decision is settled in `src/tree/model.ts` against plain data, and asserted there.
+`test/manifest.test.ts` catches the class of defect that actually needs an editor to
+surface — a `main` pointing at nothing, a contributed command nobody registers, a view id
+nothing provides — in plain node.
