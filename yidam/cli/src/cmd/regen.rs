@@ -53,10 +53,61 @@ fn generator_names() -> Vec<&'static str> {
     GENERATORS.iter().map(|(name, _)| *name).collect()
 }
 
-pub fn regen() -> Result<()> {
+#[derive(serde::Serialize)]
+pub struct RegenReport {
+    /// Whether every REGEN block already holds what its generator produces.
+    pub passed: bool,
+    /// The blocks that do not. Empty when `passed`.
+    pub stale: Vec<crate::regen::Stale>,
+}
+
+pub(crate) fn render_regen_check(r: &RegenReport) -> String {
+    if r.passed {
+        return "Every REGEN block is current.".to_string();
+    }
+    let mut out = format!("{} REGEN block(s) stale:\n", r.stale.len());
+    for s in &r.stale {
+        out.push_str(&format!("  {}  ({})\n", s.file, s.generator));
+    }
+    out.push_str("\nRun `yidam regen` and commit the result as a `regen:` commit.");
+    out
+}
+
+/// Refresh every REGEN block, or — with `check` — report which ones would change.
+///
+/// `--check` runs the same [`GENERATORS`] list, which is the whole point: a check that
+/// walked its own list would be the third list this command exists to have prevented.
+pub fn regen(check: bool, format: crate::report::Format) -> Result<()> {
+    if check {
+        crate::regen::begin_check();
+    }
     for (name, run) in GENERATORS {
-        println!("── {name}");
-        run().with_context(|| format!("running {name}"))?;
+        if !check {
+            println!("── {name}");
+        }
+        let outcome = run().with_context(|| format!("running {name}"));
+        if outcome.is_err() && check {
+            crate::regen::end_check();
+        }
+        outcome?;
+    }
+    if !check {
+        return Ok(());
+    }
+
+    let stale = crate::regen::end_check();
+    let report = RegenReport {
+        passed: stale.is_empty(),
+        stale,
+    };
+    let passed = report.passed;
+    if format.is_json() {
+        crate::report::emit(&crate::paths::repo_root()?, report)?;
+    } else {
+        println!("{}", render_regen_check(&report));
+    }
+    if !passed {
+        std::process::exit(1);
     }
     Ok(())
 }

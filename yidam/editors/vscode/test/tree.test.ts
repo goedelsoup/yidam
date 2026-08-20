@@ -25,6 +25,7 @@ import type {
   LintReport,
   OpenQuestionsReport,
   PhasesReport,
+  RegenReport,
   SanghaReport,
   StatusReport,
 } from '../src/reports.ts'
@@ -223,6 +224,8 @@ const GRAPH: GraphCheckReport = {
   classes_without_instances: [],
 }
 
+const REGEN: RegenReport = { ...ENVELOPE, passed: true, stale: [] }
+
 const INDEX_STATUS: IndexStatusReport = {
   ...ENVELOPE,
   index_present: true,
@@ -235,8 +238,8 @@ const INDEX_STATUS: IndexStatusReport = {
   stale_nodes: 0,
 }
 
-test('health carries all five rows, gates and acts alike', () => {
-  const tree = healthTree({ lint: lintReport(), graph: GRAPH, index: INDEX_STATUS })
+test('health carries all five rows, gates and the one act alike', () => {
+  const tree = healthTree({ lint: lintReport(), graph: GRAPH, index: INDEX_STATUS, regen: REGEN })
   assert.deepEqual(ids(tree), [
     'health:graph',
     'health:lint',
@@ -247,19 +250,49 @@ test('health carries all five rows, gates and acts alike', () => {
 })
 
 /**
- * The two rows with no report behind them must not render as passing.
+ * Vendor drift needs the network, so it stays an act — and must not render as passing.
  *
- * A green tick on REGEN freshness would be this extension asserting something no command
- * answered — the exact drift the report contract exists to close.
+ * A row claiming the prelude is current without asking the origin would be this extension
+ * asserting something no command answered, which is the drift the contract exists to close.
+ * REGEN was in this test until `yidam regen --check` gave it a verdict; the next test is
+ * what replaced it.
  */
-test('regen and vendor are offered as acts, never as verdicts', () => {
-  const tree = healthTree({ lint: lintReport(), graph: GRAPH, index: INDEX_STATUS })
-  for (const id of ['health:regen', 'health:vendor']) {
-    const row = find(tree, id)!
-    assert.notEqual(row.icon, 'pass', `${id} must not claim a verdict`)
-    assert.notEqual(row.icon, 'error', `${id} must not claim a verdict`)
-    assert.ok(row.command, `${id} is a thing to run`)
+test('vendor drift is offered as an act, never as a verdict', () => {
+  const row = find(
+    healthTree({ lint: lintReport(), graph: GRAPH, index: INDEX_STATUS, regen: REGEN }),
+    'health:vendor',
+  )!
+  assert.notEqual(row.icon, 'pass')
+  assert.notEqual(row.icon, 'error')
+  assert.ok(row.command, 'it is a thing to run')
+})
+
+/** REGEN freshness became a gate the moment a command could answer it without writing. */
+test('a stale REGEN block is a verdict, and names which generator', () => {
+  const stale: RegenReport = {
+    ...ENVELOPE,
+    passed: false,
+    stale: [{ file: '.yidam/corpus/README.md', generator: 'corpus-index' }],
   }
+  const row = find(
+    healthTree({ lint: lintReport(), graph: GRAPH, index: INDEX_STATUS, regen: stale }),
+    'health:regen',
+  )!
+  assert.equal(row.icon, 'warning')
+  assert.equal(row.description, '1 stale')
+  assert.equal(row.expanded, true)
+  assert.equal(row.children![0].file, '.yidam/corpus/README.md')
+  assert.equal(row.children![0].description, 'corpus-index')
+
+  const current = find(
+    healthTree({ lint: lintReport(), graph: GRAPH, index: INDEX_STATUS, regen: REGEN }),
+    'health:regen',
+  )!
+  assert.equal(current.icon, 'pass')
+  assert.equal(current.description, 'current')
+  // Regenerating a current block is a no-op, so unlike blessing a baseline the action is
+  // never the wrong thing to click.
+  assert.equal(current.command?.id, 'yidam.regen')
 })
 
 test('a failing graph gate expands and lists its offending nodes', () => {
@@ -269,7 +302,7 @@ test('a failing graph gate expands and lists its offending nodes', () => {
     clean_instances: 2,
     nodes_with_issues: [{ node: '.yidam/corpus/concept/tailwater.yml', issues: ['dangling-edge'] }],
   }
-  const row = find(healthTree({ lint: lintReport(), graph, index: INDEX_STATUS }), 'health:graph')!
+  const row = find(healthTree({ lint: lintReport(), graph, index: INDEX_STATUS, regen: REGEN }), 'health:graph')!
   assert.equal(row.icon, 'error')
   assert.equal(row.expanded, true)
   assert.equal(row.description, '2/3 clean')
@@ -291,6 +324,7 @@ test('the lint row offers blessing only when the debt is stale and nothing is ne
       lint: lintReport({ passed: false, stale_baseline_entries: stale }),
       graph: GRAPH,
       index: INDEX_STATUS,
+      regen: REGEN,
     }),
     'health:lint',
   )!
@@ -302,6 +336,7 @@ test('the lint row offers blessing only when the debt is stale and nothing is ne
       lint: lintReport({ passed: false, new_violations: 2, stale_baseline_entries: stale }),
       graph: GRAPH,
       index: INDEX_STATUS,
+      regen: REGEN,
     }),
     'health:lint',
   )!
@@ -315,8 +350,8 @@ test('the lint row offers blessing only when the debt is stale and nothing is ne
  * about the corpus that nothing checked.
  */
 test('a missing report renders as unavailable rather than as a failure', () => {
-  const tree = healthTree({ lint: null, graph: null, index: null })
-  for (const id of ['health:graph', 'health:lint', 'health:index']) {
+  const tree = healthTree({ lint: null, graph: null, index: null, regen: null })
+  for (const id of ['health:graph', 'health:lint', 'health:index', 'health:regen']) {
     const row = find(tree, id)!
     assert.equal(row.description, 'unavailable')
     assert.notEqual(row.icon, 'error')
@@ -495,6 +530,7 @@ test('every view builds from the real binary’s own JSON', async (t) => {
     lint: read<LintReport>(['lint']),
     graph: read<GraphCheckReport>(['graph-check']),
     index: read<IndexStatusReport>(['index-status']),
+    regen: read<RegenReport>(['regen', '--check']),
   })
   assert.deepEqual(ids(health), [
     'health:graph',
@@ -506,6 +542,9 @@ test('every view builds from the real binary’s own JSON', async (t) => {
   // The fixture carries a deliberate broken edge, so the lint gate fails here.
   assert.equal(find(health, 'health:lint')!.icon, 'error')
   assert.equal(find(health, 'health:index')!.description, 'not initialized')
+  // The fixture ships a placeholder in its `yidam status` REGEN block, so a fresh copy is
+  // stale — and `--check` says so without rewriting the fixture the rest of this test reads.
+  assert.equal(find(health, 'health:regen')!.icon, 'warning')
 
   const line = statusLine(read<StatusReport>(['status']), read<IndexStatusReport>(['index-status']))
   assert.match(line!, /^\d+ nodes · \d+ open · no index$/)

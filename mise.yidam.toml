@@ -355,6 +355,10 @@ description = "Build corpus search web shell to packages/web/dist/."
 depends = ["bundle"]
 run = "cd packages/web && npm run build"
 
+[regen-check]
+description = "Report which REGEN blocks are stale, writing nothing — safe to run with work in flight."
+run = "yidam regen --check"
+
 [regen]
 description = "Regenerate all REGEN sections across READMEs in one pass."
 # One `yidam regen` rather than a `depends` list, because there were two lists and they

@@ -353,7 +353,7 @@ pub fn corpus_index(format: crate::report::Format) -> Result<()> {
     // Prefix "": the README this writes to sits in `corpus/`, so a row's path relative
     // to `corpus/` is already the link a reader's client resolves.
     let content = render_corpus_index("", &corpus);
-    println!("{content}");
+    crate::regen::emit(&content);
     update_file_regen(&corpus.join("README.md"), "yidam corpus-index", &content)
 }
 
@@ -364,7 +364,7 @@ pub fn open_questions(format: crate::report::Format) -> Result<()> {
         return crate::report::emit(&root, open_questions_data(&root, &corpus));
     }
     let content = render_open_questions(&root, &corpus);
-    println!("{content}");
+    crate::regen::emit(&content);
     update_file_regen(&root.join("README.md"), "yidam open-questions", &content)
 }
 

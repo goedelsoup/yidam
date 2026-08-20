@@ -279,14 +279,13 @@ jobs:
       # everything: with only the checked-out branch present, the count is whatever CI can
       # see rather than what the repository holds. That was a live bug — the count read
       # local branches only, so this job failed on every push in any repo with a sangha.
+      # `--check` rather than run-and-diff. The old form regenerated into the working
+      # tree and asked git whether anything moved, which works in CI and cannot be run
+      # locally with work in flight — the diff it reads is every diff, not just its own.
+      # `regen --check` writes nothing and reports which blocks are stale, so the same
+      # command answers the same question on a dirty tree.
       - name: REGEN blocks are current
-        run: |
-          yidam regen
-          if ! git diff --quiet; then
-            echo "::error::REGEN blocks are stale. Run 'mise run regen' and commit the result."
-            git --no-pager diff --stat
-            exit 1
-          fi
+        run: yidam regen --check
 
   crates:
     name: crates (domain computer)

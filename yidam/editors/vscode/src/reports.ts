@@ -132,3 +132,9 @@ export interface SanghaReport extends Envelope {
     branch_present: boolean
   }[]
 }
+
+/** `regen --check`. The verdict that turned the Health view's REGEN row into a gate. */
+export interface RegenReport extends Envelope {
+  passed: boolean
+  stale: { file: string; generator: string }[]
+}

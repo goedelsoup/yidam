@@ -16,6 +16,37 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 use yidam_core::git::is_recognized_verb;
 
+/// Walk authored files, skipping everything a build or a package manager put there.
+///
+/// Both scans below read every file they reach, and `yidam/prelude` reaches **698 MB** —
+/// almost all of it `sdks/python/.venv`, which holds a 248 MB `libtorch_cpu.dylib` that gets
+/// read into a `String`, fails as non-UTF-8, and is discarded. A local `mise run ci-cli`
+/// spent a hundred seconds here.
+///
+/// CI never noticed because a clean checkout has none of it: no `.venv`, no `node_modules`,
+/// no `target`. The cost falls entirely on the person running the gate before they push,
+/// which is the one place it discourages running it.
+///
+/// The rule is *dot-directories plus the two build directories that do not start with one*.
+/// A name list is what this was first, and it missed `.venv` — the biggest of them by two
+/// orders of magnitude.
+fn authored_files(target: &Path) -> impl Iterator<Item = walkdir::DirEntry> {
+    WalkDir::new(target)
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            let generated = name.starts_with('.')
+                || name == "node_modules"
+                || name == "target"
+                || name.ends_with(".egg-info")
+                || name == "__pycache__";
+            // Only prune directories: a dotfile is authored and is worth scanning.
+            !(generated && e.file_type().is_dir())
+        })
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+}
+
 fn repo_root() -> PathBuf {
     // CARGO_MANIFEST_DIR = yidam/cli/
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -131,10 +162,7 @@ fn no_step_names_a_commit_kind_instead_of_its_verb() {
     let mut bad = Vec::new();
     let mut excused = 0usize;
     for target in &targets {
-        for entry in WalkDir::new(target).into_iter().filter_map(Result::ok) {
-            if !entry.file_type().is_file() {
-                continue;
-            }
+        for entry in authored_files(target) {
             let Ok(text) = std::fs::read_to_string(entry.path()) else {
                 continue;
             };
@@ -201,10 +229,7 @@ fn every_prescribed_commit_uses_a_recognized_verb() {
 
     let mut found = Vec::new();
     for target in &targets {
-        for entry in WalkDir::new(target).into_iter().filter_map(Result::ok) {
-            if !entry.file_type().is_file() {
-                continue;
-            }
+        for entry in authored_files(target) {
             let Ok(text) = std::fs::read_to_string(entry.path()) else {
                 continue; // not UTF-8 — no shell commands in it
             };
@@ -216,6 +241,25 @@ fn every_prescribed_commit_uses_a_recognized_verb() {
         !found.is_empty(),
         "found no `git commit -m` at all under {targets:?} — the scan is broken, not the docs"
     );
+
+    // The four files that actually prescribe commits, named rather than counted.
+    //
+    // `authored_files` prunes generated directories, and a prune that went too far would
+    // leave this scan quietly checking less than it did. A count would churn on every
+    // added example; naming the files catches the failure that matters — one of them
+    // disappearing from the walk.
+    for expected in [
+        "yidam/prelude/skills/bootstrap.md",
+        "yidam/prelude/guidelines/directories.md",
+        "sadhana/sangha/PROTOCOL.md",
+        "mise.yidam.toml",
+    ] {
+        assert!(
+            found.iter().any(|p| p.file == expected),
+            "{expected} prescribes commits and the walk did not reach it — \
+             check what `authored_files` is pruning"
+        );
+    }
 
     let bad: Vec<String> = found
         .iter()

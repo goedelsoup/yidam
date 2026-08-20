@@ -43,7 +43,7 @@ pub fn crates_index() -> Result<()> {
         rows.join("\n")
     };
 
-    println!("{content}");
+    crate::regen::emit(&content);
     update_file_regen(
         &crates_dir.join("README.md"),
         "yidam crates-index",
@@ -97,7 +97,7 @@ pub fn packages_index() -> Result<()> {
         rows.join("\n")
     };
 
-    println!("{content}");
+    crate::regen::emit(&content);
     update_file_regen(
         &packages_dir.join("README.md"),
         "yidam packages-index",

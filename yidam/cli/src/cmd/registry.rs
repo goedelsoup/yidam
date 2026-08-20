@@ -59,7 +59,7 @@ pub fn agents_index() -> Result<()> {
         rows.join("\n")
     };
 
-    println!("{content}");
+    crate::regen::emit(&content);
     update_file_regen(
         &agents_dir.join("README.md"),
         "yidam agents-index",
@@ -71,7 +71,7 @@ pub fn skills_index() -> Result<()> {
     let root = repo_root()?;
     let skills_dir = yidam_skills_dir(&root);
     let content = render_skills_index(&skills_dir);
-    println!("{content}");
+    crate::regen::emit(&content);
     update_file_regen(
         &skills_dir.join("README.md"),
         "yidam skills-index",

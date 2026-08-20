@@ -84,6 +84,10 @@ run = "yidam packages-index"
 description = "Report web/ bundle state: contract version, feeds, last export timestamp, deploy status."
 run = "yidam bundle-status"
 
+[tasks.regen-check]
+description = "Report which REGEN blocks are stale, writing nothing. Exits nonzero when any is."
+run = "yidam regen --check"
+
 [tasks.regen]
 description = "Regenerate all REGEN sections across READMEs in one pass."
 # `yidam regen` and not a `depends` list — the set lives in the CLI

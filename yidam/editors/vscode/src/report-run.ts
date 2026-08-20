@@ -25,6 +25,7 @@ import type {
   LintReport,
   OpenQuestionsReport,
   PhasesReport,
+  RegenReport,
   SanghaReport,
   StatusReport,
 } from './reports.ts'
@@ -107,6 +108,11 @@ export interface CorpusViews {
   openQuestions: OpenQuestionsReport | null
   indexStatus: IndexStatusReport | null
   /**
+   * REGEN freshness. Writes nothing — `--check` is what makes it safe to run on every
+   * save rather than only in CI.
+   */
+  regen: RegenReport | null
+  /**
    * The whole graph, for the navigation providers.
    *
    * On the save path rather than the ref path: an edge changes when a file changes, and a
@@ -117,14 +123,15 @@ export interface CorpusViews {
 }
 
 export async function runCorpusViews(bin: string, cwd: string, run: Spawn): Promise<CorpusViews> {
-  const [status, corpusIndex, openQuestions, indexStatus, graph] = await Promise.all([
+  const [status, corpusIndex, openQuestions, indexStatus, graph, regen] = await Promise.all([
     fetchReport<StatusReport>(bin, ['status'], cwd, run),
     fetchReport<CorpusIndexReport>(bin, ['corpus-index'], cwd, run),
     fetchReport<OpenQuestionsReport>(bin, ['open-questions'], cwd, run),
     fetchReport<IndexStatusReport>(bin, ['index-status'], cwd, run),
     fetchReport<GraphReport>(bin, ['graph'], cwd, run),
+    fetchReport<RegenReport>(bin, ['regen', '--check'], cwd, run),
   ])
-  return { status, corpusIndex, openQuestions, indexStatus, graph }
+  return { status, corpusIndex, openQuestions, indexStatus, graph, regen }
 }
 
 /** What a ref can change. */
