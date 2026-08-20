@@ -71,8 +71,9 @@ jobs:
   # everybody knows is manual.
   #
   # `.yidam/private-paths` is one path per line; `#` comments and blanks ignored.
-  # A directory holding only its README (or a .gitkeep) counts as empty, so the
-  # scaffold itself never trips this.
+  # A directory holding only its own README (or .gitkeep placeholders) counts as
+  # empty, so the scaffold itself never trips this. A README deeper in the tree
+  # counts as material: it is a file somebody wrote.
   #
   # Reads the event payload, which the runner already has. No `gh api`, no
   # network: CI is hermetic and stays so.
@@ -96,10 +97,18 @@ jobs:
           content=""
           while IFS= read -r line || [ -n "$line" ]; do
             entry="${line%%#*}"
-            entry="$(printf '%s' "$entry" | tr -d '[:space:]')"
+            # Trim the ends only. Deleting every space would silently rewrite
+            # `my documents/` into a path that does not exist, and a path that
+            # does not exist is a path this job never looks at.
+            entry="$(printf '%s' "$entry" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
             [ -z "$entry" ] && continue
+            entry="${entry%/}"
             [ -e "$entry" ] || continue
-            found=$(find "$entry" -type f ! -name README.md ! -name .gitkeep | sort)
+            # The README exemption is the declared path's own README and no
+            # other: `-name` alone would excuse a README at any depth, and a
+            # README one directory down is as capable of holding material as
+            # any other file.
+            found=$(find "$entry" -type f ! -name .gitkeep ! -path "$entry/README.md" | sort)
             [ -n "$found" ] && content="$content$found"$'\n'
           done < "$manifest"
           if [ -z "$content" ]; then
