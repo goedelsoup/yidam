@@ -5,8 +5,8 @@
 - **Relates to:** RFC-0001 (the report contract this consumes), RFC-0003 (the light binary it
   depends on), RFC-0004 (drift detection it surfaces), RFC-0005 (the sibling agent surface),
   RFC-0014 (`yidam rename`, which becomes F2), RFC-0015 (`--format json` convention)
-- **Versioning layers touched:** tooling (`yidam` CLI + a new editor client) — a layer
-  [VERSIONING.md](../../VERSIONING.md) does not currently declare (see Open questions)
+- **Versioning layers touched:** tooling (`yidam` CLI + a new editor client) —
+  [Layer 4](../../VERSIONING.md#layer-4--tooling), declared in answer to this RFC
 - **Downstream reference case:** Project BOSC (watermark-directory)
 
 ## Summary
@@ -359,12 +359,11 @@ make this materially better and neither blocks Phase 1.
 
 ## Open questions
 
-- **Which layer versions this?** [VERSIONING.md](../../VERSIONING.md) declares three layers —
-  template, SDKs, bootstrap protocol — and none of them covers the CLI, though RFC-0015 already
-  writes "tooling (`yidam` CLI)" in its header. A Marketplace extension needs a public,
-  semver-shaped version and a stated compatibility range against the report contract. Proposal: a
-  declared Layer 4 (tooling), with `format_version` as the actual compatibility axis and the
-  extension's own version independent of it.
+- ~~**Which layer versions this?**~~ **Settled.** [VERSIONING.md](../../VERSIONING.md) now
+  declares **Layer 4 — Tooling**, holding the CLI and the editor client as independently-tagged
+  artifacts joined by `format_version` — the same arrangement Layer 2 already uses for three SDK
+  packages joined by `parity/VERSION`. The extension's version is independent of the CLI's, and
+  neither is what the two negotiate on.
 - **Does `span` belong in the contract at all,** or should the extension resolve ranges itself
   from the YAML? Client-side resolution keeps the baseline's identity obviously clean and costs
   nothing in the CLI; server-side is more accurate for checks whose subject is not a literal in
