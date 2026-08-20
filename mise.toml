@@ -249,7 +249,10 @@ run = [
 description = "CI for the yidam CLI workspace: fmt-check, clippy, test."
 run = [
   "cargo fmt --all --manifest-path yidam/cli/Cargo.toml -- --check",
-  "cargo clippy --manifest-path yidam/cli/Cargo.toml -- -D warnings",
+  # --all-targets: without it clippy skips tests/, and the integration tests here carry
+  # real logic — link resolution, layout mapping, golden redaction. A lint that does not
+  # read the tests is a lint that goes green while the tests rot.
+  "cargo clippy --manifest-path yidam/cli/Cargo.toml --all-targets -- -D warnings",
   "cargo test --manifest-path yidam/cli/Cargo.toml",
 ]
 

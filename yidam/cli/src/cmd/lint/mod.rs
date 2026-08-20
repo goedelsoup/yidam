@@ -8,6 +8,7 @@
 mod baseline;
 mod checks;
 mod commits;
+pub mod json;
 mod model;
 
 use std::collections::HashSet;
@@ -33,6 +34,8 @@ pub struct Options {
     pub range: Option<String>,
     /// Rewrite the baseline from this run instead of gating on it.
     pub bless: bool,
+    /// Output format. `text` is what this command has always printed.
+    pub format: crate::report::Format,
 }
 
 /// Run every check against the repository at `root`.
@@ -157,6 +160,17 @@ pub fn lint(opts: Options) -> Result<()> {
     let root = repo_root()?;
     let all = run_checks(&root, &opts);
 
+    // JSON short-circuits the prose path entirely rather than interleaving with it: the
+    // text output is a contract of its own (byte-identical to what it has always been),
+    // and a report that half-prints is worse than either.
+    //
+    // The EXIT CODE is deliberately shared. A gate that gates differently depending on how
+    // you asked for the answer is not a gate, so the verdict below is computed the same way
+    // and returned the same way in both modes — only the rendering differs.
+    if opts.format.is_json() {
+        return lint_json(&root, &all, &opts);
+    }
+
     if opts.bless {
         let b = baseline::Baseline::from_checks(&all);
         let count: usize = b.violations.values().map(|v| v.len()).sum();
@@ -214,6 +228,39 @@ pub fn lint(opts: Options) -> Result<()> {
         );
     }
     eprintln!("\nrun `yidam lint --bless` to record the current state as the new baseline.");
+    anyhow::bail!(
+        "lint: {} introduced, {} stale",
+        d.introduced.len(),
+        d.resolved.len()
+    )
+}
+
+/// The JSON path: same checks, same baseline, same verdict, same exit code.
+fn lint_json(root: &Path, all: &[Check], opts: &Options) -> Result<()> {
+    if opts.bless {
+        // Blessing writes a file and reports what it recorded; there is no gate to
+        // report on, and pretending otherwise would put `passed: true` on a run that
+        // checked nothing.
+        let b = baseline::Baseline::from_checks(all);
+        let recorded: usize = b.violations.values().map(|v| v.len()).sum();
+        b.write(root)?;
+        return crate::report::emit(
+            root,
+            serde_json::json!({
+                "blessed": { "recorded_violations": recorded,
+                             "path": baseline::path(root).display().to_string() }
+            }),
+        );
+    }
+
+    let committed = baseline::Baseline::load(root)?;
+    let d = baseline::diff(all, &committed);
+    crate::report::emit(root, json::build(root, all, &committed, &d))?;
+
+    // Same verdict as the text path, and the same silence about it on success.
+    if opts.warn_only || d.is_clean() {
+        return Ok(());
+    }
     anyhow::bail!(
         "lint: {} introduced, {} stale",
         d.introduced.len(),

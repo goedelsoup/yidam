@@ -8,6 +8,7 @@ mod parse;
 mod paths;
 pub mod provenance;
 mod regen;
+pub mod report;
 mod walk;
 
 pub mod model;
@@ -23,3 +24,4 @@ pub use cmd::{
 };
 #[cfg(feature = "index")]
 pub use cmd::{index_build, serve_mcp};
+pub use report::Format;

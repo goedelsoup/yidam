@@ -137,6 +137,10 @@ enum Command {
         /// Rewrite .yidam/lint-baseline.yml from this run instead of gating on it
         #[arg(long)]
         bless: bool,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
     },
     /// Emit JSON Schema for the corpus shapes into .yidam/schemas/
     Schema {
@@ -250,12 +254,14 @@ fn main() -> Result<()> {
             commits,
             range,
             bless,
+            format,
         } => yidam::lint(yidam::LintOptions {
             warn_only: warn,
             explain,
             commits,
             range,
             bless,
+            format,
         }),
         Command::Schema { settings } => yidam::schema(settings),
         Command::SamudayaAudit => yidam::samudaya_audit(),
