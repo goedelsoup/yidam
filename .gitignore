@@ -1,3 +1,14 @@
+# Runtime configuration
+#
+# A derived repository keeps this file — bootstrap names `.gitignore` as one of the
+# generic files that survives the vendor step — and both bootstrap and the sangha
+# protocol prescribe `git add -A`. One was found carrying an untracked `.env` that
+# any of those would have staged. It had never been committed; the next one may not
+# be so lucky.
+.env
+.env.*
+!.env.example
+
 # Rust
 target/
 
