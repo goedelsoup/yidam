@@ -36,10 +36,21 @@ fn make_fixture_repo() -> tempfile::TempDir {
          links:\n  - target: traversal.yml\n    relationship: enables\n",
     )
     .unwrap();
+    // Flagged by its LABEL only. The open-question predicate has two arms, and the fixture
+    // used to carry one node flagged both ways — so a server implementing either arm alone
+    // returned the same answer and the case could not tell them apart.
     std::fs::write(
         class_dir.join("traversal.yml"),
         "class: concept\nlabel: \"? Traversal strategy\"\n\
-         description: How agents walk the graph. [open]\nlinks: []\n",
+         description: How agents walk the graph.\nlinks: []\n",
+    )
+    .unwrap();
+    // Flagged by its CLAIM only — the other arm.
+    std::fs::write(
+        class_dir.join("retrieval.yml"),
+        "class: concept\nlabel: Retrieval\n\
+         description: Finding a node without walking to it. [open]\n\
+         links:\n  - target: knowledge-graph.yml\n    relationship: relates-to\n",
     )
     .unwrap();
 
@@ -129,6 +140,19 @@ fn mcp_server_end_to_end() {
     assert_eq!(init["serverInfo"]["name"], "yidam");
     client.notify("notifications/initialized");
 
+    // What this server declares it backs. Read once, and everything below is checked
+    // against it — a capability claimed and not served, or served and not claimed, is the
+    // failure an agent would otherwise meet as a tool-not-found on the call it cared about.
+    let capabilities = init["capabilities"]["yidam"].clone();
+    assert_eq!(capabilities["contract"], contract()["contract"]);
+    assert_eq!(capabilities["graph"], true);
+    assert_eq!(capabilities["resources"], true);
+    // No working git repository is read by this server, so both are honestly false.
+    assert_eq!(capabilities["phases"], false);
+    assert_eq!(capabilities["sangha"], false);
+    // The fixture has no vector index, which is the same fact every `retrieve` reports.
+    assert_eq!(capabilities["retrieve"]["vector"], false);
+
     // Resources: all five kinds listable, instance fetchable
     let listed = client.request("resources/list", json!({}));
     let uris: Vec<&str> = listed["resources"]
@@ -150,18 +174,31 @@ fn mcp_server_end_to_end() {
         .unwrap()
         .contains("label: Knowledge graph"));
 
-    // Tools list
+    // Tools list — checked against the frozen contract, not against a list written here.
+    // This assertion used to be `assert_eq!(names, vec![...])`, which made this file a
+    // second freeze: the contract could grow a tool and the only thing that noticed was a
+    // test nobody edits when writing a server in another language.
     let tools = client.request("tools/list", json!({}));
-    let names: Vec<&str> = tools["tools"]
+    let names: Vec<String> = tools["tools"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|t| t["name"].as_str().unwrap())
+        .map(|t| t["name"].as_str().unwrap().to_string())
         .collect();
-    assert_eq!(
-        names,
-        vec!["retrieve", "get_node", "neighbors", "open_questions"]
-    );
+    assert_eq!(names, expected_tool_names(&capabilities), "{names:?}");
+
+    // Every case in the contract's `cases/` directory, run against this server.
+    for case in contract_cases() {
+        let capability = case["capability"].as_str();
+        if let Some(c) = capability {
+            if !capabilities[c].as_bool().unwrap_or(false) {
+                continue; // declared absent — its cases are skipped, not passed
+            }
+        }
+        let tool = case["tool"].as_str().unwrap();
+        let response = client.tool_json(tool, case["call"].clone());
+        check_case(&case, &response);
+    }
 
     // retrieve — no index in the fixture, so keyword-degraded
     let retrieved = client.tool_json("retrieve", json!({"query": "knowledge graph"}));
@@ -178,5 +215,136 @@ fn mcp_server_end_to_end() {
     assert_eq!(neigh["neighbors"][0]["id"], "concept/traversal");
 
     let open = client.tool_json("open_questions", json!({}));
-    assert_eq!(open["open_questions"][0]["id"], "concept/traversal");
+    let flagged: Vec<&str> = open["open_questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|q| q["id"].as_str().unwrap())
+        .collect();
+    assert!(flagged.contains(&"concept/traversal"), "{flagged:?}");
+    assert!(flagged.contains(&"concept/retrieval"), "{flagged:?}");
+}
+
+// ── conformance ──────────────────────────────────────────────────────────────
+
+fn contract_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../prelude/sdks/parity/mcp")
+}
+
+fn contract() -> Value {
+    serde_json::from_str(&std::fs::read_to_string(contract_dir().join("tools.json")).unwrap())
+        .unwrap()
+}
+
+/// The tools a server declaring these capabilities must serve, in contract order.
+fn expected_tool_names(capabilities: &Value) -> Vec<String> {
+    contract()["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|t| {
+            let tier = t["tier"].as_str().unwrap();
+            tier == "core" || capabilities[tier].as_bool().unwrap_or(false)
+        })
+        .map(|t| t["name"].as_str().unwrap().to_string())
+        .collect()
+}
+
+fn contract_cases() -> Vec<Value> {
+    let mut cases = Vec::new();
+    for tool_dir in walkdir::WalkDir::new(contract_dir().join("cases"))
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+    {
+        cases.push(
+            serde_json::from_str(&std::fs::read_to_string(tool_dir.path()).unwrap())
+                .unwrap_or_else(|e| panic!("{}: {e}", tool_dir.path().display())),
+        );
+    }
+    assert!(!cases.is_empty(), "no cases found — the scan is broken");
+    cases
+}
+
+/// Follow a dotted path — `neighbors.0.direction` — through a response.
+fn at<'a>(value: &'a Value, path: &str) -> &'a Value {
+    let mut current = value;
+    for part in path.split('.') {
+        current = match part.parse::<usize>() {
+            Ok(i) => &current[i],
+            Err(_) => &current[part],
+        };
+    }
+    current
+}
+
+/// Assert one case's expectations.
+///
+/// Shape and invariants only: never a score. A score is a property of a model, and a
+/// contract that pinned one would fail on every server that legitimately embeds differently
+/// — which is the thing `degraded` exists to report rather than forbid.
+fn check_case(case: &Value, response: &Value) {
+    let tool = case["tool"].as_str().unwrap();
+    let expect = &case["expect"];
+    let why = case["why"].as_str().unwrap_or("");
+
+    if let Some(fields) = expect["fields"].as_array() {
+        for f in fields {
+            let name = f.as_str().unwrap();
+            assert!(
+                response.get(name).is_some(),
+                "{tool}: response has no `{name}`.\n{why}\n{response}"
+            );
+        }
+    }
+    if let Some(equals) = expect["equals"].as_object() {
+        for (k, v) in equals {
+            assert_eq!(&response[k], v, "{tool}.{k}\n{why}");
+        }
+    }
+    if let Some(equals) = expect["equalsAt"].as_object() {
+        for (path, v) in equals {
+            assert_eq!(at(response, path), v, "{tool}.{path}\n{why}");
+        }
+    }
+    if let Some(names) = expect["nonEmpty"].as_array() {
+        for n in names {
+            let name = n.as_str().unwrap();
+            assert!(
+                !response[name].as_array().unwrap().is_empty(),
+                "{tool}.{name} is empty\n{why}"
+            );
+        }
+    }
+    if let Some(counts) = expect["count"].as_object() {
+        for (name, n) in counts {
+            assert_eq!(
+                response[name].as_array().unwrap().len(),
+                n.as_u64().unwrap() as usize,
+                "{tool}.{name}\n{why}\n{response}"
+            );
+        }
+    }
+    if let Some(each) = expect["each"].as_object() {
+        for (name, fields) in each {
+            for item in response[name].as_array().unwrap() {
+                for f in fields.as_array().unwrap() {
+                    let field = f.as_str().unwrap();
+                    assert!(
+                        item.get(field).is_some(),
+                        "{tool}.{name}[] has no `{field}`\n{why}\n{item}"
+                    );
+                }
+            }
+        }
+    }
+    if let Some(every) = expect["everyItemHas"].as_object() {
+        for (name, pairs) in every {
+            for item in response[name].as_array().unwrap() {
+                for (k, v) in pairs.as_object().unwrap() {
+                    assert_eq!(&item[k], v, "{tool}.{name}[].{k}\n{why}");
+                }
+            }
+        }
+    }
 }
