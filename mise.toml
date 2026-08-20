@@ -86,16 +86,11 @@ run = "yidam bundle-status"
 
 [tasks.regen]
 description = "Regenerate all REGEN sections across READMEs in one pass."
-depends = [
-  "corpus-index",
-  "index-status",
-  "catalog-audit",
-  "agents-index",
-  "skills-index",
-  "crates-index",
-  "packages-index",
-  "bundle-status",
-]
+# `yidam regen` and not a `depends` list — the set lives in the CLI
+# (`cmd::regen::GENERATORS`) so this task, the same task in mise.yidam.toml, and the
+# derived-repo CI step cannot drift from each other. They had: two of the eight were
+# checked by CI, and `status`/`open-questions` were in no list at all.
+run = "yidam regen"
 
 # ── domain computer (crates/) ──────────────────────────────────────────────
 # No-ops in yidam itself — sadhana/crates/ has no Cargo workspace. These

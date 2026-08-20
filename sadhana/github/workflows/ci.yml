@@ -198,10 +198,20 @@ jobs:
       # REGEN blocks are generated content. If a README's committed table no
       # longer matches what the CLI produces, the index is stale and every
       # reader of that README is reading a lie.
+      #
+      # `yidam regen` and not a list of generators. This step used to run two of them and
+      # then tell you to run `mise run regen`, which ran eight — so six generators' blocks
+      # could go stale without this job noticing, and doing what the error said could
+      # produce a diff the gate had never asked for. The set now lives in one place in the
+      # CLI and both callers ask for it by name.
+      #
+      # `yidam status` counts phase branches, which is why the checkout above fetches
+      # everything: with only the checked-out branch present, the count is whatever CI can
+      # see rather than what the repository holds. That was a live bug — the count read
+      # local branches only, so this job failed on every push in any repo with a sangha.
       - name: REGEN blocks are current
         run: |
-          yidam corpus-index
-          yidam catalog-audit
+          yidam regen
           if ! git diff --quiet; then
             echo "::error::REGEN blocks are stale. Run 'mise run regen' and commit the result."
             git --no-pager diff --stat
