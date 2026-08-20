@@ -101,6 +101,6 @@ pub fn catalog_audit(format: crate::report::Format) -> Result<()> {
         );
     }
 
-    println!("{content}");
+    crate::regen::emit(&content);
     update_file_regen(&catalog.join("README.md"), "yidam catalog-audit", &content)
 }

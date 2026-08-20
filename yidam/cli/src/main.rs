@@ -61,7 +61,15 @@ enum Command {
     #[command(name = "bundle-status")]
     BundleStatus,
     /// Refresh every REGEN block in one pass.
-    Regen,
+    Regen {
+        /// Report which blocks are stale and write nothing. Exits nonzero when any is.
+        #[arg(long)]
+        check: bool,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Rename a corpus node, rewriting every edge into it
     Rename {
         /// Node to rename, e.g. `concept/old.yml` or `concept/old`
@@ -288,7 +296,7 @@ fn main() -> Result<()> {
         Command::CratesIndex => yidam::crates_index(),
         Command::PackagesIndex => yidam::packages_index(),
         Command::BundleStatus => yidam::bundle_status(),
-        Command::Regen => yidam::regen(),
+        Command::Regen { check, format } => yidam::regen(check, format),
         Command::Rename {
             old,
             new,

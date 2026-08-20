@@ -162,7 +162,7 @@
     },
     "passed": {
       "type": "boolean",
-      "description": "`graph-check` only. The gate verdict."
+      "description": "`graph-check` and `regen --check`. The gate verdict. A consumer MUST NOT recompute it."
     },
     "corpus_empty": {
       "type": "boolean",
@@ -764,6 +764,27 @@
     "commit_subject": {
       "type": "string",
       "description": "`rename` only. A suggested subject in the closed commit vocabulary. `migrate:` and not `rename:` — RFC-0014's own example uses a verb that is in no list, which `lint --commits` reports and which makes `classify_commit` file an operational commit as Epistemic."
+    },
+    "stale": {
+      "type": "array",
+      "description": "`regen --check` only. REGEN blocks whose committed content is not what their generator produces. Empty when `passed`. Computed by running the same generator list `yidam regen` runs — a check walking its own list would be the third list that command exists to have prevented.",
+      "items": {
+        "type": "object",
+        "required": [
+          "file",
+          "generator"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Repository-relative path of the file holding the block."
+          },
+          "generator": {
+            "type": "string",
+            "description": "The `<command>` in `<!-- REGEN: yidam <command> -->`."
+          }
+        }
+      }
     },
     "filter": {
       "enum": [

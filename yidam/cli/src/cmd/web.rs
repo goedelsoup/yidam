@@ -27,7 +27,7 @@ pub fn bundle_status() -> Result<()> {
         "_No bundle. Run `yidam bundle` to produce one._".to_string()
     };
 
-    println!("{content}");
+    crate::regen::emit(&content);
     let web_dir = root.join("web");
     update_file_regen(&web_dir.join("README.md"), "yidam bundle-status", &content)
 }

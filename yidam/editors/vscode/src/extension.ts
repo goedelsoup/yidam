@@ -856,7 +856,12 @@ async function report(): Promise<void> {
     views.phases.replace(refs.phases ? phasesTree(refs.phases) : [])
     graphOf(corpus)
     views.health.replace(
-      healthTree({ lint: outcome.lint, graph: outcome.graph, index: corpus.indexStatus }),
+      healthTree({
+        lint: outcome.lint,
+        graph: outcome.graph,
+        index: corpus.indexStatus,
+        regen: corpus.regen,
+      }),
     )
     views.sangha.replace(refs.sangha ? sanghaTree(refs.sangha) : [])
     // The sangha view is hidden until there is one, rather than showing an empty box in

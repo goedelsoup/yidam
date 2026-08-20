@@ -23,6 +23,7 @@ import type {
   IndexStatusReport,
   LintReport,
   OpenQuestionsReport,
+  RegenReport,
   PhasesReport,
   SanghaReport,
   StatusReport,
@@ -217,6 +218,7 @@ export interface HealthInput {
   lint: LintReport | null
   graph: GraphCheckReport | null
   index: IndexStatusReport | null
+  regen: RegenReport | null
 }
 
 /**
@@ -236,17 +238,18 @@ function unavailable(id: string, label: string): TreeNode {
 }
 
 /**
- * Five rows: three gates and two acts.
+ * Five rows: four gates and one act.
  *
- * The split is not cosmetic. A gate has a verdict a command computed — `graph-check`,
- * `lint`, `index-status` all answer one. REGEN freshness and vendor drift do **not**:
- * nothing reports whether a REGEN block is stale without rewriting it, and prelude drift
- * is not knowable without the network. Rendering either as a green tick would be this
- * extension inventing a verdict, which is exactly the failure RFC-0016 exists to close.
- * So they are offered as things to run, and they say so.
+ * REGEN freshness was an act until `yidam regen --check` existed. It could not be a gate
+ * while the only way to answer the question was to rewrite the blocks and see what moved —
+ * an extension is not going to edit your files to render a tick.
+ *
+ * Vendor drift is still an act, and for a reason that will not go away: it needs the
+ * network. A row that claimed the prelude was current without asking the origin would be
+ * this extension inventing a verdict, which is the failure RFC-0016 exists to close.
  */
 export function healthTree(input: HealthInput): TreeNode[] {
-  const { lint, graph, index } = input
+  const { lint, graph, index, regen } = input
   const rows: TreeNode[] = []
 
   if (!graph) rows.push(unavailable('health:graph', 'Graph'))
@@ -316,17 +319,29 @@ export function healthTree(input: HealthInput): TreeNode[] {
     command: { id: 'yidam.buildIndex' },
   })
 
-  rows.push({
-    id: 'health:regen',
-    label: 'REGEN blocks',
-    description: 'run to refresh',
-    tooltip:
-      'Freshness is not reported: nothing answers whether a block is stale without ' +
-      'rewriting it, so this is an action rather than a gate. CI still checks it, by ' +
-      'running the generators and diffing.',
-    icon: 'sync',
-    command: { id: 'yidam.regen' },
-  })
+  if (!regen) rows.push(unavailable('health:regen', 'REGEN blocks'))
+  else
+    rows.push({
+      id: 'health:regen',
+      label: 'REGEN blocks',
+      description: regen.passed ? 'current' : `${regen.stale.length} stale`,
+      tooltip: regen.passed
+        ? 'Every generated block holds what its generator produces.'
+        : 'A stale block is a README telling its readers something the corpus no longer says.',
+      icon: regen.passed ? 'pass' : 'warning',
+      expanded: !regen.passed,
+      // The row's action is the remedy, and unlike blessing a baseline it is never the
+      // wrong thing to do: regenerating a current block is a no-op.
+      command: { id: 'yidam.regen' },
+      children: regen.stale.map((s) => ({
+        id: `health:regen:${s.file}`,
+        label: s.file,
+        description: s.generator,
+        tooltip: `\`yidam ${s.generator}\` produces something this file does not hold.`,
+        icon: 'sync',
+        file: s.file,
+      })),
+    })
 
   rows.push({
     id: 'health:vendor',

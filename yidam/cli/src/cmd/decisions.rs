@@ -35,7 +35,7 @@ pub fn decisions_log() -> Result<()> {
     let root = repo_root()?;
     let decisions_dir = yidam_decisions_dir(&root);
     let content = render_decisions_log(&decisions_dir);
-    println!("{content}");
+    crate::regen::emit(&content);
     update_file_regen(
         &decisions_dir.join("README.md"),
         "yidam decisions-log",

@@ -83,7 +83,7 @@ Five trees in one activity-bar container, all fed by `--format json`.
 | **Corpus** | `corpus-index` + `open-questions` | classes, then instances. Open questions marked. |
 | **Open questions** | `open-questions` | flat. Previously answerable only by reading a REGEN table in a README — which is to say, correct as of the last time somebody ran the generator. |
 | **Phases** | `phases` | `ma/*` and `rigpa/*`, grouped. The branch model is the most distinctive thing about these repositories and was invisible in every editor. |
-| **Health** | `lint` + `graph-check` + `index-status` | three gates and two acts — see below. |
+| **Health** | `lint` + `graph-check` + `index-status` + `regen --check` | four gates and one act — see below. |
 | **Sangha** | `sangha` | electors, their positions, the settled record. Read-only. |
 
 The Sangha view is hidden unless `sangha --format json` reports `collective: true`, which is
@@ -96,13 +96,18 @@ resolution events, so a surface that wrote a position or drafted a resolution wo
 performing one outside the protocol that routes them. RFCs 0009 / 0011 / 0012 have to settle
 first.
 
-### Three gates and two acts
+### Four gates and one act
 
-`graph-check`, `lint` and `index-status` each answer a verdict, and the Health view renders
-it. **REGEN freshness and vendored-prelude drift do not**: nothing reports whether a REGEN
-block is stale without rewriting it, and drift against the pin is not knowable without the
-network. So those two rows are offered as things to run, and they say so. A green tick on
-either would be this extension asserting something no command answered.
+`graph-check`, `lint`, `index-status` and `regen --check` each answer a verdict, and the
+Health view renders it.
+
+REGEN freshness was an act until `yidam regen --check` existed. It could not be a gate while
+the only way to answer the question was to rewrite the blocks and see what moved — an
+extension is not going to edit your files to render a tick.
+
+**Vendored-prelude drift is still an act**, for a reason that will not go away: it needs the
+network. A row claiming the prelude is current without asking the origin would be this
+extension asserting something no command answered.
 
 A report that fails to arrive renders as *unavailable* — its own state, not a failure.
 Folding it into red would show an X about the corpus because a subprocess died.
@@ -113,8 +118,8 @@ laundering a regression the easiest thing on the screen.
 
 ### Why two cached groups
 
-Measured against a real 105-node corpus with 23 settled resolutions: seven of the eight
-reports finish in under 200 ms, and `phases` takes **1.26 s** — it spawns three git
+Measured against a real 105-node corpus with 23 settled resolutions: most reports finish in
+under 200 ms, and `phases` takes **1.26 s** — it spawns three git
 processes per ref, and a sangha has dozens. So what a *save* can change is one cache, and
 what a *ref* can change is another. A sangha edit bumps the ref generation, because that is
 the view it moves.

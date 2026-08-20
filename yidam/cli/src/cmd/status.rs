@@ -84,7 +84,7 @@ pub fn status(format: crate::report::Format) -> Result<()> {
         );
     }
 
-    println!("{content}");
+    crate::regen::emit(&content);
     update_file_regen(&root.join("README.md"), "yidam status", &content)
 }
 
@@ -186,7 +186,7 @@ pub fn index_status(format: crate::report::Format) -> Result<()> {
         .unwrap_or_else(|_| data.built_at.unwrap_or(0));
     let content = render_index_status(&data, now);
 
-    println!("{content}");
+    crate::regen::emit(&content);
     let corpus = yidam_corpus_dir(&root);
     update_file_regen(&corpus.join("README.md"), "yidam index-status", &content)?;
     update_file_regen(
