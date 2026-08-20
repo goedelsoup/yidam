@@ -13,7 +13,7 @@
     "format_version": {
       "type": "string",
       "const": "1",
-      "description": "Contract major version. A consumer reading an unknown value MUST degrade loudly \u2014 disable verdict features and say why \u2014 and MUST NOT attempt to parse the rest."
+      "description": "Contract major version. A consumer reading an unknown value MUST degrade loudly — disable verdict features and say why — and MUST NOT attempt to parse the rest."
     },
     "yidam": {
       "type": "object",
@@ -47,7 +47,7 @@
     },
     "gate": {
       "type": "object",
-      "description": "`lint` only. The verdict \u2014 a consumer MUST NOT recompute it.",
+      "description": "`lint` only. The verdict — a consumer MUST NOT recompute it.",
       "required": [
         "passed",
         "new_violations",
@@ -69,7 +69,7 @@
         },
         "stale_baseline_entries": {
           "type": "array",
-          "description": "Baseline entries with no corresponding violation. These fail CI too \u2014 a baseline permitted to be wrong drifts.",
+          "description": "Baseline entries with no corresponding violation. These fail CI too — a baseline permitted to be wrong drifts.",
           "items": {
             "type": "object",
             "required": [
@@ -90,7 +90,7 @@
     },
     "checks": {
       "type": "array",
-      "description": "`lint` only. Every check that ran, including those that found nothing \u2014 a check that vanishes when it passes cannot be told from one that never ran.",
+      "description": "`lint` only. Every check that ran, including those that found nothing — a check that vanishes when it passes cannot be told from one that never ran.",
       "items": {
         "type": "object",
         "required": [
@@ -139,11 +139,11 @@
                 },
                 "in_baseline": {
                   "type": "boolean",
-                  "description": "Whether the committed baseline already records this violation. ONLY MEANINGFUL WHEN severity IS error \u2014 the baseline records error-severity violations and nothing else, so a warn or info violation is always false here. Read this together with `severity`, never alone."
+                  "description": "Whether the committed baseline already records this violation. ONLY MEANINGFUL WHEN severity IS error — the baseline records error-severity violations and nothing else, so a warn or info violation is always false here. Read this together with `severity`, never alone."
                 },
                 "span": {
                   "type": "object",
-                  "description": "Best-effort location. Output-only and never part of the violation's identity: a line number in the baseline's comparison would make it churn on every edit above a violation. Absent is a normal outcome \u2014 anchor at line 1.",
+                  "description": "Best-effort location. Output-only and never part of the violation's identity: a line number in the baseline's comparison would make it churn on every edit above a violation. Absent is a normal outcome — anchor at line 1.",
                   "required": [
                     "line"
                   ],
@@ -166,7 +166,7 @@
     },
     "corpus_empty": {
       "type": "boolean",
-      "description": "`graph-check` only. Neither instances nor class definitions \u2014 a fresh repository, not a failure."
+      "description": "`graph-check` only. Neither instances nor class definitions — a fresh repository, not a failure."
     },
     "total_instances": {
       "type": "integer",
@@ -210,8 +210,11 @@
       "description": "`graph-check` only. Reported, never gated."
     },
     "nodes": {
-      "type": "array",
-      "description": "`corpus-index` (index rows) and `diff` (changed nodes)."
+      "type": [
+        "array",
+        "integer"
+      ],
+      "description": "An array in `corpus-index` (index rows) and `diff` (changed nodes); an integer in `status` (how many there are). Two shapes under one name, which the field-presence check cannot see and a validating consumer would have tripped over."
     },
     "open_questions": {
       "type": "array",
@@ -239,7 +242,7 @@
     },
     "index_present": {
       "type": "boolean",
-      "description": "`status` only."
+      "description": "`status` and `index-status`. Whether `.yidam/index/` exists."
     },
     "active_phases": {
       "type": "integer",
@@ -265,6 +268,146 @@
       "type": "integer",
       "description": "`status` only."
     },
+    "meta_present": {
+      "type": "boolean",
+      "description": "`index-status` only. Whether the index carries a readable `meta.json`. An index present but undescribable is a different state from an absent one, and the two used to render as the same sentence."
+    },
+    "built_at": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "`index-status` only. Unix timestamp the index was built at, or null when there is no metadata. The raw stamp and not an age: an age is a function of when you ask, so humanizing it is the consumer's affordance."
+    },
+    "built": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "`index-status` only. Civil date of `built_at`, so a reader need not convert one."
+    },
+    "model": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "`index-status` only. Embedding model the index was built with."
+    },
+    "embedding_dim": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "`index-status` only. Vector width."
+    },
+    "node_count": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "`index-status` only. Rows in the index at build time. Compare against `status.nodes` to see what the index does not carry."
+    },
+    "stale_nodes": {
+      "type": "integer",
+      "description": "`index-status` only. Corpus files modified since the build. This is the freshness verdict — a consumer MUST NOT recompute it by comparing mtimes itself."
+    },
+    "collective": {
+      "type": "boolean",
+      "description": "`sangha` only. Whether this repository runs collective governance, keyed on registered electors rather than on the directory: the template ships `sangha/` with a placeholder table, so a directory test would report every derived repository as collective from its genesis commit."
+    },
+    "electors": {
+      "type": "array",
+      "description": "`sangha` only. Rows of `electors.md` whose branch cell names a `ma/*` ref — which is what PROTOCOL.md defines an elector as.",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "branch",
+          "role",
+          "branch_present"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string",
+            "description": "`ma/<name>`."
+          },
+          "role": {
+            "type": "string",
+            "description": "The Role cell verbatim, markdown and all — it is prose written for a reader."
+          },
+          "branch_present": {
+            "type": "boolean",
+            "description": "Whether the branch exists, local or remote-tracking. A registered elector whose branch is gone is a state to report, not an error."
+          }
+        }
+      }
+    },
+    "positions": {
+      "type": "array",
+      "description": "`sangha` only. Files in `positions/`, attributed by the `<elector>-<question>` naming convention.",
+      "items": {
+        "type": "object",
+        "required": [
+          "file",
+          "elector",
+          "question"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Repository-relative path."
+          },
+          "elector": {
+            "type": "string",
+            "description": "The registered elector whose name prefixes the stem, or EMPTY when none does. Empty is the honest answer for a position filed under a name the table does not carry; a consumer must not guess a nearest match."
+          },
+          "question": {
+            "type": "string",
+            "description": "The rest of the stem — the `rigpa/<evolution>` a resolution would carry."
+          }
+        }
+      }
+    },
+    "resolutions": {
+      "type": "array",
+      "description": "`sangha` only. Files in `resolutions/`, with their frontmatter.",
+      "items": {
+        "type": "object",
+        "required": [
+          "file",
+          "evolution",
+          "date",
+          "tips",
+          "branch_present"
+        ],
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "evolution": {
+            "type": "string",
+            "description": "The `evolution:` field, falling back to the filename stem."
+          },
+          "date": {
+            "type": "string"
+          },
+          "tips": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The `ma/*` tips the record says it read, verbatim — `ma/<elector>@<short-hash>`."
+          },
+          "branch_present": {
+            "type": "boolean",
+            "description": "Whether `rigpa/<evolution>` still exists. False is routine: the branch is often deleted once the resolution lands on the baseline."
+          }
+        }
+      }
+    },
     "filter": {
       "enum": [
         "all",
@@ -275,7 +418,7 @@
     },
     "total": {
       "type": "integer",
-      "description": "`log` only. Commits in the range BEFORE filtering \u2014 a filtered view still reports what it hid."
+      "description": "`log` only. Commits in the range BEFORE filtering — a filtered view still reports what it hid."
     },
     "epistemic": {
       "type": "integer",

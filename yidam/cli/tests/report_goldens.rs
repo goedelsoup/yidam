@@ -76,6 +76,12 @@ fn stage() -> tempfile::TempDir {
     std::fs::write(tmp.path().join(".yidam/corpus/.gitkeep"), "").unwrap();
     git(&["add", "-A"]);
     commit("regen: REGEN blocks refreshed");
+
+    // Refs the sangha and phase reports read. `ma/gauge-reader` is deliberately absent:
+    // the fixture registers that elector anyway, so `branch_present: false` is exercised
+    // by a golden rather than only by a unit test.
+    git(&["branch", "ma/hydrologist"]);
+    git(&["branch", "rigpa/tailwater-regime"]);
     tmp
 }
 
@@ -163,6 +169,8 @@ const COMMANDS: &[(&str, &[&str])] = &[
     ("diff", &["diff", "HEAD~1..HEAD"]),
     ("log", &["log"]),
     ("log-epistemic", &["log", "--epistemic"]),
+    ("index-status", &["index-status"]),
+    ("sangha", &["sangha"]),
 ];
 
 #[test]

@@ -32,7 +32,9 @@ const GENERATORS: &[Generator] = &[
     ("corpus-index", || {
         super::corpus_index(crate::report::Format::Text)
     }),
-    ("index-status", super::index_status),
+    ("index-status", || {
+        super::index_status(crate::report::Format::Text)
+    }),
     ("catalog-audit", || {
         super::catalog_audit(crate::report::Format::Text)
     }),

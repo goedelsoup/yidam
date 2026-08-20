@@ -25,6 +25,7 @@ mod phases;
 mod regen;
 pub(crate) mod registry;
 mod samudaya_audit;
+mod sangha;
 mod schema;
 #[cfg(feature = "index")]
 mod serve;
@@ -52,6 +53,7 @@ pub use phases::phases;
 pub use regen::regen;
 pub use registry::{agents_index, skills_index};
 pub use samudaya_audit::samudaya_audit;
+pub use sangha::sangha;
 pub use schema::schema;
 #[cfg(feature = "index")]
 pub use serve::serve_mcp;

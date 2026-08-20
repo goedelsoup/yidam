@@ -246,6 +246,14 @@ run = "yidam index-status"
 description = "Audit catalog/ entries: integrity status, citation count, stale sources."
 run = "yidam catalog-audit"
 
+[phases]
+description = "List active inquiry phases (ma/* and rigpa/* branches) with owner, start date, and commit count."
+run = "yidam phases"
+
+[sangha]
+description = "Report the sangha: registered electors, their positions, and settled resolutions."
+run = "yidam sangha"
+
 [agents-index]
 description = "Regenerate agents/README.md index table."
 run = "yidam agents-index"

@@ -37,7 +37,12 @@ enum Command {
         format: yidam::Format,
     },
     #[command(name = "index-status")]
-    IndexStatus,
+    IndexStatus {
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     #[command(name = "catalog-audit")]
     CatalogAudit {
         /// Output format. `json` emits the machine-readable report contract
@@ -200,6 +205,13 @@ enum Command {
     /// Inspect and validate samudaya/ seed files
     #[command(name = "samudaya-audit")]
     SamudayaAudit,
+    /// Report the sangha: electors, positions, and settled resolutions
+    Sangha {
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Manage bundle dependencies in .yidam/tonpa/
     #[cfg(feature = "tonpa")]
     Tonpa {
@@ -222,7 +234,7 @@ fn main() -> Result<()> {
         Command::Status { format } => yidam::status(format),
         Command::OpenQuestions { format } => yidam::open_questions(format),
         Command::CorpusIndex { format } => yidam::corpus_index(format),
-        Command::IndexStatus => yidam::index_status(),
+        Command::IndexStatus { format } => yidam::index_status(format),
         Command::CatalogAudit { format } => yidam::catalog_audit(format),
         Command::AgentsIndex => yidam::agents_index(),
         Command::SkillsIndex => yidam::skills_index(),
@@ -330,6 +342,7 @@ fn main() -> Result<()> {
         }),
         Command::Schema { settings } => yidam::schema(settings),
         Command::SamudayaAudit => yidam::samudaya_audit(),
+        Command::Sangha { format } => yidam::sangha(format),
         #[cfg(feature = "tonpa")]
         Command::Tonpa { sub } => block_on(yidam::tonpa::run(sub)),
     }
