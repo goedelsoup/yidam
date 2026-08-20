@@ -22,6 +22,7 @@ import { promisify } from 'node:util'
 import * as vscode from 'vscode'
 
 import { pinPath, resolveBinary, type Resolution } from './binary.ts'
+import { DARK, findClaims, LIGHT, shouldDecorate, TAGS, type Tag } from './claims.ts'
 import { DEFAULT_OPTIONS, type Finding, type RepoCondition } from './diagnostics.ts'
 import { describe, readHandshake, type Handshake } from './handshake.ts'
 import {
@@ -34,6 +35,12 @@ import {
   type RefViews,
 } from './report-run.ts'
 import { Cached, debounce, headOid, spawn, type CacheKey } from './runner.ts'
+import {
+  readonlyUpdate,
+  schemaDelta,
+  TASKS,
+  type SchemaSettings,
+} from './settings.ts'
 import {
   corpusTree,
   healthTree,
@@ -101,6 +108,7 @@ const refViews = new Cached<RefViews>()
  */
 let vocabulary: VocabularyReport | null = null
 let commitDiagnostics: vscode.DiagnosticCollection
+let claimStyles: Map<Tag, vscode.TextEditorDecorationType> | null = null
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0)
@@ -207,13 +215,196 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(gitHead)
   }
 
+  // ── the three guards ──────────────────────────────────────────────────────
+  claimStyles = createClaimStyles()
+  context.subscriptions.push(...claimStyles.values())
+
+  const redraw = debounce(80, () => decorateAll())
+  context.subscriptions.push(
+    vscode.window.onDidChangeVisibleTextEditors(() => redraw()),
+    vscode.workspace.onDidChangeTextDocument(() => redraw()),
+    vscode.window.onDidChangeActiveColorTheme(() => decorateAll()),
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('yidam.claims.decorate')) decorateAll()
+      if (e.affectsConfiguration('yidam.vendor.protect')) void applyVendorGuard()
+    }),
+  )
+  decorateAll()
+
+  context.subscriptions.push(
+    vscode.tasks.registerTaskProvider('yidam', {
+      provideTasks: miseTasks,
+      resolveTask: () => undefined,
+    }),
+  )
+  for (const t of TASKS) {
+    context.subscriptions.push(
+      vscode.commands.registerCommand(`yidam.task.${t.name}`, () => task(t.name)),
+    )
+  }
+  context.subscriptions.push(
+    vscode.commands.registerCommand('yidam.applySchemaSettings', () => applySchemas(true)),
+  )
+
+  await applyVendorGuard()
   await refresh()
+  void applySchemas(false)
 }
 
 export function deactivate(): void {
   status?.dispose()
   diagnostics?.dispose()
   commitDiagnostics?.dispose()
+  claimStyles?.forEach((d) => d.dispose())
+}
+
+// ── claim tags ────────────────────────────────────────────────────────────────
+
+/**
+ * One decoration per tag, carrying both palettes.
+ *
+ * VS Code picks the arm; nothing here reads the theme to choose a colour. The theme is
+ * consulted only to decide whether to decorate at all.
+ */
+function createClaimStyles(): Map<Tag, vscode.TextEditorDecorationType> {
+  const styles = new Map<Tag, vscode.TextEditorDecorationType>()
+  for (const tag of TAGS) {
+    styles.set(
+      tag,
+      vscode.window.createTextEditorDecorationType({
+        borderRadius: '3px',
+        borderWidth: '1px',
+        borderStyle: 'solid',
+        light: {
+          backgroundColor: LIGHT[tag].bg,
+          color: LIGHT[tag].fg,
+          borderColor: LIGHT[tag].border,
+        },
+        dark: {
+          backgroundColor: DARK[tag].bg,
+          color: DARK[tag].fg,
+          borderColor: DARK[tag].border,
+        },
+      }),
+    )
+  }
+  return styles
+}
+
+function decorateAll(): void {
+  if (!claimStyles) return
+  const on = shouldDecorate(
+    vscode.window.activeColorTheme.kind,
+    vscode.workspace.getConfiguration('yidam').get<boolean>('claims.decorate') ?? true,
+  )
+  for (const editor of vscode.window.visibleTextEditors) {
+    const hits = on ? findClaims(editor.document.getText()) : []
+    for (const [tag, style] of claimStyles) {
+      editor.setDecorations(
+        style,
+        hits
+          .filter((h) => h.tag === tag)
+          .map((h) => new vscode.Range(h.line, h.start, h.line, h.end)),
+      )
+    }
+  }
+}
+
+// ── the vendored prelude ──────────────────────────────────────────────────────
+
+/**
+ * Make `.yidam/.vendor/` read-only in fact rather than by convention.
+ *
+ * `AGENTS.md` says an edit there "is silently discarded on the next update", and nothing
+ * enforced it. The failure is quiet and delayed: the edit works locally, survives review,
+ * and disappears at the next `mise run yidam-vendor-update`.
+ *
+ * Workspace scope, and idempotent — `readonlyUpdate` returns null when the setting already
+ * says this, so activation does not put a settings diff in every session.
+ */
+async function applyVendorGuard(): Promise<void> {
+  const want = vscode.workspace.getConfiguration('yidam').get<boolean>('vendor.protect') ?? true
+  const files = vscode.workspace.getConfiguration('files')
+  const current = files.inspect<Record<string, boolean>>('readonlyInclude')?.workspaceValue
+  const next = readonlyUpdate(current, want)
+  if (next === null) return
+  try {
+    await files.update('readonlyInclude', next, vscode.ConfigurationTarget.Workspace)
+  } catch {
+    // No workspace to write to (a single loose folder, or a read-only settings file).
+    // The guard is a convenience; failing to apply it must not fail activation.
+  }
+}
+
+// ── schemas ───────────────────────────────────────────────────────────────────
+
+/**
+ * Offer to apply `yidam schema --settings`.
+ *
+ * It works today, and it is the entire editor story: a third-party extension, a manual
+ * step at genesis, and a second manual step whenever the schema set changes. This makes the
+ * copy-paste a notification with a button.
+ *
+ * Merged, never replaced — `yaml.schemas` is somewhere people put their own mappings.
+ * `force` is the palette command, which says so even when nothing is stale.
+ */
+async function applySchemas(force: boolean): Promise<void> {
+  const folder = workspaceFolder()
+  if (!folder || !state?.resolution.command) return
+  const r = await spawn(state.resolution.command, ['schema', '--settings'], folder)
+  let desired: SchemaSettings
+  try {
+    desired = JSON.parse(r.stdout) as SchemaSettings
+  } catch {
+    return
+  }
+  const deltas = schemaDelta(desired, (key) => {
+    const dot = key.lastIndexOf('.')
+    return vscode.workspace
+      .getConfiguration(key.slice(0, dot))
+      .inspect<Record<string, unknown>>(key.slice(dot + 1))?.workspaceValue
+  })
+  if (deltas.length === 0) {
+    if (force) void vscode.window.showInformationMessage('yidam: schema settings are current.')
+    return
+  }
+
+  const apply = 'Apply'
+  const count = deltas.reduce((n, d) => n + d.changed.length, 0)
+  const choice = force
+    ? apply
+    : await vscode.window.showInformationMessage(
+        `yidam: ${count} schema mapping(s) missing from this workspace's settings.`,
+        { detail: deltas.flatMap((d) => d.changed).join('\n') },
+        apply,
+      )
+  if (choice !== apply) return
+
+  for (const d of deltas) {
+    const dot = d.key.lastIndexOf('.')
+    await vscode.workspace
+      .getConfiguration(d.key.slice(0, dot))
+      .update(d.key.slice(dot + 1), d.value, vscode.ConfigurationTarget.Workspace)
+  }
+}
+
+// ── tasks ─────────────────────────────────────────────────────────────────────
+
+/** The inherited `mise.yidam.toml` layer, reachable from `Run Task` and the palette. */
+function miseTasks(): vscode.Task[] {
+  const folder = vscode.workspace.workspaceFolders?.[0]
+  if (!folder) return []
+  return TASKS.map((t) => {
+    const task = new vscode.Task(
+      { type: 'yidam', task: t.name },
+      folder,
+      t.name,
+      'yidam',
+      new vscode.ShellExecution('mise', ['run', t.name]),
+    )
+    task.detail = t.title
+    return task
+  })
 }
 
 /**

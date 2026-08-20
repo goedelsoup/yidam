@@ -19,6 +19,8 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { test } from 'node:test'
 
+import { TASKS } from '../src/settings.ts'
+
 const HERE = path.dirname(new URL(import.meta.url).pathname)
 const ROOT = path.resolve(HERE, '..')
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
@@ -38,11 +40,49 @@ test('main names a file the build actually emits', () => {
 test('every contributed command is registered in the source', () => {
   const commands: { command: string }[] = manifest.contributes?.commands ?? []
   assert.ok(commands.length > 0, 'no contributed commands — the scan is broken')
+  const taskNames = new Set(TASKS.map((t) => t.name))
   for (const { command } of commands) {
+    // The `yidam.task.*` family is registered by iterating TASKS, so a literal scan cannot
+    // see it. Pinning it to that list is the stronger check anyway: the manifest and the
+    // task provider offer the same set or this fails.
+    const asTask = command.startsWith('yidam.task.') ? command.slice('yidam.task.'.length) : null
+    if (asTask !== null) {
+      assert.ok(taskNames.has(asTask), `${command} is contributed but not in TASKS`)
+      continue
+    }
     assert.ok(
       extensionSrc.includes(`registerCommand('${command}'`),
       `${command} is contributed but never registered`,
     )
+  }
+  for (const name of taskNames) {
+    assert.ok(
+      commands.some((c) => c.command === `yidam.task.${name}`),
+      `TASKS carries ${name} and the manifest does not contribute a command for it`,
+    )
+  }
+})
+
+/**
+ * A task provider whose type nothing declares does not appear in `Run Task`.
+ */
+test('the task type the provider registers is the one the manifest declares', () => {
+  const defs: { type: string }[] = manifest.contributes?.taskDefinitions ?? []
+  assert.equal(defs.length, 1)
+  assert.ok(
+    extensionSrc.includes(`registerTaskProvider('${defs[0].type}'`),
+    `${defs[0].type} is declared but nothing provides it`,
+  )
+})
+
+/** A setting the code reads and the manifest does not declare is invisible in Settings. */
+test('every yidam setting the code reads is declared', () => {
+  const props: Record<string, unknown> = manifest.contributes?.configuration?.properties ?? {}
+  for (const m of extensionSrc.matchAll(/getConfiguration\('yidam'\)[\s\S]{0,40}?get<[^>]+>\('([^']+)'\)/g)) {
+    assert.ok(`yidam.${m[1]}` in props, `yidam.${m[1]} is read but not declared`)
+  }
+  for (const m of extensionSrc.matchAll(/affectsConfiguration\('(yidam\.[^']+)'\)/g)) {
+    assert.ok(m[1] in props, `${m[1]} is watched but not declared`)
   }
 })
 

@@ -110,4 +110,30 @@
   --open-bg:     #e6eef9;
   --open-fg:     #173670;
   --open-border: #9dbde8;
+
+  /* ── Claim states, dark ── the same three hues on a dark ground ───
+     Added for the editor surface (RFC-0016), which renders claim tags
+     inline in whatever theme the reader is in and cannot use a light
+     triad on a dark background.
+
+     Derived rather than picked: the light theme's BORDER tone becomes the
+     dark foreground — it is already the mid-lightness member of each triad
+     and therefore the one legible against both grounds — and the dark
+     background is the same hue at very low lightness. The border sits
+     between them. Nothing here introduces a fourth hue.
+
+     These are the only dark-mode tokens in the system. The rest of the
+     palette has no dark variant yet, and inventing one to keep this
+     company would be design nobody asked for. */
+  --verified-bg-dark:     #16261a;
+  --verified-fg-dark:     #a8d8b2;
+  --verified-border-dark: #2f5a3c;
+
+  --inference-bg-dark:     #2a2113;
+  --inference-fg-dark:     #f0d090;
+  --inference-border-dark: #5c4517;
+
+  --open-bg-dark:     #131d2c;
+  --open-fg-dark:     #9dbde8;
+  --open-border-dark: #2c4368;
 }

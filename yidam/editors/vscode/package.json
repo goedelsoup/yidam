@@ -36,6 +36,16 @@
           "type": "number",
           "default": 400,
           "markdownDescription": "How long to wait after a save before re-running the reports. They walk the whole corpus per run."
+        },
+        "yidam.claims.decorate": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Tint `[verified]` / `[inference]` / `[open]` inline, using the design system's claim palette.\n\nAlways off in high-contrast themes: a high-contrast theme is a stated accessibility choice, and tinting text against it overrides a decision the reader made deliberately."
+        },
+        "yidam.vendor.protect": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Mark `.yidam/.vendor/**` read-only in this workspace's `files.readonlyInclude`.\n\nThe vendored prelude is read-only by convention and, until now, by nothing else — an edit there works locally, survives review, and is silently discarded at the next `mise run yidam-vendor-update`. Fix prelude defects upstream and re-vendor.\n\nTurning this off removes the entry rather than setting it to `false`, so the setting is left as it was found."
         }
       }
     },
@@ -76,6 +86,30 @@
       {
         "command": "yidam.showHealth",
         "title": "yidam: Show repository health"
+      },
+      {
+        "command": "yidam.applySchemaSettings",
+        "title": "yidam: Apply the YAML schema settings"
+      },
+      {
+        "command": "yidam.task.regen",
+        "title": "yidam: Run task — regen"
+      },
+      {
+        "command": "yidam.task.graph-check",
+        "title": "yidam: Run task — graph-check"
+      },
+      {
+        "command": "yidam.task.graph-lint",
+        "title": "yidam: Run task — graph-lint"
+      },
+      {
+        "command": "yidam.task.embed",
+        "title": "yidam: Run task — embed"
+      },
+      {
+        "command": "yidam.task.index-build",
+        "title": "yidam: Run task — index-build"
       }
     ],
     "viewsContainers": {
@@ -120,7 +154,21 @@
           "group": "navigation"
         }
       ]
-    }
+    },
+    "taskDefinitions": [
+      {
+        "type": "yidam",
+        "required": [
+          "task"
+        ],
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "The mise task from the inherited `mise.yidam.toml` layer."
+          }
+        }
+      }
+    ]
   },
   "scripts": {
     "compile": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
