@@ -35,6 +35,8 @@ enum Command {
     PackagesIndex,
     #[command(name = "bundle-status")]
     BundleStatus,
+    /// Refresh every REGEN block in one pass.
+    Regen,
     #[command(name = "graph-check")]
     GraphCheck,
     #[command(name = "decisions-log")]
@@ -166,6 +168,7 @@ fn main() -> Result<()> {
         Command::CratesIndex => yidam::crates_index(),
         Command::PackagesIndex => yidam::packages_index(),
         Command::BundleStatus => yidam::bundle_status(),
+        Command::Regen => yidam::regen(),
         Command::GraphCheck => yidam::graph_check(),
         Command::DecisionsLog => yidam::decisions_log(),
         Command::Diff { range } => yidam::diff_corpus(&range),

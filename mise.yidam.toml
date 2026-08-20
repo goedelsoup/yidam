@@ -251,13 +251,9 @@ run = "cd packages/web && npm run build"
 
 [regen]
 description = "Regenerate all REGEN sections across READMEs in one pass."
-depends = [
-  "corpus-index",
-  "index-status",
-  "catalog-audit",
-  "agents-index",
-  "skills-index",
-  "crates-index",
-  "packages-index",
-  "bundle-status",
-]
+# One `yidam regen` rather than a `depends` list, because there were two lists and they
+# drifted: this task ran eight generators and CI checked two of them, so six blocks could
+# go stale unseen. The set now lives in the CLI (`cmd::regen::GENERATORS`) and both callers
+# ask for it by name. `status` and `open-questions` are in it now too — they write blocks
+# into the root README and were in neither list.
+run = "yidam regen"
