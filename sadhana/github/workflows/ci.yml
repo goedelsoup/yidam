@@ -77,6 +77,20 @@ jobs:
   #
   # Reads the event payload, which the runner already has. No `gh api`, no
   # network: CI is hermetic and stays so.
+  #
+  # WHAT THIS DOES NOT COVER. This is access control over material AT REST — can a
+  # stranger reach a file committed here. It says nothing about data LEAVING at
+  # runtime: a connector sends what it queries to its source, a deployed web shell
+  # sends every reader request to whoever hosts it, and a hosted encoder receives the
+  # text it is asked to embed. For a research corpus the queries are the research
+  # agenda, and no gate here looks at them. None can — an egress check would have to
+  # know every network call the domain computer makes, and this job is hermetic
+  # precisely so that it makes none.
+  #
+  # Named here so the job is not mistaken for complete, which is the same reasoning
+  # that made the manifest worth building: an assumption about access control that
+  # looks enforced and is not is worse than one everybody knows is manual. See the
+  # directory conventions, `.yidam/private-paths`, "What this does not cover".
   privacy:
     name: privacy (private paths stay private)
     runs-on: ubuntu-latest

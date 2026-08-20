@@ -377,6 +377,39 @@ true, relied upon, and unenforced. An assumption about access control that looks
 and is not is worse than one everybody knows is manual, because nobody checks the second
 kind by hand. Declaring the paths is what turns the assumption into a gate.
 
+### What this does not cover
+
+**This is access control over material at rest. It says nothing about data leaving at
+runtime.** Every question it answers is about somebody arriving: can a stranger reach a
+file that is committed here. A repository designing a search feature found the other half:
+
+> Every verification in the spike concerns inbound access — that a stranger cannot reach
+> the endpoint. None asks what the endpoint does with what it receives. […] That machinery
+> is all pointed at people arriving. This channel is the site departing.
+
+The case was a search box forwarding query text to a third-party encoder. Nothing in the
+corpus left the repository; the *queries* did, and for a research corpus the queries are
+the research agenda — a plainly-worded list of what is being investigated and about whom.
+No gate here looks at that, and none can: an egress check would have to know every network
+call the domain computer makes, and CI is hermetic precisely so that it makes none.
+
+So it is named rather than gated. The channels a yidam repository typically opens, each of
+which is the reader's responsibility and not this file's:
+
+- **Connectors** send whatever they query to the source. A search term, an identifier, or
+  a person's name in a request URL discloses that you are asking about it.
+- **A deployed web shell** sends every request its reader makes to whoever hosts it, and
+  its logs are a record of what was searched and what was opened.
+- **A hosted encoder or model API** receives the text it is asked to embed or complete —
+  queries at minimum, and the corpus itself if embedding is done remotely.
+- **Anything with telemetry**, including tools run against the repository.
+
+Apply the same rule the private-paths gate applies to access: **unknown is not proof of
+protected.** A channel nobody has examined is not a channel known to be safe, and a comment
+asserting that an exposure does not exist is worse than no comment, because it stops the
+next reader from looking. Where a channel matters, examine it and record what you found in
+`.yidam/decisions/` — including, honestly, what remains unobtained.
+
 ---
 
 ## `.yidam/skills/`
