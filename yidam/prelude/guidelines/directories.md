@@ -202,6 +202,15 @@ describes the source, not the knowledge derived from it.
   slug for datasets and APIs (`world-bank-gdp.md`, `openai-embeddings-api.md`)
 - Frontmatter carries the structured fields; the body carries prose about the source
 
+**Catalog entries are indexed.** `yidam embed` walks this directory alongside the corpus,
+composing each entry's name, type, description, location descriptions and body into one
+retrievable document. That is not incidental: in a derived repository the catalog was 51.3%
+of the indexable text against the corpus's 41.9%, and for a long time none of it was walked
+— so "what is searchable" was being decided by a tool boundary rather than by anyone. If a
+source's body holds material that should not be retrievable, `yidam embed --no-catalog`
+turns the whole directory off; there is no per-entry opt-out, because a rule somebody has
+to remember per file is a rule that gets forgotten.
+
 ```yaml
 ---
 name: Pearl 2009
