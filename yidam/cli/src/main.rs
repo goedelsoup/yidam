@@ -201,11 +201,14 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
-    /// Serve the domain computer to MCP-capable agents
+    /// Serve the domain computer over a stdio protocol
     Serve {
-        /// Serve MCP over stdio (the only transport currently implemented)
+        /// Serve MCP over stdio — the agent surface. Needs the `index` feature.
         #[arg(long)]
         mcp: bool,
+        /// Serve LSP over stdio — the editor surface. In the light default.
+        #[arg(long)]
+        lsp: bool,
     },
     /// Run corpus quality checks against the baseline ratchet
     Lint {
@@ -363,21 +366,29 @@ fn main() -> Result<()> {
             yidam::log(range, filter, format)
         }
         Command::Phases { format } => yidam::phases(format),
-        Command::Serve { mcp } => {
+        // The two transports are gated separately, and that is the whole point: MCP pulls
+        // fastembed, lancedb and protoc; LSP needs none of them. An LSP that required the ML
+        // stack would be one nobody could install.
+        Command::Serve { mcp, lsp } => {
+            if lsp && mcp {
+                anyhow::bail!("pick one transport — `--lsp` or `--mcp`")
+            }
+            if lsp {
+                return yidam::serve_lsp();
+            }
             #[cfg(feature = "index")]
             {
                 if mcp {
                     yidam::serve_mcp()
                 } else {
-                    anyhow::bail!("only the MCP transport is implemented — run `yidam serve --mcp`")
+                    anyhow::bail!("name a transport — `yidam serve --lsp` or `yidam serve --mcp`")
                 }
             }
             #[cfg(not(feature = "index"))]
             {
-                let _ = mcp;
                 anyhow::bail!(
-                    "`serve` needs the `index` feature — reinstall with \
-                     `cargo install yidam --features index`"
+                    "`serve --mcp` needs the `index` feature — reinstall with \
+                     `cargo install yidam --features index`. `serve --lsp` is always available."
                 )
             }
         }

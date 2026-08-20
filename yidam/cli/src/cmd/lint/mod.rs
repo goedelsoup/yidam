@@ -11,8 +11,8 @@ mod commits;
 pub mod json;
 mod model;
 
-use std::collections::HashSet;
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
@@ -24,12 +24,58 @@ pub use model::{Check, Severity};
 /// --check`, and through it the SCM input box — reads its severity from the check rather
 /// than restating it. A squiggle stricter than the gate is an editor asserting a verdict
 /// nobody agreed to.
+/// The committed baseline, or an empty one.
+///
+/// Exposed for `serve --lsp`, which needs the same debt accounting the gate uses: a finding
+/// the baseline already records is inherited and must not be rendered as a regression.
+pub(crate) fn load_baseline(root: &Path) -> baseline::Baseline {
+    baseline::Baseline::load(root).unwrap_or_default()
+}
+
+/// The wire report, built exactly as `--format json` builds it.
+pub(crate) fn build_report(
+    root: &Path,
+    checks: &[Check],
+    base: &baseline::Baseline,
+) -> json::LintReport {
+    json::build(root, checks, base, &baseline::diff(checks, base))
+}
+
 pub(crate) fn commit_verb_severity() -> Severity {
     commits::unrecognized_verb(&[]).severity
 }
 
 use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir};
 use crate::walk::{walk_corpus_instances, walk_linkable_files, walk_md_files, walk_ont_files};
+
+/// Unsaved editor buffers, keyed by absolute path.
+///
+/// Every check in this module reads the working tree, which is exactly right for a gate and
+/// exactly wrong for an editor: the file you are typing into is the one whose findings you
+/// want, and it is the one on disk that is stale. An overlay lets `serve --lsp` answer about
+/// the buffer without any check knowing that is what it is doing.
+///
+/// Empty for every other caller, and `Overlay::read` is then a plain `read_to_string`.
+#[derive(Debug, Default, Clone)]
+pub struct Overlay(HashMap<PathBuf, String>);
+
+impl Overlay {
+    pub fn set(&mut self, path: PathBuf, text: String) {
+        self.0.insert(path, text);
+    }
+
+    pub fn clear(&mut self, path: &Path) {
+        self.0.remove(path);
+    }
+
+    /// The buffer if one is open, otherwise the file.
+    pub fn read(&self, path: &Path) -> String {
+        match self.0.get(path) {
+            Some(text) => text.clone(),
+            None => std::fs::read_to_string(path).unwrap_or_default(),
+        }
+    }
+}
 
 /// How `lint` was invoked.
 #[derive(Debug, Clone, Default)]
@@ -50,14 +96,19 @@ pub struct Options {
 
 /// Run every check against the repository at `root`.
 pub fn run_checks(root: &Path, opts: &Options) -> Vec<Check> {
+    run_checks_with(root, opts, &Overlay::default())
+}
+
+/// Every check, reading through `overlay` rather than straight from disk.
+pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Check> {
     let corpus_dir = yidam_corpus_dir(root);
     let catalog_dir = yidam_catalog_dir(root);
 
     let instance_paths = walk_corpus_instances(&corpus_dir);
-    let nodes = checks::load_nodes(root, &instance_paths);
+    let nodes = checks::load_nodes(root, &instance_paths, overlay);
 
     let ont_paths = walk_ont_files(&corpus_dir);
-    let classes = checks::load_classes(root, &ont_paths);
+    let classes = checks::load_classes(root, &ont_paths, overlay);
     let defined: HashSet<String> = ont_paths
         .iter()
         .filter_map(|p| {
@@ -69,11 +120,8 @@ pub fn run_checks(root: &Path, opts: &Options) -> Vec<Check> {
         .collect();
 
     let catalog_paths = walk_md_files(&catalog_dir);
-    let sources = checks::load_sources(root, &catalog_paths);
-    let node_texts: Vec<String> = instance_paths
-        .iter()
-        .map(|p| std::fs::read_to_string(p).unwrap_or_default())
-        .collect();
+    let sources = checks::load_sources(root, &catalog_paths, overlay);
+    let node_texts: Vec<String> = instance_paths.iter().map(|p| overlay.read(p)).collect();
     let cites = checks::citations(&sources, &nodes, &node_texts);
 
     // Tables are checked wherever a reader meets one: catalog entries and the READMEs
@@ -89,7 +137,7 @@ pub fn run_checks(root: &Path, opts: &Options) -> Vec<Check> {
                 .unwrap_or(p)
                 .to_string_lossy()
                 .to_string(),
-            std::fs::read_to_string(p).unwrap_or_default(),
+            overlay.read(p),
         ));
     }
 
@@ -103,10 +151,7 @@ pub fn run_checks(root: &Path, opts: &Options) -> Vec<Check> {
             .unwrap_or(&p)
             .to_string_lossy()
             .to_string();
-        annotations.extend(checks::annotations_in(
-            &rel,
-            &std::fs::read_to_string(&p).unwrap_or_default(),
-        ));
+        annotations.extend(checks::annotations_in(&rel, &overlay.read(&p)));
     }
 
     // ── Prose links ─────────────────────────────────────────────────────────────
@@ -132,11 +177,7 @@ pub fn run_checks(root: &Path, opts: &Options) -> Vec<Check> {
             .to_string_lossy()
             .to_string();
         let dir = p.parent().unwrap_or(root);
-        prose_links.extend(checks::prose_links(
-            &rel,
-            dir,
-            &std::fs::read_to_string(p).unwrap_or_default(),
-        ));
+        prose_links.extend(checks::prose_links(&rel, dir, &overlay.read(p)));
     }
 
     let mut all = vec![

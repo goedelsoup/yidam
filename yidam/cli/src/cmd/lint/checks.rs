@@ -32,11 +32,11 @@ struct ClassFields {
     description: Option<String>,
 }
 
-pub fn load_classes(root: &Path, paths: &[PathBuf]) -> Vec<Class> {
+pub fn load_classes(root: &Path, paths: &[PathBuf], overlay: &super::Overlay) -> Vec<Class> {
     paths
         .iter()
         .map(|p| {
-            let text = std::fs::read_to_string(p).unwrap_or_default();
+            let text = overlay.read(p);
             let fields: ClassFields = serde_yaml::from_str(&text).unwrap_or_default();
             Class {
                 rel: rel_of(root, p),
@@ -62,11 +62,11 @@ fn rel_of(root: &Path, path: &Path) -> String {
         .to_string()
 }
 
-pub fn load_nodes(root: &Path, paths: &[PathBuf]) -> Vec<Node> {
+pub fn load_nodes(root: &Path, paths: &[PathBuf], overlay: &super::Overlay) -> Vec<Node> {
     paths
         .iter()
         .map(|p| {
-            let text = std::fs::read_to_string(p).unwrap_or_default();
+            let text = overlay.read(p);
             Node {
                 path: p.clone(),
                 rel: rel_of(root, p),
@@ -76,11 +76,11 @@ pub fn load_nodes(root: &Path, paths: &[PathBuf]) -> Vec<Node> {
         .collect()
 }
 
-pub fn load_sources(root: &Path, paths: &[PathBuf]) -> Vec<Source> {
+pub fn load_sources(root: &Path, paths: &[PathBuf], overlay: &super::Overlay) -> Vec<Source> {
     paths
         .iter()
         .map(|p| {
-            let text = std::fs::read_to_string(p).unwrap_or_default();
+            let text = overlay.read(p);
             let fm = parse_frontmatter(&text);
             Source {
                 rel: rel_of(root, p),
@@ -793,7 +793,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("maneuver.ont.yml");
         std::fs::write(&p, text).unwrap();
-        let loaded = load_classes(dir.path(), &[p]);
+        let loaded = load_classes(dir.path(), &[p], &crate::cmd::lint::Overlay::default());
         assert_eq!(loaded[0].description.trim(), "A dated procedural sequence.");
         assert!(class_asserts_purpose(&loaded).passed());
     }
