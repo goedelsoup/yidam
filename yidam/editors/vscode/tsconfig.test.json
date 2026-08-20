@@ -1,0 +1,16 @@
+{
+  // Tests are run by `node --test --experimental-strip-types`, which requires explicit
+  // `.ts` import specifiers and treats the files as ES modules. The extension itself must
+  // stay CommonJS — that is what VS Code loads — so the tests get their own type-check
+  // pass rather than being dropped from the build's, or forcing the wrong module system
+  // on the thing that ships.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

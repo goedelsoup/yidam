@@ -1,0 +1,53 @@
+{
+  "name": "yidam-vscode",
+  "displayName": "yidam",
+  "description": "Editor surface for a yidam-derived knowledge repository.",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "goedelsoup",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "workspaceContains:.yidam.toml",
+    "workspaceContains:.yidam/**"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "yidam",
+      "properties": {
+        "yidam.path": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Absolute path to the `yidam` binary. Leave empty to resolve from `PATH`, then from the workspace's mise shims.\n\nThe extension never downloads or builds a binary: `.yidam.toml` records which yidam governs this corpus, and only it gets to say."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "yidam.showBinaryStatus",
+        "title": "yidam: Show binary and contract status"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
+    "watch": "tsc -p . --watch",
+    "lint": "eslint src test --ext .ts",
+    "test:unit": "node --test --experimental-strip-types test/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/vscode": "^1.90.0",
+    "@typescript-eslint/eslint-plugin": "^8",
+    "@typescript-eslint/parser": "^8",
+    "eslint": "^9",
+    "typescript": "^5.6"
+  }
+}
