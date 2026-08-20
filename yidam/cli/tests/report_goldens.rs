@@ -106,9 +106,19 @@ fn copy_dir(from: &Path, to: &Path) {
 /// The absolute root, the binary's version and its build commit all vary by machine and by
 /// checkout. Redacting them is what lets the rest — every field name, every value, and the
 /// order they appear in — be compared literally.
+///
+/// **The feature set belongs here too**, and its absence is why `ci (cli · full features)`
+/// failed on every push to main from the day these goldens landed. It runs `--all-features`,
+/// which reports five, against goldens recorded from the light build, which reports one. The
+/// job does not run on pull requests, so nothing said so until somebody looked at main.
+///
+/// Redacting it does not lose the property: [`the_light_build_reports_exactly_reports`]
+/// asserts the light feature set on its own, where it can be stated once instead of repeated
+/// through eighteen goldens that are not about features.
 fn redact(out: &str, root: &Path) -> String {
     let root_s = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    out.replace(&root_s.display().to_string(), "<ROOT>")
+    let redacted = out
+        .replace(&root_s.display().to_string(), "<ROOT>")
         .replace(&root.display().to_string(), "<ROOT>")
         .replace(
             &format!("\"version\": \"{}\"", env!("CARGO_PKG_VERSION")),
@@ -117,7 +127,28 @@ fn redact(out: &str, root: &Path) -> String {
         .replace(
             &format!("\"commit\": \"{}\"", env!("YIDAM_BUILD_COMMIT")),
             "\"commit\": \"<COMMIT>\"",
-        )
+        );
+    redact_features(&redacted)
+}
+
+/// Collapse the `features` array to a placeholder, whatever it holds.
+///
+/// Textual because these goldens are compared as text: parsing and re-emitting would
+/// reformat every document and make the diff on an intended change unreadable, which is the
+/// one thing a golden has to stay good at.
+fn redact_features(out: &str) -> String {
+    let Some(start) = out.find("\"features\": [") else {
+        return out.to_string();
+    };
+    let open = start + "\"features\": [".len();
+    let Some(close) = out[open..].find(']') else {
+        return out.to_string();
+    };
+    format!(
+        "{}\"features\": [\n      \"<FEATURES>\"\n    {}",
+        &out[..start],
+        &out[open + close..]
+    )
 }
 
 struct Run {
@@ -299,4 +330,55 @@ fn every_golden_field_is_declared_in_the_schema() {
          sent is the failure this contract exists to prevent.",
         problems.join("\n")
     );
+}
+
+/// The light build reports exactly `reports`, and that is worth asserting once.
+///
+/// It used to be asserted eighteen times, once per golden, as a side effect of the feature
+/// array being compared literally — which is why `--all-features` failed all eighteen and
+/// said nothing about features. Stated here, it holds for the build it is about and leaves
+/// the goldens to be about report shape.
+#[test]
+#[cfg(not(any(
+    feature = "index",
+    feature = "export-sqlite",
+    feature = "export-graph",
+    feature = "tonpa"
+)))]
+fn the_light_build_reports_exactly_reports() {
+    let tmp = stage();
+    let r = run(tmp.path(), &["status", "--format", "json"]);
+    // Read from the unredacted process output — `redact` is what this test exists beside.
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(tmp.path())
+        .args(["status", "--format", "json"])
+        .output()
+        .unwrap();
+    let doc: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(
+        doc["yidam"]["features"].as_array().unwrap(),
+        &vec![serde_json::json!("reports")],
+        "the light default must report exactly one feature, so a consumer can tell \
+         `this binary cannot do that` from `that failed`"
+    );
+    // And the redaction the goldens rely on actually fires.
+    assert!(r.stdout.contains("<FEATURES>"), "{}", r.stdout);
+}
+
+/// Whatever the build, the goldens see the same thing.
+///
+/// The bug this closes was a redaction that covered version and commit and not the third
+/// thing that varies by build. Asserting the collapse directly is cheaper than discovering
+/// the next one on main.
+#[test]
+fn the_feature_set_is_redacted_whatever_it_holds() {
+    let one = redact_features("  \"features\": [\n      \"reports\"\n    ]\n");
+    let many = redact_features(
+        "  \"features\": [\n      \"reports\",\n      \"index\",\n      \"tonpa\"\n    ]\n",
+    );
+    assert_eq!(
+        one, many,
+        "a light and a full build must redact identically"
+    );
+    assert!(one.contains("<FEATURES>"), "{one}");
 }
