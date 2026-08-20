@@ -816,3 +816,278 @@ mod tests {
         assert_eq!(class_asserts_purpose(&[]).severity, Severity::Warn);
     }
 }
+
+// ── Resolution annotations ───────────────────────────────────────────────────
+//
+// A resolution record is dated, and its `What remains open` describes the world on that
+// date. The world moves, so PROTOCOL allows a dated annotation to be appended beneath an
+// item that has moved — never an edit to the original.
+//
+// The risk that convention carries is not that an annotation is wrong. It is what an
+// annotation structurally *is*: a place where one elector, in one commit, having read no
+// `ma/*` tip and transported nothing, could perform a resolution in a file the protocol
+// never routes through one. Article V puts synthesis in resolution events, so an
+// annotation may record movement and never outcome.
+
+/// One `> **Moved …**` annotation found in a resolution record.
+pub struct Annotation {
+    pub file: String,
+    pub line: usize,
+    /// The `## ` heading it sits under, or empty if it precedes the first one.
+    pub section: String,
+    pub text: String,
+}
+
+/// Find every annotation in a resolution record, with the section it sits under.
+pub fn annotations_in(file: &str, text: &str) -> Vec<Annotation> {
+    let mut section = String::new();
+    let mut out = Vec::new();
+    for (i, raw) in text.lines().enumerate() {
+        let line = raw.trim();
+        if let Some(rest) = line.strip_prefix("## ") {
+            section = rest.trim().to_string();
+            continue;
+        }
+        // The annotation form PROTOCOL prescribes. Matched on the block-quote marker plus
+        // the bold `Moved` opener, so ordinary prose mentioning the word is not a finding.
+        if line.starts_with("> **Moved") {
+            out.push(Annotation {
+                file: file.to_string(),
+                line: i + 1,
+                section: section.clone(),
+                text: line.to_string(),
+            });
+        }
+    }
+    out
+}
+
+/// `> **Moved YYYY-MM-DD.**` — an ISO date immediately after the word.
+fn carries_iso_date(text: &str) -> bool {
+    let Some(rest) = text.strip_prefix("> **Moved") else {
+        return false;
+    };
+    let rest = rest.trim_start();
+    let date: String = rest.chars().take(10).collect();
+    if date.len() != 10 {
+        return false;
+    }
+    let b = date.as_bytes();
+    b[4] == b'-'
+        && b[7] == b'-'
+        && [0, 1, 2, 3, 5, 6, 8, 9]
+            .iter()
+            .all(|&i| b[i].is_ascii_digit())
+}
+
+pub fn resolution_annotation_malformed(annotations: &[Annotation]) -> Check {
+    let violations = annotations
+        .iter()
+        .filter_map(|a| {
+            let node = format!("{}:{}", a.file, a.line);
+            if !carries_iso_date(&a.text) {
+                return Some(Violation::new(
+                    node,
+                    "no ISO date after `Moved` — an annotation carries the date of the \
+                     movement, not of the resolution",
+                ));
+            }
+            // Annotating anything but the open items edits the record rather than
+            // extending it.
+            if a.section != "What remains open" {
+                return Some(Violation::new(
+                    node,
+                    format!(
+                        "sits under `{}` — annotate `What remains open` and nowhere else",
+                        if a.section.is_empty() {
+                            "(no section)"
+                        } else {
+                            &a.section
+                        }
+                    ),
+                ));
+            }
+            None
+        })
+        .collect();
+    Check::new(
+        "resolution-annotation-malformed",
+        "Resolution annotation is malformed or in the wrong section",
+        Severity::Error,
+        "Both halves are structural rather than a judgement about wording, which is why \
+         this gates where its sibling does not. An annotation with no date cannot be read \
+         against the record it extends — the whole point is that the record speaks for its \
+         own date and the annotation for a later one. An annotation under `What was \
+         resolved` or `What changed` edits history instead of extending it, and those \
+         sections are the ones a reader trusts to describe a settled past.",
+        violations,
+    )
+}
+
+/// Words that announce a decision rather than report a movement.
+const DECIDING_WORDS: &[&str] = &[
+    "resolved",
+    "settled",
+    "decided",
+    "concluded",
+    "agreed",
+    "closes",
+    "closed",
+    "adopted",
+    "rejected",
+    "supersedes",
+    "superseded",
+];
+
+pub fn resolution_annotation_decides(annotations: &[Annotation]) -> Check {
+    let violations = annotations
+        .iter()
+        .filter_map(|a| {
+            let lower = a.text.to_lowercase();
+            let hit = DECIDING_WORDS.iter().find(|w| {
+                // Word-boundary-ish: avoid matching inside a longer word.
+                lower
+                    .split(|c: char| !c.is_ascii_alphabetic())
+                    .any(|t| t == **w)
+            })?;
+            Some(Violation::new(
+                format!("{}:{}", a.file, a.line),
+                format!(
+                    "`{hit}` announces an outcome — an annotation records movement only; \
+                     an open item is closed by a later resolution"
+                ),
+            ))
+        })
+        .collect();
+    Check::new(
+        "resolution-annotation-decides",
+        "Resolution annotation announces an outcome",
+        Severity::Warn,
+        "An annotation may say a question was proposed, retrieved, measured or superseded \
+         in fact; it may not say it was settled. Closing an open item is synthesis, and \
+         Article V puts synthesis in resolution events — so an annotation that decides \
+         something is a resolution performed by one elector, in one commit, in a file the \
+         protocol never routes through a resolution. Warn rather than Error because this \
+         is a heuristic over wording: it cannot see an outcome announced in words that are \
+         not on the list, and gating on it would make every false positive a blocked \
+         commit and the check would be switched off within a week.",
+        violations,
+    )
+}
+
+#[cfg(test)]
+mod annotation_tests {
+    use super::*;
+
+    const WELL_FORMED: &str = "\
+# local-infrastructure
+
+## What was resolved
+
+The project and site classes are adopted.
+
+## What remains open
+
+Whether `body` splits into fields.
+
+> **Moved 2026-08-18.** A budget proposal now exists on `ma/goedelsoup`, measured over
+> six commits. One branch holds it, so it is a proposal rather than a tension.
+
+Whether block-quoted host error text should be indexed.
+";
+
+    fn annos(text: &str) -> Vec<Annotation> {
+        annotations_in("resolutions/x.md", text)
+    }
+
+    #[test]
+    fn a_well_formed_annotation_passes_both_checks() {
+        let a = annos(WELL_FORMED);
+        assert_eq!(a.len(), 1);
+        assert_eq!(a[0].section, "What remains open");
+        assert!(resolution_annotation_malformed(&a).passed());
+        assert!(resolution_annotation_decides(&a).passed());
+    }
+
+    /// The date is what lets a reader tell the record's own date from the movement's.
+    #[test]
+    fn an_annotation_without_a_date_is_an_error() {
+        let a = annos("## What remains open\n\n> **Moved.** Somebody proposed it.\n");
+        let c = resolution_annotation_malformed(&a);
+        assert_eq!(c.violations.len(), 1);
+        assert!(
+            c.violations[0].detail.contains("ISO date"),
+            "{:?}",
+            c.violations[0].detail
+        );
+    }
+
+    #[test]
+    fn a_non_iso_date_is_an_error() {
+        let a = annos("## What remains open\n\n> **Moved 18/08/2026.** Proposed.\n");
+        assert_eq!(resolution_annotation_malformed(&a).violations.len(), 1);
+    }
+
+    /// Annotating a settled section edits history rather than extending it.
+    #[test]
+    fn an_annotation_under_what_was_resolved_is_an_error() {
+        let a = annos("## What was resolved\n\n> **Moved 2026-08-18.** It was reopened.\n");
+        let c = resolution_annotation_malformed(&a);
+        assert_eq!(c.violations.len(), 1);
+        assert!(
+            c.violations[0].detail.contains("What was resolved"),
+            "{:?}",
+            c.violations[0].detail
+        );
+    }
+
+    /// The one that matters: an annotation performing a resolution.
+    #[test]
+    fn an_annotation_announcing_an_outcome_is_warned() {
+        let a = annos(
+            "## What remains open\n\n> **Moved 2026-08-18.** This is now settled: the \
+             bodies stay indexed.\n",
+        );
+        let c = resolution_annotation_decides(&a);
+        assert_eq!(c.violations.len(), 1);
+        assert!(
+            c.violations[0].detail.contains("settled"),
+            "{:?}",
+            c.violations[0].detail
+        );
+        // Structurally fine — it is the wording that offends.
+        assert!(resolution_annotation_malformed(&a).passed());
+    }
+
+    /// Reporting a movement in fact is exactly what the convention is for, even when the
+    /// movement happens to be a supersession that occurred elsewhere.
+    #[test]
+    fn reporting_a_movement_is_not_announcing_an_outcome() {
+        let a = annos(
+            "## What remains open\n\n> **Moved 2026-08-19.** Measured at 714 bytes per \
+             document and recorded on `ma/auditor`.\n",
+        );
+        assert!(resolution_annotation_decides(&a).passed());
+    }
+
+    /// A deciding word inside a longer word is not a hit.
+    #[test]
+    fn the_word_list_respects_boundaries() {
+        let a = annos("## What remains open\n\n> **Moved 2026-08-19.** Unresolvedness aside.\n");
+        assert!(resolution_annotation_decides(&a).passed());
+    }
+
+    /// Prose that merely mentions the word is not an annotation.
+    #[test]
+    fn only_the_prescribed_form_is_read_as_an_annotation() {
+        let a = annos("## What remains open\n\nNothing has moved since this was written.\n");
+        assert!(a.is_empty());
+    }
+
+    /// A repository with no sangha has no annotations and no findings.
+    #[test]
+    fn no_annotations_is_clean() {
+        assert!(resolution_annotation_malformed(&[]).passed());
+        assert!(resolution_annotation_decides(&[]).passed());
+    }
+}

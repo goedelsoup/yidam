@@ -80,6 +80,22 @@ pub fn run_checks(root: &Path, opts: &Options) -> Vec<Check> {
         ));
     }
 
+    // Resolution records, when this repository runs a sangha at all. Collective mode is
+    // opt-in, so an absent directory is the common case and walks to nothing.
+    let resolutions_dir = crate::paths::yidam_sangha_dir(root).join("resolutions");
+    let mut annotations: Vec<checks::Annotation> = Vec::new();
+    for p in walk_md_files(&resolutions_dir) {
+        let rel = p
+            .strip_prefix(root)
+            .unwrap_or(&p)
+            .to_string_lossy()
+            .to_string();
+        annotations.extend(checks::annotations_in(
+            &rel,
+            &std::fs::read_to_string(&p).unwrap_or_default(),
+        ));
+    }
+
     let mut all = vec![
         checks::missing_class(&nodes),
         checks::unknown_class(&nodes, &defined),
@@ -94,6 +110,8 @@ pub fn run_checks(root: &Path, opts: &Options) -> Vec<Check> {
         checks::orphan_in(&nodes),
         checks::catalog_uncited(&sources, &cites),
         checks::class_asserts_purpose(&classes),
+        checks::resolution_annotation_malformed(&annotations),
+        checks::resolution_annotation_decides(&annotations),
     ];
 
     if opts.commits {
@@ -239,11 +257,16 @@ mod tests {
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 13);
+        assert_eq!(all.len(), 15);
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
         assert!(ids.contains("class-asserts-purpose"));
+        // Reported in a repository with no sangha at all, which is the common case: a
+        // check that disappears when there is nothing to check cannot be told from one
+        // that was never wired in.
+        assert!(ids.contains("resolution-annotation-malformed"));
+        assert!(ids.contains("resolution-annotation-decides"));
     }
 
     #[test]
