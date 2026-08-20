@@ -10,6 +10,10 @@
 description = "Report the corpus graph: nodes, resolved edges, and the classes that license them."
 run = "yidam graph"
 
+[neighbors]
+description = "Show the neighbourhood of one node — `mise run neighbors -- concept/x.yml --depth 2`."
+run = "yidam neighbors"
+
 [graph-check]`, not `[tasks.graph-check]`) and it carries no
 # `[tools]` section — the toolchain belongs in mise.toml. Loading it as a config
 # (`MISE_ENV=yidam`) will not work. Nor will a top-level `extends`: mise accepts

@@ -69,6 +69,18 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// Show the neighbourhood of one node — the traversal `serve --mcp` performs
+    Neighbors {
+        /// Node id, e.g. `concept/tailwater.yml` or `concept/tailwater`
+        node: String,
+        /// Maximum hops (default 1)
+        #[arg(long, default_value_t = 1)]
+        depth: usize,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     #[command(name = "graph-check")]
     GraphCheck {
         /// Output format. `json` emits the machine-readable report contract
@@ -261,6 +273,11 @@ fn main() -> Result<()> {
         Command::BundleStatus => yidam::bundle_status(),
         Command::Regen => yidam::regen(),
         Command::Graph { format } => yidam::graph(format),
+        Command::Neighbors {
+            node,
+            depth,
+            format,
+        } => yidam::neighbors(&node, depth, format),
         Command::GraphCheck { format } => yidam::graph_check(format),
         Command::DecisionsLog => yidam::decisions_log(),
         Command::Diff { range, format } => yidam::diff_corpus(&range, format),

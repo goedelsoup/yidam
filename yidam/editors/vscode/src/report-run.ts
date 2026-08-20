@@ -30,6 +30,7 @@ import type {
 } from './reports.ts'
 import type { Spawn } from './runner.ts'
 import type { GraphReport } from './graph.ts'
+import type { NeighborsReport } from './neighborhood.ts'
 import type { VocabularyReport } from './vocabulary.ts'
 
 export type Outcome =
@@ -155,4 +156,20 @@ export async function runVocabulary(
 ): Promise<VocabularyReport | null> {
   const args = check === undefined ? ['vocabulary'] : ['vocabulary', '--check', check]
   return fetchReport<VocabularyReport>(bin, args, cwd, run)
+}
+
+/**
+ * One node's neighbourhood.
+ *
+ * Its own call rather than part of a view group: it is a function of *which node is open*,
+ * which changes on a tab switch — an event neither the save cache nor the ref cache keys on.
+ */
+export async function runNeighbors(
+  bin: string,
+  cwd: string,
+  run: Spawn,
+  node: string,
+  depth: number,
+): Promise<NeighborsReport | null> {
+  return fetchReport<NeighborsReport>(bin, ['neighbors', node, '--depth', String(depth)], cwd, run)
 }

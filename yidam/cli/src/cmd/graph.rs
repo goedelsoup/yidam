@@ -112,6 +112,71 @@ pub struct GraphReport {
     pub classes: Vec<GraphClass>,
 }
 
+/// One node reached by a traversal, described relative to where it was reached from.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Neighbor {
+    pub id: String,
+    pub relationship: String,
+    /// `out` when the edge was authored on the node it was reached from, `in` otherwise.
+    pub direction: &'static str,
+    /// Hops from the start, 1-based.
+    pub depth: usize,
+}
+
+/// Breadth-first over the **undirected** view of the graph.
+///
+/// Each reached node is reported once, at its shortest hop distance, carrying the direction
+/// of the edge it was reached by. Undirected because a neighbourhood is a question about
+/// what a node is connected to, and half the interesting connections are inbound —
+/// `orphan-in` exists precisely because nodes are routinely pointed at rather than pointing.
+///
+/// **This is the traversal `serve --mcp`'s `neighbors` tool performs**, and it is here rather
+/// than there so the two surfaces cannot come apart. It used to live in `serve/tools.rs`,
+/// which is behind the heavy `index` feature — a light binary could not have answered the
+/// same question at all, let alone answered it the same way.
+///
+/// `edges` is `(from, to, relationship)` in node order; that order is what decides the
+/// output's, so a caller building it must walk its nodes in a stable one.
+pub(crate) fn walk_neighbors(
+    edges: &[(String, String, String)],
+    start: &str,
+    depth: usize,
+) -> Vec<Neighbor> {
+    use std::collections::{BTreeSet, VecDeque};
+
+    let mut seen: BTreeSet<String> = BTreeSet::from([start.to_string()]);
+    let mut queue: VecDeque<(String, usize)> = VecDeque::from([(start.to_string(), 0)]);
+    let mut found = Vec::new();
+
+    while let Some((current, hop)) = queue.pop_front() {
+        if hop == depth {
+            continue;
+        }
+        let outward = edges
+            .iter()
+            .filter(|(from, _, _)| *from == current)
+            .map(|(_, to, rel)| (to.clone(), rel.clone(), "out"));
+        let inward = edges
+            .iter()
+            .filter(|(_, to, _)| *to == current)
+            .map(|(from, _, rel)| (from.clone(), rel.clone(), "in"));
+
+        for (next, relationship, direction) in outward.chain(inward).collect::<Vec<_>>() {
+            if !seen.insert(next.clone()) {
+                continue;
+            }
+            found.push(Neighbor {
+                id: next.clone(),
+                relationship,
+                direction,
+                depth: hop + 1,
+            });
+            queue.push_back((next, hop + 1));
+        }
+    }
+    found
+}
+
 /// Resolve `.` and `..` without touching the filesystem.
 ///
 /// The same walk `lint::checks::normalize` performs. Duplicated rather than shared because
@@ -196,6 +261,150 @@ pub(crate) fn graph_data(root: &Path, corpus: &Path) -> GraphReport {
         nodes,
         classes,
     }
+}
+
+// ── neighbors ─────────────────────────────────────────────────────────────────
+
+#[derive(serde::Serialize)]
+pub struct NeighborRow {
+    /// Corpus-relative, as every other report identifies a node.
+    pub node: String,
+    pub class: String,
+    pub label: String,
+    pub description: String,
+    pub relationship: String,
+    pub direction: &'static str,
+    /// Hops from the start.
+    ///
+    /// `hops`, not `depth`: `depth` on this report is the maximum that was asked for, and a
+    /// field meaning two things in one document is how a consumer reads one as the other.
+    /// (`serve --mcp` calls it `depth` in its own output; that contract is unchanged.)
+    pub hops: usize,
+    /// False for an `.ont.yml` target or a broken edge — reached, and not a corpus node.
+    pub is_node: bool,
+}
+
+#[derive(serde::Serialize)]
+pub struct NeighborsReport {
+    pub corpus_dir: String,
+    /// The node asked about, or empty when it was not found.
+    pub node: String,
+    pub class: String,
+    pub label: String,
+    pub description: String,
+    /// The maximum hop count this traversal was allowed.
+    pub depth: usize,
+    pub neighbors: Vec<NeighborRow>,
+}
+
+/// Accept `concept/tailwater.yml`, `concept/tailwater`, or a repo-relative path.
+///
+/// The same tolerance `serve --mcp`'s `find_node` offers, for the same reason: an id is
+/// written by hand at least as often as it is copied.
+pub(crate) fn find_node<'a>(graph: &'a GraphReport, id: &str) -> Option<&'a GraphNode> {
+    let want = id.trim().trim_start_matches('/');
+    let bare = |s: &str| s.trim_end_matches(".yml").to_string();
+    let target = bare(
+        want.strip_prefix(&format!("{}/", graph.corpus_dir))
+            .unwrap_or(want),
+    );
+    graph.nodes.iter().find(|n| bare(&n.node) == target)
+}
+
+pub(crate) fn neighbors_data(graph: &GraphReport, id: &str, depth: usize) -> NeighborsReport {
+    let empty = NeighborsReport {
+        corpus_dir: graph.corpus_dir.clone(),
+        node: String::new(),
+        class: String::new(),
+        label: String::new(),
+        description: String::new(),
+        depth,
+        neighbors: vec![],
+    };
+    let Some(start) = find_node(graph, id) else {
+        return empty;
+    };
+
+    // Node order decides output order, and `walk_corpus_instances` sorts.
+    let edges: Vec<(String, String, String)> = graph
+        .nodes
+        .iter()
+        .flat_map(|n| {
+            n.links
+                .iter()
+                .filter(|l| !l.resolved.is_empty())
+                .map(move |l| (n.node.clone(), l.resolved.clone(), l.relationship.clone()))
+        })
+        .collect();
+
+    let neighbors = walk_neighbors(&edges, &start.node, depth.max(1))
+        .into_iter()
+        .map(|hit| {
+            let node = graph.nodes.iter().find(|n| n.node == hit.id);
+            NeighborRow {
+                class: node.map(|n| n.class.clone()).unwrap_or_default(),
+                label: node.map(|n| n.label.clone()).unwrap_or_default(),
+                description: node.map(|n| n.description.clone()).unwrap_or_default(),
+                is_node: node.is_some(),
+                node: hit.id,
+                relationship: hit.relationship,
+                direction: hit.direction,
+                hops: hit.depth,
+            }
+        })
+        .collect();
+
+    NeighborsReport {
+        node: start.node.clone(),
+        class: start.class.clone(),
+        label: start.label.clone(),
+        description: start.description.clone(),
+        neighbors,
+        ..empty
+    }
+}
+
+pub(crate) fn render_neighbors(r: &NeighborsReport) -> String {
+    if r.node.is_empty() {
+        return "Node not found.".to_string();
+    }
+    let mut out = format!(
+        "{} — {}
+{} neighbour(s) within {} hop(s)
+",
+        r.label,
+        r.node,
+        r.neighbors.len(),
+        r.depth
+    );
+    for n in &r.neighbors {
+        out.push_str(&format!(
+            "  {}{} {} {}  ({})
+",
+            "  ".repeat(n.hops - 1),
+            if n.direction == "out" { "-→" } else { "←-" },
+            n.relationship,
+            if n.label.is_empty() {
+                &n.node
+            } else {
+                &n.label
+            },
+            n.node
+        ));
+    }
+    out.trim_end().to_string()
+}
+
+/// Report the neighbourhood of one node.
+pub fn neighbors(id: &str, depth: usize, format: crate::report::Format) -> Result<()> {
+    let root = repo_root()?;
+    let graph = graph_data(&root, &yidam_corpus_dir(&root));
+    let data = neighbors_data(&graph, id, depth);
+    if format.is_json() {
+        return crate::report::emit(&root, data);
+    }
+    println!("{}", render_neighbors(&data));
+    Ok(())
 }
 
 pub(crate) fn render_graph(r: &GraphReport) -> String {
@@ -344,6 +553,78 @@ mod tests {
     fn the_corpus_root_is_reported_so_nobody_has_to_hardcode_it() {
         let (_t, root, corpus) = corpus();
         assert_eq!(graph_data(&root, &corpus).corpus_dir, ".yidam/corpus");
+    }
+
+    fn edge(from: &str, to: &str, rel: &str) -> (String, String, String) {
+        (from.to_string(), to.to_string(), rel.to_string())
+    }
+
+    /// Undirected: half the interesting connections are inbound, which is why `orphan-in`
+    /// exists at all.
+    #[test]
+    fn the_walk_goes_both_ways() {
+        let edges = vec![edge("a", "b", "cites")];
+        let from_b = walk_neighbors(&edges, "b", 1);
+        assert_eq!(from_b.len(), 1);
+        assert_eq!(from_b[0].id, "a");
+        assert_eq!(from_b[0].direction, "in");
+        assert_eq!(walk_neighbors(&edges, "a", 1)[0].direction, "out");
+    }
+
+    /// Each node once, at its *shortest* hop. A node reachable at 1 and 2 is a 1.
+    #[test]
+    fn a_node_is_reported_once_at_its_shortest_distance() {
+        let edges = vec![
+            edge("a", "b", "x"),
+            edge("b", "c", "y"),
+            edge("a", "c", "z"),
+        ];
+        let found = walk_neighbors(&edges, "a", 2);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found.iter().find(|n| n.id == "c").unwrap().depth, 1);
+    }
+
+    #[test]
+    fn a_cycle_terminates() {
+        let edges = vec![edge("a", "b", "x"), edge("b", "a", "y")];
+        assert_eq!(walk_neighbors(&edges, "a", 9).len(), 1);
+    }
+
+    #[test]
+    fn depth_bounds_the_walk() {
+        let edges = vec![edge("a", "b", "x"), edge("b", "c", "y")];
+        assert_eq!(walk_neighbors(&edges, "a", 1).len(), 1);
+        assert_eq!(walk_neighbors(&edges, "a", 2).len(), 2);
+    }
+
+    /// A target that is not a corpus node — an `.ont.yml`, or a broken edge — is still
+    /// reached. Dropping it would make a neighbourhood disagree with the graph it came from.
+    #[test]
+    fn a_reached_non_node_is_reported_as_one() {
+        let (_t, root, corpus) = corpus();
+        write(
+            &corpus.join("concept/a.yml"),
+            "class: concept\nlabel: A\nlinks:\n  - target: ../concept.ont.yml\n    relationship: instance-of\n",
+        );
+        write(
+            &corpus.join("concept.ont.yml"),
+            "class: concept\nlabel: Concept\n",
+        );
+        let g = graph_data(&root, &corpus);
+        let r = neighbors_data(&g, "concept/a", 1);
+        assert_eq!(r.node, "concept/a.yml", "a bare id resolves");
+        assert_eq!(r.neighbors.len(), 1);
+        assert_eq!(r.neighbors[0].node, "concept.ont.yml");
+        assert!(!r.neighbors[0].is_node);
+    }
+
+    #[test]
+    fn an_unknown_node_is_an_empty_report_rather_than_an_error() {
+        let (_t, root, corpus) = corpus();
+        let g = graph_data(&root, &corpus);
+        let r = neighbors_data(&g, "nowhere/at-all", 1);
+        assert!(r.node.is_empty());
+        assert!(render_neighbors(&r).contains("not found"));
     }
 
     #[test]

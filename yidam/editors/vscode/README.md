@@ -206,6 +206,41 @@ classes do it (`maneuver -[operates-on]->` legislation, ballot-measure, election
 only the first declaration offered a third of the legal targets and hid the rest, which
 reads to a user as "those nodes do not exist".
 
+## The neighbourhood panel
+
+The open node at depth 1–2 — outgoing and incoming edges alike, grouped by hop then
+direction then relationship. Click a neighbour to open it.
+
+`export --format web` already serves reading and retrieval, and serves them better. What it
+structurally cannot do is show the neighbourhood of a node *in flight*: it is a built
+artifact of a committed corpus, and the node under the cursor is neither.
+
+**The traversal is not in TypeScript.** `yidam neighbors --format json` performs it, and it
+is the same function `serve --mcp`'s `neighbors` tool calls — that traversal moved out of
+`serve/tools.rs` and into the light build for this, so the two surfaces answer identically
+rather than similarly. A light binary could not have answered the question at all before.
+
+Direction is part of the grouping key rather than a column: at hops > 1 it is relative to
+the node the edge was reached *from*, so mixing the two under one arrow would make the arrow
+a lie. A reached target that is not a corpus node — an `.ont.yml`, or a broken edge — is
+shown unlinked rather than hidden; hiding it would make the panel disagree with the graph.
+
+### Offline, and what that cost
+
+`default-src 'none'`, a per-render nonce for the one inline style and the one inline script,
+and nothing else — no host, no scheme, no `unsafe-inline`. A test asserts the rendered bytes
+reference no external URL, because the way this regresses is somebody adding one convenient
+`<link>`.
+
+Spacing and radii are transcribed from `yidam/design/tokens/` and drift-tested. Two
+deviations, both stated:
+
+- **Colour is the reader's theme.** The design system has no dark mode outside the claim
+  triad, and a light card inside a dark editor is worse than one that is not brand-coloured.
+- **Fonts are the editor's.** `yidam/design/tokens/fonts.css` is an `@import` from the Google
+  Fonts CDN, so the brand font layer is unusable on a surface required to be offline. A test
+  pins that reason rather than leaving it in a comment.
+
 ## Three guards
 
 ### Claim tags
@@ -272,6 +307,7 @@ solved.
 | `src/tree/model.ts` | the five views, as data. No `vscode` import. |
 | `src/vocabulary.ts` | what to offer, where to underline. No `vscode` import. |
 | `src/graph.ts` | scalar reading, path arithmetic, completion ranking. No `vscode` import. |
+| `src/neighborhood.ts` | grouping and the webview's HTML. No `vscode` import. |
 | `src/claims.ts` | claim tokens, their spans, the palette. No `vscode` import. |
 | `src/settings.ts` | what to write into settings, and when not to. No `vscode` import. |
 | `src/tree/provider.ts` | `TreeNode` → `vscode.TreeItem`. The adapter, with no judgement in it. |
