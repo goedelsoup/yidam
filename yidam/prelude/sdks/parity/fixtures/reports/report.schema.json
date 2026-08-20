@@ -511,7 +511,7 @@
     },
     "corpus_dir": {
       "type": "string",
-      "description": "`corpus-index` and `graph`. Repository-relative corpus root; every `node` path in the same report is relative to it. Emitted so a consumer never hardcodes `.yidam/corpus` — the one path in this contract a repository could plausibly move."
+      "description": "`corpus-index`, `graph` and `neighbors`. Repository-relative corpus root; every `node` path in the same report is relative to it. Emitted so a consumer never hardcodes `.yidam/corpus` — the one path in this contract a repository could plausibly move."
     },
     "classes": {
       "type": "array",
@@ -586,6 +586,76 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "class": {
+      "type": "string",
+      "description": "`neighbors` only. The class of the node asked about."
+    },
+    "label": {
+      "type": "string",
+      "description": "`neighbors` only. The label of the node asked about."
+    },
+    "description": {
+      "type": "string",
+      "description": "`neighbors` only. The description of the node asked about, so a client rendering a neighbourhood need not fetch the centre separately."
+    },
+    "node": {
+      "type": "string",
+      "description": "`neighbors` only. The node asked about, corpus-relative, or EMPTY when the id matched nothing. An unknown node is an empty report rather than an error: a client asking about the file you happen to have open must not have to know in advance whether it is a corpus node."
+    },
+    "depth": {
+      "type": "integer",
+      "description": "`neighbors` only. The maximum hop count the traversal was allowed — not a per-neighbour distance; see `neighbors[].hops`."
+    },
+    "neighbors": {
+      "type": "array",
+      "description": "`neighbors` only. Breadth-first over the UNDIRECTED view of the graph: each reached node once, at its shortest hop distance, carrying the direction of the edge it was reached by. This is the same traversal `serve --mcp`'s `neighbors` tool performs, from the same function — half the interesting connections are inbound, which is why `orphan-in` exists at all.",
+      "items": {
+        "type": "object",
+        "required": [
+          "node",
+          "class",
+          "label",
+          "description",
+          "relationship",
+          "direction",
+          "hops",
+          "is_node"
+        ],
+        "properties": {
+          "node": {
+            "type": "string",
+            "description": "Corpus-relative."
+          },
+          "class": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "relationship": {
+            "type": "string"
+          },
+          "direction": {
+            "enum": [
+              "out",
+              "in"
+            ],
+            "description": "Relative to the node it was reached FROM, which at hops > 1 is not the node asked about."
+          },
+          "hops": {
+            "type": "integer",
+            "description": "Distance from the start. Named `hops` and not `depth` because `depth` on this report is the maximum that was asked for, and a field meaning two things in one document is how a consumer reads one as the other. (`serve --mcp` calls it `depth` in its own output; that contract is unchanged.)"
+          },
+          "is_node": {
+            "type": "boolean",
+            "description": "False for an `.ont.yml` target or a broken edge — reached, and not a corpus node. Reported rather than dropped: a neighbourhood that hid them would disagree with the graph it came from."
           }
         }
       }

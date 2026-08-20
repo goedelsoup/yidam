@@ -41,6 +41,7 @@ import {
 import { describe, readHandshake, type Handshake } from './handshake.ts'
 import {
   runCorpusViews,
+  runNeighbors,
   runRefViews,
   runReports,
   runVocabulary,
@@ -48,6 +49,7 @@ import {
   type Outcome,
   type RefViews,
 } from './report-run.ts'
+import { render as renderNeighborhood, type NeighborsReport } from './neighborhood.ts'
 import { Cached, debounce, headOid, spawn, type CacheKey } from './runner.ts'
 import {
   readonlyUpdate,
@@ -131,6 +133,10 @@ let claimStyles: Map<Tag, vscode.TextEditorDecorationType> | null = null
  * spawning a process on every character typed in a YAML file would be absurd.
  */
 let graph: GraphReport | null = null
+
+/** The neighbourhood panel, created on demand and reused. */
+let neighborhood: vscode.WebviewPanel | null = null
+let neighborhoodDepth = 1
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0)
@@ -268,6 +274,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       '.',
     ),
     vscode.commands.registerCommand('yidam.newNode', newNode),
+    vscode.commands.registerCommand('yidam.neighborhood', showNeighborhood),
+  )
+  context.subscriptions.push(
+    // The panel follows the editor: its subject is the node you are looking at.
+    vscode.window.onDidChangeActiveTextEditor(() => void drawNeighborhood()),
   )
 
   context.subscriptions.push(
@@ -517,6 +528,75 @@ async function newNode(): Promise<void> {
   )
   await vscode.workspace.fs.writeFile(uri, Buffer.from(body, 'utf8'))
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri))
+}
+
+// ── neighbourhood ─────────────────────────────────────────────────────────────
+
+/**
+ * A fresh nonce per render.
+ *
+ * The CSP admits exactly the one inline style and the one inline script this page carries,
+ * and nothing else — no host, no scheme, no `unsafe-inline`. `export --format web` pins CDN
+ * scripts; this surface holds the hermetic line the repository's CI does.
+ */
+function nonce(): string {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+  let out = ''
+  for (let i = 0; i < 32; i += 1) out += alphabet[Math.floor(Math.random() * alphabet.length)]
+  return out
+}
+
+async function showNeighborhood(): Promise<void> {
+  if (!neighborhood) {
+    neighborhood = vscode.window.createWebviewPanel(
+      'yidam.neighborhood',
+      'yidam: neighbourhood',
+      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
+      { enableScripts: true, localResourceRoots: [] },
+    )
+    neighborhood.onDidDispose(() => {
+      neighborhood = null
+    })
+    neighborhood.webview.onDidReceiveMessage(async (message: { type: string; node?: string; depth?: number }) => {
+      if (message.type === 'open' && message.node) {
+        const uri = uriOf(message.node)
+        if (uri) await vscode.window.showTextDocument(uri, { preview: true })
+        return
+      }
+      if (message.type === 'depth' && typeof message.depth === 'number') {
+        neighborhoodDepth = message.depth
+        await drawNeighborhood()
+      }
+    })
+  }
+  neighborhood.reveal(vscode.ViewColumn.Beside, true)
+  await drawNeighborhood()
+}
+
+/** Redraw for whatever is in the active editor. Silent when the panel is closed. */
+async function drawNeighborhood(): Promise<void> {
+  if (!neighborhood) return
+  const folder = workspaceFolder()
+  const editor = vscode.window.activeTextEditor
+  const id = editor ? nodeIdOf(editor.document.uri) : null
+
+  let report: NeighborsReport | null = null
+  if (folder && id !== null && state?.resolution.command) {
+    report = await runNeighbors(state.resolution.command, folder, spawn, id, neighborhoodDepth)
+  }
+  const empty: NeighborsReport = {
+    format_version: '1',
+    yidam: { version: '', commit: '', features: [] },
+    root: folder ?? '',
+    corpus_dir: graph?.corpus_dir ?? '',
+    node: '',
+    class: '',
+    label: '',
+    description: '',
+    depth: neighborhoodDepth,
+    neighbors: [],
+  }
+  neighborhood.webview.html = renderNeighborhood(report ?? empty, nonce())
 }
 
 // ── claim tags ────────────────────────────────────────────────────────────────

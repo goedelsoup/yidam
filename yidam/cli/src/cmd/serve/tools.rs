@@ -1,7 +1,6 @@
 //! MCP tools — retrieval and traversal over the domain computer.
 
 use serde_json::{json, Value};
-use std::collections::{BTreeSet, VecDeque};
 
 use super::resources::is_open_question;
 use super::{IndexState, ServerState};
@@ -220,52 +219,39 @@ fn neighbors(state: &ServerState, args: &Value) -> Result<Value, String> {
     let depth = args["depth"].as_u64().unwrap_or(1).max(1) as usize;
     let start = find_node(state, id).ok_or_else(|| format!("node not found: {id}"))?;
 
-    // BFS over the undirected view of the graph; each reached node is
-    // reported once, at its shortest hop distance, with the edge direction
-    // relative to the node it was reached from.
-    let mut seen: BTreeSet<String> = BTreeSet::from([start.id.clone()]);
-    let mut queue: VecDeque<(String, usize)> = VecDeque::from([(start.id.clone(), 0)]);
-    let mut found: Vec<Value> = Vec::new();
+    // The traversal itself lives in `cmd::graph`, in the light build, because `yidam
+    // neighbors` and the editor's neighbourhood view have to answer this the same way.
+    // It used to live here — behind the heavy `index` feature — where nothing else could
+    // reach it.
+    let edges: Vec<(String, String, String)> = state
+        .nodes
+        .iter()
+        .flat_map(|n| {
+            n.links
+                .iter()
+                .map(move |(target, rel)| (n.id.clone(), target.clone(), rel.clone()))
+        })
+        .collect();
 
-    while let Some((current, hop)) = queue.pop_front() {
-        if hop == depth {
-            continue;
-        }
-        let mut adjacent: Vec<(String, String, &str)> = Vec::new(); // (id, rel, direction)
-        if let Some(node) = state.nodes.iter().find(|n| n.id == current) {
-            for (target, rel) in &node.links {
-                adjacent.push((target.clone(), rel.clone(), "out"));
-            }
-        }
-        for other in &state.nodes {
-            for (target, rel) in &other.links {
-                if *target == current {
-                    adjacent.push((other.id.clone(), rel.clone(), "in"));
-                }
-            }
-        }
-
-        for (next_id, rel, direction) in adjacent {
-            if !seen.insert(next_id.clone()) {
-                continue;
-            }
+    let found: Vec<Value> = crate::cmd::graph::walk_neighbors(&edges, &start.id, depth)
+        .into_iter()
+        .map(|hit| {
             let (label, description) = state
                 .nodes
                 .iter()
-                .find(|n| n.id == next_id)
+                .find(|n| n.id == hit.id)
                 .map(|n| (n.label.clone(), n.description.clone()))
                 .unwrap_or_default();
-            found.push(json!({
-                "id": next_id,
+            json!({
+                "id": hit.id,
                 "label": label,
                 "description": description,
-                "relationship": rel,
-                "direction": direction,
-                "depth": hop + 1,
-            }));
-            queue.push_back((next_id, hop + 1));
-        }
-    }
+                "relationship": hit.relationship,
+                "direction": hit.direction,
+                "depth": hit.depth,
+            })
+        })
+        .collect();
 
     Ok(json!({"id": start.id, "neighbors": found}))
 }

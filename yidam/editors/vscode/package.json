@@ -114,6 +114,10 @@
       {
         "command": "yidam.newNode",
         "title": "yidam: New corpus node"
+      },
+      {
+        "command": "yidam.neighborhood",
+        "title": "yidam: Show this node's neighbourhood"
       }
     ],
     "viewsContainers": {

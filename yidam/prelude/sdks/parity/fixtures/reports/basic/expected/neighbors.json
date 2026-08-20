@@ -1,0 +1,39 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "reports"
+    ]
+  },
+  "root": "<ROOT>",
+  "corpus_dir": ".yidam/corpus",
+  "node": "concept/tailwater.yml",
+  "class": "concept",
+  "label": "Tailwater",
+  "description": "Water downstream of a structure. [inference] The control node — it trips nothing.",
+  "depth": 2,
+  "neighbors": [
+    {
+      "node": "concept/low-flow.yml",
+      "class": "concept",
+      "label": "Low flow",
+      "description": "A discharge regime. Carries one deliberately broken edge.",
+      "relationship": "relates-to",
+      "direction": "out",
+      "hops": 1,
+      "is_node": true
+    },
+    {
+      "node": "concept/assimilative-capacit.yml",
+      "class": "",
+      "label": "",
+      "description": "",
+      "relationship": "depends-on",
+      "direction": "out",
+      "hops": 2,
+      "is_node": false
+    }
+  ]
+}

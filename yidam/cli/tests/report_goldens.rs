@@ -172,6 +172,10 @@ const COMMANDS: &[(&str, &[&str])] = &[
     ("index-status", &["index-status"]),
     ("sangha", &["sangha"]),
     ("graph", &["graph"]),
+    (
+        "neighbors",
+        &["neighbors", "concept/tailwater.yml", "--depth", "2"],
+    ),
     ("vocabulary", &["vocabulary"]),
     // The fixture carries no vendored GRAPH.md, so this golden also pins the
     // no-document arm: every `when` empty, and `drift` empty rather than thirty
