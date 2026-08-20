@@ -1,0 +1,21 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "reports"
+    ]
+  },
+  "root": "<ROOT>",
+  "range": "HEAD~1..HEAD",
+  "nodes": [
+    {
+      "node": "corpus/concept/tailwater.yml",
+      "status": "modified",
+      "label": "Tailwater",
+      "claims_changed": 1
+    }
+  ],
+  "edges": []
+}

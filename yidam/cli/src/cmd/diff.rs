@@ -5,7 +5,45 @@ use std::path::Path;
 use crate::parse::{CorpusInstance, CorpusLink};
 use crate::paths::repo_root;
 
-pub fn diff_corpus(range: &str) -> Result<()> {
+#[derive(serde::Serialize)]
+struct NodeChange {
+    node: String,
+    /// `added` | `removed` | `modified`.
+    status: &'static str,
+    label: String,
+    /// Claims whose tag changed. Zero for an added or removed node.
+    claims_changed: usize,
+}
+
+#[derive(serde::Serialize)]
+struct EdgeChange {
+    /// `added` | `removed`.
+    status: &'static str,
+    from: String,
+    relationship: String,
+    to: String,
+}
+
+#[derive(serde::Serialize)]
+struct DiffReport {
+    range: String,
+    nodes: Vec<NodeChange>,
+    edges: Vec<EdgeChange>,
+}
+
+fn edge_change(status: &'static str, source: &str, link: &CorpusLink) -> EdgeChange {
+    EdgeChange {
+        status,
+        from: source.to_string(),
+        relationship: link
+            .relationship
+            .clone()
+            .unwrap_or_else(|| "link".to_string()),
+        to: link.target.clone().unwrap_or_else(|| "?".to_string()),
+    }
+}
+
+pub fn diff_corpus(range: &str, format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
     let (before_ref, after_ref) = parse_range(range);
 
@@ -29,6 +67,10 @@ pub fn diff_corpus(range: &str) -> Result<()> {
 
     let mut node_lines: Vec<String> = Vec::new();
     let mut edge_lines: Vec<String> = Vec::new();
+    // Accumulated in the same arms as the display lines, so the two renderings cannot
+    // disagree about what changed.
+    let mut nodes: Vec<NodeChange> = Vec::new();
+    let mut edges: Vec<EdgeChange> = Vec::new();
 
     for line in diff_text.lines() {
         let Some((status, raw_path)) = line.split_once('\t') else {
@@ -53,7 +95,14 @@ pub fn diff_corpus(range: &str) -> Result<()> {
                 let inst = parse_inst(&new_yaml);
                 let label = inst_label(&inst, path);
                 node_lines.push(format!("+ node  {display:<55} [added]"));
+                nodes.push(NodeChange {
+                    node: display.to_string(),
+                    status: "added",
+                    label: label.clone(),
+                    claims_changed: 0,
+                });
                 for link in inst.links.unwrap_or_default() {
+                    edges.push(edge_change("added", &label, &link));
                     edge_lines.push(edge_line('+', &label, &link, "added"));
                 }
             }
@@ -62,7 +111,14 @@ pub fn diff_corpus(range: &str) -> Result<()> {
                 let inst = parse_inst(&old_yaml);
                 let label = inst_label(&inst, path);
                 node_lines.push(format!("- node  {display:<55} [removed]"));
+                nodes.push(NodeChange {
+                    node: display.to_string(),
+                    status: "removed",
+                    label: label.clone(),
+                    claims_changed: 0,
+                });
                 for link in inst.links.unwrap_or_default() {
+                    edges.push(edge_change("removed", &label, &link));
                     edge_lines.push(edge_line('-', &label, &link, "removed"));
                 }
             }
@@ -82,6 +138,12 @@ pub fn diff_corpus(range: &str) -> Result<()> {
                     format!("modified — {claim_delta} claims changed")
                 };
                 node_lines.push(format!("~ node  {display:<55} [{note}]"));
+                nodes.push(NodeChange {
+                    node: display.to_string(),
+                    status: "modified",
+                    label: label.clone(),
+                    claims_changed: claim_delta,
+                });
 
                 let old_links: HashSet<String> = old_inst
                     .links
@@ -94,6 +156,7 @@ pub fn diff_corpus(range: &str) -> Result<()> {
 
                 for link in &new_links_vec {
                     if !old_links.contains(&link_key(link)) {
+                        edges.push(edge_change("added", &label, link));
                         edge_lines.push(edge_line('+', &label, link, "added"));
                     }
                 }
@@ -101,12 +164,24 @@ pub fn diff_corpus(range: &str) -> Result<()> {
                 let old_inst2 = parse_inst(&old_yaml);
                 for link in old_inst2.links.unwrap_or_default() {
                     if !new_link_keys.contains(&link_key(&link)) {
+                        edges.push(edge_change("removed", &label, &link));
                         edge_lines.push(edge_line('-', &label, &link, "removed"));
                     }
                 }
             }
             _ => {}
         }
+    }
+
+    if format.is_json() {
+        return crate::report::emit(
+            &root,
+            DiffReport {
+                range: range.to_string(),
+                nodes,
+                edges,
+            },
+        );
     }
 
     if node_lines.is_empty() && edge_lines.is_empty() {

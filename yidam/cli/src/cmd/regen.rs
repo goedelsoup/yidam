@@ -23,11 +23,19 @@ use anyhow::{Context, Result};
 type Generator = (&'static str, fn() -> Result<()>);
 
 const GENERATORS: &[Generator] = &[
-    ("status", super::status),
-    ("open-questions", super::open_questions),
-    ("corpus-index", super::corpus_index),
+    // Text, always. These write REGEN blocks into markdown; `--format json` is a
+    // reporting mode and has nothing to regenerate.
+    ("status", || super::status(crate::report::Format::Text)),
+    ("open-questions", || {
+        super::open_questions(crate::report::Format::Text)
+    }),
+    ("corpus-index", || {
+        super::corpus_index(crate::report::Format::Text)
+    }),
     ("index-status", super::index_status),
-    ("catalog-audit", super::catalog_audit),
+    ("catalog-audit", || {
+        super::catalog_audit(crate::report::Format::Text)
+    }),
     ("agents-index", super::agents_index),
     ("skills-index", super::skills_index),
     ("crates-index", super::crates_index),

@@ -1,0 +1,3 @@
+| Entry | Type | Description | Obtained | Citations |
+|---|---|---|---|---|
+| [gauge-record.md](gauge-record.md) | dataset | A stream gauge series, registered and unretrieved. | not yet | 0 |

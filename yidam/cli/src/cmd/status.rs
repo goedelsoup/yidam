@@ -9,7 +9,20 @@ use crate::walk::{walk_corpus_instances, walk_md_files};
 
 use super::has_open_claim;
 
-pub fn status() -> Result<()> {
+#[derive(serde::Serialize)]
+struct StatusReport {
+    nodes: usize,
+    open_questions: usize,
+    catalog_entries: usize,
+    claims_verified: usize,
+    claims_inference: usize,
+    claims_open: usize,
+    index_present: bool,
+    active_phases: usize,
+    genesis: String,
+}
+
+pub fn status(format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
     let corpus = yidam_corpus_dir(&root);
     let catalog = yidam_catalog_dir(&root);
@@ -53,6 +66,23 @@ pub fn status() -> Result<()> {
          claims {} · index {index_freshness} · {phases} active phase(s) · genesis {genesis}",
         claims.cell()
     );
+
+    if format.is_json() {
+        return crate::report::emit(
+            &root,
+            StatusReport {
+                nodes: node_count,
+                open_questions: open_count,
+                catalog_entries,
+                claims_verified: claims.verified,
+                claims_inference: claims.inference,
+                claims_open: claims.open,
+                index_present: index_path.exists(),
+                active_phases: phases,
+                genesis: genesis.clone(),
+            },
+        );
+    }
 
     println!("{content}");
     update_file_regen(&root.join("README.md"), "yidam status", &content)

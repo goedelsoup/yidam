@@ -6,10 +6,29 @@ use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir};
 use crate::regen::update_file_regen;
 use crate::walk::walk_md_files;
 
-pub fn catalog_audit() -> Result<()> {
+#[derive(serde::Serialize)]
+struct SourceRow {
+    entry: String,
+    #[serde(rename = "type")]
+    kind: String,
+    description: String,
+    obtained: bool,
+    citations: usize,
+}
+
+#[derive(serde::Serialize)]
+struct CatalogReport {
+    sources: Vec<SourceRow>,
+}
+
+pub fn catalog_audit(format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
     let catalog = yidam_catalog_dir(&root);
     let entries = walk_md_files(&catalog);
+
+    // Gathered in the same pass as the markdown rows so the two cannot disagree about
+    // what the catalog holds.
+    let mut source_rows: Vec<SourceRow> = Vec::new();
 
     let content = if entries.is_empty() {
         "_No catalog entries yet._".to_string()
@@ -48,6 +67,7 @@ pub fn catalog_audit() -> Result<()> {
             } else {
                 "not yet"
             };
+            let is_obtained = fm.obtained.unwrap_or(true);
             let filename = path.file_name().unwrap_or_default().to_string_lossy();
             let slug = path.file_stem().unwrap_or_default().to_string_lossy();
             let citations = corpus_files
@@ -58,12 +78,28 @@ pub fn catalog_audit() -> Result<()> {
                         .contains(slug.as_ref())
                 })
                 .count();
+            source_rows.push(SourceRow {
+                entry: filename.to_string(),
+                kind: kind.clone(),
+                description: desc.clone(),
+                obtained: is_obtained,
+                citations,
+            });
             rows.push(format!(
                 "| [{filename}]({filename}) | {kind} | {desc} | {obtained} | {citations} |"
             ));
         }
         rows.join("\n")
     };
+
+    if format.is_json() {
+        return crate::report::emit(
+            &root,
+            CatalogReport {
+                sources: source_rows,
+            },
+        );
+    }
 
     println!("{content}");
     update_file_regen(&catalog.join("README.md"), "yidam catalog-audit", &content)

@@ -16,15 +16,35 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    Status,
+    Status {
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     #[command(name = "open-questions")]
-    OpenQuestions,
+    OpenQuestions {
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     #[command(name = "corpus-index")]
-    CorpusIndex,
+    CorpusIndex {
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     #[command(name = "index-status")]
     IndexStatus,
     #[command(name = "catalog-audit")]
-    CatalogAudit,
+    CatalogAudit {
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     #[command(name = "agents-index")]
     AgentsIndex,
     #[command(name = "skills-index")]
@@ -38,13 +58,22 @@ enum Command {
     /// Refresh every REGEN block in one pass.
     Regen,
     #[command(name = "graph-check")]
-    GraphCheck,
+    GraphCheck {
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     #[command(name = "decisions-log")]
     DecisionsLog,
     /// Show corpus node and edge changes between two git refs
     Diff {
         /// Git range, e.g. `main..HEAD`, `HEAD~5`, `abc123..def456`
         range: String,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
     },
     /// Bundle ontology, corpus, skills, decisions, and vector index into .yidam/bundle.yiz
     /// (backwards-compatible alias for `export --format bundle`)
@@ -113,7 +142,12 @@ enum Command {
         since: Option<String>,
     },
     /// Show active inquiry phases (ma/* and rigpa/* branches)
-    Phases,
+    Phases {
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Serve the domain computer to MCP-capable agents
     Serve {
         /// Serve MCP over stdio (the only transport currently implemented)
@@ -170,20 +204,20 @@ fn block_on<F: std::future::Future<Output = Result<()>>>(fut: F) -> Result<()> {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Status => yidam::status(),
-        Command::OpenQuestions => yidam::open_questions(),
-        Command::CorpusIndex => yidam::corpus_index(),
+        Command::Status { format } => yidam::status(format),
+        Command::OpenQuestions { format } => yidam::open_questions(format),
+        Command::CorpusIndex { format } => yidam::corpus_index(format),
         Command::IndexStatus => yidam::index_status(),
-        Command::CatalogAudit => yidam::catalog_audit(),
+        Command::CatalogAudit { format } => yidam::catalog_audit(format),
         Command::AgentsIndex => yidam::agents_index(),
         Command::SkillsIndex => yidam::skills_index(),
         Command::CratesIndex => yidam::crates_index(),
         Command::PackagesIndex => yidam::packages_index(),
         Command::BundleStatus => yidam::bundle_status(),
         Command::Regen => yidam::regen(),
-        Command::GraphCheck => yidam::graph_check(),
+        Command::GraphCheck { format } => yidam::graph_check(format),
         Command::DecisionsLog => yidam::decisions_log(),
-        Command::Diff { range } => yidam::diff_corpus(&range),
+        Command::Diff { range, format } => yidam::diff_corpus(&range, format),
         Command::Bundle => yidam::bundle(),
         Command::Export {
             format,
@@ -229,7 +263,7 @@ fn main() -> Result<()> {
             backfill_ref,
         } => yidam::overlay(&target, backfill, backfill_ref.as_deref()),
         Command::Backfill { since } => yidam::backfill(since.as_deref()),
-        Command::Phases => yidam::phases(),
+        Command::Phases { format } => yidam::phases(format),
         Command::Serve { mcp } => {
             #[cfg(feature = "index")]
             {

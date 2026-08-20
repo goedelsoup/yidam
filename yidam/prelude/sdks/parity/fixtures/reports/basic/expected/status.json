@@ -1,0 +1,20 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "reports"
+    ]
+  },
+  "root": "<ROOT>",
+  "nodes": 2,
+  "open_questions": 0,
+  "catalog_entries": 1,
+  "claims_verified": 0,
+  "claims_inference": 1,
+  "claims_open": 0,
+  "index_present": false,
+  "active_phases": 0,
+  "genesis": "2026-01-01"
+}

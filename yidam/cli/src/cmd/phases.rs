@@ -5,6 +5,7 @@ use crate::paths::repo_root;
 
 /// One row of the `yidam phases` table: an active inquiry phase backed by a
 /// `ma/*` or `rigpa/*` branch.
+#[derive(serde::Serialize)]
 pub(crate) struct PhaseRow {
     pub name: String,
     pub ref_name: String,
@@ -169,9 +170,17 @@ pub(crate) fn render_phases(rows: &[PhaseRow]) -> String {
 }
 
 /// Print the table of active inquiry phases (`ma/*` and `rigpa/*` branches).
-pub fn phases() -> Result<()> {
+#[derive(serde::Serialize)]
+struct PhasesReport<'a> {
+    phases: &'a [PhaseRow],
+}
+
+pub fn phases(format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
     let rows = collect_phases(&root)?;
+    if format.is_json() {
+        return crate::report::emit(&root, PhasesReport { phases: &rows });
+    }
     println!("{}", render_phases(&rows));
     Ok(())
 }

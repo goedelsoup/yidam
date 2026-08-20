@@ -88,15 +88,48 @@ pub(crate) fn render_open_questions(root: &Path, corpus: &Path) -> String {
 }
 
 /// Returns (report_text, issue_count). issue_count > 0 means the graph has problems.
-pub(crate) fn render_graph_check(root: &Path, corpus: &Path) -> (String, usize) {
+/// One node's integrity findings.
+#[derive(Debug, serde::Serialize)]
+pub struct NodeIssues {
+    /// Repo-relative path.
+    pub node: String,
+    pub issues: Vec<String>,
+}
+
+/// What `yidam graph-check` found.
+///
+/// The data is gathered once and the prose is rendered *from* it — see
+/// [`render_graph_check`]. Computing the text separately would let the two answers drift,
+/// and a gate whose JSON and prose disagree is worse than either alone.
+#[derive(Debug, serde::Serialize)]
+pub struct GraphCheckReport {
+    /// Whether the gate passed. No issues, and it is a gate: `graph_check` exits nonzero.
+    pub passed: bool,
+    /// True when the corpus directory holds neither instances nor class definitions —
+    /// a fresh repository, which is not a failure.
+    pub corpus_empty: bool,
+    pub total_instances: usize,
+    pub clean_instances: usize,
+    pub classes_defined: usize,
+    pub nodes_with_issues: Vec<NodeIssues>,
+    /// Classes with a schema and no instances. Reported, never gated.
+    pub classes_without_instances: Vec<String>,
+}
+
+pub(crate) fn graph_check_data(root: &Path, corpus: &Path) -> GraphCheckReport {
     let instances = walk_corpus_instances(corpus);
     let ont_files = walk_ont_files(corpus);
 
     if instances.is_empty() && ont_files.is_empty() {
-        return (
-            format!("No corpus content found in {}.", corpus.display()),
-            0,
-        );
+        return GraphCheckReport {
+            passed: true,
+            corpus_empty: true,
+            total_instances: 0,
+            clean_instances: 0,
+            classes_defined: 0,
+            nodes_with_issues: vec![],
+            classes_without_instances: vec![],
+        };
     }
 
     let defined_classes: std::collections::HashSet<String> = ont_files
@@ -109,7 +142,7 @@ pub(crate) fn render_graph_check(root: &Path, corpus: &Path) -> (String, usize) 
         })
         .collect();
 
-    let mut issues: Vec<(std::path::PathBuf, Vec<String>)> = Vec::new();
+    let mut nodes_with_issues: Vec<NodeIssues> = Vec::new();
 
     for path in &instances {
         let text = std::fs::read_to_string(path).unwrap_or_default();
@@ -148,7 +181,11 @@ pub(crate) fn render_graph_check(root: &Path, corpus: &Path) -> (String, usize) 
         }
 
         if !node_issues.is_empty() {
-            issues.push((path.clone(), node_issues));
+            let rel = path.strip_prefix(root).unwrap_or(path);
+            nodes_with_issues.push(NodeIssues {
+                node: slash_path(rel),
+                issues: node_issues,
+            });
         }
     }
 
@@ -161,50 +198,152 @@ pub(crate) fn render_graph_check(root: &Path, corpus: &Path) -> (String, usize) 
                 .map(|s| s.to_string())
         })
         .collect();
-    let mut empty_classes: Vec<&str> = defined_classes
+    let mut classes_without_instances: Vec<String> = defined_classes
         .iter()
         .filter(|c| !classes_with_instances.contains(*c))
-        .map(|c| c.as_str())
+        .cloned()
         .collect();
+    classes_without_instances.sort();
 
     let total = instances.len();
-    let clean = total - issues.len();
-    let issue_count = issues.len();
+    let issue_count = nodes_with_issues.len();
+    GraphCheckReport {
+        passed: issue_count == 0,
+        corpus_empty: false,
+        total_instances: total,
+        clean_instances: total - issue_count,
+        classes_defined: defined_classes.len(),
+        nodes_with_issues,
+        classes_without_instances,
+    }
+}
+
+/// Render [`graph_check_data`] as the prose this command has always printed.
+///
+/// Byte-identical to the pre-contract output, which the report goldens pin.
+pub(crate) fn render_graph_check(root: &Path, corpus: &Path) -> (String, usize) {
+    let r = graph_check_data(root, corpus);
+    (
+        render_graph_check_text(&r, corpus),
+        r.nodes_with_issues.len(),
+    )
+}
+
+pub(crate) fn render_graph_check_text(r: &GraphCheckReport, corpus: &Path) -> String {
+    if r.corpus_empty {
+        return format!("No corpus content found in {}.", corpus.display());
+    }
 
     let mut out = String::new();
-    if issues.is_empty() {
+    if r.nodes_with_issues.is_empty() {
         out.push_str(&format!(
-            "Checked {total} instances across {} classes — all clean.",
-            defined_classes.len()
+            "Checked {} instances across {} classes — all clean.",
+            r.total_instances, r.classes_defined
         ));
     } else {
         out.push_str(&format!(
-            "Checked {total} instances across {} classes — {clean} clean, {issue_count} with issues:\n",
-            defined_classes.len()
+            "Checked {} instances across {} classes — {} clean, {} with issues:\n",
+            r.total_instances,
+            r.classes_defined,
+            r.clean_instances,
+            r.nodes_with_issues.len()
         ));
-        for (path, node_issues) in &issues {
-            let rel = path.strip_prefix(root).unwrap_or(path);
-            out.push_str(&format!("\n  {}", rel.display()));
-            for issue in node_issues {
+        for n in &r.nodes_with_issues {
+            out.push_str(&format!("\n  {}", n.node));
+            for issue in &n.issues {
                 out.push_str(&format!("\n    - {issue}"));
             }
         }
     }
 
-    if !empty_classes.is_empty() {
-        empty_classes.sort();
+    if !r.classes_without_instances.is_empty() {
         out.push_str(&format!(
             "\n\nClasses with schema but no instances: {}",
-            empty_classes.join(", ")
+            r.classes_without_instances.join(", ")
         ));
     }
 
-    (out, issue_count)
+    out
 }
 
-pub fn corpus_index() -> Result<()> {
+/// One row of the corpus index.
+#[derive(Debug, serde::Serialize)]
+pub struct IndexRow {
+    pub node: String,
+    pub class: String,
+    pub label: String,
+    pub links_out: usize,
+    pub claims_verified: usize,
+    pub claims_inference: usize,
+    pub claims_open: usize,
+    pub lines: usize,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct CorpusIndexReport {
+    pub nodes: Vec<IndexRow>,
+}
+
+pub(crate) fn corpus_index_data(corpus: &Path) -> CorpusIndexReport {
+    let nodes = walk_corpus_instances(corpus)
+        .iter()
+        .map(|path| {
+            let text = std::fs::read_to_string(path).unwrap_or_default();
+            let claims = crate::claims::count_in_source(&text);
+            let inst: CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
+            let rel = path.strip_prefix(corpus).unwrap_or(path);
+            IndexRow {
+                node: slash_path(rel),
+                class: inst.class.unwrap_or_else(|| "—".to_string()),
+                label: inst.label.unwrap_or_else(|| "—".to_string()),
+                links_out: inst.links.unwrap_or_default().len(),
+                claims_verified: claims.verified,
+                claims_inference: claims.inference,
+                claims_open: claims.open,
+                lines: line_count(path),
+            }
+        })
+        .collect();
+    CorpusIndexReport { nodes }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct OpenQuestion {
+    pub node: String,
+    pub label: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct OpenQuestionsReport {
+    pub open_questions: Vec<OpenQuestion>,
+}
+
+pub(crate) fn open_questions_data(root: &Path, corpus: &Path) -> OpenQuestionsReport {
+    let open_questions = walk_corpus_instances(corpus)
+        .iter()
+        .filter_map(|path| {
+            let text = std::fs::read_to_string(path).unwrap_or_default();
+            let inst: CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
+            let label = inst.label.clone().unwrap_or_default();
+            if !(label.starts_with('?') || has_open_claim(&text)) {
+                return None;
+            }
+            let rel = path.strip_prefix(root).unwrap_or(path);
+            Some(OpenQuestion {
+                node: slash_path(rel),
+                label,
+            })
+        })
+        .collect();
+    OpenQuestionsReport { open_questions }
+}
+
+pub fn corpus_index(format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
     let corpus = yidam_corpus_dir(&root);
+    if format.is_json() {
+        return crate::report::emit(&root, corpus_index_data(&corpus));
+    }
     // Prefix "": the README this writes to sits in `corpus/`, so a row's path relative
     // to `corpus/` is already the link a reader's client resolves.
     let content = render_corpus_index("", &corpus);
@@ -212,20 +351,30 @@ pub fn corpus_index() -> Result<()> {
     update_file_regen(&corpus.join("README.md"), "yidam corpus-index", &content)
 }
 
-pub fn open_questions() -> Result<()> {
+pub fn open_questions(format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
     let corpus = yidam_corpus_dir(&root);
+    if format.is_json() {
+        return crate::report::emit(&root, open_questions_data(&root, &corpus));
+    }
     let content = render_open_questions(&root, &corpus);
     println!("{content}");
     update_file_regen(&root.join("README.md"), "yidam open-questions", &content)
 }
 
-pub fn graph_check() -> Result<()> {
+pub fn graph_check(format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
     let corpus = yidam_corpus_dir(&root);
-    let (report, issue_count) = render_graph_check(&root, &corpus);
-    // Also need to check for empty classes to print that section
-    println!("{report}");
+    let data = graph_check_data(&root, &corpus);
+    let issue_count = data.nodes_with_issues.len();
+
+    if format.is_json() {
+        crate::report::emit(&root, data)?;
+    } else {
+        println!("{}", render_graph_check_text(&data, &corpus));
+    }
+
+    // The gate, unchanged and shared: the verdict cannot depend on the rendering.
     if issue_count > 0 {
         anyhow::bail!("{issue_count} instance(s) have issues")
     }

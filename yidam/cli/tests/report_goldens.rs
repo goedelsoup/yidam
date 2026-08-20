@@ -40,14 +40,36 @@ fn stage() -> tempfile::TempDir {
     git(&["config", "user.email", "fixture@yidam.test"]);
     git(&["config", "user.name", "Fixture"]);
     git(&["add", "-A"]);
-    // A fixed author date keeps `status`'s genesis field stable across runs.
-    Command::new("git")
-        .current_dir(tmp.path())
-        .args(["commit", "-q", "-m", "genesis: reports fixture"])
-        .env("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z")
-        .env("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
-        .status()
-        .unwrap();
+    // Fixed dates keep `status`'s genesis field stable across runs.
+    let commit = |msg: &str| {
+        Command::new("git")
+            .current_dir(tmp.path())
+            .args(["commit", "-q", "-m", msg])
+            .env("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z")
+            .env("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
+            .status()
+            .unwrap();
+    };
+    commit("genesis: reports fixture");
+
+    // A second commit so `diff HEAD~1..HEAD` has a range to report on, and one that
+    // exercises the modified-node arm rather than only add/remove.
+    let node = tmp.path().join(".yidam/corpus/concept/tailwater.yml");
+    let text = std::fs::read_to_string(&node).unwrap();
+    std::fs::write(
+        &node,
+        text.replace(
+            "A discharge regime.",
+            "A discharge regime, revised. [verified]",
+        )
+        .replace(
+            "Water downstream of a structure.",
+            "Water downstream of a structure. [inference]",
+        ),
+    )
+    .unwrap();
+    git(&["add", "-A"]);
+    commit("revise: tailwater carries a claim tag");
     tmp
 }
 
@@ -124,7 +146,16 @@ fn assert_golden(name: &str, actual: &str) {
 }
 
 /// Every command that grew a `--format` flag, in both formats.
-const COMMANDS: &[(&str, &[&str])] = &[("lint", &["lint"])];
+const COMMANDS: &[(&str, &[&str])] = &[
+    ("lint", &["lint"]),
+    ("graph-check", &["graph-check"]),
+    ("status", &["status"]),
+    ("open-questions", &["open-questions"]),
+    ("corpus-index", &["corpus-index"]),
+    ("catalog-audit", &["catalog-audit"]),
+    ("phases", &["phases"]),
+    ("diff", &["diff", "HEAD~1..HEAD"]),
+];
 
 #[test]
 fn text_output_is_byte_identical_to_its_golden() {
@@ -166,4 +197,63 @@ fn exit_codes_are_identical_across_formats() {
             text.code, json.code
         );
     }
+}
+
+/// Every field a golden emits must be declared in the committed schema, and every
+/// required field must be present.
+///
+/// Not full JSON-Schema validation — that would want a dependency this crate does not
+/// otherwise need. It is the half that actually rots: a field added to a report and not to
+/// the schema, which leaves a consumer reading a contract that does not describe the data
+/// it is being sent.
+#[test]
+fn every_golden_field_is_declared_in_the_schema() {
+    let schema: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(fixture_dir().parent().unwrap().join("report.schema.json"))
+            .expect("report.schema.json"),
+    )
+    .expect("schema is valid JSON");
+
+    let required: Vec<&str> = schema["required"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    let declared = schema["properties"].as_object().unwrap();
+
+    let mut problems = Vec::new();
+    let mut seen = 0;
+    for entry in std::fs::read_dir(fixture_dir().join("expected")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|x| x != "json") {
+            continue;
+        }
+        seen += 1;
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        let doc: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let obj = doc.as_object().expect("an envelope is an object");
+        for key in &required {
+            if !obj.contains_key(*key) {
+                problems.push(format!("  {name}: missing required `{key}`"));
+            }
+        }
+        for key in obj.keys() {
+            if !declared.contains_key(key) {
+                problems.push(format!(
+                    "  {name}: emits `{key}`, which report.schema.json does not declare"
+                ));
+            }
+        }
+    }
+
+    assert!(seen > 0, "no JSON goldens found — the scan is broken");
+    assert!(
+        problems.is_empty(),
+        "goldens and schema disagree:\n{}\n\nAdd the field to report.schema.json, or stop \
+         emitting it. A consumer reading a contract that does not describe the data it is \
+         sent is the failure this contract exists to prevent.",
+        problems.join("\n")
+    );
 }
