@@ -29,6 +29,7 @@ import type {
   StatusReport,
 } from './reports.ts'
 import type { Spawn } from './runner.ts'
+import type { GraphReport } from './graph.ts'
 import type { VocabularyReport } from './vocabulary.ts'
 
 export type Outcome =
@@ -104,16 +105,25 @@ export interface CorpusViews {
   corpusIndex: CorpusIndexReport | null
   openQuestions: OpenQuestionsReport | null
   indexStatus: IndexStatusReport | null
+  /**
+   * The whole graph, for the navigation providers.
+   *
+   * On the save path rather than the ref path: an edge changes when a file changes, and a
+   * hover reporting the previous shape of the node you are editing is the one stale answer
+   * a reader would actually notice.
+   */
+  graph: GraphReport | null
 }
 
 export async function runCorpusViews(bin: string, cwd: string, run: Spawn): Promise<CorpusViews> {
-  const [status, corpusIndex, openQuestions, indexStatus] = await Promise.all([
+  const [status, corpusIndex, openQuestions, indexStatus, graph] = await Promise.all([
     fetchReport<StatusReport>(bin, ['status'], cwd, run),
     fetchReport<CorpusIndexReport>(bin, ['corpus-index'], cwd, run),
     fetchReport<OpenQuestionsReport>(bin, ['open-questions'], cwd, run),
     fetchReport<IndexStatusReport>(bin, ['index-status'], cwd, run),
+    fetchReport<GraphReport>(bin, ['graph'], cwd, run),
   ])
-  return { status, corpusIndex, openQuestions, indexStatus }
+  return { status, corpusIndex, openQuestions, indexStatus, graph }
 }
 
 /** What a ref can change. */

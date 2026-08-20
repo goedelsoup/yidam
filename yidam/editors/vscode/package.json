@@ -110,6 +110,10 @@
       {
         "command": "yidam.task.index-build",
         "title": "yidam: Run task — index-build"
+      },
+      {
+        "command": "yidam.newNode",
+        "title": "yidam: New corpus node"
       }
     ],
     "viewsContainers": {

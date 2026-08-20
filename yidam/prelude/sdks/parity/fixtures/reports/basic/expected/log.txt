@@ -1,5 +1,5 @@
-974ba87b  [O]  regen: REGEN blocks refreshed
-248dd8f3  [E]  revise: tailwater carries a claim tag
-b05367c1  [E]  genesis: reports fixture
+11ac2242  [O]  regen: REGEN blocks refreshed
+8b9aa4cb  [E]  revise: tailwater carries a claim tag
+59b7d2e5  [E]  genesis: reports fixture
 
 3 commit(s): 2 epistemic, 1 operational

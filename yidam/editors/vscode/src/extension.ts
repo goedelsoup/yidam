@@ -24,6 +24,20 @@ import * as vscode from 'vscode'
 import { pinPath, resolveBinary, type Resolution } from './binary.ts'
 import { DARK, findClaims, LIGHT, shouldDecorate, TAGS, type Tag } from './claims.ts'
 import { DEFAULT_OPTIONS, type Finding, type RepoCondition } from './diagnostics.ts'
+import {
+  hoverFor,
+  lineOfTarget,
+  nodeById,
+  referencesTo,
+  relationshipCandidates,
+  resolveFrom,
+  scaffold,
+  scalarAt,
+  slugify,
+  sorted,
+  targetCandidates,
+  type GraphReport,
+} from './graph.ts'
 import { describe, readHandshake, type Handshake } from './handshake.ts'
 import {
   runCorpusViews,
@@ -109,6 +123,14 @@ const refViews = new Cached<RefViews>()
 let vocabulary: VocabularyReport | null = null
 let commitDiagnostics: vscode.DiagnosticCollection
 let claimStyles: Map<Tag, vscode.TextEditorDecorationType> | null = null
+
+/**
+ * The corpus, as the CLI resolved it. Refreshed on the save path with the other reports.
+ *
+ * Held rather than fetched per keystroke: a completion list is a lookup in this, and
+ * spawning a process on every character typed in a YAML file would be absurd.
+ */
+let graph: GraphReport | null = null
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0)
@@ -231,6 +253,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   )
   decorateAll()
 
+  // Navigation over corpus YAML. Every provider is a lookup in the held graph plus a read
+  // of the line under the cursor; none of them parses YAML and none decides a verdict.
+  const CORPUS: vscode.DocumentSelector = { language: 'yaml', scheme: 'file' }
+  context.subscriptions.push(
+    vscode.languages.registerDefinitionProvider(CORPUS, { provideDefinition: definition }),
+    vscode.languages.registerReferenceProvider(CORPUS, { provideReferences: references }),
+    vscode.languages.registerHoverProvider(CORPUS, { provideHover: hover }),
+    vscode.languages.registerCompletionItemProvider(
+      CORPUS,
+      { provideCompletionItems: corpusCompletion },
+      ' ',
+      '/',
+      '.',
+    ),
+    vscode.commands.registerCommand('yidam.newNode', newNode),
+  )
+
   context.subscriptions.push(
     vscode.tasks.registerTaskProvider('yidam', {
       provideTasks: miseTasks,
@@ -256,6 +295,228 @@ export function deactivate(): void {
   diagnostics?.dispose()
   commitDiagnostics?.dispose()
   claimStyles?.forEach((d) => d.dispose())
+}
+
+// ── corpus navigation ─────────────────────────────────────────────────────────
+
+function graphOf(corpus: CorpusViews): void {
+  graph = corpus.graph
+}
+
+/** The corpus-relative id of a document, or null when it is not in the corpus. */
+function nodeIdOf(uri: vscode.Uri): string | null {
+  const folder = workspaceFolder()
+  if (!folder || !graph) return null
+  const prefix = `${folder}/${graph.corpus_dir}/`
+  return uri.fsPath.startsWith(prefix) ? uri.fsPath.slice(prefix.length) : null
+}
+
+function uriOf(id: string): vscode.Uri | null {
+  const folder = workspaceFolder()
+  if (!folder || !graph) return null
+  return vscode.Uri.file(`${folder}/${graph.corpus_dir}/${id}`)
+}
+
+/** The `target:` scalar under the cursor, resolved to a corpus id. */
+function targetUnderCursor(
+  document: vscode.TextDocument,
+  position: vscode.Position,
+): { id: string; scalar: NonNullable<ReturnType<typeof scalarAt>> } | null {
+  const id = nodeIdOf(document.uri)
+  if (id === null) return null
+  const scalar = scalarAt(document.lineAt(position.line).text, position.character, 'target')
+  if (!scalar) return null
+  const resolved = resolveFrom(id, scalar.value)
+  return resolved ? { id: resolved, scalar } : null
+}
+
+/**
+ * Ctrl-click through an edge.
+ *
+ * Offered without an existence check. `exists` is the gate's answer, computed by the CLI
+ * with the same two lines `dangling_edge` uses, and a second one here would be the drift the
+ * whole contract exists to prevent — silently disagreeing about which edges are broken. When
+ * the path is wrong VS Code says the file cannot be opened, which is a better signal than a
+ * jump that quietly does nothing.
+ */
+function definition(
+  document: vscode.TextDocument,
+  position: vscode.Position,
+): vscode.Location | null {
+  const hit = targetUnderCursor(document, position)
+  const uri = hit && uriOf(hit.id)
+  return uri ? new vscode.Location(uri, new vscode.Position(0, 0)) : null
+}
+
+/**
+ * Inbound edges — the traversal nothing surfaced.
+ *
+ * `used-by` covers catalog entries only, and `orphan-in` reports the *absence* of inbound
+ * edges without ever naming the present ones. On a target scalar this answers about the
+ * target; anywhere else in the file, about the file.
+ */
+async function references(
+  document: vscode.TextDocument,
+  position: vscode.Position,
+): Promise<vscode.Location[]> {
+  if (!graph) return []
+  const subject = targetUnderCursor(document, position)?.id ?? nodeIdOf(document.uri)
+  if (subject === null) return []
+  const out: vscode.Location[] = []
+  for (const ref of referencesTo(graph, subject)) {
+    const uri = uriOf(ref.from)
+    if (!uri) continue
+    let line = 0
+    try {
+      line = lineOfTarget((await vscode.workspace.openTextDocument(uri)).getText(), ref.target)
+    } catch {
+      // The report says the file is there; if it cannot be opened, the top of it is still
+      // the honest answer rather than dropping the reference.
+    }
+    out.push(new vscode.Location(uri, new vscode.Position(line, 0)))
+  }
+  return out
+}
+
+/** What is on the other end of this edge, without leaving the node. */
+function hover(document: vscode.TextDocument, position: vscode.Position): vscode.Hover | null {
+  if (!graph) return null
+  const hit = targetUnderCursor(document, position)
+  if (!hit) return null
+  const text = hoverFor(graph, hit.id)
+  if (!text) return null
+  return new vscode.Hover(
+    new vscode.MarkdownString(text),
+    new vscode.Range(position.line, hit.scalar.start, position.line, hit.scalar.end),
+  )
+}
+
+/** The relationship named on the nearest `relationship:` line of this link entry. */
+function relationshipNear(document: vscode.TextDocument, line: number): string {
+  for (let i = line; i >= 0 && i > line - 8; i -= 1) {
+    const m = /^\s*(?:-\s*)?relationship:\s*(\S+)/.exec(document.lineAt(i).text)
+    if (m) return m[1].replace(/^["']|["']$/g, '')
+    // A new list entry above with no relationship yet — stop rather than borrow the
+    // previous link's.
+    if (i < line && /^\s*-\s*\w+:/.test(document.lineAt(i).text)) break
+  }
+  return ''
+}
+
+function corpusCompletion(
+  document: vscode.TextDocument,
+  position: vscode.Position,
+): vscode.CompletionItem[] {
+  const id = nodeIdOf(document.uri)
+  if (!graph || id === null) return []
+  const line = document.lineAt(position.line).text
+
+  const onRelationship = /^\s*(?:-\s*)?relationship:/.test(line)
+  const onTarget = /^\s*(?:-\s*)?target:/.test(line)
+  if (!onRelationship && !onTarget) return []
+
+  const node = nodeById(graph, id)
+  const candidates = onRelationship
+    ? relationshipCandidates(graph, node?.class ?? '')
+    : targetCandidates(graph, id, relationshipNear(document, position.line))
+
+  // Replace whatever is already typed after the key, so a partial path does not end up
+  // concatenated with the completion.
+  const written = scalarAt(line, position.character, onRelationship ? 'relationship' : 'target')
+  const keyEnd = line.indexOf(':') + 1
+  const range = new vscode.Range(
+    position.line,
+    written ? written.start : Math.min(keyEnd + 1, line.length),
+    position.line,
+    Math.max(position.character, written ? written.end : 0),
+  )
+
+  return sorted(candidates).map((c) => {
+    const item = new vscode.CompletionItem(
+      c.label,
+      onRelationship ? vscode.CompletionItemKind.EnumMember : vscode.CompletionItemKind.File,
+    )
+    item.detail = c.detail
+    if (c.documentation) item.documentation = new vscode.MarkdownString(c.documentation)
+    item.sortText = c.sortText
+    item.range = range
+    return item
+  })
+}
+
+/**
+ * Create a node, and refuse to create one without an edge.
+ *
+ * The link is asked for *before* the file is written, and cancelling at that step writes
+ * nothing. A node with no outgoing edge is a lint error the moment it exists, so a command
+ * that scaffolded one would be offering to break the gate — politely, with a wizard.
+ */
+async function newNode(): Promise<void> {
+  const folder = workspaceFolder()
+  if (!folder || !graph) {
+    void vscode.window.showWarningMessage('yidam: no corpus graph yet — is the binary resolved?')
+    return
+  }
+  const g = graph
+
+  const cls = await vscode.window.showQuickPick(
+    g.classes.map((c) => ({ label: c.class, description: c.label, detail: c.description })),
+    { title: 'New node — class', matchOnDetail: true },
+  )
+  if (!cls) return
+
+  const label = await vscode.window.showInputBox({ title: 'New node — label', ignoreFocusOut: true })
+  if (!label) return
+  const name = await vscode.window.showInputBox({
+    title: 'New node — filename',
+    value: slugify(label),
+    ignoreFocusOut: true,
+    validateInput: (v) =>
+      /^[a-z0-9]+(-[a-z0-9]+)*$/.test(v)
+        ? undefined
+        : 'kebab-case, lowercase. Filenames are identity — renaming one severs every edge into it.',
+  })
+  if (!name) return
+  const description = await vscode.window.showInputBox({
+    title: 'New node — description',
+    prompt: 'The node\'s content. One concept, 2–10 sentences.',
+    ignoreFocusOut: true,
+  })
+  if (!description) return
+
+  const id = `${cls.label}/${name}.yml`
+  const relationship = await vscode.window.showQuickPick(
+    sorted(relationshipCandidates(g, cls.label)).map((c) => ({
+      label: c.label,
+      description: c.detail,
+      detail: c.documentation,
+    })),
+    { title: 'New node — its first edge (required)', matchOnDetail: true },
+  )
+  if (!relationship) return
+  const target = await vscode.window.showQuickPick(
+    sorted(targetCandidates(g, id, relationship.label)).map((c) => ({
+      label: c.label,
+      description: c.detail,
+    })),
+    { title: `New node — ${relationship.label} →`, matchOnDetail: true },
+  )
+  if (!target) return
+
+  const uri = vscode.Uri.file(`${folder}/${g.corpus_dir}/${id}`)
+  const body = scaffold(
+    {
+      class: cls.label,
+      name,
+      label,
+      description,
+      relationship: relationship.label,
+      target: resolveFrom(id, target.label),
+    },
+    g.classes.find((c) => c.class === cls.label),
+  )
+  await vscode.workspace.fs.writeFile(uri, Buffer.from(body, 'utf8'))
+  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri))
 }
 
 // ── claim tags ────────────────────────────────────────────────────────────────
@@ -513,6 +774,7 @@ async function report(): Promise<void> {
     )
     views.open.replace(corpus.openQuestions ? openQuestionsTree(corpus.openQuestions) : [])
     views.phases.replace(refs.phases ? phasesTree(refs.phases) : [])
+    graphOf(corpus)
     views.health.replace(
       healthTree({ lint: outcome.lint, graph: outcome.graph, index: corpus.indexStatus }),
     )
