@@ -408,6 +408,107 @@
         }
       }
     },
+    "source": {
+      "type": "string",
+      "description": "`vocabulary` only. Repository-relative path of the GRAPH.md the **When** prose came from — the vendored copy if present, otherwise `yidam/prelude/`. Empty when neither exists, which costs the prose and nothing else."
+    },
+    "verbs": {
+      "type": "array",
+      "description": "`vocabulary` only. The closed commit vocabulary. MEMBERSHIP AND KIND COME FROM THE PARITY-CERTIFIED LISTS, not from GRAPH.md — a consumer that decided either from the document would be a second implementation of the predicate `lint --commits` gates on, and could green-light a verb CI then reports. GRAPH.md supplies `when` and nothing else.",
+      "items": {
+        "type": "object",
+        "required": [
+          "verb",
+          "kind",
+          "when"
+        ],
+        "properties": {
+          "verb": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "epistemic",
+              "operational"
+            ]
+          },
+          "when": {
+            "type": "string",
+            "description": "The **When** cell, or empty when no GRAPH.md was found."
+          }
+        }
+      }
+    },
+    "drift": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "`vocabulary` only. Disagreements between GRAPH.md's tables and the certified lists. Empty is the expected state; non-empty means the document and the predicate that gates on it have come apart, and the document is the half that is wrong. Three SDKs carry a comment saying the constants are 'kept in sync with prelude/GRAPH.md' and nothing verified it until this field existed."
+    },
+    "subject": {
+      "type": "object",
+      "description": "`vocabulary --check` only. One subject line checked the way `lint --commits` checks a committed one — but before the commit exists. Absent when `--check` was not given.",
+      "required": [
+        "text",
+        "verb",
+        "kind",
+        "recognized",
+        "violations"
+      ],
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "The first line, trimmed. Only the subject is checked."
+        },
+        "verb": {
+          "type": "string",
+          "description": "Everything before the first `: `, exactly as `classify_commit` reads it. Empty when there is no such separator."
+        },
+        "kind": {
+          "enum": [
+            "epistemic",
+            "operational"
+          ],
+          "description": "What the commit would be filed as. Total: every subject gets a kind, including one whose verb is unrecognized — which is precisely how a scoped operational verb ends up filed as Epistemic."
+        },
+        "recognized": {
+          "type": "boolean"
+        },
+        "violations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "rule",
+              "severity",
+              "message"
+            ],
+            "properties": {
+              "rule": {
+                "enum": [
+                  "scope-suffix",
+                  "unrecognized-verb",
+                  "no-verb"
+                ],
+                "description": "`scope-suffix` is separate from `unrecognized-verb` deliberately: it has a known cause and a known double cost, and saying so is the difference between a squiggle that teaches and one that scolds."
+              },
+              "severity": {
+                "enum": [
+                  "error",
+                  "warn",
+                  "info"
+                ],
+                "description": "Read from the `unrecognized-verb` lint check rather than restated — all three rules are sub-cases of it. A consumer MUST render at this severity and not escalate: a squiggle stricter than the gate is an editor asserting a verdict nobody agreed to."
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
     "filter": {
       "enum": [
         "all",

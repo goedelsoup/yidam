@@ -119,6 +119,47 @@ processes per ref, and a sangha has dozens. So what a *save* can change is one c
 what a *ref* can change is another. A sangha edit bumps the ref generation, because that is
 the view it moves.
 
+## The commit box
+
+VS Code's commit input is a real text document with language id `scminput`, so language
+features register against it.
+
+- **Completion** on the verb, epistemic before operational, each carrying its **When** cell
+  as detail text. Offered only while the cursor is before the first `: ` — past it you are
+  writing prose, and thirty verbs there is noise.
+- **A squiggle** for a verb outside the vocabulary, or one carrying a conventional-commits
+  `(scope)` suffix.
+
+Both rules already existed and were already checked — by `yidam lint --commits`, *after* the
+commit. GRAPH.md says why moving them matters: the check is Warn severity and correctly so,
+since history cannot be rewritten to fix a verb — *"that also means it reports drift only
+after the drift is permanent."*
+
+**`(scope)` earns the squiggle on its own.** Everything before the first `: ` is the verb,
+so `vendor(yidam):` is read as the verb `vendor(yidam)`. That costs twice: it is outside the
+vocabulary, **and** classification falls through to Epistemic, silently filing an operational
+commit as a change in understanding. The bootstrap skill prescribed exactly that form, and
+every derived repository's first three commits were reported by its own lint.
+
+### Nothing here decides what is legal
+
+The list and the verdict both come from `yidam vocabulary --format json`. Membership is
+`is_recognized_verb` and the kind is `classify_commit` — the parity-certified pair, proven
+total against the Dafny spec. A hardcoded list in TypeScript would be a second source of
+truth for a rule the prelude owns and re-vendoring may change: `resolve`, `scope` and
+`adopt` all arrived that way, and the vendored `GRAPH.md` is watched for exactly that.
+
+The severity is transcribed too, read from the `unrecognized-verb` check rather than
+chosen. A commit box that squiggled harder than the gate would be asserting a verdict
+nobody agreed to — and this is precisely where escalating feels helpful.
+
+### And the "kept in sync" comment became checkable
+
+`git.rs`, `git.py` and `git.ts` each say their constants are *"kept in sync with the commit
+vocabulary in `prelude/GRAPH.md`"*. Three comments, three languages, nothing verifying it.
+`vocabulary` parses the tables to fetch their **When** prose, so comparing them costs
+nothing — `drift` is a field on the report rather than a hope.
+
 ## Layout
 
 | Path | |
@@ -130,6 +171,7 @@ the view it moves.
 | `src/runner.ts` | spawn, per-OID cache, debounce. No `vscode` import. |
 | `src/report-run.ts` | one pass over the reports, in two cached groups. No `vscode` import. |
 | `src/tree/model.ts` | the five views, as data. No `vscode` import. |
+| `src/vocabulary.ts` | what to offer, where to underline. No `vscode` import. |
 | `src/tree/provider.ts` | `TreeNode` → `vscode.TreeItem`. The adapter, with no judgement in it. |
 | `src/extension.ts` | activation, status bar, terminal actions. Thin by design. |
 | `test/` | `node --test`, no Electron |

@@ -19,7 +19,7 @@ pub use cmd::{
     agents_index, backfill, bundle, bundle_status, catalog_audit, clone, corpus_index,
     crates_index, decisions_log, diff_corpus, embed, export, graph_check, index_status, lint,
     list_formats, log, open_questions, overlay, packages_index, phases, regen, run_export,
-    samudaya_audit, sangha, schema, skills_index, status, EmbedOptions, ExportFormat,
+    samudaya_audit, sangha, schema, skills_index, status, vocabulary, EmbedOptions, ExportFormat,
     ExportOptions, LintOptions, LogFilter, RdfFormat,
 };
 #[cfg(feature = "index")]

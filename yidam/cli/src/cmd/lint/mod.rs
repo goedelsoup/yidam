@@ -18,6 +18,16 @@ use anyhow::Result;
 
 pub use model::{Check, Severity};
 
+/// The severity `unrecognized-verb` reports at.
+///
+/// Exposed so that a surface rendering the same rule somewhere else — `yidam vocabulary
+/// --check`, and through it the SCM input box — reads its severity from the check rather
+/// than restating it. A squiggle stricter than the gate is an editor asserting a verdict
+/// nobody agreed to.
+pub(crate) fn commit_verb_severity() -> Severity {
+    commits::unrecognized_verb(&[]).severity
+}
+
 use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir};
 use crate::walk::{walk_corpus_instances, walk_linkable_files, walk_md_files, walk_ont_files};
 

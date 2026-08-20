@@ -254,6 +254,10 @@ run = "yidam phases"
 description = "Report the sangha: registered electors, their positions, and settled resolutions."
 run = "yidam sangha"
 
+[vocabulary]
+description = "Print the closed commit vocabulary. `mise run vocabulary -- --check \"verb: subject\"` checks one subject before it is committed."
+run = "yidam vocabulary"
+
 [agents-index]
 description = "Regenerate agents/README.md index table."
 run = "yidam agents-index"

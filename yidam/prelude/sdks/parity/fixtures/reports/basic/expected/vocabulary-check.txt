@@ -1,0 +1,3 @@
+"vendor(yidam): the prelude at 4e1a2b0"
+  verb `vendor(yidam)` · epistemic · outside the vocabulary
+  [scope-suffix] `vendor(yidam)` carries a conventional-commits scope. Everything before the first `: ` is the verb, so this costs twice — it is outside the vocabulary, and classification falls through to Epistemic, filing an operational commit as a change in understanding. Put the scope in the subject: `vendor: yidam the prelude at 4e1a2b0`.
