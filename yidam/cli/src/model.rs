@@ -211,7 +211,11 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
         .unwrap_or_default()
         .as_secs();
 
-    let corpus_index = render_corpus_index(root, &corpus_dir);
+    // Prefix "../corpus/": this rendering goes into the export bundle at `index/corpus.md`,
+    // where the instances sit at `corpus/<class>/<file>` (see `cmd::bundle`). One directory
+    // up and over. It was root-relative here too, so the bundle's index was dead the same
+    // way the README's was, one layer further from anyone who would notice.
+    let corpus_index = render_corpus_index("../corpus/", &corpus_dir);
     let (graph_check, _) = render_graph_check(root, &corpus_dir);
     let decisions_log = render_decisions_log(&decisions_dir);
     let skills_index = render_skills_index(&skills_dir);

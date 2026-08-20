@@ -8,7 +8,32 @@ use crate::walk::{line_count, walk_corpus_instances, walk_ont_files};
 
 use super::has_open_claim;
 
-pub(crate) fn render_corpus_index(root: &Path, corpus: &Path) -> String {
+/// A path as a markdown link target: `/`-separated on every platform.
+///
+/// `Path::display` emits the host separator. This table is committed and then compared
+/// byte-for-byte by CI, and a generator whose output depends on the machine it ran on
+/// cannot be committed in a form CI reproduces.
+fn slash_path(p: &Path) -> String {
+    p.components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// Render the corpus index table.
+///
+/// `link_prefix` is prepended to each row's corpus-relative path. It exists because a
+/// markdown link resolves against the directory of the file it sits in, not against the
+/// repository root, and this table is written to two destinations at different depths:
+/// the README inside the corpus directory (prefix `""`), and `index/corpus.md` in the
+/// export bundle, whose corpus sits one directory over (prefix `"../corpus/"`).
+///
+/// It used to strip the repository root and hand the same string to both. In a derived
+/// repository every row of the committed index resolved to `.yidam/corpus/.yidam/corpus/…`
+/// — 84 dead links, and that repo's own link checker had to carry an exemption for them.
+/// [`render_open_questions`] below *does* strip the root and is correct, because the file
+/// it writes is the root README. One renderer serving two destinations is what let this sit.
+pub(crate) fn render_corpus_index(link_prefix: &str, corpus: &Path) -> String {
     let instances = walk_corpus_instances(corpus);
     if instances.is_empty() {
         return "_No corpus instances yet._".to_string();
@@ -27,16 +52,22 @@ pub(crate) fn render_corpus_index(root: &Path, corpus: &Path) -> String {
         let label = inst.label.unwrap_or_else(|| "—".to_string());
         let links = inst.links.unwrap_or_default().len();
         let lines = line_count(path);
-        let rel = path.strip_prefix(root).unwrap_or(path);
+        let rel = path.strip_prefix(corpus).unwrap_or(path);
         let filename = path.file_name().unwrap_or_default().to_string_lossy();
         rows.push(format!(
-            "| [{filename}]({}) | {class} | {label} | {links} | {claims} | {lines} |",
-            rel.display()
+            "| [{filename}]({link_prefix}{}) | {class} | {label} | {links} | {claims} | {lines} |",
+            slash_path(rel)
         ));
     }
     rows.join("\n")
 }
 
+/// Render the open-questions list.
+///
+/// Root-relative, and correct: [`open_questions`] writes it into the root README, so the
+/// directory a link resolves against *is* the root. The asymmetry with
+/// [`render_corpus_index`] is the point — each renderer is relative to where its output
+/// lands, and neither may assume the other's depth.
 pub(crate) fn render_open_questions(root: &Path, corpus: &Path) -> String {
     let instances = walk_corpus_instances(corpus);
     let mut items = Vec::new();
@@ -46,7 +77,7 @@ pub(crate) fn render_open_questions(root: &Path, corpus: &Path) -> String {
         let label = inst.label.clone().unwrap_or_default();
         if label.starts_with('?') || has_open_claim(&text) {
             let rel = path.strip_prefix(root).unwrap_or(path);
-            items.push(format!("- [{label}]({})", rel.display()));
+            items.push(format!("- [{label}]({})", slash_path(rel)));
         }
     }
     if items.is_empty() {
@@ -174,7 +205,9 @@ pub(crate) fn render_graph_check(root: &Path, corpus: &Path) -> (String, usize) 
 pub fn corpus_index() -> Result<()> {
     let root = repo_root()?;
     let corpus = yidam_corpus_dir(&root);
-    let content = render_corpus_index(&root, &corpus);
+    // Prefix "": the README this writes to sits in `corpus/`, so a row's path relative
+    // to `corpus/` is already the link a reader's client resolves.
+    let content = render_corpus_index("", &corpus);
     println!("{content}");
     update_file_regen(&corpus.join("README.md"), "yidam corpus-index", &content)
 }
@@ -197,4 +230,108 @@ pub fn graph_check() -> Result<()> {
         anyhow::bail!("{issue_count} instance(s) have issues")
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn node(dir: &Path, class: &str, name: &str) {
+        let d = dir.join(class);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(
+            d.join(format!("{name}.yml")),
+            format!("class: {class}\nlabel: {name}\nlinks:\n  - target: other.yml\n"),
+        )
+        .unwrap();
+    }
+
+    /// Every link in a generated table is resolved against the directory the table is
+    /// written into — which is what a reader's markdown client does.
+    ///
+    /// The defect this pins passed a prefix check: the rows *contained* the right path,
+    /// spelled from the wrong place. Assert by resolving, never by string-matching.
+    fn assert_links_resolve(rendered: &str, from_dir: &Path) {
+        let mut checked = 0;
+        for line in rendered.lines() {
+            let Some(open) = line.find("](") else {
+                continue;
+            };
+            let rest = &line[open + 2..];
+            let Some(close) = rest.find(')') else {
+                continue;
+            };
+            let target = from_dir.join(&rest[..close]);
+            assert!(
+                target.exists(),
+                "link {:?} does not resolve from {:?} (tried {:?})",
+                &rest[..close],
+                from_dir,
+                target
+            );
+            checked += 1;
+        }
+        assert!(checked > 0, "no links found in:\n{rendered}");
+    }
+
+    #[test]
+    fn index_links_resolve_from_the_corpus_readme() {
+        let tmp = tempfile::tempdir().unwrap();
+        let corpus = tmp.path().join(".yidam").join("corpus");
+        node(&corpus, "person", "alpha");
+        node(&corpus, "event", "beta");
+
+        // The README lives in `corpus/`, so that is the directory its links resolve from.
+        assert_links_resolve(&render_corpus_index("", &corpus), &corpus);
+    }
+
+    /// The bundle lays the same table out at `index/corpus.md` with the nodes at
+    /// `corpus/<class>/<file>`, so its links are one directory up and over.
+    #[test]
+    fn index_links_resolve_from_the_bundle_layout() {
+        let tmp = tempfile::tempdir().unwrap();
+        let corpus = tmp.path().join(".yidam").join("corpus");
+        node(&corpus, "person", "alpha");
+
+        let bundle = tmp.path().join("bundle");
+        std::fs::create_dir_all(bundle.join("index")).unwrap();
+        std::fs::create_dir_all(bundle.join("corpus").join("person")).unwrap();
+        std::fs::write(bundle.join("corpus").join("person").join("alpha.yml"), "x").unwrap();
+
+        assert_links_resolve(
+            &render_corpus_index("../corpus/", &corpus),
+            &bundle.join("index"),
+        );
+    }
+
+    /// The root README's list is root-relative, and that is correct rather than
+    /// inconsistent: it is written to the root.
+    #[test]
+    fn open_question_links_resolve_from_the_root_readme() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let corpus = root.join(".yidam").join("corpus");
+        let d = corpus.join("question");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(
+            d.join("gamma.yml"),
+            "class: question\nlabel: ?what is gamma\n",
+        )
+        .unwrap();
+
+        assert_links_resolve(&render_open_questions(root, &corpus), root);
+    }
+
+    /// A row's link is `/`-separated whatever the host does, because the rendered table is
+    /// committed and CI compares it byte-for-byte.
+    #[test]
+    fn link_targets_are_slash_separated() {
+        let tmp = tempfile::tempdir().unwrap();
+        let corpus = tmp.path().join(".yidam").join("corpus");
+        node(&corpus, "person", "alpha");
+
+        let rendered = render_corpus_index("", &corpus);
+        assert!(rendered.contains("(person/alpha.yml)"), "{rendered}");
+        assert!(!rendered.contains('\\'), "{rendered}");
+    }
 }
