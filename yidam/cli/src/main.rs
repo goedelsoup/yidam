@@ -62,6 +62,13 @@ enum Command {
     BundleStatus,
     /// Refresh every REGEN block in one pass.
     Regen,
+    /// Report the corpus graph: nodes, resolved edges, and the classes that license them
+    Graph {
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     #[command(name = "graph-check")]
     GraphCheck {
         /// Output format. `json` emits the machine-readable report contract
@@ -253,6 +260,7 @@ fn main() -> Result<()> {
         Command::PackagesIndex => yidam::packages_index(),
         Command::BundleStatus => yidam::bundle_status(),
         Command::Regen => yidam::regen(),
+        Command::Graph { format } => yidam::graph(format),
         Command::GraphCheck { format } => yidam::graph_check(format),
         Command::DecisionsLog => yidam::decisions_log(),
         Command::Diff { range, format } => yidam::diff_corpus(&range, format),

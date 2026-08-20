@@ -8,6 +8,7 @@
     ]
   },
   "root": "<ROOT>",
+  "corpus_dir": ".yidam/corpus",
   "nodes": [
     {
       "node": "concept/low-flow.yml",

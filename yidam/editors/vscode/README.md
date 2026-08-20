@@ -160,6 +160,52 @@ vocabulary in `prelude/GRAPH.md`"*. Three comments, three languages, nothing ver
 `vocabulary` parses the tables to fetch their **When** prose, so comparing them costs
 nothing — `drift` is a field on the report rather than a hope.
 
+## Link navigation
+
+A corpus edge is a filesystem-relative path inside YAML. To VS Code that is an opaque
+scalar — no ctrl-click, no completion, no hover.
+
+- **Definition** on `target:` — ctrl-click through an edge.
+- **References** — inbound edges to the open node, or to the target under the cursor.
+  Nothing surfaced reverse traversal for corpus nodes: `used-by` covers catalog entries only,
+  and `orphan-in` reports the *absence* of inbound edges without ever naming the present ones.
+- **Hover** — the target's label, class, degree in both directions, and description.
+- **Completion** on `relationship:` and on `target:`.
+- **New node** — class, label, filename, description, then **its first edge**. Cancelling at
+  that step writes nothing: a node with no outgoing edge is a lint error the moment it
+  exists, so a command that scaffolded one would be offering to break the gate.
+
+### The CLI resolves the edges
+
+`yidam graph --format json` reports every edge already resolved, with `exists` answered by
+the same two lines `dangling_edge` uses. Resolution is `normalize(dir.join(target))` — the
+rule that makes the graph a graph — and a client re-deriving it would disagree with the gate
+about which edges are broken, silently, in the direction of "looks fine here".
+
+`resolveFrom` exists on this side anyway, because a buffer can be edited after the report
+was taken and navigation has to work in it. A contract test runs it against **every edge the
+binary resolved** so the two cannot come apart. Definition offers its location without an
+existence check of its own: when the path is wrong VS Code says the file cannot be opened,
+which beats a second answer to a question `lint` already gates on.
+
+### The ontology is a guide, not a closed list
+
+Measured on a live derived repository at 90 nodes and 299 edges: **17 (class, relationship)
+pairs in use are not declared as `out` edges**, and one of them — `instance-of`, the edge
+every node carries to its own `.ont.yml` — is used by every class and declared by none.
+Nothing lints relationships against the ontology, so a list restricted to declared edges
+would be stricter than any rule in the system and would omit the corpus's most-used
+relationship.
+
+So: declared first, in-use beside them, and the reason each is offered in its detail text.
+The opposite of the commit vocabulary, which *is* closed and *is* gated — and that difference
+is why one gets a squiggle and this does not.
+
+**One relationship may be declared against several classes.** Three of that repository's
+classes do it (`maneuver -[operates-on]->` legislation, ballot-measure, election). Reading
+only the first declaration offered a third of the legal targets and hid the rest, which
+reads to a user as "those nodes do not exist".
+
 ## Three guards
 
 ### Claim tags
@@ -225,6 +271,7 @@ solved.
 | `src/report-run.ts` | one pass over the reports, in two cached groups. No `vscode` import. |
 | `src/tree/model.ts` | the five views, as data. No `vscode` import. |
 | `src/vocabulary.ts` | what to offer, where to underline. No `vscode` import. |
+| `src/graph.ts` | scalar reading, path arithmetic, completion ranking. No `vscode` import. |
 | `src/claims.ts` | claim tokens, their spans, the palette. No `vscode` import. |
 | `src/settings.ts` | what to write into settings, and when not to. No `vscode` import. |
 | `src/tree/provider.ts` | `TreeNode` → `vscode.TreeItem`. The adapter, with no judgement in it. |

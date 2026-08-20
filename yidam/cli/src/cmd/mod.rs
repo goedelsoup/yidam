@@ -16,6 +16,7 @@ mod export_rdf;
 #[cfg(feature = "export-sqlite")]
 mod export_sqlite;
 mod export_web;
+mod graph;
 #[cfg(feature = "index")]
 mod index_build;
 mod lint;
@@ -45,6 +46,7 @@ pub use decisions::decisions_log;
 pub use diff::diff_corpus;
 pub use embed::{embed, EmbedOptions};
 pub use export::{export, list_formats, run_export, ExportFormat, ExportOptions, RdfFormat};
+pub use graph::graph;
 #[cfg(feature = "index")]
 pub use index_build::index_build;
 pub use lint::{lint, Options as LintOptions};

@@ -281,10 +281,13 @@ pub struct IndexRow {
 
 #[derive(Debug, serde::Serialize)]
 pub struct CorpusIndexReport {
+    /// Repository-relative corpus root, so a consumer building a path from a row does not
+    /// have to hardcode `.yidam/corpus`. Rows are relative to *this*.
+    pub corpus_dir: String,
     pub nodes: Vec<IndexRow>,
 }
 
-pub(crate) fn corpus_index_data(corpus: &Path) -> CorpusIndexReport {
+pub(crate) fn corpus_index_data(root: &Path, corpus: &Path) -> CorpusIndexReport {
     let nodes = walk_corpus_instances(corpus)
         .iter()
         .map(|path| {
@@ -304,7 +307,10 @@ pub(crate) fn corpus_index_data(corpus: &Path) -> CorpusIndexReport {
             }
         })
         .collect();
-    CorpusIndexReport { nodes }
+    CorpusIndexReport {
+        corpus_dir: slash_path(corpus.strip_prefix(root).unwrap_or(corpus)),
+        nodes,
+    }
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -342,7 +348,7 @@ pub fn corpus_index(format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
     let corpus = yidam_corpus_dir(&root);
     if format.is_json() {
-        return crate::report::emit(&root, corpus_index_data(&corpus));
+        return crate::report::emit(&root, corpus_index_data(&root, &corpus));
     }
     // Prefix "": the README this writes to sits in `corpus/`, so a row's path relative
     // to `corpus/` is already the link a reader's client resolves.

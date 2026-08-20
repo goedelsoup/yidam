@@ -6,7 +6,11 @@
 #   includes = ["mise.yidam.toml"]
 #
 # This is a mise *task file*, not a standalone config: tables are task names
-# directly (`[graph-check]`, not `[tasks.graph-check]`) and it carries no
+# directly (`[graph]
+description = "Report the corpus graph: nodes, resolved edges, and the classes that license them."
+run = "yidam graph"
+
+[graph-check]`, not `[tasks.graph-check]`) and it carries no
 # `[tools]` section — the toolchain belongs in mise.toml. Loading it as a config
 # (`MISE_ENV=yidam`) will not work. Nor will a top-level `extends`: mise accepts
 # `extends` on an individual task, never on a config file, and silently orphans

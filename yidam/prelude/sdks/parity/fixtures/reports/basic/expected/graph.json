@@ -1,0 +1,76 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "reports"
+    ]
+  },
+  "root": "<ROOT>",
+  "corpus_dir": ".yidam/corpus",
+  "nodes": [
+    {
+      "node": "concept/low-flow.yml",
+      "class": "concept",
+      "label": "Low flow",
+      "description": "A discharge regime. Carries one deliberately broken edge.",
+      "links": [
+        {
+          "target": "../concept/assimilative-capacit.yml",
+          "relationship": "depends-on",
+          "resolved": "concept/assimilative-capacit.yml",
+          "exists": false
+        }
+      ]
+    },
+    {
+      "node": "concept/tailwater.yml",
+      "class": "concept",
+      "label": "Tailwater",
+      "description": "Water downstream of a structure. [inference] The control node — it trips nothing.",
+      "links": [
+        {
+          "target": "../concept/low-flow.yml",
+          "relationship": "relates-to",
+          "resolved": "concept/low-flow.yml",
+          "exists": true
+        }
+      ]
+    }
+  ],
+  "classes": [
+    {
+      "class": "concept",
+      "label": "Concept",
+      "description": "A unit of understanding in this fixture corpus.",
+      "properties": [
+        {
+          "name": "datum",
+          "type": "string",
+          "description": "Which vertical datum the values are read against."
+        }
+      ],
+      "edges": [
+        {
+          "relationship": "relates-to",
+          "target": "concept",
+          "direction": "out",
+          "description": "A bare association between two concepts."
+        },
+        {
+          "relationship": "depends-on",
+          "target": "concept",
+          "direction": "out",
+          "description": "The concept cannot be stated without the target."
+        },
+        {
+          "relationship": "measured-by",
+          "target": "gauge",
+          "direction": "in",
+          "description": "A gauge measures this concept — authored on the gauge."
+        }
+      ]
+    }
+  ]
+}

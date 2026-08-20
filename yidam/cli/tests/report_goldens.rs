@@ -171,6 +171,7 @@ const COMMANDS: &[(&str, &[&str])] = &[
     ("log-epistemic", &["log", "--epistemic"]),
     ("index-status", &["index-status"]),
     ("sangha", &["sangha"]),
+    ("graph", &["graph"]),
     ("vocabulary", &["vocabulary"]),
     // The fixture carries no vendored GRAPH.md, so this golden also pins the
     // no-document arm: every `when` empty, and `drift` empty rather than thirty
