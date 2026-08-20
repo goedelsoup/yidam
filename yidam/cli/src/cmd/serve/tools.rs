@@ -5,55 +5,63 @@ use serde_json::{json, Value};
 use super::resources::is_open_question;
 use super::{IndexState, ServerState};
 
-pub(crate) fn list() -> Value {
-    json!({"tools": [
-        {
-            "name": "retrieve",
-            "description": "Semantic search over corpus nodes. Returns the top-k nodes by \
-                            cosine similarity; degrades to keyword search (with \"degraded\": \
-                            true) when the vector index is absent.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Natural-language query"},
-                    "k": {"type": "integer", "description": "Number of results (default 5)"},
-                    "class": {"type": "string", "description": "Restrict results to one class"}
-                },
-                "required": ["query"]
-            }
-        },
-        {
-            "name": "get_node",
-            "description": "Fetch one corpus node by id (\"<class>/<name>\") — full YAML \
-                            content plus outgoing links.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "id": {"type": "string", "description": "Node id, e.g. \"concept/confounding\""}
-                },
-                "required": ["id"]
-            }
-        },
-        {
-            "name": "neighbors",
-            "description": "Nodes linked to a given node, following edges in both directions \
-                            up to `depth` hops (default 1).",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "id": {"type": "string", "description": "Node id, e.g. \"concept/confounding\""},
-                    "depth": {"type": "integer", "description": "Maximum hops (default 1)"}
-                },
-                "required": ["id"]
-            }
-        },
-        {
-            "name": "open_questions",
-            "description": "All nodes flagged as open questions: label starts with \"?\" or \
-                            the body contains an [open] claim.",
-            "inputSchema": {"type": "object", "properties": {}}
-        }
-    ]})
+/// The frozen tool contract, compiled in.
+///
+/// `include_str!` and not a runtime read: a server that could not find its own contract
+/// would have to decide what to serve without one, and there is no good answer to that. The
+/// file is the single freeze — the E2E test reads it too, rather than restating the list,
+/// which is what let three servers drift to one shared name out of five capabilities.
+const CONTRACT: &str = include_str!("../../../../prelude/sdks/parity/mcp/tools.json");
+
+/// What this server can actually back.
+///
+/// Filled honestly rather than optimistically. `phases` and `sangha` need the working git
+/// repository and this server reads a built model on disk, so both are false — an explicit
+/// statement an agent can read once, instead of a hole it discovers through a
+/// tool-not-found error on the call it cared about.
+pub(crate) fn capabilities(state: &ServerState) -> Value {
+    json!({
+        "contract": contract()["contract"].clone(),
+        // Not a tier: `retrieve` is core either way. This says whether the index is loaded,
+        // which is the same fact `degraded` reports per call.
+        "retrieve": {"vector": state.index.is_some()},
+        "graph": true,
+        "phases": false,
+        "sangha": false,
+        "resources": true,
+    })
+}
+
+fn contract() -> Value {
+    serde_json::from_str(CONTRACT).expect("the compiled-in MCP contract is valid JSON")
+}
+
+/// Whether a tier is backed, given what this server declares.
+fn backs(tier: &str, capabilities: &Value) -> bool {
+    tier == "core" || capabilities[tier].as_bool().unwrap_or(false)
+}
+
+/// The tools this server serves: every core tool, plus the optional ones it declares.
+///
+/// Derived from the contract rather than written beside it, so a tool added to the contract
+/// and not to this server fails the conformance check instead of quietly not existing.
+pub(crate) fn list(state: &ServerState) -> Value {
+    let contract = contract();
+    let capabilities = capabilities(state);
+    let tools: Vec<Value> = contract["tools"]
+        .as_array()
+        .expect("tools is an array")
+        .iter()
+        .filter(|t| backs(t["tier"].as_str().unwrap_or("core"), &capabilities))
+        .map(|t| {
+            json!({
+                "name": t["name"],
+                "description": t["description"],
+                "inputSchema": t["inputSchema"],
+            })
+        })
+        .collect();
+    json!({ "tools": tools })
 }
 
 /// Dispatch a tools/call. Tool-level failures come back as MCP tool errors
@@ -63,6 +71,7 @@ pub(crate) fn call(state: &ServerState, name: &str, args: &Value) -> Value {
         "retrieve" => retrieve(state, args),
         "get_node" => get_node(state, args),
         "neighbors" => neighbors(state, args),
+        "list_nodes" => Ok(list_nodes(state, args)),
         "open_questions" => Ok(open_questions(state)),
         other => Err(format!("unknown tool: {other}")),
     };
@@ -254,6 +263,29 @@ fn neighbors(state: &ServerState, args: &Value) -> Result<Value, String> {
         .collect();
 
     Ok(json!({"id": start.id, "neighbors": found}))
+}
+
+/// The tool form of `yidam://corpus/<class>`.
+///
+/// Core rather than optional so a tools-only server is first-class — one with no MCP
+/// resource channel at all should still be able to answer "what is in this corpus" without
+/// its callers learning a second access pattern.
+fn list_nodes(state: &ServerState, args: &Value) -> Value {
+    let class = args["class"].as_str();
+    let nodes: Vec<Value> = state
+        .nodes
+        .iter()
+        .filter(|n| class.is_none_or(|c| n.class == c))
+        .map(|n| {
+            json!({
+                "id": n.id,
+                "class": n.class,
+                "label": n.label,
+                "description": n.description,
+            })
+        })
+        .collect();
+    json!({"nodes": nodes})
 }
 
 fn open_questions(state: &ServerState) -> Value {

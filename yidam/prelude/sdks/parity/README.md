@@ -61,6 +61,21 @@ function directory is missing or empty. This is not advisory — it is enforced 
 Fixture filenames have no semantic meaning beyond identification in failure output. Use
 kebab-case names that describe what the case exercises, not what it expects.
 
+## The MCP contract
+
+`mcp/` is not part of the nine-function parity surface either. It freezes the **tool and
+resource surface** three servers are meant to share — names, capability tiers, input schemas,
+and call/response cases — in the shape RFC-0005 specifies. See [mcp/README.md](mcp/README.md).
+
+It exists because the list was previously frozen in three places at once: a Rust E2E test, a
+TypeScript README, and a third implementation's source. They shared **one tool name out of
+five capabilities**, and nothing compared them, because comparing them was nobody's file.
+
+Run by `yidam/cli/tests/mcp_serve.rs`, which reads `mcp/tools.json` rather than restating it.
+A server that declares a capability must pass its cases; one that declares it absent has
+those cases skipped, and the capability flag is checked against the served tool list so the
+two cannot disagree.
+
 ## The embed_config fixtures
 
 `fixtures/embed_config/` is not part of the nine-function parity surface above. It holds

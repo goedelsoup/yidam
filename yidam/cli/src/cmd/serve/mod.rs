@@ -212,7 +212,13 @@ fn handle(state: &ServerState, method: &str, params: &Value) -> Result<Value, Rp
             let requested = params["protocolVersion"].as_str().unwrap_or("2024-11-05");
             Ok(json!({
                 "protocolVersion": requested,
-                "capabilities": {"resources": {}, "tools": {}},
+                "capabilities": {
+                    "resources": {},
+                    "tools": {},
+                    // What this server backs, declared rather than discovered. See
+                    // `prelude/sdks/parity/mcp/tools.json`.
+                    "yidam": tools::capabilities(state),
+                },
                 "serverInfo": {"name": "yidam", "version": env!("CARGO_PKG_VERSION")}
             }))
         }
@@ -226,7 +232,7 @@ fn handle(state: &ServerState, method: &str, params: &Value) -> Result<Value, Rp
         }
         "resources/templates/list" => Ok(json!({"resourceTemplates": []})),
         "prompts/list" => Ok(json!({"prompts": []})),
-        "tools/list" => Ok(tools::list()),
+        "tools/list" => Ok(tools::list(state)),
         "tools/call" => {
             let name = params["name"]
                 .as_str()

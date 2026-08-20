@@ -419,7 +419,14 @@ export function streamContext(
 
 // MCP tool definitions — call this to register yidam tools in an MCP server
 export function yidamMcpTools(options: McpOptions): McpTool[]
-// Tools: semantic_query, open_questions, corpus_node, phase_status, sangha_positions
+// The tool list is NOT restated here. It is frozen once, in
+// `parity/mcp/tools.json`, and every server reads it from there.
+//
+// This line used to name `semantic_query, open_questions, corpus_node,
+// phase_status, sangha_positions` — a list that shared exactly one name with the
+// Rust server's, because each was frozen where it was written: one in a README,
+// one in a test. A third implementation drifted further still. The contract is
+// the fix, and a README that repeats it is the bug coming back.
 
 // @yidam/core/bundle
 // Web bundle feed generation (backing web/ REGEN sections)
