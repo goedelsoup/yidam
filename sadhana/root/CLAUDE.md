@@ -27,7 +27,7 @@ that govern conduct here and the gate that CI runs.
 
 ```
 mise run graph-check     # orphans, broken links, missing labels
-mise run regen           # refresh REGEN blocks, then commit the result
+mise run regen           # refresh REGEN blocks, then commit the result as `regen:`
 ```
 
 Both run in CI. A stale REGEN block is a failing build.

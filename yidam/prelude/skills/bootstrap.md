@@ -465,9 +465,10 @@ exists rather than only what the bootstrap creates.
 **Opportunistic retrieval**: While seeding, watch for the demand threshold — five or more
 instances that share a missing property attributable to a single approved connector source.
 When that threshold is met, invoke the connector inline rather than deferring it: fetch the
-missing data, populate the instances, and commit the result as part of the seed. Respect
-rate limits: pause between requests; do not batch-hammer a source. Record what was fetched
-in the commit message.
+missing data, populate the instances, and commit the result as part of the seed with
+`extract:` — structured data pulled from a primary source. Respect rate limits: pause
+between requests; do not batch-hammer a source. Record what was fetched in the commit
+message.
 
 ### 7. Wire implied edges and scaffold connectors and calculators
 
@@ -490,8 +491,8 @@ the retrieval interface. Connectors invoked during seeding need no stub — thei
 and the resulting epistemic commit are the record.
 
 **Calculators** — for each approved calculator: if the seeded corpus contains enough
-instances to produce a meaningful result, run it now and commit the output as an epistemic
-commit. Otherwise write a stub in `.yidam/skills/`:
+instances to produce a meaningful result, run it now and commit the output with `compute:`
+— a calculator run and its output committed. Otherwise write a stub in `.yidam/skills/`:
 
 ```
 .yidam/skills/<calculator-name>.md
@@ -499,8 +500,9 @@ commit. Otherwise write a stub in `.yidam/skills/`:
 
 The stub should describe what it computes, which corpus nodes it reads, and what it returns.
 
-Commit implied edges as a single epistemic commit. Commit any remaining connector and
-calculator stubs together as a single operational commit.
+Commit implied edges as a single `establish:` commit — they are understanding the
+ontology entailed and nobody had written down. Commit any remaining connector and
+calculator stubs together as one `implement:` commit; a stub is structure, not a finding.
 
 ### 8. Write the genesis commit and consume transient layers
 
@@ -651,8 +653,8 @@ finding an empty directory and guessing:
 1. **First catalog entry** — identify the most authoritative data source for this domain
    and add it to `.yidam/catalog/` as the first provenance anchor. Name it specifically.
 2. **First corpus expansion** — name the instance node most ready to grow and suggest the
-   first sub-node or property to deepen it. This becomes the first epistemic commit after
-   genesis.
+   first sub-node or property to deepen it. This becomes the first `establish:` commit
+   after genesis.
 3. **First agent** — describe the simplest agent immediately useful in this domain. One
    sentence on what it does and which corpus nodes it draws from. Creating `agents/` with
    that one definition is the action; do not create the directory to hold nothing.

@@ -75,6 +75,119 @@ fn verb_of(subject: &str) -> &str {
     }
 }
 
+/// Byte ranges of every `"…"` span in `text`.
+///
+/// Used to tell a document *discussing* a forbidden phrasing from one prescribing it.
+fn quoted_spans(text: &str) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    let mut open: Option<usize> = None;
+    for (i, c) in text.char_indices() {
+        if c == '"' {
+            match open {
+                Some(start) => {
+                    spans.push((start, i + 1));
+                    open = None;
+                }
+                None => open = Some(i),
+            }
+        }
+    }
+    spans
+}
+
+/// A step may not tell a reader to make "an epistemic commit" and leave them to guess
+/// which one.
+///
+/// The kind is *derived* from the verb — `classify_commit` reads the verb and returns
+/// Epistemic or Operational — so naming the kind is naming the output of a function
+/// instead of its input. A reader given the kind still has to pick a verb, and the whole
+/// value of a closed vocabulary is that they do not have to.
+///
+/// Found by audit: `bootstrap.md` prescribed four commits this way, including two in
+/// consecutive sentences ("as a single epistemic commit … as a single operational
+/// commit"). Every one had an obvious right verb that nobody had written down.
+///
+/// Deliberately narrow. It cannot see a step that says "commit this" with no
+/// qualification at all, and no check can — that is what review is for. It catches the
+/// one shape that reads as though it *has* named something.
+#[test]
+fn no_step_names_a_commit_kind_instead_of_its_verb() {
+    let root = repo_root();
+    let targets = [
+        root.join("yidam/prelude"),
+        root.join("sadhana"),
+        root.join("mise.yidam.toml"),
+    ];
+    // Prose *about* the split is legitimate and common — GRAPH.md defines both words, and
+    // the conventions discuss them. Only an instruction to produce one is a finding, so
+    // the match requires the imperative shape: "commit … as a[n] <kind> commit".
+    let shapes = [
+        "as an epistemic commit",
+        "as a single epistemic commit",
+        "as an operational commit",
+        "as a single operational commit",
+    ];
+
+    let mut bad = Vec::new();
+    let mut excused = 0usize;
+    for target in &targets {
+        for entry in WalkDir::new(target).into_iter().filter_map(Result::ok) {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(entry.path()) else {
+                continue;
+            };
+            let file = entry
+                .path()
+                .strip_prefix(&root)
+                .unwrap_or(entry.path())
+                .display()
+                .to_string();
+            // Join wrapped lines: these documents hard-wrap at 90 columns, so the phrase
+            // is routinely split across two lines and a line-scoped scan misses it.
+            let flat = text.replace('\n', " ");
+            let quoted = quoted_spans(&flat);
+            for shape in shapes {
+                let mut from = 0;
+                while let Some(rel) = flat[from..].find(shape) {
+                    let at = from + rel;
+                    from = at + shape.len();
+                    // A document that DEFINES the rule has to be able to quote what it
+                    // forbids. The exemption is the quotation marks, not the filename:
+                    // an occurrence inside a "…" span is discussing the shape, one
+                    // outside is prescribing it. GRAPH.md's paragraph on this rule is the
+                    // reason the exemption exists, and it survives being moved.
+                    if quoted
+                        .iter()
+                        .any(|(s, e)| at >= *s && at + shape.len() <= *e)
+                    {
+                        excused += 1;
+                        continue;
+                    }
+                    bad.push(format!("  {file} — \"{shape}\""));
+                }
+            }
+        }
+    }
+
+    // The exemption is measured, not assumed: if nothing is being excused, the quotation
+    // carve-out is dead code covering whatever comes next, and this says so.
+    assert!(
+        excused > 0,
+        "no quoted occurrence found — the quotation exemption is excusing nothing. \
+         Delete it rather than leaving it to cover something else later."
+    );
+
+    assert!(
+        bad.is_empty(),
+        "a step names the commit KIND instead of its verb:\n{}\n\
+         The kind is derived from the verb, so this leaves the reader to pick one. Name \
+         the verb beside the instruction — see GRAPH.md, \"Commit vocabulary\".",
+        bad.join("\n")
+    );
+}
+
 #[test]
 fn every_prescribed_commit_uses_a_recognized_verb() {
     let root = repo_root();
