@@ -177,6 +177,66 @@ pub fn catalog_entry_schema() -> Value {
     })
 }
 
+/// Schema for the authorship manifest — `.yidam/authorship.yml`.
+///
+/// Each kind requires the field that names who can act on a finding inside it, and
+/// `additionalProperties: false` makes `why:` under `generated:` an error while typing
+/// rather than at the gate. That is the whole weight of the mechanism: a region declared
+/// without an addressee is a request for silence wearing a provenance label.
+pub fn authorship_schema() -> Value {
+    let region = |field: &str, description: &str| {
+        json!({
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Repo-root-relative. Covers itself and everything under \
+                                    it, matched on path components — `docs/ref` does not \
+                                    cover `docs/reference/`."
+                },
+                field: { "type": "string", "minLength": 1, "description": description }
+            },
+            "required": ["path", field],
+            "additionalProperties": false
+        })
+    };
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "yidam authorship manifest",
+        "description": "What in this repository is not authored here. Checks that read prose \
+                        skip or re-address these regions. `.yidam/.vendor/` is built in and \
+                        is not declared here.",
+        "type": "object",
+        "properties": {
+            "generated": {
+                "type": "array",
+                "default": [],
+                "description": "Written by this repository's own tooling. A defect here is \
+                                the generator's; it is reported at info severity so it can \
+                                be routed, not silenced.",
+                "items": region("by", "The command that writes this region.")
+            },
+            "imported": {
+                "type": "array",
+                "default": [],
+                "description": "Copied from elsewhere and not modified. A defect here is \
+                                upstream's, and editing the file to satisfy a linter \
+                                falsifies the record it exists to keep.",
+                "items": region("from", "What this is a copy of, and as of when.")
+            },
+            "excluded": {
+                "type": "array",
+                "default": [],
+                "description": "Neither generated nor imported. The escape hatch, named as \
+                                one: the only kind that is not read at all.",
+                "items": region("why", "Why this region is not linted.")
+            }
+        },
+        "additionalProperties": false
+    })
+}
+
 /// Every schema yidam emits, as `(filename, glob it validates, body)`.
 pub fn all() -> Vec<(&'static str, &'static str, Value)> {
     vec![
@@ -194,6 +254,11 @@ pub fn all() -> Vec<(&'static str, &'static str, Value)> {
             "catalog-entry.json",
             ".yidam/catalog/*.md",
             catalog_entry_schema(),
+        ),
+        (
+            "authorship.json",
+            ".yidam/authorship.yml",
+            authorship_schema(),
         ),
     ]
 }
@@ -291,10 +356,27 @@ mod tests {
         let m = s["yaml.schemas"].as_object().unwrap();
         assert_eq!(
             m.len(),
-            2,
+            3,
             "catalog frontmatter lives in .md and is not mapped"
         );
         assert!(m.contains_key("./.yidam/schemas/corpus-node.json"));
+    }
+
+    /// The requirement is the mechanism: a region with no addressee is a request for
+    /// silence, and the editor should say so while it is being typed.
+    #[test]
+    fn every_authorship_kind_requires_the_field_that_names_who_can_act() {
+        let s = authorship_schema();
+        for (kind, field) in [
+            ("generated", "by"),
+            ("imported", "from"),
+            ("excluded", "why"),
+        ] {
+            let items = &s["properties"][kind]["items"];
+            let req: Vec<String> = serde_json::from_value(items["required"].clone()).unwrap();
+            assert_eq!(req, vec!["path".to_string(), field.to_string()], "{kind}");
+            assert_eq!(items["additionalProperties"], false, "{kind}");
+        }
     }
 
     #[test]

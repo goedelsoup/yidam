@@ -412,6 +412,72 @@ next reader from looking. Where a channel matters, examine it and record what yo
 
 ---
 
+## `.yidam/authorship.yml` (optional)
+
+What in this repository is not authored here.
+
+Checks that read prose walk directories, and a walk cannot tell authored material from
+material that merely landed there. `broken-prose-link` shipped knowing about exactly one such
+directory, `.yidam/.vendor/`, on a rationale that generalizes perfectly: a defect in the
+prelude is fixed upstream and adopted by re-vendoring, so reporting one here hands this
+repository a finding it cannot act on.
+
+A consumer that is not a vendoring repository met the same wall from the other side. Its
+first gated run produced **43 broken prose links under `docs/` at error severity, and fifteen
+of them were inside a directory whose own README says it is a frozen, unmodified copy of an
+upstream project at a fork point.** Editing those to satisfy a linter falsifies the record
+the directory exists to keep. It baselined them and moved on, which is the wrong instrument:
+a baseline records *we accept this violation*, when the truth is *this file is not ours*. The
+two decay differently — a baselined entry that is later repaired fails the build, by design,
+so for a frozen import the gate came to depend on nobody ever re-syncing it.
+
+```yaml
+generated:
+  - path: .yidam/reports/
+    by: yidam report
+
+imported:
+  - path: docs/reference/upstream/
+    from: acme/gis at the fork point
+
+excluded:
+  - path: docs/scratch/
+    why: working notes, deliberately unmaintained
+```
+
+Paths are repo-root-relative and cover everything beneath them, matched on path components —
+`docs/ref` does not cover `docs/reference/`. The first declaration wins an overlap.
+
+**Each kind requires the field that names who can act on a finding inside it,** and a region
+declared without one does not parse. That is the whole weight of the mechanism: `generated`
+and `imported` are claims about where material came from, and a claim with no addressee is a
+request for silence wearing a provenance label.
+
+| Kind | What it asserts | What the gate does |
+|---|---|---|
+| `generated` | Written by this repository's own tooling. | Reported at info severity, addressed to the generator. Fix the generator — the file is rewritten by the next build, so fixing the file does not persist. |
+| `imported` | Copied from elsewhere and not modified. | Reported at info severity, addressed upstream. |
+| `excluded` | Neither. | Not read at all. |
+
+Only `excluded` produces silence, and it is named so that a reviewer meeting it in the
+manifest sees the escape hatch as one. The other two are still real defects. They are simply
+somebody else's, and a finding that says whose is worth more than one that says nothing —
+the generated half in the case above was the same defect twice, a generator emitting
+corpus-relative link targets into a file that landed in a sibling directory.
+
+`.yidam/.vendor/` is built in as `imported` and is not declared here: it is yidam's claim
+about a directory yidam manages, not this repository's.
+
+**A declaration that matches nothing is reported** — `authorship-region-stale` — because a
+manifest permitted to be wrong drifts exactly as a lint baseline does, and the entry that
+outlives its directory quietly excuses a path somebody later creates under the same name.
+`generated` regions are exempt: they are written by a build and are frequently git-ignored,
+so absence on a fresh clone carries no information. The check is Warn rather than Error, for
+the reason the file exists at all — an imported region is re-synced upstream on somebody
+else's schedule, and gating on it would make this build's colour depend on that.
+
+---
+
 ## `.yidam/skills/`
 
 Reusable capabilities available to agents in this repository.
@@ -439,7 +505,9 @@ scenario files the derived repo does not have.
 **Read-only.** Do not modify anything under `.yidam/.vendor/` in the course of domain work.
 An edit here is silently discarded the next time the prelude is re-vendored, and until then
 it is a local divergence nobody can see. A defect in the prelude is fixed upstream in yidam
-and adopted by re-vendoring.
+and adopted by re-vendoring. That is also why `yidam lint` reports a broken link
+here at info severity rather than as a violation of this repository — see
+`.yidam/authorship.yml` above, of which this directory is the built-in instance.
 
 **Note:** Paths to inherited skills and agents use `.yidam/.vendor/prelude/` — for example,
 the bootstrap skill lives at `.yidam/.vendor/prelude/skills/bootstrap.md` after genesis.

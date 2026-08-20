@@ -1238,6 +1238,78 @@ pub fn broken_prose_link(links: &[ProseLink]) -> Check {
     )
 }
 
+/// A broken prose link inside a region the repository declared it did not author, paired
+/// with the declaration that explains it.
+pub struct UnauthoredLink<'a> {
+    pub region: &'a crate::authorship::Region,
+    pub link: ProseLink,
+}
+
+pub fn unauthored_prose_link(links: &[UnauthoredLink<'_>]) -> Check {
+    let violations = links
+        .iter()
+        .filter(|u| !u.link.resolved.exists())
+        .map(|u| {
+            Violation::new(
+                format!("{}:{}", u.link.file, u.link.line),
+                format!(
+                    "`{}` does not resolve — {}",
+                    u.link.target,
+                    u.region.explain()
+                ),
+            )
+        })
+        .collect();
+    Check::new(
+        "unauthored-prose-link",
+        "A broken prose link in material this repository did not author",
+        Severity::Info,
+        "Error severity is the right verdict for a link somebody here can go and fix. It is \
+         the wrong one for generated output, whose defect belongs to the generator and whose \
+         file is rewritten by the next build, and for an unmodified import, where editing the \
+         file to satisfy a linter falsifies the record it exists to keep. A consumer that met \
+         43 broken links under `docs/` could act on 28: fifteen were inside a directory whose \
+         own README says it is a frozen copy of an upstream project at a fork point. It \
+         baselined them, which records `we accept this violation` when the truth is `this \
+         file is not ours` — and a baselined entry that is later repaired fails the build, so \
+         the gate came to depend on nobody ever re-syncing the import. Declared in \
+         `.yidam/authorship.yml`. Reported rather than silenced, with the reason and whoever \
+         can act on it, because these are real defects addressed to somebody else. Info \
+         severity: never gates, never baselined.",
+        violations,
+    )
+}
+
+pub fn authorship_region_stale(stale: &[&crate::authorship::Region]) -> Check {
+    let violations = stale
+        .iter()
+        .map(|r| {
+            Violation::new(
+                crate::authorship::MANIFEST,
+                format!(
+                    "`{}` is declared `{}` but matches nothing on disk",
+                    r.path,
+                    r.kind.as_str()
+                ),
+            )
+        })
+        .collect();
+    Check::new(
+        "authorship-region-stale",
+        "A declared authorship region matches nothing on disk",
+        Severity::Warn,
+        "A manifest permitted to be wrong drifts, exactly as a lint baseline does, and the \
+         entry that outlives the directory it describes is the one that quietly excuses a \
+         path somebody later creates under the same name. `generated` regions are exempt: \
+         they are written by a build and are frequently git-ignored, so absence on a fresh \
+         clone carries no information. Warn rather than Error, unlike the baseline's own \
+         staleness rule, and for the reason this check exists — an imported region is \
+         re-synced by somebody upstream on their schedule, and gating on it would make the \
+         build's colour depend on that.",
+        violations,
+    )
+}
+
 #[cfg(test)]
 mod prose_link_tests {
     use super::*;

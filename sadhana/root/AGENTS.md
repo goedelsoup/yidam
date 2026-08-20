@@ -91,6 +91,13 @@ the baseline, and a baseline entry that no longer occurs. The second is not a bu
 baseline permitted to be wrong drifts, and one that over-lists silently re-permits whatever
 it over-lists. Fix the corpus, then `mise run graph-lint-bless` and commit the diff.
 
+Two checks report and never gate. `unauthored-prose-link` covers material this repository
+did not author — generated output, and imports copied from elsewhere unmodified — declared in
+`.yidam/authorship.yml`. Those findings are real; they are somebody else's. Fix the
+generator, or raise it upstream. Do not baseline them, and do not edit an import to satisfy a
+linter: that falsifies the record the import exists to keep. `authorship-region-stale` says a
+declaration there no longer matches anything on disk.
+
 `mise run graph-lint-explain` prints each check's rationale. Read it before deciding a
 check is wrong.
 
