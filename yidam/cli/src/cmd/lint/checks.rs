@@ -341,6 +341,99 @@ fn normalize(p: &Path) -> PathBuf {
     out
 }
 
+/// Separators that turn a tag into a tag-plus-something.
+///
+/// A plain space is not among them, deliberately. `[open questions]` is ordinary prose and
+/// reference-style link text; flagging it would put a permanent finding in front of every
+/// reader who writes the phrase, and a permanently non-empty report is where a real finding
+/// gets lost. What is reported is a tag followed by punctuation that reads as *and here is
+/// the rest of it*.
+const TAG_SEPARATORS: &[char] = &['—', '–', '-', ':', ';', ',', '|', '/', '='];
+
+/// Bracketed forms that open with an evidence tag and are not one.
+///
+/// The counter matches exact tokens, so `[verified — Pearl 2009]` matches nothing and is
+/// counted as **no claim at all** — the opposite of the mention-counted-as-use failure and
+/// just as silent. A reader who writes that has plainly intended a tag, and the count
+/// absorbs the authoring error rather than reporting it. Counting it would mean guessing
+/// what was meant; saying so does not.
+///
+/// Warn rather than Error: the node is still readable and the fix is the author's to make.
+pub fn claim_tag_malformed(nodes: &[Node], texts: &[String]) -> Check {
+    let mut violations = Vec::new();
+    for (n, text) in nodes.iter().zip(texts) {
+        // Masked, so a node explaining the vocabulary is not reported for naming it — the
+        // same reason the counter masks.
+        for (line, found) in near_miss_tags(&crate::markdown::mask_code(text)) {
+            violations.push(Violation::new(
+                format!("{}:{}", n.rel, line),
+                format!(
+                    "`{found}` opens with an evidence tag and is not one, so it is counted \
+                     as no claim at all — write the tag alone and put the citation beside it"
+                ),
+            ));
+        }
+    }
+    Check::new(
+        "claim-tag-malformed",
+        "Evidence tag that counts as nothing",
+        Severity::Warn,
+        "The three tokens are matched exactly, which is what keeps `[open questions](…)` \
+         from reading as an open claim. The cost is that a tag with its citation folded \
+         inside the brackets matches nothing and is silently counted as untagged — a node \
+         that looks tagged to a reader and reads as bare assertion to every counter. This \
+         reports the near miss rather than guessing at it.",
+        violations,
+    )
+}
+
+/// `(line, text)` for each bracketed near miss. Links are not near misses.
+fn near_miss_tags(text: &str) -> Vec<(usize, String)> {
+    let tags = [
+        crate::claims::VERIFIED,
+        crate::claims::INFERENCE,
+        crate::claims::OPEN,
+    ];
+    let mut out = Vec::new();
+    for (i, line) in text.lines().enumerate() {
+        let bytes = line.as_bytes();
+        let mut j = 0;
+        while j < bytes.len() {
+            let Some(open) = line[j..].find('[') else {
+                break;
+            };
+            let at = j + open;
+            let Some(close_rel) = line[at..].find(']') else {
+                break;
+            };
+            let close = at + close_rel;
+            j = close + 1;
+            // `[text](target)` and `[text][ref]` are links; their label is not a claim.
+            if matches!(line[j..].chars().next(), Some('(') | Some('[')) {
+                continue;
+            }
+            let inner = &line[at + 1..close];
+            for tag in tags {
+                let word = tag.trim_matches(|c| c == '[' || c == ']');
+                if inner == word {
+                    break; // the tag itself, exactly as intended
+                }
+                let Some(rest) = inner.strip_prefix(word) else {
+                    continue;
+                };
+                if rest
+                    .trim_start()
+                    .starts_with(|c: char| TAG_SEPARATORS.contains(&c))
+                {
+                    out.push((i + 1, line[at..=close].to_string()));
+                    break;
+                }
+            }
+        }
+    }
+    out
+}
+
 // ── catalog ───────────────────────────────────────────────────────────────────
 
 /// Corpus nodes citing each source slug, by repo-relative path.
@@ -650,6 +743,90 @@ mod tests {
             flagged,
             vec!["corpus/other/b.yml"],
             "only b is unpointed-at"
+        );
+    }
+
+    /// The reported shape: a tag with its citation folded inside the brackets.
+    #[test]
+    fn a_tag_with_its_citation_inside_is_a_near_miss() {
+        let found = near_miss_tags("The estimate is [verified — Pearl 2009].");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0], (1, "[verified — Pearl 2009]".to_string()));
+        // And it is counted as nothing, which is why it is worth reporting at all.
+        assert_eq!(
+            crate::claims::count_in_source("The estimate is [verified — Pearl 2009].").total(),
+            0
+        );
+    }
+
+    #[test]
+    fn several_separators_all_read_as_a_folded_citation() {
+        for inner in [
+            "[open: pending review]",
+            "[inference - weak]",
+            "[verified, 2026]",
+            "[open — nobody has looked]",
+            "[verified/partial]",
+        ] {
+            assert_eq!(
+                near_miss_tags(inner).len(),
+                1,
+                "{inner} should read as a near miss"
+            );
+        }
+    }
+
+    /// The forms that must stay silent. A warn nobody can act on is worse than no warn.
+    #[test]
+    fn the_tag_itself_and_ordinary_prose_are_not_reported() {
+        for quiet in [
+            "[verified]",
+            "[open]",
+            "[inference]",
+            // A plain space is not a separator: this is prose, and link text.
+            "See [open questions] below.",
+            "See [open questions](../q/index.md) for more.",
+            "A reference [open questions][q] link.",
+            "[opening the valve] is not a tag",
+            "[verification] is a different word",
+            "nothing bracketed at all",
+        ] {
+            assert!(
+                near_miss_tags(quiet).is_empty(),
+                "{quiet} must not be reported"
+            );
+        }
+    }
+
+    /// A node that names the malformed shape in order to warn about it is not committing it.
+    #[test]
+    fn a_masked_mention_is_not_a_near_miss() {
+        let node = Node {
+            path: PathBuf::from("/tmp/x.yml"),
+            rel: "x.yml".to_string(),
+            inst: Default::default(),
+        };
+        let text = "description: Never write `[verified — source]`; the counter reads it as \
+                    untagged.\n";
+        let c = claim_tag_malformed(std::slice::from_ref(&node), &[text.to_string()]);
+        assert_eq!(c.violations.len(), 0, "{:?}", c.violations);
+    }
+
+    /// The violation names the line, because the point is to go and fix that line.
+    #[test]
+    fn a_near_miss_is_reported_against_its_line() {
+        let node = Node {
+            path: PathBuf::from("/tmp/x.yml"),
+            rel: ".yidam/corpus/c/x.yml".to_string(),
+            inst: Default::default(),
+        };
+        let text = "class: c\nlabel: X\ndescription: |\n  Settled [verified — Pearl 2009].\n";
+        let c = claim_tag_malformed(std::slice::from_ref(&node), &[text.to_string()]);
+        assert_eq!(c.violations.len(), 1);
+        assert!(
+            c.violations[0].node.ends_with(":4"),
+            "{}",
+            c.violations[0].node
         );
     }
 
@@ -1163,7 +1340,7 @@ pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
             continue;
         }
         // Blank out inline code spans so a `[a](b)` shown as code is not read as a link.
-        let line = blank_code_spans(raw);
+        let line = crate::markdown::mask_code_spans(raw);
         let bytes = line.as_bytes();
         let mut j = 0;
         while j < bytes.len() {
@@ -1187,26 +1364,6 @@ pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
                 target: target.clone(),
                 resolved: dir.join(&target),
             });
-        }
-    }
-    out
-}
-
-/// Replace the contents of `` `…` `` spans with spaces, preserving byte offsets.
-fn blank_code_spans(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
-    let mut in_code = false;
-    for c in line.chars() {
-        if c == '`' {
-            in_code = !in_code;
-            out.push(c);
-        } else if in_code {
-            // Keep the byte count identical so offsets stay meaningful.
-            for _ in 0..c.len_utf8() {
-                out.push(' ');
-            }
-        } else {
-            out.push(c);
         }
     }
     out
