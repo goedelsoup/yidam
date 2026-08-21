@@ -120,6 +120,10 @@
         "title": "yidam: Show this node's neighbourhood"
       },
       {
+        "command": "yidam.revealNode",
+        "title": "yidam: Reveal this node in the Corpus view"
+      },
+      {
         "command": "yidam.neighborhoodOf",
         "title": "Show neighbourhood"
       },

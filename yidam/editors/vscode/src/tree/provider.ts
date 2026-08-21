@@ -8,22 +8,34 @@
 
 import * as vscode from 'vscode'
 
-import type { TreeNode } from './model.ts'
+import { findByFile, parentIndex, type TreeNode } from './model.ts'
 
 export class NodeTree implements vscode.TreeDataProvider<TreeNode> {
   private readonly emitter = new vscode.EventEmitter<TreeNode | undefined>()
   readonly onDidChangeTreeData = this.emitter.event
   private roots: TreeNode[] = []
+  private parents = new Map<TreeNode, TreeNode>()
 
   constructor(private readonly root: () => string | null) {}
 
   replace(roots: TreeNode[]): void {
     this.roots = roots
+    this.parents = parentIndex(roots)
     this.emitter.fire(undefined)
   }
 
   getChildren(element?: TreeNode): TreeNode[] {
     return element ? (element.children ?? []) : this.roots
+  }
+
+  /** Required by `TreeView.reveal`, which cannot select a nested row without it. */
+  getParent(element: TreeNode): TreeNode | undefined {
+    return this.parents.get(element)
+  }
+
+  /** The row standing for a repo-relative path, for callers that have a file and want a row. */
+  find(file: string): TreeNode | undefined {
+    return findByFile(this.roots, file)
   }
 
   getTreeItem(node: TreeNode): vscode.TreeItem {

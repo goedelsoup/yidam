@@ -65,6 +65,7 @@ import {
   phasesTree,
   sanghaTree,
   statusLine,
+  type TreeNode,
 } from './tree/model.ts'
 import { NodeTree } from './tree/provider.ts'
 import {
@@ -96,6 +97,10 @@ interface Views {
   sangha: NodeTree
 }
 let views: Views | null = null
+
+/** The `TreeView` handles, which are the only route to reveal, badge and message. */
+type Handles = { [K in keyof Views]: vscode.TreeView<TreeNode> }
+let handles: Handles | null = null
 
 /**
  * Bumped by every save. The reports read the working tree, not the commit, so an OID
@@ -171,13 +176,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     health: new NodeTree(workspaceFolder),
     sangha: new NodeTree(workspaceFolder),
   }
-  context.subscriptions.push(
-    vscode.window.createTreeView('yidam.corpus', { treeDataProvider: views.corpus }),
-    vscode.window.createTreeView('yidam.openQuestions', { treeDataProvider: views.open }),
-    vscode.window.createTreeView('yidam.phases', { treeDataProvider: views.phases }),
-    vscode.window.createTreeView('yidam.health', { treeDataProvider: views.health }),
-    vscode.window.createTreeView('yidam.sangha', { treeDataProvider: views.sangha }),
-  )
+  // The handles are kept, not dropped into the disposal array. `createTreeView` returns the
+  // only route to `reveal`, `badge` and `message`, and discarding it left the extension
+  // able to write rows and nothing else — no way to say where you are, how much is
+  // outstanding, or why a box is empty.
+  handles = {
+    corpus: vscode.window.createTreeView('yidam.corpus', { treeDataProvider: views.corpus }),
+    open: vscode.window.createTreeView('yidam.openQuestions', { treeDataProvider: views.open }),
+    phases: vscode.window.createTreeView('yidam.phases', { treeDataProvider: views.phases }),
+    health: vscode.window.createTreeView('yidam.health', { treeDataProvider: views.health }),
+    sangha: vscode.window.createTreeView('yidam.sangha', { treeDataProvider: views.sangha }),
+  }
+  context.subscriptions.push(...Object.values(handles))
 
   context.subscriptions.push(
     vscode.commands.registerCommand('yidam.showBinaryStatus', showStatus),
@@ -189,6 +199,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('yidam.buildIndex', () => task('index-build')),
     vscode.commands.registerCommand('yidam.vendorStatus', () => task('yidam-vendor-status')),
     vscode.commands.registerCommand('yidam.showHealth', showHealth),
+    vscode.commands.registerCommand('yidam.revealNode', revealNode),
     vscode.commands.registerCommand('yidam.neighborhoodOf', showNeighborhoodOf),
     vscode.commands.registerCommand('yidam.newNodeIn', newNodeIn),
   )
@@ -557,6 +568,55 @@ function nonce(): string {
 }
 
 /**
+ * Select the row for the file being edited, in the Corpus view.
+ *
+ * A command rather than automatic on every editor change: auto-reveal moves the tree out
+ * from under whoever is reading it, which is why VS Code ships `explorer.autoReveal` as a
+ * setting rather than a behaviour. This is the same answer without the setting — ask and
+ * you get it.
+ */
+async function revealNode(): Promise<void> {
+  const editor = vscode.window.activeTextEditor
+  const base = workspaceFolder()
+  if (!editor || !base || !views || !handles) return
+  const rel = editor.document.uri.fsPath.startsWith(`${base}/`)
+    ? editor.document.uri.fsPath.slice(base.length + 1)
+    : null
+  if (!rel) return
+  const node = views.corpus.find(rel)
+  if (!node) {
+    void vscode.window.showInformationMessage(
+      'yidam: this file is not a corpus node in the current index.',
+    )
+    return
+  }
+  await handles.corpus.reveal(node, { select: true, focus: false, expand: true })
+}
+
+/**
+ * What each view says about itself when it has nothing to show.
+ *
+ * A blank box is indistinguishable from a working view of an empty corpus, and the reason is
+ * usually neither — it is that no binary resolved, which the status bar says and the view
+ * someone is actually looking at did not.
+ */
+function setViewMessages(message: string | undefined): void {
+  if (!handles) return
+  for (const view of Object.values(handles)) view.message = message
+}
+
+/** Counts worth seeing without opening the view. Cleared at zero rather than shown as 0. */
+function setBadges(open: number, newViolations: number): void {
+  if (!handles) return
+  handles.open.badge =
+    open > 0 ? { value: open, tooltip: `${open} open question(s)` } : undefined
+  handles.health.badge =
+    newViolations > 0
+      ? { value: newViolations, tooltip: `${newViolations} violation(s) not in the baseline` }
+      : undefined
+}
+
+/**
  * The neighbourhood of a tree row.
  *
  * `drawNeighborhood` answers about the active editor, which is right for the palette and is
@@ -848,7 +908,18 @@ function debounceMs(): number {
 /** Run the reports and publish the result. Silent when there is no usable binary. */
 async function report(): Promise<void> {
   const folder = workspaceFolder()
-  if (!folder || !state?.resolution.command) return
+  if (!folder || !state?.resolution.command) {
+    // Every view is about to stay blank, and until now none of them said why — the status
+    // bar did, and the status bar is not where somebody staring at an empty Corpus tree is
+    // looking.
+    setViewMessages(
+      state?.resolution.reason
+        ? `yidam: no binary — ${state.resolution.reason}`
+        : 'yidam: no binary resolved.',
+    )
+    setBadges(0, 0)
+    return
+  }
   const bin = state.resolution.command
 
   const showBaselined =
@@ -866,6 +937,8 @@ async function report(): Promise<void> {
     state.handshake = outcome.handshake
     conditions = []
     diagnostics.clear()
+    setViewMessages('yidam: the binary does not speak this report contract.')
+    setBadges(0, 0)
     render()
     return
   }
@@ -903,6 +976,11 @@ async function report(): Promise<void> {
       'setContext',
       'yidam.collective',
       refs.sangha?.collective ?? false,
+    )
+    setViewMessages(undefined)
+    setBadges(
+      corpus.openQuestions?.open_questions.length ?? 0,
+      outcome.lint?.gate.new_violations ?? 0,
     )
   }
 

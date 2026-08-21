@@ -26,7 +26,9 @@ import type {
 } from '../src/reports.ts'
 import {
   corpusTree,
+  findByFile,
   healthTree,
+  parentIndex,
   localRef,
   openQuestionsTree,
   phasesTree,
@@ -455,6 +457,58 @@ test('the status line reports staleness in the unit index-status measures', () =
  * subject lives only in its `id` cannot be acted on without parsing that id — which would
  * make the format load-bearing for something other than the tree's own bookkeeping.
  */
+/**
+ * `TreeView.reveal` cannot select a nested row without `getParent`, and the provider walks
+ * downward only. This is the reverse walk, where it can be checked against plain data.
+ */
+test('every row knows its parent, and the roots know they have none', () => {
+  const tree = corpusTree(INDEX, { ...ENVELOPE, open_questions: [] })
+  const parents = parentIndex(tree)
+
+  for (const cls of tree) {
+    assert.equal(parents.get(cls), undefined, 'a class row is a root')
+    for (const node of cls.children!) {
+      assert.equal(parents.get(node), cls, `${node.id} should point back at ${cls.id}`)
+    }
+  }
+  // Every non-root is in the index: a row reveal cannot reach is a row reveal silently
+  // fails on.
+  const count = tree.reduce((n, c) => n + (c.children?.length ?? 0), 0)
+  assert.equal(parents.size, count)
+})
+
+test('the parent walk recurses, on a tree deeper than any view builds', () => {
+  // Every builder here nests exactly two deep, so a walk that handled one level of children
+  // and never recursed would pass against all five of them. `parentIndex` is a general
+  // function over `TreeNode`, and the depth it does not currently meet is the depth the next
+  // view will have.
+  const leaf: TreeNode = { id: 'c', label: 'c' }
+  const mid: TreeNode = { id: 'b', label: 'b', children: [leaf] }
+  const root: TreeNode = { id: 'a', label: 'a', children: [mid] }
+
+  const parents = parentIndex([root])
+  assert.equal(parents.get(mid), root)
+  assert.equal(parents.get(leaf), mid, 'the grandchild must know its parent')
+  assert.equal(parents.get(root), undefined)
+  assert.equal(parents.size, 2)
+})
+
+test('a two-level view maps every child to its group', () => {
+  const tree = sanghaTree(SANGHA)
+  const parents = parentIndex(tree)
+  const elector = tree.find((n) => n.id === 'elector:auditor')!
+  assert.equal(parents.get(elector.children![0]), elector)
+})
+
+test('a row is findable by the file it stands for', () => {
+  const tree = corpusTree(INDEX, { ...ENVELOPE, open_questions: [] })
+  const hit = findByFile(tree, '.yidam/corpus/concept/tailwater.yml')
+  assert.equal(hit?.id, 'node:concept/tailwater.yml')
+  assert.equal(findByFile(tree, '.yidam/corpus/nope.yml'), undefined)
+  // Class rows stand for no file and must not be returned for one.
+  assert.equal(findByFile(tree, ''), undefined)
+})
+
 test('rows that stand for something other than a file name it', () => {
   const corpus = corpusTree(INDEX, { ...ENVELOPE, open_questions: [] })
   const cls = corpus[0]

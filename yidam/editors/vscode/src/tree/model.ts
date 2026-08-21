@@ -60,6 +60,44 @@ export interface TreeNode {
   expanded?: boolean
 }
 
+/**
+ * Child → parent, over a whole forest.
+ *
+ * `TreeView.reveal` cannot select a nested row without `getParent`, and the provider walks
+ * downward only — it holds roots and hands out `children`. Building the reverse here rather
+ * than in the provider keeps the walk where it can be tested against plain data; the
+ * provider stores the result and answers from it.
+ *
+ * Keyed by object identity, which is sound because the provider hands out the very nodes it
+ * was given. Ids would work too and would invite the id format to become load-bearing.
+ */
+export function parentIndex(roots: TreeNode[]): Map<TreeNode, TreeNode> {
+  const parents = new Map<TreeNode, TreeNode>()
+  const walk = (node: TreeNode): void => {
+    for (const child of node.children ?? []) {
+      parents.set(child, node)
+      walk(child)
+    }
+  }
+  for (const root of roots) walk(root)
+  return parents
+}
+
+/**
+ * The row standing for a repo-relative path, anywhere in the forest.
+ *
+ * Depth-first and first-match: a file appears once in a view built from one report, and a
+ * caller that wanted all of them would be asking a different question.
+ */
+export function findByFile(roots: TreeNode[], file: string): TreeNode | undefined {
+  for (const node of roots) {
+    if (node.file === file) return node
+    const hit = findByFile(node.children ?? [], file)
+    if (hit) return hit
+  }
+  return undefined
+}
+
 /** `concept/tailwater.yml` → `tailwater` */
 function stem(path: string): string {
   const base = path.slice(path.lastIndexOf('/') + 1)
