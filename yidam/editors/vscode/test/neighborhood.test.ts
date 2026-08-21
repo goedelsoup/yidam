@@ -10,12 +10,12 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import * as fs from 'node:fs'
-import * as os from 'node:os'
 import * as path from 'node:path'
 import { test } from 'node:test'
 
 import { resolveBinary } from '../src/binary.ts'
 import { readHandshake } from '../src/handshake.ts'
+import { stageFixture } from './stage.ts'
 import {
   escape,
   groups,
@@ -228,7 +228,6 @@ test('the font token layer is CDN-bound, which is why this page uses the editor�
 
 // ── against the real binary ─────────────────────────────────────────────────
 
-const FIXTURE = path.resolve(HERE, '../../../prelude/sdks/parity/fixtures/reports/basic/repo')
 const SKIP = 'no yidam speaking the report contract — set YIDAM_BIN, or `cargo install --path yidam/cli`'
 
 function capture(bin: string, args: string[], cwd: string): string {
@@ -239,17 +238,6 @@ function capture(bin: string, args: string[], cwd: string): string {
   }
 }
 
-function stageFixture(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yidam-nbhd-'))
-  fs.cpSync(FIXTURE, dir, { recursive: true })
-  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' })
-  git('init', '-q', '-b', 'main')
-  git('config', 'user.email', 'fixture@yidam.test')
-  git('config', 'user.name', 'Fixture')
-  git('add', '-A')
-  git('commit', '-q', '-m', 'genesis: reports fixture')
-  return dir
-}
 
 async function contractBinary(cwd: string): Promise<string | null> {
   const r = await resolveBinary({ configured: process.env.YIDAM_BIN ?? '', workspace: cwd })
@@ -273,7 +261,7 @@ async function contractBinary(cwd: string): Promise<string | null> {
  * would be tempted to leave out: a neighbour that exists in the graph and not on disk.
  */
 test('the panel renders the real report, broken edge and all', async (t) => {
-  const dir = stageFixture()
+  const dir = stageFixture('yidam-nbhd-')
   const bin = await contractBinary(dir)
   if (!bin) {
     t.skip(SKIP)

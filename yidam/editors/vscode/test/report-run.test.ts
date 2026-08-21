@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import * as fs from 'node:fs'
-import * as os from 'node:os'
 import * as path from 'node:path'
 import { test } from 'node:test'
 
@@ -9,21 +8,9 @@ import { runReports } from '../src/report-run.ts'
 import { resolveBinary } from '../src/binary.ts'
 import { readHandshake } from '../src/handshake.ts'
 import { spawn, type Spawn } from '../src/runner.ts'
+import { stageFixture } from './stage.ts'
 
-const HERE = path.dirname(new URL(import.meta.url).pathname)
-const FIXTURE = path.resolve(HERE, '../../../prelude/sdks/parity/fixtures/reports/basic/repo')
 
-function stageFixture(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yidam-diag-'))
-  fs.cpSync(FIXTURE, dir, { recursive: true })
-  const git = (...a: string[]) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' })
-  git('init', '-q', '-b', 'main')
-  git('config', 'user.email', 'fixture@yidam.test')
-  git('config', 'user.name', 'Fixture')
-  git('add', '-A')
-  git('commit', '-q', '-m', 'genesis: reports fixture')
-  return dir
-}
 
 async function contractBinary(cwd: string): Promise<string | null> {
   const r = await resolveBinary({ configured: process.env.YIDAM_BIN ?? '', workspace: cwd })
@@ -42,7 +29,7 @@ async function contractBinary(cwd: string): Promise<string | null> {
 const SKIP = 'no yidam speaking the report contract'
 
 test('lint owns the diagnostics; graph-check does not double-mark the same node', async (t) => {
-  const dir = stageFixture()
+  const dir = stageFixture('yidam-diag-')
   const bin = await contractBinary(dir)
   if (!bin) return t.skip(SKIP)
 
@@ -59,7 +46,7 @@ test('lint owns the diagnostics; graph-check does not double-mark the same node'
 })
 
 test('the gate verdict comes from the CLI, not from counting findings', async (t) => {
-  const dir = stageFixture()
+  const dir = stageFixture('yidam-diag-')
   const bin = await contractBinary(dir)
   if (!bin) return t.skip(SKIP)
   const out = await runReports(bin, dir, { showBaselined: true }, spawn)
@@ -67,7 +54,7 @@ test('the gate verdict comes from the CLI, not from counting findings', async (t
 })
 
 test('after blessing, the same findings become Hints and the gate passes', async (t) => {
-  const dir = stageFixture()
+  const dir = stageFixture('yidam-diag-')
   const bin = await contractBinary(dir)
   if (!bin) return t.skip(SKIP)
 
@@ -85,7 +72,7 @@ test('after blessing, the same findings become Hints and the gate passes', async
 })
 
 test('showBaselined:false hides the debt without hiding a regression', async (t) => {
-  const dir = stageFixture()
+  const dir = stageFixture('yidam-diag-')
   const bin = await contractBinary(dir)
   if (!bin) return t.skip(SKIP)
 
@@ -105,7 +92,7 @@ test('showBaselined:false hides the debt without hiding a regression', async (t)
 })
 
 test('a stale baseline entry surfaces as a condition, not a diagnostic', async (t) => {
-  const dir = stageFixture()
+  const dir = stageFixture('yidam-diag-')
   const bin = await contractBinary(dir)
   if (!bin) return t.skip(SKIP)
 

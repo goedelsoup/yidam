@@ -10,9 +10,6 @@
 
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
 import { test } from 'node:test'
 
 import { resolveBinary } from '../src/binary.ts'
@@ -31,6 +28,7 @@ import {
   type GraphReport,
 } from '../src/graph.ts'
 import { readHandshake } from '../src/handshake.ts'
+import { stageFixture } from './stage.ts'
 
 const GRAPH: GraphReport = {
   format_version: '1',
@@ -365,8 +363,6 @@ test('a class with no declared properties scaffolds without an empty block', () 
 
 // ── against the real binary ─────────────────────────────────────────────────
 
-const HERE = path.dirname(new URL(import.meta.url).pathname)
-const FIXTURE = path.resolve(HERE, '../../../prelude/sdks/parity/fixtures/reports/basic/repo')
 const SKIP = 'no yidam speaking the report contract — set YIDAM_BIN, or `cargo install --path yidam/cli`'
 
 function capture(bin: string, args: string[], cwd: string): string {
@@ -377,17 +373,6 @@ function capture(bin: string, args: string[], cwd: string): string {
   }
 }
 
-function stageFixture(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yidam-graph-'))
-  fs.cpSync(FIXTURE, dir, { recursive: true })
-  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' })
-  git('init', '-q', '-b', 'main')
-  git('config', 'user.email', 'fixture@yidam.test')
-  git('config', 'user.name', 'Fixture')
-  git('add', '-A')
-  git('commit', '-q', '-m', 'genesis: reports fixture')
-  return dir
-}
 
 async function contractBinary(cwd: string): Promise<string | null> {
   const r = await resolveBinary({ configured: process.env.YIDAM_BIN ?? '', workspace: cwd })
@@ -412,7 +397,7 @@ async function contractBinary(cwd: string): Promise<string | null> {
  * the edge points — and nothing else would notice.
  */
 test('every edge the binary resolved resolves the same way here', async (t) => {
-  const dir = stageFixture()
+  const dir = stageFixture('yidam-graph-')
   const bin = await contractBinary(dir)
   if (!bin) {
     t.skip(SKIP)

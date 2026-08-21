@@ -11,13 +11,11 @@
 
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
 import { test } from 'node:test'
 
 import { resolveBinary } from '../src/binary.ts'
 import { readHandshake } from '../src/handshake.ts'
+import { stageFixture } from './stage.ts'
 import type {
   CorpusIndexReport,
   GraphCheckReport,
@@ -445,8 +443,6 @@ test('the status line reports staleness in the unit index-status measures', () =
 
 // ── against the real binary ──────────────────────────────────────────────────
 
-const HERE = path.dirname(new URL(import.meta.url).pathname)
-const FIXTURE = path.resolve(HERE, '../../../prelude/sdks/parity/fixtures/reports/basic/repo')
 const SKIP = 'no yidam speaking the report contract — set YIDAM_BIN, or `cargo install --path yidam/cli`'
 
 function capture(bin: string, args: string[], cwd: string): string {
@@ -457,20 +453,6 @@ function capture(bin: string, args: string[], cwd: string): string {
   }
 }
 
-/** The golden corpus as a git repository, with the refs the phase and sangha views read. */
-function stageFixture(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yidam-tree-'))
-  fs.cpSync(FIXTURE, dir, { recursive: true })
-  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' })
-  git('init', '-q', '-b', 'main')
-  git('config', 'user.email', 'fixture@yidam.test')
-  git('config', 'user.name', 'Fixture')
-  git('add', '-A')
-  git('commit', '-q', '-m', 'genesis: reports fixture')
-  git('branch', 'ma/hydrologist')
-  git('branch', 'rigpa/tailwater-regime')
-  return dir
-}
 
 async function contractBinary(cwd: string): Promise<string | null> {
   const r = await resolveBinary({ configured: process.env.YIDAM_BIN ?? '', workspace: cwd })
@@ -494,7 +476,7 @@ async function contractBinary(cwd: string): Promise<string | null> {
  * renamed `ref_name` would leave every test above green and every view empty.
  */
 test('every view builds from the real binary’s own JSON', async (t) => {
-  const dir = stageFixture()
+  const dir = stageFixture('yidam-tree-')
   const bin = await contractBinary(dir)
   if (!bin) {
     t.skip(SKIP)

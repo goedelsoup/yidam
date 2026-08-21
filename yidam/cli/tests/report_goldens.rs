@@ -20,16 +20,29 @@ fn fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../prelude/sdks/parity/fixtures/reports/basic")
 }
 
-/// Copy the fixture repo into a tempdir and make it a git repository.
+/// Copy the fixture repo into a tempdir and make it the repository `stage.toml` describes.
 ///
 /// `repo_root()` shells out to `git rev-parse --show-toplevel`, so the reports cannot run
 /// against a bare directory. Committing also gives `status` a genesis date to report.
+///
+/// **The recipe is the fixture's, not this file's.** It used to live here, and separately in
+/// six copies across the extension's tests, which is how the goldens came to describe a
+/// three-commit two-branch repository while the extension was exercised on a one-commit one.
 fn stage() -> tempfile::TempDir {
     let tmp = tempfile::tempdir().unwrap();
     copy_dir(&fixture_dir().join("repo"), tmp.path());
+    apply_recipe(tmp.path(), &fixture_dir().join("stage.toml"));
+    tmp
+}
+
+/// Build the history `recipe` describes in an already-populated directory.
+fn apply_recipe(root: &Path, recipe: &Path) {
+    let spec: toml::Value =
+        toml::from_str(&std::fs::read_to_string(recipe).expect("stage.toml")).expect("stage.toml");
+
     let git = |args: &[&str]| {
         let ok = Command::new("git")
-            .current_dir(tmp.path())
+            .current_dir(root)
             .args(args)
             .status()
             .unwrap()
@@ -39,50 +52,51 @@ fn stage() -> tempfile::TempDir {
     git(&["init", "-q", "-b", "main"]);
     git(&["config", "user.email", "fixture@yidam.test"]);
     git(&["config", "user.name", "Fixture"]);
-    git(&["add", "-A"]);
-    // Fixed dates keep `status`'s genesis field stable across runs.
-    let commit = |msg: &str| {
+
+    for commit in spec["commits"].as_array().expect("commits") {
+        // Edits first, then stage everything: a commit's `replace` and `write` describe the
+        // tree as of that commit, not a change made after it.
+        for edit in commit
+            .get("replace")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&Vec::new())
+        {
+            let path = root.join(edit["file"].as_str().unwrap());
+            let text = std::fs::read_to_string(&path).unwrap();
+            let from = edit["from"].as_str().unwrap();
+            assert!(
+                text.contains(from),
+                "stage.toml: {} does not contain {from:?}",
+                edit["file"].as_str().unwrap()
+            );
+            std::fs::write(&path, text.replace(from, edit["to"].as_str().unwrap())).unwrap();
+        }
+        for write in commit
+            .get("write")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&Vec::new())
+        {
+            let path = root.join(write["file"].as_str().unwrap());
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, write["content"].as_str().unwrap()).unwrap();
+        }
+        git(&["add", "-A"]);
+        // Fixed dates keep `status`'s genesis field stable across runs.
         Command::new("git")
-            .current_dir(tmp.path())
-            .args(["commit", "-q", "-m", msg])
+            .current_dir(root)
+            .args(["commit", "-q", "-m", commit["message"].as_str().unwrap()])
             .env("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z")
             .env("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
             .status()
             .unwrap();
-    };
-    commit("genesis: reports fixture");
+    }
 
-    // A second commit so `diff HEAD~1..HEAD` has a range to report on, and one that
-    // exercises the modified-node arm rather than only add/remove.
-    let node = tmp.path().join(".yidam/corpus/concept/tailwater.yml");
-    let text = std::fs::read_to_string(&node).unwrap();
-    std::fs::write(
-        &node,
-        text.replace(
-            "A discharge regime.",
-            "A discharge regime, revised. [verified]",
-        )
-        .replace(
-            "Water downstream of a structure.",
-            "Water downstream of a structure. [inference]",
-        ),
-    )
-    .unwrap();
-    git(&["add", "-A"]);
-    commit("revise: tailwater carries a claim tag");
-
-    // One operational commit, so the log goldens show the split rather than a column of
-    // [E]. A fixture whose history is all one kind cannot demonstrate a classifier.
-    std::fs::write(tmp.path().join(".yidam/corpus/.gitkeep"), "").unwrap();
-    git(&["add", "-A"]);
-    commit("regen: REGEN blocks refreshed");
-
-    // Refs the sangha and phase reports read. `ma/gauge-reader` is deliberately absent:
-    // the fixture registers that elector anyway, so `branch_present: false` is exercised
-    // by a golden rather than only by a unit test.
-    git(&["branch", "ma/hydrologist"]);
-    git(&["branch", "rigpa/tailwater-regime"]);
-    tmp
+    // Refs the sangha and phase reports read. `ma/gauge-reader` is deliberately absent: the
+    // fixture registers that elector anyway, so `branch_present: false` is exercised by a
+    // golden rather than only by a unit test.
+    for branch in spec["branches"].as_array().expect("branches") {
+        git(&["branch", branch.as_str().unwrap()]);
+    }
 }
 
 fn copy_dir(from: &Path, to: &Path) {
