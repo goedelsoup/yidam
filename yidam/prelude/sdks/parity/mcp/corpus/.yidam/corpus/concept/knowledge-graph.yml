@@ -1,0 +1,6 @@
+class: concept
+label: Knowledge graph
+description: A knowledge graph of typed nodes and edges.
+links:
+  - target: traversal.yml
+    relationship: enables

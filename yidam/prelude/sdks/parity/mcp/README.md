@@ -28,7 +28,7 @@ harness checks that they do.
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.1.0",
+    "contract": "0.2.0",
     "retrieve": { "vector": false },
     "graph": true, "phases": false, "sangha": false, "resources": true
   }
@@ -49,11 +49,37 @@ is answering from a different vector space and saying it is not.
 
 Omitting the flag is not an option the contract offers. There is no third state.
 
+## The corpus
+
+`corpus/` is the tree every case runs against — a four-node `concept` graph, small enough to
+read in one sitting and shaped so each case has exactly one thing it can fail on. Stage it as
+a repository: copy it to a scratch directory, `git init`, commit once. The Rust harness
+(`yidam/cli/tests/mcp_serve.rs`) does that in ten lines, and so should every other.
+
+It ships here because the counts in `cases/` describe it and nothing else. For a while it did
+not: the corpus was written as heredocs inside that Rust test, so a case asserting
+`count: {open_questions: 3}` named nodes a consumer had no way to see. One did the reasonable
+thing and re-expressed every `count` and `equals` against a corpus of its own — which turns a
+conformance suite into a check that a server agrees with itself. Asserting a case's `count`
+directly is the obvious way to consume these files, and it is now also the correct one.
+
+| Node | Why it is there |
+|---|---|
+| `concept/knowledge-graph` | The only node that is **not** open, and the only one with an outgoing edge. `retrieve` ranks it first for `knowledge graph`. |
+| `concept/traversal` | Open by its **label**. Nothing points out of it, so `neighbors` can answer from it only by walking the edge backwards. |
+| `concept/retrieval` | Open by an **[open] claim in its body**. |
+| `concept/embedding-space` | Open by a **declared `type: claim` property**, and no other way — no `?`, no bracketed token anywhere in the file. |
+
+`concept.ont.yml` declares `claim_tag` as `type: claim`. Without that declaration the third
+arm of the open-question predicate reads nothing — which is exactly why the node is here: it
+is the arm a server can omit and never notice, because on a corpus that declares no such
+field a two-arm server returns the identical set.
+
 ## Cases
 
-`cases/<tool>/<name>.json` is a call and the shape its response must have, over the fixture
-corpus in `corpus/`. They assert invariant fields — `degraded`, the node model, `direction` —
-and never embedding scores, which are a property of a model rather than of a contract.
+`cases/<tool>/<name>.json` is a call and the shape its response must have, over `corpus/`.
+They assert invariant fields — `degraded`, the node model, `direction` — and never embedding
+scores, which are a property of a model rather than of a contract.
 
 A server declaring a capability MUST pass its cases. One declaring it absent MUST return a
 capability-not-supported error, and its cases are skipped rather than passed.

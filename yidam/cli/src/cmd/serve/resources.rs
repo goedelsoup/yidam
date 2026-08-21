@@ -9,8 +9,10 @@ fn text_contents(uri: &str, text: String) -> Value {
     json!({"contents": [{"uri": uri, "mimeType": "text/plain", "text": text}]})
 }
 
-/// True when the node counts as an open question: `?`-prefixed label or an
-/// `[open]` claim in the body. Shared with the `open_questions` tool.
+/// True when the node counts as an open question, by any of the three arms the frozen
+/// contract names: a `?`-prefixed label, an `[open]` claim in the body, or an open tag in a
+/// property the class declared `type: claim`. Shared with the `open_questions` tool.
+///
 /// One predicate, shared with the reports.
 ///
 /// This was a second copy of `label.starts_with('?') || content.contains("[open]")`, so a

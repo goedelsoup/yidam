@@ -1,0 +1,7 @@
+class: concept
+label: "? Traversal strategy"
+description: >-
+  How agents walk the graph. Open by its LABEL and nothing else — arm one. The node
+  nothing points out of, so the `neighbors` case can only answer from here by walking
+  the edge backwards.
+links: []

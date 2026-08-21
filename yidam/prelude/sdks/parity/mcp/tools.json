@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "contract": "0.1.0",
+  "contract": "0.2.0",
   "description": "The frozen MCP tool contract (RFC-0005). Names are bare — no `yidam_` prefix — because the server is already namespaced by its own name in every client that mounts one. `tier` is `core` (every server MUST back it) or a capability name (backed iff the server declares that capability true). This file is the only place the list lives; a harness that restates it is a second freeze, which is how three servers ended up sharing one name out of five capabilities.",
   "capabilities": {
     "retrieve": {
@@ -65,11 +65,11 @@
     {
       "name": "open_questions",
       "tier": "core",
-      "description": "All nodes flagged as open questions: label starts with \"?\" or the body contains an [open] claim.",
+      "description": "All nodes flagged as open questions: label starts with \"?\", the body contains an [open] claim, or a property the node's class declared as `type: claim` holds an open tag.",
       "inputSchema": { "type": "object", "properties": {} },
       "response": {
         "required": ["open_questions"],
-        "notes": "The predicate is frozen (RFC-0001) and no server may add arms to it. An extension — a `claim_tag` filter, say — is a different tool, because a server that quietly widens this one makes two corpora incomparable while both answer."
+        "notes": "Three arms, frozen (RFC-0001), and a server may add none. The third reads only properties the node's class declared `type: claim` in its `.ont.yml`, and both `open` and `[open]` are read as the tag. It is the arm a server is most likely to skip, and skipping it is invisible on a prose corpus: with no `type: claim` declaration anywhere the arm matches nothing, so two-arm and three-arm servers return the identical set. It diverges only on the corpus that declared the field — which is the corpus that measured 26 open questions against this tool's 2, and reshaped its data to `\"[open]\"` to be seen at all. What is still forbidden is a fourth arm and a blessed key name: matching a bare `open` under any key makes `status: open` on a ballot measure an open claim, and no corpus can opt out of that. The ontology declares the field or the arm reads nothing."
       }
     },
     {

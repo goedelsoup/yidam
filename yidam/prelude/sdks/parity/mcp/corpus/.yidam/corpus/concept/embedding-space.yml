@@ -1,0 +1,12 @@
+class: concept
+label: Embedding space
+description: >-
+  The vector room a query and a node are compared in. Open by a DECLARED FIELD and
+  nothing else — arm three: no leading `?` in the label, and no bracketed token
+  anywhere in this file. A server implementing two arms finds two open nodes here; one
+  implementing three finds this one too, and that difference is why this node exists.
+properties:
+  claim_tag: open
+links:
+  - target: retrieval.yml
+    relationship: relates-to
