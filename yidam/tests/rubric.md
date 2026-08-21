@@ -36,8 +36,12 @@ for what went wrong when it did.
 
 ## Quality checks (judge-assessed)
 
-Each criterion is scored `pass` / `marginal` / `fail`. See [judge.md](judge.md)
-for scoring guidance.
+Each criterion is scored `pass` / `marginal` / `fail`. See [judge.md](judge.md) for scoring
+guidance and the band anchors.
+
+This table is the source, not a description of one: the harness parses these rows and holds
+the judge to exactly the IDs it finds. A criterion added here is a criterion the judge must
+score; a verdict that omits one, invents one, or gives a band with no evidence is rejected.
 
 | ID | Criterion |
 |---|---|

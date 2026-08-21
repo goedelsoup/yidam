@@ -145,9 +145,16 @@ verdict reads as a model that produced nothing. The harness passes
 guarded by a check that refuses to run inside the template — so a denial now means something
 went wrong rather than something was never configured.
 
-**Not yet written.** `quality.json` — a band per Q-check — has no producer; the judge is
-specified in [judge.md](../judge.md) and scored in [rubric.md](../rubric.md), and nothing
-invokes it. The transcript it would read now exists, which is what it was waiting for.
+`quality.json` holds the judge's verdict — a band per Q-criterion with the evidence it rests
+on — and is written when a run is scored. Scoring is opt-in (`--judge`, or `--judge-model`)
+because it costs a second model call, so an absent `quality.json` means the run was not
+scored, never that there was nothing to report. `harness judge` re-scores a captured result
+without re-running the bootstrap.
+
+The criteria the judge is held to are read out of [rubric.md](../rubric.md) rather than
+restated in the harness, so adding a criterion to the document holds the judge to it. A reply
+that skips a criterion, invents one, scores one twice, or gives a band with no evidence is
+rejected rather than recorded.
 
 **Q1 remains unmeasurable**, and capturing the transcript did not change that. The record
 carries `turns_before_first_write` — the evidence Q1 wants — but the harness inlines the

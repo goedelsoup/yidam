@@ -1,5 +1,8 @@
 pub mod check;
 pub mod diff;
+pub mod judge;
+pub mod quality;
+pub mod rubric;
 pub mod scenario;
 pub mod snapshot;
 pub mod transcript;
@@ -19,7 +22,17 @@ use std::path::{Path, PathBuf};
 /// document quoted for the whole of 0.1.0 without the constant existing at all.
 pub const PROTOCOL_VERSION: &str = "0.2.0";
 
-pub fn run(scenario: PathBuf, model: String, output: PathBuf) -> Result<()> {
+/// Where the rubric and the judge's guidance live, relative to the template root. Held out
+/// from the worktree; read from the repository the harness itself runs in.
+const RUBRIC: &str = "yidam/tests/rubric.md";
+const JUDGE_GUIDANCE: &str = "yidam/tests/judge.md";
+
+pub fn run(
+    scenario: PathBuf,
+    model: String,
+    judge_model: Option<String>,
+    output: PathBuf,
+) -> Result<()> {
     let scenario_data = scenario::load(&scenario)?;
 
     // Before the run, not after: the transcript streams into it while the agent works.
@@ -34,7 +47,18 @@ pub fn run(scenario: PathBuf, model: String, output: PathBuf) -> Result<()> {
 
     let run = transcript::read(&output.join(TRANSCRIPT), &model)?;
     let structural = check::run_all(&output)?;
-    snapshot::write(&output, &structural, Some(run.clone()))?;
+
+    // Scored after the structural checks and independently of them: a corpus can satisfy
+    // every S-check and still be four fused concepts nobody would recognise.
+    let quality = match judge_model {
+        Some(judge_model) => Some(score_quality(&scenario_data, &output, &run, &judge_model)?),
+        None => None,
+    };
+
+    snapshot::write(&output, &structural, Some(run.clone()), quality.clone())?;
+    if let Some(report) = &quality {
+        judge::write(&output, report)?;
+    }
 
     println!("{}", run.summary());
     println!(
@@ -42,6 +66,9 @@ pub fn run(scenario: PathBuf, model: String, output: PathBuf) -> Result<()> {
         structural.passed(),
         structural.total()
     );
+    if let Some(report) = &quality {
+        report.print();
+    }
     if run.was_denied() {
         println!(
             "WARNING: {} tool call(s) were denied by the permission layer ({}).\n\
@@ -51,6 +78,40 @@ pub fn run(scenario: PathBuf, model: String, output: PathBuf) -> Result<()> {
             run.permission_denials.join(", ")
         );
     }
+    Ok(())
+}
+
+fn score_quality(
+    scenario: &scenario::Scenario,
+    output: &Path,
+    run: &transcript::RunRecord,
+    judge_model: &str,
+) -> Result<quality::QualityReport> {
+    let template = find_template_root()?;
+    let rubric = rubric::load(&template.join(RUBRIC))?;
+    let guidance = std::fs::read_to_string(template.join(JUDGE_GUIDANCE))
+        .with_context(|| format!("reading {JUDGE_GUIDANCE}"))?;
+    let brief = judge::brief(&guidance, &rubric, scenario, output, Some(run))?;
+    judge::score(&brief, judge_model, &rubric.quality_ids())
+}
+
+/// Score a result directory that already exists.
+///
+/// The judge reads a captured result, so it does not need the bootstrap re-run to say
+/// anything — which makes re-scoring after a rubric change cost one model call instead of
+/// two, and makes the judge testable at all.
+pub fn judge_result(result: PathBuf, scenario: PathBuf, model: String) -> Result<()> {
+    let scenario_data = scenario::load(&scenario)?;
+    let run = transcript::read(&result.join(TRANSCRIPT), "unknown").ok();
+    let template = find_template_root()?;
+    let rubric = rubric::load(&template.join(RUBRIC))?;
+    let guidance = std::fs::read_to_string(template.join(JUDGE_GUIDANCE))
+        .with_context(|| format!("reading {JUDGE_GUIDANCE}"))?;
+
+    let brief = judge::brief(&guidance, &rubric, &scenario_data, &result, run.as_ref())?;
+    let report = judge::score(&brief, &model, &rubric.quality_ids())?;
+    judge::write(&result, &report)?;
+    report.print();
     Ok(())
 }
 
@@ -179,6 +240,31 @@ fn prepare_worktree(dest: &Path) -> Result<()> {
 /// The event stream, as captured beside the result.
 pub const TRANSCRIPT: &str = "transcript.jsonl";
 
+/// Run `claude --print` with the prompt on stdin.
+///
+/// On stdin rather than as an argument: a prompt is a document, and a document that begins
+/// with `---` — as `judge.md` does, and as any file with YAML frontmatter does — is read by
+/// the argument parser as a flag. It is also unbounded in a way argv is not.
+pub(crate) fn print_prompt(args: &[&str], prompt: &str) -> Result<std::process::Output> {
+    use std::io::Write;
+
+    let mut child = std::process::Command::new("claude")
+        .arg("--print")
+        .args(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .context("spawning `claude` — is it installed and in PATH?")?;
+    child
+        .stdin
+        .take()
+        .context("claude stdin")?
+        .write_all(prompt.as_bytes())
+        .context("writing the prompt to claude")?;
+    child.wait_with_output().context("waiting for claude")
+}
+
 fn invoke_bootstrap(
     worktree: &Path,
     scenario: &scenario::Scenario,
@@ -229,7 +315,7 @@ fn invoke_bootstrap(
     let transcript = std::fs::File::create(output.join(TRANSCRIPT))
         .with_context(|| format!("creating {TRANSCRIPT}"))?;
 
-    let status = std::process::Command::new("claude")
+    let mut child = std::process::Command::new("claude")
         .current_dir(worktree)
         .args([
             "--print",
@@ -249,10 +335,24 @@ fn invoke_bootstrap(
             "--permission-mode",
             "bypassPermissions",
         ])
-        .arg(&prompt)
+        // On stdin, not argv — see `print_prompt`. BOOTSTRAP.md does not currently open with
+        // frontmatter, and a prompt that starts working or failing depending on whether a
+        // document grew a `---` is not a property worth having.
+        .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::from(transcript))
-        .status()
+        .spawn()
         .context("running `claude` CLI — is it installed and in PATH?")?;
+
+    {
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .context("claude stdin")?
+            .write_all(prompt.as_bytes())
+            .context("writing the bootstrap prompt")?;
+    }
+    let status = child.wait().context("waiting for the bootstrap agent")?;
 
     // A non-zero exit is not fatal here. The transcript is already on disk, and it is the
     // only thing that can say what went wrong — discarding it to report "exited non-zero"
