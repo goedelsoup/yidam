@@ -1,0 +1,25 @@
+class: confounding
+label: Selection Bias
+description: |
+  Selection bias arises when the comparison group — the untreated or control units — is
+  systematically different from the treated group in ways related to the outcome, beyond
+  what can be accounted for by observed covariates. It is a form of confounding that is
+  often traceable to the mechanism by which units enter the study or select into treatment.
+  A canonical example: individuals who choose to exercise are healthier to begin with than
+  those who do not, so a naive comparison of exercisers and non-exercisers overestimates
+  the health effect of exercise. [inference] Selection bias and unmeasured confounding are
+  conceptually overlapping — selection on unobservables is a form of unmeasured confounding;
+  the distinction is often one of framing (who selects, versus what causes selection).
+properties:
+  variable_name: "Self-selection mechanism (S)"
+  confounding_mechanism: "Units with higher expected Y under treatment are more likely to take treatment, creating a spurious positive association between T and Y"
+  measurability: "partially observed — selection indicators may be observed but the determinants of selection often include unobserved factors"
+links:
+  - target: ../confounding.ont.yml
+    relationship: instance-of
+  - target: ../identification/backdoor-identification.yml
+    relationship: threatens
+  - target: ../identification/instrumental-variable-identification.yml
+    relationship: does-not-threaten
+  - target: ../confounding/unmeasured-confounder.yml
+    relationship: related-to

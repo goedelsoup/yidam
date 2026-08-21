@@ -1,0 +1,29 @@
+class: intervention
+label: Intervention
+foundational_type:
+  ontology: bfo
+  type: process
+description: |
+  The act of externally setting a variable's value — Pearl's do-operator — which is
+  conceptually and mathematically distinct from passively observing that variable take
+  a value; the distinction grounds the definition of a causal effect and the meaning
+  of a counterfactual.
+properties:
+  - name: target_variable
+    type: string
+    description: The variable whose value is set by the intervention
+  - name: intervention_level
+    type: string
+    description: The value or level to which the variable is set
+  - name: intervention_type
+    type: string
+    description: Whether this is an atomic, conditional, stochastic, or structural intervention
+edges:
+  - relationship: defines
+    target: estimand
+    direction: out
+    description: An intervention specifies the causal contrast that constitutes an estimand
+  - relationship: contrasts-with
+    target: intervention
+    direction: out
+    description: A causal effect compares the outcome under one intervention against another (or no intervention)

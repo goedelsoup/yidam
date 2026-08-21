@@ -1,0 +1,27 @@
+class: identification
+label: Backdoor Identification
+description: |
+  Backdoor identification, due to Pearl (1993), establishes identification of a causal
+  effect by conditioning on a set of variables that blocks all non-causal (backdoor) paths
+  from treatment T to outcome Y in the causal DAG. A set X satisfies the backdoor criterion
+  relative to (T, Y) if: (i) no node in X is a descendant of T, and (ii) X blocks every
+  path between T and Y that contains an arrow into T. When the backdoor criterion is
+  satisfied, the interventional distribution P(Y | do(T=t)) is identified as the
+  covariate-adjusted observational distribution: ∑_x P(Y | T=t, X=x)P(X=x). In the
+  potential outcomes framework, this corresponds to conditional ignorability: the backdoor
+  criterion is the graphical condition that makes ignorability hold for adjustment set X.
+  [verified] The backdoor criterion provides both a sufficient condition for identification
+  and a recipe for constructing the identifying functional.
+properties:
+  strategy_name: "Backdoor Adjustment"
+  required_graph_condition: "A set X satisfies the backdoor criterion relative to (T, Y): X contains no descendants of T, and X blocks all backdoor paths T ← … → Y"
+  identification_status: "Identified when the backdoor criterion is satisfied for some measured covariate set X"
+links:
+  - target: ../identification.ont.yml
+    relationship: instance-of
+  - target: ../assumption/conditional-ignorability.yml
+    relationship: requires
+  - target: ../assumption/sutva.yml
+    relationship: requires
+  - target: ../estimand/average-treatment-effect.yml
+    relationship: targets

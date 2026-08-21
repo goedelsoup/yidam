@@ -1,0 +1,33 @@
+class: estimand
+label: Estimand
+foundational_type:
+  ontology: bfo
+  type: quality
+description: |
+  A precisely stated causal quantity — the target of an identification and estimation
+  exercise — defined as a contrast between potential outcomes under two or more
+  interventions; examples include the Average Treatment Effect (ATE), the Average
+  Treatment Effect on the Treated (ATT), and the Local Average Treatment Effect (LATE).
+properties:
+  - name: estimand_name
+    type: string
+    description: The conventional name for this causal quantity (e.g., ATE, ATT, LATE, CATE)
+  - name: formal_definition
+    type: text
+    description: The mathematical definition as a contrast of expected potential outcomes
+  - name: target_population
+    type: string
+    description: The population over which the estimand is defined (e.g., all units, treated units, compliers)
+edges:
+  - relationship: defined-by
+    target: intervention
+    direction: in
+    description: An estimand is constituted by a contrast between interventions
+  - relationship: targeted-by
+    target: identification
+    direction: in
+    description: Identification is always identification of a specific estimand
+  - relationship: estimated-by
+    target: estimator
+    direction: in
+    description: An estimator targets this estimand when identification conditions hold

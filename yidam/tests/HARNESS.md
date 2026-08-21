@@ -71,9 +71,27 @@ versions
 (see [VERSIONING.md](../../VERSIONING.md), Layer 3) rather than reported as a change in the
 model.
 
-`tests/results/` does not exist and no snapshot has been committed, so there is nothing to
-diff against yet. Until a baseline is committed, this section describes an intended
-mechanism rather than a working one.
+## The committed baseline
+
+[`tests/results/`](results/) holds captured runs. Each is a real bootstrap — the corpus the
+agent produced, the history it wrote, the verdicts the checks returned, and the judge's bands
+with the evidence behind them.
+
+A baseline is a golden fixture, and the fixture is the corpus. It never changes again, so a
+recomputed verdict that differs from the recorded one means the checks moved, not the model.
+`no_baseline_has_drifted` asserts that on every run of the harness tests, and
+`harness check --verify` reports the same comparison for a person. Neither needs a model or an
+API key: the expensive half of an eval is producing the run, and a committed baseline has
+already paid for it.
+
+The gate asks whether the verdicts still match, not whether they all pass. A baseline records
+what a run produced, failures included — and a check that starts *passing* is drift too. What
+is not committed is the raw event stream: everything read from it is parsed once into
+`structural.json`, and the stream is a couple of megabytes of mostly this repository's own
+prelude echoed back through tool results.
+
+Re-recording is a judgement, not a refresh. A baseline updated without a stated reason is a
+baseline that follows the code rather than holding it to anything.
 
 ## Cargo workspace
 

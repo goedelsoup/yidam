@@ -1,0 +1,30 @@
+class: study-design
+label: Study Design
+foundational_type:
+  ontology: bfo
+  type: process
+description: |
+  The structured arrangement of data collection — the rules by which units are observed,
+  treated, or followed — that determines the observable data distribution and constrains
+  which identification strategies and assumptions are defensible; examples include cohort
+  studies, case-control studies, natural experiments, regression discontinuity designs,
+  and difference-in-differences setups.
+properties:
+  - name: design_name
+    type: string
+    description: The name of the study design (e.g., cohort, case-control, RD, DiD, IV natural experiment)
+  - name: treatment_assignment_mechanism
+    type: text
+    description: How units come to receive treatment in this design — the key feature that grounds identification claims
+  - name: data_structure
+    type: string
+    description: The structure of the resulting data (cross-sectional, panel, time-series, matched pairs)
+edges:
+  - relationship: supports
+    target: assumption
+    direction: out
+    description: The design provides a basis for claiming that certain assumptions hold
+  - relationship: enables
+    target: identification
+    direction: out
+    description: The design makes certain identification strategies available or unavailable

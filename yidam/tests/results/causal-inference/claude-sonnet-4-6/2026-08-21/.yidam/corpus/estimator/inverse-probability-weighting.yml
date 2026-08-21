@@ -1,0 +1,28 @@
+class: estimator
+label: Inverse Probability Weighting (IPW)
+description: |
+  IPW reweights each observed unit by the inverse of its propensity score — the probability
+  of receiving its actual treatment given its observed covariates: w_i = T_i/e(X_i) +
+  (1-T_i)/(1-e(X_i)), where e(X) = P(T=1|X). By reweighting, IPW creates a
+  pseudo-population in which treatment is independent of X — effectively mimicking
+  randomization conditional on observables. When conditional ignorability holds and the
+  propensity score is correctly specified, the IPW estimator is consistent for the ATE.
+  IPW is doubly sensitive: it requires both correct specification of the propensity model
+  and the overlap assumption (0 < e(X) < 1 for all X). Extreme weights (near-zero
+  propensity scores) produce high variance and can dominate the estimate. [inference]
+  Augmented IPW (AIPW) addresses the propensity misspecification problem by adding an
+  outcome model component, giving double-robustness — consistency if either the propensity
+  or outcome model is correct, but not necessarily both.
+properties:
+  estimator_name: "IPW (Inverse Probability Weighting)"
+  identification_strategy: "Backdoor adjustment via propensity score"
+  consistency_conditions: "Conditional ignorability, overlap (0 < e(X) < 1), SUTVA, and correct propensity model specification"
+links:
+  - target: ../estimator.ont.yml
+    relationship: instance-of
+  - target: ../estimand/average-treatment-effect.yml
+    relationship: recovers
+  - target: ../assumption/conditional-ignorability.yml
+    relationship: valid-under
+  - target: ../identification/backdoor-identification.yml
+    relationship: operationalizes

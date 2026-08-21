@@ -1,0 +1,23 @@
+class: confounding
+label: Unmeasured Confounder
+description: |
+  An unmeasured (latent) confounder is a variable that causally affects both the treatment
+  T and the outcome Y but is not recorded in the observed dataset, making it impossible to
+  adjust for directly. Unmeasured confounders are the primary threat to conditional
+  ignorability: if a common cause of T and Y is absent from the adjustment set X, then
+  (Y(0), Y(1)) ⊥⊥ T | X fails even if X includes many observed variables. The existence
+  of unmeasured confounders cannot be ruled out from the data — it requires domain knowledge
+  about the causal structure. [inference] In most observational studies of human behavior,
+  some degree of unmeasured confounding is plausible due to unobserved preferences,
+  abilities, or circumstances that determine both treatment-seeking and outcomes.
+properties:
+  variable_name: "U (unmeasured common cause)"
+  confounding_mechanism: "U → T and U → Y, creating a backdoor path T ← U → Y that is not blocked by the observed adjustment set X"
+  measurability: "latent (unobserved)"
+links:
+  - target: ../confounding.ont.yml
+    relationship: instance-of
+  - target: ../identification/backdoor-identification.yml
+    relationship: threatens
+  - target: ../assumption/conditional-ignorability.yml
+    relationship: violates-when-present

@@ -119,7 +119,7 @@ it should be a quality check assessed by the judge, not a structural check.
 
 ## Snapshot path
 
-Results for a scenario are written to:
+Results for a scenario are written to, and committed at:
 
 ```
 tests/results/<id>/<model>/<YYYY-MM-DD>/
@@ -128,8 +128,14 @@ tests/results/<id>/<model>/<YYYY-MM-DD>/
   commit.log        — `git log`, for a person reading the result
   commits.tsv       — subject lines oldest first, which S4 reads
   genesis.msg       — the ROOT commit's message raw (`%B`), which S5 counts
-  .yidam/           — the corpus and scaffold the checks read
+  quality.json      — the judge's bands and their evidence, when the run was scored
+  .yidam/           — the corpus and scaffold the checks read, minus `.vendor/`
 ```
+
+`.vendor/` is excluded from the capture. Step 8 of the bootstrap moves `yidam/prelude/` there,
+so capturing it copies this repository's own prelude back into every result — 538 files that
+are already committed one directory up and say nothing about what the agent did.
+`transcript.jsonl` is written but not committed, for the same reason at larger scale.
 
 `structural.json` records `protocol_version`, and `harness diff` refuses to compare two
 snapshots that do not share one: when an S-check changes meaning, a pass→fail transition

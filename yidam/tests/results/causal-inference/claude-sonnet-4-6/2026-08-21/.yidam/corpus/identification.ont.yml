@@ -1,0 +1,36 @@
+class: identification
+label: Identification
+foundational_type:
+  ontology: bfo
+  type: quality
+description: |
+  The conditions under which a causal estimand is recoverable — expressible as a functional
+  of the observable data distribution — given a set of assumptions about the data-generating
+  process; the central problem of causal inference from observational data.
+properties:
+  - name: strategy_name
+    type: string
+    description: The name of the identification strategy (e.g., backdoor adjustment, instrumental variables, regression discontinuity)
+  - name: required_graph_condition
+    type: text
+    description: The graphical or structural condition that licenses this identification strategy
+  - name: identification_status
+    type: string
+    description: Whether identification holds (identified, partially identified, not identified) given current assumptions
+edges:
+  - relationship: requires
+    target: assumption
+    direction: out
+    description: Identification depends on one or more assumptions holding in the data-generating process
+  - relationship: targets
+    target: estimand
+    direction: out
+    description: Identification is always of a specific estimand
+  - relationship: threatened-by
+    target: confounding
+    direction: in
+    description: Unmeasured confounding can violate identification conditions
+  - relationship: enabled-by
+    target: study-design
+    direction: in
+    description: The study design constrains which identification strategies are available

@@ -16,3 +16,8 @@ serde_json = "1"
 walkdir = "2"
 pulldown-cmark = "0.11"
 tempfile = "3"
+
+# Integration tests under `tests/` do not inherit `[dependencies]`, and `baseline.rs` walks
+# the committed result directories.
+[dev-dependencies]
+walkdir = "2"
