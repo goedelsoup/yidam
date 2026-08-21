@@ -189,6 +189,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('yidam.buildIndex', () => task('index-build')),
     vscode.commands.registerCommand('yidam.vendorStatus', () => task('yidam-vendor-status')),
     vscode.commands.registerCommand('yidam.showHealth', showHealth),
+    vscode.commands.registerCommand('yidam.neighborhoodOf', showNeighborhoodOf),
+    vscode.commands.registerCommand('yidam.newNodeIn', newNodeIn),
   )
 
   const debounced = debounce(debounceMs(), () => void report())
@@ -462,7 +464,12 @@ function corpusCompletion(
  * nothing. A node with no outgoing edge is a lint error the moment it exists, so a command
  * that scaffolded one would be offering to break the gate — politely, with a wizard.
  */
-async function newNode(): Promise<void> {
+/**
+ * `preselected` skips the class prompt — the class the row was invoked on already answered
+ * it. Ignored when the corpus has no such class, so a stale view cannot scaffold a node into
+ * a class the ontology does not define.
+ */
+async function newNode(preselected?: string): Promise<void> {
   const folder = workspaceFolder()
   if (!folder || !graph) {
     void vscode.window.showWarningMessage('yidam: no corpus graph yet — is the binary resolved?')
@@ -470,10 +477,13 @@ async function newNode(): Promise<void> {
   }
   const g = graph
 
-  const cls = await vscode.window.showQuickPick(
-    g.classes.map((c) => ({ label: c.class, description: c.label, detail: c.description })),
-    { title: 'New node — class', matchOnDetail: true },
-  )
+  const known = preselected && g.classes.some((c) => c.class === preselected)
+  const cls = known
+    ? { label: preselected }
+    : await vscode.window.showQuickPick(
+        g.classes.map((c) => ({ label: c.class, description: c.label, detail: c.description })),
+        { title: 'New node — class', matchOnDetail: true },
+      )
   if (!cls) return
 
   const label = await vscode.window.showInputBox({ title: 'New node — label', ignoreFocusOut: true })
@@ -544,6 +554,29 @@ function nonce(): string {
   let out = ''
   for (let i = 0; i < 32; i += 1) out += alphabet[Math.floor(Math.random() * alphabet.length)]
   return out
+}
+
+/**
+ * The neighbourhood of a tree row.
+ *
+ * `drawNeighborhood` answers about the active editor, which is right for the palette and is
+ * the whole behaviour of the panel. So this opens the row's file first — which is what
+ * clicking the row does anyway — and lets the existing path answer. No second notion of
+ * "the current node", which is the kind of state that starts disagreeing with itself.
+ */
+async function showNeighborhoodOf(node: unknown): Promise<void> {
+  const file = (node as { file?: string } | null)?.file
+  if (typeof file !== 'string' || file.length === 0) return
+  const base = workspaceFolder()
+  if (!base) return
+  await vscode.window.showTextDocument(vscode.Uri.file(`${base}/${file}`), { preview: true })
+  await showNeighborhood()
+}
+
+/** `New corpus node`, with the class taken from the row rather than asked for. */
+async function newNodeIn(node: unknown): Promise<void> {
+  const subject = (node as { subject?: string } | null)?.subject
+  await newNode(typeof subject === 'string' && subject.length > 0 ? subject : undefined)
 }
 
 async function showNeighborhood(): Promise<void> {
@@ -964,7 +997,14 @@ function task(name: string): void {
  * tree under an unsaved editor is a surprise. The confirmation is what makes the row safe
  * to click by accident; the terminal is what makes the result readable when git refuses.
  */
+/**
+ * `ref` is a string from the row's own click command, and a `TreeNode` from the context
+ * menu — VS Code hands a `TreeDataProvider<T>` command the element, not the click arguments.
+ */
 async function checkoutPhase(ref: unknown): Promise<void> {
+  if (typeof ref === 'object' && ref !== null && 'subject' in ref) {
+    ref = (ref as { subject?: unknown }).subject
+  }
   if (typeof ref !== 'string' || ref.length === 0) return
   const target = localRef(ref)
   const go = 'Switch'

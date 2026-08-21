@@ -37,6 +37,53 @@ test('main names a file the build actually emits', () => {
   )
 })
 
+/**
+ * A menu naming a `viewItem` no row carries is a menu that never appears, and a row carrying
+ * a `contextValue` no menu names is scaffolding. Both look exactly like working code. Six
+ * context values sat in `tree/model.ts` with zero menus reading them until this test existed.
+ */
+test('every menu names a context value some row actually carries, and every view exists', () => {
+  const modelSrc = fs.readFileSync(path.join(ROOT, 'src/tree/model.ts'), 'utf8')
+  const declared = new Set([...modelSrc.matchAll(/context: '([^']+)'/g)].map((m) => m[1]))
+  assert.ok(declared.size > 0, 'no context values found — the scan is broken')
+
+  const viewIds = new Set<string>(
+    Object.values(manifest.contributes?.views ?? {})
+      .flat()
+      .map((v) => (v as { id: string }).id),
+  )
+  const items: { command: string; when?: string }[] =
+    manifest.contributes?.menus?.['view/item/context'] ?? []
+  assert.ok(items.length > 0, 'no view/item/context menus — this test is asserting nothing')
+
+  for (const { command, when } of items) {
+    const viewItem = /viewItem == ([\w.]+)/.exec(when ?? '')?.[1]
+    assert.ok(viewItem, `${command}: a row menu must name a viewItem — ${when}`)
+    assert.ok(
+      declared.has(viewItem),
+      `${command} is offered on \`${viewItem}\`, which no row in tree/model.ts sets`,
+    )
+    const view = /view == ([\w.]+)/.exec(when ?? '')?.[1]
+    assert.ok(view && viewIds.has(view), `${command} names view \`${view}\`, which is not contributed`)
+  }
+})
+
+/**
+ * These two are handed the row they were invoked on. From the palette there is no row, so
+ * they would silently do nothing — which reads as a broken command rather than an
+ * inapplicable one.
+ */
+test('row-only commands are hidden from the palette', () => {
+  const hidden = new Set(
+    (manifest.contributes?.menus?.commandPalette ?? [])
+      .filter((m: { when?: string }) => m.when === 'false')
+      .map((m: { command: string }) => m.command),
+  )
+  for (const command of ['yidam.neighborhoodOf', 'yidam.newNodeIn']) {
+    assert.ok(hidden.has(command), `${command} needs a row and must not be offered without one`)
+  }
+})
+
 test('every contributed command is registered in the source', () => {
   const commands: { command: string }[] = manifest.contributes?.commands ?? []
   assert.ok(commands.length > 0, 'no contributed commands — the scan is broken')
