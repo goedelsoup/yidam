@@ -39,6 +39,12 @@ Severity follows RFC-0016's table, and **baseline membership outranks check seve
 directions**: inherited debt is a Hint however severe the check is, because `yidam lint` does
 not ask *is the corpus clean?* — it asks *did this change make it less clean?*
 
+The extension carries that table a second time, in TypeScript, so that it can render a
+diagnostic without a subprocess per keystroke. Both copies read
+`prelude/sdks/parity/fixtures/diagnostic_severity/` rather than restating the table, which is
+what keeps the editor's verdict and the gate's from drifting apart while each stays
+internally consistent.
+
 ### Neovim
 
 ```lua
