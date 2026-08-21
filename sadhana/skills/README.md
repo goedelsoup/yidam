@@ -30,4 +30,8 @@ _Run `yidam skills-index` to populate._
 | Skill | Purpose |
 |---|---|
 | [`bootstrap`](../.vendor/prelude/skills/bootstrap.md) | Repository initialization |
-| [`judge`](../.vendor/prelude/skills/judge.md) | Bootstrap result evaluation (test harness) |
+
+`judge` used to be listed here. It scores runs of yidam's own bootstrap test harness, which
+a derived repository has no copy of and cannot run — and listing it as inherited was the
+visible end of a real problem: it lived in `prelude/skills/`, so it was vendored, and the
+bootstrap skill read it before starting work. It now lives with the harness that invokes it.

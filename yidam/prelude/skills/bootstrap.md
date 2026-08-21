@@ -66,7 +66,7 @@ Samudaya does not replace the dialogue. It seeds it.
 
 ### 1. Internalize the prelude
 
-Read these seven files — and **only** these seven files, in this exact order, using their
+Read these six files — and **only** these six files, in this exact order, using their
 exact paths. Do **not** run `ls`, `find`, or any directory enumeration of `yidam/prelude/`
 at any point during bootstrapping. Do not read any other file in `yidam/prelude/` (including
 `SCRIPTURE.md` or any file surfaced by enumeration). Do not read
@@ -79,13 +79,17 @@ file to internalize here.
 4. `yidam/prelude/PHASES.md` — the named phases of inquiry
 5. `yidam/prelude/guidelines/agent-conduct.md` — specific conduct norms
 6. `yidam/prelude/guidelines/directories.md` — where things live and what belongs in each
-7. `yidam/prelude/skills/judge.md` — the judge's criteria; internalize so the genesis commit passes
 
-`yidam/tests/HARNESS.md` is deliberately absent from this list. It documents how the yidam
-template tests itself; it is not prelude, it is not vendored into the derived repo, and
-reading it teaches you nothing about the repository you are bootstrapping.
+`yidam/tests/` is deliberately absent from this list, and absent from the repository you are
+working in. It holds how the yidam template tests itself — the harness, the rubric, the
+judge's criteria, and each scenario's reference description of a good result. None of it
+teaches you anything about the domain you are bootstrapping, and the criteria you would be
+scored against are not criteria you should be optimizing toward: an agent that has read
+"seed nodes at a consistent level of abstraction" will assert consistency, which is not the
+same as achieving it. What you need in order to do the work well is in these six files and
+in the steps below.
 
-After reading all seven, output the synthesis as a **standalone message** — do not append
+After reading all six, output the synthesis as a **standalone message** — do not append
 questions or any other content to it. Wait for the user to acknowledge before opening the
 Step 2 dialogue. This gives the user the opportunity to correct any misread before questions
 begin.
@@ -327,6 +331,11 @@ Render each node from the confirmed sketch as a domain class definition in `.yid
 Each file defines what that class of thing is — its properties and its edge participation.
 One file per class; the filename matches the class name exactly.
 
+One class per file, and one *concept* per class. Two ideas fused into a single class —
+`site-and-region`, `event-or-interval` — cannot be linked to separately afterwards, and the
+edge that wanted only one of them has nowhere to land. If a class name needs an "and" or an
+"or", it is two classes.
+
 ```yaml
 class: <name>
 label: <Human-Readable Label>
@@ -450,6 +459,16 @@ links:
 Each instance must carry at least one outgoing link to another node. Be specific enough to
 be wrong — a vague placeholder is not an object.
 
+An edge is a claim that two things are related, and the `relationship` says how. A link to a
+README, to a directory, or to the class definition alone is a citation rather than a
+relationship: it satisfies the count and adds no knowledge. The `instance-of` link to
+`../<class>.ont.yml` is structural and does not discharge this — every instance needs at
+least one edge to another *instance*.
+
+Keep the seed set at one level of abstraction. A corpus whose nodes are three fields and one
+named specimen reads as two corpora, and the edges between the levels carry the confusion
+rather than resolving it.
+
 **Distribution** — allocate instances across classes to hit `corpus_depth` total, with a
 minimum of 1 per class. Give more instances to hub classes (those with the most edge
 participation) and fewer to peripheral classes. Seed from root nodes down so link targets
@@ -511,8 +530,10 @@ decision records, scaffolded skill stubs, and the `.yidam/` directory structure 
 genesis commit. Do not include `sadhana/` or `samudaya/` in this commit.
 
 The message should name the domain, summarize the class schema, and describe what seed
-objects were created and how they connect. This commit is the first event in the knowledge
-graph. It should read like one.
+objects were created and how they connect — naming at least one specific relationship, not
+just that relationships exist. This commit is the first event in the knowledge graph. It
+should read like one: a list of filenames is a diff summary, and a paragraph that would fit
+any domain is boilerplate. Neither is testimony about what the corpus now knows.
 
 In existing-repo mode, open the message with `overlay:` instead of `genesis:` and note the
 pre-existing commit count: `overlay: <domain> — yidam applied to N-commit repository; M
