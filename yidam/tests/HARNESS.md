@@ -44,14 +44,19 @@ specifies what `scenario::load()` parses and how each field drives agent behavio
 6. The judge agent scores quality against the [rubric](rubric.md)
 7. A result snapshot is written to `tests/results/<scenario>/<model>/<date>/`
 
-Steps 3 and 6 are design, not implementation. There is no domain owner agent — the scenario
-is inlined into the bootstrap's prompt — and no judge is invoked. Steps 1, 2, 4, 5 and 7 are
-what the harness does today.
+Step 3 is design, not implementation. There is no domain owner agent — the scenario is
+inlined into the bootstrap's prompt — so the bootstrap has nobody to interrogate.
 
-The transcript is captured to `transcript.jsonl`, and the run record beside the result carries
-the resolved model, turns, duration, cost, and any permission denials. That removes what was
-blocking step 6: the judge had nothing to read. It does not remove what blocks step 3, and Q1
-with it — an agent told that no domain owner is present has nobody to ask.
+Everything else runs. The transcript is captured to `transcript.jsonl`; the run record beside
+the result carries the resolved model, turns, duration, cost, and any permission denials; and
+step 6 scores the result against the Q criteria, writing a band and its evidence per criterion
+to `quality.json`. Scoring is opt-in — it is a second model call — and `harness judge`
+re-scores a captured result without paying for the bootstrap again.
+
+**Q1 is the exception, and it follows from step 3.** An agent told that no domain owner is
+present has nobody to ask, so the judge is shown that fact and told not to read the absence of
+clarifying turns as a property of the model. Q1 becomes a real measurement when a responder
+exists.
 
 ## Regression detection
 
@@ -60,7 +65,9 @@ A regression is any of:
 - A judge quality score that drops by more than one band from the prior snapshot
 - A new orphan node, missing genesis commit, or missing edge that wasn't present before
 
-Only the first is implemented, and comparison is refused across bootstrap protocol versions
+The first two are implemented — a band that drops between two scored snapshots is reported
+with the rationale the judge gave for it. Comparison is refused across bootstrap protocol
+versions
 (see [VERSIONING.md](../../VERSIONING.md), Layer 3) rather than reported as a change in the
 model.
 
