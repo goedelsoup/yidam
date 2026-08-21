@@ -10,12 +10,9 @@
  */
 
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
 import { test } from 'node:test'
 
-import { resolveBinary } from '../src/binary.ts'
-import { readHandshake } from '../src/handshake.ts'
-import { stageFixture } from './stage.ts'
+import { capture, contractBinary, SKIP, stageFixture } from './stage.ts'
 import type {
   CorpusIndexReport,
   GraphCheckReport,
@@ -443,31 +440,9 @@ test('the status line reports staleness in the unit index-status measures', () =
 
 // ── against the real binary ──────────────────────────────────────────────────
 
-const SKIP = 'no yidam speaking the report contract — set YIDAM_BIN, or `cargo install --path yidam/cli`'
-
-function capture(bin: string, args: string[], cwd: string): string {
-  try {
-    return execFileSync(bin, args, { cwd, encoding: 'utf8' })
-  } catch (err) {
-    return (err as { stdout?: string }).stdout ?? ''
-  }
-}
 
 
-async function contractBinary(cwd: string): Promise<string | null> {
-  const r = await resolveBinary({ configured: process.env.YIDAM_BIN ?? '', workspace: cwd })
-  const required = (process.env.YIDAM_REQUIRE_CONTRACT ?? '') !== ''
-  if (!r.command) {
-    if (required) throw new Error(`YIDAM_REQUIRE_CONTRACT is set and no yidam resolved: ${r.reason}`)
-    return null
-  }
-  const h = readHandshake(capture(r.command, ['status', '--format', 'json'], cwd))
-  if (!h.ok) {
-    if (required) throw new Error(`YIDAM_REQUIRE_CONTRACT is set and ${r.command} does not speak it`)
-    return null
-  }
-  return r.command
-}
+
 
 /**
  * The builders, run over what the binary actually emits.
