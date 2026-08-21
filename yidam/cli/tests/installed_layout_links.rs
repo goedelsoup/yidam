@@ -35,90 +35,13 @@
 //! a layout nobody installs would be worse than no test.
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use walkdir::WalkDir;
 
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
+mod common;
 
-/// One template path and where bootstrap puts it.
-struct Install {
-    /// Path in this repository, a file or a directory prefix.
-    src: &'static str,
-    /// Installed path in a derived repository. `None` means consumed at genesis — present
-    /// here, absent in every derived repository.
-    dst: Option<&'static str>,
-    /// The bootstrap answer this row is contingent on, if any. `None` is unconditional:
-    /// every derived repository has it.
-    when: Option<&'static str>,
-}
-
-/// Governance mode `sadhana/sangha/` requires. The default is `single-elector`, which
-/// installs no sangha at all.
-const COLLECTIVE: &str = "governance: collective";
-
-const MAPPING: &[Install] = &[
-    // The vendored prelude. One directory, deliberately: everything else under `yidam/`
-    // is yidam's own machinery and does not survive the vendor step.
-    row("yidam/prelude", Some(".yidam/.vendor/prelude")),
-    // Root files. `sadhana/root/` is not a directory mirror — each file installs to a
-    // specific path, overwriting yidam's own copy.
-    row("sadhana/root/README.md", Some("README.md")),
-    row("sadhana/root/AGENTS.md", Some("AGENTS.md")),
-    row("sadhana/root/CLAUDE.md", Some(".claude/CLAUDE.md")),
-    row("sadhana/root/mise.toml", Some("mise.toml")),
-    row("sadhana/root/gitattributes", Some(".gitattributes")),
-    row(
-        "sadhana/github/workflows/ci.yml",
-        Some(".github/workflows/ci.yml"),
-    ),
-    // Directory mirrors.
-    Install {
-        src: "sadhana/sangha",
-        dst: Some(".yidam/sangha"),
-        when: Some(COLLECTIVE),
-    },
-    row("sadhana/catalog", Some(".yidam/catalog")),
-    row("sadhana/corpus", Some(".yidam/corpus")),
-    row("sadhana/skills", Some(".yidam/skills")),
-    row("sadhana/crates", Some("crates")),
-    row("sadhana/web", Some("web")),
-    // Created on first use rather than at genesis, but they install here when they are.
-    row("sadhana/agents", Some("agents")),
-    row("sadhana/packages", Some("packages")),
-    row("sadhana/docs", Some("docs")),
-    // Consumed.
-    row("sadhana/README.md", None),
-    row("samudaya", None),
-];
-
-/// An unconditional row — everything but the sangha.
-const fn row(src: &'static str, dst: Option<&'static str>) -> Install {
-    Install {
-        src,
-        dst,
-        when: None,
-    }
-}
-
-/// Paths a derived repository has that no template file becomes.
-///
-/// Written down rather than inferred: each is a real destination a link may point at, and
-/// a link to one of them is correct even though nothing installs *to* it.
-const ALWAYS_PRESENT: &[&str] = &[
-    "LICENSE",
-    ".gitignore",
-    ".gitattributes",
-    "mise.yidam.toml",
-    ".yidam.toml",
-    ".yidam",
-    ".yidam/decisions",
-    ".yidam/embeddings",
-    ".yidam/index",
-    ".yidam/private-paths",
-];
+use common::{install_of, repo_root, ALWAYS_PRESENT, COLLECTIVE, MAPPING};
 
 /// Sections of an otherwise unconditional file that bootstrap deletes unless a condition
 /// holds: `(source file, opening heading, condition)`.
@@ -166,20 +89,6 @@ fn conditional_lines(src: &str, text: &str) -> BTreeSet<usize> {
     out
 }
 
-/// The row covering `rel`, and where `rel` itself lands.
-fn install_of(rel: &str) -> Option<(&'static Install, Option<String>)> {
-    for e in MAPPING {
-        if rel == e.src {
-            return Some((e, e.dst.map(str::to_string)));
-        }
-        let prefix = format!("{}/", e.src);
-        if let Some(tail) = rel.strip_prefix(&prefix) {
-            return Some((e, e.dst.map(|d| format!("{d}/{tail}"))));
-        }
-    }
-    None
-}
-
 /// Every path a derived repository holds, files and directories alike, given the bootstrap
 /// answers it gave.
 ///
@@ -214,7 +123,7 @@ fn installed_tree(root: &Path, conditions: &BTreeSet<&str>) -> BTreeSet<String> 
                 continue;
             };
             // Every ancestor is a directory that exists.
-            let mut acc = PathBuf::new();
+            let mut acc = std::path::PathBuf::new();
             for part in Path::new(&dest).components() {
                 acc.push(part);
                 tree.insert(acc.to_string_lossy().to_string());

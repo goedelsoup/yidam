@@ -43,24 +43,40 @@ rust = { version = "1.88.0", components = "rustfmt,clippy" }
 # -->
 
 # ── domain computer (crates/) ─────────────────────────────────────────────
-# No-ops until crates/Cargo.toml exists. CI skips these jobs until then; see
-# .github/workflows/ci.yml.
+# These no-op until crates/Cargo.toml exists — the same condition
+# .github/workflows/ci.yml's `detect` job gates its crates jobs on. They said so
+# in this comment for a while before they did it: `cargo --manifest-path` on a
+# file that does not exist is a usage error, so on a freshly bootstrapped
+# repository every one of them failed, and `mise run ci` — the local gate the
+# README tells a new repo to run first — failed with it.
 
 [tasks.build]
-description = "Build the domain computer (crates/ workspace)."
-run = "cargo build --workspace --manifest-path crates/Cargo.toml"
+description = "Build the domain computer (crates/ workspace). No-op until crates/ exists."
+run = """
+if [ ! -f crates/Cargo.toml ]; then echo "no crates/Cargo.toml yet — skipping"; exit 0; fi
+cargo build --workspace --manifest-path crates/Cargo.toml
+"""
 
 [tasks.test]
-description = "Run domain computer tests."
-run = "cargo test --workspace --manifest-path crates/Cargo.toml"
+description = "Run domain computer tests. No-op until crates/ exists."
+run = """
+if [ ! -f crates/Cargo.toml ]; then echo "no crates/Cargo.toml yet — skipping"; exit 0; fi
+cargo test --workspace --manifest-path crates/Cargo.toml
+"""
 
 [tasks.lint]
-description = "Clippy across the domain computer."
-run = "cargo clippy --workspace --all-targets --manifest-path crates/Cargo.toml -- -D warnings"
+description = "Clippy across the domain computer. No-op until crates/ exists."
+run = """
+if [ ! -f crates/Cargo.toml ]; then echo "no crates/Cargo.toml yet — skipping"; exit 0; fi
+cargo clippy --workspace --all-targets --manifest-path crates/Cargo.toml -- -D warnings
+"""
 
 [tasks.fmt]
-description = "Format domain computer Rust code."
-run = "cargo fmt --all --manifest-path crates/Cargo.toml"
+description = "Format domain computer Rust code. No-op until crates/ exists."
+run = """
+if [ ! -f crates/Cargo.toml ]; then echo "no crates/Cargo.toml yet — skipping"; exit 0; fi
+cargo fmt --all --manifest-path crates/Cargo.toml
+"""
 
 # ── ci ────────────────────────────────────────────────────────────────────
 # The local equivalent of what .github/workflows/ci.yml runs. `graph-check`
@@ -69,9 +85,16 @@ run = "cargo fmt --all --manifest-path crates/Cargo.toml"
 
 [tasks.ci]
 description = "Full local gate: corpus graph check, then the domain computer."
-run = [
-  "mise run graph-check",
-  "cargo fmt --all --manifest-path crates/Cargo.toml -- --check",
-  "cargo clippy --workspace --all-targets --manifest-path crates/Cargo.toml -- -D warnings",
-  "cargo test --workspace --manifest-path crates/Cargo.toml",
-]
+run = """
+set -eu
+mise run graph-check
+if [ ! -f crates/Cargo.toml ]; then
+  echo
+  echo "no crates/Cargo.toml yet — the domain computer does not exist."
+  echo "corpus gate only, which is the whole gate on day one."
+  exit 0
+fi
+cargo fmt --all --manifest-path crates/Cargo.toml -- --check
+cargo clippy --workspace --all-targets --manifest-path crates/Cargo.toml -- -D warnings
+cargo test --workspace --manifest-path crates/Cargo.toml
+"""
