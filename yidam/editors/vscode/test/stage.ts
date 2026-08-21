@@ -20,6 +20,9 @@ import * as path from 'node:path'
 
 import { parse } from 'smol-toml'
 
+import { resolveBinary } from '../src/binary.ts'
+import { readHandshake } from '../src/handshake.ts'
+
 const HERE = path.dirname(new URL(import.meta.url).pathname)
 
 /** The fixture root — `repo/` beside `stage.toml`. */
@@ -94,4 +97,100 @@ export function stageFixture(prefix = 'yidam-ext-'): string {
   for (const branch of recipe.branches) git('branch', branch)
 
   return dir
+}
+
+// ── Is this binary one whose answers mean anything here? ─────────────────────
+
+export const SKIP =
+  'no yidam speaking the report contract — set YIDAM_BIN, or `cargo install --path yidam/cli`'
+
+/**
+ * Run and keep both streams whatever the exit code.
+ *
+ * `lint` and `graph-check` gate — a nonzero exit is a verdict, not a failure to produce one,
+ * and the envelope is on stdout regardless. A caller that treated exit != 0 as "binary
+ * unusable" would go blind exactly when the corpus needs attention.
+ */
+export function captureStreams(
+  bin: string,
+  args: string[],
+  cwd: string,
+): { stdout: string; stderr: string } {
+  try {
+    return { stdout: execFileSync(bin, args, { cwd, encoding: 'utf8' }), stderr: '' }
+  } catch (err) {
+    const e = err as { stdout?: string; stderr?: string }
+    return { stdout: e.stdout ?? '', stderr: e.stderr ?? '' }
+  }
+}
+
+/** Stdout alone, which is all a report's reader needs. */
+export function capture(bin: string, args: string[], cwd: string): string {
+  return captureStreams(bin, args, cwd).stdout
+}
+
+/** The report minus the fields that belong to the run rather than to the corpus. */
+function payload(report: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(report) as Record<string, unknown>
+    // `yidam` is version, build commit and feature set; `root` is an absolute path. Both
+    // vary by machine. Everything else — `format_version` included, which is a contract
+    // check worth keeping — is a statement about the fixture.
+    delete parsed.yidam
+    delete parsed.root
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+/**
+ * A binary whose answers about this fixture mean something, or `null`.
+ *
+ * Resolution is not enough, and neither is the handshake. A yidam that resolves and emits a
+ * well-formed envelope can still predate a *corpus* feature and answer wrongly: one that
+ * predated the structural claim tag reported one open question where the fixture has two,
+ * and the failure surfaced three assertions downstream as `1 !== 2` — a confusing failure
+ * about someone else's work, which is exactly what the handshake check was written to
+ * prevent one layer further out.
+ *
+ * So the probe is compared against what the fixture says it should produce. `status` is
+ * already being run for the handshake and its answer thrown away; `expected/status.json` is
+ * already committed. Comparison is structural rather than textual, because a textual one
+ * would need `redact()`'s rules and a third transcription of those is the thing this
+ * repository keeps having to undo.
+ *
+ * **What this cannot detect** is a binary *newer* than the fixture in a way that changes
+ * output. That fails the Rust goldens first, which is where it belongs.
+ */
+export async function contractBinary(cwd: string): Promise<string | null> {
+  const required = (process.env.YIDAM_REQUIRE_CONTRACT ?? '') !== ''
+  const refuse = (why: string): null => {
+    if (required) throw new Error(`YIDAM_REQUIRE_CONTRACT is set and ${why}`)
+    return null
+  }
+
+  const r = await resolveBinary({ configured: process.env.YIDAM_BIN ?? '', workspace: cwd })
+  if (!r.command) return refuse(`no yidam resolved: ${r.reason}`)
+
+  const { stdout, stderr } = captureStreams(r.command, ['status', '--format', 'json'], cwd)
+  const h = readHandshake(stdout, stderr)
+  if (!h.ok) {
+    return refuse(
+      `${r.command} does not speak the report contract: ${h.ok === false ? h.message : ''}`,
+    )
+  }
+
+  const golden = fs.readFileSync(path.join(FIXTURE_DIR, 'expected/status.json'), 'utf8')
+  const got = payload(stdout)
+  const want = payload(golden)
+  if (JSON.stringify(got) !== JSON.stringify(want)) {
+    return refuse(
+      `${r.command} does not reproduce this fixture's committed goldens — it is stale.\n` +
+        `  expected ${JSON.stringify(want)}\n` +
+        `  got      ${JSON.stringify(got)}\n` +
+        '  rebuild it: cargo install --path yidam/cli',
+    )
+  }
+  return r.command
 }

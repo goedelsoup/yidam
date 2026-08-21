@@ -5,28 +5,12 @@ import * as path from 'node:path'
 import { test } from 'node:test'
 
 import { runReports } from '../src/report-run.ts'
-import { resolveBinary } from '../src/binary.ts'
-import { readHandshake } from '../src/handshake.ts'
 import { spawn, type Spawn } from '../src/runner.ts'
-import { stageFixture } from './stage.ts'
+import { contractBinary, SKIP, stageFixture } from './stage.ts'
 
 
 
-async function contractBinary(cwd: string): Promise<string | null> {
-  const r = await resolveBinary({ configured: process.env.YIDAM_BIN ?? '', workspace: cwd })
-  if (!r.command) {
-    if (process.env.YIDAM_REQUIRE_CONTRACT) throw new Error(`no yidam resolved: ${r.reason}`)
-    return null
-  }
-  const out = await spawn(r.command, ['status', '--format', 'json'], cwd)
-  if (!readHandshake(out.stdout, out.stderr).ok) {
-    if (process.env.YIDAM_REQUIRE_CONTRACT) throw new Error(`${r.command} does not speak the contract`)
-    return null
-  }
-  return r.command
-}
 
-const SKIP = 'no yidam speaking the report contract'
 
 test('lint owns the diagnostics; graph-check does not double-mark the same node', async (t) => {
   const dir = stageFixture('yidam-diag-')
