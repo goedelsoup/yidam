@@ -32,6 +32,45 @@ test('a setting pointing at nothing fails rather than falling through', async ()
   assert.match(r.reason, /not a file/)
 })
 
+test('this repository\'s own build outranks a machine-wide one', async () => {
+  // `~/.cargo/bin/yidam` is whichever yidam built last on this machine. `.yidam/bin/yidam`
+  // is the commit THIS repository pins. Preferring PATH would let one repo's binary answer
+  // for another's corpus.
+  const r = await resolveBinary({
+    configured: '',
+    workspace: '/w',
+    fileExists: (p) => p === '/w/.yidam/bin/yidam',
+    lookupOnPath: async () => '/usr/local/bin/yidam',
+    miseWhich: async () => null,
+  })
+  assert.equal(r.origin, 'repo')
+  assert.equal(r.command, '/w/.yidam/bin/yidam')
+})
+
+test('an explicit setting still outranks the repository\'s own build', async () => {
+  // The repo-local binary is a default, not a decision. A setting is a decision.
+  const r = await resolveBinary({
+    configured: '/opt/yidam',
+    workspace: '/w',
+    fileExists: () => true,
+    lookupOnPath: async () => '/usr/local/bin/yidam',
+    miseWhich: async () => null,
+  })
+  assert.equal(r.origin, 'setting')
+  assert.equal(r.command, '/opt/yidam')
+})
+
+test('with no repo-local build, PATH answers as before', async () => {
+  const r = await resolveBinary({
+    configured: '',
+    workspace: '/w',
+    fileExists: () => false,
+    lookupOnPath: async () => '/usr/local/bin/yidam',
+    miseWhich: async () => null,
+  })
+  assert.equal(r.origin, 'path')
+})
+
 test('PATH is preferred over the mise shim', async () => {
   // What the user's own shell would run is what makes the editor reproducible by hand.
   const r = await resolveBinary({
@@ -66,7 +105,8 @@ test('not found is a state with a reason, not an exception', async () => {
   })
   assert.equal(r.origin, 'none')
   assert.equal(r.command, null)
-  assert.match(r.reason, /no yidam on PATH/)
+  assert.match(r.reason, /no .yidam\/bin\/yidam, none on PATH/)
+  assert.match(r.reason, /mise run yidam-build/, 'the reason names the fix')
 })
 
 test('whitespace is not a configured path', async () => {

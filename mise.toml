@@ -25,16 +25,28 @@ node = "lts"
 # dafny: not in the mise registry — install via https://dafny.org/dafny/Installation
 # LEAN 4 / lake: not in the mise registry — install via elan (https://github.com/leanprover/elan)
 
+# `.local/bin` first, so every task below runs the binary built from THIS tree
+# rather than whichever yidam a derived repository last installed system-wide.
+[env]
+_.path = [".local/bin"]
+
 # ── yidam CLI — build ─────────────────────────────────────────────────
 # The `yidam` binary lives in yidam/cli/. In derived repos it is
 # installed from the registry; in this repo, build it first with:
 #   mise run yidam-build
 
 [tasks.yidam-build]
-description = "Compile and install the full-feature yidam binary from yidam/cli/ to ~/.cargo/bin."
+description = "Compile and install the full-feature yidam binary from yidam/cli/ into .local/bin/."
 # `--features full` so the maintainer's install has index-build/serve/sqlite/rdf/
 # tonpa. The default build is the light `reports` binary (no protoc, no ML stack).
-run = "cargo install --path yidam/cli --features full"
+#
+# --root rather than ~/.cargo/bin, for the reason in mise.yidam.toml: the install
+# location was per-machine while the thing installed is per-repository, so
+# building here clobbered every derived repo's pinned binary and building in one
+# of those clobbered this. `cargo install --root DIR` writes DIR/bin, so this
+# lands at .local/bin/yidam — not `.yidam/bin` as in a derived repo, because
+# `.yidam/` is derived-repo infrastructure and this repository has none.
+run = "cargo install --root .local --path yidam/cli --features full"
 
 # ── yidam CLI — REGEN tasks ───────────────────────────────────────────
 # These tasks back the <!-- REGEN: yidam <subcommand> --> markers across

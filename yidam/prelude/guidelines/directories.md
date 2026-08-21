@@ -17,6 +17,7 @@ After bootstrap, a derived repository has two tiers:
 - `.yidam/decisions/` — structured records of choices made during this repo's life
 - `.yidam/skills/` — domain-specific skills
 - `.yidam/.vendor/` — inherited yidam prelude; not modified in derived repos
+- `.yidam/bin/` — the `yidam` binary built from this repo's pin; git-ignored, see below
 - `.yidam/sangha/` — collective resolution protocol *(collective governance only)*
 
 **Created on first use.** Bootstrap does not scaffold `agents/`, `docs/`, or `packages/`.
@@ -409,6 +410,30 @@ protected.** A channel nobody has examined is not a channel known to be safe, an
 asserting that an exposure does not exist is worse than no comment, because it stops the
 next reader from looking. Where a channel matters, examine it and record what you found in
 `.yidam/decisions/` — including, honestly, what remains unobtained.
+
+---
+
+## `.yidam/bin/`
+
+The `yidam` binary this repository runs, installed by `mise run yidam-build` from the commit
+`.yidam.toml` pins. Git-ignored — it is build output, and it is rebuilt by the same command
+that updates the pin.
+
+**Beside the pin, and not in `~/.cargo/bin`.** `cargo install` with no `--root` writes to one
+location per *machine*, while the pinned commit is one per *repository*. On a machine with
+two yidam repositories that is last-writer-wins: repository A builds its pin, repository B
+builds its own, and A now runs a binary that does not match its own vendored prelude with
+nothing anywhere saying so. The guarantee the build task exists to keep — that the binary and
+the prelude agree — held for exactly one repository at a time.
+
+It was not theoretical. Three separate builds displaced the machine-wide binary during the
+session that fixed this, one of them with a copy predating the `--format` flag entirely, which
+would have left every JSON report unreadable.
+
+`mise.yidam.toml` puts `.yidam/bin` first on `PATH` for anything mise runs, so the shell and
+the editor resolve the same binary. **If your shell does not run mise, add it yourself** — a
+`yidam` from somewhere else will otherwise answer for this repository. The VS Code extension
+checks `.yidam/bin/yidam` ahead of `PATH` for the same reason.
 
 ---
 

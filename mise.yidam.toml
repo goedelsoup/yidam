@@ -34,6 +34,20 @@ run = "yidam neighbors"
 # The CLI is NOT vendored into derived repos — a vendored copy is a fork that
 # never gets rebuilt. It is installed from the origin commit pinned in
 # .yidam.toml, so the binary and the vendored prelude always agree.
+#
+# INSTALLED INTO THIS REPOSITORY, at .yidam/bin/, beside the pin it is built
+# from. It used to go to ~/.cargo/bin, which is one location per machine while
+# the pin is one per repository — so on a machine with two yidam repositories it
+# was last-writer-wins, and the sentence above held for exactly one of them. The
+# other ran a binary that did not match its own vendored prelude, and nothing
+# anywhere said so.
+#
+# [env] below puts .yidam/bin ahead on PATH for anything mise runs, so the shell
+# and the editor resolve the same binary — which is the property the editor's
+# resolution order exists to keep.
+
+[env]
+_.path = [".yidam/bin"]
 
 [yidam-build]
 description = "Install the yidam binary from the commit pinned in .yidam.toml."
@@ -57,7 +71,14 @@ git clone --quiet --filter=blob:none "$origin" "$tmp/yidam"
 git -C "$tmp/yidam" checkout --quiet "$commit"
 # The light `reports` build: no protoc, no fastembed, no lancedb. Add
 # `--features full` if you need index-build/serve/sqlite/rdf/tonpa.
-cargo install --path "$tmp/yidam/yidam/cli" --locked
+#
+# --root: install here rather than into ~/.cargo/bin. `cargo install --root DIR`
+# writes DIR/bin/, so this lands at .yidam/bin/yidam.
+cargo install --root "$PWD/.yidam" --path "$tmp/yidam/yidam/cli" --locked
+echo
+echo "installed .yidam/bin/yidam @ $commit"
+echo "mise puts .yidam/bin on PATH. If your shell does not run mise, add it, or a"
+echo "yidam from somewhere else will answer for this repository."
 """
 
 # ── vendored prelude — status and update ──────────────────────────────
