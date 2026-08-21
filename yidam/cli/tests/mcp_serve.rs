@@ -18,48 +18,50 @@ fn git(dir: &Path, args: &[&str]) {
     assert!(status.success(), "git {args:?} failed");
 }
 
+/// Stage the contract's own fixture corpus as a git repository.
+///
+/// The corpus used to be written here, as heredocs in this file. That made the shared
+/// conformance corpus a detail of one language's test: the case files assert counts over it
+/// — `open_questions` returns 3, `neighbors` from `traversal` returns 1 — and the only way
+/// to learn which corpus those counts describe was to read Rust. A consumer running these
+/// cases against its own server did the reasonable thing and re-expressed every `count` and
+/// `equals` against a corpus of its own, which is a conformance suite asserting that a
+/// server agrees with itself.
+///
+/// So the corpus ships at `mcp/corpus/`, where `mcp/README.md` always said it was, and this
+/// copies it. The staging — copy, `git init`, one commit — is the same recipe
+/// `report_goldens.rs` uses, and is what another language's harness re-implements in ten
+/// lines rather than transcribing the corpus out of this file by hand.
 fn make_fixture_repo() -> tempfile::TempDir {
     let tmp = tempfile::TempDir::new().unwrap();
     let root = tmp.path();
+    copy_dir(&contract_dir().join("corpus"), root);
+
     git(root, &["init", "-q", "-b", "main"]);
     git(root, &["config", "user.email", "t@t.co"]);
     git(root, &["config", "user.name", "Test"]);
-
-    let corpus = root.join(".yidam").join("corpus");
-    let class_dir = corpus.join("concept");
-    std::fs::create_dir_all(&class_dir).unwrap();
-    std::fs::write(corpus.join("concept.ont.yml"), "class: concept\n").unwrap();
-    std::fs::write(
-        class_dir.join("knowledge-graph.yml"),
-        "class: concept\nlabel: Knowledge graph\n\
-         description: A knowledge graph of typed nodes and edges.\n\
-         links:\n  - target: traversal.yml\n    relationship: enables\n",
-    )
-    .unwrap();
-    // Flagged by its LABEL only. The open-question predicate has two arms, and the fixture
-    // used to carry one node flagged both ways — so a server implementing either arm alone
-    // returned the same answer and the case could not tell them apart.
-    std::fs::write(
-        class_dir.join("traversal.yml"),
-        "class: concept\nlabel: \"? Traversal strategy\"\n\
-         description: How agents walk the graph.\nlinks: []\n",
-    )
-    .unwrap();
-    // Flagged by its CLAIM only — the other arm.
-    std::fs::write(
-        class_dir.join("retrieval.yml"),
-        "class: concept\nlabel: Retrieval\n\
-         description: Finding a node without walking to it. [open]\n\
-         links:\n  - target: knowledge-graph.yml\n    relationship: relates-to\n",
-    )
-    .unwrap();
-
     git(root, &["add", "."]);
     git(
         root,
         &["commit", "-q", "-m", "chore: genesis — mcp fixture"],
     );
     tmp
+}
+
+fn copy_dir(from: &Path, to: &Path) {
+    for entry in walkdir::WalkDir::new(from)
+        .into_iter()
+        .filter_map(Result::ok)
+    {
+        let rel = entry.path().strip_prefix(from).unwrap();
+        let dest = to.join(rel);
+        if entry.file_type().is_dir() {
+            std::fs::create_dir_all(&dest).unwrap();
+        } else {
+            std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+            std::fs::copy(entry.path(), &dest).unwrap();
+        }
+    }
 }
 
 struct McpClient {
@@ -221,8 +223,15 @@ fn mcp_server_end_to_end() {
         .iter()
         .map(|q| q["id"].as_str().unwrap())
         .collect();
-    assert!(flagged.contains(&"concept/traversal"), "{flagged:?}");
-    assert!(flagged.contains(&"concept/retrieval"), "{flagged:?}");
+    // One node per arm, named. The case file pins the count; this pins *which* node each
+    // arm is supposed to have found, so a server that gains one arm and loses another still
+    // fails here rather than passing on an accidental total.
+    assert!(flagged.contains(&"concept/traversal"), "{flagged:?}"); // ? label
+    assert!(flagged.contains(&"concept/retrieval"), "{flagged:?}"); // [open] in the body
+    assert!(
+        flagged.contains(&"concept/embedding-space"), // claim_tag: open, declared
+        "the declared-claim-field arm found nothing: {flagged:?}"
+    );
 }
 
 // ── conformance ──────────────────────────────────────────────────────────────

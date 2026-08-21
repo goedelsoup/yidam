@@ -269,6 +269,19 @@ fn count_bracketed_structural(text: &str, fields: &[String]) -> ClaimCounts {
 /// One function, because it was three: inlined at three call sites in `cmd/` and again in
 /// the MCP server, each spelling `label.starts_with('?') || text.contains("[open]")` for
 /// itself. RFC-0006 names the copies, and a fourth is where the next divergence goes.
+///
+/// # Three arms, and the contract says so
+///
+/// The arms are frozen in `prelude/sdks/parity/mcp/tools.json` (`open_questions`), because
+/// this function and a conforming MCP server elsewhere must answer identically over the same
+/// corpus. When the structural arm landed here it did not land there: the contract still
+/// said two and forbade a third by name, so `yidam open-questions` and a server that
+/// implemented the contract *correctly* disagreed — which is the exact failure the freeze
+/// exists to prevent, with the CLI as the one that moved. Reported from a repository holding
+/// both.
+///
+/// A change to the arms is a change to that file and a bump of its `contract` version. It is
+/// not a local decision, and the compiler will not tell you.
 pub fn is_open_question(label: &str, text: &str, fields: &[String]) -> bool {
     label.trim_start().starts_with('?')
         // Masked, for the same reason the counter is: a node explaining what `[open]` means

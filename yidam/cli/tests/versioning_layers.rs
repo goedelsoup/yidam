@@ -175,6 +175,35 @@ fn both_tooling_artifacts_declare_a_version() {
     );
 }
 
+/// The MCP contract states its version twice, and the two must agree.
+///
+/// `tools.json`'s `contract` field is the live one — `serve --mcp` compiles it in and
+/// returns it in the `yidam` capability block, and the E2E test asserts the server reports
+/// what the file says. `mcp/VERSION` is read by nothing, which is the whole problem: a
+/// version nobody reads is a version nobody notices going stale, and the next hand-bump has
+/// even odds of touching one and not the other.
+///
+/// It lives here rather than in `mcp_serve.rs` deliberately. That file is
+/// `#![cfg(feature = "index")]` and the full-feature job runs on main and the weekly
+/// schedule, never on a pull request — so a check placed there would first speak up after
+/// the merge that broke it. This file is in the default build.
+#[test]
+fn the_mcp_contract_states_one_version() {
+    let mcp = repo_root().join("yidam/prelude/sdks/parity/mcp");
+    let tools: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(mcp.join("tools.json")).unwrap()).unwrap();
+    let declared = tools["contract"]
+        .as_str()
+        .expect("tools.json has `contract`");
+    let stated = std::fs::read_to_string(mcp.join("VERSION")).unwrap();
+    assert_eq!(
+        declared,
+        stated.trim(),
+        "tools.json says the MCP contract is {declared:?} and mcp/VERSION says {:?}",
+        stated.trim()
+    );
+}
+
 /// Four layers, numbered without a gap.
 #[test]
 fn the_layers_are_numbered_and_counted_consistently() {

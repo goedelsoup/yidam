@@ -1,0 +1,6 @@
+class: concept
+label: Retrieval
+description: Finding a node without walking to it. [open]
+links:
+  - target: knowledge-graph.yml
+    relationship: relates-to
