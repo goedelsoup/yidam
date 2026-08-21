@@ -97,6 +97,24 @@ The anchors are illustrative, not a target. A corpus that resembles them is not 
 | `marginal` | `deck-joint → [relates-to] → bearing-assembly`. The pair is real; the relationship name says nothing, so the edge asserts adjacency rather than knowledge. |
 | `fail` | `deck-joint → [instance-of] → component.ont.yml`, and nothing else. Structural links only. The node is filed, not connected. |
 
+**Q8 — edges assert only relationships the domain supports**
+
+Q4 asks whether an edge is a relationship rather than a filing gesture. Q8 asks whether the
+relationship is *true*. They are independent, and the combination that matters is a corpus
+with a rich, mechanistic edge vocabulary that still asserts things the field does not hold —
+every defensible edge around a wrong one lends it credibility.
+
+| Band | Looks like |
+|---|---|
+| `pass` | Every edge states something a practitioner would accept, and the node body says why. Where the corpus is unsure it uses a weaker relationship rather than a bolder one. |
+| `marginal` | One or two edges reach past what the corpus can support — a direction overstated, a condition dropped — but nothing that would mislead a reader about the domain's structure. |
+| `fail` | An edge states a relationship the field contradicts, or states a conditional relationship as unconditional. A reader building on this graph would build on something false. |
+
+Judge the *claim*, not the vocabulary. This is the criterion that needs domain knowledge rather
+than the rubric, so quote the edge and the node text around it and say what is wrong with it. A
+`fail` here is worth more to a reader than any other band here, and is also the easiest to
+assert without grounds.
+
 **Q6 — consistent level of abstraction**
 
 | Band | Looks like |

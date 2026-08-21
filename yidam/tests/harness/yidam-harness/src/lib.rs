@@ -20,7 +20,13 @@ use std::path::{Path, PathBuf};
 /// 0.1.0 → 0.2.0 restates S1–S3 and S5–S7 against the instance corpus at `.yidam/corpus/`.
 /// A major bump by this layer's table — existing checks changed — and the version the
 /// document quoted for the whole of 0.1.0 without the constant existing at all.
-pub const PROTOCOL_VERSION: &str = "0.2.0";
+///
+/// 0.2.0 → 0.3.0 adds Q8. A minor by the table: no existing criterion changed meaning, so a
+/// corpus that was passing still passes what it was passing. It is a version bump rather than
+/// a clarification because the judge is held to exactly the criteria the rubric states — a
+/// snapshot taken under 0.2.0 carries seven bands where one taken under 0.3.0 carries eight,
+/// and comparing them would report an absence as a result.
+pub const PROTOCOL_VERSION: &str = "0.3.0";
 
 /// Where the rubric and the judge's guidance live, relative to the template root. Held out
 /// from the worktree; read from the repository the harness itself runs in.

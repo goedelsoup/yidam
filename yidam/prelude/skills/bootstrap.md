@@ -498,6 +498,20 @@ class directory, and every instance. Then act on what the user approved in step 
 relevant instance `.yml` files. An implied edge resolves a missing relationship between
 specific objects; it does not add new content to instances.
 
+Add only the edges you can defend. This step reads the whole corpus at once and every pair of
+instances looks like it could be related, which is the condition under which a plausible
+relationship gets written as a settled one. An edge is a claim — see
+[agent-conduct](../guidelines/agent-conduct.md), "An edge is a claim" — and the cost is
+asymmetric: a missing edge is a gap somebody finds and fills, while a wrong edge is something
+the corpus now asserts, made credible by every correct edge around it.
+
+For each edge before you write it: could you say, in one sentence, why this relationship holds
+in this domain? If yes, write it, and put that sentence in the node body. If the honest answer
+is that these two things are associated but you could not say how, use the weakest relationship
+that is true rather than the most interesting one that might be. If you cannot do either, do
+not write the edge — and if it was approved in step 5, say so in the report rather than
+quietly dropping it.
+
 **Connectors** — for each approved connector not already invoked during seeding, scaffold
 a crate stub in `crates/`:
 
