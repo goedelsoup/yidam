@@ -25,9 +25,10 @@ claim faithfulness to Rust symbols it has since drifted from.
 Resolved once at activation and re-checked when `.yidam.toml` or the setting changes:
 
 1. the `yidam.path` setting
-2. `yidam` on `PATH`
-3. a mise shim resolved from the workspace
-4. not found
+2. `.yidam/bin/yidam` — this repository's own build
+3. `yidam` on `PATH`
+4. a mise shim resolved from the workspace
+5. not found
 
 **Not found is a first-class state**, not an error path: verdict features are disabled, the
 status bar says so, and the single offered action runs `mise run yidam-build` in a terminal
@@ -36,6 +37,13 @@ where you can watch it.
 The extension never bundles, downloads, or builds a binary. `.yidam.toml` records which
 yidam commit governs a corpus, and only it gets to say — an editor that quietly installed a
 different one would make its verdicts disagree with CI's.
+
+Which is why the repository's own build outranks `PATH`. `mise run yidam-build` installs to
+`.yidam/bin/`, beside the pin it was built from; `~/.cargo/bin/yidam` is one location per
+*machine* while the pin is one per *repository*, so on a machine with two yidam repositories
+it is whichever built last. Preferring `PATH` would let one repository's pinned binary answer
+for another's corpus — the disagreement above, arriving by a route nobody chose. An explicit
+`yidam.path` still wins: that is somebody's decision, and this is a default.
 
 ## Diagnostics
 
