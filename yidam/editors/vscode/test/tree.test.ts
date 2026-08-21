@@ -450,6 +450,27 @@ test('the status line reports staleness in the unit index-status measures', () =
  * The literal fixtures above pin the shapes; this pins the *field names*. A CLI that
  * renamed `ref_name` would leave every test above green and every view empty.
  */
+/**
+ * A context-menu command is handed the row, not the row's click arguments, so a row whose
+ * subject lives only in its `id` cannot be acted on without parsing that id — which would
+ * make the format load-bearing for something other than the tree's own bookkeeping.
+ */
+test('rows that stand for something other than a file name it', () => {
+  const corpus = corpusTree(INDEX, { ...ENVELOPE, open_questions: [] })
+  const cls = corpus[0]
+  assert.equal(cls.subject, cls.label, 'a class row names its class')
+  assert.ok(
+    cls.children!.every((c) => c.file && !c.subject),
+    'an instance row stands for a file and needs no subject',
+  )
+
+  const phases = phasesTree(PHASES)
+  const phase = find(phases, 'phase:ma/auditor')!
+  assert.equal(phase.subject, 'ma/auditor', 'a phase row names its ref')
+  // The same string its click command passes, so both routes act on one thing.
+  assert.deepEqual(phase.command!.args, [phase.subject])
+})
+
 test('every view builds from the real binary’s own JSON', async (t) => {
   const dir = stageFixture('yidam-tree-')
   const bin = await contractBinary(dir)

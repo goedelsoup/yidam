@@ -41,6 +41,14 @@ export interface TreeNode {
   icon?: string
   /** Repository-relative path this row stands for. Clicking opens it. */
   file?: string
+  /**
+   * What this row is *about*, when that is not a file — a class name, a ref name.
+   *
+   * A context-menu command is handed the `TreeNode` itself, so this is how it learns what
+   * it was invoked on without parsing `id`. An id is an identity for the tree's own
+   * bookkeeping; reading a subject out of it would make the format load-bearing.
+   */
+  subject?: string
   /** Line to reveal, 1-based, when `file` is set. */
   line?: number
   /** What to run on click, for rows that are actions rather than files. */
@@ -106,6 +114,7 @@ export function corpusTree(
       label: cls,
       description: `${rows.length}`,
       icon: 'symbol-class',
+      subject: cls,
       context: 'yidam.class',
       children: rows
         .slice()
@@ -167,6 +176,7 @@ export function phasesTree(report: PhasesReport): TreeNode[] {
     tooltip: `${p.ref_name}\n${p.owner} · started ${p.started}`,
     icon: 'git-branch',
     command: { id: 'yidam.checkoutPhase', args: [p.ref_name] },
+    subject: p.ref_name,
     context: 'yidam.phase',
   })
 

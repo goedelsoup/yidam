@@ -118,6 +118,14 @@
       {
         "command": "yidam.neighborhood",
         "title": "yidam: Show this node's neighbourhood"
+      },
+      {
+        "command": "yidam.neighborhoodOf",
+        "title": "Show neighbourhood"
+      },
+      {
+        "command": "yidam.newNodeIn",
+        "title": "New node in this class"
       }
     ],
     "viewsContainers": {
@@ -160,6 +168,38 @@
           "command": "yidam.refreshViews",
           "when": "view =~ /^yidam\\./",
           "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "yidam.neighborhoodOf",
+          "when": "view == yidam.corpus && viewItem == yidam.node",
+          "group": "navigation"
+        },
+        {
+          "command": "yidam.neighborhoodOf",
+          "when": "view == yidam.openQuestions && viewItem == yidam.openQuestion",
+          "group": "navigation"
+        },
+        {
+          "command": "yidam.newNodeIn",
+          "when": "view == yidam.corpus && viewItem == yidam.class",
+          "group": "navigation"
+        },
+        {
+          "command": "yidam.checkoutPhase",
+          "when": "view == yidam.phases && viewItem == yidam.phase",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "yidam.neighborhoodOf",
+          "when": "false"
+        },
+        {
+          "command": "yidam.newNodeIn",
+          "when": "false"
         }
       ]
     },

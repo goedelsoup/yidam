@@ -49,6 +49,25 @@ cd yidam/editors/vscode && npm run test:unit
 `YIDAM_REQUIRE_CONTRACT=1` turns a missing or stale binary from a skip into a failure, which
 is what CI sets.
 
+## Acting on a row
+
+Right-click:
+
+| Row | Offers |
+|---|---|
+| a corpus node, or an open question | **Show neighbourhood** — opens the file and draws its edges beside it |
+| a class | **New node in this class** — the scaffold, with the class already answered |
+| a phase | **Switch to this phase** — the same modal confirmation the click gives |
+
+Both row-only commands are hidden from the palette: they are handed the row they were
+invoked on, and without one they would silently do nothing, which reads as a broken command
+rather than an inapplicable one.
+
+The rows have always carried `contextValue`s and nothing read them, which is a shape worth
+naming — six values that looked like working code and were scaffolding. A test now asserts
+the two agree in both directions: every menu names a context value some row sets, and names
+a view that exists.
+
 ## Which binary
 
 Resolved once at activation and re-checked when `.yidam.toml` or the setting changes:
