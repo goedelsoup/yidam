@@ -20,6 +20,35 @@ A TypeScript re-implementation of the checks is the failure this whole set of RF
 close. One downstream project already wrote ~1,600 lines of it, in Python, whose docstrings
 claim faithfulness to Rust symbols it has since drifted from.
 
+## Running it
+
+```
+mise run ext-dev            # compile, stage a fixture, open an Extension Development Host
+```
+
+or **F5** from the repository root, which runs the same two steps as its `preLaunchTask`.
+`YIDAM_CODE` names the editor CLI if `code` is not on your `PATH`.
+
+**The workspace it opens is a staged copy of the reports fixture.** The extension activates
+on `workspaceContains:.yidam.toml` or `.yidam/**`, and this repository is not a derived
+repository — it has neither, so launching against the repo root activates nothing. `mise run
+ext-fixture` builds one at `.local/ext-fixture` through the same `stage.toml` the goldens and
+these tests read, so what you see by hand and what CI checks are one repository rather than
+two that drift. Re-run it after editing the fixture; it rebuilds from scratch.
+
+Four nodes across two classes, an open question of each arm, a claim tag of each kind, a
+deliberate broken edge, two phase branches and a sangha — small, and chosen so that every
+view has something to show. `basic/README.md` says what each property is there to reach.
+
+The tests are the other half, and they need no editor:
+
+```
+cd yidam/editors/vscode && npm run test:unit
+```
+
+`YIDAM_REQUIRE_CONTRACT=1` turns a missing or stale binary from a skip into a failure, which
+is what CI sets.
+
 ## Which binary
 
 Resolved once at activation and re-checked when `.yidam.toml` or the setting changes:
