@@ -68,9 +68,11 @@ pub fn tonpa_config_path(root: &Path) -> PathBuf {
 // shadows `.yidam/bin/yidam` for any process whose `PATH` puts cargo's directory first,
 // which is what a shell sourcing a Rust environment does by default.
 //
-// `mise.yidam.toml` puts `.yidam/bin` first for anything mise runs. That guards a human
-// shell. It does not guard a script, a CI step, or an agent assembling `PATH` itself, and
-// those are increasingly what runs these commands.
+// The derived repository's `mise.toml` puts `.yidam/bin` first for anything mise runs —
+// its own config, not the inherited task file, which cannot carry an `[env]` section and
+// spent a while proving it. That guards a human shell. It does not guard a script, a CI
+// step, or an agent assembling `PATH` itself, and those are increasingly what runs these
+// commands.
 //
 // The failure is quiet in the way that matters. An older binary lacking a subcommand exits
 // with `unrecognized subcommand`, and inside a script with output redirected — which is how
