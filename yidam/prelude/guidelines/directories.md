@@ -448,10 +448,22 @@ convention — shadows `.yidam/bin/yidam` for any process whose `PATH` puts carg
 first. That is not a mistake anyone made; it is what a shell sourcing a Rust environment does
 by default.
 
-`mise.yidam.toml` puts `.yidam/bin` first on `PATH` for anything mise runs, so the shell and
-the editor resolve the same binary. **If your shell does not run mise, add it yourself** — a
-`yidam` from somewhere else will otherwise answer for this repository. The VS Code extension
-checks `.yidam/bin/yidam` ahead of `PATH` for the same reason.
+Your `mise.toml` puts `.yidam/bin` first on `PATH` for anything mise runs, so the shell and
+the editor resolve the same binary:
+
+```toml
+[env]
+_.path = [".yidam/bin"]
+```
+
+**In `mise.toml`, not `mise.yidam.toml`.** The inherited layer is a mise *task file*, where
+`[env]` declares a task named `env` and `_.path` is an unknown field — which orphans every
+task in the file. This paragraph asserted the opposite for as long as the declaration sat in
+the file that could not hold it, so the guarantee named here was one nothing delivered.
+
+**If your shell does not run mise, add it yourself** — a `yidam` from somewhere else will
+otherwise answer for this repository. The VS Code extension checks `.yidam/bin/yidam` ahead
+of `PATH` for the same reason.
 
 That guards a human shell. It does not guard a script, a CI step, or an agent that assembles
 `PATH` itself, and those are increasingly what runs these commands. **Wherever you build

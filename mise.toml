@@ -46,7 +46,13 @@ description = "Compile and install the full-feature yidam binary from yidam/cli/
 # of those clobbered this. `cargo install --root DIR` writes DIR/bin, so this
 # lands at .local/bin/yidam — not `.yidam/bin` as in a derived repo, because
 # `.yidam/` is derived-repo infrastructure and this repository has none.
-run = "cargo install --root .local --path yidam/cli --features full"
+#
+# --force: without it cargo refuses with "binary yidam already exists in
+# destination" (exit 101) when .local/bin holds a binary its install metadata
+# does not account for, which is any state the two drift into. The task exists
+# to make the binary match this tree; failing instead is not an option it should
+# have. Same reason as the derived-repo task in mise.yidam.toml.
+run = "cargo install --force --root .local --path yidam/cli --features full"
 
 # ── yidam CLI — REGEN tasks ───────────────────────────────────────────
 # These tasks back the <!-- REGEN: yidam <subcommand> --> markers across

@@ -6,23 +6,12 @@
 #   includes = ["mise.yidam.toml"]
 #
 # This is a mise *task file*, not a standalone config: tables are task names
-# directly (`[rename]
-description = "Rename a corpus node, rewriting every edge into it — `mise run rename -- concept/old concept/new --dry-run`."
-run = "yidam rename"
-
-[graph]
-description = "Report the corpus graph: nodes, resolved edges, and the classes that license them."
-run = "yidam graph"
-
-[neighbors]
-description = "Show the neighbourhood of one node — `mise run neighbors -- concept/x.yml --depth 2`."
-run = "yidam neighbors"
-
-[graph-check]`, not `[tasks.graph-check]`) and it carries no
-# `[tools]` section — the toolchain belongs in mise.toml. Loading it as a config
-# (`MISE_ENV=yidam`) will not work. Nor will a top-level `extends`: mise accepts
-# `extends` on an individual task, never on a config file, and silently orphans
-# every task here if you try it.
+# directly (`[graph-check]`, not `[tasks.graph-check]`) and it carries no
+# `[tools]` section — the toolchain belongs in mise.toml. It also carries no
+# `[env]`: in a task file that declares a task named `env`, not an environment.
+# Loading this as a config (`MISE_ENV=yidam`) will not work. Nor will a top-level
+# `extends`: mise accepts `extends` on an individual task, never on a config
+# file, and silently orphans every task here if you try it.
 #
 # Keep domain tasks in mise.toml, not here: `mise run yidam-vendor-update` may
 # replace this file wholesale, and anything you wrote in it would go with it.
@@ -42,12 +31,15 @@ run = "yidam neighbors"
 # other ran a binary that did not match its own vendored prelude, and nothing
 # anywhere said so.
 #
-# [env] below puts .yidam/bin ahead on PATH for anything mise runs, so the shell
-# and the editor resolve the same binary — which is the property the editor's
-# resolution order exists to keep.
-
-[env]
-_.path = [".yidam/bin"]
+# Putting .yidam/bin ahead on PATH is what makes the shell and the editor resolve
+# the same binary. That declaration lives in YOUR mise.toml, not here:
+#
+#   [env]
+#   _.path = [".yidam/bin"]
+#
+# It cannot live in this file. A task file has no `[env]` section — mise reads
+# `[env]` here as a task *named* env and rejects `_.path` as an unknown field,
+# which orphans every task in the file. It sat here for exactly that long.
 
 [yidam-build]
 description = "Install the yidam binary from the commit pinned in .yidam.toml."
@@ -74,10 +66,17 @@ git -C "$tmp/yidam" checkout --quiet "$commit"
 #
 # --root: install here rather than into ~/.cargo/bin. `cargo install --root DIR`
 # writes DIR/bin/, so this lands at .yidam/bin/yidam.
-cargo install --root "$PWD/.yidam" --path "$tmp/yidam/yidam/cli" --locked
+# --force: without it cargo refuses with "binary yidam already exists in
+# destination" (exit 101) whenever .yidam/bin holds a binary its own install
+# metadata does not account for. .yidam/bin/ is git-ignored and the metadata
+# beside it is not, so the two drift apart on any fresh clone or hand-copied
+# binary — and this task, whose whole job is to make the binary match the pin,
+# would fail rather than do it.
+cargo install --force --root "$PWD/.yidam" --path "$tmp/yidam/yidam/cli" --locked
 echo
 echo "installed .yidam/bin/yidam @ $commit"
-echo "mise puts .yidam/bin on PATH. If your shell does not run mise, add it, or a"
+echo "Put .yidam/bin first on PATH — [env] _.path in mise.toml covers anything mise"
+echo "runs; a script or CI step that builds PATH by hand has to do it itself, or a"
 echo "yidam from somewhere else will answer for this repository."
 """
 
@@ -315,9 +314,21 @@ run = "yidam bundle-status"
 description = "Commit history classified as testimony or pipeline work. --epistemic for testimony only."
 run = "yidam log"
 
+[graph]
+description = "Report the corpus graph: nodes, resolved edges, and the classes that license them."
+run = "yidam graph"
+
 [graph-check]
 description = "Run graph integrity check: orphans, missing labels, broken links."
 run = "yidam graph-check"
+
+[neighbors]
+description = "Show the neighbourhood of one node — `mise run neighbors -- concept/x.yml --depth 2`."
+run = "yidam neighbors"
+
+[rename]
+description = "Rename a corpus node, rewriting every edge into it — `mise run rename -- concept/old concept/new --dry-run`."
+run = "yidam rename"
 
 [graph-lint]
 description = "Lint the corpus against the baseline ratchet: 13 checks over nodes, edges, catalog, classes, and tables."

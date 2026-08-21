@@ -18,6 +18,19 @@
 [task_config]
 includes = ["mise.yidam.toml"]
 
+# `.yidam/bin` first, so everything mise runs resolves the binary this repository
+# pinned rather than whichever `yidam` some earlier `cargo install` left in
+# ~/.cargo/bin. It has to be here and not in mise.yidam.toml: that is a task
+# file, where `[env]` declares a task named env and mise rejects `_.path` as an
+# unknown field — which orphans every inherited task, so the file that promised
+# the guarantee was the one file that could not make it.
+#
+# This guards anything mise runs. It does not guard a script, a CI step, or an
+# agent that assembles PATH itself; those have to put `.yidam/bin` first
+# themselves. `yidam` warns on stderr when a binary other than the pin answers.
+[env]
+_.path = [".yidam/bin"]
+
 [tools]
 # Rust — the domain computer in crates/.
 rust = { version = "1.88.0", components = "rustfmt,clippy" }
