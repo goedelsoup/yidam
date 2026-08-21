@@ -69,13 +69,16 @@ pub fn catalog_audit(format: crate::report::Format) -> Result<()> {
             };
             let is_obtained = fm.obtained.unwrap_or(true);
             let filename = path.file_name().unwrap_or_default().to_string_lossy();
-            let slug = path.file_stem().unwrap_or_default().to_string_lossy();
+            let entry_path = crate::cmd::lint::checks::normalize(path);
+            // A citation is a link that resolves to this entry, not a sentence containing
+            // its slug. `lint` had the same defect in its own copy of this count; both now
+            // ask one function. See [`crate::cmd::lint::checks::linked_paths`].
             let citations = corpus_files
                 .iter()
                 .filter(|np| {
-                    std::fs::read_to_string(np)
-                        .unwrap_or_default()
-                        .contains(slug.as_ref())
+                    let text = std::fs::read_to_string(np).unwrap_or_default();
+                    let rel = np.strip_prefix(&root).unwrap_or(np).to_string_lossy();
+                    crate::cmd::lint::checks::linked_paths(np, &rel, &text).contains(&entry_path)
                 })
                 .count();
             source_rows.push(SourceRow {

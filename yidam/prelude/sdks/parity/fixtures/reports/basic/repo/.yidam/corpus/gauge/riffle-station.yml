@@ -1,6 +1,8 @@
 class: gauge
 label: Riffle station
-description: A stage gauge at the riffle.
+description: >-
+  A stage gauge at the riffle. Its series is a `gauge-record` — the slug is named, not
+  cited, and no link here resolves to the catalog entry of that name.
 properties:
   station: "03274000"
 links:

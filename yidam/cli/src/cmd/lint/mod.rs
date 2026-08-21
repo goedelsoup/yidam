@@ -6,7 +6,7 @@
 //! permanently ignored; see [`baseline`].
 
 mod baseline;
-mod checks;
+pub(crate) mod checks;
 mod commits;
 pub mod json;
 mod model;

@@ -2,6 +2,6 @@ Would rename concept/low-flow.yml → concept/base-flow.yml
 3 link(s) rewritten across 3 file(s)
   .yidam/corpus/concept/mixing-zone.yml:8  ../concept/low-flow.yml → ../concept/base-flow.yml
   .yidam/corpus/concept/tailwater.yml:9  ../concept/low-flow.yml → ../concept/base-flow.yml
-  .yidam/corpus/gauge/riffle-station.yml:7  ../concept/low-flow.yml → ../concept/base-flow.yml
+  .yidam/corpus/gauge/riffle-station.yml:9  ../concept/low-flow.yml → ../concept/base-flow.yml
 
 commit: migrate: concept/low-flow.yml → concept/base-flow.yml (3 inbound link(s) rewritten)

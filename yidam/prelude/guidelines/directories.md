@@ -253,6 +253,17 @@ that validates them as you type.
 node on a concept that draws on a source writes `[Pearl 2009](../../catalog/pearl-2009.md)`
 rather than embedding a full citation.
 
+**A citation is a link that resolves to the entry** — either a markdown link in the prose or
+a `links:` target. Naming the slug in a sentence is not one, and the checks now agree with
+that. They used to match the bare slug anywhere in a node's bytes, so a node that merely
+mentioned a source was reported as citing it. Under `catalog-unobtained-but-cited`, which is
+Error severity and gates, that failed a build on a node containing no citation at all.
+
+The collision that surfaced it is not exotic: these conventions recommend naming connectors
+after what they fetch (`nwis`, `echo`, `census`), and a catalog entry for the source those
+connectors fetch from carries the same slug by design. Any node discussing the crate tripped
+the check.
+
 ---
 
 ## `.yidam/corpus/`
