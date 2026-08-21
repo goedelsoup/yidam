@@ -104,6 +104,11 @@
           "node": ".yidam/corpus/concept/tailwater.yml",
           "detail": "nothing links to this node",
           "in_baseline": false
+        },
+        {
+          "node": ".yidam/corpus/gauge/riffle-station.yml",
+          "detail": "nothing links to this node",
+          "in_baseline": false
         }
       ]
     },

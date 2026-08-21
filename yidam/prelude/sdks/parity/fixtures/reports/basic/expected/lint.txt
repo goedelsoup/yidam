@@ -2,5 +2,6 @@
 ERROR [dangling-edge] Edge pointing at nothing — 1 finding(s)
   .yidam/corpus/concept/low-flow.yml: target does not exist: ../concept/assimilative-capacit.yml
 
-INFO [orphan-in] Node nothing points to — 1 finding(s)
+INFO [orphan-in] Node nothing points to — 2 finding(s)
   .yidam/corpus/concept/tailwater.yml: nothing links to this node
+  .yidam/corpus/gauge/riffle-station.yml: nothing links to this node

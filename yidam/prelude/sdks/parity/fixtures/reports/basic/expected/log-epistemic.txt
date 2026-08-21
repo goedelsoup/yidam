@@ -1,4 +1,4 @@
-9e8654eb  [E]  revise: tailwater carries a claim tag
-c39f22cc  [E]  genesis: reports fixture
+0f69cfa3  [E]  revise: the corpus carries a claim tag of each kind
+f45bcb06  [E]  genesis: reports fixture
 
 3 commit(s): 2 epistemic, 1 operational — showing epistemic

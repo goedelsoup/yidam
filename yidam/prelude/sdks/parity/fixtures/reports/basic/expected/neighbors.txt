@@ -1,4 +1,6 @@
 Tailwater — concept/tailwater.yml
-2 neighbour(s) within 2 hop(s)
+4 neighbour(s) within 2 hop(s)
   -→ relates-to Low flow  (concept/low-flow.yml)
+  -→ relates-to ? Does the mixing zone reach the bridge at design low flow  (concept/mixing-zone.yml)
     -→ depends-on concept/assimilative-capacit.yml  (concept/assimilative-capacit.yml)
+    ←- measured-by Riffle station  (gauge/riffle-station.yml)

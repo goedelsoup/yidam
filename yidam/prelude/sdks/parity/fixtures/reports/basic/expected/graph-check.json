@@ -10,9 +10,9 @@
   "root": "<ROOT>",
   "passed": false,
   "corpus_empty": false,
-  "total_instances": 2,
-  "clean_instances": 1,
-  "classes_defined": 1,
+  "total_instances": 4,
+  "clean_instances": 3,
+  "classes_defined": 2,
   "nodes_with_issues": [
     {
       "node": ".yidam/corpus/concept/low-flow.yml",

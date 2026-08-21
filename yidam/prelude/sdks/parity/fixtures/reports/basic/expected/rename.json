@@ -22,13 +22,25 @@
   ],
   "edits": [
     {
+      "file": ".yidam/corpus/concept/mixing-zone.yml",
+      "line": 8,
+      "from": "../concept/low-flow.yml",
+      "to": "../concept/base-flow.yml"
+    },
+    {
       "file": ".yidam/corpus/concept/tailwater.yml",
       "line": 5,
+      "from": "../concept/low-flow.yml",
+      "to": "../concept/base-flow.yml"
+    },
+    {
+      "file": ".yidam/corpus/gauge/riffle-station.yml",
+      "line": 7,
       "from": "../concept/low-flow.yml",
       "to": "../concept/base-flow.yml"
     }
   ],
   "unhandled": [],
   "blocked": [],
-  "commit_subject": "migrate: concept/low-flow.yml → concept/base-flow.yml (1 inbound link(s) rewritten)"
+  "commit_subject": "migrate: concept/low-flow.yml → concept/base-flow.yml (3 inbound link(s) rewritten)"
 }

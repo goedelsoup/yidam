@@ -25,6 +25,20 @@
       ]
     },
     {
+      "node": "concept/mixing-zone.yml",
+      "class": "concept",
+      "label": "? Does the mixing zone reach the bridge at design low flow",
+      "description": "Open by its label rather than by a tag. The predicate has two arms and a corpus implementing either one alone answers identically on a fixture that uses only the other — which is the defect the MCP cases were split to expose.",
+      "links": [
+        {
+          "target": "../concept/low-flow.yml",
+          "relationship": "relates-to",
+          "resolved": "concept/low-flow.yml",
+          "exists": true
+        }
+      ]
+    },
+    {
       "node": "concept/tailwater.yml",
       "class": "concept",
       "label": "Tailwater",
@@ -33,6 +47,26 @@
         {
           "target": "../concept/low-flow.yml",
           "relationship": "relates-to",
+          "resolved": "concept/low-flow.yml",
+          "exists": true
+        },
+        {
+          "target": "../concept/mixing-zone.yml",
+          "relationship": "relates-to",
+          "resolved": "concept/mixing-zone.yml",
+          "exists": true
+        }
+      ]
+    },
+    {
+      "node": "gauge/riffle-station.yml",
+      "class": "gauge",
+      "label": "Riffle station",
+      "description": "A stage gauge at the riffle. [verified]",
+      "links": [
+        {
+          "target": "../concept/low-flow.yml",
+          "relationship": "measured-by",
           "resolved": "concept/low-flow.yml",
           "exists": true
         }
@@ -74,6 +108,26 @@
           "target": "gauge",
           "direction": "in",
           "description": "A gauge measures this concept — authored on the gauge."
+        }
+      ]
+    },
+    {
+      "class": "gauge",
+      "label": "Gauge",
+      "description": "An instrument reading a concept in the field.",
+      "properties": [
+        {
+          "name": "station",
+          "type": "string",
+          "description": "The operator's identifier for this station."
+        }
+      ],
+      "edges": [
+        {
+          "relationship": "measured-by",
+          "target": "concept",
+          "direction": "out",
+          "description": "The concept this gauge reads. Authored here, not on the concept."
         }
       ]
     }
