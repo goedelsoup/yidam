@@ -72,8 +72,73 @@ Are they at a consistent level of abstraction? Would a domain expert recognize t
 
 Use the scenario's `good_bootstrap_looks_like` field as the reference.
 
+## Calibration
+
+Bands are only comparable across runs if they mean the same thing in each. These anchors fix
+what the middle band is for. They are drawn from a domain no scenario uses — bridge
+inspection — because an anchor written in the domain under test is an answer key, and this
+document is held out precisely so that it is not one.
+
+The anchors are illustrative, not a target. A corpus that resembles them is not thereby good.
+
+**Q3 — content is substantive and domain-specific**
+
+| Band | Looks like |
+|---|---|
+| `pass` | *"A fracture-critical member whose failure would collapse the span; inspected at 24-month intervals under NBIS, hands-on rather than visual."* Specific enough to be wrong. |
+| `marginal` | *"A structural member that is important to the bridge and needs regular inspection."* True, and true of almost anything. It names no interval, no standard, no failure mode. |
+| `fail` | *"An important part of the bridge structure."* A restatement of the label. |
+
+**Q4 — edges reflect real conceptual relationships**
+
+| Band | Looks like |
+|---|---|
+| `pass` | `deck-joint → [admits water to] → bearing-assembly`. The relationship carries a mechanism; the two nodes are different kinds of thing and the edge says how they meet. |
+| `marginal` | `deck-joint → [relates-to] → bearing-assembly`. The pair is real; the relationship name says nothing, so the edge asserts adjacency rather than knowledge. |
+| `fail` | `deck-joint → [instance-of] → component.ont.yml`, and nothing else. Structural links only. The node is filed, not connected. |
+
+**Q6 — consistent level of abstraction**
+
+| Band | Looks like |
+|---|---|
+| `pass` | Every seed is a class of thing, or every seed is a named specimen. One or the other, held throughout. |
+| `marginal` | Mostly one level, with one or two nodes at the other, and the edges between the levels still read sensibly. |
+| `fail` | Half the corpus is `inspection-regime` and half is `the 2019 inspection of the Third Street bridge`. Two corpora sharing a directory. |
+
+A criterion whose evidence is thin should be `marginal`, not `pass`. `pass` means you could
+show a domain expert the quoted evidence and they would agree without further context.
+
+---
+
 ## Output format
 
-Produce a markdown report with:
-- One section per quality criterion with band (`pass` / `marginal` / `fail`) and 1–2 sentence rationale
-- A summary section with overall band and the single most important finding
+Reply with a **single JSON object and nothing else**. No preamble, no summary after it.
+
+```json
+{
+  "criteria": [
+    {
+      "id": "Q1",
+      "evidence": ["what you are scoring, quoted"],
+      "band": "pass",
+      "rationale": "one or two sentences"
+    }
+  ],
+  "overall": "marginal",
+  "most_important_finding": "the single thing worth acting on"
+}
+```
+
+Three rules the harness enforces, and rejects the verdict for breaking:
+
+**Evidence before band.** Fill `evidence` first, then decide `band`. Quote the node text, the
+commit line, or the transcript fact the band rests on. A verdict written before its evidence
+is a verdict the evidence was assembled to support.
+
+**Evidence even for absence.** A criterion can fail because something is missing — *"no
+assistant turn precedes the first Write"* is evidence, and states what is absent. An empty
+list is not; it is a band answerable to nothing, and the harness refuses it.
+
+**Every criterion, exactly once**, in ID order. Six of seven is not six passes and a gap. Do
+not revise a band once you have moved past it — a criterion re-scored in light of a later one
+is scored against the corpus's overall impression rather than against itself.

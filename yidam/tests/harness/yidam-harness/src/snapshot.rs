@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 use crate::check::CheckReport;
+use crate::quality::QualityReport;
 use crate::transcript::RunRecord;
 use crate::PROTOCOL_VERSION;
 
@@ -18,6 +19,10 @@ pub struct Snapshot {
     /// re-reads a captured directory and never invoked a model.
     #[serde(default)]
     pub run: Option<RunRecord>,
+    /// The judge's verdict. `None` when the run was not scored — scoring costs a second
+    /// model call and is opt-in, so absent means "not asked", never "nothing to report".
+    #[serde(default)]
+    pub quality: Option<QualityReport>,
     pub structural: CheckReport,
 }
 
@@ -28,10 +33,16 @@ impl Snapshot {
     }
 }
 
-pub fn write(result_dir: &Path, structural: &CheckReport, run: Option<RunRecord>) -> Result<()> {
+pub fn write(
+    result_dir: &Path,
+    structural: &CheckReport,
+    run: Option<RunRecord>,
+    quality: Option<QualityReport>,
+) -> Result<()> {
     let snap = Snapshot {
         protocol_version: Some(PROTOCOL_VERSION.to_string()),
         run,
+        quality,
         structural: structural.clone(),
     };
     let json = serde_json::to_string_pretty(&snap)?;
