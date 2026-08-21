@@ -230,6 +230,9 @@ withdrew — and a resolution turns on the argument. That goes in `sangha/positi
 file, before the resolution reads it; once the resolution merges, an unwritten argument is
 gone into the merge base.
 
-See [sangha/](../../sangha/README.md) for the full resolution protocol. The path is relative
-to this document's home in a derived repository, `.yidam/.vendor/prelude/` — the sangha
-lives at `.yidam/sangha/`, one level above the vendor directory rather than inside it.
+See [sangha/](https://github.com/goedelsoup/yidam/blob/main/sadhana/sangha/README.md) for
+the full resolution protocol. The link is absolute because the directory is **conditional**:
+bootstrap creates `.yidam/sangha/` only under `governance: collective`, and single-elector is
+the default — the case the skill tells the agent to take when the user is unsure. A relative
+`../../sangha/README.md` is correct in a collective repository and points at nothing in every
+other one, where it becomes a permanent `unauthored-prose-link` the reader cannot act on.
