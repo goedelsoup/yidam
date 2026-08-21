@@ -3,14 +3,23 @@ name: CI
 on:
   push:
     branches: [main]
+    # Only LICENSE. `**/*.md` and `docs/**` were ignored here, and both are gated inputs:
+    # the tests in yidam/cli/tests READ the prose. `prelude_commit_vocabulary` reads
+    # `skills/bootstrap.md` and `GRAPH.md`, `versioning_layers` reads `VERSIONING.md`,
+    # `installed_layout_links` reads the `sadhana/root/*.md` templates, `editor_configs`
+    # reads the editor guide. So a pull request editing GRAPH.md's verb table — the change
+    # those tests exist to catch — ran no jobs at all.
+    #
+    # The whole prompt surface is markdown too: BOOTSTRAP.md, the prelude, the bootstrap
+    # skill, the rubric, the scenarios. A template whose behaviour lives in prose cannot
+    # exempt prose from CI.
+    #
+    # The derived-repo workflow (sadhana/github/workflows/ci.yml) already carries this
+    # argument and this list; the lesson was found downstream and never travelled back.
     paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
       - 'LICENSE'
   pull_request:
     paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
       - 'LICENSE'
   schedule:
     # Weekly full-feature build (Mondays 06:00 UTC) — catches gated-code breakage
