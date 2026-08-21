@@ -90,7 +90,7 @@ The protocol version is a `const` in the harness crate:
 
 ```rust
 // yidam/tests/harness/yidam-harness/src/lib.rs
-pub const PROTOCOL_VERSION: &str = "0.1.0";
+pub const PROTOCOL_VERSION: &str = "0.2.0";
 ```
 
 Every result snapshot records the protocol version it was taken under. Regression
@@ -112,6 +112,13 @@ commits the new baseline snapshots.
 | Patch | Rubric clarification; new optional scenario field |
 | Minor | New structural check (S-check) added; existing passing repos still pass |
 | Major | Existing S-check removed or changed; genesis commit requirements changed; snapshot format changed |
+
+**0.1.0 → 0.2.0.** S1–S3 and S5–S7 restated against the instance corpus at `.yidam/corpus/`.
+The checks had been written against a flat markdown corpus at the repository root, a layout
+[`yidam/prelude/skills/bootstrap.md`](yidam/prelude/skills/bootstrap.md) last produced
+twenty-two revisions ago; three of them passed by iterating an empty node list. The snapshot now records the protocol version it was
+taken under, and `harness diff` refuses to compare across versions rather than attributing a
+changed check to a changed model.
 
 ---
 

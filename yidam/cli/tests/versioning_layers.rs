@@ -7,7 +7,7 @@
 //! noticed, because nobody types a path out of a versioning document until the day they
 //! release something.
 //!
-//! Deliberately narrow. It checks that referenced files exist and that the one version this
+//! Deliberately narrow. It checks that referenced files exist, and that each version this
 //! repository states in two places states the same thing in both. It does not check prose,
 //! and it cannot tell a correct bump from a wrong one — that is what review is for.
 
@@ -128,6 +128,34 @@ fn the_documented_format_version_is_the_declared_one() {
     assert_eq!(
         documented, declared,
         "VERSIONING.md says format_version is {documented:?} and report.rs says {declared:?}"
+    );
+}
+
+/// Layer 3 declares `PROTOCOL_VERSION` as the bootstrap protocol's version, and quotes the
+/// file it lives in. Same shape as the check above — with one difference worth naming: for
+/// the whole of 0.1.0 this assertion would have failed on the harness side, because the
+/// document quoted a constant that was declared nowhere. `every_file_versioning_md_names_exists`
+/// did not catch it; it checks that named *paths* resolve, and the path was fine.
+///
+/// Read out of the source because the harness is a separate cargo workspace — `yidam-harness`
+/// is not a dependency of the CLI and should not become one to satisfy a test.
+#[test]
+fn the_documented_protocol_version_is_the_declared_one() {
+    let quoted = |text: &str| -> Option<String> {
+        text.split("pub const PROTOCOL_VERSION: &str = \"")
+            .nth(1)?
+            .split('"')
+            .next()
+            .map(str::to_string)
+    };
+    let harness = repo_root().join("yidam/tests/harness/yidam-harness/src/lib.rs");
+    let documented = quoted(&versioning()).expect("VERSIONING.md quotes PROTOCOL_VERSION");
+    let declared = quoted(&std::fs::read_to_string(&harness).unwrap())
+        .expect("the harness declares PROTOCOL_VERSION");
+    assert_eq!(
+        documented, declared,
+        "VERSIONING.md says the bootstrap protocol is {documented:?} and the harness says \
+         {declared:?}"
     );
 }
 

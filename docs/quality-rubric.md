@@ -3,17 +3,21 @@
 This is the evaluation framework for bootstrap runs. It defines the quality bar the system
 must help users achieve.
 
+This page is a copy. [`yidam/tests/rubric.md`](https://github.com/goedelsoup/yidam/blob/main/yidam/tests/rubric.md)
+is the rubric the harness implements, and the two are kept in step by hand — which is one
+transcription too many. Read the rubric there when they disagree.
+
 ### Structural checks (pass/fail)
 
 | ID | Check |
-|----|-------|
-| S1 | `corpus/` exists and contains ≥2 `.md` files |
-| S2 | Each corpus node has ≥1 outgoing markdown link |
-| S3 | No corpus node has zero incoming AND zero outgoing links (no orphans) |
-| S4 | Exactly 1 git commit exists (the genesis commit) |
-| S5 | The genesis commit message is ≥3 lines |
-| S6 | `agents/`, `skills/`, and `catalog/` stub directories exist |
-| S7 | No corpus node exceeds 40 lines |
+|---|---|
+| `S1` | The corpus holds ≥1 class definition and ≥2 instance nodes |
+| `S2` | Every instance node declares ≥1 link |
+| `S3` | No orphan instance nodes (zero in AND zero out links) |
+| `S4` | Exactly 1 git commit exists (the genesis commit) |
+| `S5` | The genesis commit message is ≥3 lines |
+| `S6` | The `.yidam/` scaffold exists (`catalog`, `corpus`, `decisions`, `skills`) |
+| `S7` | No instance node exceeds 40 lines |
 
 ### Quality checks (scored `pass` / `marginal` / `fail`)
 

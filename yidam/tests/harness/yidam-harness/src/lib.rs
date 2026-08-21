@@ -6,6 +6,18 @@ pub mod snapshot;
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
+/// The bootstrap protocol version — [VERSIONING.md](../../../../../VERSIONING.md), Layer 3.
+///
+/// Covers which structural checks exist, what the genesis commit must contain, the scenario
+/// schema, and the result snapshot format. Every snapshot records the version it was taken
+/// under, and `diff` refuses to compare across versions: an S-check that changed meaning
+/// makes a pass→fail transition say nothing about the model.
+///
+/// 0.1.0 → 0.2.0 restates S1–S3 and S5–S7 against the instance corpus at `.yidam/corpus/`.
+/// A major bump by this layer's table — existing checks changed — and the version the
+/// document quoted for the whole of 0.1.0 without the constant existing at all.
+pub const PROTOCOL_VERSION: &str = "0.2.0";
+
 pub fn run(scenario: PathBuf, model: String, output: PathBuf) -> Result<()> {
     let scenario_data = scenario::load(&scenario)?;
 
@@ -153,7 +165,7 @@ fn invoke_bootstrap(worktree: &Path, scenario: &scenario::Scenario, model: &str)
 fn capture_state(worktree: &Path, output: &Path) -> Result<()> {
     std::fs::create_dir_all(output).context("creating output directory")?;
 
-    // Write git log in default verbose format — check.rs S4/S5 parse from this
+    // The verbose log, for a person reading the result directory, and for S4's commit count.
     let log = std::process::Command::new("git")
         .current_dir(worktree)
         .args(["log"])
@@ -161,18 +173,22 @@ fn capture_state(worktree: &Path, output: &Path) -> Result<()> {
         .context("git log")?;
     std::fs::write(output.join("commit.log"), &log.stdout).context("writing commit.log")?;
 
-    // Copy corpus/ → output/corpus/ (S1, S2, S3, S7)
-    let corpus_src = worktree.join("corpus");
-    if corpus_src.exists() {
-        copy_dir(&corpus_src, &output.join("corpus"))?;
-    }
+    // The genesis message raw. S5 counts its lines, and `git log`'s indentation and blank
+    // separators are formatting rather than message — counting them scored a two-line
+    // message as three.
+    let msg = std::process::Command::new("git")
+        .current_dir(worktree)
+        .args(["log", "--format=%B", "-n", "1"])
+        .output()
+        .context("git log --format=%B")?;
+    std::fs::write(output.join("genesis.msg"), &msg.stdout).context("writing genesis.msg")?;
 
-    // Copy scaffold dirs → output/ (S6 checks for agents/, catalog/, skills/)
-    for dir in ["agents", "catalog", "skills"] {
-        let src = worktree.join(dir);
-        if src.exists() {
-            copy_dir(&src, &output.join(dir))?;
-        }
+    // The whole of `.yidam/` — the corpus S1–S3/S7 read and the scaffold S6 reads. Copied
+    // wholesale rather than per-directory: the checks decide what is required, and a capture
+    // that omits a directory makes an absent check indistinguishable from an absent copy.
+    let yidam = worktree.join(".yidam");
+    if yidam.exists() {
+        copy_dir(&yidam, &output.join(".yidam"))?;
     }
 
     Ok(())

@@ -31,6 +31,11 @@ specifies what `scenario::load()` parses and how each field drives agent behavio
 6. The judge agent scores quality against the [rubric](rubric.md)
 7. A result snapshot is written to `tests/results/<scenario>/<model>/<date>/`
 
+Steps 3 and 6 are design, not implementation. There is no domain owner agent — the scenario
+is inlined into the bootstrap's prompt — and no judge is invoked; the run's transcript is
+discarded rather than captured, so the criteria that read it cannot be scored. Steps 1, 2, 4,
+5 and 7 are what the harness does today.
+
 ## Regression detection
 
 A regression is any of:
@@ -38,7 +43,13 @@ A regression is any of:
 - A judge quality score that drops by more than one band from the prior snapshot
 - A new orphan node, missing genesis commit, or missing edge that wasn't present before
 
-Regressions are visible as diffs in `tests/results/` — git makes the comparison automatic.
+Only the first is implemented, and comparison is refused across bootstrap protocol versions
+(see [VERSIONING.md](../../VERSIONING.md), Layer 3) rather than reported as a change in the
+model.
+
+`tests/results/` does not exist and no snapshot has been committed, so there is nothing to
+diff against yet. Until a baseline is committed, this section describes an intended
+mechanism rather than a working one.
 
 ## Cargo workspace
 
