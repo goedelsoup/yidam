@@ -9,15 +9,23 @@ Rust harness; quality checks are assessed by the [judge agent](../prelude/skills
 
 These are pass/fail. Any failure is a blocking regression.
 
+A **node** is an instance file — `.yidam/corpus/<class>/<instance>.yml`. A `<class>.ont.yml`
+at the top of the corpus is a class definition, not a node of itself, and links are the
+entries of an instance's `links:` list resolved against the file that declares them.
+
+Every node-scoped check (S2, S3, S7) fails when the corpus walk finds no instances. It is not
+a violation-free corpus and must not report as one — see [check.rs](harness/yidam-harness/src/check.rs)
+for what went wrong when it did.
+
 | ID | Check |
 |---|---|
-| `S1` | `corpus/` exists and contains ≥2 `.md` files |
-| `S2` | Each corpus node has ≥1 outgoing markdown link (`[label](path)`) |
-| `S3` | No corpus node has zero incoming AND zero outgoing links (no orphans) |
+| `S1` | The corpus holds ≥1 class definition and ≥2 instance nodes |
+| `S2` | Every instance node declares ≥1 link |
+| `S3` | No orphan instance nodes (zero in AND zero out links) |
 | `S4` | Exactly 1 git commit exists (the genesis commit) |
 | `S5` | The genesis commit message is ≥3 lines |
-| `S6` | `agents/`, `skills/`, and `catalog/` stub directories exist |
-| `S7` | No corpus node exceeds 40 lines |
+| `S6` | The `.yidam/` scaffold exists (`catalog`, `corpus`, `decisions`, `skills`) |
+| `S7` | No instance node exceeds 40 lines |
 
 ---
 

@@ -123,10 +123,17 @@ Results for a scenario are written to:
 
 ```
 tests/results/<id>/<model>/<YYYY-MM-DD>/
-  structural.json   — pass/fail per S-check
-  quality.json      — band per Q-check (pass / marginal / fail)
-  snapshot.json     — metadata: protocol_version, model, timestamp, corpus node count
+  structural.json   — protocol_version, and pass/fail per S-check
+  commit.log        — `git log`, for a person reading the result
+  genesis.msg       — the genesis message raw (`%B`), which S5 counts
+  .yidam/           — the corpus and scaffold the checks read
 ```
 
-`snapshot.json` always records `protocol_version` so regression comparisons can
-detect cross-version diffs and refuse them explicitly.
+`structural.json` records `protocol_version`, and `harness diff` refuses to compare two
+snapshots that do not share one: when an S-check changes meaning, a pass→fail transition
+across that boundary describes the check, not the model.
+
+**Not yet written.** `quality.json` — a band per Q-check — has no producer. The judge is
+specified in [judge.md](../../prelude/skills/judge.md) and scored in [rubric.md](../rubric.md),
+and nothing invokes it; the transcript it would read is discarded rather than captured. Q1–Q7
+are unmeasured, and this document should not be read as saying otherwise.
