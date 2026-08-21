@@ -1,7 +1,7 @@
 # Evaluation Rubric
 
 Criteria used to evaluate a bootstrap result. Structural checks run automatically via the
-Rust harness; quality checks are assessed by the [judge agent](../prelude/skills/judge.md).
+Rust harness; quality checks are assessed by the [judge agent](judge.md).
 
 ---
 
@@ -36,7 +36,7 @@ for what went wrong when it did.
 
 ## Quality checks (judge-assessed)
 
-Each criterion is scored `pass` / `marginal` / `fail`. See [judge.md](../prelude/skills/judge.md)
+Each criterion is scored `pass` / `marginal` / `fail`. See [judge.md](judge.md)
 for scoring guidance.
 
 | ID | Criterion |

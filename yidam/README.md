@@ -33,7 +33,7 @@ The prelude is structured as a curriculum. An agent reads it in order before any
 - **[CONSTITUTION.md](prelude/CONSTITUTION.md)** — invariant constraints governing sangha resolutions
 - **[PHASES.md](prelude/PHASES.md)** — how post-genesis inquiry is structured into named units of work
 - **[guidelines/](prelude/guidelines/)** — behavioral norms and directory conventions for agents operating in the graph
-- **[skills/](prelude/skills/)** — capabilities provided by yidam: bootstrap, judge, and domain-specific extensions
+- **[skills/](prelude/skills/)** — capabilities provided by yidam: bootstrap, and domain-specific extensions. The judge is not here: it scores yidam's own harness runs and would otherwise be vendored into every derived repo, so it lives beside the rubric at [tests/judge.md](tests/judge.md)
 - **[sdks/](prelude/sdks/)** — programmable bindings to the prelude model in Rust, TypeScript, and Python; cross-language parity harness; formal specifications
 
 ### tools/yidam/

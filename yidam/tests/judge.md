@@ -5,8 +5,20 @@ description: Evaluate a bootstrap result against the yidam rubric and produce a 
 
 # Skill: judge
 
+**Held out from the repository under test.** This file used to live in
+`yidam/prelude/skills/`, which is the one directory step 8 of the bootstrap skill vendors
+into a derived repo — so every derived repository inherited a scorer for a test it can never
+run, and the bootstrap skill's step 1 instructed the agent to read it before starting work.
+The agent under evaluation held the criteria it was about to be scored against.
+
+It lives here instead, with the rubric it applies and the harness that invokes it, and
+`prepare_worktree` excludes `yidam/tests/` from the tree the bootstrap agent runs in. The
+quality bar the agent legitimately needs is in the skill and in the conduct guidelines; the
+bands, the criteria, and the scenario's reference description are the instrument, and an
+instrument the subject can read measures the reading.
+
 Invoked by the test harness after a bootstrap run completes. Reads the resulting repo state
-and the test scenario, scores the result against [rubric.md](https://github.com/goedelsoup/yidam/blob/main/yidam/tests/rubric.md), and
+and the test scenario, scores the result against [rubric.md](rubric.md), and
 produces a structured quality report.
 
 ## Inputs

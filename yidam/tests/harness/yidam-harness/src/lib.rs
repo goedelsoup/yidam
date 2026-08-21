@@ -76,15 +76,59 @@ fn find_template_root() -> Result<PathBuf> {
     Ok(PathBuf::from(path.trim()))
 }
 
+/// Directory names that are build output or local state, wherever they appear.
+///
+/// `prepare_worktree` used to copy the tree minus `.git`, which is 193,000 files — against
+/// 29,000 once these are pruned. None of them would exist in a repository made by
+/// `yidam clone`, so excluding them makes the worktree more faithful, not less.
+const NOT_CONTENT: [&str; 7] = [
+    ".git",
+    ".local",
+    "target",
+    "node_modules",
+    "dist",
+    ".venv",
+    "__pycache__",
+];
+
+/// Must this path be kept out of the tree the bootstrap agent runs in?
+///
+/// `yidam/tests/` is the instrument: the rubric, the judge's criteria, the harness, and each
+/// scenario's `good_bootstrap_looks_like` — the reference description of a good result for
+/// the very domain the agent is about to be asked about. HARNESS.md has always said the
+/// bootstrap agent does not read it. Nothing made that true; the copy loop took the whole
+/// tree, so the agent under evaluation ran in a directory containing its own answer key.
+///
+/// Held out here rather than trusted to the skill's reading list, because a list is an
+/// instruction and this is a property. `the_scoring_layer_does_not_reach_the_worktree`
+/// asserts it over the real tree.
+fn is_held_out(rel: &Path) -> bool {
+    rel.starts_with("yidam/tests")
+}
+
+/// The template files a prepared worktree receives, pruned at the directory so an excluded
+/// tree is never walked into.
+fn template_files(template: &Path) -> impl Iterator<Item = walkdir::DirEntry> + '_ {
+    let template = template.to_owned();
+    walkdir::WalkDir::new(&template)
+        .into_iter()
+        .filter_entry(move |e| {
+            let name = e.file_name().to_string_lossy();
+            if NOT_CONTENT.contains(&name.as_ref()) {
+                return false;
+            }
+            match e.path().strip_prefix(&template) {
+                Ok(rel) => rel.as_os_str().is_empty() || !is_held_out(rel),
+                Err(_) => true,
+            }
+        })
+        .filter_map(|e| e.ok())
+}
+
 fn prepare_worktree(dest: &Path) -> Result<()> {
     let template = find_template_root()?;
 
-    // Copy all template files, excluding .git/
-    for entry in walkdir::WalkDir::new(&template)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| !e.path().components().any(|c| c.as_os_str() == ".git"))
-    {
+    for entry in template_files(&template) {
         let rel = entry
             .path()
             .strip_prefix(&template)
@@ -247,4 +291,76 @@ fn copy_dir(src: &Path, dst: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// HARNESS.md's claim, as an assertion over the real tree rather than a sentence.
+    #[test]
+    fn the_scoring_layer_does_not_reach_the_worktree() {
+        let template = find_template_root().expect("running inside the yidam repository");
+
+        // The held-out material has to exist, or this passes because the directory is gone.
+        assert!(
+            template.join("yidam/tests/rubric.md").exists(),
+            "the rubric moved; this test is now asserting nothing"
+        );
+
+        let leaked: Vec<String> = template_files(&template)
+            .filter_map(|e| {
+                e.path()
+                    .strip_prefix(&template)
+                    .ok()
+                    .map(|r| r.to_string_lossy().into_owned())
+            })
+            .filter(|p| p.starts_with("yidam/tests"))
+            .collect();
+        assert!(
+            leaked.is_empty(),
+            "the agent under test would run in a tree containing its own scoring criteria:\n{}",
+            leaked
+                .iter()
+                .take(10)
+                .map(|p| format!("  {p}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    }
+
+    /// The positive control. A predicate that excluded everything would pass the test above.
+    #[test]
+    fn the_prelude_and_the_entry_prompt_do_reach_the_worktree() {
+        let template = find_template_root().unwrap();
+        let kept: std::collections::HashSet<String> = template_files(&template)
+            .filter_map(|e| {
+                e.path()
+                    .strip_prefix(&template)
+                    .ok()
+                    .map(|r| r.to_string_lossy().into_owned())
+            })
+            .collect();
+        for required in [
+            "BOOTSTRAP.md",
+            "yidam/prelude/GRAPH.md",
+            "yidam/prelude/skills/bootstrap.md",
+            "sadhana/corpus/README.md",
+        ] {
+            assert!(
+                kept.contains(required),
+                "{required} did not reach the worktree"
+            );
+        }
+    }
+
+    #[test]
+    fn build_output_is_pruned_at_the_directory() {
+        let template = find_template_root().unwrap();
+        let count = template_files(&template).count();
+        assert!(
+            count < 60_000,
+            "{count} files — target/ or node_modules/ is being walked into"
+        );
+    }
 }

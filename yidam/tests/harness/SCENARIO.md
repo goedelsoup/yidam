@@ -135,6 +135,6 @@ snapshots that do not share one: when an S-check changes meaning, a pass→fail 
 across that boundary describes the check, not the model.
 
 **Not yet written.** `quality.json` — a band per Q-check — has no producer. The judge is
-specified in [judge.md](../../prelude/skills/judge.md) and scored in [rubric.md](../rubric.md),
+specified in [judge.md](../judge.md) and scored in [rubric.md](../rubric.md),
 and nothing invokes it; the transcript it would read is discarded rather than captured. Q1–Q7
 are unmeasured, and this document should not be read as saying otherwise.
