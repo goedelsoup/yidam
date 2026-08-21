@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 use crate::check::CheckReport;
+use crate::transcript::RunRecord;
 use crate::PROTOCOL_VERSION;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -13,6 +14,10 @@ pub struct Snapshot {
     /// did not know its own version" is a fact worth keeping, not one worth guessing at.
     #[serde(default)]
     pub protocol_version: Option<String>,
+    /// What produced this result. `None` for a snapshot taken by `harness check`, which
+    /// re-reads a captured directory and never invoked a model.
+    #[serde(default)]
+    pub run: Option<RunRecord>,
     pub structural: CheckReport,
 }
 
@@ -23,9 +28,10 @@ impl Snapshot {
     }
 }
 
-pub fn write(result_dir: &Path, structural: &CheckReport) -> Result<()> {
+pub fn write(result_dir: &Path, structural: &CheckReport, run: Option<RunRecord>) -> Result<()> {
     let snap = Snapshot {
         protocol_version: Some(PROTOCOL_VERSION.to_string()),
+        run,
         structural: structural.clone(),
     };
     let json = serde_json::to_string_pretty(&snap)?;

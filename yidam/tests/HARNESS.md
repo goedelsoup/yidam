@@ -45,9 +45,13 @@ specifies what `scenario::load()` parses and how each field drives agent behavio
 7. A result snapshot is written to `tests/results/<scenario>/<model>/<date>/`
 
 Steps 3 and 6 are design, not implementation. There is no domain owner agent — the scenario
-is inlined into the bootstrap's prompt — and no judge is invoked; the run's transcript is
-discarded rather than captured, so the criteria that read it cannot be scored. Steps 1, 2, 4,
-5 and 7 are what the harness does today.
+is inlined into the bootstrap's prompt — and no judge is invoked. Steps 1, 2, 4, 5 and 7 are
+what the harness does today.
+
+The transcript is captured to `transcript.jsonl`, and the run record beside the result carries
+the resolved model, turns, duration, cost, and any permission denials. That removes what was
+blocking step 6: the judge had nothing to read. It does not remove what blocks step 3, and Q1
+with it — an agent told that no domain owner is present has nobody to ask.
 
 ## Regression detection
 

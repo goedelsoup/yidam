@@ -56,6 +56,7 @@ mod tests {
     fn snap(version: Option<&str>, id: &str, passed: bool) -> Snapshot {
         Snapshot {
             protocol_version: version.map(str::to_string),
+            run: None,
             structural: CheckReport {
                 results: vec![CheckResult {
                     id: id.into(),
