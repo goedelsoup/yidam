@@ -124,17 +124,54 @@ run = "cargo fmt --all --manifest-path crates/Cargo.toml"
 # `verify` requires dafny (in [tools]) and lake (install via elan separately).
 
 [tasks.parity-check]
-description = "Verify all eight parity functions have at least one fixture (enforced by parity)."
+description = "Verify the parity fixtures in both directions: every function has one, and every fixture directory has a runner."
 run = """
-for fn in parse_node extract_claims extract_links classify_commit is_recognized_verb parse_markers update_regen find_reachable find_citations; do
-  count=$(ls yidam/prelude/sdks/parity/fixtures/$fn/*.toml 2>/dev/null | wc -l | tr -d ' ')
+fixtures="yidam/prelude/sdks/parity/fixtures"
+functions="parse_node extract_claims extract_links classify_commit is_recognized_verb parse_markers update_regen find_reachable find_citations"
+# Fixture families that are NOT parity functions. Each is read by a runner that is not an
+# SDK suite, and each has a section in parity/README.md naming those runners — which the
+# loop below checks, so this list cannot quietly diverge from the document explaining it.
+exceptions="reports embed_config diagnostic_severity"
+
+# Every function has a fixture.
+for fn in $functions; do
+  count=$(ls $fixtures/$fn/*.toml 2>/dev/null | wc -l | tr -d ' ')
   if [ "$count" -eq 0 ]; then
     echo "ERROR: no fixture for parity function '$fn'"
-    echo "       add at least one fixture to yidam/prelude/sdks/parity/fixtures/$fn/"
+    echo "       add at least one fixture to $fixtures/$fn/"
     exit 1
   fi
 done
-echo "parity fixture check: all nine functions covered"
+
+# And every fixture has a reader. A directory nobody runs looks exactly like one that is
+# doing work: it passes every gate and asserts nothing. Same failure class one layer up
+# from two transcriptions each pinned only by itself.
+for dir in $fixtures/*/; do
+  name=$(basename "$dir")
+  case " $functions $exceptions " in
+    *" $name "*) ;;
+    *)
+      echo "ERROR: $fixtures/$name/ is not a parity function and is not a declared exception"
+      echo "       a fixture directory no runner reads passes every gate and asserts nothing."
+      echo "       Either add it to the parity surface, or add it to 'exceptions' in this"
+      echo "       task AND give it a section in parity/README.md naming who runs it."
+      exit 1
+      ;;
+  esac
+done
+
+# An exception with no section in the README is a list entry excusing itself.
+for name in $exceptions; do
+  if ! grep -q "^## .*$name" yidam/prelude/sdks/parity/README.md; then
+    echo "ERROR: '$name' is excepted from the parity surface but parity/README.md has no"
+    echo "       section for it. The exception list says what is not a parity function; the"
+    echo "       README is where it says who reads it instead. An incidental mention in"
+    echo "       prose is not that, which is why this wants a heading."
+    exit 1
+  fi
+done
+
+echo "parity fixture check: 9 functions covered, $(ls -d $fixtures/*/ | wc -l | tr -d ' ') directories all accounted for"
 """
 
 [tasks.parity]

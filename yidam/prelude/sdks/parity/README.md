@@ -49,8 +49,17 @@ When adding a new parity function:
 2. Add at least one fixture to `fixtures/<function>/` in the same PR
 3. Bump `VERSION` if the contract is new or changed
 
-`mise run parity` runs the fixture check before any SDK tests and exits non-zero if any
-function directory is missing or empty. This is not advisory — it is enforced on every run.
+**And every fixture directory must have a runner that reads it.** The rule runs both ways.
+A directory nobody runs looks exactly like one that is doing work — it passes every gate and
+asserts nothing — so anything under `fixtures/` that is not one of the nine has to be named
+in `parity-check`'s exception list *and* given a section here saying who reads it. The check
+enforces both halves; the section you are reading exists because the first run of it found
+that `reports/`, the largest family here, was documented nowhere in this file.
+
+`mise run parity` runs the fixture check before any SDK tests and exits non-zero on any of
+the three failures. It is run by the `ci (parity)` job on every push and pull request —
+which it was not until #145, so for as long as this paragraph claimed enforcement, the
+enforcement was of a command nobody's CI ran.
 
 ## Adding a fixture
 
@@ -75,6 +84,24 @@ Run by `yidam/cli/tests/mcp_serve.rs`, which reads `mcp/tools.json` rather than 
 A server that declares a capability must pass its cases; one that declares it absent has
 those cases skipped, and the capability flag is checked against the served tool list so the
 two cannot disagree.
+
+## The reports fixtures
+
+`fixtures/reports/` is not part of the nine-function parity surface either, and no SDK
+implements it. It holds **RFC-0001's report goldens**: a small derived repository under
+`basic/repo/`, the recipe that turns it into a git repository in `basic/stage.toml`, and the
+exact output of every report in every format under `basic/expected/`.
+
+It is the largest fixture family here and it went undocumented in this file until the
+check below started asking who reads each directory — which is the finding that check exists
+to produce.
+
+Runners: `yidam/cli/tests/report_goldens.rs` for the goldens themselves, and six test files
+in `yidam/editors/vscode/test/` which drive the extension's reader against the same corpus,
+so a fixture whose output changes fails the goldens and the extension together. Both stage
+the repository through `basic/stage.toml` rather than each building its own — see
+`basic/README.md` for what the corpus is deliberately built to reach, and for why there were
+once seven copies of that staging.
 
 ## The diagnostic_severity fixtures
 

@@ -84,6 +84,36 @@ jobs:
         env:
           YIDAM_REQUIRE_CONTRACT: "1"
 
+  parity:
+    # The cross-language parity suites, which nothing ran. `ci-cli` builds only the CLI's
+    # own test targets — there is no [workspace] table joining yidam/cli to
+    # yidam/prelude/sdks/rust — so a change making the three SDKs disagree about
+    # `classify_commit` passed every job here, which is the one thing prelude/sdks/parity/
+    # exists to prevent. Same family as the full-features job below being PR-exempt: a real
+    # check that existed and was not reached.
+    #
+    # Its own job because it needs a different toolchain from the three above — Rust for one
+    # SDK, npm for another, uv for the third.
+    #
+    # `embed-parity` is deliberately not here: its runners download model weights, which is
+    # why it is gated behind YIDAM_EMBED_PARITY=1 and belongs on the schedule rather than on
+    # every pull request.
+    name: ci (parity)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: yidam/prelude/sdks/rust
+          key: parity
+      - run: npm install
+        working-directory: yidam/prelude/sdks/typescript
+      # `parity` depends on `parity-check`, which enforces the fixture rules in both
+      # directions: every parity function has a fixture, and every fixture directory has a
+      # runner that reads it.
+      - run: mise run parity
+
   cli-full:
     # Full-feature CLI (index/sqlite/rdf/tonpa) — heavy: fastembed + lancedb +
     # protoc + from-source SQLite. Runs on main push + the weekly schedule only,
