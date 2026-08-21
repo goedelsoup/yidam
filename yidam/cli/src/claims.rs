@@ -13,6 +13,30 @@
 //! as an open claim. The three tokens never appear as link text, so exact matching has no
 //! false positives to trade against.
 //!
+//! # A mention is not a claim
+//!
+//! Exact was not narrow enough. A node that *discusses* the evidence vocabulary — a sentence
+//! saying a claim is not verified, with the token in backticks as code — was counted as
+//! carrying that claim. The count was correct about the bytes and wrong about the corpus.
+//!
+//! This is not a hypothetical for any corpus whose subject touches its own evidentiary
+//! apparatus, and such a node has good reason to name the tags and no way to do so without
+//! being counted. Reported from a derived repository where `yidam status` published **1
+//! verified claim against a true 0** for four commits, inside a `REGEN` block in `README.md`
+//! — which no human writes and everyone therefore trusts. It was found because a reader
+//! happened to hold an expectation about the number, not by any check.
+//!
+//! So the text scan reads [`crate::markdown::mask_code`] first. Inline code is markdown's
+//! conventional signal for mention-rather-than-use, and it costs a corpus nothing to say
+//! what it means. The frozen MCP contract already described the predicate this way — "the
+//! body contains an `[open]` **claim**" — so this makes the implementation agree with the
+//! words rather than changing what they promise.
+//!
+//! The opposite failure is left to `lint`. A tag with its citation folded inside the
+//! brackets — `[verified — <source>]` — matches no token and is counted as *nothing*, just
+//! as silently; a reader who writes that has plainly intended a tag. Counting it would
+//! guess, so `claim-tag-malformed` reports it instead.
+//!
 //! # And a node may say so structurally
 //!
 //! A bracketed token in serialized text is a property of a node's *serialization*, not of
@@ -247,7 +271,9 @@ fn count_bracketed_structural(text: &str, fields: &[String]) -> ClaimCounts {
 /// itself. RFC-0006 names the copies, and a fourth is where the next divergence goes.
 pub fn is_open_question(label: &str, text: &str, fields: &[String]) -> bool {
     label.trim_start().starts_with('?')
-        || text.contains(OPEN)
+        // Masked, for the same reason the counter is: a node explaining what `[open]` means
+        // is not thereby an open question.
+        || crate::markdown::mask_code(text).contains(OPEN)
         || count_structural(text, fields).open > 0
 }
 
@@ -264,7 +290,7 @@ fn tally(text: &str, counts: &mut ClaimCounts) {
 /// and nested maps, and a typed walk would have to anticipate each.
 pub fn count_in_source(text: &str) -> ClaimCounts {
     let mut counts = ClaimCounts::default();
-    tally(text, &mut counts);
+    tally(&crate::markdown::mask_code(text), &mut counts);
     counts
 }
 
@@ -293,6 +319,45 @@ mod tests {
     fn a_markdown_link_is_not_an_open_claim() {
         let c = count_in_source("see [open questions](../q/index.md) for more");
         assert_eq!(c.open, 0, "matching must be exact-token, not substring");
+    }
+
+    /// The reported case: a node that names the vocabulary rather than using it.
+    ///
+    /// `yidam status` published 1 verified claim against a true 0 for four commits on a
+    /// sentence shaped like this one.
+    #[test]
+    fn a_backticked_token_is_a_mention_and_is_not_counted() {
+        let c = count_in_source("This claim is not `[verified]`; nobody has checked it.");
+        assert_eq!(c.verified, 0, "inline code is a mention, not a claim");
+        assert_eq!(c.total(), 0);
+    }
+
+    /// Both halves, in one sentence, because a corpus that discusses its own vocabulary
+    /// writes both — and masking the wrong one is how a fix becomes the next defect.
+    #[test]
+    fn a_mention_and_a_use_on_one_line_are_told_apart() {
+        let c = count_in_source("Unlike `[open]`, this one is settled. [verified]");
+        assert_eq!((c.verified, c.open), (1, 0));
+    }
+
+    /// A fenced example is shown, not said.
+    #[test]
+    fn a_fenced_example_is_not_counted() {
+        let yaml = "description: |\n  Write it like this:\n  ```\n  estimate: \"[open]\"\n  ```\n";
+        assert_eq!(count_in_source(yaml).open, 0);
+    }
+
+    /// A node explaining the vocabulary is not thereby an instance of it.
+    #[test]
+    fn a_node_naming_open_in_code_is_not_an_open_question() {
+        let text = "class: c\ndescription: The `[open]` tag marks an unanswered claim.\n";
+        assert!(!is_open_question("Evidence tags", text, &[]));
+        // And the used form still is.
+        assert!(is_open_question(
+            "Evidence tags",
+            "description: Unresolved. [open]\n",
+            &[]
+        ));
     }
 
     #[test]

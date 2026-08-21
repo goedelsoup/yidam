@@ -5,6 +5,7 @@ mod cmd;
 mod config;
 pub mod embed_config;
 mod git;
+mod markdown;
 mod parse;
 mod paths;
 pub mod provenance;

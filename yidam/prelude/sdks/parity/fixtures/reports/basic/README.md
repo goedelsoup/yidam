@@ -32,6 +32,7 @@ present.
 | **Two classes** | Grouping in the corpus tree, above the arity at which any grouping implementation looks correct. |
 | **Both open-question arms** | `concept/low-flow.yml` is open through a declared `claim` property; `concept/mixing-zone.yml` is open through a `?` label. A corpus using one arm alone cannot tell an implementation reading both from one reading either — the defect the MCP cases were split to expose. |
 | **A claim tag of each kind** | `[verified]`, `[inference]`, and a structural `open`, so `status`'s three counters are each non-zero. |
+| **A mention that is not a use** | `concept/tailwater.yml` names `[open]` and `[verified]` in backticks. The counters and the open-question predicate must both ignore them. A corpus that never discusses its own vocabulary cannot tell a scanner reading claims from one reading bytes — and the byte reader published a verified claim against a true zero, inside a `REGEN` block, for four commits. |
 | **An inbound edge two hops out** | The gauge authors `measured-by`, so the neighborhood panel has a direction to group by other than `out`. |
 | **Two phase branches** | `phases` has rows. `ma/gauge-reader` is deliberately absent though the elector is registered, so `branch_present: false` is a golden rather than only a unit test. |
 | **Three commits, one operational** | `diff HEAD~1..HEAD` has a range and a modified node, and the log goldens show the classifier splitting rather than a column of `[E]`. |

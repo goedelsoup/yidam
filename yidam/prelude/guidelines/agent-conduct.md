@@ -50,6 +50,17 @@ readers and agents can assess the node's reliability without reading sources:
   and permanent knowledge contribution.
 - A synthesis node will typically contain all three: verified facts it draws on, inferences
   it makes, and open questions it generates. This is expected and good.
+- **Write the tag exactly, and put anything else beside it.** `[verified — Pearl 2009]` is
+  not a tag: the counters match the three tokens exactly, so a bracketed form that folds a
+  citation inside matches nothing and the claim is counted as untagged. It looks tagged to a
+  reader and reads as bare assertion to every tool. Write `[verified]` and then the citation.
+  `yidam lint` reports the near miss as `claim-tag-malformed`.
+- **To name a tag rather than make one, put it in backticks.** A node whose subject touches
+  the evidence vocabulary has to write the tokens to talk about them, and a scanner reading
+  bytes cannot tell that from an assertion. Inline code is the signal, and it is honoured: a
+  `` `[verified]` `` in a sentence is a mention and is not counted, and neither is anything
+  inside a fenced block. Every token in these two bullets is written that way, and none of
+  them adds anything to any count.
 
 ### An edge is a claim
 

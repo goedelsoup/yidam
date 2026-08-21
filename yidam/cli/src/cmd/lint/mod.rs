@@ -205,6 +205,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::catalog_unobtained_but_cited(&sources, &cites),
         checks::missing_label(&nodes),
         checks::missing_description(&nodes),
+        checks::claim_tag_malformed(&nodes, &node_texts),
         checks::catalog_used_by_drift(&sources, &cites),
         checks::catalog_location_malformed(&sources),
         checks::malformed_table(&prose),
@@ -410,7 +411,7 @@ mod tests {
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 18);
+        assert_eq!(all.len(), 19);
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
@@ -422,6 +423,7 @@ mod tests {
         assert!(ids.contains("resolution-annotation-decides"));
         assert!(ids.contains("broken-prose-link"));
         assert!(ids.contains("unauthored-prose-link"));
+        assert!(ids.contains("claim-tag-malformed"));
         assert!(ids.contains("authorship-region-stale"));
     }
 
@@ -560,7 +562,7 @@ mod tests {
         assert!(crate::authorship::Authorship::load(tmp.path()).is_err());
         // …while the checks themselves keep answering, for the editor's sake.
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 18);
+        assert_eq!(all.len(), 19);
     }
 
     #[test]

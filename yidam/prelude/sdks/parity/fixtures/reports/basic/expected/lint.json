@@ -74,6 +74,13 @@
       "violations": []
     },
     {
+      "id": "claim-tag-malformed",
+      "title": "Evidence tag that counts as nothing",
+      "severity": "warn",
+      "rationale": "The three tokens are matched exactly, which is what keeps `[open questions](…)` from reading as an open claim. The cost is that a tag with its citation folded inside the brackets matches nothing and is silently counted as untagged — a node that looks tagged to a reader and reads as bare assertion to every counter. This reports the near miss rather than guessing at it.",
+      "violations": []
+    },
+    {
       "id": "catalog-used-by-drift",
       "title": "`used-by` list disagreeing with the citations",
       "severity": "warn",

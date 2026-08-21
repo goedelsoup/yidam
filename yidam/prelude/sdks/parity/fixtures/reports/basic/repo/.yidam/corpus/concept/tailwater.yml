@@ -1,6 +1,10 @@
 class: concept
 label: Tailwater
-description: Water downstream of a structure. The control node — it trips nothing.
+description: >-
+  Water downstream of a structure. The control node — it trips nothing, including when it
+  names the vocabulary rather than using it: no claim here is `[open]`, and nobody has
+  written `[verified]` against this node. Both are mentions, in code, and neither is
+  counted.
 links:
   - target: ../concept/low-flow.yml
     relationship: relates-to
