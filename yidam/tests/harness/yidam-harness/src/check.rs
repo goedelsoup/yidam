@@ -324,23 +324,75 @@ fn check_s3(corpus: &Corpus) -> CheckResult {
     }
 }
 
+/// The verbs a bootstrap run is allowed to write, from step 8 of the skill and the closed
+/// vocabulary in [GRAPH.md](../../../../prelude/GRAPH.md).
+///
+/// `genesis` (or `overlay`, in existing-repo mode) is the root. The other two are the
+/// transient-layer commits the protocol requires before step 9: `consume:` for samudaya and
+/// again for sadhana, `vendor:` for the prelude move.
+const GENESIS_VERBS: [&str; 2] = ["genesis", "overlay"];
+const TRANSIENT_VERBS: [&str; 2] = ["consume", "vendor"];
+
+/// One commit of the captured history: `<sha>\t<subject>`, oldest first.
+fn commits(root: &Path) -> Vec<(String, String)> {
+    std::fs::read_to_string(root.join("commits.tsv"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| l.split_once('\t'))
+        .map(|(sha, subject)| (sha.to_string(), subject.to_string()))
+        .collect()
+}
+
+/// The verb of a subject line — everything before the first `": "`, per `lint::commits`.
+fn verb_of(subject: &str) -> &str {
+    subject.split_once(": ").map(|(v, _)| v).unwrap_or(subject)
+}
+
+/// This asked for exactly one commit until PROTOCOL_VERSION 0.2.0, and a correct run has
+/// never produced one. Step 8 writes the genesis commit and then three more — `consume:`
+/// samudaya, `consume:` sadhana, `vendor:` the prelude — and step 9 refuses to begin until
+/// all four exist. The check could only fail on a correct bootstrap.
+///
+/// What it was reaching for is that the history is *the bootstrap's* history and nothing
+/// else, which a count approximates badly. Ask it directly: the run begins at a genesis
+/// commit, and every commit after it is one the protocol prescribes.
 fn check_s4(root: &Path) -> CheckResult {
-    const D: &str = "exactly 1 git commit exists (the genesis commit)";
-    let count = std::fs::read_to_string(root.join("commit.log"))
-        .map(|s| s.lines().filter(|l| l.starts_with("commit ")).count())
-        .unwrap_or(0);
-    if count == 1 {
+    const D: &str = "the history is the genesis sequence, and holds nothing else";
+    let commits = commits(root);
+    let Some((_, first)) = commits.first() else {
+        return fail("S4", D, "no commits");
+    };
+    if !GENESIS_VERBS.contains(&verb_of(first)) {
+        return fail(
+            "S4",
+            D,
+            format!("the first commit is not a genesis commit: {first:?}"),
+        );
+    }
+    let stray: Vec<&str> = commits[1..]
+        .iter()
+        .filter(|(_, s)| !TRANSIENT_VERBS.contains(&verb_of(s)))
+        .map(|(_, s)| s.as_str())
+        .collect();
+    if stray.is_empty() {
         pass("S4", D)
     } else {
-        fail("S4", D, format!("found {count} commit(s)"))
+        fail(
+            "S4",
+            D,
+            format!("commits outside the protocol: {}", stray.join("; ")),
+        )
     }
 }
 
-/// Read from `genesis.msg` — the raw `%B` body — and not from `commit.log`.
+/// Read from `genesis.msg` — the raw `%B` body of the **root** commit.
 ///
-/// `git log`'s verbose format indents the message and separates commits with blank lines,
-/// and the previous implementation counted every line after the first blank one. A two-line
-/// message scored three, and a second commit's message counted toward the first's total.
+/// Two ways to read the wrong thing here, and the capture closes both. `git log`'s verbose
+/// format indents the message and separates commits with blank lines, and the previous
+/// implementation counted every line after the first blank one, so a two-line message scored
+/// three. And the genesis commit is the first commit, not the last: at the end of a correct
+/// run HEAD is the `vendor:` commit, whose message is a fixed string from step 8 and would
+/// have scored whatever that string scores no matter what the agent wrote.
 fn check_s5(root: &Path) -> CheckResult {
     const D: &str = "the genesis commit message is ≥3 lines";
     let msg = std::fs::read_to_string(root.join("genesis.msg")).unwrap_or_default();
@@ -543,6 +595,65 @@ mod tests {
         let corpus = read_corpus(tmp.path());
         // b has no outgoing links but a points at it; c has neither.
         assert_eq!(check_s3(&corpus).detail.unwrap(), "orphans: concept/c.yml");
+    }
+
+    fn with_commits(subjects: &[&str]) -> tempfile::TempDir {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let tsv: String = subjects
+            .iter()
+            .enumerate()
+            .map(|(i, s)| format!("{i:040}\t{s}\n"))
+            .collect();
+        std::fs::write(tmp.path().join("commits.tsv"), tsv).unwrap();
+        tmp
+    }
+
+    /// The sequence step 8 prescribes and step 9 refuses to begin without. The previous S4
+    /// asked for exactly one commit, so this — a correct run — failed it.
+    #[test]
+    fn the_prescribed_genesis_sequence_passes() {
+        let tmp = with_commits(&[
+            "genesis: causal inference — 3 classes, 13 instances",
+            "consume: samudaya — no seeds present; directory removed",
+            "consume: sadhana — scaffold template consumed",
+            "vendor: yidam prelude into .yidam/.vendor/; template files removed",
+        ]);
+        assert!(
+            check_s4(tmp.path()).passed,
+            "{:?}",
+            check_s4(tmp.path()).detail
+        );
+    }
+
+    #[test]
+    fn an_existing_repo_bootstrap_begins_at_an_overlay_commit() {
+        let tmp = with_commits(&["overlay: the repo — yidam applied to 400-commit repository"]);
+        assert!(check_s4(tmp.path()).passed);
+    }
+
+    #[test]
+    fn a_commit_the_protocol_did_not_prescribe_is_a_failure() {
+        let tmp = with_commits(&[
+            "genesis: causal inference — 3 classes",
+            "fix: typo in a node",
+        ]);
+        let r = check_s4(tmp.path());
+        assert!(!r.passed);
+        assert!(r.detail.unwrap().contains("fix: typo"));
+    }
+
+    #[test]
+    fn a_history_that_does_not_begin_at_genesis_is_a_failure() {
+        let tmp = with_commits(&["chore: initial commit", "genesis: too late"]);
+        assert!(!check_s4(tmp.path()).passed);
+    }
+
+    /// `verb_of` takes everything before the first `": "`, which is what `lint::commits`
+    /// does — so a conventional-commits scope makes the verb unrecognizable, deliberately.
+    #[test]
+    fn a_scoped_verb_is_not_the_verb() {
+        assert_eq!(verb_of("vendor(yidam): the prelude"), "vendor(yidam)");
+        assert_eq!(verb_of("vendor: the prelude"), "vendor");
     }
 
     /// `git log`'s blank separator line used to be counted as message content.

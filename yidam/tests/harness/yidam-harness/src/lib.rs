@@ -173,15 +173,37 @@ fn capture_state(worktree: &Path, output: &Path) -> Result<()> {
         .context("git log")?;
     std::fs::write(output.join("commit.log"), &log.stdout).context("writing commit.log")?;
 
-    // The genesis message raw. S5 counts its lines, and `git log`'s indentation and blank
-    // separators are formatting rather than message — counting them scored a two-line
-    // message as three.
-    let msg = std::process::Command::new("git")
+    // Subject lines, oldest first, for S4. A correct run writes four commits — genesis, two
+    // `consume:`, one `vendor:` — so the question S4 asks is which commits they are, and a
+    // count cannot answer it.
+    let subjects = std::process::Command::new("git")
         .current_dir(worktree)
-        .args(["log", "--format=%B", "-n", "1"])
+        .args(["log", "--reverse", "--format=%H%x09%s"])
         .output()
-        .context("git log --format=%B")?;
-    std::fs::write(output.join("genesis.msg"), &msg.stdout).context("writing genesis.msg")?;
+        .context("git log --format=%H%x09%s")?;
+    std::fs::write(output.join("commits.tsv"), &subjects.stdout).context("writing commits.tsv")?;
+
+    // The genesis message raw, from the ROOT commit. S5 counts its lines, and `git log`'s
+    // indentation and blank separators are formatting rather than message. `-n 1` would read
+    // HEAD, which at the end of a correct run is the `vendor:` commit — a fixed string from
+    // step 8 rather than anything the agent wrote.
+    let root = std::process::Command::new("git")
+        .current_dir(worktree)
+        .args(["rev-list", "--max-parents=0", "HEAD"])
+        .output()
+        .context("git rev-list --max-parents=0")?;
+    let root = String::from_utf8_lossy(&root.stdout).trim().to_string();
+    let msg = if root.is_empty() {
+        Vec::new()
+    } else {
+        std::process::Command::new("git")
+            .current_dir(worktree)
+            .args(["log", "--format=%B", "-n", "1", &root])
+            .output()
+            .context("git log --format=%B <root>")?
+            .stdout
+    };
+    std::fs::write(output.join("genesis.msg"), &msg).context("writing genesis.msg")?;
 
     // The whole of `.yidam/` — the corpus S1–S3/S7 read and the scaffold S6 reads. Copied
     // wholesale rather than per-directory: the checks decide what is required, and a capture
