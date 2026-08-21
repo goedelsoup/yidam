@@ -2,6 +2,7 @@ pub mod check;
 pub mod diff;
 pub mod scenario;
 pub mod snapshot;
+pub mod transcript;
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
@@ -21,20 +22,35 @@ pub const PROTOCOL_VERSION: &str = "0.2.0";
 pub fn run(scenario: PathBuf, model: String, output: PathBuf) -> Result<()> {
     let scenario_data = scenario::load(&scenario)?;
 
+    // Before the run, not after: the transcript streams into it while the agent works.
+    std::fs::create_dir_all(&output).context("creating output directory")?;
+
     let worktree = tempfile::TempDir::new().context("creating temp worktree")?;
     let worktree_path = worktree.path().to_owned();
 
     prepare_worktree(&worktree_path)?;
-    invoke_bootstrap(&worktree_path, &scenario_data, &model)?;
+    invoke_bootstrap(&worktree_path, &scenario_data, &model, &output)?;
     capture_state(&worktree_path, &output)?;
 
+    let run = transcript::read(&output.join(TRANSCRIPT), &model)?;
     let structural = check::run_all(&output)?;
-    snapshot::write(&output, &structural)?;
+    snapshot::write(&output, &structural, Some(run.clone()))?;
+
+    println!("{}", run.summary());
     println!(
         "structural: {}/{} passed",
         structural.passed(),
         structural.total()
     );
+    if run.was_denied() {
+        println!(
+            "WARNING: {} tool call(s) were denied by the permission layer ({}).\n\
+             This run was prevented from acting. The structural verdict above describes the \
+             harness, not the model.",
+            run.permission_denials.len(),
+            run.permission_denials.join(", ")
+        );
+    }
     Ok(())
 }
 
@@ -160,7 +176,15 @@ fn prepare_worktree(dest: &Path) -> Result<()> {
 
 // ── bootstrap agent invocation ────────────────────────────────────────────────
 
-fn invoke_bootstrap(worktree: &Path, scenario: &scenario::Scenario, model: &str) -> Result<()> {
+/// The event stream, as captured beside the result.
+pub const TRANSCRIPT: &str = "transcript.jsonl";
+
+fn invoke_bootstrap(
+    worktree: &Path,
+    scenario: &scenario::Scenario,
+    model: &str,
+    output: &Path,
+) -> Result<()> {
     let bootstrap_content =
         std::fs::read_to_string(worktree.join("BOOTSTRAP.md")).context("reading BOOTSTRAP.md")?;
 
@@ -190,15 +214,54 @@ fn invoke_bootstrap(worktree: &Path, scenario: &scenario::Scenario, model: &str)
         question = scenario.central_question,
     );
 
+    // The agent is about to be given a permission posture that lets it run `rm -rf` and
+    // `git commit` without being asked. What makes that safe is that it acts on a throwaway
+    // copy — so check that, here, rather than trusting the caller to have passed one.
+    let template = find_template_root()?;
+    if worktree.starts_with(&template) || worktree == template {
+        anyhow::bail!(
+            "refusing to run the bootstrap agent inside the template at {}: the worktree must \
+             be a disposable copy",
+            template.display()
+        );
+    }
+
+    let transcript = std::fs::File::create(output.join(TRANSCRIPT))
+        .with_context(|| format!("creating {TRANSCRIPT}"))?;
+
     let status = std::process::Command::new("claude")
         .current_dir(worktree)
-        .args(["--print", "--model", model])
+        .args([
+            "--print",
+            "--model",
+            model,
+            // The event stream, rather than the final text. `--verbose` is what makes
+            // stream-json emit the per-turn events; without it there is a result and nothing
+            // leading to it.
+            "--verbose",
+            "--output-format",
+            "stream-json",
+            // Under the default mode every Write is denied and the process still exits 0
+            // reporting success — so a bootstrap run wrote nothing and the checks read that
+            // as a corpus the model failed to produce. A person bootstrapping by hand
+            // approves exactly these operations; the harness has to stand in for them, and
+            // the guard above is what keeps the blast radius to the temporary copy.
+            "--permission-mode",
+            "bypassPermissions",
+        ])
         .arg(&prompt)
+        .stdout(std::process::Stdio::from(transcript))
         .status()
         .context("running `claude` CLI — is it installed and in PATH?")?;
 
+    // A non-zero exit is not fatal here. The transcript is already on disk, and it is the
+    // only thing that can say what went wrong — discarding it to report "exited non-zero"
+    // throws away the evidence for the failure being reported.
     if !status.success() {
-        anyhow::bail!("bootstrap agent exited with non-zero status");
+        eprintln!(
+            "warning: the bootstrap agent exited with {status}; see {}",
+            output.join(TRANSCRIPT).display()
+        );
     }
 
     Ok(())

@@ -123,7 +123,8 @@ Results for a scenario are written to:
 
 ```
 tests/results/<id>/<model>/<YYYY-MM-DD>/
-  structural.json   — protocol_version, and pass/fail per S-check
+  structural.json   — protocol_version, the run record, and pass/fail per S-check
+  transcript.jsonl  — the agent's event stream, streamed during the run
   commit.log        — `git log`, for a person reading the result
   commits.tsv       — subject lines oldest first, which S4 reads
   genesis.msg       — the ROOT commit's message raw (`%B`), which S5 counts
@@ -134,7 +135,22 @@ tests/results/<id>/<model>/<YYYY-MM-DD>/
 snapshots that do not share one: when an S-check changes meaning, a pass→fail transition
 across that boundary describes the check, not the model.
 
-**Not yet written.** `quality.json` — a band per Q-check — has no producer. The judge is
-specified in [judge.md](../judge.md) and scored in [rubric.md](../rubric.md),
-and nothing invokes it; the transcript it would read is discarded rather than captured. Q1–Q7
-are unmeasured, and this document should not be read as saying otherwise.
+It also records a **run record** read back off the transcript — the model requested and the
+model the session resolved to, session id, turn count, duration, cost, and the tool calls the
+permission layer refused. That last field is not bookkeeping. `claude --print` runs under the
+default permission mode, where every `Write` is denied and the process still exits 0 reporting
+success; a run in that state writes no corpus, and without the denials recorded the structural
+verdict reads as a model that produced nothing. The harness passes
+`--permission-mode bypassPermissions` — safe because the agent acts on a disposable copy, and
+guarded by a check that refuses to run inside the template — so a denial now means something
+went wrong rather than something was never configured.
+
+**Not yet written.** `quality.json` — a band per Q-check — has no producer; the judge is
+specified in [judge.md](../judge.md) and scored in [rubric.md](../rubric.md), and nothing
+invokes it. The transcript it would read now exists, which is what it was waiting for.
+
+**Q1 remains unmeasurable**, and capturing the transcript did not change that. The record
+carries `turns_before_first_write` — the evidence Q1 wants — but the harness inlines the
+scenario into the bootstrap's prompt and tells the agent that no domain owner is present. An
+agent with nobody to ask asks nothing, so the count reads 0 for a reason that has nothing to
+do with the model. Q1 becomes measurable when a responder exists, not before.
