@@ -14,7 +14,7 @@ transcription too many. Read the rubric there when they disagree.
 | `S1` | The corpus holds ≥1 class definition and ≥2 instance nodes |
 | `S2` | Every instance node declares ≥1 link |
 | `S3` | No orphan instance nodes (zero in AND zero out links) |
-| `S4` | Exactly 1 git commit exists (the genesis commit) |
+| `S4` | The history is the genesis sequence, and holds nothing else |
 | `S5` | The genesis commit message is ≥3 lines |
 | `S6` | The `.yidam/` scaffold exists (`catalog`, `corpus`, `decisions`, `skills`) |
 | `S7` | No instance node exceeds 40 lines |

@@ -125,7 +125,8 @@ Results for a scenario are written to:
 tests/results/<id>/<model>/<YYYY-MM-DD>/
   structural.json   — protocol_version, and pass/fail per S-check
   commit.log        — `git log`, for a person reading the result
-  genesis.msg       — the genesis message raw (`%B`), which S5 counts
+  commits.tsv       — subject lines oldest first, which S4 reads
+  genesis.msg       — the ROOT commit's message raw (`%B`), which S5 counts
   .yidam/           — the corpus and scaffold the checks read
 ```
 
