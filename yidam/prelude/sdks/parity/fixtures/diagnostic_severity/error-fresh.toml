@@ -1,0 +1,9 @@
+function = "diagnostic_severity"
+description = "an error-severity violation the baseline does not record — the thing that fails CI"
+
+[input]
+severity = "error"
+in_baseline = false
+
+[expected]
+level = "error"

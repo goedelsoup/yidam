@@ -76,6 +76,45 @@ A server that declares a capability must pass its cases; one that declares it ab
 those cases skipped, and the capability flag is checked against the served tool list so the
 two cannot disagree.
 
+## The diagnostic_severity fixtures
+
+`fixtures/diagnostic_severity/` is not part of the nine-function parity surface above, and no
+SDK implements it. It pins **RFC-0016's severity table**: how a lint finding's check severity
+and its baseline membership together decide what an editor renders.
+
+It exists because that table is the one verdict RFC-0016 licenses a client to recompute. The
+rule everywhere else is that the CLI computes verdicts and a client computes affordances; this
+row is the exception, and the reason is stated in both implementations — the alternative is an
+editor that cannot render a diagnostic without a subprocess per keystroke.
+
+So it lives in two languages:
+
+| | |
+|---|---|
+| `severity_of(severity, in_baseline) -> u8` | `yidam/cli/src/cmd/lsp.rs` |
+| `levelFor(severity, inBaseline) -> Level` | `yidam/editors/vscode/src/diagnostics.ts` |
+
+Each was pinned by a test. Neither was pinned to the other, so the two were free to be
+independently right about different tables — the same shape that put one tool name across five
+capabilities in `mcp/`, and that put four copies of the open-question predicate in the CLI
+before one of them was found under-reporting a consumer's corpus 26 to 2.
+
+**The fixtures carry a level name, not a number.** Neither side's numbering is shared: LSP
+counts from 1 and `vscode.DiagnosticSeverity` counts from 0, so a fixture holding either would
+make one of the two transcriptions assert a translation it does not perform. The four names —
+`error`, `warning`, `information`, `hint` — are what both already agree on, and each side maps
+them at its own boundary.
+
+Two of the six cases (`warn-baselined`, `info-baselined`) are states the CLI never emits: the
+baseline records error severity and nothing else. They are pinned because both implementations
+answer them anyway, and an input neither will see is exactly where two transcriptions drift
+unobserved.
+
+Runners: the `the_severity_table_is_the_shared_fixture` test in `yidam/cli/src/cmd/lsp.rs`, and
+`the severity table is the shared fixture` in
+`yidam/editors/vscode/test/diagnostics.test.ts`. Both read these files rather than restating
+the table; `mise run parity` does not run them, because neither is an SDK.
+
 ## The embed_config fixtures
 
 `fixtures/embed_config/` is not part of the nine-function parity surface above. It holds

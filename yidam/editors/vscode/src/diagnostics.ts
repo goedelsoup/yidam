@@ -69,6 +69,16 @@ export interface Options {
 
 export const DEFAULT_OPTIONS: Options = { showBaselined: true }
 
+/**
+ * RFC-0016's severity table — the one verdict this extension is licensed to recompute.
+ *
+ * `severity_of` in `yidam/cli/src/cmd/lsp.rs` is the same four rows in Rust. The duplication
+ * is deliberate: the alternative is an editor that cannot render a diagnostic without a
+ * subprocess per keystroke. Both are pinned to
+ * `prelude/sdks/parity/fixtures/diagnostic_severity/` rather than to their own restatements
+ * of the table, because two transcriptions each pinned only by their own test can be
+ * independently right about different tables.
+ */
 function levelFor(severity: 'error' | 'warn' | 'info', inBaseline: boolean): Level {
   // Baseline membership outranks check severity. An inherited error is not news; it is the
   // state the ratchet was installed to hold, and the thing that fails CI is a *change* to

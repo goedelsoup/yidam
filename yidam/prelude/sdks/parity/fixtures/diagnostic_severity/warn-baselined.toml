@@ -1,0 +1,9 @@
+function = "diagnostic_severity"
+description = "a warn violation carrying in_baseline — a state the CLI never emits, since the baseline records error severity and nothing else. Pinned because both implementations answer it anyway, and an input neither will see is exactly where two transcriptions drift unobserved"
+
+[input]
+severity = "warn"
+in_baseline = true
+
+[expected]
+level = "hint"

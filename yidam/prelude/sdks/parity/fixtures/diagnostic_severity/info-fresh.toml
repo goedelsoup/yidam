@@ -1,0 +1,9 @@
+function = "diagnostic_severity"
+description = "a fresh info-severity finding is Information and is never promoted — the other direction baseline membership outranks"
+
+[input]
+severity = "info"
+in_baseline = false
+
+[expected]
+level = "information"
