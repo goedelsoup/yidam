@@ -35,7 +35,7 @@
     },
     {
       "file": ".yidam/corpus/gauge/riffle-station.yml",
-      "line": 7,
+      "line": 9,
       "from": "../concept/low-flow.yml",
       "to": "../concept/base-flow.yml"
     }

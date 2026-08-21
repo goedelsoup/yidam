@@ -49,7 +49,7 @@
       "node": "gauge/riffle-station.yml",
       "class": "gauge",
       "label": "Riffle station",
-      "description": "A stage gauge at the riffle. [verified]",
+      "description": "A stage gauge at the riffle. [verified] Its series is a `gauge-record` — the slug is named, not cited, and no link here resolves to the catalog entry of that name.",
       "relationship": "measured-by",
       "direction": "in",
       "hops": 2,

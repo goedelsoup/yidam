@@ -20,7 +20,7 @@ pub(crate) mod graph;
 #[cfg(feature = "index")]
 mod index_build;
 mod index_verify;
-mod lint;
+pub(crate) mod lint;
 mod log;
 mod lsp;
 mod overlay;

@@ -49,7 +49,10 @@ pub fn load_classes(root: &Path, paths: &[PathBuf], overlay: &super::Overlay) ->
 /// A catalog entry parsed once.
 pub struct Source {
     pub rel: String,
-    pub slug: String,
+    /// Absolute path on disk. A citation is a link that resolves to *this file*, which is
+    /// what replaced the slug this struct used to carry — the slug existed only to be
+    /// searched for in a node's bytes, and nothing else ever needed it.
+    pub path: PathBuf,
     pub obtained: bool,
     pub used_by: Vec<String>,
     pub locations: Vec<crate::parse::CatalogLocation>,
@@ -84,11 +87,7 @@ pub fn load_sources(root: &Path, paths: &[PathBuf], overlay: &super::Overlay) ->
             let fm = parse_frontmatter(&text);
             Source {
                 rel: rel_of(root, p),
-                slug: p
-                    .file_stem()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string(),
+                path: p.clone(),
                 // Absent means obtained. Only an explicit `false` claims otherwise.
                 obtained: fm.obtained.unwrap_or(true),
                 used_by: fm.used_by.unwrap_or_default(),
@@ -327,7 +326,7 @@ pub fn orphan_in(nodes: &[Node]) -> Check {
 }
 
 /// Resolve `.` and `..` without touching the filesystem.
-fn normalize(p: &Path) -> PathBuf {
+pub fn normalize(p: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for c in p.components() {
         match c {
@@ -436,15 +435,68 @@ fn near_miss_tags(text: &str) -> Vec<(usize, String)> {
 
 // ── catalog ───────────────────────────────────────────────────────────────────
 
-/// Corpus nodes citing each source slug, by repo-relative path.
+/// Every repository path a node points at: `links:` targets and markdown links alike, each
+/// resolved from the node's own directory and normalized.
+///
+/// **The one answer to "what does this node link to?"** There were three matchers asking it,
+/// and two of them asked it by searching the node's bytes for a slug: `lint`'s citation
+/// counter and `catalog-audit`'s. Both reported a node that merely *named* a source as one
+/// that cites it, which the conventions do not say and a reader chasing the finding does not
+/// find. A third copy is where the next divergence goes.
+pub fn linked_paths(node_path: &Path, rel: &str, text: &str) -> HashSet<PathBuf> {
+    let dir = node_path.parent().unwrap_or(node_path);
+    let inst: crate::parse::CorpusInstance = serde_yaml::from_str(text).unwrap_or_default();
+    let mut out: HashSet<PathBuf> = inst
+        .links
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .filter_map(|l| l.target.as_ref())
+        .map(|t| normalize(&dir.join(t)))
+        .collect();
+    out.extend(
+        prose_links(rel, dir, text)
+            .into_iter()
+            .map(|l| normalize(&l.resolved)),
+    );
+    out
+}
+
+/// Corpus nodes citing each source, by repo-relative path.
+///
+/// **A citation is a link that resolves to the catalog file.** That is what the conventions
+/// describe — "corpus nodes link to catalog nodes as edges […] writes
+/// `[Pearl 2009](../../catalog/pearl-2009.md)`" — and it used to be a substring search for
+/// the slug anywhere in the node's bytes, which admits every sentence that happens to
+/// contain the word.
+///
+/// The reported case was a catalog entry carrying `obtained: false` whose slug named a
+/// connector crate — the directory conventions recommend naming connectors after what they
+/// fetch (`nwis`, `echo`, `census`), so a catalog entry for the source those connectors
+/// fetch from naturally collides. A node mentioning the crate in backticks, linking nothing,
+/// failed the build under `catalog-unobtained-but-cited`, which is Error severity and gates.
+/// The finding named a file whose text contains no citation, so the diagnosis ran through
+/// "which node cites this?" before arriving at "none of them do".
+///
+/// Both edge forms count: a `links:` entry and a markdown link in the prose. The prose scan
+/// is [`prose_links`], the same function `broken-prose-link` uses, so a link shown as an
+/// example in code is not read as a citation here either.
 pub fn citations(sources: &[Source], nodes: &[Node], texts: &[String]) -> Vec<Vec<String>> {
+    // Resolved once per node rather than once per (node, source) pair.
+    let linked: Vec<HashSet<PathBuf>> = nodes
+        .iter()
+        .zip(texts)
+        .map(|(n, text)| linked_paths(&n.path, &n.rel, text))
+        .collect();
+
     sources
         .iter()
         .map(|s| {
-            texts
+            let target = normalize(&s.path);
+            linked
                 .iter()
                 .zip(nodes)
-                .filter(|(t, _)| t.contains(&s.slug))
+                .filter(|(links, _)| links.contains(&target))
                 .map(|(_, n)| n.rel.clone())
                 .collect()
         })
@@ -691,7 +743,7 @@ mod tests {
     fn source(slug: &str, obtained: bool, used_by: &[&str]) -> Source {
         Source {
             rel: format!(".yidam/catalog/{slug}.md"),
-            slug: slug.to_string(),
+            path: PathBuf::from(format!("/repo/.yidam/catalog/{slug}.md")),
             obtained,
             used_by: used_by.iter().map(|s| s.to_string()).collect(),
             locations: vec![],
@@ -828,6 +880,108 @@ mod tests {
             "{}",
             c.violations[0].node
         );
+    }
+
+    /// A source at a known path, and a node in a directory that can reach it.
+    fn catalog_source(slug: &str, obtained: bool) -> Source {
+        Source {
+            rel: format!(".yidam/catalog/{slug}.md"),
+            path: PathBuf::from(format!("/repo/.yidam/catalog/{slug}.md")),
+            obtained,
+            used_by: vec![],
+            locations: vec![],
+        }
+    }
+
+    fn corpus_node(name: &str, yaml: &str) -> (Node, String) {
+        (
+            Node {
+                path: PathBuf::from(format!("/repo/.yidam/corpus/concept/{name}.yml")),
+                rel: format!(".yidam/corpus/concept/{name}.yml"),
+                inst: serde_yaml::from_str(yaml).unwrap_or_default(),
+            },
+            yaml.to_string(),
+        )
+    }
+
+    /// The reported case. A catalog entry whose slug collides with a connector crate — the
+    /// conventions recommend naming connectors after what they fetch — and a node that
+    /// mentions the crate in prose and links nothing. It failed a build at Error severity on
+    /// a node that cites nothing.
+    #[test]
+    fn naming_a_slug_in_prose_is_not_a_citation() {
+        let sources = vec![catalog_source("nwis", false)];
+        let (node, text) = corpus_node(
+            "gauge-ingest",
+            "class: concept\nlabel: Gauge ingest\ndescription: The `nwis` crate fetches the \
+             series; nwis is also the source name.\nlinks:\n  - target: ../concept/other.yml\n",
+        );
+        let cites = citations(&sources, &[node], &[text]);
+        assert_eq!(cites, vec![Vec::<String>::new()], "no link resolves to it");
+        assert!(catalog_unobtained_but_cited(&sources, &cites).passed());
+    }
+
+    /// And a real citation still is one. Without this the fix is indistinguishable from
+    /// deleting the check.
+    #[test]
+    fn a_markdown_link_that_resolves_to_the_entry_is_a_citation() {
+        let sources = vec![catalog_source("pearl-2009", false)];
+        let (node, text) = corpus_node(
+            "confounding",
+            "class: concept\nlabel: Confounding\ndescription: Draws on \
+             [Pearl 2009](../../catalog/pearl-2009.md).\nlinks:\n  - target: ../concept/o.yml\n",
+        );
+        let cites = citations(&sources, &[node], &[text]);
+        assert_eq!(
+            cites[0],
+            vec![".yidam/corpus/concept/confounding.yml".to_string()]
+        );
+        let c = catalog_unobtained_but_cited(&sources, &cites);
+        assert_eq!(
+            c.violations.len(),
+            1,
+            "an unfetched source, cited, still gates"
+        );
+    }
+
+    /// A structured edge is a citation too — the corpus writes both forms.
+    #[test]
+    fn a_links_entry_pointing_at_the_entry_is_a_citation() {
+        let sources = vec![catalog_source("pearl-2009", true)];
+        let (node, text) = corpus_node(
+            "confounding",
+            "class: concept\nlabel: Confounding\ndescription: Draws on it.\nlinks:\n  \
+             - target: ../../catalog/pearl-2009.md\n    relationship: cites\n",
+        );
+        let cites = citations(&sources, &[node], &[text]);
+        assert_eq!(cites[0].len(), 1);
+        assert!(catalog_uncited(&sources, &cites).passed());
+    }
+
+    /// A link shown as an example is not a citation, for the same reason it is not a link.
+    #[test]
+    fn a_citation_shown_in_code_is_not_a_citation() {
+        let sources = vec![catalog_source("pearl-2009", false)];
+        let (node, text) = corpus_node(
+            "conventions",
+            "class: concept\nlabel: How to cite\ndescription: Write \
+             `[Pearl 2009](../../catalog/pearl-2009.md)` rather than a full \
+             citation.\nlinks:\n  - target: ../concept/o.yml\n",
+        );
+        let cites = citations(&sources, &[node], &[text]);
+        assert_eq!(cites, vec![Vec::<String>::new()]);
+    }
+
+    /// `..` in a target must not make two spellings of one file look like two files.
+    #[test]
+    fn a_citation_is_matched_through_a_normalized_path() {
+        let sources = vec![catalog_source("pearl-2009", true)];
+        let (node, text) = corpus_node(
+            "confounding",
+            "class: concept\nlabel: C\ndescription: See \
+             [P](../../corpus/../catalog/pearl-2009.md).\nlinks:\n  - target: ../concept/o.yml\n",
+        );
+        assert_eq!(citations(&sources, &[node], &[text])[0].len(), 1);
     }
 
     #[test]
