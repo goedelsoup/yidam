@@ -1,4 +1,5 @@
 use anyhow::Result;
+use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -302,7 +303,27 @@ fn block_on<F: std::future::Future<Output = Result<()>>>(fut: F) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        // clap says a subcommand was not recognized without saying who did not recognize
+        // it, and the answer is often a binary older than the command, from somewhere the
+        // caller did not mean. Name it before exiting; `--help` and `--version` are not
+        // errors and take clap's own path.
+        Err(e)
+            if matches!(
+                e.kind(),
+                ErrorKind::InvalidSubcommand | ErrorKind::UnknownArgument
+            ) =>
+        {
+            let _ = e.print();
+            eprintln!("\n{}", yidam::running_binary_note());
+            std::process::exit(2);
+        }
+        Err(e) => e.exit(),
+    };
+    // Before doing any work, and for every subcommand: a `yidam` from elsewhere answering
+    // for a repository that pins its own is the failure that reads as success.
+    yidam::warn_if_shadowed();
     match cli.command {
         Command::Status { format } => yidam::status(format),
         Command::OpenQuestions { format } => yidam::open_questions(format),

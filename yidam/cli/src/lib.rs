@@ -26,4 +26,5 @@ pub use cmd::{
 };
 #[cfg(feature = "index")]
 pub use cmd::{index_build, serve_mcp};
+pub use paths::{running_binary_note, warn_if_shadowed};
 pub use report::Format;
