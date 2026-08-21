@@ -209,6 +209,65 @@ fn resolve(from_dir: &Path, target: &str) -> String {
     parts.join("/")
 }
 
+/// Differences between a recorded report and a freshly computed one, as lines a person can
+/// read.
+///
+/// This is the golden comparison, and it is deliberately not "did every check pass". A
+/// baseline records what a real run produced, failures included; asserting that a recorded
+/// 5/7 is still 5/7 with the same details catches a change in the checks, while asserting
+/// 7/7 would just refuse to keep any baseline that was not perfect.
+pub fn drift(recorded: &CheckReport, fresh: &CheckReport) -> Vec<String> {
+    let mut lines = Vec::new();
+
+    for old in &recorded.results {
+        match fresh.results.iter().find(|r| r.id == old.id) {
+            None => lines.push(format!("{} is recorded but no longer runs", old.id)),
+            Some(new) => {
+                if new.passed != old.passed {
+                    lines.push(format!(
+                        "{} was {} and is now {}{}",
+                        old.id,
+                        verdict(old.passed),
+                        verdict(new.passed),
+                        new.detail
+                            .as_deref()
+                            .map(|d| format!(" ({d})"))
+                            .unwrap_or_default()
+                    ));
+                } else if new.detail != old.detail {
+                    lines.push(format!(
+                        "{} still {} but reports differently:\n  was: {}\n  now: {}",
+                        old.id,
+                        verdict(old.passed),
+                        old.detail.as_deref().unwrap_or("(none)"),
+                        new.detail.as_deref().unwrap_or("(none)")
+                    ));
+                }
+                if new.description != old.description {
+                    lines.push(format!(
+                        "{} is described differently:\n  was: {}\n  now: {}",
+                        old.id, old.description, new.description
+                    ));
+                }
+            }
+        }
+    }
+    for new in &fresh.results {
+        if !recorded.results.iter().any(|r| r.id == new.id) {
+            lines.push(format!("{} runs but is not in the baseline", new.id));
+        }
+    }
+    lines
+}
+
+fn verdict(passed: bool) -> &'static str {
+    if passed {
+        "passing"
+    } else {
+        "failing"
+    }
+}
+
 // ── the checks ────────────────────────────────────────────────────────────────
 
 /// Run all structural checks against a result directory.
@@ -464,6 +523,51 @@ mod tests {
 
     fn result_of<'a>(check: &'a CheckReport, id: &str) -> &'a CheckResult {
         check.results.iter().find(|r| r.id == id).unwrap()
+    }
+
+    fn one(id: &str, passed: bool, detail: Option<&str>) -> CheckReport {
+        CheckReport {
+            results: vec![CheckResult {
+                id: id.into(),
+                description: "a check".into(),
+                passed,
+                detail: detail.map(str::to_string),
+            }],
+        }
+    }
+
+    #[test]
+    fn an_identical_report_has_no_drift() {
+        assert!(drift(&one("S1", true, None), &one("S1", true, None)).is_empty());
+    }
+
+    /// A baseline that records a failure is still a baseline. Drift is a change, in either
+    /// direction — a check that starts passing is as much a change to the checks as one that
+    /// starts failing, and neither should land unnoticed.
+    #[test]
+    fn a_recorded_failure_that_starts_passing_is_drift() {
+        let d = drift(&one("S1", false, Some("nope")), &one("S1", true, None));
+        assert_eq!(d.len(), 1);
+        assert!(d[0].contains("was failing and is now passing"), "{d:?}");
+    }
+
+    /// The detail is where a check says what it saw. A verdict that holds while the reason
+    /// changes means the check is reading something different.
+    #[test]
+    fn the_same_verdict_for_a_different_reason_is_drift() {
+        let d = drift(
+            &one("S2", false, Some("no links: a.yml")),
+            &one("S2", false, Some("no links: b.yml")),
+        );
+        assert_eq!(d.len(), 1);
+        assert!(d[0].contains("reports differently"), "{d:?}");
+    }
+
+    #[test]
+    fn a_check_that_appears_or_vanishes_is_drift() {
+        let empty = CheckReport { results: vec![] };
+        assert!(drift(&one("S1", true, None), &empty)[0].contains("no longer runs"));
+        assert!(drift(&empty, &one("S1", true, None))[0].contains("not in the baseline"));
     }
 
     #[test]

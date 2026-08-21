@@ -1,0 +1,29 @@
+class: confounding
+label: Confounding
+foundational_type:
+  ontology: bfo
+  type: disposition
+description: |
+  A variable or causal structure that induces a non-causal association between treatment
+  and outcome by being a common cause (or proxy thereof) of both, making it impossible
+  to distinguish the treatment's effect from the confounder's effect without additional
+  conditions.
+properties:
+  - name: variable_name
+    type: string
+    description: The name or symbol used to denote the confounding variable in the domain literature
+  - name: confounding_mechanism
+    type: text
+    description: How this variable causally relates to both treatment and outcome
+  - name: measurability
+    type: string
+    description: Whether the confounder is observed, partially observed, or latent/unmeasured
+edges:
+  - relationship: threatens
+    target: identification
+    direction: out
+    description: Confounding undermines the conditions required for identification to hold
+  - relationship: blocked-by
+    target: assumption
+    direction: in
+    description: An assumption (e.g., ignorability) conditionally blocks confounding

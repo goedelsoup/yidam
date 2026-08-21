@@ -1,0 +1,27 @@
+class: estimator
+label: Two-Stage Least Squares (2SLS)
+description: |
+  2SLS operationalizes IV identification in two stages: Stage 1 regresses treatment D on
+  instrument Z (and any controls) to obtain predicted treatment values D̂; Stage 2 regresses
+  outcome Y on D̂ rather than D. The 2SLS coefficient on D̂ in Stage 2 is the ratio of the
+  reduced-form effect (Y ~ Z) to the first-stage effect (D ~ Z), which under the IV
+  assumptions equals the LATE. 2SLS is consistent for the LATE when the exclusion
+  restriction, instrument exogeneity, and monotonicity hold, and when the first stage is
+  strong (weak instruments inflate variance and introduce finite-sample bias toward OLS).
+  [inference] The first-stage F-statistic is a standard diagnostic for instrument strength;
+  F < 10 is a conventional warning threshold, though more modern tests (effective F-statistic)
+  are preferred. 2SLS estimates are local to compliers; this locality is a feature of IV
+  identification, not a failure of the estimator.
+properties:
+  estimator_name: "2SLS (Two-Stage Least Squares)"
+  identification_strategy: "Instrumental variable identification"
+  consistency_conditions: "Exclusion restriction, instrument exogeneity (Z ⊥⊥ U), monotonicity, SUTVA, and first-stage relevance (non-weak instrument)"
+links:
+  - target: ../estimator.ont.yml
+    relationship: instance-of
+  - target: ../estimand/local-average-treatment-effect.yml
+    relationship: recovers
+  - target: ../assumption/exclusion-restriction.yml
+    relationship: valid-under
+  - target: ../identification/instrumental-variable-identification.yml
+    relationship: operationalizes

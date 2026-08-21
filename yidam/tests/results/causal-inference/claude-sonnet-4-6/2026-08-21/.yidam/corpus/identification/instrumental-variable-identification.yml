@@ -1,0 +1,29 @@
+class: identification
+label: Instrumental Variable Identification
+description: |
+  Instrumental variable (IV) identification exploits variation in a variable Z (the
+  instrument) that is (i) correlated with treatment D (instrument relevance), (ii) affects
+  outcome Y only through D (exclusion restriction), and (iii) is independent of unmeasured
+  confounders U (instrument exogeneity). Under these three conditions, the LATE is identified
+  for the binary instrument, binary treatment case as the ratio of the reduced-form effect
+  of Z on Y to the first-stage effect of Z on D: LATE = Cov(Y,Z)/Cov(D,Z). IV identification
+  is the primary alternative to backdoor identification when unmeasured confounding is
+  present: rather than blocking confounders, IV sidesteps them by using only the quasi-random
+  variation in D driven by Z. The cost is that IV identifies only the LATE, not the ATE —
+  the effect is local to compliers, whose identity and characteristics are typically unknown.
+  [inference] Whether compliers are policy-relevant in any application is domain-specific.
+properties:
+  strategy_name: "Instrumental Variable Identification"
+  required_graph_condition: "Z satisfies: Z → D (relevance), no direct Z → Y path (exclusion), Z ⊥⊥ U (exogeneity) — with U the unmeasured confounders of D and Y"
+  identification_status: "LATE is identified when all three IV conditions hold; ATE is not identified by IV alone without homogeneity assumptions"
+links:
+  - target: ../identification.ont.yml
+    relationship: instance-of
+  - target: ../assumption/exclusion-restriction.yml
+    relationship: requires
+  - target: ../assumption/sutva.yml
+    relationship: requires
+  - target: ../estimand/local-average-treatment-effect.yml
+    relationship: targets
+  - target: ../study-design/natural-experiment.yml
+    relationship: enabled-by

@@ -1,0 +1,40 @@
+class: assumption
+label: Assumption
+foundational_type:
+  ontology: bfo
+  type: quality
+description: |
+  A condition about the data-generating process that is required for identification to
+  hold but cannot be verified from the observed data alone; assumptions are the price
+  of identification in observational studies — they must be justified by domain knowledge,
+  study design, or falsified by auxiliary tests where possible.
+properties:
+  - name: assumption_name
+    type: string
+    description: The conventional name for this assumption (e.g., ignorability, SUTVA, exclusion restriction, monotonicity)
+  - name: formal_statement
+    type: text
+    description: The formal statement of the assumption in terms of potential outcomes or graph structure
+  - name: testability
+    type: string
+    description: Whether and how this assumption can be partially tested or falsified from observed data
+  - name: violation_consequence
+    type: text
+    description: What identification failure looks like if this assumption does not hold
+edges:
+  - relationship: required-by
+    target: identification
+    direction: in
+    description: This assumption is a prerequisite for an identification strategy to hold
+  - relationship: required-by
+    target: estimator
+    direction: in
+    description: This assumption is a prerequisite for an estimator to be consistent
+  - relationship: supported-by
+    target: study-design
+    direction: in
+    description: The study design provides evidentiary support for or against this assumption
+  - relationship: blocks
+    target: confounding
+    direction: out
+    description: When this assumption holds, it conditionally controls the confounding it addresses

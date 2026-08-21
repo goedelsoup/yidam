@@ -1,0 +1,56 @@
+id: proposals
+summary: 4 implied edges approved; 2 calculators and 1 connector approved as stubs; 1 connector deferred
+context: |
+  After reading all 7 .ont.yml class definitions, the following were identified:
+
+  Implied edges (4):
+  - assumption implies assumption (strong → marginal ignorability; formal implication chains)
+  - study-design rules-out confounding (by-construction control of specific confounders)
+  - estimator operationalizes identification (each estimator realizes one strategy procedurally)
+  - estimand decomposes-into estimand (ATE decomposes into CATE, LATE, ATT by subpopulation)
+
+  Connectors (2):
+  - causal-literature: arXiv/econ-ph and CrossRef API, feeding catalog entries for
+    assumption, identification, and estimand classes
+  - replication-data: Harvard Dataverse and OSF, feeding study-design and estimator
+    instances with grounded empirical examples
+
+  Calculators (2):
+  - sensitivity-bounds: Rosenbaum Γ and E-value computation from estimand + estimator +
+    assumption nodes; quantifies how strong unmeasured confounding must be to overturn a finding
+  - identification-graph-checker: given a causal DAG and target estimand, determines
+    whether a criterion (backdoor, front-door, IV) is satisfied and returns the minimal
+    adjustment set
+
+decision: |
+  Implied edges — all 4 approved:
+  - assumption →[implies]→ assumption: wire in the ignorability and SUTVA instances
+  - study-design →[rules-out]→ confounding: wire in matching and RD design instances
+  - estimator →[operationalizes]→ identification: wire in all estimator instances
+  - estimand →[decomposes-into]→ estimand: wire between ATE/ATT/LATE instances
+
+  Calculators — both approved as stubs in .yidam/skills/:
+  - sensitivity-bounds.md
+  - identification-graph-checker.md
+
+  Connectors — causal-literature approved as crate stub; replication-data deferred.
+  No opportunistic retrieval during seeding (corpus_depth=13 is reachable without connectors).
+
+rationale: |
+  All four implied edges are semantically sound and supported by the domain literature.
+  The assumption→assumption implication edge captures a real logical structure in the
+  causal inference literature (ignorability hierarchy, SUTVA decomposition) that would
+  otherwise be implicit. The estimator→identification edge makes explicit what is currently
+  only implied by co-occurrence. The study-design→confounding edge captures the design-based
+  reasoning central to observational causal inference (matching eliminates measured confounders).
+  The estimand decomposition edge is fundamental — ATE, ATT, and LATE are in systematic
+  part-whole relationships.
+
+  Sensitivity-bounds is the most immediately useful calculator: it operationalizes the
+  "how strong would unmeasured confounding need to be" question that every observational study
+  faces. Identification-graph-checker automates the criterion-checking step that agents
+  currently must reason through manually.
+
+  Replication-data connector deferred: no corpus instances yet require a replication dataset
+  as a linked source, so the threshold for opportunistic retrieval (5+ instances with the
+  same missing property) is not met at genesis.

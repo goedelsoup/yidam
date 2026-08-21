@@ -38,6 +38,12 @@ enum Command {
         /// Path to the result directory
         #[arg(long)]
         result: std::path::PathBuf,
+
+        /// Compare the recomputed checks against the snapshot recorded in that directory and
+        /// fail on any difference. This is the gate for a committed baseline: the corpus is
+        /// fixed, so a change in the verdicts is a change in the checks.
+        #[arg(long)]
+        verify: bool,
     },
     /// Score a captured result against the quality criteria, without re-running the bootstrap
     Judge {
@@ -80,7 +86,7 @@ fn main() -> Result<()> {
                 .or_else(|| judge.then(|| yidam_harness::judge::DEFAULT_JUDGE_MODEL.to_string()));
             yidam_harness::run(scenario, model, judge_model, output)
         }
-        Command::Check { result } => yidam_harness::check(result),
+        Command::Check { result, verify } => yidam_harness::check(result, verify),
         Command::Judge {
             result,
             scenario,

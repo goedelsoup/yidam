@@ -1,0 +1,147 @@
+{
+  "protocol_version": "0.2.0",
+  "run": {
+    "model_requested": "claude-sonnet-4-6",
+    "model_resolved": "claude-sonnet-4-6",
+    "session_id": "6d2c0b45-92fa-4c62-8824-b39ced91b652",
+    "num_turns": 86,
+    "duration_ms": 825305,
+    "total_cost_usd": 2.1617892,
+    "subtype": "success",
+    "is_error": false,
+    "permission_denials": [],
+    "turns_before_first_write": 19
+  },
+  "quality": {
+    "criteria": [
+      {
+        "id": "Q1",
+        "evidence": [
+          "Harness note: \"this run had no domain owner to ask. The bootstrap prompt inlined the scenario and told the agent that no interactive partner was present\" \u2014 the agent was given nobody to interrogate.",
+          "\"Assistant turns before the agent first wrote a file: 19\" \u2014 the agent did not jump straight to scaffolding; it spent nineteen turns before the first Write.",
+          "Absent: no record of any question posed to a domain owner, and no record of an ontology sketch being stated for confirmation before the first Write. The corpus itself carries no trace of a dialogue (no captured exchange, no open questions attributed to an owner).",
+          "The one substitute for dialogue that is visible in the artifact is the class schema being fixed before instances: seven `.ont.yml` class definitions with declared `edges:` blocks (e.g. `identification.ont.yml` declares `requires \u2192 assumption`, `targets \u2192 estimand`, `threatened-by \u2190 confounding`, `enabled-by \u2190 study-design`) that every later instance node conforms to."
+        ],
+        "band": "marginal",
+        "rationale": "The criterion is unscorable as written \u2014 the harness supplied no interlocutor, so a count of zero questions is an artifact of the setup rather than a fact about the agent. What the run does show is 19 turns of deliberation and a schema settled before instances were written, which is evidence of restraint but not of interrogation."
+      },
+      {
+        "id": "Q2",
+        "evidence": [
+          "`exclusion-restriction.yml`: \"the instrument Z affects the outcome Y only through its effect on the treatment D\" \u2014 one assumption, one node; the IV *estimator* and the IV *identification strategy* live in separate files (`two-stage-least-squares.yml`, `instrumental-variable-identification.yml`).",
+          "The estimand / identification / estimator triad is split three ways rather than fused: `average-treatment-effect.yml` (the target), `backdoor-identification.yml` (whether it is recoverable), `inverse-probability-weighting.yml` (the procedure). `estimand/README.md` states the separation explicitly: \"a study that identifies the LATE but estimates the ATE has not estimated what it identified.\"",
+          "`sutva.yml` covers two sub-clauses \u2014 \"(1) no interference \u2026 and (2) no hidden treatment versions\" \u2014 but these are the two halves of one conventionally-named assumption, not two concepts filed together.",
+          "`inverse-probability-weighting.yml` closes with an AIPW passage \u2014 \"Augmented IPW (AIPW) addresses the propensity misspecification problem\u2026\" \u2014 tagged `[inference]` and framed as an extension of the node's subject rather than a second co-equal concept."
+        ],
+        "band": "pass",
+        "rationale": "Each of the thirteen instance nodes carries exactly one concept, and the corpus holds the three most easily-fused ideas in the field \u2014 estimand, identification, estimator \u2014 apart by construction. The only multi-part node (SUTVA) is a single named assumption with two clauses."
+      },
+      {
+        "id": "Q3",
+        "evidence": [
+          "`conditional-ignorability.yml`: \"(Y(0), Y(1)) \u22a5\u22a5 T | X\", with `testability: \"Partially: balance checks assess covariate balance post-adjustment but cannot verify balance on unmeasured variables. Sensitivity analysis (Rosenbaum bounds, E-value) quantifies robustness to violations.\"`",
+          "`two-stage-least-squares.yml`: \"The first-stage F-statistic is a standard diagnostic for instrument strength; F < 10 is a conventional warning threshold, though more modern tests (effective F-statistic) are preferred.\"",
+          "`instrumental-variable-identification.yml`: \"LATE = Cov(Y,Z)/Cov(D,Z)\", plus `identification_status: \"LATE is identified when all three IV conditions hold; ATE is not identified by IV alone without homogeneity assumptions\"`.",
+          "`backdoor-identification.yml`: \"A set X satisfies the backdoor criterion relative to (T, Y) if: (i) no node in X is a descendant of T, and (ii) X blocks every path between T and Y that contains an arrow into T\", with the identifying functional \"\u2211_x P(Y | T=t, X=x)P(X=x)\".",
+          "`exclusion-restriction.yml` `violation_consequence`: \"IV estimator converges to a weighted average of the LATE and the direct instrument effect, not the LATE \u2014 the bias direction depends on the sign of the direct effect.\""
+        ],
+        "band": "pass",
+        "rationale": "Nodes state formal conditions, named diagnostics with thresholds, and specific failure modes \u2014 content that is specific enough to be checked and specific enough to be wrong. No node restates its own label."
+      },
+      {
+        "id": "Q4",
+        "evidence": [
+          "`inverse-probability-weighting.yml` links: `recovers \u2192 estimand/average-treatment-effect`, `valid-under \u2192 assumption/conditional-ignorability`, `operationalizes \u2192 identification/backdoor-identification` \u2014 three different relationship kinds to three different classes of thing, each naming a mechanism.",
+          "`unmeasured-confounder.yml`: `threatens \u2192 identification/backdoor-identification` and `violates-when-present \u2192 assumption/conditional-ignorability`, backed in the node body by the mechanism \"U \u2192 T and U \u2192 Y, creating a backdoor path T \u2190 U \u2192 Y that is not blocked by the observed adjustment set X.\"",
+          "`natural-experiment.yml`: `supports \u2192 assumption/exclusion-restriction`, `enables \u2192 identification/instrumental-variable-identification` \u2014 the design-to-assumption link that `study-design/README.md` names as the point of the class: \"the study design is the empirical basis for the assumption.\"",
+          "Every instance also carries a structural `instance-of \u2192 ../<class>.ont.yml` edge, but in no node is it the only link; the thinnest instance node (`binary-treatment-intervention.yml`) still carries two `defines` edges to ATE and LATE.",
+          "Three edges assert more than the field supports: `average-treatment-effect.yml` \u2192 `decomposes-into \u2192 local-average-treatment-effect` (the LATE is the effect on a subpopulation, not a decomposition of the ATE); `natural-experiment.yml` \u2192 `rules-out \u2192 confounding/selection-bias`; and `selection-bias.yml` \u2192 `does-not-threaten \u2192 identification/instrumental-variable-identification` (sample-selection into the study threatens IV as much as any design)."
+        ],
+        "band": "pass",
+        "rationale": "The edge vocabulary is relational rather than filing \u2014 `requires`, `operationalizes`, `recovers`, `threatens`, `valid-under`, `enables` \u2014 and the mechanisms behind the edges are stated in the node bodies. A handful of edges overclaim, but they are wrong-content edges, not directory citations."
+      },
+      {
+        "id": "Q5",
+        "evidence": [
+          "Subject names the domain: \"genesis: causal inference in observational studies \u2014 7 classes, 13 instances, 2 calculator stubs\", and the body restates the central question: \"Domain: how do we identify causal effects from data not generated by a randomized experiment?\"",
+          "The ontology is described class by class with a gloss on each, not merely listed: \"confounding (disposition) \u2014 variables that induce non-causal treatment-outcome associations\", \"identification (quality) \u2014 conditions under which a causal estimand is recoverable\", \"assumption (quality) \u2014 unverifiable conditions required for identification to hold\".",
+          "A dedicated \"Key relationships established\" section names seven edges, e.g. \"backdoor-identification requires conditional-ignorability and sutva, targets ATE\" and \"natural-experiment enables IV identification, rules out selection-bias, supports exclusion-restriction\".",
+          "No line of the message is a bare filename list; the seed-instance roster is grouped by class rather than by path."
+        ],
+        "band": "pass",
+        "rationale": "The message names the domain, glosses every class in the schema, and devotes a section to the relationships rather than to the files \u2014 a reader who saw only this commit would know what the ontology asserts."
+      },
+      {
+        "id": "Q6",
+        "evidence": [
+          "All thirteen instances are kinds, not specimens: `conditional-ignorability`, `sutva`, `exclusion-restriction`, `unmeasured-confounder`, `selection-bias`, `average-treatment-effect`, `local-average-treatment-effect`, `binary-treatment-intervention`, `natural-experiment`, `backdoor-identification`, `instrumental-variable-identification`, `inverse-probability-weighting`, `two-stage-least-squares`.",
+          "Absent: no node is a named study, dataset, paper, or dated analysis. `natural-experiment.yml` is the nearest risk and stays at the class level \u2014 concrete cases appear inside the prose as illustrations, not as nodes: \"Classic examples include lottery-based draft assignment for military service, geographic or date-of-birth discontinuities in program eligibility.\"",
+          "The two-tier split is schema, not drift: `.ont.yml` files define the class (`estimand.ont.yml`: `properties:` / `edges:`) and the sibling directory holds instances of it, and every instance declares `instance-of \u2192 ../<class>.ont.yml`.",
+          "Within each class the members sit at one grain \u2014 the estimand class holds ATE and LATE (both population-level contrasts); the estimator class holds IPW and 2SLS (both procedures)."
+        ],
+        "band": "pass",
+        "rationale": "The corpus holds one level \u2014 general kinds within a declared class schema \u2014 throughout, with concrete cases confined to illustrative prose. There is no mixing of classes with named specimens."
+      },
+      {
+        "id": "Q7",
+        "evidence": [
+          "Reference: \"something about the nature of causation vs. correlation\" \u2014 `intervention.ont.yml`: \"The act of externally setting a variable's value \u2014 Pearl's do-operator \u2014 which is conceptually and mathematically distinct from passively observing that variable take a value\", and `intervention/README.md` sharpens it: \"what separates asking 'what is the probability that Y = 1 given X = 1?' from asking 'what would be the probability that Y = 1 if we *set* X = 1?'\"",
+          "Reference: \"the role of assumptions\" \u2014 a whole class, framed exactly as the reference does: `assumption.ont.yml`: \"assumptions are the price of identification in observational studies\", with three seeds (ignorability, SUTVA, exclusion restriction).",
+          "Reference: \"what identification requires\" \u2014 `identification/README.md`: \"An estimand is *identified* when it can be expressed as a functional of the observable data distribution\u2026 If an estimand is not identified, no statistical estimator can recover it, regardless of sample size\", plus two strategies with their graph conditions.",
+          "Reference: \"reflect the tension between the formal and the applied\" \u2014 carried in the `testability` property across assumption nodes and in `[open]` tags: \"In many natural experiment designs, violations of the exclusion restriction are the most contested identification threat\"; \"Whether the complier population is policy-relevant in any given application is a substantive question the data cannot answer.\"",
+          "Deviation in scale: the reference asks for \"3\u20134 well-linked corpus nodes\"; the run produced 7 class definitions and 13 instances, roughly four times the described seed."
+        ],
+        "band": "pass",
+        "rationale": "All three required content areas are present as first-class structure, and the formal/applied tension is carried in a dedicated property rather than gestured at. The corpus substantially exceeds the reference's node count, but over-coverage against a floor stated as \"at minimum\" is not a mismatch."
+      }
+    ],
+    "overall": "pass",
+    "most_important_finding": "The corpus is strong, and the failure mode worth acting on is over-assertion at the edges: `ATE decomposes-into LATE`, `natural-experiment rules-out selection-bias`, and `selection-bias does-not-threaten IV-identification` each state a relationship the field does not support \u2014 the LATE is a subpopulation effect rather than a component of the ATE, and quasi-random treatment assignment does not rule out selection into the sample. These are exactly the edges a reader would take on trust because every neighboring edge is correct, so they should be downgraded to hedged relationships or removed before the graph is built on."
+  },
+  "structural": {
+    "results": [
+      {
+        "id": "S1",
+        "description": "The corpus holds \u22651 class definition and \u22652 instance nodes",
+        "passed": true,
+        "detail": null
+      },
+      {
+        "id": "S2",
+        "description": "Every instance node declares \u22651 link",
+        "passed": true,
+        "detail": null
+      },
+      {
+        "id": "S3",
+        "description": "No orphan instance nodes (zero in AND zero out links)",
+        "passed": true,
+        "detail": null
+      },
+      {
+        "id": "S4",
+        "description": "The history is the genesis sequence, and holds nothing else",
+        "passed": true,
+        "detail": null
+      },
+      {
+        "id": "S5",
+        "description": "The genesis commit message is \u22653 lines",
+        "passed": true,
+        "detail": null
+      },
+      {
+        "id": "S6",
+        "description": "The .yidam/ scaffold exists (catalog, corpus, decisions, skills)",
+        "passed": true,
+        "detail": null
+      },
+      {
+        "id": "S7",
+        "description": "No instance node exceeds 40 lines",
+        "passed": true,
+        "detail": null
+      }
+    ]
+  }
+}

@@ -35,6 +35,20 @@ dist/
 .pnpm-store/
 *.tsbuildinfo
 
+# Captured agent transcripts under a committed baseline.
+#
+# The baseline itself is committed — the corpus, the history, and the verdicts — because it
+# is a golden fixture the checks are re-run against. The raw event stream is not: it runs to
+# a couple of megabytes per run, and roughly three quarters of that is tool results echoing
+# prelude files this repository already contains. Everything the harness or its tests read
+# from it — the resolved model, turns, duration, cost, permission denials, turns before the
+# first write — is parsed once and persisted into `structural.json`, so the baseline stays
+# self-describing without carrying the stream.
+#
+# Ignored rather than deleted, so `harness run` still writes one and it is there to read
+# while a result is being investigated.
+yidam/tests/results/**/transcript.jsonl
+
 # LanceDB
 *.lance/
 

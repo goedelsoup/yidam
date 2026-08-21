@@ -1,0 +1,23 @@
+class: estimand
+label: Local Average Treatment Effect (LATE)
+description: |
+  The LATE is the average treatment effect for the subpopulation of *compliers* — units
+  whose treatment status is determined by the instrument (they take treatment if and only if
+  assigned by the instrument). Formally, LATE = E[Y(1) − Y(0) | complier]. The LATE is the
+  only estimand identified by a binary instrumental variable under monotonicity and exclusion
+  restriction; it is intrinsically local to compliers and cannot be extrapolated to the full
+  population without additional assumptions. [open] Whether the complier population is
+  policy-relevant in any given application is a substantive question the data cannot answer.
+properties:
+  estimand_name: "LATE (Local Average Treatment Effect)"
+  formal_definition: "E[Y(1) - Y(0) | D(1) = 1, D(0) = 0] — i.e., compliers only"
+  target_population: "Complier subpopulation (units induced to treatment by the instrument)"
+links:
+  - target: ../estimand.ont.yml
+    relationship: instance-of
+  - target: ../intervention/binary-treatment-intervention.yml
+    relationship: defined-by
+  - target: ../estimator/two-stage-least-squares.yml
+    relationship: estimated-by
+  - target: ../estimand/average-treatment-effect.yml
+    relationship: decomposes-from

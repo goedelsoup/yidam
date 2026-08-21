@@ -1,0 +1,26 @@
+class: assumption
+label: SUTVA (Stable Unit Treatment Value Assumption)
+description: |
+  SUTVA has two components: (1) no interference — each unit's potential outcomes depend only
+  on its own treatment, not on the treatments received by other units (Y_i(t_1, …, t_n) =
+  Y_i(t_i)); and (2) no hidden treatment versions — there is only one version of each
+  treatment level, so do(T=1) has a single, unambiguous meaning. SUTVA is required by
+  virtually all standard causal inference frameworks and estimators. Without it, the
+  potential outcomes framework is ill-defined: the "effect of treatment on unit i" would
+  depend on who else is treated. [inference] Interference is likely violated in social
+  network settings, epidemic modeling, and market interventions; in these domains SUTVA
+  is typically replaced by partial interference assumptions.
+properties:
+  assumption_name: "SUTVA (Stable Unit Treatment Value Assumption)"
+  formal_statement: "Y_i(t) depends only on t_i, not t_j for j≠i (no interference); and each treatment level t has a unique value (no hidden versions)"
+  testability: "Partially: network spillover tests can detect interference when network structure is observed. No hidden versions is a domain claim about treatment implementation."
+  violation_consequence: "If interference is present, observed potential outcomes conflate own-treatment and spillover effects; standard estimators estimate a mixture of direct and indirect effects."
+links:
+  - target: ../assumption.ont.yml
+    relationship: instance-of
+  - target: ../identification/backdoor-identification.yml
+    relationship: required-by
+  - target: ../identification/instrumental-variable-identification.yml
+    relationship: required-by
+  - target: ../assumption/conditional-ignorability.yml
+    relationship: presupposed-by

@@ -111,17 +111,62 @@ pub fn judge_result(result: PathBuf, scenario: PathBuf, model: String) -> Result
     let brief = judge::brief(&guidance, &rubric, &scenario_data, &result, run.as_ref())?;
     let report = judge::score(&brief, &model, &rubric.quality_ids())?;
     judge::write(&result, &report)?;
+
+    // And into the snapshot, which is where `diff` looks for bands. Writing only
+    // `quality.json` left a scored result that `diff` read as unscored — so a baseline
+    // produced this way could never register a band drop, and would have reported that as
+    // "no regressions" rather than as "nothing to compare".
+    if let Ok(existing) = snapshot::load(&result) {
+        snapshot::write(
+            &result,
+            &existing.structural,
+            existing.run,
+            Some(report.clone()),
+        )?;
+    }
+
     report.print();
     Ok(())
 }
 
-pub fn check(result: PathBuf) -> Result<()> {
+pub fn check(result: PathBuf, verify: bool) -> Result<()> {
     let report = check::run_all(&result)?;
     report.print();
-    if report.any_failed() {
-        std::process::exit(1);
+
+    if !verify {
+        if report.any_failed() {
+            std::process::exit(1);
+        }
+        return Ok(());
     }
-    Ok(())
+
+    // Against the recorded snapshot, not against perfection. A committed baseline is what a
+    // real run produced — failures included — and the question this asks is whether the
+    // checks still say the same thing about the same corpus. A gate that demanded 7/7 could
+    // only ever keep a baseline nobody had.
+    let recorded = snapshot::load(&result).with_context(|| {
+        format!(
+            "{}/structural.json — --verify compares against a recorded snapshot, and there is              none here",
+            result.display()
+        )
+    })?;
+    let drift = check::drift(&recorded.structural, &report);
+    if drift.is_empty() {
+        println!(
+            "\nno drift from the baseline recorded at {}",
+            result.display()
+        );
+        return Ok(());
+    }
+    println!("\nDRIFT from the recorded baseline:");
+    for line in &drift {
+        println!("  {line}");
+    }
+    println!(
+        "\nThe corpus in this directory has not changed, so the checks have. If the new \
+         behaviour is correct, re-record the baseline and say why in the commit."
+    );
+    std::process::exit(1);
 }
 
 pub fn diff(baseline: PathBuf, candidate: PathBuf) -> Result<()> {
@@ -412,12 +457,17 @@ fn capture_state(worktree: &Path, output: &Path) -> Result<()> {
     };
     std::fs::write(output.join("genesis.msg"), &msg).context("writing genesis.msg")?;
 
-    // The whole of `.yidam/` — the corpus S1–S3/S7 read and the scaffold S6 reads. Copied
-    // wholesale rather than per-directory: the checks decide what is required, and a capture
-    // that omits a directory makes an absent check indistinguishable from an absent copy.
+    // `.yidam/` — the corpus S1–S3/S7 read and the scaffold S6 reads — minus `.vendor/`.
+    //
+    // Copied by directory rather than by named subdirectory: the checks decide what is
+    // required, and a capture that omits one makes an absent check indistinguishable from an
+    // absent copy. `.vendor/` is the exception because it is not the run's output at all.
+    // Step 8 moves `yidam/prelude/` there, so capturing it copies this repository's own
+    // prelude back into the result — 538 files and 2.8 MB per baseline, of content that is
+    // already committed one directory up, and that says nothing about what the agent did.
     let yidam = worktree.join(".yidam");
     if yidam.exists() {
-        copy_dir(&yidam, &output.join(".yidam"))?;
+        copy_dir_excluding(&yidam, &output.join(".yidam"), &[".vendor"])?;
     }
 
     Ok(())
@@ -437,6 +487,28 @@ fn run_git(dir: &Path, args: &[&str]) -> Result<()> {
     Ok(())
 }
 
+/// Copy a tree, pruning any directory whose name is in `skip`.
+fn copy_dir_excluding(src: &Path, dst: &Path, skip: &[&str]) -> Result<()> {
+    for entry in walkdir::WalkDir::new(src)
+        .into_iter()
+        .filter_entry(|e| !skip.contains(&e.file_name().to_string_lossy().as_ref()))
+        .filter_map(|e| e.ok())
+    {
+        let rel = entry.path().strip_prefix(src).context("strip prefix")?;
+        let target = dst.join(rel);
+        if entry.file_type().is_dir() {
+            std::fs::create_dir_all(&target)?;
+        } else {
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(entry.path(), &target)?;
+        }
+    }
+    Ok(())
+}
+
+#[allow(dead_code)]
 fn copy_dir(src: &Path, dst: &Path) -> Result<()> {
     for entry in walkdir::WalkDir::new(src)
         .into_iter()

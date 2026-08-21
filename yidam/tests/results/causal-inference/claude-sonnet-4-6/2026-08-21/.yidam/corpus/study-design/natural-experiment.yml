@@ -1,0 +1,28 @@
+class: study-design
+label: Natural Experiment
+description: |
+  A natural experiment is an observational study design in which an external event, policy
+  change, or institutional feature creates quasi-random variation in treatment assignment —
+  approximating the conditions of a randomized experiment without researcher control. The
+  key feature is that the source of variation (the instrument or discontinuity) is plausibly
+  exogenous: not determined by the potential outcomes of the units affected. Natural
+  experiments are the primary design context for instrumental variable identification: the
+  external variation serves as the instrument, and the exclusion restriction is argued on
+  the grounds that the natural event affects outcomes only through treatment take-up.
+  Classic examples include lottery-based draft assignment for military service, geographic
+  or date-of-birth discontinuities in program eligibility, and sudden policy changes.
+  [inference] The quasi-randomness of the assignment mechanism is a substantive claim about
+  the world — it must be argued from institutional knowledge, not read off from the design.
+properties:
+  design_name: "Natural Experiment"
+  treatment_assignment_mechanism: "Assignment driven by an external event or institutional rule not determined by units' potential outcomes — the quasi-random source serves as instrument Z"
+  data_structure: "Cross-sectional or panel, depending on the institutional context; often includes a discontinuity in Z at a threshold or a before/after structure"
+links:
+  - target: ../study-design.ont.yml
+    relationship: instance-of
+  - target: ../assumption/exclusion-restriction.yml
+    relationship: supports
+  - target: ../identification/instrumental-variable-identification.yml
+    relationship: enables
+  - target: ../confounding/selection-bias.yml
+    relationship: rules-out

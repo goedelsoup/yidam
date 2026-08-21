@@ -1,0 +1,22 @@
+class: estimand
+label: Average Treatment Effect (ATE)
+description: |
+  The ATE is the expected difference in potential outcomes under treatment versus control,
+  averaged over the full target population: ATE = E[Y(1) − Y(0)]. It is the most common
+  estimand in observational causal inference and is the quantity targeted by backdoor-adjusted
+  estimators such as IPW and AIPW when conditional ignorability holds. Because it averages
+  over all units — including those who would never take the treatment — it captures the
+  effect of a hypothetical universal assignment to treatment.
+properties:
+  estimand_name: "ATE (Average Treatment Effect)"
+  formal_definition: "E[Y(1) - Y(0)] = E[Y(1)] - E[Y(0)]"
+  target_population: "All units in the study population"
+links:
+  - target: ../estimand.ont.yml
+    relationship: instance-of
+  - target: ../intervention/binary-treatment-intervention.yml
+    relationship: defined-by
+  - target: ../estimator/inverse-probability-weighting.yml
+    relationship: estimated-by
+  - target: ../estimand/local-average-treatment-effect.yml
+    relationship: decomposes-into

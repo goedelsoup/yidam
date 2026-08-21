@@ -257,7 +257,11 @@ run = [
 # ── bootstrap harness (yidam/tests/harness/) ──────────────────────────────
 
 [tasks.harness-test]
-description = "Run bootstrap harness scenarios against the judge rubric."
+# Not "run scenarios against the judge rubric", which is what this said and never did: a
+# scenario run invokes a model, and this task has never cost a penny. What it runs is the
+# harness's own tests, including the baseline gate — recomputing the checks over committed
+# result directories and failing if the verdicts have moved.
+description = "Test the bootstrap harness, including drift against the committed baselines."
 run = "cargo test --workspace --manifest-path yidam/tests/harness/Cargo.toml"
 
 [tasks.harness-lint]

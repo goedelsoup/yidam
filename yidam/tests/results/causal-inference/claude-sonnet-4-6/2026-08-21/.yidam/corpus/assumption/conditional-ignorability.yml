@@ -1,0 +1,26 @@
+class: assumption
+label: Conditional Ignorability
+description: |
+  Conditional ignorability (also: unconfoundedness, selection on observables) states that
+  potential outcomes Y(0) and Y(1) are jointly independent of treatment assignment T,
+  conditional on the observed covariates X: (Y(0), Y(1)) ⊥⊥ T | X. This assumption asserts
+  that all variables affecting both treatment selection and the outcome have been measured
+  and are available for adjustment. It is the foundational assumption for regression
+  adjustment, propensity score weighting (IPW), and matching estimators targeting the ATE
+  or ATT. The assumption is untestable from observed data alone — it is a claim about the
+  causal structure of the unobserved counterfactuals. [open] Whether the full set of
+  confounders has been measured is typically not answerable from the data.
+properties:
+  assumption_name: "Conditional Ignorability (Unconfoundedness)"
+  formal_statement: "(Y(0), Y(1)) ⊥⊥ T | X — potential outcomes independent of treatment given covariates X"
+  testability: "Partially: balance checks assess covariate balance post-adjustment but cannot verify balance on unmeasured variables. Sensitivity analysis (Rosenbaum bounds, E-value) quantifies robustness to violations."
+  violation_consequence: "If violated, IPW, regression, and matching estimators are biased for the ATE/ATT with no internal correction mechanism."
+links:
+  - target: ../assumption.ont.yml
+    relationship: instance-of
+  - target: ../identification/backdoor-identification.yml
+    relationship: required-by
+  - target: ../estimator/inverse-probability-weighting.yml
+    relationship: required-by
+  - target: ../confounding/unmeasured-confounder.yml
+    relationship: blocks

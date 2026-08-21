@@ -1,0 +1,29 @@
+class: estimator
+label: Estimator
+foundational_type:
+  ontology: bfo
+  type: disposition
+description: |
+  A statistical procedure that recovers a causal estimand from data when the required
+  identification conditions hold; the estimator is the operational realization of an
+  identification strategy applied to finite samples, and its validity depends on both
+  the identification assumptions and finite-sample regularity conditions.
+properties:
+  - name: estimator_name
+    type: string
+    description: The name of the estimator (e.g., IPW, AIPW, matching, 2SLS, RD, DiD)
+  - name: identification_strategy
+    type: string
+    description: The identification strategy this estimator operationalizes
+  - name: consistency_conditions
+    type: text
+    description: The conditions under which this estimator is consistent for the target estimand
+edges:
+  - relationship: recovers
+    target: estimand
+    direction: out
+    description: The estimator targets and recovers this estimand when identification holds
+  - relationship: valid-under
+    target: assumption
+    direction: out
+    description: The estimator's consistency requires these assumptions to hold

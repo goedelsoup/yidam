@@ -1,0 +1,27 @@
+class: assumption
+label: Exclusion Restriction
+description: |
+  The exclusion restriction states that the instrument Z affects the outcome Y only through
+  its effect on the treatment D — there is no direct causal path from Z to Y that bypasses
+  D. Formally: Y_i(d, z) = Y_i(d, z') for all z, z' — the instrument's value does not
+  affect the outcome once the treatment is held fixed. This assumption is required for
+  instrumental variable identification: without it, the instrument conflates the indirect
+  treatment effect with a direct instrument effect, and the IV estimand is not the LATE.
+  The exclusion restriction is untestable in the binary-instrument, binary-treatment case
+  and must be justified on domain grounds — by arguing that no plausible causal path exists
+  from Z to Y except through D. [open] In many natural experiment designs, violations of the
+  exclusion restriction are the most contested identification threat.
+properties:
+  assumption_name: "Exclusion Restriction"
+  formal_statement: "Y_i(d, z) = Y_i(d, z') for all d, z, z' — instrument affects outcome only through treatment"
+  testability: "Not directly testable with binary Z and D. Overidentification tests apply with multiple instruments. Domain knowledge is the primary justification."
+  violation_consequence: "IV estimator converges to a weighted average of the LATE and the direct instrument effect, not the LATE — the bias direction depends on the sign of the direct effect."
+links:
+  - target: ../assumption.ont.yml
+    relationship: instance-of
+  - target: ../identification/instrumental-variable-identification.yml
+    relationship: required-by
+  - target: ../estimator/two-stage-least-squares.yml
+    relationship: required-by
+  - target: ../study-design/natural-experiment.yml
+    relationship: supported-by

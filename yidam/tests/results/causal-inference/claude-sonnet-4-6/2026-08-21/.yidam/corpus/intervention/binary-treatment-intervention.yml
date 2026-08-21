@@ -1,0 +1,19 @@
+class: intervention
+label: Binary Treatment Intervention
+description: |
+  The canonical intervention structure in observational causal inference: setting a binary
+  treatment variable T to either 1 (treatment) or 0 (control). The causal effect of interest
+  is the contrast do(T=1) vs. do(T=0) on outcome Y. This intervention defines the ATE and
+  its derivatives (ATT, ATC, LATE) — which estimand is targeted depends on the population
+  over which the contrast is taken and the identification strategy available.
+properties:
+  target_variable: "T (binary treatment indicator)"
+  intervention_level: "1 vs. 0 (treated vs. control)"
+  intervention_type: "atomic"
+links:
+  - target: ../intervention.ont.yml
+    relationship: instance-of
+  - target: ../estimand/average-treatment-effect.yml
+    relationship: defines
+  - target: ../estimand/local-average-treatment-effect.yml
+    relationship: defines
