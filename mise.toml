@@ -337,6 +337,39 @@ run = [
   "npm run test:unit",
 ]
 
+# ── running the extension by hand ─────────────────────────────────────
+# 143 unit tests cover the logic that does not need an editor, which is the
+# deliberate architecture. What they cannot reach is the part a person has to
+# look at: five tree views, the status bar, the SCM box, claim decoration, and a
+# webview. Until these tasks existed, looking at it meant working out the
+# incantation, and the extension activates on `workspaceContains:.yidam.toml` or
+# `.yidam/**` — which this repository does not have, so there was nothing here to
+# launch it against either.
+
+[tasks.ext-fixture]
+description = "Stage the reports fixture as a real repository at .local/ext-fixture, to run the extension against."
+dir = "yidam/editors/vscode"
+# The same corpus the goldens and the extension's tests assert against, staged
+# through the same `stage.toml` they read — so what you see by hand and what CI
+# checks are one repository rather than two that drift.
+run = "node --experimental-strip-types scripts/stage-fixture.ts"
+
+[tasks.ext-dev]
+description = "Compile the extension, stage the fixture, and open both in an Extension Development Host."
+depends = ["ext-fixture"]
+run = """
+set -eu
+cd yidam/editors/vscode && npm run compile && cd -
+code="${YIDAM_CODE:-code}"
+if ! command -v "$code" >/dev/null 2>&1; then
+  echo "ERROR: '$code' is not on PATH." >&2
+  echo "       Set YIDAM_CODE to your editor's CLI, or install the shell command" >&2
+  echo "       (VS Code: Command Palette → 'Shell Command: Install code command in PATH')." >&2
+  exit 1
+fi
+"$code" --extensionDevelopmentPath="$PWD/yidam/editors/vscode" "$PWD/.local/ext-fixture"
+"""
+
 # Composite for local use (`mise run ci`); CI runs ci-harness and ci-cli as
 # separate parallel jobs (see .github/workflows/ci.yml).
 [tasks.ci]

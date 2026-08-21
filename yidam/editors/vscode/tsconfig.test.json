@@ -12,5 +12,8 @@
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  // `scripts/` too: it imports the test harness and is run the same way, and a dev script
+  // nothing type-checks is the shape this repository keeps finding — a file that looks like
+  // it is doing work.
+  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts"]
 }

@@ -181,7 +181,7 @@
   "scripts": {
     "compile": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
     "watch": "tsc -p . --watch",
-    "lint": "eslint src test --ext .ts",
+    "lint": "eslint src test scripts --ext .ts",
     "test:unit": "node --test --experimental-strip-types test/*.test.ts"
   },
   "devDependencies": {

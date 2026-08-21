@@ -1,0 +1,21 @@
+{
+  // Running the extension by hand. `mise run ext-dev` does the same thing from a terminal.
+  //
+  // The workspace it opens is a staged copy of the reports fixture — the extension activates
+  // on `workspaceContains:.yidam.toml` or `.yidam/**`, and this repository has neither, so
+  // launching against the repo root would activate nothing at all.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run the yidam extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/yidam/editors/vscode",
+        "${workspaceFolder}/.local/ext-fixture"
+      ],
+      "outFiles": ["${workspaceFolder}/yidam/editors/vscode/out/**/*.js"],
+      "preLaunchTask": "yidam: compile the extension and stage its fixture"
+    }
+  ]
+}

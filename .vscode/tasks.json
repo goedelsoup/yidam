@@ -1,0 +1,15 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      // Both halves, because F5 with a stale `out/` runs the previous edit and F5 without a
+      // staged fixture opens a folder the extension does not activate in.
+      "label": "yidam: compile the extension and stage its fixture",
+      "type": "shell",
+      "command": "mise run ext-fixture && cd yidam/editors/vscode && npm run compile",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": "$tsc",
+      "presentation": { "reveal": "silent", "panel": "shared" }
+    }
+  ]
+}

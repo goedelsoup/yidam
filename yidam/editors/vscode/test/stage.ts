@@ -53,7 +53,22 @@ interface Recipe {
  * `prefix` names the tempdir only, so a failure is traceable to the file that staged it.
  */
 export function stageFixture(prefix = 'yidam-ext-'): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+  return stageInto(fs.mkdtempSync(path.join(os.tmpdir(), prefix)))
+}
+
+/**
+ * The same repository, at a path you choose.
+ *
+ * For running the extension by hand: the launch configuration has to name a workspace, and
+ * a `mkdtemp` path is different every time. Staging the *same* corpus the tests assert
+ * against means what a person sees in the editor and what CI checks are one repository
+ * rather than two that drift.
+ *
+ * `dir` is emptied first, so re-staging after an edit to the fixture is one command.
+ */
+export function stageInto(dir: string): string {
+  fs.rmSync(dir, { recursive: true, force: true })
+  fs.mkdirSync(dir, { recursive: true })
   fs.cpSync(path.join(FIXTURE_DIR, 'repo'), dir, { recursive: true })
 
   const recipe = parse(
