@@ -186,6 +186,7 @@ or `yidam/editors/`. Not the parity SDKs, which the CLI depends on and does not 
    `PROTOCOL_VERSION` const, or `yidam/prelude/sdks/parity/VERSION`).
 3. **Run `mise run ci`** — all tests must pass.
 4. **For SDK changes**, run `mise run parity` — all three SDK parity suites must pass.
+   The `ci (parity)` job runs it on every push and pull request.
 5. **Tag** the affected layers (`git tag -s v0.2.0`, `git tag -s sdk/rust/v0.2.0`,
    `git tag -s cli/v0.2.0`, `git tag -s editor/v0.2.0`, etc.).
 6. **Push tags** to origin. CI publishes to registries on matching tag patterns.
