@@ -18,6 +18,11 @@ begin without: a `genesis:` root (`overlay:` in existing-repo mode), then a `con
 per transient layer, then `vendor:`. S4 asked for exactly one commit until protocol 0.2.0,
 which no correct run has ever produced.
 
+These rows are the source. `check.rs` reports each check under the sentence written here and
+a test pins the two together, so a check whose description drifts from its row fails the
+build; `docs/quality-rubric.md` is pinned the same way. The harness runs no check this table
+does not state, and states no check the harness does not run.
+
 Every node-scoped check (S2, S3, S7) fails when the corpus walk finds no instances. It is not
 a violation-free corpus and must not report as one — see [check.rs](harness/yidam-harness/src/check.rs)
 for what went wrong when it did.

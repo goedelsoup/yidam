@@ -262,7 +262,7 @@ fn no_nodes(corpus: &Corpus, id: &str, description: &str) -> Option<CheckResult>
 }
 
 fn check_s1(corpus: &Corpus) -> CheckResult {
-    const D: &str = "the corpus holds ≥1 class definition and ≥2 instance nodes";
+    const D: &str = "The corpus holds ≥1 class definition and ≥2 instance nodes";
     if corpus.absent {
         return fail("S1", D, format!("{CORPUS_DIR}/ does not exist"));
     }
@@ -278,7 +278,7 @@ fn check_s1(corpus: &Corpus) -> CheckResult {
 }
 
 fn check_s2(corpus: &Corpus) -> CheckResult {
-    const D: &str = "every instance node declares ≥1 link";
+    const D: &str = "Every instance node declares ≥1 link";
     if let Some(vacuous) = no_nodes(corpus, "S2", D) {
         return vacuous;
     }
@@ -302,7 +302,7 @@ fn check_s2(corpus: &Corpus) -> CheckResult {
 }
 
 fn check_s3(corpus: &Corpus) -> CheckResult {
-    const D: &str = "no orphan instance nodes (zero in AND zero out links)";
+    const D: &str = "No orphan instance nodes (zero in AND zero out links)";
     if let Some(vacuous) = no_nodes(corpus, "S3", D) {
         return vacuous;
     }
@@ -357,7 +357,7 @@ fn verb_of(subject: &str) -> &str {
 /// else, which a count approximates badly. Ask it directly: the run begins at a genesis
 /// commit, and every commit after it is one the protocol prescribes.
 fn check_s4(root: &Path) -> CheckResult {
-    const D: &str = "the history is the genesis sequence, and holds nothing else";
+    const D: &str = "The history is the genesis sequence, and holds nothing else";
     let commits = commits(root);
     let Some((_, first)) = commits.first() else {
         return fail("S4", D, "no commits");
@@ -394,7 +394,7 @@ fn check_s4(root: &Path) -> CheckResult {
 /// run HEAD is the `vendor:` commit, whose message is a fixed string from step 8 and would
 /// have scored whatever that string scores no matter what the agent wrote.
 fn check_s5(root: &Path) -> CheckResult {
-    const D: &str = "the genesis commit message is ≥3 lines";
+    const D: &str = "The genesis commit message is ≥3 lines";
     let msg = std::fs::read_to_string(root.join("genesis.msg")).unwrap_or_default();
     let lines = msg.trim_end().lines().count();
     if lines >= 3 {
@@ -405,7 +405,7 @@ fn check_s5(root: &Path) -> CheckResult {
 }
 
 fn check_s6(root: &Path) -> CheckResult {
-    const D: &str = "the .yidam/ scaffold exists (catalog, corpus, decisions, skills)";
+    const D: &str = "The .yidam/ scaffold exists (catalog, corpus, decisions, skills)";
     let missing: Vec<&str> = SCAFFOLD_DIRS
         .iter()
         .filter(|d| !root.join(".yidam").join(d).exists())
@@ -423,7 +423,7 @@ fn check_s6(root: &Path) -> CheckResult {
 }
 
 fn check_s7(corpus: &Corpus) -> CheckResult {
-    const D: &str = "no instance node exceeds 40 lines";
+    const D: &str = "No instance node exceeds 40 lines";
     if let Some(vacuous) = no_nodes(corpus, "S7", D) {
         return vacuous;
     }
