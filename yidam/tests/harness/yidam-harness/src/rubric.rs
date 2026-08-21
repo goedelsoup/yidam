@@ -7,8 +7,18 @@
 //! only by itself."
 //!
 //! The Q criteria are read from here because the judge is scored against them and a judge
-//! prompt built from a copy would drift from the document reviewers read. The S descriptions
-//! are exposed too, and `check.rs` does not consume them yet.
+//! prompt built from a copy would drift from the document reviewers read.
+//!
+//! The S descriptions are not read at runtime. `check::run_all` takes a result directory and
+//! nothing else, and giving it a dependency on finding the repository — so that
+//! `harness check` could fail because it was invoked from the wrong place — buys less than it
+//! costs. They are pinned instead, which is what the parity fixtures do for the three SDKs
+//! and what `the_documented_format_version_is_the_declared_one` does for Layer 4: two
+//! transcriptions are a problem when each is pinned only by itself, not when a test pins them
+//! to each other.
+//!
+//! `docs/quality-rubric.md` is the third copy, pinned here for the same reason. It is the
+//! page the docs site renders, so it cannot simply be deleted in favour of a link.
 
 use anyhow::{Context, Result};
 use std::path::Path;
@@ -102,6 +112,13 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../rubric.md")
     }
 
+    fn repo_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../..")
+            .canonicalize()
+            .unwrap()
+    }
+
     #[test]
     fn the_real_rubric_parses() {
         let r = load(&rubric_path()).unwrap();
@@ -131,6 +148,67 @@ mod tests {
             rubric.structural.len(),
             "check.rs runs checks the rubric does not state: {implemented:?}"
         );
+    }
+
+    /// Backticks are markdown formatting and carry no meaning here. Nothing else is
+    /// normalised — a comparison that has to soften case or punctuation to succeed is one
+    /// that will also soften a real divergence.
+    fn plain(s: &str) -> String {
+        s.replace('`', "")
+    }
+
+    /// The rubric row is the sentence the harness prints. Before this, `check.rs` said
+    /// "each corpus node has ≥1 outgoing markdown link" while the rubric said something
+    /// else entirely, and both were right about a corpus layout that no longer existed.
+    #[test]
+    fn every_check_reports_the_description_the_rubric_states() {
+        let rubric = load(&rubric_path()).unwrap();
+        let report = crate::check::run_all(Path::new("/nonexistent")).unwrap();
+
+        for criterion in &rubric.structural {
+            let result = report
+                .results
+                .iter()
+                .find(|r| r.id == criterion.id)
+                .unwrap_or_else(|| panic!("{} has no check", criterion.id));
+            assert_eq!(
+                plain(&result.description),
+                plain(&criterion.description),
+                "{} is described one way in rubric.md and another in check.rs",
+                criterion.id
+            );
+        }
+    }
+
+    /// The docs-site copy states the same criteria as the rubric the harness implements.
+    ///
+    /// It said "exactly 1 git commit exists" for as long as `check.rs` did, which is how a
+    /// reader of the documentation would have learned a requirement no correct bootstrap has
+    /// ever satisfied.
+    #[test]
+    fn the_docs_copy_of_the_rubric_states_the_same_criteria() {
+        let rubric = load(&rubric_path()).unwrap();
+        let docs = load(&repo_root().join("docs/quality-rubric.md")).unwrap();
+
+        for (label, source, copy) in [
+            ("structural", &rubric.structural, &docs.structural),
+            ("quality", &rubric.quality, &docs.quality),
+        ] {
+            let source: Vec<_> = source
+                .iter()
+                .map(|c| (&c.id, plain(&c.description)))
+                .collect();
+            let copy: Vec<_> = copy
+                .iter()
+                .map(|c| (&c.id, plain(&c.description)))
+                .collect();
+            assert_eq!(
+                source, copy,
+                "docs/quality-rubric.md and yidam/tests/rubric.md disagree about the {label} \
+                 criteria. The rubric beside the harness is the source; regenerate the docs \
+                 page from it."
+            );
+        }
     }
 
     #[test]

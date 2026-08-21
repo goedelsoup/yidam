@@ -4,8 +4,10 @@ This is the evaluation framework for bootstrap runs. It defines the quality bar 
 must help users achieve.
 
 This page is a copy. [`yidam/tests/rubric.md`](https://github.com/goedelsoup/yidam/blob/main/yidam/tests/rubric.md)
-is the rubric the harness implements, and the two are kept in step by hand — which is one
-transcription too many. Read the rubric there when they disagree.
+is the rubric the harness implements, and it is the source when they disagree — but they
+cannot disagree for long: `the_docs_copy_of_the_rubric_states_the_same_criteria` fails the
+build when these tables drift from it. It caught Q7 already, worded one way here and another
+there since both were written.
 
 ### Structural checks (pass/fail)
 
@@ -29,7 +31,7 @@ transcription too many. Read the rubric there when they disagree.
 | Q4 | Edges reflect real conceptual relationships (not directory citations) |
 | Q5 | Genesis commit message names domain, describes ontology, notes ≥1 edge |
 | Q6 | Seed nodes are at a consistent level of abstraction |
-| Q7 | Ontology matches the domain's stated `good_bootstrap_looks_like` |
+| Q7 | Ontology matches `good_bootstrap_looks_like` from the scenario |
 
 ### Regression thresholds
 
