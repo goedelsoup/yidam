@@ -49,6 +49,22 @@ cd yidam/editors/vscode && npm run test:unit
 `YIDAM_REQUIRE_CONTRACT=1` turns a missing or stale binary from a skip into a failure, which
 is what CI sets.
 
+## What the views say about themselves
+
+The `TreeView` handles used to be dropped straight into the disposal array, which left the
+extension able to write rows and nothing else. Three things came back with them:
+
+- **Reveal.** `yidam: Reveal this node in the Corpus view` selects the row for the file you
+  are editing. A command rather than automatic on every editor change — auto-reveal moves the
+  tree out from under whoever is reading it, which is why VS Code ships `explorer.autoReveal`
+  as a setting rather than a behaviour.
+- **Badges.** Open questions carries its count; Health carries the number of violations *not*
+  in the baseline — the ones that fail CI. Cleared at zero rather than shown as a zero.
+- **A reason for an empty box.** A blank view is indistinguishable from a working view of an
+  empty corpus, and the reason is usually neither: no binary resolved, or one that does not
+  speak the report contract. The status bar said so, and the status bar is not where somebody
+  staring at an empty Corpus tree is looking.
+
 ## Acting on a row
 
 Right-click:
