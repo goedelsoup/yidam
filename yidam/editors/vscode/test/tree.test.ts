@@ -488,11 +488,30 @@ test('every view builds from the real binary’s own JSON', async (t) => {
   const index = read<CorpusIndexReport>(['corpus-index'])
   const open = read<OpenQuestionsReport>(['open-questions'])
   const corpus = corpusTree(index, open)
-  assert.ok(corpus.length > 0, 'the fixture has classes')
-  assert.ok(corpus[0].children!.length > 0, 'and instances under them')
+  // More than one class, so grouping is exercised above the arity where any grouping
+  // implementation looks correct. The fixture carried one class until it carried two.
+  assert.ok(corpus.length > 1, 'the fixture has several classes')
   assert.ok(
-    corpus[0].children!.every((c) => c.label !== '—'),
+    corpus.every((c) => c.children!.length > 0),
+    'and instances under each of them',
+  )
+  assert.ok(
+    corpus.flatMap((c) => c.children!).every((c) => c.label !== '—'),
     'no row renders the CLI’s absent-field dash as a label',
+  )
+
+  // Both arms of the open-question predicate, from the real report. A corpus using only
+  // one of them cannot tell an implementation that reads both from one that reads either
+  // — which is why the MCP cases were split into two nodes, and the same was true here.
+  const labels = open.open_questions.map((q) => q.label)
+  assert.equal(labels.length, 2)
+  assert.ok(
+    labels.some((l) => l.startsWith('?')),
+    'the arm stated in the label',
+  )
+  assert.ok(
+    labels.some((l) => !l.startsWith('?')),
+    'the arm stated in a declared claim field',
   )
 
   const phases = phasesTree(read<PhasesReport>(['phases']))

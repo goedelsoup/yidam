@@ -273,16 +273,21 @@ test('the panel renders the real report, broken edge and all', async (t) => {
 
   assert.equal(parsed.node, 'concept/tailwater.yml')
   assert.equal(parsed.label, 'Tailwater')
-  assert.equal(parsed.neighbors.length, 2)
-  const far = parsed.neighbors.find((n) => n.hops === 2)!
-  assert.equal(far.is_node, false, 'the fixture carries one deliberately broken edge')
+  assert.equal(parsed.neighbors.length, 4)
+
+  const broken = parsed.neighbors.filter((n) => !n.is_node)
+  assert.equal(broken.length, 1, 'the fixture carries one deliberately broken edge')
+  assert.equal(broken[0].hops, 2)
 
   const html = render(parsed, 'NONCE')
   assert.match(html, /Low flow/)
   assert.match(html, /not a node/)
   assert.ok(!/https?:\/\//.test(html))
+  // An inbound group, which is the one this panel could not show before the fixture
+  // carried a second class: the gauge authors `measured-by`, so tailwater is reached
+  // from it rather than reaching it.
   assert.deepEqual(
     groups(parsed).map((g) => `${g.hops}${g.direction}:${g.relationship}`),
-    ['1out:relates-to', '2out:depends-on'],
+    ['1out:relates-to', '2out:depends-on', '2in:measured-by'],
   )
 })

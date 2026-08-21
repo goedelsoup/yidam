@@ -1,0 +1,12 @@
+class: gauge
+label: Gauge
+description: An instrument reading a concept in the field.
+properties:
+  - name: station
+    type: string
+    description: The operator's identifier for this station.
+edges:
+  - relationship: measured-by
+    target: concept
+    direction: out
+    description: The concept this gauge reads. Authored here, not on the concept.

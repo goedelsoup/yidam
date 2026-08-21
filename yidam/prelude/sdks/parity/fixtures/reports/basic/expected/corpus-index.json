@@ -21,14 +21,34 @@
       "lines": 8
     },
     {
+      "node": "concept/mixing-zone.yml",
+      "class": "concept",
+      "label": "? Does the mixing zone reach the bridge at design low flow",
+      "links_out": 1,
+      "claims_verified": 0,
+      "claims_inference": 0,
+      "claims_open": 0,
+      "lines": 9
+    },
+    {
       "node": "concept/tailwater.yml",
       "class": "concept",
       "label": "Tailwater",
-      "links_out": 1,
+      "links_out": 2,
       "claims_verified": 0,
       "claims_inference": 1,
       "claims_open": 0,
-      "lines": 6
+      "lines": 8
+    },
+    {
+      "node": "gauge/riffle-station.yml",
+      "class": "gauge",
+      "label": "Riffle station",
+      "links_out": 1,
+      "claims_verified": 1,
+      "claims_inference": 0,
+      "claims_open": 0,
+      "lines": 8
     }
   ]
 }

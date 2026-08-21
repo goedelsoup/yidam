@@ -8,10 +8,10 @@
     ]
   },
   "root": "<ROOT>",
-  "nodes": 2,
-  "open_questions": 1,
+  "nodes": 4,
+  "open_questions": 2,
   "catalog_entries": 1,
-  "claims_verified": 0,
+  "claims_verified": 1,
   "claims_inference": 1,
   "claims_open": 1,
   "index_present": false,

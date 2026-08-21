@@ -1,0 +1,8 @@
+class: gauge
+label: Riffle station
+description: A stage gauge at the riffle.
+properties:
+  station: "03274000"
+links:
+  - target: ../concept/low-flow.yml
+    relationship: measured-by

@@ -23,12 +23,20 @@ message = "genesis: reports fixture"
 # A second commit so `diff HEAD~1..HEAD` has a range to report on, and one that exercises
 # the modified-node arm rather than only add and remove.
 [[commits]]
-message = "revise: tailwater carries a claim tag"
+message = "revise: the corpus carries a claim tag of each kind"
 
 [[commits.replace]]
 file = ".yidam/corpus/concept/tailwater.yml"
 from = "Water downstream of a structure."
 to = "Water downstream of a structure. [inference]"
+
+# The verified arm. It used to be here as an edit against tailwater.yml naming a string
+# that lives in low-flow.yml, so `String::replace` found nothing and did nothing, and
+# `claims_verified` read 0 for reasons no one had chosen.
+[[commits.replace]]
+file = ".yidam/corpus/gauge/riffle-station.yml"
+from = "A stage gauge at the riffle."
+to = "A stage gauge at the riffle. [verified]"
 
 # One operational commit, so the log goldens show the split rather than a column of [E].
 # A fixture whose history is all one kind cannot demonstrate a classifier.
