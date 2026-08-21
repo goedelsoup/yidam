@@ -51,6 +51,24 @@ readers and agents can assess the node's reliability without reading sources:
 - A synthesis node will typically contain all three: verified facts it draws on, inferences
   it makes, and open questions it generates. This is expected and good.
 
+### An edge is a claim
+
+Everything above is written for claims in prose, and an edge is a claim written as structure.
+`a →[requires]→ b` asserts that a requires b, as flatly as a sentence would, and it asserts it
+in the form a reader is least likely to check: the target exists, the relationship is in the
+class's declared vocabulary, and the graph gate passes. Nothing about a well-formed edge
+indicates whether it is true.
+
+So the rule about untagged inference applies here too, and the honest options are the same
+three. State the relationship if you can defend it. Say what it rests on in the node body, and
+tag it there, if it is an inference. **Leave it out if you cannot do either** — a missing edge
+is a gap someone can find and fill, while a wrong edge is knowledge the corpus now asserts, and
+every correct edge around it lends it credibility.
+
+Prefer a weaker relationship you can defend to a stronger one you cannot. `relates-to` between
+two things that genuinely relate is worth more than `causes` between two things that might not,
+because the first is honest about how much it knows.
+
 ### A tag may be a field rather than a sentence
 
 Inline tags are the default and stay the default: a claim is usually a sentence, and the tag

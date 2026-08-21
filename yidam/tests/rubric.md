@@ -57,6 +57,7 @@ score; a verdict that omits one, invents one, or gives a band with no evidence i
 | `Q5` | Genesis commit message names domain, describes ontology, notes ≥1 edge |
 | `Q6` | Seed nodes are at a consistent level of abstraction |
 | `Q7` | Ontology matches `good_bootstrap_looks_like` from the scenario |
+| `Q8` | Edges assert only relationships the domain supports |
 
 ---
 

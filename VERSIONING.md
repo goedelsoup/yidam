@@ -90,7 +90,7 @@ The protocol version is a `const` in the harness crate:
 
 ```rust
 // yidam/tests/harness/yidam-harness/src/lib.rs
-pub const PROTOCOL_VERSION: &str = "0.2.0";
+pub const PROTOCOL_VERSION: &str = "0.3.0";
 ```
 
 Every result snapshot records the protocol version it was taken under. Regression
@@ -112,6 +112,12 @@ commits the new baseline snapshots.
 | Patch | Rubric clarification; new optional scenario field |
 | Minor | New structural check (S-check) added; existing passing repos still pass |
 | Major | Existing S-check removed or changed; genesis commit requirements changed; snapshot format changed |
+
+**0.2.0 → 0.3.0.** Q8 added — *edges assert only relationships the domain supports*. Found by
+the harness itself: the first committed baseline passed all seven structural checks and was
+judged `pass` overall, and the judge reported three unsupportable edges in its summary because
+no criterion covered them. Q4 asks whether an edge is a relationship rather than a filing
+gesture; nothing asked whether the relationship was true.
 
 **0.1.0 → 0.2.0.** S1–S3 and S5–S7 restated against the instance corpus at `.yidam/corpus/`.
 The checks had been written against a flat markdown corpus at the repository root, a layout

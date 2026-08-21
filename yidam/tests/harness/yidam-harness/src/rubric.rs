@@ -119,13 +119,25 @@ mod tests {
             .unwrap()
     }
 
+    /// Structure, not a count. A hardcoded seven is one more transcription of the rubric,
+    /// and it would have to be edited by the same hand that adds a criterion — which makes it
+    /// a step to remember rather than a thing that holds.
     #[test]
     fn the_real_rubric_parses() {
         let r = load(&rubric_path()).unwrap();
-        assert_eq!(r.structural.len(), 7, "{:?}", r.structural);
-        assert_eq!(r.quality.len(), 7, "{:?}", r.quality);
-        assert_eq!(r.quality_ids(), ["Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7"]);
-        assert!(r.structural[0].description.contains("class definition"));
+        for (letter, set) in [('S', &r.structural), ('Q', &r.quality)] {
+            assert!(!set.is_empty(), "no {letter} criteria parsed");
+            let expected: Vec<String> = (1..=set.len()).map(|n| format!("{letter}{n}")).collect();
+            let got: Vec<&str> = set.iter().map(|c| c.id.as_str()).collect();
+            assert_eq!(
+                got, expected,
+                "{letter} criteria are not numbered without a gap"
+            );
+            assert!(
+                set.iter().all(|c| c.description.len() > 10),
+                "a criterion parsed with no description: {set:?}"
+            );
+        }
     }
 
     /// The S-checks `check.rs` implements and the S-checks the rubric states are the same
