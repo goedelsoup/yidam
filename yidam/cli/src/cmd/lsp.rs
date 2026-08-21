@@ -132,9 +132,12 @@ pub(crate) fn frame(value: &Value) -> String {
 /// ask *is the corpus clean?* — it asks *did this change make it less clean?* — so inherited
 /// debt is a Hint however severe the check is, and a fresh `info` is still only Information.
 ///
-/// The VS Code extension carries the same table in TypeScript for its own providers. Two
-/// transcriptions of four rows, each pinned by a test, because the alternative is an editor
-/// that cannot render a diagnostic without a subprocess per keystroke.
+/// The VS Code extension carries the same table in TypeScript for its own providers, because
+/// the alternative is an editor that cannot render a diagnostic without a subprocess per
+/// keystroke. Two transcriptions of four rows, both pinned to
+/// `prelude/sdks/parity/fixtures/diagnostic_severity/` — each was previously pinned only by
+/// its own hand-written expectations, which leaves the two free to be independently right
+/// about different tables.
 pub(crate) fn severity_of(severity: &str, in_baseline: bool) -> u8 {
     if in_baseline {
         return HINT;
@@ -652,14 +655,53 @@ mod tests {
         assert_eq!(uri_to_path("file:///a%20b/c.yml").unwrap(), path);
     }
 
-    /// Baseline membership outranks check severity in both directions — RFC-0016's table.
+    /// The level name the fixtures speak, mapped to this server's numbering.
+    ///
+    /// The fixtures carry a name rather than a number because neither side's numbering is
+    /// shared: LSP counts from 1, and `vscode.DiagnosticSeverity` counts from 0. A fixture
+    /// holding either would make one of the two transcriptions assert a translation it does
+    /// not perform.
+    fn level(name: &str) -> u8 {
+        match name {
+            "error" => ERROR,
+            "warning" => WARNING,
+            "information" => INFORMATION,
+            "hint" => HINT,
+            other => panic!("fixture names a level this server has no numbering for: {other}"),
+        }
+    }
+
+    /// RFC-0016's table, read rather than restated.
+    ///
+    /// Baseline membership outranks check severity in both directions, and this rule is the
+    /// one place RFC-0016 licenses a client to recompute a verdict — the alternative being an
+    /// editor that cannot render a diagnostic without a subprocess per keystroke. So it lives
+    /// in two languages, and the fixtures are what keep the two answering the same question.
+    /// The VS Code extension's `diagnostics.test.ts` reads these same files.
     #[test]
-    fn the_severity_table_is_the_rfcs() {
-        assert_eq!(severity_of("error", false), ERROR);
-        assert_eq!(severity_of("warn", false), WARNING);
-        assert_eq!(severity_of("info", false), INFORMATION);
-        for s in ["error", "warn", "info"] {
-            assert_eq!(severity_of(s, true), HINT, "{s} in the baseline is a hint");
+    fn the_severity_table_is_the_shared_fixture() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../prelude/sdks/parity/fixtures/diagnostic_severity");
+        let mut cases: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)
+            .unwrap_or_else(|e| panic!("reading {}: {e}", dir.display()))
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().is_some_and(|x| x == "toml"))
+            .collect();
+        cases.sort();
+        assert!(!cases.is_empty(), "no fixtures in {}", dir.display());
+
+        for path in &cases {
+            let fx: toml::Value = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+            let name = path.file_name().unwrap().to_string_lossy();
+            let severity = fx["input"]["severity"].as_str().unwrap();
+            let in_baseline = fx["input"]["in_baseline"].as_bool().unwrap();
+            let expected = level(fx["expected"]["level"].as_str().unwrap());
+            assert_eq!(
+                severity_of(severity, in_baseline),
+                expected,
+                "{name}: {}",
+                fx["description"].as_str().unwrap_or("")
+            );
         }
     }
 

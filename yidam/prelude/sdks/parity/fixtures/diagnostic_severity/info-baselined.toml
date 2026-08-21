@@ -1,0 +1,9 @@
+function = "diagnostic_severity"
+description = "an info violation carrying in_baseline — like the warn case, a state the CLI never emits and both implementations answer"
+
+[input]
+severity = "info"
+in_baseline = true
+
+[expected]
+level = "hint"

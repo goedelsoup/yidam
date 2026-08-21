@@ -1,0 +1,9 @@
+function = "diagnostic_severity"
+description = "an error the baseline already records: inherited debt, not a regression, and the reason baseline membership outranks check severity"
+
+[input]
+severity = "error"
+in_baseline = true
+
+[expected]
+level = "hint"

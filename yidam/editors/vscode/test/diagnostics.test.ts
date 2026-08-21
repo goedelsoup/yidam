@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import { test } from 'node:test'
+
+import { parse } from 'smol-toml'
 
 import { DEFAULT_OPTIONS, fromGraphCheck, fromLint, type Level } from '../src/diagnostics.ts'
 import type { Check, GraphCheckReport, LintReport } from '../src/reports.ts'
@@ -30,6 +34,56 @@ const check = (
 ): Check => ({ id, title: 'T', severity, rationale: `why ${id} exists`, violations })
 
 const levels = (r: { findings: { level: Level }[] }) => r.findings.map((f) => f.level)
+
+// ── The mapping, against the fixture the CLI is pinned to ────────────────────
+//
+// `severity_of` in `yidam/cli/src/cmd/lsp.rs` and `levelFor` here are two transcriptions of
+// one four-row table. The duplication is deliberate and RFC-0016 licenses it — the
+// alternative is an editor that cannot render a diagnostic without a subprocess per
+// keystroke — but until these fixtures existed each side was pinned only by its own
+// hand-written expectations, so the two could be independently right about different tables.
+//
+// The fixtures carry a level *name*, not a number, because neither side's numbering is
+// shared: LSP counts from 1 and `vscode.DiagnosticSeverity` counts from 0. `Level` is
+// already those four names, so the mapping here is identity and the assertion is direct.
+
+const HERE = path.dirname(new URL(import.meta.url).pathname)
+const SEVERITY_FIXTURES = path.resolve(
+  HERE,
+  '../../../prelude/sdks/parity/fixtures/diagnostic_severity',
+)
+
+interface SeverityCase {
+  description: string
+  input: { severity: Check['severity']; in_baseline: boolean }
+  expected: { level: Level }
+}
+
+function severityCases(): { name: string; fx: SeverityCase }[] {
+  return fs
+    .readdirSync(SEVERITY_FIXTURES)
+    .filter((f) => f.endsWith('.toml'))
+    .sort()
+    .map((name) => ({
+      name,
+      fx: parse(fs.readFileSync(path.join(SEVERITY_FIXTURES, name), 'utf8')) as unknown as SeverityCase,
+    }))
+}
+
+test('the severity table is the shared fixture, not a second opinion about it', () => {
+  const cases = severityCases()
+  assert.ok(cases.length > 0, `no fixtures in ${SEVERITY_FIXTURES}`)
+  for (const { name, fx } of cases) {
+    const r = fromLint(
+      lint([
+        check('dangling-edge', fx.input.severity, [
+          { node: 'a.yml', detail: 'd', in_baseline: fx.input.in_baseline },
+        ]),
+      ]),
+    )
+    assert.deepEqual(levels(r), [fx.expected.level], `${name}: ${fx.description}`)
+  }
+})
 
 // ── The mapping, which is the whole issue ────────────────────────────────────
 

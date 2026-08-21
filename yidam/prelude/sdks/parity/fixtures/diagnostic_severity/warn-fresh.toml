@@ -1,0 +1,9 @@
+function = "diagnostic_severity"
+description = "a warn-severity check reports and never gates"
+
+[input]
+severity = "warn"
+in_baseline = false
+
+[expected]
+level = "warning"
