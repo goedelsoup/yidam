@@ -11,30 +11,13 @@
 
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
 import { test } from 'node:test'
 
 import { resolveBinary } from '../src/binary.ts'
 import { hasFeature, readHandshake } from '../src/handshake.ts'
+import { stageFixture } from './stage.ts'
 
-const HERE = path.dirname(new URL(import.meta.url).pathname)
-const FIXTURE = path.resolve(HERE, '../../../prelude/sdks/parity/fixtures/reports/basic/repo')
 
-/** A throwaway git repository from the golden corpus — the reports need one to run in. */
-function stageFixture(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yidam-ext-'))
-  fs.cpSync(FIXTURE, dir, { recursive: true })
-  const git = (...args: string[]) =>
-    execFileSync('git', args, { cwd: dir, stdio: 'pipe' })
-  git('init', '-q', '-b', 'main')
-  git('config', 'user.email', 'fixture@yidam.test')
-  git('config', 'user.name', 'Fixture')
-  git('add', '-A')
-  git('commit', '-q', '-m', 'genesis: reports fixture')
-  return dir
-}
 
 /**
  * Run and keep both streams whatever the exit code.
@@ -88,7 +71,7 @@ const SKIP = 'no yidam speaking the report contract — set YIDAM_BIN, or `cargo
 
 
 test('the handshake accepts what a real yidam actually emits', async (t) => {
-  const dir = stageFixture()
+  const dir = stageFixture('yidam-ext-')
   const bin = await contractBinary(dir)
   if (!bin) {
     // Skipped rather than failed: a contributor without the CLI on PATH should still be
@@ -104,7 +87,7 @@ test('the handshake accepts what a real yidam actually emits', async (t) => {
 })
 
 test('a binary that rejects --format reads as contract skew, not a broken install', async (t) => {
-  const dir = stageFixture()
+  const dir = stageFixture('yidam-ext-')
   const bin = await contractBinary(dir)
   if (!bin) {
     t.skip(SKIP)
@@ -120,7 +103,7 @@ test('a binary that rejects --format reads as contract skew, not a broken instal
 })
 
 test('prose from the same binary degrades to a named state', async (t) => {
-  const dir = stageFixture()
+  const dir = stageFixture('yidam-ext-')
   const bin = await contractBinary(dir)
   if (!bin) {
     t.skip(SKIP)
@@ -136,7 +119,7 @@ test('prose from the same binary degrades to a named state', async (t) => {
 })
 
 test('a gating command still yields a readable envelope', async (t) => {
-  const dir = stageFixture()
+  const dir = stageFixture('yidam-ext-')
   const bin = await contractBinary(dir)
   if (!bin) {
     t.skip(SKIP)

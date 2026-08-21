@@ -10,13 +10,11 @@
 
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
 import { test } from 'node:test'
 
 import { resolveBinary } from '../src/binary.ts'
 import { readHandshake } from '../src/handshake.ts'
+import { stageFixture } from './stage.ts'
 import {
   completions,
   inVerbPosition,
@@ -150,8 +148,6 @@ test('only the first line is the subject', () => {
 
 // ── against the real binary ──────────────────────────────────────────────────
 
-const HERE = path.dirname(new URL(import.meta.url).pathname)
-const FIXTURE = path.resolve(HERE, '../../../prelude/sdks/parity/fixtures/reports/basic/repo')
 const SKIP = 'no yidam speaking the report contract — set YIDAM_BIN, or `cargo install --path yidam/cli`'
 
 function capture(bin: string, args: string[], cwd: string): string {
@@ -162,17 +158,6 @@ function capture(bin: string, args: string[], cwd: string): string {
   }
 }
 
-function stageFixture(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yidam-vocab-'))
-  fs.cpSync(FIXTURE, dir, { recursive: true })
-  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' })
-  git('init', '-q', '-b', 'main')
-  git('config', 'user.email', 'fixture@yidam.test')
-  git('config', 'user.name', 'Fixture')
-  git('add', '-A')
-  git('commit', '-q', '-m', 'genesis: reports fixture')
-  return dir
-}
 
 async function contractBinary(cwd: string): Promise<string | null> {
   const r = await resolveBinary({ configured: process.env.YIDAM_BIN ?? '', workspace: cwd })
@@ -198,7 +183,7 @@ async function contractBinary(cwd: string): Promise<string | null> {
  * end to end.
  */
 test('the real binary reports the scoped-verb case, and the marks land on the verb', async (t) => {
-  const dir = stageFixture()
+  const dir = stageFixture('yidam-vocab-')
   const bin = await contractBinary(dir)
   if (!bin) {
     t.skip(SKIP)
@@ -238,7 +223,7 @@ test('the real binary reports the scoped-verb case, and the marks land on the ve
  * binary then accepts.
  */
 test('every verb offered is one the binary accepts', async (t) => {
-  const dir = stageFixture()
+  const dir = stageFixture('yidam-vocab-')
   const bin = await contractBinary(dir)
   if (!bin) {
     t.skip(SKIP)

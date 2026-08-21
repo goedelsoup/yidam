@@ -1,0 +1,40 @@
+# How this fixture becomes a repository.
+#
+# The reports cannot run against a bare directory — `repo_root()` shells out to
+# `git rev-parse --show-toplevel` — so every harness that uses this fixture has to build a
+# git repository out of `repo/` first. Seven of them did, in seven copies, and they did not
+# agree: the Rust goldens staged three commits and two branches, five of the extension's
+# test files staged one commit and no branch, and a sixth staged one commit and two
+# branches. So `phases` had rows for the goldens and none for the extension, and the claim
+# tags the goldens count did not exist in the tree the extension was exercised on — while
+# both were reading `expected/` as though it described the same repository.
+#
+# The recipe lives here for the same reason `diagnostic_severity/` does: the runners may be
+# per-language, but the thing they agree about must have one copy.
+#
+# Commit dates are fixed by the runners, not here — `status` reports a genesis date, and a
+# fixture whose genesis moves with the clock has a golden that cannot be compared.
+
+branches = ["ma/hydrologist", "rigpa/tailwater-regime"]
+
+[[commits]]
+message = "genesis: reports fixture"
+
+# A second commit so `diff HEAD~1..HEAD` has a range to report on, and one that exercises
+# the modified-node arm rather than only add and remove.
+[[commits]]
+message = "revise: tailwater carries a claim tag"
+
+[[commits.replace]]
+file = ".yidam/corpus/concept/tailwater.yml"
+from = "Water downstream of a structure."
+to = "Water downstream of a structure. [inference]"
+
+# One operational commit, so the log goldens show the split rather than a column of [E].
+# A fixture whose history is all one kind cannot demonstrate a classifier.
+[[commits]]
+message = "regen: REGEN blocks refreshed"
+
+[[commits.write]]
+file = ".yidam/corpus/.gitkeep"
+content = ""
