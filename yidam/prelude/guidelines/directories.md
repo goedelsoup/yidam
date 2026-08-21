@@ -430,10 +430,32 @@ It was not theoretical. Three separate builds displaced the machine-wide binary 
 session that fixed this, one of them with a copy predating the `--format` flag entirely, which
 would have left every JSON report unreadable.
 
+**And through invocation, which needs no mis-installation at all.** The paragraph above is
+about where a binary gets *written*. The same hazard arrives from where one gets *found*: a
+`yidam` left in `~/.cargo/bin` by any earlier install — including one predating the `--root`
+convention — shadows `.yidam/bin/yidam` for any process whose `PATH` puts cargo's directory
+first. That is not a mistake anyone made; it is what a shell sourcing a Rust environment does
+by default.
+
 `mise.yidam.toml` puts `.yidam/bin` first on `PATH` for anything mise runs, so the shell and
 the editor resolve the same binary. **If your shell does not run mise, add it yourself** — a
 `yidam` from somewhere else will otherwise answer for this repository. The VS Code extension
 checks `.yidam/bin/yidam` ahead of `PATH` for the same reason.
+
+That guards a human shell. It does not guard a script, a CI step, or an agent that assembles
+`PATH` itself, and those are increasingly what runs these commands. **Wherever you build
+`PATH` by hand, put `.yidam/bin` first** — the ordering is load-bearing, not a convenience.
+
+The failure is quiet in the way that matters. An older binary lacking a subcommand exits with
+`unrecognized subcommand 'regen'`, and inside a script with output redirected — which is how a
+regen step is usually written — that is indistinguishable from success. `regen --check` is a
+real backstop, but it fires on the next full run; between the no-op and that run the
+repository holds a stale generated block and the command that refreshes it reports nothing
+wrong.
+
+So the binary now says so itself. When `.yidam/bin/yidam` exists and is not the executable
+running, every command warns on stderr naming both paths, and an unrecognized subcommand adds
+which binary refused it. Stderr, so a `--format json` consumer reading stdout is unaffected.
 
 ---
 
