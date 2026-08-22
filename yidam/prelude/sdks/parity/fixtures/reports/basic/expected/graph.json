@@ -42,7 +42,7 @@
       "node": "concept/tailwater.yml",
       "class": "concept",
       "label": "Tailwater",
-      "description": "Water downstream of a structure. [inference] The control node — it trips nothing, including when it names the vocabulary rather than using it: no claim here is `[open]`, and nobody has written `[verified]` against this node. Both are mentions, in code, and neither is counted.",
+      "description": "Water downstream of a structure. [inference] The control node — it trips nothing, including when it names the vocabulary rather than using it: no claim here is `[open]`, and nobody has written `[verified]` against this node. Both are mentions because the sentences negate and report them, not because they are in code — the backticks decide nothing, and the counted claim on [the gauge](../gauge/riffle-station.yml) is backticked too.",
       "links": [
         {
           "target": "../concept/low-flow.yml",
@@ -62,7 +62,7 @@
       "node": "gauge/riffle-station.yml",
       "class": "gauge",
       "label": "Riffle station",
-      "description": "A stage gauge at the riffle. [verified] Its series is a `gauge-record` — the slug is named, not cited, and no link here resolves to the catalog entry of that name.",
+      "description": "A stage gauge at the riffle. [verified] Whether it reads low flow comparably is `[open]`. Its series is a `gauge-record` — the slug is named, not cited, and no link here resolves to the catalog entry of that name.",
       "links": [
         {
           "target": "../concept/low-flow.yml",

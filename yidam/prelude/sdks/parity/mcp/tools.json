@@ -1,11 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "contract": "0.2.0",
+  "contract": "0.3.0",
   "description": "The frozen MCP tool contract (RFC-0005). Names are bare — no `yidam_` prefix — because the server is already namespaced by its own name in every client that mounts one. `tier` is `core` (every server MUST back it) or a capability name (backed iff the server declares that capability true). This file is the only place the list lives; a harness that restates it is a second freeze, which is how three servers ended up sharing one name out of five capabilities.",
   "capabilities": {
     "retrieve": {
       "description": "Not a tier — `retrieve` is core either way. `vector: false` says the index is absent or unloadable, which is the same fact `degraded` reports per call; a server declaring it is promising every `retrieve` comes back degraded.",
-      "shape": { "vector": "boolean" }
+      "shape": {
+        "vector": "boolean"
+      }
     },
     "graph": "Backs the bidirectional walk. A server whose corpus is a projected mirror can still back it; one that holds no edges declares false.",
     "phases": "Reads live `ma/*` and `rigpa/*` refs. Backable only by a server with the working git repository.",
@@ -20,14 +22,28 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "query": { "type": "string", "description": "Natural-language query" },
-          "k": { "type": "integer", "description": "Number of results (default 5)" },
-          "class": { "type": "string", "description": "Restrict results to one class" }
+          "query": {
+            "type": "string",
+            "description": "Natural-language query"
+          },
+          "k": {
+            "type": "integer",
+            "description": "Number of results (default 5)"
+          },
+          "class": {
+            "type": "string",
+            "description": "Restrict results to one class"
+          }
         },
-        "required": ["query"]
+        "required": [
+          "query"
+        ]
       },
       "response": {
-        "required": ["degraded", "results"],
+        "required": [
+          "degraded",
+          "results"
+        ],
         "notes": "One adaptive tool, not a split pair. A server offering `query` and `semantic_search` as separate names has made the caller decide which vector space it is in, which is the caller's least informed decision. `degraded` MUST be present on every response — there is no third state."
       }
     },
@@ -38,12 +54,24 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "id": { "type": "string", "description": "Node id, e.g. \"concept/confounding\"" }
+          "id": {
+            "type": "string",
+            "description": "Node id, e.g. \"concept/confounding\""
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       },
       "response": {
-        "required": ["id", "class", "label", "description", "content", "links"],
+        "required": [
+          "id",
+          "class",
+          "label",
+          "description",
+          "content",
+          "links"
+        ],
         "notes": "The unified node model (RFC-0002), as JSON. Not a language-specific YAML render: the envelope is the contract, and a server that returns its own serialization has made every consumer parse a second format."
       }
     },
@@ -54,22 +82,32 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "class": { "type": "string", "description": "Restrict to one class; omit for the whole corpus" }
+          "class": {
+            "type": "string",
+            "description": "Restrict to one class; omit for the whole corpus"
+          }
         }
       },
       "response": {
-        "required": ["nodes"],
+        "required": [
+          "nodes"
+        ],
         "notes": "Core rather than optional so a tools-only server is first-class. Its result MUST equal `read_resource(\"yidam://corpus/<class>\")` on a server that backs resources."
       }
     },
     {
       "name": "open_questions",
       "tier": "core",
-      "description": "All nodes flagged as open questions: label starts with \"?\", the body contains an [open] claim, or a property the node's class declared as `type: claim` holds an open tag.",
-      "inputSchema": { "type": "object", "properties": {} },
+      "description": "All nodes flagged as open questions: label starts with \"?\", the body asserts an [open] claim, or a property the node's class declared as `type: claim` holds an open tag.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
       "response": {
-        "required": ["open_questions"],
-        "notes": "Three arms, frozen (RFC-0001), and a server may add none. The third reads only properties the node's class declared `type: claim` in its `.ont.yml`, and both `open` and `[open]` are read as the tag. It is the arm a server is most likely to skip, and skipping it is invisible on a prose corpus: with no `type: claim` declaration anywhere the arm matches nothing, so two-arm and three-arm servers return the identical set. It diverges only on the corpus that declared the field — which is the corpus that measured 26 open questions against this tool's 2, and reshaped its data to `\"[open]\"` to be seen at all. What is still forbidden is a fourth arm and a blessed key name: matching a bare `open` under any key makes `status: open` on a ballot measure an open claim, and no corpus can opt out of that. The ontology declares the field or the arm reads nothing."
+        "required": [
+          "open_questions"
+        ],
+        "notes": "Three arms, frozen (RFC-0001), and a server may add none. The third reads only properties the node's class declared `type: claim` in its `.ont.yml`, and both `open` and `[open]` are read as the tag. It is the arm a server is most likely to skip, and skipping it is invisible on a prose corpus: with no `type: claim` declaration anywhere the arm matches nothing, so two-arm and three-arm servers return the identical set. It diverges only on the corpus that declared the field — which is the corpus that measured 26 open questions against this tool's 2, and reshaped its data to `\"[open]\"` to be seen at all. What is still forbidden is a fourth arm and a blessed key name: matching a bare `open` under any key makes `status: open` on a ballot measure an open claim, and no corpus can opt out of that. The ontology declares the field or the arm reads nothing. \n\nWHAT COUNTS AS A CLAIM (contract 0.3.0). The second arm says *asserts*, and until 0.3.0 it did not say how — so an implementation was free to pick a rule, and one did: it read a tag in backticks as a mention. Measured against a mature corpus that rule silenced 184 of 230 `[open]` tags, because an open question is written mid-sentence with the token set off from the prose (\"whether the two are connected is `[open]`\") while `[verified]` ends a sentence of fact and reads bare. The repository understated its open questions fivefold on its own front page. Two conforming servers could differ by that much, which is what freezing the arms was supposed to prevent. So the rule is frozen too. Typography decides NOTHING: a backticked tag is a claim like any other. A tag is read as NAMED on four shapes and no others — (1) pluralised, `[open]`s; (2) immediately followed by a naming noun (tag/claim/marker/token); (3) the object of a past-tense transitive reporting verb (carried, said, stated, called, wrote, tagged, marked, read) earlier in the same clause; (4) negated (not, never, no longer) earlier in the same clause. Narration does not cross a clause boundary. The present tense is NOT narration — \"now carries [open]\" applies a tag — and neither are copulas (was, were, remains, held); both were cut by measurement at eight false positives, all of which promoted. Content inside a fenced block is shown rather than said and is never counted. A server unsure of a residual case should COUNT it: over-counting [open] overstates how much is unsettled, which is the safe error, while under-counting it promotes blocks that should not travel."
       }
     },
     {
@@ -79,13 +117,24 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "id": { "type": "string", "description": "Node id, e.g. \"concept/confounding\"" },
-          "depth": { "type": "integer", "description": "Maximum hops (default 1)" }
+          "id": {
+            "type": "string",
+            "description": "Node id, e.g. \"concept/confounding\""
+          },
+          "depth": {
+            "type": "integer",
+            "description": "Maximum hops (default 1)"
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       },
       "response": {
-        "required": ["id", "neighbors"],
+        "required": [
+          "id",
+          "neighbors"
+        ],
         "notes": "Undirected: each reached node once, at its shortest hop, carrying the direction of the edge it was reached by. Half the interesting connections are inbound, which is why the corpus has an `orphan-in` check at all."
       }
     }
