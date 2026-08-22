@@ -73,8 +73,15 @@ fn targets_of(path: &str, content: &str) -> HashSet<String> {
         .collect()
 }
 
-/// `git log --raw` over the corpus, oldest first, as (timestamp, changes) per commit.
-fn change_stream(root: &Path) -> Vec<(i64, Vec<Change>)> {
+/// One commit's worth of corpus change.
+struct CommitChanges {
+    sha: String,
+    ts: i64,
+    changes: Vec<Change>,
+}
+
+/// `git log --raw` over the corpus, oldest first.
+fn change_stream(root: &Path) -> Vec<CommitChanges> {
     let out = Command::new("git")
         .current_dir(root)
         .args([
@@ -83,7 +90,7 @@ fn change_stream(root: &Path) -> Vec<(i64, Vec<Change>)> {
             "--raw",
             "--no-abbrev",
             "--no-renames",
-            "--format=C %at",
+            "--format=C %H %at",
             "--",
             ".yidam/corpus",
         ])
@@ -93,10 +100,17 @@ fn change_stream(root: &Path) -> Vec<(i64, Vec<Change>)> {
         return Vec::new();
     };
 
-    let mut commits: Vec<(i64, Vec<Change>)> = Vec::new();
+    let mut commits: Vec<CommitChanges> = Vec::new();
     for line in text.lines() {
-        if let Some(ts) = line.strip_prefix("C ") {
-            commits.push((ts.trim().parse().unwrap_or(0), Vec::new()));
+        if let Some(head) = line.strip_prefix("C ") {
+            let mut f = head.split_whitespace();
+            let sha = f.next().unwrap_or_default().to_string();
+            let ts = f.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+            commits.push(CommitChanges {
+                sha,
+                ts,
+                changes: Vec::new(),
+            });
         } else if let Some(rest) = line.strip_prefix(':') {
             // :<srcmode> <dstmode> <srcsha> <dstsha> <status>\t<path>
             let Some((meta, path)) = rest.split_once('\t') else {
@@ -106,8 +120,8 @@ fn change_stream(root: &Path) -> Vec<(i64, Vec<Change>)> {
             if f.len() < 5 {
                 continue;
             }
-            if let Some((_, changes)) = commits.last_mut() {
-                changes.push(Change {
+            if let Some(c) = commits.last_mut() {
+                c.changes.push(Change {
                     status: f[4].as_bytes()[0],
                     blob: f[3].to_string(),
                     path: path.to_string(),
@@ -173,24 +187,78 @@ fn read_blobs(root: &Path, shas: &[String]) -> HashMap<String, String> {
     found
 }
 
-/// For every node present at HEAD, the commit timestamp since which nothing has pointed at
-/// it — absent when something points at it now.
+/// Whether a repo-relative path is a class definition — `.yidam/corpus/<class>.ont.yml`.
+fn is_class(path: &str) -> bool {
+    path.strip_prefix(".yidam/corpus/")
+        .is_some_and(|r| r.ends_with(".ont.yml") && !r.contains('/'))
+}
+
+/// The class a node belongs to, from its path.
+pub(crate) fn class_of(path: &str) -> &str {
+    path.strip_prefix(".yidam/corpus/")
+        .and_then(|r| r.split('/').next())
+        .unwrap_or_default()
+}
+
+/// Whether a class definition declares edges and declares none of them inbound.
 ///
-/// A node that has never been cited dates from the commit that added it. A node cited and
-/// later orphaned dates from the commit that removed the last edge into it, which is the
-/// distinction node age cannot draw.
-pub fn uncited_since(root: &Path) -> HashMap<String, i64> {
+/// The same rule [`super::checks::Class::is_source_class`] applies, read from a blob rather
+/// than from disk. Silence is not a declaration: a class with no `edges:` list has said
+/// nothing about its shape and is not exempt.
+fn blob_is_source_class(content: &str) -> bool {
+    #[derive(Default, serde::Deserialize)]
+    struct Edge {
+        #[serde(default)]
+        direction: Option<String>,
+    }
+    #[derive(Default, serde::Deserialize)]
+    struct Fields {
+        #[serde(default)]
+        edges: Vec<Edge>,
+    }
+    let f: Fields = serde_yaml::from_str(content).unwrap_or_default();
+    !f.edges.is_empty() && !f.edges.iter().any(|e| e.direction.as_deref() == Some("in"))
+}
+
+/// The corpus as it stood at one commit.
+pub(crate) struct Frame<'a> {
+    pub sha: &'a str,
+    pub ts: i64,
+    /// Every instance node present, and the targets it points at.
+    pub out: &'a HashMap<String, HashSet<String>>,
+    /// Every node something points at.
+    pub cited: HashSet<&'a String>,
+    /// Classes that declare no inbound edge, whose instances are orphans by design.
+    pub source_classes: &'a HashSet<String>,
+}
+
+impl Frame<'_> {
+    /// Nodes nothing points at, excluding those the ontology says nothing should.
+    pub fn orphans(&self) -> impl Iterator<Item = &String> {
+        self.out
+            .keys()
+            .filter(move |n| !self.cited.contains(*n) && !self.source_classes.contains(class_of(n)))
+    }
+}
+
+/// Rebuild the corpus forward through history, calling `frame` once per commit that touched
+/// it.
+///
+/// The single walk. Both consumers here — the dates `orphan-in` reports and the series
+/// `yidam replay` prints — are folds over it, so they cannot come to disagree about what the
+/// graph looked like on a given day.
+pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
     let commits = change_stream(root);
     if commits.is_empty() {
-        return HashMap::new();
+        return;
     }
 
     let wanted: Vec<String> = {
         let mut seen = HashSet::new();
         commits
             .iter()
-            .flat_map(|(_, c)| c.iter())
-            .filter(|c| c.status != b'D' && is_instance(&c.path))
+            .flat_map(|c| c.changes.iter())
+            .filter(|c| c.status != b'D' && (is_instance(&c.path) || is_class(&c.path)))
             .map(|c| c.blob.clone())
             .filter(|b| seen.insert(b.clone()))
             .collect()
@@ -199,39 +267,63 @@ pub fn uncited_since(root: &Path) -> HashMap<String, i64> {
 
     // Live corpus state, rebuilt forward: each node's outbound targets.
     let mut out: HashMap<String, HashSet<String>> = HashMap::new();
-    // Answer under construction. Absent = cited as of the last commit that touched anything.
-    let mut since: HashMap<String, i64> = HashMap::new();
+    let mut source_classes: HashSet<String> = HashSet::new();
 
-    for (ts, changes) in &commits {
+    for c in &commits {
         let mut touched = false;
-        for ch in changes {
-            if !is_instance(&ch.path) {
-                continue;
-            }
-            touched = true;
-            if ch.status == b'D' {
-                out.remove(&ch.path);
-            } else {
-                let content = blobs.get(&ch.blob).map(String::as_str).unwrap_or("");
-                out.insert(ch.path.clone(), targets_of(&ch.path, content));
+        for ch in &c.changes {
+            let content = || blobs.get(&ch.blob).map(String::as_str).unwrap_or("");
+            if is_instance(&ch.path) {
+                touched = true;
+                if ch.status == b'D' {
+                    out.remove(&ch.path);
+                } else {
+                    out.insert(ch.path.clone(), targets_of(&ch.path, content()));
+                }
+            } else if is_class(&ch.path) {
+                touched = true;
+                let name = class_of(&ch.path).trim_end_matches(".ont.yml").to_string();
+                if ch.status == b'D' || !blob_is_source_class(content()) {
+                    source_classes.remove(&name);
+                } else {
+                    source_classes.insert(name);
+                }
             }
         }
         if !touched {
             continue;
         }
-
         let cited: HashSet<&String> = out.values().flatten().collect();
-        for node in out.keys() {
-            if cited.contains(node) {
+        frame(Frame {
+            sha: &c.sha,
+            ts: c.ts,
+            out: &out,
+            cited,
+            source_classes: &source_classes,
+        });
+    }
+}
+
+/// For every node present at HEAD, the commit timestamp since which nothing has pointed at
+/// it — absent when something points at it now.
+///
+/// A node that has never been cited dates from the commit that added it. A node cited and
+/// later orphaned dates from the commit that removed the last edge into it, which is the
+/// distinction node age cannot draw.
+pub fn uncited_since(root: &Path) -> HashMap<String, i64> {
+    let mut since: HashMap<String, i64> = HashMap::new();
+    replay(root, |f| {
+        for node in f.out.keys() {
+            if f.cited.contains(node) {
                 // Something points at it as of this commit; any earlier orphaning ended.
                 since.remove(node);
             } else {
                 // Uncited now. Keep the earliest commit at which that became true.
-                since.entry(node.clone()).or_insert(*ts);
+                since.entry(node.clone()).or_insert(f.ts);
             }
         }
-        since.retain(|n, _| out.contains_key(n));
-    }
+        since.retain(|n, _| f.out.contains_key(n));
+    });
     since
 }
 
