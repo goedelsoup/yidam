@@ -200,17 +200,27 @@ function isNamespace(ref: string, ns: string): boolean {
 }
 
 /**
- * `ma/*` and `rigpa/*` in separate groups.
+ * `ma/*`, `phase/*` and `rigpa/*` in separate groups.
  *
- * The two namespaces are different acts — a held position and a settled synthesis — and a
- * repository running a real sangha has an order of magnitude more of the second. One flat
- * list buries the first, which is the half a reader is usually looking for.
+ * The three namespaces are different acts — a held position, a bounded investigation, and a
+ * settled synthesis — and a repository running a real sangha has an order of magnitude more
+ * of the last. One flat list buries the first, which is the half a reader is usually looking
+ * for.
+ *
+ * `phase/*` had no group and fell into `Other`, which is the same defect the CLI carried:
+ * PHASES.md defines a phase in that namespace and both readers of it looked elsewhere. The
+ * fixture gained a `phase/*` branch and this test failed, which is the whole reason to put
+ * one there.
  */
 export function phasesTree(report: PhasesReport): TreeNode[] {
   const row = (p: PhasesReport['phases'][number]): TreeNode => ({
     id: `phase:${p.ref_name}`,
     label: p.name,
-    description: `${p.commits} commit(s)`,
+    // Settledness is called out and nothing else is: `active` is the expectation and
+    // `position` is already the group's name, so stating either would be noise. A ref that
+    // outlived its settlement is the one thing here a reader can act on.
+    description:
+      p.state === 'settled' ? `${p.commits} commit(s) · settled` : `${p.commits} commit(s)`,
     tooltip: `${p.ref_name}\n${p.owner} · started ${p.started}`,
     icon: 'git-branch',
     command: { id: 'yidam.checkoutPhase', args: [p.ref_name] },
@@ -219,9 +229,13 @@ export function phasesTree(report: PhasesReport): TreeNode[] {
   })
 
   const positions = report.phases.filter((p) => isNamespace(p.ref_name, 'ma'))
+  const bounded = report.phases.filter((p) => isNamespace(p.ref_name, 'phase'))
   const evolutions = report.phases.filter((p) => isNamespace(p.ref_name, 'rigpa'))
   const other = report.phases.filter(
-    (p) => !isNamespace(p.ref_name, 'ma') && !isNamespace(p.ref_name, 'rigpa'),
+    (p) =>
+      !isNamespace(p.ref_name, 'ma') &&
+      !isNamespace(p.ref_name, 'phase') &&
+      !isNamespace(p.ref_name, 'rigpa'),
   )
 
   const groups: TreeNode[] = []
@@ -233,6 +247,15 @@ export function phasesTree(report: PhasesReport): TreeNode[] {
       icon: 'account',
       expanded: true,
       children: positions.map(row),
+    })
+  }
+  if (bounded.length > 0) {
+    groups.push({
+      id: 'phases:phase',
+      label: 'Phases',
+      description: `phase/* · ${bounded.length}`,
+      icon: 'beaker',
+      children: bounded.map(row),
     })
   }
   if (evolutions.length > 0) {
