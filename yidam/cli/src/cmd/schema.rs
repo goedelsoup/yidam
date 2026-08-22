@@ -58,7 +58,29 @@ pub fn corpus_node_schema() -> Value {
             }
         },
         "required": ["class", "label", "description", "links"],
-        "additionalProperties": false
+        // Permissive, because nothing that reads a node enforces otherwise and a real corpus
+        // does not look like the closed shape this used to declare.
+        //
+        // `CorpusInstance` has no `deny_unknown_fields`: unknown keys are ignored by design,
+        // which is what makes a projecting consumer's provenance lossless. `claims.rs` walks
+        // the whole document for the fields a class declared, explicitly not requiring them
+        // to be nested. And nothing reads a nested `properties:` on an instance at all —
+        // `properties` is a conventional home, not the only one.
+        //
+        // Measured: with `false`, one derived repository was rejected 117 nodes of 117
+        // (`summary`, `findings`, `revisions`, `unfilled` at the top level), a projecting
+        // consumer 199 of 199, and this repository's own recommendation contradicted itself
+        // — `class-asserts-purpose` tells an author to move prose to `analytic_note`, which
+        // the schema then called invalid.
+        //
+        // The harm was never a red squiggle. It is that the first thing a consumer does is
+        // nest their data to make the squiggle stop, reshaping a corpus to satisfy a
+        // validator no runtime consults — the same move `claims.rs` argues against.
+        //
+        // The sub-objects below stay closed: they are yidam's own vocabulary, they carry
+        // enums, and no corpus measured violates one. `required` already catches a
+        // misspelled key, so strictness here was buying almost nothing to begin with.
+        "additionalProperties": true
     })
 }
 
@@ -127,7 +149,11 @@ pub fn corpus_ontology_schema() -> Value {
             }
         },
         "required": ["class", "label", "description"],
-        "additionalProperties": false
+        // Permissive for the same reason as the node schema, and measured the same way: one
+        // derived repository declares `edge_policy` on all 18 of its classes and another
+        // carries `analytic_note` — the field `class-asserts-purpose` recommends by name.
+        // The `properties[]`, `edges[]` and `foundational_type` shapes below stay closed.
+        "additionalProperties": true
     })
 }
 
@@ -312,6 +338,72 @@ pub fn schema(print_settings: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A corpus may carry its own fields at the top level of a node or a class.
+    ///
+    /// These were closed, and nothing that reads either enforced it. A derived repository was
+    /// rejected 117 nodes of 117 and 18 classes of 18; a projecting consumer, 199 of 199; and
+    /// `class-asserts-purpose` recommends `analytic_note`, which the ontology schema then
+    /// called invalid. `catalog-entry.json` was already permissive at the top level — the
+    /// other two were the ones out of step with it.
+    #[test]
+    fn a_corpus_may_carry_its_own_fields() {
+        for (file, body) in [
+            ("corpus-node", corpus_node_schema()),
+            ("corpus-ontology", corpus_ontology_schema()),
+            ("catalog-entry", catalog_entry_schema()),
+        ] {
+            assert_eq!(
+                body["additionalProperties"], true,
+                "{file} must not reject a field no reader rejects"
+            );
+        }
+    }
+
+    /// What stays closed, and why: these are yidam's own vocabulary rather than a corpus's
+    /// data, they carry enums, and no corpus measured violates one. Relaxing them too would
+    /// be the same error as closing the top level — a rule set wider than the evidence.
+    #[test]
+    fn yidam_s_own_shapes_stay_closed() {
+        let node = corpus_node_schema();
+        assert_eq!(
+            node["properties"]["links"]["items"]["additionalProperties"],
+            false
+        );
+
+        let ont = corpus_ontology_schema();
+        for key in ["properties", "edges"] {
+            assert_eq!(
+                ont["properties"][key]["items"]["additionalProperties"], false,
+                "{key}[] is a declared shape, not a place for corpus data"
+            );
+        }
+        assert_eq!(
+            ont["properties"]["foundational_type"]["additionalProperties"],
+            false
+        );
+    }
+
+    /// The invariants that make the schema worth wiring into an editor at all. None of them
+    /// depends on `additionalProperties`, which is why closing it bought so little: a
+    /// misspelled `lable:` still fails, on `required`.
+    #[test]
+    fn the_checks_that_earn_the_schema_survive() {
+        let node = corpus_node_schema();
+        assert_eq!(
+            node["properties"]["links"]["minItems"], 1,
+            "the central invariant"
+        );
+        let req: Vec<String> = serde_json::from_value(node["required"].clone()).unwrap();
+        assert!(
+            req.contains(&"label".to_string()),
+            "a typo'd key fails here"
+        );
+        assert_eq!(
+            node["properties"]["links"]["items"]["required"],
+            serde_json::json!(["target", "relationship"])
+        );
+    }
 
     #[test]
     fn every_schema_is_valid_json_schema_draft_2020_12() {
