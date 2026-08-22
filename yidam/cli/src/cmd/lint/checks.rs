@@ -24,12 +24,49 @@ pub struct Class {
     /// The `description` field: the text that says what kind of thing an instance is.
     /// Deliberately the only field [`class_asserts_purpose`] reads; see there.
     pub description: String,
+    /// The class name — `person` for `person.ont.yml`.
+    pub name: String,
+    /// Whether the class declares an `edges:` list at all.
+    pub declares_edges: bool,
+    /// Whether the class declares any edge with `direction: in`.
+    ///
+    /// An edge is documented from both ends: `person` declares `played in` as
+    /// `direction: out` and `band` declares the same relationship as `direction: in`. A
+    /// class that declares edges and none of them inbound is therefore saying, in the
+    /// ontology, that nothing points at its instances — see [`Class::is_source_class`].
+    pub declares_inbound: bool,
+}
+
+impl Class {
+    /// A class nothing is meant to point at.
+    ///
+    /// Instances of such a class have no inbound edges *by design*, so reporting them as
+    /// orphans is reporting the ontology working. In a derived repository this was 17 of 35
+    /// `orphan-in` findings — every `person` and every `boundary-case` — and the noise is
+    /// why the check's own rationale had already conceded it was "worth seeing, not worth
+    /// blocking on". The corpus was not the thing that needed to change.
+    ///
+    /// **A class that declares no edges at all is not a source class.** It has said nothing
+    /// about its shape, and reading silence as a declaration would exempt every instance in
+    /// a corpus whose ontology has not been filled in — silencing the check exactly where
+    /// there is least reason to trust the graph.
+    pub fn is_source_class(&self) -> bool {
+        self.declares_edges && !self.declares_inbound
+    }
 }
 
 #[derive(Default, serde::Deserialize)]
 struct ClassFields {
     #[serde(default)]
     description: Option<String>,
+    #[serde(default)]
+    edges: Vec<ClassEdge>,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct ClassEdge {
+    #[serde(default)]
+    direction: Option<String>,
 }
 
 pub fn load_classes(root: &Path, paths: &[PathBuf], overlay: &super::Overlay) -> Vec<Class> {
@@ -41,6 +78,15 @@ pub fn load_classes(root: &Path, paths: &[PathBuf], overlay: &super::Overlay) ->
             Class {
                 rel: rel_of(root, p),
                 description: fields.description.unwrap_or_default(),
+                name: p
+                    .file_name()
+                    .map(|f| f.to_string_lossy().replace(".ont.yml", ""))
+                    .unwrap_or_default(),
+                declares_edges: !fields.edges.is_empty(),
+                declares_inbound: fields
+                    .edges
+                    .iter()
+                    .any(|e| e.direction.as_deref() == Some("in")),
             }
         })
         .collect()
@@ -298,7 +344,16 @@ pub fn dangling_edge(nodes: &[Node]) -> Check {
     )
 }
 
-pub fn orphan_in(nodes: &[Node]) -> Check {
+/// The class an instance belongs to, from its path: `.yidam/corpus/person/x.yml` → `person`.
+fn class_of(n: &Node) -> String {
+    n.path
+        .parent()
+        .and_then(|d| d.file_name())
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
+pub fn orphan_in(nodes: &[Node], classes: &[Class]) -> Check {
     let mut targeted: HashSet<PathBuf> = HashSet::new();
     for n in nodes {
         let dir = n.path.parent().unwrap_or(&n.path);
@@ -309,18 +364,29 @@ pub fn orphan_in(nodes: &[Node]) -> Check {
             }
         }
     }
+    // Classes the ontology says nothing points at. Their instances are exempt: an orphan
+    // there is the model holding, not the corpus failing.
+    let source_classes: HashSet<&str> = classes
+        .iter()
+        .filter(|c| c.is_source_class())
+        .map(|c| c.name.as_str())
+        .collect();
+
     let violations = nodes
         .iter()
         .filter(|n| !targeted.contains(&normalize(&n.path)))
+        .filter(|n| !source_classes.contains(class_of(n).as_str()))
         .map(|n| Violation::new(&n.rel, "nothing links to this node"))
         .collect();
     Check::new(
         "orphan-in",
         "Node nothing points to",
         Severity::Info,
-        "Reported rather than gated: a node authored this morning legitimately has no \
-         inbound edges yet, and the hub nodes of a young corpus often point outward at \
-         everything while nothing points back. Worth seeing, not worth blocking on.",
+        "Instances of a class that declares no `direction: in` edge are exempt — the \
+         ontology says nothing points at them, so an orphan there is the model working. \
+         What remains is a class whose *other* instances are cited and this one is not, \
+         which is the asymmetry worth reading. Still reported rather than gated: a node \
+         authored this morning legitimately has no inbound edges yet.",
         violations,
     )
 }
@@ -789,12 +855,76 @@ mod tests {
             rel: "corpus/other/b.yml".into(),
             inst: serde_yaml::from_str("class: c\nlinks:\n  - target: ../reach/a.yml\n").unwrap(),
         };
-        let c = orphan_in(&[a, b]);
+        let c = orphan_in(&[a, b], &[]);
         let flagged: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
         assert_eq!(
             flagged,
             vec!["corpus/other/b.yml"],
             "only b is unpointed-at"
+        );
+    }
+
+    /// A class declaring no `direction: in` edge says nothing points at its instances, so
+    /// an orphan there is the ontology holding rather than the corpus failing.
+    ///
+    /// This was 17 of 35 findings in a derived repository — every `person` and every
+    /// `boundary-case`. Both classes are richly out-linked; neither is ever a target. The
+    /// signal was declared in the ontology the whole time and the check did not read it.
+    #[test]
+    fn instances_of_a_source_class_are_not_orphans() {
+        let ont = |name: &str, dir: &str| Class {
+            rel: format!(".yidam/corpus/{name}.ont.yml"),
+            description: String::new(),
+            name: name.into(),
+            declares_edges: true,
+            declares_inbound: dir == "in",
+        };
+        let node = |class: &str, file: &str| Node {
+            path: PathBuf::from(format!("corpus/{class}/{file}.yml")),
+            rel: format!("corpus/{class}/{file}.yml"),
+            inst: serde_yaml::from_str("class: c\nlinks: []\n").unwrap(),
+        };
+
+        // `person` declares only outbound edges; `recording` declares an inbound one.
+        let classes = [ont("person", "out"), ont("recording", "in")];
+        let c = orphan_in(
+            &[node("person", "harris"), node("recording", "scum")],
+            &classes,
+        );
+
+        let flagged: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
+        assert_eq!(
+            flagged,
+            vec!["corpus/recording/scum.yml"],
+            "a source-class instance is exempt; a citable one is not"
+        );
+    }
+
+    /// Silence is not a declaration. A class that declares no edges has said nothing about
+    /// its shape, and reading that as "nothing points at me" would exempt every instance in
+    /// a corpus whose ontology is not filled in — switching the check off precisely where
+    /// the graph is least trustworthy.
+    #[test]
+    fn a_class_declaring_no_edges_is_not_a_source_class() {
+        let silent = Class {
+            rel: ".yidam/corpus/concept.ont.yml".into(),
+            description: String::new(),
+            name: "concept".into(),
+            declares_edges: false,
+            declares_inbound: false,
+        };
+        assert!(!silent.is_source_class());
+
+        let node = Node {
+            path: PathBuf::from("corpus/concept/x.yml"),
+            rel: "corpus/concept/x.yml".into(),
+            inst: serde_yaml::from_str("class: c\nlinks: []\n").unwrap(),
+        };
+        let c = orphan_in(&[node], &[silent]);
+        assert_eq!(
+            c.violations.len(),
+            1,
+            "an undeclared class is still checked"
         );
     }
 
@@ -1080,6 +1210,15 @@ mod tests {
         Class {
             rel: rel.into(),
             description: description.into(),
+            name: rel
+                .rsplit('/')
+                .next()
+                .unwrap_or(rel)
+                .replace(".ont.yml", ""),
+            // Declares an inbound edge, so instances are expected to be pointed at. The
+            // source-class arm is exercised by `orphan_in`'s own tests.
+            declares_edges: true,
+            declares_inbound: true,
         }
     }
 

@@ -209,7 +209,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::catalog_used_by_drift(&sources, &cites),
         checks::catalog_location_malformed(&sources),
         checks::malformed_table(&prose),
-        checks::orphan_in(&nodes),
+        checks::orphan_in(&nodes, &classes),
         checks::catalog_uncited(&sources, &cites),
         checks::class_asserts_purpose(&classes),
         checks::resolution_annotation_malformed(&annotations),
