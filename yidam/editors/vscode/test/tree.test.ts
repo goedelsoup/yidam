@@ -178,6 +178,49 @@ test('a phase in neither namespace still appears', () => {
   assert.deepEqual(ids(tree), ['phases:other'])
 })
 
+/**
+ * `phase/*` is the namespace PHASES.md defines a phase in, and it had no group — every one
+ * fell into `Other` alongside genuinely unclassifiable refs. The CLI carried the same defect
+ * in `active_phase_count`, so both readers of the model looked past the same namespace.
+ */
+test('the phase namespace has its own group, not Other', () => {
+  const tree = phasesTree({
+    ...ENVELOPE,
+    phases: [
+      { name: 'Outcome axis', ref_name: 'phase/outcome-axis', owner: 'x', started: '—', commits: 3 },
+    ],
+  })
+  assert.deepEqual(ids(tree), ['phases:phase'])
+  assert.deepEqual(ids(tree[0].children!), ['phase:phase/outcome-axis'])
+})
+
+/**
+ * A settled ref says so. Active is the expectation and `position` is already the group's
+ * name, so neither is stated — but a ref that outlived its settlement is the one thing in
+ * this view a reader can act on, and the count that hid it is what this whole change is about.
+ */
+test('settledness is the only state the row states', () => {
+  const tree = phasesTree({
+    ...ENVELOPE,
+    phases: [
+      { name: 'Done', ref_name: 'phase/done', owner: 'x', started: '—', commits: 2, state: 'settled' },
+      { name: 'Live', ref_name: 'phase/live', owner: 'x', started: '—', commits: 1, state: 'active' },
+    ],
+  })
+  const rows = tree[0].children!
+  assert.equal(rows.find((r) => r.id === 'phase:phase/done')!.description, '2 commit(s) · settled')
+  assert.equal(rows.find((r) => r.id === 'phase:phase/live')!.description, '1 commit(s)')
+})
+
+/** A binary older than the `state` field omits it; the view must not render `undefined`. */
+test('a report without state still renders', () => {
+  const tree = phasesTree({
+    ...ENVELOPE,
+    phases: [{ name: 'Old', ref_name: 'phase/old', owner: 'x', started: '—', commits: 4 }],
+  })
+  assert.equal(tree[0].children![0].description, '4 commit(s)')
+})
+
 test('no phases says so', () => {
   assert.equal(phasesTree({ ...ENVELOPE, phases: [] })[0].id, 'phases:none')
 })
@@ -565,8 +608,12 @@ test('every view builds from the real binary’s own JSON', async (t) => {
   )
 
   const phases = phasesTree(read<PhasesReport>(['phases']))
-  assert.deepEqual(ids(phases), ['phases:ma', 'phases:rigpa'])
+  // The fixture stages one ref of each kind. `phase/*` was in no fixture at all, which is
+  // why nothing caught either reader ignoring the namespace.
+  assert.deepEqual(ids(phases), ['phases:ma', 'phases:phase', 'phases:rigpa'])
   assert.equal(find(phases, 'phase:ma/hydrologist')!.description, '0 commit(s)')
+  // Branched at HEAD with nothing ahead of the baseline, so the binary reports them settled.
+  assert.equal(find(phases, 'phase:phase/low-flow-survey')!.description, '0 commit(s) · settled')
 
   const sangha = read<SanghaReport>(['sangha'])
   assert.equal(sangha.collective, true)

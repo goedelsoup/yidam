@@ -95,7 +95,19 @@ export interface OpenQuestionsReport extends Envelope {
 }
 
 export interface PhasesReport extends Envelope {
-  phases: { name: string; ref_name: string; owner: string; started: string; commits: number }[]
+  phases: {
+    name: string
+    ref_name: string
+    owner: string
+    started: string
+    commits: number
+    /**
+     * `active`, `settled`, or `position`. Optional because a pinned binary older than the
+     * field omits it, and a view that renders `undefined` is worse than one that renders
+     * nothing.
+     */
+    state?: string
+  }[]
 }
 
 /**
