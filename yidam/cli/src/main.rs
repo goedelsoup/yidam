@@ -228,6 +228,19 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// Reconstruct corpus health across the repository's whole history
+    ///
+    /// Every other report answers about now. This answers about the shape of the change,
+    /// which is where a corpus that is quietly accumulating uncited nodes becomes visible.
+    Replay {
+        /// Rows to print. 0 prints every commit that touched the corpus. Ignored by
+        /// `--format json`, which always carries the whole series.
+        #[arg(long, default_value_t = 12)]
+        every: usize,
+        /// Output format. `json` carries every row and the per-class breakdown.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Serve the domain computer over a stdio protocol
     Serve {
         /// Serve MCP over stdio — the agent surface. Needs the `index` feature.
@@ -419,6 +432,7 @@ fn main() -> Result<()> {
             yidam::log(range, filter, format)
         }
         Command::Phases { format } => yidam::phases(format),
+        Command::Replay { every, format } => yidam::replay(format, every),
         // The two transports are gated separately, and that is the whole point: MCP pulls
         // fastembed, lancedb and protoc; LSP needs none of them. An LSP that required the ML
         // stack would be one nobody could install.

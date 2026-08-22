@@ -1,0 +1,45 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "replay": [
+    {
+      "commit": "4144ae0",
+      "date": "2026-01-01",
+      "nodes": 4,
+      "orphans": 1,
+      "by_class": {
+        "concept": {
+          "nodes": 3,
+          "orphans": 1
+        },
+        "gauge": {
+          "nodes": 1,
+          "orphans": 0
+        }
+      }
+    },
+    {
+      "commit": "2a06889",
+      "date": "2026-01-01",
+      "nodes": 4,
+      "orphans": 1,
+      "by_class": {
+        "concept": {
+          "nodes": 3,
+          "orphans": 1
+        },
+        "gauge": {
+          "nodes": 1,
+          "orphans": 0
+        }
+      }
+    }
+  ]
+}

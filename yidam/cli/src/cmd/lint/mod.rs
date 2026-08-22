@@ -8,7 +8,7 @@
 mod baseline;
 pub(crate) mod checks;
 mod commits;
-mod history;
+pub(crate) mod history;
 pub mod json;
 mod model;
 

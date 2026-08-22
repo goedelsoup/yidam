@@ -261,6 +261,57 @@
       "enum": ["active", "settled", "position"],
       "description": "`phases` only. What one inquiry ref currently is."
     },
+    "replay": {
+      "type": "array",
+      "description": "`replay` only. Corpus health at each commit that touched the corpus, oldest first — the series every other report cannot give, because every other report answers about now. Always the whole series; `--every` samples the text rendering and never this.",
+      "items": {
+        "type": "object",
+        "required": [
+          "commit",
+          "date",
+          "nodes",
+          "orphans",
+          "by_class"
+        ],
+        "properties": {
+          "commit": {
+            "type": "string",
+            "description": "Short hash of the commit this row describes."
+          },
+          "date": {
+            "type": "string",
+            "description": "Commit date, `YYYY-MM-DD`. A date and not an age: an age is a function of when you ask."
+          },
+          "nodes": {
+            "type": "integer",
+            "description": "Instance nodes present at this commit."
+          },
+          "orphans": {
+            "type": "integer",
+            "description": "Nodes nothing points at, excluding classes the ontology says nothing should point at — the same population `orphan-in` reports."
+          },
+          "by_class": {
+            "type": "object",
+            "description": "Per class, keyed by class name. The corpus-wide figure is the one that misleads: it sums classes nothing is meant to point at with classes whose other instances are cited, and only the second is a finding.",
+            "additionalProperties": {
+              "type": "object",
+              "required": [
+                "nodes",
+                "orphans"
+              ],
+              "properties": {
+                "nodes": {
+                  "type": "integer"
+                },
+                "orphans": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "genesis": {
       "type": "string",
       "description": "`status` only."

@@ -211,6 +211,9 @@ const COMMANDS: &[(&str, &[&str])] = &[
     ("corpus-index", &["corpus-index"]),
     ("catalog-audit", &["catalog-audit"]),
     ("phases", &["phases"]),
+    // `--every 0` so the golden holds every row: a sampled golden would pin the sampler
+    // rather than the series, and would move whenever the fixture gained a commit.
+    ("replay", &["replay", "--every", "0"]),
     ("diff", &["diff", "HEAD~1..HEAD"]),
     ("log", &["log"]),
     ("log-epistemic", &["log", "--epistemic"]),

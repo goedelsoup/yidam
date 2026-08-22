@@ -37,7 +37,8 @@ anyone noticing there is nothing to run.
 
 ## Reachability is a per-class property, not a corpus rate
 
-Sampling the `orphan-in` check — nodes nothing points at — across each repository's history:
+Sampling the `orphan-in` check — nodes nothing points at — across each repository's history.
+These are the figures as first measured, with every uncited node counted:
 
 | Instance nodes | ~31 | ~45 | ~67 | ~96 |
 |---|---|---|---|---|
@@ -50,6 +51,11 @@ Sampling the `orphan-in` check — nodes nothing points at — across each repos
 B's rate rises monotonically across its whole life. A holds zero across 696 commits. The
 obvious reading — that one repository is decaying and the other is not — does not survive
 decomposition.
+
+**These numbers overstate B, and the section below is why.** Counting only the nodes
+something was meant to point at, `yidam replay` puts the same repository at 7% → 18%: half
+the level, the same monotonic shape, and the finding intact. The corrected series is the one
+to quote.
 
 In B, **every** `person` node is orphaned, and **every** `boundary-case` node. They are not
 neglected; they are richly out-linked. A person node carries edges reading `played on`,
@@ -213,7 +219,8 @@ than careful writing. Of the two stronger mechanisms:
 | Problem | Mechanism | Reasoning |
 |---|---|---|
 | Phase counting | Read `phase/*`; separate merged from unmerged | The counter reads the wrong namespace entirely, and `ma/*` is not a phase. Deletion stays optional once the number is right. |
-| Orphan residence | Measure first; no gate | Nothing can be thresholded before it is decomposed. Source classes fall out of `edges[].direction`; what remains is age, which nothing yet records. |
+| Orphan residence | Measure first; no gate | Nothing can be thresholded before it is decomposed. Source classes fall out of `edges[].direction`; age comes from replaying the graph, and `orphan-in` now dates every finding. |
+| The series itself | `yidam replay` | Reconstructing it by hand is what found all of this, and what got the level wrong. A tool that costs 360ms should not be a script somebody rewrites. |
 | Commit vocabulary | Leave it | It is working, and it is the control case that makes the argument above legible. |
 | Merge subjects | Prose — one worked example | A norm exercised during the act, which is where prose works. |
 | Unused index | A scope decision | Roughly 1,250 commits of revealed preference. Decide whether it earns its place rather than letting neglect decide. |
@@ -231,6 +238,28 @@ defect a generated scenario would have had to be lucky to reproduce. The two ans
 questions — replay cannot test a prelude change nobody has lived with yet — but for everything
 replay does cover it is strictly cheaper, and three derived repositories are a larger corpus
 of real practice than the harness will generate for a long time.
+
+`yidam replay` is that technique, as a command rather than a throwaway script. It folds over
+the same walk that dates `orphan-in` findings, so a row here and a finding there cannot
+disagree about what the graph looked like on a given day:
+
+```
+Date         Commit    Nodes   Orphans   Share
+2026-08-21   a0ab68b      26         2      7%
+2026-08-21   8be6603      31         1      3%
+2026-08-22   f3e3217      70        10     14%
+2026-08-22   73cfe0f      98        18     18%
+
+Uncited at HEAD, by class
+  recording                13 of 20
+  session                  2 of 4
+```
+
+Its first act was to correct this document. The by-hand series counted every uncited node,
+including the classes nothing was meant to point at; the command counts only the rest, and
+the same repository reads 7% → 18% rather than 22% → 36%. Half the level, the same shape,
+the finding intact — which is the argument for measuring by tool rather than by hand made
+against the document that made it.
 
 ## What is not established
 
