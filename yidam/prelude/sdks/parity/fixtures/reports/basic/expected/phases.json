@@ -11,13 +11,23 @@
   "phases": [
     {
       "name": "Hydrologist",
+      "state": "position",
       "ref_name": "ma/hydrologist",
       "owner": "Fixture",
       "started": "2026-01-01",
       "commits": 0
     },
     {
+      "name": "Low flow survey",
+      "state": "settled",
+      "ref_name": "phase/low-flow-survey",
+      "owner": "Fixture",
+      "started": "2026-01-01",
+      "commits": 0
+    },
+    {
       "name": "Tailwater regime",
+      "state": "settled",
       "ref_name": "rigpa/tailwater-regime",
       "owner": "Fixture",
       "started": "2026-01-01",

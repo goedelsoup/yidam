@@ -59,18 +59,62 @@ pub fn genesis_message(root: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// An active inquiry phase: a branch under `ma/*` or `rigpa/*`, wherever it lives.
+/// What kind of thing a tracked ref is. The three namespaces are not interchangeable and
+/// counting them as one is what [`active_phase_count`] used to do.
+///
+/// A derived repository reported **26 active phase(s)** while holding exactly one phase. The
+/// 26 were three elector positions and twenty-three settled evolutions; its twenty-seven
+/// `phase/*` refs — the namespace [`PHASES.md`] actually defines a phase in — were not read
+/// at all. Two of those errors cancel into a plausible-looking number, which is why this is
+/// typed rather than left to a prefix test at each call site.
+///
+/// [`PHASES.md`]: https://github.com/goedelsoup/yidam/blob/main/yidam/prelude/PHASES.md
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RefKind {
+    /// `ma/<elector>` — a standing elector position. Long-lived by design: divergence from
+    /// the baseline is its purpose, so it is never settled and never counted as a phase.
+    Position,
+    /// `rigpa/<evolution>` — a resolution branch. Bounded; settles onto the baseline.
+    Evolution,
+    /// `phase/<name>` — a bounded investigation. Settles onto the baseline, and PHASES.md
+    /// prescribes deleting the ref afterwards.
+    Phase,
+}
+
+impl RefKind {
+    /// Whether this kind is bounded work that ends by settling onto the baseline.
+    ///
+    /// A position is not: an elector's ref is *meant* to sit ahead of the baseline forever,
+    /// so asking whether it has been merged is a category error rather than a hygiene check.
+    pub fn settles(self) -> bool {
+        matches!(self, RefKind::Evolution | RefKind::Phase)
+    }
+}
+
+/// A tracked inquiry ref: a branch under `ma/*`, `rigpa/*` or `phase/*`, wherever it lives.
 #[derive(Debug, PartialEq, Eq)]
 pub struct PhaseRef {
-    /// The phase, with any remote prefix removed: `ma/substrate-survey`.
+    /// The ref, with any remote prefix removed: `ma/substrate-survey`.
     pub name: String,
     /// The ref to read for it — the local branch when there is one, else the
     /// remote-tracking ref. Never assume this equals `name`.
     pub git_ref: String,
+    /// Which namespace it belongs to.
+    pub kind: RefKind,
+}
+
+fn kind_of(name: &str) -> Option<RefKind> {
+    match name.split_once('/')? {
+        ("ma", _) => Some(RefKind::Position),
+        ("rigpa", _) => Some(RefKind::Evolution),
+        ("phase", _) => Some(RefKind::Phase),
+        _ => None,
+    }
 }
 
 fn is_phase(name: &str) -> bool {
-    name.starts_with("ma/") || name.starts_with("rigpa/")
+    kind_of(name).is_some()
 }
 
 /// Reduce `git for-each-ref --format=%(refname:short) refs/heads refs/remotes` to phases.
@@ -101,7 +145,14 @@ pub(crate) fn parse_phase_refs(out: &str) -> Vec<PhaseRef> {
     }
     by_name
         .into_iter()
-        .map(|(name, git_ref)| PhaseRef { name, git_ref })
+        .filter_map(|(name, git_ref)| {
+            let kind = kind_of(&name)?;
+            Some(PhaseRef {
+                name,
+                git_ref,
+                kind,
+            })
+        })
         .collect()
 }
 
@@ -136,8 +187,77 @@ pub fn phase_refs(root: &Path) -> Vec<PhaseRef> {
         .unwrap_or_default()
 }
 
-pub fn active_phase_count(root: &Path) -> usize {
-    phase_refs(root).len()
+/// The branch bounded work settles onto: `main` if it exists, else `master`.
+pub(crate) fn base_branch(root: &Path) -> Option<String> {
+    ["main", "master"].into_iter().find_map(|name| {
+        let out = std::process::Command::new("git")
+            .current_dir(root)
+            .args(["rev-parse", "--verify", "--quiet", name])
+            .output()
+            .ok()?;
+        out.status.success().then(|| name.to_string())
+    })
+}
+
+/// Whether `git_ref` is already an ancestor of the baseline — its work landed.
+///
+/// A repository with no baseline branch has nothing to have settled onto, so everything
+/// reads as unsettled. That is the honest answer during bootstrap, before `main` exists.
+fn is_settled(root: &Path, git_ref: &str, base: Option<&str>) -> bool {
+    let Some(base) = base else { return false };
+    if base == git_ref {
+        return false;
+    }
+    std::process::Command::new("git")
+        .current_dir(root)
+        .args(["merge-base", "--is-ancestor", git_ref, base])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// What the tracked refs actually hold, split by the three things they can be.
+#[derive(Debug, Default, PartialEq, Eq, serde::Serialize)]
+pub struct PhaseTally {
+    /// Bounded work not yet on the baseline — the only number that means "in flight".
+    pub active: usize,
+    /// Bounded work already merged, whose ref outlived its settlement. PHASES.md
+    /// prescribes deleting these; leaving them is the drift this number makes visible.
+    pub settled: usize,
+    /// Standing elector positions. Neither active work nor drift — a third thing.
+    pub positions: usize,
+}
+
+/// What a ref currently is, in one word: `active`, `settled`, or `position`.
+///
+/// The single classifier. `yidam status` counts these and `yidam phases` prints them, and
+/// they must not be able to disagree — a derived repository once held three separate
+/// implementations of "does this node cite that source" and only two of them agreed.
+pub(crate) fn ref_state(root: &Path, r: &PhaseRef, base: Option<&str>) -> &'static str {
+    if !r.kind.settles() {
+        "position"
+    } else if is_settled(root, &r.git_ref, base) {
+        "settled"
+    } else {
+        "active"
+    }
+}
+
+/// Classify every tracked ref against the baseline.
+///
+/// This replaced a plain `phase_refs(root).len()`, which counted all three namespaces as
+/// active phases while reading none of `phase/*`. See [`RefKind`] for what that cost.
+pub fn phase_tally(root: &Path) -> PhaseTally {
+    let base = base_branch(root);
+    let mut tally = PhaseTally::default();
+    for r in phase_refs(root) {
+        match ref_state(root, &r, base.as_deref()) {
+            "position" => tally.positions += 1,
+            "settled" => tally.settled += 1,
+            _ => tally.active += 1,
+        }
+    }
+    tally
 }
 
 #[cfg(test)]
@@ -209,6 +329,38 @@ origin/rigpa/payload-budget
     fn the_prefix_boundary_is_a_slash() {
         assert!(names("malformed\nrigpaX\n").is_empty());
         assert_eq!(names("ma/x\n"), ["ma/x"]);
+    }
+
+    /// The namespace PHASES.md defines a phase in. It was read by nothing: a derived
+    /// repository held twenty-seven of these and `yidam status` counted none of them.
+    #[test]
+    fn the_phase_namespace_is_read() {
+        let refs = parse_phase_refs("phase/outcome-axis\norigin/phase/the-local-half\n");
+        assert_eq!(refs.len(), 2);
+        assert_eq!(refs[0].name, "phase/outcome-axis");
+        assert_eq!(refs[0].kind, RefKind::Phase);
+        assert_eq!(refs[1].git_ref, "origin/phase/the-local-half");
+    }
+
+    /// Each namespace is a different thing, and the count that conflated them reported 26
+    /// active phases for a repository holding one.
+    #[test]
+    fn each_namespace_carries_its_own_kind() {
+        let refs = parse_phase_refs("ma/auditor\nphase/outcome-axis\nrigpa/term-of-art\n");
+        let kinds: Vec<RefKind> = refs.iter().map(|r| r.kind).collect();
+        assert_eq!(
+            kinds,
+            [RefKind::Position, RefKind::Phase, RefKind::Evolution]
+        );
+    }
+
+    /// A standing position never settles. Divergence from the baseline is what it is *for*,
+    /// so asking whether it merged is a category error rather than a hygiene check.
+    #[test]
+    fn only_bounded_work_settles() {
+        assert!(!RefKind::Position.settles());
+        assert!(RefKind::Evolution.settles());
+        assert!(RefKind::Phase.settles());
     }
 
     /// A remote is not always called `origin`.

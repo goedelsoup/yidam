@@ -15,6 +15,8 @@
   "claims_inference": 1,
   "claims_open": 1,
   "index_present": false,
-  "active_phases": 2,
+  "active_phases": 0,
+  "settled_phases": 2,
+  "positions": 1,
   "genesis": "2026-01-01"
 }

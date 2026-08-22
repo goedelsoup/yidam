@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::path::Path;
 
-use crate::git::{active_phase_count, genesis_date};
+use crate::git::{genesis_date, phase_tally};
 use crate::parse::CorpusInstance;
 use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir, yidam_index_dir};
 use crate::regen::update_file_regen;
@@ -16,7 +16,13 @@ struct StatusReport {
     claims_inference: usize,
     claims_open: usize,
     index_present: bool,
+    /// Bounded work not yet on the baseline. Before `phase_tally` this counted every
+    /// `ma/*` and `rigpa/*` ref and no `phase/*` ref at all — see [`crate::git::RefKind`].
     active_phases: usize,
+    /// Merged `phase/*` and `rigpa/*` refs still present. PHASES.md prescribes deleting them.
+    settled_phases: usize,
+    /// Standing `ma/*` elector positions, which are neither active work nor drift.
+    positions: usize,
     genesis: String,
 }
 
@@ -61,12 +67,24 @@ pub fn status(format: crate::report::Format) -> Result<()> {
         "not initialized"
     };
 
-    let phases = active_phase_count(&root);
+    let phases = phase_tally(&root);
     let genesis = genesis_date(&root);
+
+    // Only the counts that exist are rendered. A single-elector repository has no positions
+    // and a repository that deletes settled refs has no settled count; showing either as a
+    // permanent `· 0` gives the reader a number they can never act on. `active` is always
+    // shown, because zero active phases is a real and readable state.
+    let mut phase_cell = format!("{} active phase(s)", phases.active);
+    if phases.settled > 0 {
+        phase_cell.push_str(&format!(" · {} settled", phases.settled));
+    }
+    if phases.positions > 0 {
+        phase_cell.push_str(&format!(" · {} position(s)", phases.positions));
+    }
 
     let content = format!(
         "**{node_count} nodes** · {open_count} open · {catalog_entries} sources · \
-         claims {} · index {index_freshness} · {phases} active phase(s) · genesis {genesis}",
+         claims {} · index {index_freshness} · {phase_cell} · genesis {genesis}",
         claims.cell()
     );
 
@@ -81,7 +99,9 @@ pub fn status(format: crate::report::Format) -> Result<()> {
                 claims_inference: claims.inference,
                 claims_open: claims.open,
                 index_present: index_path.exists(),
-                active_phases: phases,
+                active_phases: phases.active,
+                settled_phases: phases.settled,
+                positions: phases.positions,
                 genesis: genesis.clone(),
             },
         );
