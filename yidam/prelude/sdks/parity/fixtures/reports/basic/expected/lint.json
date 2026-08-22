@@ -109,7 +109,7 @@
       "violations": [
         {
           "node": ".yidam/corpus/concept/tailwater.yml",
-          "detail": "nothing links to this node",
+          "detail": "nothing links to this node — uncited since 2026-01-01",
           "in_baseline": false
         }
       ]
