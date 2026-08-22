@@ -596,8 +596,12 @@ test('every view builds from the real binary’s own JSON', async (t) => {
   // Both arms of the open-question predicate, from the real report. A corpus using only
   // one of them cannot tell an implementation that reads both from one that reads either
   // — which is why the MCP cases were split into two nodes, and the same was true here.
+  //
+  // Three, not two, since the fixture gained a claim written in backticks. That node is the
+  // one that distinguishes the current rule from the typographic one it replaced: under
+  // "a backticked tag is a mention" it would not be an open question at all.
   const labels = open.open_questions.map((q) => q.label)
-  assert.equal(labels.length, 2)
+  assert.equal(labels.length, 3)
   assert.ok(
     labels.some((l) => l.startsWith('?')),
     'the arm stated in the label',

@@ -46,6 +46,20 @@ pub fn mask_code_spans(line: &str) -> String {
 /// Applied to YAML as readily as to markdown, because a corpus node is YAML whose
 /// `description` is markdown, and the tokens this exists to protect live in that field.
 pub fn mask_code(text: &str) -> String {
+    mask(text, true)
+}
+
+/// Blank fenced blocks only, leaving inline code spans intact.
+///
+/// The claim counter wants this and not [`mask_code`]. A fenced block is shown rather than
+/// said and holds no claims; an inline span is ordinary prose punctuation, and treating it as
+/// a mention marker cost a derived corpus 80% of its `[open]` claims — see
+/// [`crate::claims`], which decides mention-versus-claim grammatically instead.
+pub fn mask_fenced(text: &str) -> String {
+    mask(text, false)
+}
+
+fn mask(text: &str, spans: bool) -> String {
     let mut out = String::with_capacity(text.len());
     let mut fence: Option<String> = None;
     for raw in text.split_inclusive('\n') {
@@ -68,7 +82,8 @@ pub fn mask_code(text: &str) -> String {
                 fence = Some(trimmed.chars().take(3).collect());
                 blank_into(line, &mut out);
             }
-            None => out.push_str(&mask_code_spans(line)),
+            None if spans => out.push_str(&mask_code_spans(line)),
+            None => out.push_str(line),
         }
         out.push_str(nl);
     }

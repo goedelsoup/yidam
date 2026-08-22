@@ -46,10 +46,16 @@ to = "Water downstream of a structure. [inference]"
 # The verified arm. It used to be here as an edit against tailwater.yml naming a string
 # that lives in low-flow.yml, so `String::replace` found nothing and did nothing, and
 # `claims_verified` read 0 for reasons no one had chosen.
+#
+# The second sentence is a claim **in backticks**, and it must count. Without it the fixture
+# could not tell the current rule from the typographic one it replaced: tailwater's two
+# mentions are silenced under either, so re-introducing "a backticked tag is a mention" would
+# move no golden and no test would notice. A corpus that reported this defect writes 80% of
+# its `[open]` claims exactly like this one.
 [[commits.replace]]
 file = ".yidam/corpus/gauge/riffle-station.yml"
 from = "A stage gauge at the riffle."
-to = "A stage gauge at the riffle. [verified]"
+to = "A stage gauge at the riffle. [verified] Whether it reads low flow comparably is `[open]`."
 
 # One operational commit, so the log goldens show the split rather than a column of [E].
 # A fixture whose history is all one kind cannot demonstrate a classifier.

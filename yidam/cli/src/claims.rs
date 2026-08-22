@@ -26,11 +26,48 @@
 //! — which no human writes and everyone therefore trusts. It was found because a reader
 //! happened to hold an expectation about the number, not by any check.
 //!
-//! So the text scan reads [`crate::markdown::mask_code`] first. Inline code is markdown's
-//! conventional signal for mention-rather-than-use, and it costs a corpus nothing to say
-//! what it means. The frozen MCP contract already described the predicate this way — "the
-//! body contains an `[open]` **claim**" — so this makes the implementation agree with the
-//! words rather than changing what they promise.
+//! The frozen MCP contract already described the predicate this way — "the body contains an
+//! `[open]` **claim**" — so telling a mention from a claim is agreeing with words the
+//! contract already promised rather than changing them. What it did **not** say was how, and
+//! that gap is where this went wrong once already.
+//!
+//! ## The typographic rule, and why it is gone
+//!
+//! The first answer was that a tag in backticks is a mention. Inline code is markdown's
+//! conventional signal for mention-rather-than-use, it costs a corpus nothing to say what it
+//! means, and it is wrong.
+//!
+//! Measured against a mature derived corpus — 99 nodes, ~800 tagged claims — it moved that
+//! repository's own generated self-description:
+//!
+//! | | before | after |
+//! |---|---:|---:|
+//! | open questions, on the README | 72 | **26** |
+//! | counted `[open]` claims | **227** | **43** |
+//!
+//! Because of how tags are actually written: of that corpus's 230 `[open]` tags, **184 are
+//! backticked and they are claims**. An open question is written mid-sentence with the token
+//! set off from the prose around it — *"Whether the money and the vote are connected is
+//! `[open]`"* — while `[verified]` terminates a sentence of fact and reads fine bare, at 4%
+//! backticked. The asymmetry is not one repository's house style; it follows from what each
+//! tag is for.
+//!
+//! So the rule made a corpus **understate its open questions fivefold**, in a generated
+//! block, on its front page, with no diagnostic. That is the flattering direction, and it is
+//! the one direction this vocabulary exists to prevent: anything computing a publication
+//! permission from the weakest tag in a supporting chain would promote blocks that should not
+//! travel. A derived repository implemented the same rule, measured it, and threw it out.
+//!
+//! ## Grammar instead
+//!
+//! [`is_narrated`] decides, on three shapes and no others — a plural or possessive, a
+//! past-tense reporting verb, or a negation. Two candidate arms were cut *by measurement*
+//! downstream (copulas, and the present tense), and the reasons are recorded there.
+//!
+//! The rule is written into `prelude/sdks/parity/mcp/tools.json` with the three arms it
+//! serves, because a contract that freezes which arms exist and leaves *what counts as a
+//! claim* unsaid lets two conforming implementations disagree fivefold — which is what
+//! happened.
 //!
 //! The opposite failure is left to `lint`. A tag with its citation folded inside the
 //! brackets — `[verified — <source>]` — matches no token and is counted as *nothing*, just
@@ -286,14 +323,131 @@ pub fn is_open_question(label: &str, text: &str, fields: &[String]) -> bool {
     label.trim_start().starts_with('?')
         // Masked, for the same reason the counter is: a node explaining what `[open]` means
         // is not thereby an open question.
-        || crate::markdown::mask_code(text).contains(OPEN)
+        || count_tag(&crate::markdown::mask_fenced(text), OPEN) > 0
         || count_structural(text, fields).open > 0
 }
 
+/// Past-tense transitive reporting verbs. A tag that is the object of one is being reported,
+/// not made: *"an earlier version said they were `[open]`"*.
+///
+/// **Past tense only, and no copulas.** Both cuts are measurements, not taste. `carries` and
+/// `records` are the corpus *applying* a tag — "this node now carries `[open]`" asserts it —
+/// and reading the present tense as narration produced three false positives. `was`, `were`,
+/// `remains` and `held` produced five more, every one a live claim: *"Why the appointment was
+/// made is `[open]`"*. All eight were in the promoting direction.
+const REPORTING_VERBS: &[&str] = &[
+    "carried", "said", "stated", "called", "wrote", "written", "tagged", "marked", "read",
+];
+
+/// Negations. The sentence denies the tag rather than applying it.
+///
+/// `no`, `nobody` and `nothing` are here for the same reason `written` is on the verb list:
+/// English negates with more than the word `not`, and a rule that reads *"this claim is not
+/// `[verified]`"* but not *"no claim here is `[verified]`"* has not implemented the arm it
+/// claims to. They are completions of one shape, not extra shapes.
+const NEGATIONS: &[&str] = &["not", "never", "no", "nobody", "nothing", "none", "neither"];
+
+/// How far back a narrating construction may sit. Measured downstream at ~18 characters;
+/// beyond that the verb belongs to a different clause.
+const NARRATION_WINDOW: usize = 18;
+
+/// The clause immediately before `start`, lowercased, at most [`NARRATION_WINDOW`] chars.
+///
+/// Stops at a clause boundary, which is what keeps *"does not assert either figure as the
+/// reconciled one. `[open]`"* from reading as a negation: the `not` is in the sentence
+/// before, and narration does not reach across a full stop.
+fn preceding_clause(text: &str, start: usize) -> String {
+    let head = &text[..start];
+    let from = head
+        .char_indices()
+        .rev()
+        .take(NARRATION_WINDOW)
+        .last()
+        .map_or(0, |(i, _)| i);
+    let tail = &head[from..];
+    match tail.rfind(['.', ';', ':', '\n', '!', '?', ',']) {
+        Some(i) => tail[i + 1..].to_lowercase(),
+        None => tail.to_lowercase(),
+    }
+}
+
+fn has_word(hay: &str, word: &str) -> bool {
+    hay.split(|c: char| !c.is_alphanumeric()).any(|w| w == word)
+}
+
+/// Metalinguistic nouns. A tag immediately followed by one is being named: *"the `[open]`
+/// tag marks an unanswered claim"*, *"a `[verified]` claim about provenance"*.
+///
+/// A determiner *before* the tag was tried first and cut. It reads correctly on the corpus
+/// that motivated this — seven occurrences, seven mentions — but only because that corpus
+/// happens never to write *"A [verified] fact"*, which is an ordinary assertion the arm
+/// killed. Being right on one corpus and wrong on plausible prose is how a word list starts
+/// getting tuned; the noun is the part that actually carries the naming.
+const NAMING_NOUNS: &[&str] = &[
+    "tag", "tags", "claim", "claims", "marker", "markers", "token", "tokens",
+];
+
+/// Whether the word immediately after the tag names it rather than being described by it.
+fn followed_by_naming_noun(after: &str) -> bool {
+    let word: String = after
+        .trim_start_matches('`')
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_alphanumeric())
+        .collect();
+    NAMING_NOUNS.contains(&word.to_lowercase().as_str())
+}
+
+/// Whether the tag occupying `start..end` is being named rather than asserted.
+///
+/// Grammar, not typography. The typographic rule this replaced — a tag in backticks is a
+/// mention — was measured against a mature corpus and failed in the one direction the
+/// evidence vocabulary exists to prevent: 80% of that corpus's `[open]` tags are backticked
+/// and are claims, because an open question is usually written mid-sentence with the token
+/// set off from the prose (*"Whether the money and the vote are connected is `[open]`"*),
+/// while `[verified]` terminates a sentence of fact and reads fine bare. Applying it made a
+/// repository understate its open questions fivefold, on its front page, with no diagnostic.
+///
+/// Four shapes and no others:
+fn is_narrated(text: &str, start: usize, end: usize) -> bool {
+    // 1. Pluralised — the tag is a noun being counted, not a tag being made.
+    //    "Two of those three `[open]`s are closed."
+    let after = text[end..].trim_start_matches('`');
+    if after.starts_with('s') || after.starts_with("'s") || after.starts_with('\u{2019}') {
+        return true;
+    }
+
+    // 2. Named by the noun that follows it — "the `[open]` tag", "a `[verified]` claim".
+    if followed_by_naming_noun(after) {
+        return true;
+    }
+
+    let clause = preceding_clause(text, start);
+
+    // 3. Object of a past-tense reporting verb.
+    if REPORTING_VERBS.iter().any(|v| has_word(&clause, v)) {
+        return true;
+    }
+
+    // 4. Negated — the sentence denies the tag rather than applying it. "This claim is not
+    //    `[verified]`" and "The three-fifths requirement is no longer `[open]`" are the two
+    //    forms seen in a real corpus. This arm is not in the downstream rule; without it,
+    //    dropping the typographic rule reintroduces the defect that motivated it, and does so
+    //    on `[verified]`, where over-counting is the unsafe direction.
+    NEGATIONS.iter().any(|n| has_word(&clause, n)) || clause.contains("no longer")
+}
+
+/// Occurrences of `tag` in `text` that are asserted rather than named.
+fn count_tag(text: &str, tag: &str) -> usize {
+    text.match_indices(tag)
+        .filter(|(i, _)| !is_narrated(text, *i, i + tag.len()))
+        .count()
+}
+
 fn tally(text: &str, counts: &mut ClaimCounts) {
-    counts.verified += text.matches(VERIFIED).count();
-    counts.inference += text.matches(INFERENCE).count();
-    counts.open += text.matches(OPEN).count();
+    counts.verified += count_tag(text, VERIFIED);
+    counts.inference += count_tag(text, INFERENCE);
+    counts.open += count_tag(text, OPEN);
 }
 
 /// Count markers in a whole instance file.
@@ -303,7 +457,7 @@ fn tally(text: &str, counts: &mut ClaimCounts) {
 /// and nested maps, and a typed walk would have to anticipate each.
 pub fn count_in_source(text: &str) -> ClaimCounts {
     let mut counts = ClaimCounts::default();
-    tally(&crate::markdown::mask_code(text), &mut counts);
+    tally(&crate::markdown::mask_fenced(text), &mut counts);
     counts
 }
 
@@ -337,20 +491,92 @@ mod tests {
     /// The reported case: a node that names the vocabulary rather than using it.
     ///
     /// `yidam status` published 1 verified claim against a true 0 for four commits on a
-    /// sentence shaped like this one.
+    /// sentence shaped like this one. The negation arm is what keeps it fixed — this is a
+    /// denial, not a plural, a naming noun, or a reporting verb, so dropping the typographic
+    /// rule without it would have reinstated the defect on `[verified]`, where over-counting
+    /// is the unsafe direction.
     #[test]
-    fn a_backticked_token_is_a_mention_and_is_not_counted() {
+    fn a_negated_token_is_a_mention_and_is_not_counted() {
         let c = count_in_source("This claim is not `[verified]`; nobody has checked it.");
-        assert_eq!(c.verified, 0, "inline code is a mention, not a claim");
+        assert_eq!(c.verified, 0, "a denial is not an assertion");
         assert_eq!(c.total(), 0);
     }
 
+    /// Backticks decide nothing. This is the whole change: the corpus that reported the
+    /// defect writes 80% of its `[open]` claims in inline code, because an open question is
+    /// written mid-sentence with the token set off from the prose around it.
+    #[test]
+    fn a_backticked_tag_is_counted_when_it_is_asserted() {
+        let c = count_in_source("Whether the money and the vote are connected is `[open]`.");
+        assert_eq!(c.open, 1, "typography is not the signal");
+    }
+
+    /// Narration: the tag is the object of a past-tense reporting verb.
+    #[test]
+    fn a_reported_tag_is_not_counted() {
+        assert_eq!(
+            count_in_source("An earlier version said they were `[open]` in the same breath.").open,
+            0
+        );
+    }
+
+    /// The present tense is the corpus *applying* a tag, not reporting one. Cut from the verb
+    /// list by measurement downstream — three false positives, all promoting.
+    #[test]
+    fn the_present_tense_asserts_and_is_counted() {
+        assert_eq!(count_in_source("This node now carries [open].").open, 1);
+        assert_eq!(count_in_source("The node carried [open].").open, 0);
+    }
+
+    /// Copulas were cut for the same reason — five false positives, every one a live claim.
+    #[test]
+    fn a_copula_is_not_narration() {
+        assert_eq!(
+            count_in_source("Why the appointment was made is `[open]`.").open,
+            1,
+            "`was` earlier in the clause must not silence a live claim"
+        );
+    }
+
+    /// Narration does not reach across a full stop, which is what keeps a negation in the
+    /// previous sentence from silencing the next one's claim.
+    #[test]
+    fn narration_stops_at_a_clause_boundary() {
+        let c = count_in_source("This corpus does not assert either figure. `[open]`");
+        assert_eq!(c.open, 1, "the `not` belongs to the sentence before");
+    }
+
+    /// A tag being counted as a noun is a tag being discussed.
+    #[test]
+    fn a_pluralised_tag_is_not_counted() {
+        assert_eq!(
+            count_in_source("Two of those three `[open]`s are now closed.").open,
+            0
+        );
+    }
+
     /// Both halves, in one sentence, because a corpus that discusses its own vocabulary
-    /// writes both — and masking the wrong one is how a fix becomes the next defect.
+    /// writes both — and silencing the wrong one is how a fix becomes the next defect.
     #[test]
     fn a_mention_and_a_use_on_one_line_are_told_apart() {
-        let c = count_in_source("Unlike `[open]`, this one is settled. [verified]");
+        let c = count_in_source("The `[open]` tag is named here. This one is settled. [verified]");
         assert_eq!((c.verified, c.open), (1, 0));
+    }
+
+    /// A mention no arm reaches, recorded rather than legislated for.
+    ///
+    /// *"Unlike `[open]`, …"* names the tag and is counted as making it. Adding a
+    /// comparative-preposition arm would fix this sentence and nothing else — it appears
+    /// nowhere in any corpus measured, and a rule extended to satisfy a test it was not
+    /// derived from is how a word list starts being tuned until the build goes green.
+    ///
+    /// It is left because the direction is right: an uncaught mention **over**-counts
+    /// `[open]`, which overstates how much is unsettled. The failure this replaced ran the
+    /// other way, and that is the one the vocabulary exists to prevent.
+    #[test]
+    fn an_uncaught_mention_fails_toward_caution() {
+        let c = count_in_source("Unlike `[open]`, this one is settled.");
+        assert_eq!(c.open, 1, "counted — and counting open is the safe error");
     }
 
     /// A fenced example is shown, not said.

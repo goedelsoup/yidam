@@ -55,12 +55,36 @@ readers and agents can assess the node's reliability without reading sources:
   citation inside matches nothing and the claim is counted as untagged. It looks tagged to a
   reader and reads as bare assertion to every tool. Write `[verified]` and then the citation.
   `yidam lint` reports the near miss as `claim-tag-malformed`.
-- **To name a tag rather than make one, put it in backticks.** A node whose subject touches
-  the evidence vocabulary has to write the tokens to talk about them, and a scanner reading
-  bytes cannot tell that from an assertion. Inline code is the signal, and it is honoured: a
-  `` `[verified]` `` in a sentence is a mention and is not counted, and neither is anything
-  inside a fenced block. Every token in these two bullets is written that way, and none of
-  them adds anything to any count.
+- **To name a tag rather than make one, say that you are naming it.** A node whose subject
+  touches the evidence vocabulary has to write the tokens to talk about them, and a scanner
+  reading bytes cannot tell that from an assertion. The signal is **grammar, not
+  typography** — a tag is read as named on four shapes and no others:
+
+  | Shape | Example |
+  |---|---|
+  | Pluralised | *Two of those three `[open]`s are closed.* |
+  | Named by the noun after it | *The `[open]` tag marks an unanswered claim.* |
+  | Object of a past-tense reporting verb | *An earlier version said they were `[open]`.* |
+  | Negated | *This claim is not `[verified]`.* |
+
+  Anything inside a fenced block is shown rather than said, and is never counted.
+
+  **Backticks decide nothing**, and this bullet used to say the opposite. A derived corpus
+  writes 80% of its `[open]` claims in inline code — an open question is written mid-sentence
+  with the token set off from the prose around it, *"whether the two are connected is
+  `[open]`"*, while `[verified]` ends a sentence of fact and reads fine bare. Honouring the
+  backtick made that repository understate its open questions **fivefold** on its own front
+  page, with no diagnostic. The tags exist so a corpus cannot overstate what it knows, and
+  that is the one direction the rule must never fail in.
+
+  The present tense is not narration — *"this node now carries `[open]`"* applies a tag —
+  and neither is a copula: *"why the appointment was made is `[open]`"* is a live claim.
+  Both were cut from the rule by measurement, at eight false positives between them.
+
+  The rule is frozen alongside the `open_questions` arms in
+  [`sdks/parity/mcp/tools.json`](../sdks/parity/mcp/tools.json). A contract that says which
+  arms exist and leaves *what counts as a claim* unsaid lets two conforming implementations
+  disagree fivefold, which is exactly what happened.
 
 ### An edge is a claim
 

@@ -1,2 +1,2 @@
-**4 nodes** · 2 open · 1 sources · claims 1v / 1i / 1o · index not initialized · 0 active phase(s) · 2 settled · 1 position(s) · genesis 2026-01-01
+**4 nodes** · 3 open · 1 sources · claims 1v / 1i / 2o · index not initialized · 0 active phase(s) · 2 settled · 1 position(s) · genesis 2026-01-01
   updated <ROOT>/README.md
