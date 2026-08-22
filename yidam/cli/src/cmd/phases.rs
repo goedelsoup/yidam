@@ -3,11 +3,18 @@ use std::path::Path;
 
 use crate::paths::repo_root;
 
-/// One row of the `yidam phases` table: an active inquiry phase backed by a
-/// `ma/*` or `rigpa/*` branch.
+/// One row of the `yidam phases` table: an inquiry ref backed by a `ma/*`, `rigpa/*` or
+/// `phase/*` branch.
+///
+/// `phase/*` was absent from both this table and the status count until the namespace was
+/// typed — see [`crate::git::RefKind`]. A table that lists settled evolutions beside standing
+/// positions and calls the lot "active phases" is why `state` is a column rather than a
+/// filter: every ref is shown, and each says what it is.
 #[derive(serde::Serialize)]
 pub(crate) struct PhaseRow {
     pub name: String,
+    /// `active`, `settled`, or `position`.
+    pub state: String,
     pub ref_name: String,
     pub owner: String,
     pub started: String,
@@ -28,17 +35,6 @@ fn git_stdout(root: &Path, args: &[&str]) -> Option<String> {
         .map(|s| s.trim().to_string())
 }
 
-/// The branch phase commits are counted against: `main` if it exists,
-/// otherwise `master`.
-fn base_branch(root: &Path) -> Option<String> {
-    for name in ["main", "master"] {
-        if git_stdout(root, &["rev-parse", "--verify", "--quiet", name]).is_some() {
-            return Some(name.to_string());
-        }
-    }
-    None
-}
-
 /// "substrate-survey" → "Substrate survey"
 fn humanize(slug: &str) -> String {
     let spaced = slug.replace(['-', '_'], " ");
@@ -55,7 +51,7 @@ pub(crate) fn collect_phases(root: &Path) -> Result<Vec<PhaseRow>> {
     // function for what it cost.
     let phases = crate::git::phase_refs(root);
 
-    let base = base_branch(root);
+    let base = crate::git::base_branch(root);
     let mut rows = Vec::new();
 
     for phase in &phases {
@@ -104,6 +100,7 @@ pub(crate) fn collect_phases(root: &Path) -> Result<Vec<PhaseRow>> {
 
         rows.push(PhaseRow {
             name: humanize(slug),
+            state: crate::git::ref_state(root, phase, base.as_deref()).to_string(),
             ref_name: ref_name.to_string(),
             owner,
             started,
@@ -116,15 +113,16 @@ pub(crate) fn collect_phases(root: &Path) -> Result<Vec<PhaseRow>> {
 
 pub(crate) fn render_phases(rows: &[PhaseRow]) -> String {
     if rows.is_empty() {
-        return "No active phases (no ma/* or rigpa/* branches).".to_string();
+        return "No inquiry refs (no ma/*, rigpa/* or phase/* branches).".to_string();
     }
 
-    let headers = ["Phase", "Ref", "Owner", "Started", "Commits"];
-    let cells: Vec<[String; 5]> = rows
+    let headers = ["Phase", "State", "Ref", "Owner", "Started", "Commits"];
+    let cells: Vec<[String; 6]> = rows
         .iter()
         .map(|r| {
             [
                 r.name.clone(),
+                r.state.clone(),
                 r.ref_name.clone(),
                 r.owner.clone(),
                 r.started.clone(),
@@ -133,7 +131,7 @@ pub(crate) fn render_phases(rows: &[PhaseRow]) -> String {
         })
         .collect();
 
-    let widths: Vec<usize> = (0..5)
+    let widths: Vec<usize> = (0..6)
         .map(|i| {
             cells
                 .iter()
@@ -145,7 +143,7 @@ pub(crate) fn render_phases(rows: &[PhaseRow]) -> String {
         .collect();
 
     let mut lines = Vec::with_capacity(rows.len() + 2);
-    let fmt_row = |cols: [&str; 5]| -> String {
+    let fmt_row = |cols: [&str; 6]| -> String {
         cols.iter()
             .enumerate()
             .map(|(i, c)| format!("{c:<width$}", width = widths[i]))
@@ -164,12 +162,13 @@ pub(crate) fn render_phases(rows: &[PhaseRow]) -> String {
             .join("   "),
     );
     for c in &cells {
-        lines.push(fmt_row([&c[0], &c[1], &c[2], &c[3], &c[4]]));
+        lines.push(fmt_row([&c[0], &c[1], &c[2], &c[3], &c[4], &c[5]]));
     }
     lines.join("\n")
 }
 
-/// Print the table of active inquiry phases (`ma/*` and `rigpa/*` branches).
+/// Print the table of inquiry refs (`ma/*`, `rigpa/*` and `phase/*` branches), each with the
+/// state that distinguishes work in flight from work already settled.
 #[derive(serde::Serialize)]
 struct PhasesReport<'a> {
     phases: &'a [PhaseRow],
@@ -247,14 +246,28 @@ mod tests {
         assert_eq!(rows[0].name, "Auditor");
         assert_eq!(rows[0].ref_name, "origin/ma/auditor");
         assert_eq!(rows[0].owner, "Tester");
-        assert_eq!(crate::git::active_phase_count(&root), 1);
+        // A remote-only *position*, so it lands in `positions` — the assertion here was
+        // `active == 1`, which is the conflation this split exists to undo.
+        assert_eq!(rows[0].state, "position");
+        assert_eq!(crate::git::phase_tally(&root).positions, 1);
     }
 
     /// The same phase locally and on the remote is one row, read from the local ref.
+    ///
+    /// The branch carries a commit of its own so that it is genuinely ahead of the baseline.
+    /// Branched at `main` and left there it has nothing in flight, and `phase_tally` reads
+    /// that — correctly — as settled, which would make this test about the wrong thing.
     #[test]
     fn a_phase_on_both_sides_is_one_row() {
         let (_origin_tmp, origin) = init_repo();
-        git(&origin, &["branch", "rigpa/schema-reach"]);
+        git(&origin, &["checkout", "-q", "-b", "rigpa/schema-reach"]);
+        std::fs::write(origin.join("c.txt"), "c").unwrap();
+        git(&origin, &["add", "."]);
+        git(
+            &origin,
+            &["commit", "-q", "-m", "revise: the schema reaches"],
+        );
+        git(&origin, &["checkout", "-q", "main"]);
 
         let (_tmp, root) = init_repo();
         git(
@@ -270,7 +283,7 @@ mod tests {
         let rows = collect_phases(&root).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].ref_name, "rigpa/schema-reach");
-        assert_eq!(crate::git::active_phase_count(&root), 1);
+        assert_eq!(crate::git::phase_tally(&root).active, 1);
     }
 
     #[test]
@@ -307,6 +320,7 @@ mod tests {
         let rows = vec![
             PhaseRow {
                 name: "Substrate survey".into(),
+                state: "position".into(),
                 ref_name: "ma/substrate".into(),
                 owner: "goedelsoup".into(),
                 started: "2026-06-20".into(),
@@ -314,6 +328,7 @@ mod tests {
             },
             PhaseRow {
                 name: "Glacial review".into(),
+                state: "settled".into(),
                 ref_name: "rigpa/glacial".into(),
                 owner: "goedelsoup".into(),
                 started: "2026-06-28".into(),
@@ -327,10 +342,100 @@ mod tests {
         assert!(lines[1].starts_with('\u{2500}'));
         assert!(lines[2].contains("ma/substrate"));
         assert!(lines[3].contains("rigpa/glacial"));
+        // The state is the column that distinguishes the two, and it is rendered.
+        assert!(lines[2].contains("position"), "{}", lines[2]);
+        assert!(lines[3].contains("settled"), "{}", lines[3]);
     }
 
     #[test]
     fn render_phases_empty_state() {
-        assert!(render_phases(&[]).contains("No active phases"));
+        assert!(render_phases(&[]).contains("No inquiry refs"));
+    }
+
+    /// A phase merged into the baseline is settled, not active. This is the defect: a
+    /// derived repository reported 26 active phases while holding exactly one, because
+    /// nothing asked whether the work had already landed.
+    #[test]
+    fn a_merged_phase_is_settled_not_active() {
+        let (_tmp, root) = init_repo();
+        git(&root, &["checkout", "-q", "-b", "phase/outcome-axis"]);
+        std::fs::write(root.join("b.txt"), "b").unwrap();
+        git(&root, &["add", "."]);
+        git(
+            &root,
+            &["commit", "-q", "-m", "establish: the outcome axis"],
+        );
+        git(&root, &["checkout", "-q", "main"]);
+        git(
+            &root,
+            &[
+                "merge",
+                "--no-ff",
+                "-q",
+                "-m",
+                "phase: outcome axis — one node",
+                "phase/outcome-axis",
+            ],
+        );
+
+        let tally = crate::git::phase_tally(&root);
+        assert_eq!(tally.settled, 1, "{tally:?}");
+        assert_eq!(tally.active, 0, "{tally:?}");
+    }
+
+    /// The one genuinely in-flight phase is the one that has not landed.
+    #[test]
+    fn an_unmerged_phase_is_active() {
+        let (_tmp, root) = init_repo();
+        git(&root, &["checkout", "-q", "-b", "phase/batchelder-lineage"]);
+        std::fs::write(root.join("b.txt"), "b").unwrap();
+        git(&root, &["add", "."]);
+        git(
+            &root,
+            &["commit", "-q", "-m", "open: where the line starts"],
+        );
+        git(&root, &["checkout", "-q", "main"]);
+
+        let tally = crate::git::phase_tally(&root);
+        assert_eq!(tally.active, 1, "{tally:?}");
+        assert_eq!(tally.settled, 0, "{tally:?}");
+    }
+
+    /// An elector position is neither. It sits ahead of the baseline permanently and is
+    /// not work awaiting settlement — counting it as an active phase is the category error
+    /// that made three standing positions read as three phases in flight.
+    #[test]
+    fn a_position_is_never_active_nor_settled() {
+        let (_tmp, root) = init_repo();
+        git(&root, &["checkout", "-q", "-b", "ma/auditor"]);
+        std::fs::write(root.join("b.txt"), "b").unwrap();
+        git(&root, &["add", "."]);
+        git(
+            &root,
+            &["commit", "-q", "-m", "establish: the auditor reads"],
+        );
+        git(&root, &["checkout", "-q", "main"]);
+
+        let tally = crate::git::phase_tally(&root);
+        assert_eq!(tally.positions, 1, "{tally:?}");
+        assert_eq!(tally.active, 0, "{tally:?}");
+        assert_eq!(tally.settled, 0, "{tally:?}");
+
+        // And still a position once its work is on the baseline — merging an elector's
+        // position does not convert it into settled bounded work.
+        git(
+            &root,
+            &[
+                "merge",
+                "--no-ff",
+                "-q",
+                "-m",
+                "transport: the auditor",
+                "ma/auditor",
+            ],
+        );
+        let tally = crate::git::phase_tally(&root);
+        assert_eq!(tally.positions, 1, "{tally:?}");
+        assert_eq!(tally.settled, 0, "{tally:?}");
     }
 }

@@ -246,7 +246,20 @@
     },
     "active_phases": {
       "type": "integer",
-      "description": "`status` only."
+      "description": "`status` only. Bounded work (`rigpa/*`, `phase/*`) not yet an ancestor of the baseline. Counted every `ma/*` and `rigpa/*` ref, and no `phase/*` ref, until the namespaces were typed."
+    },
+    "settled_phases": {
+      "type": "integer",
+      "description": "`status` only. Bounded work already merged whose ref still exists; PHASES.md prescribes deleting these."
+    },
+    "positions": {
+      "type": "integer",
+      "description": "`status` only. Standing `ma/*` elector positions, which are neither active work nor drift — divergence from the baseline is what a position is for."
+    },
+    "state": {
+      "type": "string",
+      "enum": ["active", "settled", "position"],
+      "description": "`phases` only. What one inquiry ref currently is."
     },
     "genesis": {
       "type": "string",

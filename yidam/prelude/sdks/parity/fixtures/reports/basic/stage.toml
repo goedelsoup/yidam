@@ -15,7 +15,20 @@
 # Commit dates are fixed by the runners, not here — `status` reports a genesis date, and a
 # fixture whose genesis moves with the clock has a golden that cannot be compared.
 
-branches = ["ma/hydrologist", "rigpa/tailwater-regime"]
+# One ref of each kind, because they are three different things and the reports that read
+# them spent a long time pretending otherwise. `ma/*` is a standing elector position and
+# never settles; `rigpa/*` and `phase/*` are bounded work that does.
+#
+# `phase/*` is here because it was in no fixture at all, and that is exactly why nothing
+# caught `yidam status` counting `ma/*` and `rigpa/*` as phases while never reading the
+# namespace PHASES.md defines a phase in. A derived repository reported 26 active phases
+# while holding one. Remove this branch and the goldens stop being able to see that.
+#
+# All three are created at HEAD and so carry no unique commits, which makes the two bounded
+# ones read as settled. That is the correct reading — a branch with nothing ahead of the
+# baseline has nothing in flight — and the `active` arm is exercised by unit tests that can
+# afford to build commits.
+branches = ["ma/hydrologist", "rigpa/tailwater-regime", "phase/low-flow-survey"]
 
 [[commits]]
 message = "genesis: reports fixture"
