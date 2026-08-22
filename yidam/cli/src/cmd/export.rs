@@ -240,7 +240,7 @@ pub fn run_export(format: ExportFormat, out: Option<&Path>, options: &ExportOpti
 /// Unix seconds → ISO-8601 UTC (days-from-civil inverse, Hinnant's algorithm).
 /// Shared by the llms (light) and rdf (gated) exporters, so it lives in the
 /// base export module rather than either optional one.
-pub(super) fn unix_to_iso(secs: u64) -> String {
+pub(crate) fn unix_to_iso(secs: u64) -> String {
     let days = (secs / 86400) as i64;
     let rem = secs % 86400;
     let (h, m, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);

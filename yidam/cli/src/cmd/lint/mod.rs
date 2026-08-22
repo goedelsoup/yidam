@@ -8,6 +8,7 @@
 mod baseline;
 pub(crate) mod checks;
 mod commits;
+mod history;
 pub mod json;
 mod model;
 
@@ -209,7 +210,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::catalog_used_by_drift(&sources, &cites),
         checks::catalog_location_malformed(&sources),
         checks::malformed_table(&prose),
-        checks::orphan_in(&nodes, &classes),
+        orphan_in_dated(root, &nodes, &classes),
         checks::catalog_uncited(&sources, &cites),
         checks::class_asserts_purpose(&classes),
         checks::resolution_annotation_malformed(&annotations),
@@ -225,6 +226,37 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     }
 
     all
+}
+
+/// [`checks::orphan_in`], with each finding dated by when it stopped being cited.
+///
+/// The check is pure and stays that way; the history is read here, where there is a
+/// repository to read it from. Two properties are deliberate:
+///
+/// **The replay runs only when there is something to date.** A corpus with no orphans has
+/// nothing to explain, and the common case should not pay for the uncommon one.
+///
+/// **A date, not an age.** An age is a function of when you ask, so the same corpus would
+/// render differently every day and no golden could pin it — the same reason `index-status`
+/// reports `built_at` and lets its client do the arithmetic.
+fn orphan_in_dated(root: &Path, nodes: &[checks::Node], classes: &[checks::Class]) -> Check {
+    let mut check = checks::orphan_in(nodes, classes);
+    if check.violations.is_empty() {
+        return check;
+    }
+    let since = history::uncited_since(root);
+    for v in &mut check.violations {
+        if let Some(ts) = since.get(&v.node).filter(|t| **t > 0) {
+            // Reuses the exporters' civil-date conversion rather than adding a second one;
+            // the calendar arithmetic is the kind that is wrong in one copy and right in
+            // the other. The clock half is dropped — a day is the resolution anyone reads
+            // an orphan's age at.
+            let iso = crate::cmd::export::unix_to_iso(*ts as u64);
+            let day = iso.split('T').next().unwrap_or(&iso);
+            v.detail = format!("{} — uncited since {day}", v.detail);
+        }
+    }
+    check
 }
 
 pub fn lint(opts: Options) -> Result<()> {
