@@ -23,6 +23,7 @@ scaffold that derived repos receive, see [sadhana/docs/](../sadhana/docs/README.
 | [quality-rubric.md](quality-rubric.md) | Structural checks, scored quality criteria, regression thresholds |
 | [conduct-norms.md](conduct-norms.md) | Deliberate commits, generous linking, provenance preservation |
 | [test-harness.md](test-harness.md) | Bootstrap/domain-owner/judge triad, scenario schema, snapshot path |
+| [post-genesis-measurement.md](post-genesis-measurement.md) | What three derived repositories say about corpus health over time, and why reachability is a per-class property |
 | [aesthetic-direction.md](aesthetic-direction.md) | Naming register and design implications |
 | [rfcs/](rfcs/README.md) | Design documents under review — the downstream-integration-contract set (RFC-0001…0007) |
 
