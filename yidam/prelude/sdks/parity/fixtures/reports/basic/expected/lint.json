@@ -105,15 +105,10 @@
       "id": "orphan-in",
       "title": "Node nothing points to",
       "severity": "info",
-      "rationale": "Reported rather than gated: a node authored this morning legitimately has no inbound edges yet, and the hub nodes of a young corpus often point outward at everything while nothing points back. Worth seeing, not worth blocking on.",
+      "rationale": "Instances of a class that declares no `direction: in` edge are exempt — the ontology says nothing points at them, so an orphan there is the model working. What remains is a class whose *other* instances are cited and this one is not, which is the asymmetry worth reading. Still reported rather than gated: a node authored this morning legitimately has no inbound edges yet.",
       "violations": [
         {
           "node": ".yidam/corpus/concept/tailwater.yml",
-          "detail": "nothing links to this node",
-          "in_baseline": false
-        },
-        {
-          "node": ".yidam/corpus/gauge/riffle-station.yml",
           "detail": "nothing links to this node",
           "in_baseline": false
         }
