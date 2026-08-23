@@ -128,8 +128,12 @@ pub const GROUPS: &[Group] = &[
 /// places — so the coverage test needs to know which absences are legitimate. Under
 /// `--features full` every one of these is present and this list buys nothing; under the
 /// light default it is the difference between a passing test and a false alarm.
+///
+/// `tonpa` was on this list until it joined the default set. It is off it now on purpose:
+/// an entry here is a licence for a command to be missing, and `tonpa` is no longer
+/// allowed to be. Anything that drops it from the build should fail this test.
 #[cfg(test)]
-const FEATURE_GATED: &[&str] = &["index-build", "tonpa"];
+const FEATURE_GATED: &[&str] = &["index-build"];
 
 /// The marker on a command that writes.
 ///

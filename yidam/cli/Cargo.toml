@@ -64,14 +64,36 @@ sqlite-vec = { version = "0.1.9", optional = true }
 oxrdf = { version = "0.2", optional = true }
 oxttl = { version = "0.1", optional = true }
 
-# ── optional: `tonpa` — bundle dependency manager (async network fetch). ───
-reqwest = { version = "0.12", features = ["json"], optional = true }
+# ── `tonpa` — bundle dependency manager (async network fetch). ────────────
+#
+# rustls rather than reqwest's default TLS, and `default-features = false` is
+# what makes that stick. The default is native-tls, which is openssl-sys on
+# Linux — a C library that must exist *for the target*, which the release
+# workflow's aarch64 cross-compile does not have and cannot cheaply get.
+# rustls needs `ring`, which is C and assembly but *vendored*: cc-rs builds it
+# with the cross-compiler already installed for the linker. Vendored C the
+# build compiles is a different proposition from a system library it has to
+# find, and only the first one cross-compiles.
+#
+# The named features replace what `default-features = false` removes: `charset`
+# and `http2` are in reqwest's default set and are not TLS.
+reqwest = { version = "0.12", default-features = false, features = [
+  "json",
+  "rustls-tls-native-roots",
+  "charset",
+  "http2",
+], optional = true }
 
 [features]
-default = ["reports"]
+# `tonpa` is in the default set, and it is the one feature that had to be:
+# without it `yidam tonpa add …` in a derived repository fails with
+# `unrecognized subcommand`, which is not "this feature is unavailable" but "a
+# documented workflow is impossible". Every other gated feature degrades to a
+# missing capability; this one degraded to a broken instruction.
+default = ["reports", "tonpa"]
 # Light base: the four reports (graph-check, lint, corpus-index, open-questions)
 # plus every pure-Rust command. Adds no dependencies beyond the base set — no
-# protoc, no C compiler, no ML runtime.
+# protoc, no system C library, no ML runtime.
 reports = []
 # Semantic index build + MCP serve + `retrieve`. fastembed (ONNX) + lancedb
 # (requires protoc 31) + arrow.
@@ -95,7 +117,8 @@ export-sqlite = [
 ]
 # `export --format rdf` — pure-Rust RDF (no protoc, no C).
 export-graph = ["dep:oxrdf", "dep:oxttl"]
-# `tonpa` bundle dependency manager — async network fetch via reqwest.
+# `tonpa` bundle dependency manager — async network fetch via reqwest. In the
+# default set; see the note there and on the reqwest dependency above.
 tonpa = ["dep:reqwest", "dep:tokio"]
 # Everything — reproduces the pre-partition monolith (`cargo install --features full`).
 full = ["reports", "index", "export-sqlite", "export-graph", "tonpa"]

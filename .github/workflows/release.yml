@@ -5,10 +5,17 @@
 # and every CI run of every derived repository compiled the CLI from source —
 # which made a Rust toolchain a prerequisite for reading a Markdown corpus.
 #
-# The light `reports` set is the whole reason this is cheap. Its dependency tree
-# is pure Rust: no protoc, no C compiler, no ML runtime (see the feature
-# partition in yidam/cli/Cargo.toml). So cross-compiling needs a linker and
-# nothing else, and no runner needs provisioning beyond a toolchain.
+# The light default set is the whole reason this is cheap. It needs no protoc, no
+# ML runtime, and no C library that has to already exist for the target (see the
+# feature partition in yidam/cli/Cargo.toml). So cross-compiling needs a
+# cross-toolchain and nothing else, and no runner needs provisioning beyond that.
+#
+# It is not literally pure Rust any more. `tonpa` joined the default set and its
+# TLS stack compiles `ring`, which is C and assembly. The distinction that
+# matters for this workflow is not C-versus-Rust but *vendored versus system*:
+# ring's sources are in the crate and cc-rs builds them with the cross-compiler
+# below. openssl-sys — reqwest's default TLS — would instead need an aarch64
+# libssl installed on the runner, which is why Cargo.toml pins rustls.
 #
 # `--features full` is deliberately NOT built here. It needs protoc 31 and the
 # ONNX/LanceDB stack, and the common case must not wait on it. Someone who wants
@@ -48,10 +55,13 @@ jobs:
             os: ubuntu-latest
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-            # Pure-Rust dependency tree, so cross-compiling needs a linker and
-            # nothing more. If a C dependency ever reaches the light build this
-            # breaks here first, which is the right place for it to break.
+            # `gcc-aarch64-linux-gnu` is the cross C compiler, not only the
+            # linker. Both halves are used: the linker for the final artifact,
+            # the compiler for ring's vendored C. If a dependency ever needs a
+            # SYSTEM library for the target rather than a vendored one, this is
+            # where it breaks first — which is the right place for it to break.
             linker: aarch64-linux-gnu-gcc
+            cc: aarch64-linux-gnu-gcc
             apt: gcc-aarch64-linux-gnu
 
     steps:
@@ -73,11 +83,17 @@ jobs:
       # --locked: the release must be built from the committed Cargo.lock, or the
       # artifact is not the thing the pinned commit describes.
       #
-      # No --features: the default IS `reports`. Spelling it would be a second
-      # place for the light set to be defined, and the two would drift.
+      # No --features: the default IS the light set. Spelling it would be a
+      # second place for that set to be defined, and the two would drift.
+      #
+      # CC_* is what cc-rs reads when it builds ring's vendored C for a target
+      # that is not the host. cc-rs does guess `<target>-gcc` on its own, but a
+      # guess that silently falls back to the host compiler produces host
+      # objects for an aarch64 link — so it is named rather than inferred.
       - name: Build
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.linker }}
+          CC_aarch64_unknown_linux_gnu: ${{ matrix.cc }}
         run: |
           cargo build --release --locked \
             --manifest-path yidam/cli/Cargo.toml \
