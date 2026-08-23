@@ -198,6 +198,17 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     }
     let stale_regions = crate::authorship::stale(root, &authorship);
 
+    // What this corpus has declared about its own gate. Absent — the common case, and the
+    // case for every repository that has not yet argued about a number — escalates nothing.
+    //
+    // Read leniently: a malformed config must not take the checks down. The gate reports
+    // the file as its own finding elsewhere; here, degrading to "no escalation" fails in
+    // the direction of reporting rather than of failing a build on a number nobody set.
+    let escalate_after = crate::config::load_yidam_config(root)
+        .unwrap_or_default()
+        .lint
+        .escalate_after;
+
     let mut all = vec![
         checks::missing_class(&nodes),
         checks::unknown_class(&nodes, &defined),
@@ -215,7 +226,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::catalog_used_by_drift(&sources, &cites),
         checks::catalog_location_malformed(&sources),
         checks::malformed_table(&prose),
-        orphan_in_dated(root, &nodes, &classes),
+        orphan_in_dated(root, &nodes, &classes).escalating_after(escalate_after),
         checks::catalog_uncited(&sources, &cites),
         checks::class_asserts_purpose(&classes),
         checks::resolution_annotation_malformed(&annotations),
@@ -233,33 +244,44 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     all
 }
 
-/// [`checks::orphan_in`], with each finding dated by when it stopped being cited.
+/// [`checks::orphan_in`], with each finding dated and aged.
 ///
 /// The check is pure and stays that way; the history is read here, where there is a
-/// repository to read it from. Two properties are deliberate:
+/// repository to read it from. Three properties are deliberate:
 ///
 /// **The replay runs only when there is something to date.** A corpus with no orphans has
 /// nothing to explain, and the common case should not pay for the uncommon one.
 ///
-/// **A date, not an age.** An age is a function of when you ask, so the same corpus would
-/// render differently every day and no golden could pin it — the same reason `index-status`
-/// reports `built_at` and lets its client do the arithmetic.
+/// **A date, not a day count.** An age in days is a function of when you ask, so the same
+/// corpus would render differently every day and no golden could pin it — the same reason
+/// `index-status` reports `built_at` and lets its client do the arithmetic.
+///
+/// **A commit count, which is not the same thing.** It is a function of HEAD rather than of
+/// the wall clock, so it is reproducible from the repository alone, and it is the unit the
+/// distinction is actually drawn in: a node uncited for five commits is a sweep in
+/// progress, one uncited for two hundred is over-collection, and a percentage cannot tell
+/// them apart. That count is what [`Check::severity_of`] escalates on.
 fn orphan_in_dated(root: &Path, nodes: &[checks::Node], classes: &[checks::Class]) -> Check {
     let mut check = checks::orphan_in(nodes, classes);
     if check.violations.is_empty() {
         return check;
     }
-    let since = history::uncited_since(root);
+    let ages = history::uncited_age(root);
     for v in &mut check.violations {
-        if let Some(ts) = since.get(&v.node).filter(|t| **t > 0) {
-            // Reuses the exporters' civil-date conversion rather than adding a second one;
-            // the calendar arithmetic is the kind that is wrong in one copy and right in
-            // the other. The clock half is dropped — a day is the resolution anyone reads
-            // an orphan's age at.
-            let iso = crate::cmd::export::unix_to_iso(*ts as u64);
-            let day = iso.split('T').next().unwrap_or(&iso);
-            v.detail = format!("{} — uncited since {day}", v.detail);
-        }
+        let Some(age) = ages.get(&v.node).filter(|a| a.ts > 0) else {
+            continue;
+        };
+        // Reuses the exporters' civil-date conversion rather than adding a second one; the
+        // calendar arithmetic is the kind that is wrong in one copy and right in the other.
+        // The clock half is dropped — a day is the resolution anyone reads an orphan's age
+        // at.
+        let iso = crate::cmd::export::unix_to_iso(age.ts as u64);
+        let day = iso.split('T').next().unwrap_or(&iso);
+        v.detail = format!(
+            "{} — uncited since {day}, {} commit(s)",
+            v.detail, age.commits
+        );
+        v.age = Some(age.clone());
     }
     check
 }
@@ -316,8 +338,7 @@ pub fn lint(opts: Options) -> Result<()> {
         let n: usize = all.iter().map(|c| c.violations.len()).sum();
         let errs: usize = all
             .iter()
-            .filter(|c| c.severity == Severity::Error)
-            .map(|c| c.violations.len())
+            .map(|c| c.violations.iter().filter(|v| c.gates(v)).count())
             .sum();
         if errs > 0 {
             println!("lint: {n} finding(s); {errs} error(s), all baselined — no regression");
@@ -389,9 +410,12 @@ fn report(all: &[Check], opts: &Options) {
         if check.passed() {
             continue;
         }
+        // The block is headed at the *highest* severity it contains, not at the check's
+        // declared one. A check that is Info because a young finding is usually fine must
+        // not print INFO above one that has aged into failing the build.
         println!(
             "\n{} [{}] {} — {} finding(s)",
-            check.severity.as_str().to_uppercase(),
+            check.effective_severity().as_str().to_uppercase(),
             check.id,
             check.title,
             check.violations.len()
@@ -400,7 +424,15 @@ fn report(all: &[Check], opts: &Options) {
             println!("  {}", check.rationale);
         }
         for v in &check.violations {
-            println!("  {}: {}", v.node, v.detail);
+            // Marked per finding, because within one escalated block the escalated
+            // findings and their younger siblings are printed side by side and the header
+            // can no longer distinguish them.
+            let escalated = if check.severity_of(v) != check.severity {
+                format!(" [{}]", check.severity_of(v).as_str().to_uppercase())
+            } else {
+                String::new()
+            };
+            println!("  {}: {}{escalated}", v.node, v.detail);
         }
     }
 }
@@ -431,11 +463,13 @@ mod tests {
         tmp
     }
 
+    /// Findings that gate — per violation, because residence time can escalate one
+    /// finding of an Info check without escalating the check. Counting by `c.severity`
+    /// here reported zero errors on a corpus the gate was failing.
     fn errors(checks: &[Check]) -> usize {
         checks
             .iter()
-            .filter(|c| c.severity == Severity::Error)
-            .map(|c| c.violations.len())
+            .map(|c| c.violations.iter().filter(|v| c.gates(v)).count())
             .sum()
     }
 
@@ -683,5 +717,157 @@ mod tests {
         let d = baseline::diff(&after, &loaded);
         assert!(!d.resolved.is_empty(), "the fix must show as stale");
         assert!(!d.is_clean());
+    }
+
+    // ── residence time, end to end ────────────────────────────────────────────
+
+    /// A repository with one orphan and a history to age it against.
+    ///
+    /// `git` for real rather than a stubbed replay: the count comes from the commit graph,
+    /// and a test that fabricated it would be asserting the arithmetic rather than the
+    /// walk.
+    fn repo_with_an_aged_orphan(commits: usize) -> TempDir {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .current_dir(root)
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.email", "t@t.com"]);
+        git(&["config", "user.name", "T"]);
+
+        let corpus = root.join(".yidam/corpus/reach");
+        fs::create_dir_all(&corpus).unwrap();
+        fs::write(root.join(".yidam/corpus/reach.ont.yml"), "class: reach\n").unwrap();
+        let cited = "class: reach\nlabel: A\ndescription: A.\nlinks:\n  - target: beta.yml\n    relationship: refines\n";
+        fs::write(corpus.join("alpha.yml"), cited).unwrap();
+        fs::write(
+            corpus.join("beta.yml"),
+            "class: reach\nlabel: B\ndescription: B.\nlinks:\n  - target: alpha.yml\n    relationship: refines\n",
+        )
+        .unwrap();
+        // The orphan: it points out, and nothing ever points at it.
+        fs::write(
+            corpus.join("lonely.yml"),
+            "class: reach\nlabel: L\ndescription: L.\nlinks:\n  - target: alpha.yml\n    relationship: refines\n",
+        )
+        .unwrap();
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "genesis: corpus"]);
+
+        for i in 1..commits {
+            fs::write(corpus.join("alpha.yml"), format!("{cited}# pass {i}\n")).unwrap();
+            git(&["add", "-A"]);
+            git(&["commit", "-q", "-m", &format!("scope: pass {i}")]);
+        }
+        tmp
+    }
+
+    fn orphan(all: &[Check]) -> &Check {
+        check(all, "orphan-in")
+    }
+
+    /// The finding carries its clock, and the clock is in commits.
+    #[test]
+    fn an_orphan_finding_carries_its_residence_time() {
+        let tmp = repo_with_an_aged_orphan(6);
+        let all = run_checks(tmp.path(), &Options::default());
+        let c = orphan(&all);
+        let v = c
+            .violations
+            .iter()
+            .find(|v| v.node.ends_with("lonely.yml"))
+            .expect("the orphan is reported");
+        assert_eq!(v.age.as_ref().map(|a| a.commits), Some(6));
+        assert!(v.detail.contains("6 commit(s)"), "{}", v.detail);
+    }
+
+    /// The default. Six commits of neglect and the gate stays quiet, because nobody
+    /// declared how long is too long.
+    #[test]
+    fn without_a_declared_threshold_an_aged_orphan_does_not_gate() {
+        let tmp = repo_with_an_aged_orphan(6);
+        let all = run_checks(tmp.path(), &Options::default());
+        let c = orphan(&all);
+        assert!(c.violations.iter().all(|v| !c.gates(v)));
+        assert_eq!(errors(&all), 0, "{all:#?}");
+    }
+
+    /// Declared, and the same corpus now fails — on the finding that has outlived the
+    /// number this repository chose for itself.
+    #[test]
+    fn a_declared_threshold_escalates_the_finding_that_outlived_it() {
+        let tmp = repo_with_an_aged_orphan(6);
+        fs::write(
+            tmp.path().join(".yidam/config.toml"),
+            "[lint]\nescalate_after = 5\n",
+        )
+        .unwrap();
+        let all = run_checks(tmp.path(), &Options::default());
+        let c = orphan(&all);
+        let v = c
+            .violations
+            .iter()
+            .find(|v| v.node.ends_with("lonely.yml"))
+            .unwrap();
+        assert!(c.gates(v), "6 commits is past the declared 5");
+        assert_eq!(c.severity, Severity::Info, "the check itself is unchanged");
+        assert_eq!(errors(&all), 1);
+    }
+
+    /// A threshold the corpus has not reached leaves the gate exactly where it was.
+    #[test]
+    fn a_threshold_above_the_finding_leaves_it_alone() {
+        let tmp = repo_with_an_aged_orphan(6);
+        fs::write(
+            tmp.path().join(".yidam/config.toml"),
+            "[lint]\nescalate_after = 500\n",
+        )
+        .unwrap();
+        let all = run_checks(tmp.path(), &Options::default());
+        assert_eq!(errors(&all), 0, "{all:#?}");
+    }
+
+    /// An escalated finding is ordinary inherited debt: blessable, and quiet afterwards.
+    /// This is what makes the mechanism usable on a corpus that adopts it mid-life —
+    /// the case the sibling issue turns into a generated baseline.
+    #[test]
+    fn an_escalated_finding_can_be_blessed_like_any_other() {
+        let tmp = repo_with_an_aged_orphan(6);
+        fs::write(
+            tmp.path().join(".yidam/config.toml"),
+            "[lint]\nescalate_after = 5\n",
+        )
+        .unwrap();
+        let all = run_checks(tmp.path(), &Options::default());
+        let base = super::baseline::Baseline::from_checks(&all);
+        assert_eq!(
+            base.violations.get("orphan-in").map(Vec::len),
+            Some(1),
+            "only the escalated finding is recorded, not its younger siblings"
+        );
+        assert!(super::baseline::diff(&all, &base).is_clean());
+    }
+
+    /// A config that does not parse must not take the checks down with it. The gate loses
+    /// escalation, which fails toward reporting rather than toward failing a build on a
+    /// number nobody set.
+    #[test]
+    fn an_unparseable_config_degrades_to_no_escalation() {
+        let tmp = repo_with_an_aged_orphan(6);
+        fs::write(
+            tmp.path().join(".yidam/config.toml"),
+            "[lint\nescalate_after =\n",
+        )
+        .unwrap();
+        let all = run_checks(tmp.path(), &Options::default());
+        assert_eq!(all.len(), 24, "every check still ran");
+        assert_eq!(errors(&all), 0);
     }
 }

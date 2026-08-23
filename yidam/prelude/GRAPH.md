@@ -85,6 +85,57 @@ and a node carrying no `claim_tag` is a real state, not a defect. Its four sibli
 because each reports something the ontology actually said being contradicted; an omission
 contradicts nothing.
 
+## Residence time
+
+A finding about corpus state has a level and, on its own, no clock — and the level cannot
+say the thing worth knowing. A node uncited for five commits is a sweep in progress and
+entirely healthy. A node uncited for two hundred is over-collection. The measurable quantity
+is **how long the condition has held**, not how bad it looks.
+
+So `orphan-in` reports both the commit its finding dates from and how long it has held:
+
+```text
+INFO [orphan-in] Node nothing points to — 2 finding(s)
+  .yidam/corpus/recording/scum.yml: nothing links to this node — uncited since 2026-03-04, 3 commit(s)
+  .yidam/corpus/concept/tailwater.yml: nothing links to this node — uncited since 2025-11-02, 214 commit(s)
+```
+
+**Commits, not days.** A day count is a function of when you ran the report, so the same
+corpus answers differently tomorrow and nothing can pin or cache it. A commit count is a
+function of `HEAD`. Only commits that touched `.yidam/corpus` are counted: a commit that
+changed nothing here could not have cited anything, so counting it would inflate every age
+in a repository that also holds code.
+
+The clock starts when the condition *began*, which is not the same as when the node was
+written. A node cited on the day it was authored and orphaned two hundred commits later
+dates from the orphaning — which is why this is a replay of the graph rather than a look at
+each file's age.
+
+### Ageing into an error
+
+Residence time is what makes a corpus-state check gate-eligible at all. The commit checks
+must stay at Warn because history cannot be rewritten to fix a verb, so a gate on immutable
+state could only ever be noise. Corpus state is not immutable: an orphaned node can be
+linked or deleted today.
+
+A corpus may declare how long is too long, in `.yidam/config.toml`:
+
+```toml
+[lint]
+# Corpus-touching commits an aged finding may hold before it fails the build.
+escalate_after = 100
+```
+
+A finding that reaches it escalates to an error and gates; its younger siblings under the
+same check do not. **Absent, nothing ever escalates** — and that is the default. The right
+number depends on how fast this corpus is meant to consume what it collects, so a value
+compiled into the binary would be one repository's judgement arriving as a build failure in
+another that never agreed to it. Declaring it here keeps the argument for the number in the
+repository that has to live with it.
+
+An escalated finding is ordinary debt: `yidam lint --bless` records it like any other, and
+the gate is quiet until something new ages past the line.
+
 ## Commits as events
 
 Not all commits carry the same kind of meaning. Two types coexist in every yidam-derived

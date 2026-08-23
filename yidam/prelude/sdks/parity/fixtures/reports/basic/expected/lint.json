@@ -45,6 +45,7 @@
         {
           "node": ".yidam/corpus/concept/low-flow.yml",
           "detail": "target does not exist: ../concept/assimilative-capacit.yml",
+          "severity": "error",
           "in_baseline": false,
           "span": {
             "line": 7
@@ -68,26 +69,31 @@
         {
           "node": ".yidam/corpus/concept/low-flow.yml",
           "detail": "`datum` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it",
+          "severity": "warn",
           "in_baseline": false
         },
         {
           "node": ".yidam/corpus/concept/mixing-zone.yml",
           "detail": "`datum` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it",
+          "severity": "warn",
           "in_baseline": false
         },
         {
           "node": ".yidam/corpus/concept/mixing-zone.yml",
           "detail": "`claim_tag` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it",
+          "severity": "warn",
           "in_baseline": false
         },
         {
           "node": ".yidam/corpus/concept/tailwater.yml",
           "detail": "`datum` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it",
+          "severity": "warn",
           "in_baseline": false
         },
         {
           "node": ".yidam/corpus/concept/tailwater.yml",
           "detail": "`claim_tag` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it",
+          "severity": "warn",
           "in_baseline": false
         }
       ]
@@ -170,7 +176,13 @@
       "violations": [
         {
           "node": ".yidam/corpus/concept/tailwater.yml",
-          "detail": "nothing links to this node — uncited since 2026-01-01",
+          "detail": "nothing links to this node — uncited since 2026-01-01, 2 commit(s)",
+          "severity": "info",
+          "age": {
+            "first_commit": "<FIRST_COMMIT>",
+            "first_day": "2026-01-01",
+            "commits": 2
+          },
           "in_baseline": false
         }
       ]
