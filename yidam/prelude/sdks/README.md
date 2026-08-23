@@ -293,7 +293,8 @@ skeleton of "the model is coherent" rather than "the implementation is correct."
 
 *The reference implementation. The source of truth. Where the model lives in metal.*
 
-**Crate**: `yidam-core`
+**Crate**: `yidam-core` — published to crates.io, because the `yidam` CLI depends on it
+and cannot publish until it is there. See VERSIONING.md, Layer 2.
 **Additional binary**: `yidam` (the CLI — all REGEN subcommands, `mise run status`, etc.)
 
 ### API surface
@@ -361,7 +362,8 @@ pub fn semantic_query(index_path: &Path, query: &str, k: usize) -> Result<Vec<Sc
 
 *The agent integration layer. Where the corpus meets the context window.*
 
-**Package**: `@yidam/core`
+**Package**: `@yidam/core` — not published. The parity harness in this repository is the
+only consumer; npm was considered and reversed. See VERSIONING.md, Layer 2.
 
 The TypeScript SDK is not a port of the Rust SDK. It is the interface between the
 prelude model and the world of LLM agents, MCP servers, streaming API calls, and web feeds.
@@ -462,7 +464,8 @@ export function exportFeed<T>(
 
 *The machine learning layer. Where nodes become vectors and corpus becomes a searchable space.*
 
-**Package**: `yidam-core` (PyPI)
+**Package**: `yidam-core` — not published. Same reasoning as the TypeScript SDK above;
+PyPI was considered and reversed. See VERSIONING.md, Layer 2.
 
 Python is where the corpus is transformed. This SDK does not merely provide bindings to the
 Rust model — it is the primary implementation of the feature engineering pipeline and the
