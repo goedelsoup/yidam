@@ -292,3 +292,69 @@ fn the_release_build_is_locked() {
         );
     }
 }
+
+/// A registry named in Layer 2's table must be one something can actually publish to.
+///
+/// That table named crates.io, npm and PyPI from the day it was written, and for that whole
+/// time none of the three packages was published anywhere. A registry column is a promise
+/// about where a consumer obtains a package; three names and zero packages made it a
+/// description of an intention, indistinguishable in shape from a description of the world.
+///
+/// So the check is not "is it published" — that is what the install-channel job asks, and it
+/// can only ask after the fact. It is: does a publishing mechanism exist for every registry
+/// this table names. Putting npm back in the table fails here until a workflow publishes to
+/// npm, which is the order those two things have to happen in.
+#[test]
+fn every_registry_layer_2_names_has_something_that_publishes_to_it() {
+    /// The registry as the table spells it, and the command that would publish to it.
+    const PUBLISHERS: &[(&str, &str)] = &[
+        ("crates.io", "cargo publish"),
+        ("npm", "npm publish"),
+        ("PyPI", "twine upload"),
+    ];
+
+    let text = versioning();
+    let layer_2 = text
+        .split("## Layer 2")
+        .nth(1)
+        .expect("VERSIONING.md has a Layer 2 section")
+        .split("\n## ")
+        .next()
+        .unwrap();
+
+    let workflow =
+        std::fs::read_to_string(repo_root().join(".github/workflows/publish-crates.yml"))
+            .expect("publish-crates.yml");
+
+    let mut named = 0;
+    for row in layer_2.lines().filter(|l| l.starts_with("| `")) {
+        let registry = row
+            .rsplit('|')
+            .nth(1)
+            .expect("a table row has a last cell")
+            .trim();
+        if registry == "not published" || registry == "Registry" {
+            continue;
+        }
+        named += 1;
+        let (_, publishes) = PUBLISHERS
+            .iter()
+            .find(|(name, _)| registry.contains(name))
+            .unwrap_or_else(|| {
+                panic!(
+                    "Layer 2 names the registry '{registry}', which this test does not know \
+                     how to check. Add it to PUBLISHERS with the command that publishes to it."
+                )
+            });
+        assert!(
+            workflow.contains(publishes),
+            "Layer 2's table names {registry} and nothing runs `{publishes}` — either publish \
+             to it or stop naming it. A registry column nobody delivers is a promise that \
+             outlives the decision not to keep it."
+        );
+    }
+    assert!(
+        named > 0,
+        "Layer 2's table names no registry at all; this test is guarding nothing"
+    );
+}

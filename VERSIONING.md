@@ -50,11 +50,28 @@ Three independently-versioned packages living under `yidam/prelude/sdks/`:
 | Package | Manifest | Registry |
 |---|---|---|
 | `yidam-core` | `yidam/prelude/sdks/rust/Cargo.toml` | crates.io |
-| `@yidam/core` | `yidam/prelude/sdks/typescript/package.json` | npm |
-| `yidam-core` | `yidam/prelude/sdks/python/pyproject.toml` | PyPI |
+| `@yidam/core` | `yidam/prelude/sdks/typescript/package.json` | not published |
+| `yidam-core` | `yidam/prelude/sdks/python/pyproject.toml` | not published |
 
-Each package is tagged independently: `sdk/rust/v0.1.0`, `sdk/ts/v0.1.0`,
-`sdk/python/v0.1.0`.
+Only the Rust package is released, and it is tagged `sdk/rust/v{major}.{minor}.{patch}`.
+The other two are versioned in their manifests and move with the parity surface; they have
+no release tag, because a tag whose only meaning is "CI publishes this" would name nothing.
+
+**npm and PyPI were considered and reversed, not deferred.** This table named all three
+registries from the day it was written, and for that whole time none of the three packages
+was published anywhere. The parity SDKs exist to hold three language implementations to one
+spec, and the consumer of that is the parity harness in this repository. Publishing them
+would buy a distribution channel for something nothing outside this repository imports, at
+the cost of two more release trains, two more credential sets, and two more versions free
+to drift from the Rust one.
+
+`yidam-core` is on crates.io for a reason that has nothing to do with distribution: the
+`yidam` CLI depends on it by `{ path, version }`, so crates.io must hold a matching
+`yidam-core` before the CLI can publish at all.
+
+**What would reverse it back: an external consumer asking for one.** That condition is
+written down because a deferral with no condition attached is how a promise survives the
+decision not to keep it — which is what the previous version of this table was.
 
 **Parity surface version.** The nine parity functions (`parse_node`, `extract_claims`,
 `extract_links`, `classify_commit`, `is_recognized_verb`, `parse_markers`, `update_regen`,
@@ -149,9 +166,9 @@ A hand-edited formula is the failure this arrangement is shaped against: it is a
 the version lives, it goes stale on the first release nobody remembers to follow, and the
 staleness is invisible from here — it shows up as a stranger installing an old binary.
 
-**Two artifacts, one layer — the same shape as Layer 2.** The SDKs are three packages on
-three registries with three tags, held together by one jointly-versioned contract
-(`yidam/prelude/sdks/parity/VERSION`). This layer is the same arrangement with two artifacts and
+**Two artifacts, one layer — the same shape as Layer 2.** The SDKs are three packages held
+together by one jointly-versioned contract (`yidam/prelude/sdks/parity/VERSION`), of which
+one is released. This layer is the same arrangement with two artifacts and
 a different contract: `format_version`.
 
 That is what makes separate tags safe. A Marketplace release needs a public, semver-shaped
@@ -223,8 +240,11 @@ or `yidam/editors/`. Not the parity SDKs, which the CLI depends on and does not 
 4. **For SDK changes**, run `mise run parity` — all three SDK parity suites must pass.
    The `ci (parity)` job runs it on every push and pull request.
 5. **Tag** the affected layers (`git tag -s v0.2.0`, `git tag -s sdk/rust/v0.2.0`,
-   `git tag -s cli/v0.2.0`, `git tag -s editor/v0.2.0`, etc.).
+   `git tag -s cli/v0.2.0`, `git tag -s editor/v0.2.0`, etc.). The TypeScript and Python
+   SDKs are not tagged — see Layer 2.
 6. **Push tags** to origin. CI publishes to registries on matching tag patterns.
+   `sdk/rust/v*` must be published before `cli/v*`: the CLI's own publish fails on a
+   missing `yidam-core` until it is.
 
 Never bump a layer as a side effect of another layer's release. Each bump is an
 intentional signal to downstream consumers.
