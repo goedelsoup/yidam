@@ -77,11 +77,12 @@ cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.2.1 --locke
 
 Either way, `yidam --version` should answer, naming the build and the features it carries.
 
-`--features full` adds `index-build`, `serve --mcp`, and the sqlite/rdf exports — and with
-them protoc 31, an ONNX runtime, and a system C toolchain. That is the maintainer's build,
-described under [Working on yidam](#working-on-yidam) below. It is **not** what deriving a
-repository needs: `clone`, `overlay` and `tonpa` are all in the light set, as is every report
-and gate.
+`--features full` adds `index-build`, semantic `retrieve`, and the sqlite/rdf exports — and
+with them protoc 31, an ONNX runtime, and a system C toolchain. That is the maintainer's
+build, described under [Working on yidam](#working-on-yidam) below. It is **not** what
+deriving a repository needs: `clone`, `overlay`, `tonpa` and both `serve` transports are all
+in the light set, as is every report and gate. A default binary serves MCP; what it does not
+serve is *semantic* retrieval, and it says so on every call.
 
 Then create a derived repository, or overlay the infrastructure onto one that already exists:
 
@@ -159,7 +160,7 @@ The binary is partitioned by cargo feature so the common case stays cheap to ins
 |---|---|---|
 | `reports` *(default)* | Every pure-Rust command — reports, gates, export to graphml/llms, clone, overlay | None. No protoc, no ML runtime |
 | `tonpa` *(default)* | Bundle dependency manager — `tonpa add`, `verify`, `update` | reqwest (rustls) + tokio. Vendored C, no system library |
-| `index` | `index-build`, `serve --mcp` | fastembed (ONNX) + LanceDB; needs protoc 31 at build time |
+| `index` | `index-build`, and upgrades `serve --mcp`'s `retrieve` from keyword to semantic | fastembed (ONNX) + LanceDB; needs protoc 31 at build time |
 | `export-sqlite` | `export --format sqlite` | Bundled SQLite + sqlite-vec, compiled from C |
 | `export-graph` | `export --format rdf` | Pure Rust |
 | `full` | All of the above | |
@@ -198,7 +199,7 @@ mise run docs-dev        # docs site on http://localhost:4321/
 ```
 
 `yidam-build` here is `--features full`, deliberately: working on the CLI means being able to
-run `index-build`, `serve --mcp`, and the sqlite/rdf exports. That is why `mise install`
+run `index-build`, the semantic retrieval path, and the sqlite/rdf exports. That is why `mise install`
 provisions protoc and the rest, and why it is the *maintainer's* setup rather than the one
 [Getting started](#getting-started) describes.
 

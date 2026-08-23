@@ -42,8 +42,10 @@ toml = "0.8"
 # must not re-implement the parity surface (see prelude/sdks/parity/README.md).
 yidam-core = { path = "../prelude/sdks/rust", version = "0.1.0" }
 
-# ── optional: `index` — semantic index build + MCP serve. Pulls the ML/native
-#    stack; lancedb's prost-build needs protoc 31 at build time. ────────────
+# ── optional: `index` — semantic index build, and the vector arm of the MCP
+#    server's `retrieve`. Not `serve` itself: that is in the light default, and
+#    answers every tool without these. Pulls the ML/native stack; lancedb's
+#    prost-build needs protoc 31 at build time. ─────────────────────────────
 fastembed = { version = "4", optional = true }
 lancedb = { version = "0.13", optional = true }
 futures = { version = "0.3", optional = true }
@@ -95,8 +97,11 @@ default = ["reports", "tonpa"]
 # plus every pure-Rust command. Adds no dependencies beyond the base set — no
 # protoc, no system C library, no ML runtime.
 reports = []
-# Semantic index build + MCP serve + `retrieve`. fastembed (ONNX) + lancedb
-# (requires protoc 31) + arrow.
+# Semantic index build, and upgrades `serve --mcp`'s `retrieve` from keyword to
+# vector search. `serve` itself is in the light default — gating the whole
+# command on this put the one surface that makes a corpus reachable by an agent
+# in the build almost nobody installs. fastembed (ONNX) + lancedb (requires
+# protoc 31) + arrow.
 index = [
   "dep:fastembed",
   "dep:lancedb",

@@ -338,7 +338,8 @@ enum Command {
     },
     /// Serve the domain computer over a stdio protocol
     Serve {
-        /// Serve MCP over stdio — the agent surface. Needs the `index` feature.
+        /// Serve MCP over stdio — the agent surface. In the light default; `--features
+        /// index` upgrades `retrieve` from keyword to semantic.
         #[arg(long)]
         mcp: bool,
         /// Serve LSP over stdio — the editor surface. In the light default.
@@ -532,9 +533,10 @@ fn main() -> Result<()> {
         }
         Command::Phases { format } => yidam::phases(format),
         Command::Replay { every, format } => yidam::replay(format, every),
-        // The two transports are gated separately, and that is the whole point: MCP pulls
-        // fastembed, lancedb and protoc; LSP needs none of them. An LSP that required the ML
-        // stack would be one nobody could install.
+        // Neither transport is gated any more, and that is the point: an agent surface
+        // only the ML build carried was one almost nobody could reach. MCP's *semantic*
+        // retrieval still needs `index`; every tool it serves does not, and the server
+        // reports the difference on the handshake and on every `retrieve`.
         Command::Serve { mcp, lsp } => {
             if lsp && mcp {
                 anyhow::bail!("pick one transport — `--lsp` or `--mcp`")
@@ -542,21 +544,10 @@ fn main() -> Result<()> {
             if lsp {
                 return yidam::serve_lsp();
             }
-            #[cfg(feature = "index")]
-            {
-                if mcp {
-                    yidam::serve_mcp()
-                } else {
-                    anyhow::bail!("name a transport — `yidam serve --lsp` or `yidam serve --mcp`")
-                }
+            if mcp {
+                return yidam::serve_mcp();
             }
-            #[cfg(not(feature = "index"))]
-            {
-                anyhow::bail!(
-                    "`serve --mcp` needs the `index` feature — reinstall with \
-                     `cargo install yidam --features index`. `serve --lsp` is always available."
-                )
-            }
+            anyhow::bail!("name a transport — `yidam serve --lsp` or `yidam serve --mcp`")
         }
         Command::Lint {
             warn,

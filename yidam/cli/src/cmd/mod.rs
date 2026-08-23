@@ -33,7 +33,6 @@ mod replay;
 mod samudaya_audit;
 mod sangha;
 mod schema;
-#[cfg(feature = "index")]
 mod serve;
 pub(crate) mod status;
 #[cfg(feature = "tonpa")]
@@ -71,7 +70,6 @@ pub use replay::replay;
 pub use samudaya_audit::samudaya_audit;
 pub use sangha::sangha;
 pub use schema::schema;
-#[cfg(feature = "index")]
 pub use serve::serve_mcp;
 pub(crate) use status::index_status_data;
 pub use status::{index_status, status};

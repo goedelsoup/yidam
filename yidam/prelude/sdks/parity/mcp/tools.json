@@ -1,12 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "contract": "0.3.0",
+  "contract": "0.4.0",
   "description": "The frozen MCP tool contract (RFC-0005). Names are bare — no `yidam_` prefix — because the server is already namespaced by its own name in every client that mounts one. `tier` is `core` (every server MUST back it) or a capability name (backed iff the server declares that capability true). This file is the only place the list lives; a harness that restates it is a second freeze, which is how three servers ended up sharing one name out of five capabilities.",
   "capabilities": {
     "retrieve": {
-      "description": "Not a tier — `retrieve` is core either way. `vector: false` says the index is absent or unloadable, which is the same fact `degraded` reports per call; a server declaring it is promising every `retrieve` comes back degraded.",
+      "description": "Not a tier — `retrieve` is core either way. `vector: false` says the index is absent or unloadable, which is the same fact `degraded` reports per call; a server declaring it is promising every `retrieve` comes back degraded. `reason` carries the same value `degraded_reason` will carry on every call, so a client learns at connect time what it would otherwise learn one failed search later; it is null exactly when `vector` is true.",
       "shape": {
-        "vector": "boolean"
+        "vector": "boolean",
+        "reason": "string|null"
       }
     },
     "graph": "Backs the bidirectional walk. A server whose corpus is a projected mirror can still back it; one that holds no edges declares false.",
@@ -18,7 +19,7 @@
     {
       "name": "retrieve",
       "tier": "core",
-      "description": "Semantic search over corpus nodes. Returns the top-k nodes by cosine similarity; degrades to keyword search (with \"degraded\": true) when the vector index is absent.",
+      "description": "Semantic search over corpus nodes. Returns the top-k nodes by cosine similarity; degrades to keyword search (with \"degraded\": true and a \"degraded_reason\") when the vector index is absent or this build cannot read it.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -42,9 +43,10 @@
       "response": {
         "required": [
           "degraded",
+          "degraded_reason",
           "results"
         ],
-        "notes": "One adaptive tool, not a split pair. A server offering `query` and `semantic_search` as separate names has made the caller decide which vector space it is in, which is the caller's least informed decision. `degraded` MUST be present on every response — there is no third state."
+        "notes": "One adaptive tool, not a split pair. A server offering `query` and `semantic_search` as separate names has made the caller decide which vector space it is in, which is the caller's least informed decision. `degraded` MUST be present on every response — there is no third state.\n\nWHY, NOT ONLY WHETHER (contract 0.4.0). `degraded_reason` is required alongside it, and is null exactly when `degraded` is false. Null rather than absent, the convention `origin` already follows: a client testing the key must not have to distinguish \"not degraded\" from \"a server too old to say why\". The bare boolean made two different repositories look identical — one that never built an index, and one whose index the running binary cannot read — and they have different repairs, so a client (or a person) told only `degraded: true` cannot act on it. The frozen values:\n\n  no_index           — the corpus has no vector index. Build one.\n  no_vector_support  — an index exists; this build cannot read it. Reinstall with the vector dependencies.\n  stale_contract     — an index exists and was built with different embedding settings than this server would use, so answering from it would be answering in another vector space.\n\nPrecedence is by what must be fixed FIRST, and it is not the order a server discovers them in: a build without vector support looking at a corpus with no index reports `no_index`, because indexing is the repair either way and the missing corpus artefact is the nearer cause. `no_vector_support` is reserved for the case where the artefact is present and only the binary is the obstacle. Servers that always embed reserve `stale_contract` for the `embed.config.json` mismatch the degraded signal already forbids answering silently. A value outside this set is a divergence; a server needing one should add it here first."
       }
     },
     {

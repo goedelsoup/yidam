@@ -13,13 +13,13 @@ The rule both obey is RFC-0016's:
 
 ## `yidam serve --lsp`
 
-In the **light default feature set**. `serve --mcp` needs fastembed, lancedb and protoc;
-an LSP needs none of them, and one that required the ML stack would be one nobody could
-install. The two transports are gated separately for that reason.
+In the **light default feature set** — as, now, is `serve --mcp`. Both transports ship in
+the binary everyone installs; `--features index` upgrades MCP's `retrieve` from keyword to
+semantic search and adds nothing else.
 
 ```
-cargo install --path yidam/cli          # light: `serve --lsp` works
-cargo install --path yidam/cli --features index   # adds `serve --mcp`
+cargo install --path yidam/cli                    # both transports
+cargo install --path yidam/cli --features index   # + semantic `retrieve`
 ```
 
 ### What it serves
