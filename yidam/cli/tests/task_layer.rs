@@ -314,3 +314,50 @@ fn the_tag_resolver_matches_the_commit_and_not_the_tag_object() {
          the source path"
     );
 }
+
+/// The tag refspec must keep its trailing `*`, or the peeled refs never arrive.
+///
+/// [`the_tag_resolver_matches_the_commit_and_not_the_tag_object`] drives the awk over a
+/// fixture listing, so it says nothing about how that listing is *obtained*. And the
+/// obtaining is where the second half of the same trap lives: `git ls-remote` applies its
+/// pattern before emitting peeled refs, so a refspec naming one tag exactly returns only
+/// that tag's bare line — the tag object — and never the `^{}` commit the resolver matches.
+///
+/// Measured against the real origin while verifying the first release:
+///
+/// ```text
+/// $ git ls-remote --tags <origin> 'cli/v0.2.0'
+/// fe01247…  refs/tags/cli/v0.2.0
+/// $ git ls-remote --tags <origin> 'cli/v*'
+/// fe01247…  refs/tags/cli/v0.2.0
+/// ee3a7f6…  refs/tags/cli/v0.2.0^{}
+/// ```
+///
+/// Narrowing the refspec therefore looks like a tidy-up and silently retires the download
+/// path. This is the assertion that makes it fail instead.
+#[test]
+fn the_tag_refspec_globs_so_peeled_refs_are_returned() {
+    let run = parse("mise.yidam.toml")["yidam-build"]["run"]
+        .as_str()
+        .expect("yidam-build.run")
+        .to_string();
+
+    // Skip comment lines. The comment above the command quotes both spellings as worked
+    // examples, so a naive scan finds the exact-tag one being warned about and reports the
+    // documentation as the defect.
+    let line = run
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .find(|l| l.contains("ls-remote --tags") && l.contains("cli/v"))
+        .unwrap_or_else(|| panic!("yidam-build no longer lists cli/v tags"));
+
+    let start = line.find("'").expect("refspec is quoted") + 1;
+    let refspec = &line[start..start + line[start..].find('\'').expect("unterminated refspec")];
+
+    assert!(
+        refspec.ends_with('*'),
+        "the tag refspec is `{refspec}`; it must end in `*` or `git ls-remote` returns no \
+         `^{{}}` peeled refs, and the resolver — which matches on the peeled commit — can \
+         never find a release again"
+    );
+}
