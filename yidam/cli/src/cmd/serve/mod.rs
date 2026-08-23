@@ -41,6 +41,13 @@ pub(crate) struct ServerState {
     pub domain: String,
     pub commit: String,
     pub nodes: Vec<Node>,
+    /// Nodes from installed dependencies (`.yidam/tonpa/<pkg>/`).
+    ///
+    /// A separate field rather than more entries in `nodes`, because the distinction is
+    /// load-bearing: these are searchable and readable, and are never edge targets. Folding
+    /// them in would make every existing traversal cross a boundary it was never argued
+    /// across, silently.
+    pub dep_nodes: Vec<Node>,
     /// (name without extension, content)
     pub skills: Vec<(String, String)>,
     /// (name without extension, content)
@@ -61,6 +68,7 @@ impl ServerState {
         let model = load_domain_model(root)?;
 
         let nodes = corpus_nodes(&model);
+        let dep_nodes = crate::model::all_dependency_nodes(root);
 
         let skills = model
             .skills
@@ -112,6 +120,7 @@ impl ServerState {
             domain: model.provenance.domain,
             commit: model.provenance.commit,
             nodes,
+            dep_nodes,
             skills,
             decisions,
             index,
@@ -264,6 +273,29 @@ mod tests {
 
     pub(crate) fn test_state() -> ServerState {
         ServerState {
+            dep_nodes: vec![
+                Node {
+                    id: "concept/knowledge-graph".into(),
+                    class: "concept".into(),
+                    label: "Knowledge graph (upstream)".into(),
+                    description: "The dependency's account of a knowledge graph.".into(),
+                    content: "class: concept\n".into(),
+                    links: vec![("concept/traversal".into(), "enables".into())],
+                    origin: Some("upstream".into()),
+                },
+                // An id no local node shares. The colliding node above is rescued by ordering
+                // if the boundary is removed; this one is not, so it is the node that actually
+                // pins the rule.
+                Node {
+                    id: "concept/only-upstream".into(),
+                    class: "concept".into(),
+                    label: "Only upstream".into(),
+                    description: "Exists in the dependency and nowhere else.".into(),
+                    content: "class: concept\n".into(),
+                    links: vec![],
+                    origin: Some("upstream".into()),
+                },
+            ],
             domain: "test".into(),
             commit: "abc1234".into(),
             nodes: vec![
@@ -274,6 +306,7 @@ mod tests {
                     description: "A graph of knowledge nodes and typed edges.".into(),
                     content: "class: concept\nlabel: Knowledge graph\n".into(),
                     links: vec![("concept/traversal".into(), "enables".into())],
+                    origin: None,
                 },
                 Node {
                     id: "concept/traversal".into(),
@@ -282,6 +315,7 @@ mod tests {
                     description: "How agents walk the graph.".into(),
                     content: "class: concept\nlabel: \"? Traversal strategy\"\n".into(),
                     links: vec![],
+                    origin: None,
                 },
             ],
             skills: vec![("my-skill".into(), "---\nname: my-skill\n---\n".into())],

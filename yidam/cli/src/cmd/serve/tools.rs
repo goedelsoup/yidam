@@ -86,8 +86,15 @@ pub(crate) fn call(state: &ServerState, name: &str, args: &Value) -> Value {
     }
 }
 
+/// Resolve an id to a node this repository owns.
+///
+/// Bare ids only. A `pkg::class/name` never matches here, which is what keeps a dependency
+/// from answering as though it were local.
 fn find_node<'a>(state: &'a ServerState, id: &str) -> Option<&'a super::Node> {
     let id = id.trim().trim_end_matches(".yml");
+    if id.contains("::") {
+        return None;
+    }
     state
         .nodes
         .iter()
@@ -99,6 +106,22 @@ fn find_node<'a>(state: &'a ServerState, id: &str) -> Option<&'a super::Node> {
                 .iter()
                 .find(|n| id.ends_with(&format!("corpus/{}", n.id)))
         })
+}
+
+/// Resolve an id that may name a dependency's node, as `pkg::class/name`.
+///
+/// `retrieve` hands back qualified ids, so they have to be usable — an id a client is shown
+/// and then cannot fetch is a worse affordance than not surfacing the node at all. Reading
+/// one is allowed; it is *citing* one that is not.
+fn find_any_node<'a>(state: &'a ServerState, id: &str) -> Option<&'a super::Node> {
+    let id = id.trim().trim_end_matches(".yml");
+    match id.split_once("::") {
+        Some((pkg, rest)) => state
+            .dep_nodes
+            .iter()
+            .find(|n| n.origin.as_deref() == Some(pkg) && n.id == rest),
+        None => find_node(state, id),
+    }
 }
 
 fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
@@ -175,9 +198,14 @@ fn keyword_retrieve(
         .map(str::to_string)
         .collect();
 
+    // Local nodes first, then every installed dependency's. Retrieval is the one surface a
+    // dependency is allowed on: an agent asking "what is known about X" should be told when
+    // the answer lives in a corpus this repository merely cites, not have it withheld — and
+    // each result says whose it is, so it can never be mistaken for this repository's claim.
     let mut scored: Vec<(&super::Node, f32)> = state
         .nodes
         .iter()
+        .chain(state.dep_nodes.iter())
         .filter(|n| class_filter.is_none_or(|c| n.class == c))
         .filter_map(|n| {
             let haystack = format!("{} {} {}", n.label, n.description, n.content).to_lowercase();
@@ -192,13 +220,26 @@ fn keyword_retrieve(
             }
         })
         .collect();
-    scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.id.cmp(&b.0.id)));
+    // Ties break on the qualified id, not the bare one: two corpora may hold the same
+    // `class/name`, and ordering that cannot tell them apart is not deterministic.
+    scored.sort_by(|a, b| {
+        b.1.total_cmp(&a.1)
+            .then_with(|| a.0.qualified_id().cmp(&b.0.qualified_id()))
+    });
     scored.truncate(k);
 
     json!({
         "degraded": true,
         "results": scored.iter().map(|(n, score)| json!({
-            "path": format!(".yidam/corpus/{}.yml", n.id),
+            "id": n.qualified_id(),
+            "path": match &n.origin {
+                Some(pkg) => format!(".yidam/tonpa/{pkg}/corpus/{}.yml", n.id),
+                None => format!(".yidam/corpus/{}.yml", n.id),
+            },
+            // Always present, and null for this repository's own nodes rather than absent:
+            // a consumer testing for the key must not have to distinguish "local" from "an
+            // older server that never said".
+            "origin": n.origin,
             "class": n.class,
             "label": n.label,
             "text": n.description,
@@ -209,9 +250,10 @@ fn keyword_retrieve(
 
 fn get_node(state: &ServerState, args: &Value) -> Result<Value, String> {
     let id = args["id"].as_str().ok_or("missing required argument: id")?;
-    let node = find_node(state, id).ok_or_else(|| format!("node not found: {id}"))?;
+    let node = find_any_node(state, id).ok_or_else(|| format!("node not found: {id}"))?;
     Ok(json!({
-        "id": node.id,
+        "id": node.qualified_id(),
+        "origin": node.origin,
         "class": node.class,
         "label": node.label,
         "description": node.description,
@@ -226,6 +268,15 @@ fn get_node(state: &ServerState, args: &Value) -> Result<Value, String> {
 fn neighbors(state: &ServerState, args: &Value) -> Result<Value, String> {
     let id = args["id"].as_str().ok_or("missing required argument: id")?;
     let depth = args["depth"].as_u64().unwrap_or(1).max(1) as usize;
+    // A qualified id names a dependency's node. `retrieve` and `get_node` will both answer
+    // for one; traversal will not, and the difference is the whole boundary — an edge is a
+    // claim, and this repository has asserted none into a corpus it merely installed. Say
+    // that, rather than reporting a node that demonstrably exists as missing.
+    if id.contains("::") {
+        return Err(format!(
+            "{id} belongs to an installed dependency; traversal does not cross corpus              boundaries. Read it with get_node, or search it with retrieve."
+        ));
+    }
     let start = find_node(state, id).ok_or_else(|| format!("node not found: {id}"))?;
 
     // The traversal itself lives in `cmd::graph`, in the light build, because `yidam
@@ -367,6 +418,125 @@ mod tests {
         let qs = result["open_questions"].as_array().unwrap();
         assert_eq!(qs.len(), 1);
         assert_eq!(qs[0]["id"], "concept/traversal");
+    }
+
+    /// A dependency's nodes are searchable, and every result says whose it is.
+    ///
+    /// Withholding them would be the wrong answer to "what is known about X": an agent
+    /// asking that should be told when the answer lives in a corpus this repository merely
+    /// installed. Labelling them is what keeps that from reading as this repository's claim.
+    #[test]
+    fn retrieve_spans_dependencies_and_labels_their_origin() {
+        let state = super::super::tests::test_state();
+        let out = call_ok(
+            &state,
+            "retrieve",
+            json!({"query": "knowledge graph", "k": 10}),
+        );
+        let results = out["results"].as_array().expect("results");
+
+        let foreign: Vec<&Value> = results
+            .iter()
+            .filter(|r| r["origin"].as_str() == Some("upstream"))
+            .collect();
+        assert_eq!(
+            foreign.len(),
+            1,
+            "the dependency's node must be findable: {results:#?}"
+        );
+        assert_eq!(foreign[0]["id"], "upstream::concept/knowledge-graph");
+        assert_eq!(
+            foreign[0]["path"], ".yidam/tonpa/upstream/corpus/concept/knowledge-graph.yml",
+            "a foreign node's path must point into the dependency, not into this corpus"
+        );
+
+        // `origin` is null for local nodes rather than absent, so a consumer testing the key
+        // never has to distinguish "local" from "a server too old to say".
+        let local: Vec<&Value> = results.iter().filter(|r| r["origin"].is_null()).collect();
+        assert!(
+            !local.is_empty(),
+            "local nodes must still be returned: {results:#?}"
+        );
+    }
+
+    /// An id `retrieve` hands out has to be usable, or surfacing the node was a worse
+    /// affordance than hiding it.
+    #[test]
+    fn get_node_reads_a_dependency_by_its_qualified_id() {
+        let state = super::super::tests::test_state();
+        let out = call_ok(
+            &state,
+            "get_node",
+            json!({"id": "upstream::concept/knowledge-graph"}),
+        );
+        assert_eq!(out["id"], "upstream::concept/knowledge-graph");
+        assert_eq!(out["origin"], "upstream");
+        assert_eq!(out["label"], "Knowledge graph (upstream)");
+    }
+
+    /// The bare id must keep answering with THIS repository's node, not the dependency's.
+    ///
+    /// Both corpora hold `concept/knowledge-graph`. If a bare lookup could fall through to a
+    /// dependency, installing one would silently change what this repository says about
+    /// itself — which is the failure the whole boundary exists to prevent.
+    #[test]
+    fn a_bare_id_never_resolves_to_a_dependency() {
+        let state = super::super::tests::test_state();
+        let out = call_ok(&state, "get_node", json!({"id": "concept/knowledge-graph"}));
+        assert_eq!(out["id"], "concept/knowledge-graph");
+        assert!(
+            out["origin"].is_null(),
+            "a bare id must resolve locally: {out:#?}"
+        );
+        assert_eq!(out["label"], "Knowledge graph");
+    }
+
+    /// A bare id that only a dependency holds must not resolve at all.
+    ///
+    /// This is the assertion that actually pins the boundary. The colliding-id test above
+    /// passes even with the rule removed, because the local node happens to be searched
+    /// first — ordering rescues it, and a test rescued by ordering pins nothing. A node that
+    /// exists *only* upstream has no local candidate to win, so it is reachable exactly when
+    /// the boundary is gone.
+    #[test]
+    fn a_bare_id_holding_only_in_a_dependency_is_not_found() {
+        let state = super::super::tests::test_state();
+        let out = call(&state, "get_node", &json!({"id": "concept/only-upstream"}));
+        assert_eq!(
+            out["isError"], true,
+            "a bare id must never reach a dependency, even when nothing local shadows it: \
+             {out:#?}"
+        );
+
+        // And it IS reachable by its qualified id — otherwise this test would pass by the
+        // node simply being absent from the fixture.
+        let ok = call_ok(
+            &state,
+            "get_node",
+            json!({"id": "upstream::concept/only-upstream"}),
+        );
+        assert_eq!(ok["label"], "Only upstream");
+    }
+
+    /// Traversal does not cross into a dependency, and says so.
+    ///
+    /// An edge is a claim; this repository has asserted none into a corpus it installed. The
+    /// node demonstrably exists, so reporting it as "not found" would be a lie about the
+    /// reason.
+    #[test]
+    fn neighbors_refuses_to_cross_a_corpus_boundary() {
+        let state = super::super::tests::test_state();
+        let out = call(
+            &state,
+            "neighbors",
+            &json!({"id": "upstream::concept/knowledge-graph"}),
+        );
+        let text = out["content"][0]["text"].as_str().unwrap_or_default();
+        assert_eq!(out["isError"], true, "crossing must be refused: {out:#?}");
+        assert!(
+            text.contains("does not cross"),
+            "the refusal must give the reason, not just fail: {text}"
+        );
     }
 
     #[test]
