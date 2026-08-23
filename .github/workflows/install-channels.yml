@@ -1,0 +1,204 @@
+# Install channels — does a documented install line actually produce a binary?
+#
+# Every other workflow here asks whether an artifact BUILDS. None asks whether
+# anyone can OBTAIN one. That gap is why `cargo binstall yidam` stood in the
+# README for a release cycle while `yidam` did not exist on crates.io: the
+# release was green, the tap was live, the tarballs had download counts, and the
+# crates.io line was a sentence that could not succeed on any machine.
+#
+# So this runs the README's own install lines — verbatim, in a container that
+# holds nothing but the tools that line claims to need — and asserts that
+# `yidam --version` answers with the version of the latest release.
+#
+# ── failing here is not an emergency ─────────────────────────────────────────
+#
+# It means the README is wrong. That is worth a red mark and not a page: nothing
+# is broken for anyone who already installed, and the fix is either to ship the
+# channel or to stop documenting it. Both are ordinary work.
+#
+# ── it triggers on itself, deliberately ──────────────────────────────────────
+#
+# `publish-crates.yml` was committed after the only tag this repository had, and
+# a workflow fires only if it exists at the ref being pushed — so it never ran
+# once, and nobody noticed, because there was nothing to notice. A weekly job
+# added today has the same shape of silence in front of it. The `push` trigger
+# below makes this one run the moment it lands, and again whenever `install.sh`
+# or this file changes.
+
+name: Install channels
+
+on:
+  schedule:
+    # Mondays 07:00 UTC — after CI's weekly full-feature build, so a week's
+    # scheduled failures read in the order they happen.
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/install-channels.yml'
+      - 'install.sh'
+
+# Every job resolves the same expected version and every job asserts against it,
+# so a channel serving a stale artifact fails as loudly as one serving none.
+jobs:
+  released:
+    name: what is released
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - name: Resolve the latest CLI release
+        id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=$(gh api "repos/${{ github.repository }}/releases/latest" --jq .tag_name)
+          case "$tag" in
+            cli/v*) ;;
+            *) echo "::error::latest release is '$tag', which is not a CLI release (expected cli/v*)"; exit 1 ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#cli/v}" >> "$GITHUB_OUTPUT"
+          echo "latest CLI release: $tag"
+
+  # ── curl | sh, on a machine that has never seen this project ───────────────
+  #
+  # debian:bookworm-slim rather than the runner image: the runner has cargo, git,
+  # a compiler and a checksum tool already, so it cannot tell the difference
+  # between "install.sh works" and "install.sh works here". The container is
+  # given curl, ca-certificates and tar and nothing else — the exact set the
+  # script's own `need` calls name.
+  installer-linux:
+    name: install.sh (linux, clean container)
+    needs: released
+    runs-on: ubuntu-latest
+    container: debian:bookworm-slim
+    steps:
+      - name: Nothing but what install.sh claims to need
+        run: |
+          set -eux
+          apt-get update
+          apt-get install -y --no-install-recommends curl ca-certificates tar
+      - name: The line the README documents
+        run: curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh
+      - name: yidam --version
+        run: |
+          set -euo pipefail
+          out=$("$HOME/.local/bin/yidam" --version)
+          echo "$out"
+          case "$out" in
+            "yidam ${{ needs.released.outputs.version }} "*) ;;
+            *) echo "::error::install.sh installed '$out'; expected version ${{ needs.released.outputs.version }}"; exit 1 ;;
+          esac
+
+  # The darwin tarballs are cross-compiled and are the ones most likely to be
+  # unrunnable rather than merely absent — a macOS runner is the only thing here
+  # that executes them.
+  installer-macos:
+    name: install.sh (macos)
+    needs: released
+    runs-on: macos-latest
+    steps:
+      - name: The line the README documents
+        run: curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh
+      - name: yidam --version
+        run: |
+          set -euo pipefail
+          out=$("$HOME/.local/bin/yidam" --version)
+          echo "$out"
+          case "$out" in
+            "yidam ${{ needs.released.outputs.version }} "*) ;;
+            *) echo "::error::install.sh installed '$out'; expected version ${{ needs.released.outputs.version }}"; exit 1 ;;
+          esac
+
+  # The formula is rendered by the release workflow from the release's own
+  # checksums, so this is not testing Homebrew — it is testing that the tap push
+  # happened at all, which is a cross-repository write and the step of the
+  # release most able to fail on its own.
+  homebrew:
+    name: brew install goedelsoup/tap/yidam
+    needs: released
+    runs-on: ubuntu-latest
+    steps:
+      - name: The line the README documents
+        run: |
+          set -euo pipefail
+          command -v brew >/dev/null 2>&1 || eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew install goedelsoup/tap/yidam
+          out=$(yidam --version)
+          echo "$out"
+          case "$out" in
+            "yidam ${{ needs.released.outputs.version }} "*) ;;
+            *) echo "::error::the tap serves '$out'; expected version ${{ needs.released.outputs.version }}"; exit 1 ;;
+          esac
+
+  # ── binstall, with the source fallback forbidden ───────────────────────────
+  #
+  # `cargo binstall` falls back to compiling when it cannot resolve an artifact,
+  # and that fallback is the failure this job exists to catch: it exits 0, takes
+  # minutes, and looks exactly like success — which is how a mismatch between
+  # `[package.metadata.binstall]` in yidam/cli/Cargo.toml and the asset names in
+  # release.yml would survive. `--disable-strategies compile` turns the silent
+  # fallback into a red mark.
+  binstall:
+    name: cargo binstall yidam
+    needs: released
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-binstall
+        run: curl -fsSL https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+      - name: The line the README documents, minus the fallback that hides failure
+        run: |
+          set -euo pipefail
+          cargo binstall --no-confirm --disable-strategies compile yidam
+          out=$(yidam --version)
+          echo "$out"
+          case "$out" in
+            "yidam ${{ needs.released.outputs.version }} "*) ;;
+            *) echo "::error::binstall fetched '$out'; expected version ${{ needs.released.outputs.version }}"; exit 1 ;;
+          esac
+
+  # The registry itself. Distinct from binstall: this passes only if the crate is
+  # published AND its dependency graph resolves from crates.io alone, which is
+  # the ordering constraint publish-crates.yml describes — `yidam` cannot build
+  # from the registry until `yidam-core` is on it.
+  cargo-install:
+    name: cargo install yidam (crates.io)
+    needs: released
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dtolnay/rust-toolchain@stable
+      - name: From the registry, source build
+        run: |
+          set -euo pipefail
+          cargo install --locked yidam
+          out=$(yidam --version)
+          echo "$out"
+          case "$out" in
+            "yidam ${{ needs.released.outputs.version }} "*) ;;
+            *) echo "::error::crates.io serves '$out'; expected version ${{ needs.released.outputs.version }}"; exit 1 ;;
+          esac
+
+  # The git form is the one install path that has always worked, which is exactly
+  # why it is checked: it is the fallback every other line degrades to, and the
+  # only one whose breakage would leave no way in at all.
+  cargo-install-git:
+    name: cargo install --git yidam
+    needs: released
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dtolnay/rust-toolchain@stable
+      - name: The line the README documents
+        run: |
+          set -euo pipefail
+          cargo install --git https://github.com/${{ github.repository }} \
+            --tag "${{ needs.released.outputs.tag }}" --locked yidam
+          out=$(yidam --version)
+          echo "$out"
+          case "$out" in
+            "yidam ${{ needs.released.outputs.version }} "*) ;;
+            *) echo "::error::${{ needs.released.outputs.tag }} builds '$out'; expected version ${{ needs.released.outputs.version }}"; exit 1 ;;
+          esac
