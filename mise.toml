@@ -331,10 +331,10 @@ run = [
   "cargo test --manifest-path yidam/cli/Cargo.toml --locked",
 ]
 
-# Full-feature CLI build (index/sqlite/rdf/tonpa) — pulls fastembed/lancedb and
-# needs protoc. Heavy: CI runs this only on main + a weekly schedule (see
+# Full-feature CLI build (index/sqlite/rdf) — pulls fastembed/lancedb and needs
+# protoc. Heavy: CI runs this only on main + a weekly schedule (see
 # .github/workflows/ci.yml), not on every PR. `ci-cli` above builds the light
-# default (`reports`).
+# default (`reports` + `tonpa`), which is also what the release publishes.
 [tasks.ci-cli-full]
 description = "Full-feature CI for the yidam CLI (all optional features)."
 run = [

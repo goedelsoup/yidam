@@ -35,7 +35,7 @@ list and the reasoning behind closing it.
 
 ## Getting started
 
-Get the CLI. No toolchain required — the default build is pure Rust and ships as a binary:
+Get the CLI. No toolchain required — the default build ships as a binary:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/goedelsoup/yidam/main/install.sh | sh
@@ -62,8 +62,8 @@ fetches the same artifact:
 cargo binstall yidam
 ```
 
-Or from source, if you would rather. Same light `reports` build, and it needs only a Rust
-toolchain — no protoc, no C compiler, no ML runtime. `--locked` builds from the lock file the
+Or from source, if you would rather. Same light default build, and it needs only a Rust
+toolchain — no protoc, no system C library, no ML runtime. `--locked` builds from the lock file the
 tag committed, which is what makes it the same binary the release was built from; without it
 cargo re-resolves every dependency:
 
@@ -74,9 +74,10 @@ cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.2.0 --locke
 Either way, `yidam --version` should answer, naming the build and the features it carries.
 
 `--features full` adds `index-build`, `serve --mcp`, and the sqlite/rdf exports — and with
-them protoc 31, an ONNX runtime, and a C toolchain. That is the maintainer's build, described
-under [Working on yidam](#working-on-yidam) below. It is **not** what deriving a repository
-needs: `clone` and `overlay` are both in the light set, as is every report and gate.
+them protoc 31, an ONNX runtime, and a system C toolchain. That is the maintainer's build,
+described under [Working on yidam](#working-on-yidam) below. It is **not** what deriving a
+repository needs: `clone`, `overlay` and `tonpa` are all in the light set, as is every report
+and gate.
 
 Then create a derived repository, or overlay the infrastructure onto one that already exists:
 
@@ -151,12 +152,17 @@ The binary is partitioned by cargo feature so the common case stays cheap to ins
 
 | Feature | Adds | Cost |
 |---|---|---|
-| `reports` *(default)* | Every pure-Rust command — reports, gates, export to graphml/llms, clone, overlay | None. No protoc, no C toolchain, no ML runtime |
+| `reports` *(default)* | Every pure-Rust command — reports, gates, export to graphml/llms, clone, overlay | None. No protoc, no ML runtime |
+| `tonpa` *(default)* | Bundle dependency manager — `tonpa add`, `verify`, `update` | reqwest (rustls) + tokio. Vendored C, no system library |
 | `index` | `index-build`, `serve --mcp` | fastembed (ONNX) + LanceDB; needs protoc 31 at build time |
 | `export-sqlite` | `export --format sqlite` | Bundled SQLite + sqlite-vec, compiled from C |
 | `export-graph` | `export --format rdf` | Pure Rust |
-| `tonpa` | Bundle dependency manager | reqwest + tokio |
 | `full` | All of the above | |
+
+`tonpa` is in the default set even though it costs an HTTP stack, because it is the only
+feature whose absence broke an instruction rather than removing a capability: without it
+`yidam tonpa add …` answered `unrecognized subcommand`, and inside a script with output
+redirected that is indistinguishable from success.
 
 MSRV is Rust 1.85, deliberately below the 1.88 toolchain this repo pins, so derived repos on
 older toolchains can still install the CLI.
