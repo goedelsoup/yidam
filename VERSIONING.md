@@ -239,12 +239,17 @@ or `yidam/editors/`. Not the parity SDKs, which the CLI depends on and does not 
 3. **Run `mise run ci`** — all tests must pass.
 4. **For SDK changes**, run `mise run parity` — all three SDK parity suites must pass.
    The `ci (parity)` job runs it on every push and pull request.
-5. **Tag** the affected layers (`git tag -s v0.2.0`, `git tag -s sdk/rust/v0.2.0`,
-   `git tag -s cli/v0.2.0`, `git tag -s editor/v0.2.0`, etc.). The TypeScript and Python
-   SDKs are not tagged — see Layer 2.
+5. **Tag** the affected layers with [`./release.sh`](release.sh) — `mise run release
+   sdk/rust 0.2.0`, `mise run release cli 0.2.1`, and so on. It refuses a version the
+   manifest does not declare, a dirty tree, a commit that is not `origin/main`, a tag whose
+   workflow is not present at that commit, and — for `cli` — a `yidam-core` that is not yet
+   on crates.io. Add `--dry-run` to see the checks without tagging. The TypeScript and
+   Python SDKs are not tagged; see Layer 2.
 6. **Push tags** to origin. CI publishes to registries on matching tag patterns.
    `sdk/rust/v*` must be published before `cli/v*`: the CLI's own publish fails on a
-   missing `yidam-core` until it is.
+   missing `yidam-core` until it is. `release.sh` enforces that ordering, which is the
+   reason it exists — the ordering was documented in a workflow comment and then not
+   followed by the person who had written it a few hours earlier.
 
 Never bump a layer as a side effect of another layer's release. Each bump is an
 intentional signal to downstream consumers.
