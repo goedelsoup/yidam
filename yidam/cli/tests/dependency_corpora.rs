@@ -240,3 +240,162 @@ fn a_path_that_does_not_exist_is_skipped_not_fatal() {
     assert!(yidam::model::dependency_names(tmp.path()).is_empty());
     assert!(yidam::model::all_dependency_nodes(tmp.path()).is_empty());
 }
+
+// ── path dependencies, through the commands rather than the read layer ────────
+//
+// `deps::resolved` read a path dependency correctly from the day #202 landed. The three
+// `tonpa` query commands did not, and they disagreed with it and with each other:
+//
+//   tonpa status   →  [missing lock] producer — run `yidam tonpa install`
+//   tonpa install  →  Error: local path dependencies not yet supported: ../producer
+//
+// So the command that diagnosed the problem prescribed the command that refused to fix it,
+// about a dependency that was working. Worse, `install`'s failure was a `?` on the first
+// path dependency in name order, which aborted the run — one path dependency stopped every
+// *fetched* dependency after it from installing.
+//
+// These go through the binary on purpose. The bug was never in the read layer, and a test
+// that called `deps::resolved` would have passed throughout.
+
+use std::process::Command;
+
+struct Run {
+    stdout: String,
+    stderr: String,
+    code: i32,
+}
+
+fn run(dir: &Path, args: &[&str]) -> Run {
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(dir)
+        .args(args)
+        .output()
+        .unwrap();
+    Run {
+        stdout: String::from_utf8_lossy(&out.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+        code: out.status.code().unwrap_or(-1),
+    }
+}
+
+/// A consumer repository declaring `producer` as a path dependency, and the producer beside
+/// it. Returns the tempdir (kept alive by the caller) and the consumer's path.
+fn producer_and_consumer(extra_toml: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+    let tmp = tempfile::tempdir().unwrap();
+    let producer = tmp.path().join("producer");
+    std::fs::create_dir_all(producer.join(".yidam/corpus/concept")).unwrap();
+    std::fs::write(
+        producer.join(".yidam/corpus/concept/alpha.yml"),
+        "class: concept\nlabel: Alpha\ndescription: about Alpha\n",
+    )
+    .unwrap();
+
+    let consumer = tmp.path().join("consumer");
+    std::fs::create_dir_all(consumer.join(".yidam")).unwrap();
+    // A real git repository: `repo_root` resolves the path relative to the toplevel, and a
+    // fallback to the working directory would make this test pass for the wrong reason.
+    assert!(Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&consumer)
+        .status()
+        .unwrap()
+        .success());
+    std::fs::write(
+        consumer.join(".yidam/tonpa.toml"),
+        format!("[dependencies.producer]\npath = \"../producer\"\n{extra_toml}"),
+    )
+    .unwrap();
+    (tmp, consumer)
+}
+
+#[test]
+fn status_reports_a_path_dependency_as_linked_rather_than_missing() {
+    let (_tmp, consumer) = producer_and_consumer("");
+    let r = run(&consumer, &["tonpa", "status"]);
+    assert_eq!(r.code, 0, "stdout: {}\nstderr: {}", r.stdout, r.stderr);
+    assert!(
+        r.stdout.contains("[linked]") && r.stdout.contains("../producer"),
+        "a readable path dependency must report as linked: {}",
+        r.stdout
+    );
+    assert!(
+        !r.stdout.contains("[missing lock]"),
+        "a path dependency has nothing to lock, so it must not be reported as unlocked: {}",
+        r.stdout
+    );
+}
+
+#[test]
+fn status_reports_a_path_dependency_that_does_not_resolve() {
+    let (_tmp, consumer) = producer_and_consumer("");
+    std::fs::write(
+        consumer.join(".yidam/tonpa.toml"),
+        "[dependencies.gone]\npath = \"../nope\"\n",
+    )
+    .unwrap();
+    let r = run(&consumer, &["tonpa", "status"]);
+    assert!(
+        r.stdout.contains("[path missing]"),
+        "a path that resolves to no corpus is the one path-dependency state worth flagging: {}",
+        r.stdout
+    );
+}
+
+#[test]
+fn install_skips_a_path_dependency_instead_of_failing_on_it() {
+    let (_tmp, consumer) = producer_and_consumer("");
+    let r = run(&consumer, &["tonpa", "install"]);
+    assert_eq!(r.code, 0, "stdout: {}\nstderr: {}", r.stdout, r.stderr);
+    assert!(
+        !r.stderr.contains("not yet supported"),
+        "install must not claim path dependencies are unsupported: {}",
+        r.stderr
+    );
+}
+
+#[test]
+fn a_path_dependency_does_not_abort_the_install_of_a_fetched_one() {
+    // `aaa` sorts before `producer` in the BTreeMap this iterates, so before the fix the
+    // path dependency was reached second — and the run still had to survive it to report on
+    // the fetched one. Naming the fetched dependency `zzz` puts it *after* the path one,
+    // which is the ordering that actually aborted.
+    let (_tmp, consumer) = producer_and_consumer(
+        "\n[dependencies.zzz]\nurl = \"https://example.invalid/bundle.yiz\"\n",
+    );
+    let r = run(&consumer, &["tonpa", "install"]);
+    // The fetch of `zzz` fails: the host does not resolve, deliberately — this test must not
+    // touch the network. What matters is that the run got *to* it, so the failure names the
+    // fetched dependency rather than the path one.
+    assert!(
+        !r.stderr.contains("not yet supported"),
+        "the path dependency must not be what stops the run: {}",
+        r.stderr
+    );
+}
+
+#[test]
+fn update_declines_a_named_path_dependency_with_a_reason() {
+    let (_tmp, consumer) = producer_and_consumer("");
+    let r = run(&consumer, &["tonpa", "update", "producer"]);
+    assert_ne!(
+        r.code, 0,
+        "naming a path dependency is an error, not a no-op"
+    );
+    assert!(
+        r.stderr.contains("path dependency") && r.stderr.contains("editing it"),
+        "the error must say why nothing happened and what to do instead: {}",
+        r.stderr
+    );
+}
+
+#[test]
+fn update_with_only_path_dependencies_says_so_rather_than_exiting_silently() {
+    let (_tmp, consumer) = producer_and_consumer("");
+    let r = run(&consumer, &["tonpa", "update"]);
+    assert_eq!(r.code, 0, "stderr: {}", r.stderr);
+    assert!(
+        r.stdout.contains("Nothing to update"),
+        "silence here reads as 'updated, no changes': {}",
+        r.stdout
+    );
+}
