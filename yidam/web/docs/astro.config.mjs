@@ -28,6 +28,10 @@ export default defineConfig({
       },
       sidebar: [
         {
+          label: 'Start here',
+          items: [{ slug: 'quickstart', label: 'Quickstart' }],
+        },
+        {
           label: 'yidam',
           items: [
             { slug: 'what-yidam-is', label: 'What yidam is' },

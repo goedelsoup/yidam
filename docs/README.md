@@ -11,11 +11,13 @@ scaffold that derived repos receive, see [sadhana/docs/](../sadhana/docs/README.
 
 | Document | Topic |
 |---|---|
+| [quickstart.md](quickstart.md) | **Start here.** Install, read a worked corpus, break its gate and repair it, then bootstrap your own |
 | [what-yidam-is.md](what-yidam-is.md) | The scripture, the knowledge graph model, the two commit kinds |
 | [vocabulary.md](vocabulary.md) | All system terms defined; claim confidence markers |
 | [information-architecture.md](information-architecture.md) | Directory layout, node structure, instance and decision schemas |
 | [git-branch-model.md](git-branch-model.md) | `ma/<elector>` positions, `rigpa/<evolution>` evolutions, phase types |
 | [bootstrap-flow.md](bootstrap-flow.md) | The ten-step onboarding sequence with quality criteria |
+| [../examples/](../examples/README.md) | Worked corpora, gated by this repository's CI — what a good corpus looks like |
 | [sangha-resolution-flow.md](sangha-resolution-flow.md) | When and how to resolve; elector registration |
 | [constitutional-governance.md](constitutional-governance.md) | The six articles of the invariant constitution |
 | [domain-computer.md](domain-computer.md) | Connectors, calculators, feature engineering, vector index |

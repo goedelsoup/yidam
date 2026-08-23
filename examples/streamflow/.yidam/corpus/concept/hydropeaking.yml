@@ -1,0 +1,21 @@
+class: concept
+label: Hydropeaking
+description: |
+  Rapid sub-daily variation in discharge below a hydroelectric facility that is operated to
+  follow electricity demand rather than inflow. [verified] The signature is a diel cycle in
+  the hydrograph whose period matches the load curve and not any weather event.
+
+  Hydropeaking is the clearest case in this corpus of a flow regime that is an artefact of
+  operations. A daily statistic computed over it averages the peak and the trough into a
+  number that occurs at no time of day. [inference]
+
+  Whether the ecological effect is driven mainly by the rate of change or by the depth of
+  the trough is not settled here. [open] The two imply different mitigation and the corpus
+  should not pick one by omission.
+properties:
+  claim_tag: open
+links:
+  - target: ../concept.ont.yml
+    relationship: instance-of
+  - target: ./low-flow.yml
+    relationship: refines

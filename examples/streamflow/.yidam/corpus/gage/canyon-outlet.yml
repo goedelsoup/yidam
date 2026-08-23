@@ -1,0 +1,27 @@
+class: gage
+label: Canyon Outlet gage
+description: |
+  The station at the downstream end of the canyon reach, below the impoundment. Stage is
+  recorded continuously and converted to discharge by a rating curve maintained against
+  periodic direct measurements. [verified]
+
+  Its record is the only one in this corpus that spans both sides of the regulation change,
+  which is why it carries most of the weight here — and why the pre- and post-change
+  segments must never be pooled into one distribution. [inference]
+
+  This is an **illustrative station**, not a real one. Its parameter code and units follow
+  the published USGS convention so the shape of a real record is visible; the record itself
+  is not reproduced here.
+properties:
+  parameter: "00060"
+  units: cubic feet per second
+  claim_tag: inference
+links:
+  - target: ../gage.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/usgs-nwis.md
+    relationship: sourced-from
+  - target: ../concept/hydropeaking.yml
+    relationship: sources-from
+  - target: ../concept/low-flow.yml
+    relationship: sources-from

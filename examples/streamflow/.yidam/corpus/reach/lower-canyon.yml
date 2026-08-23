@@ -1,0 +1,22 @@
+class: reach
+label: Lower canyon reach
+description: |
+  The confined segment between the tailwater and the valley, with negligible tributary
+  inflow. [verified] Its hydrograph is very nearly the tailwater's, translated and slightly
+  attenuated.
+
+  That near-identity is what makes it useful: it is the reach where an instream flow right
+  written at the tailwater can be checked against an independent record. [inference]
+properties:
+  length_km: "~24"
+  regulated: "yes — inherited from upstream"
+  claim_tag: inference
+links:
+  - target: ../reach.ont.yml
+    relationship: instance-of
+  - target: ./tailwater.yml
+    relationship: downstream-of
+  - target: ../gage/valley-bridge.yml
+    relationship: measured-by
+  - target: ../concept/instream-flow-right.yml
+    relationship: exhibits

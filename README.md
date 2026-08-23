@@ -35,6 +35,10 @@ list and the reasoning behind closing it.
 
 ## Getting started
 
+> **In a hurry?** [docs/quickstart.md](docs/quickstart.md) goes from no toolchain to a
+> bootstrapped repository whose gate you have watched pass, fail, and pass again — by way of
+> a worked corpus in [examples/streamflow/](examples/streamflow/). About twenty minutes.
+
 Get the CLI. No toolchain required — the default build ships as a binary:
 
 ```sh
@@ -107,6 +111,7 @@ arrives (see [samudaya/README.md](samudaya/README.md)).
 | [`samudaya/`](samudaya/) | Seed layer — axioms, hints, constraints, augmentations; consumed at genesis |
 | [`packages/web/`](packages/web/) | Browser shell over an exported bundle — embeddings and vector search in WASM |
 | [`docs/`](docs/README.md) | Documentation for yidam itself: design docs, RFCs, vocabulary |
+| [`examples/`](examples/README.md) | Worked corpora for reading — not copied into a derived repository |
 | [`BOOTSTRAP.md`](BOOTSTRAP.md) | The agent entry prompt a derived repo is bootstrapped from |
 | [`mise.yidam.toml`](mise.yidam.toml) | The inherited task layer derived repos include |
 

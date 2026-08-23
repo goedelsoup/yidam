@@ -1,0 +1,22 @@
+class: concept
+label: Low flow
+description: |
+  The lower tail of a reach's flow distribution — the condition regulators, water users and
+  aquatic habitat are all most sensitive to, and the one a mean annual discharge hides.
+
+  In United States regulatory practice the canonical summary statistic is **7Q10**: the
+  annual minimum seven-day mean discharge with a ten-year recurrence interval. [verified]
+  Seven days rather than one because a single-day minimum is dominated by measurement noise
+  and by sub-daily operations; ten years because it is the interval most state
+  water-quality standards were written against. [inference]
+
+  A 7Q10 computed on a regulated reach describes the operating rule far more than it
+  describes the catchment. [inference] Comparing one across the regulation boundary is the
+  most common way this statistic is misread.
+properties:
+  claim_tag: inference
+links:
+  - target: ../concept.ont.yml
+    relationship: instance-of
+  - target: ./base-flow-separation.yml
+    relationship: refines

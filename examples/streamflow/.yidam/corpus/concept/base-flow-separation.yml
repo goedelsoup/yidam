@@ -1,0 +1,24 @@
+class: concept
+label: Base-flow separation
+description: |
+  Partitioning a hydrograph into **base flow** — the slowly varying component sustained
+  between events — and **quick flow**, the event response. Methods range from graphical
+  rules to recursive digital filters. [verified]
+
+  There is no unique physically correct separation. [open] The components are not separately
+  observable, so a method is chosen and its parameters are a modelling decision, not a
+  measurement. Two defensible filters over one record produce different base-flow indices,
+  and neither is wrong.
+
+  This corpus therefore treats a base-flow index as a **derived quantity carrying its
+  method**, never as a property of the reach. A figure without its filter and parameters is
+  not interpretable and should not be cited. [inference]
+
+  *Examined and not used: several published base-flow index values for regulated reaches
+  that report no filter parameters. They are excluded on the rule stated above rather than
+  because they are believed wrong.*
+properties:
+  claim_tag: open
+links:
+  - target: ../concept.ont.yml
+    relationship: instance-of
