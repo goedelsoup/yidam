@@ -186,15 +186,22 @@ const PURPOSE_PHRASES: &[&str] = &[
 /// **Warn, and a prompt rather than a proof.** This is a check over wording. It cannot see
 /// a purpose asserted in words that are not on the list, and a description can name a
 /// purpose someone else attributed without asserting it. Read the finding; do not clear it.
+///
+/// **The finding quotes the sentence, not just the phrase.** The commonest false positive
+/// is a description that carries the phrase inside a clause *disclaiming* purpose — "does
+/// not record that a project was pursued in order to obtain anything" — which is the same
+/// shape `analytic_note` is exempted for, one field over. Deciding automatically which
+/// negations defuse a purpose claim is a judgement this check should not make, so it makes
+/// the judgement cheap for the reader instead: the clause is printed with the finding, and
+/// a case like that resolves at a glance without opening the file.
 pub fn class_asserts_purpose(classes: &[Class]) -> Check {
     let violations = classes
         .iter()
         .filter_map(|c| {
-            let lowered = c.description.to_lowercase();
-            let hit = PURPOSE_PHRASES.iter().find(|p| lowered.contains(**p))?;
+            let (hit, sentence) = first_purpose_phrase(&c.description)?;
             Some(Violation::new(
                 &c.rel,
-                format!("`description` says \"{hit}\" — a purpose, not a kind"),
+                format!("`description` says \"{hit}\" — a purpose, not a kind: \"{sentence}\""),
             ))
         })
         .collect();
@@ -214,6 +221,80 @@ pub fn class_asserts_purpose(classes: &[Class]) -> Check {
          not read.",
         violations,
     )
+}
+
+/// The longest a quoted sentence gets before the middle is elided.
+///
+/// Long enough for the negating clause that motivates the quoting to survive on either
+/// side of a phrase sitting mid-sentence; short enough to stay one line of terminal.
+const SENTENCE_BUDGET: usize = 160;
+
+/// The first purpose phrase in `description`, with the sentence carrying it.
+///
+/// Matching runs per sentence rather than over the whole description, so the phrase and
+/// the clause reported for it cannot come from different places, and no index has to be
+/// mapped back from the lowercased copy — `to_lowercase` is not length-preserving.
+fn first_purpose_phrase(description: &str) -> Option<(&'static str, String)> {
+    sentences(description).into_iter().find_map(|s| {
+        let lowered = s.to_lowercase();
+        let hit = PURPOSE_PHRASES.iter().find(|p| lowered.contains(**p))?;
+        Some((*hit, elide(&s, hit)))
+    })
+}
+
+/// Splits prose into whitespace-collapsed sentences on terminal punctuation.
+///
+/// Collapsing first means a phrase broken across lines by a literal YAML block still
+/// matches, which the previous whole-description `contains` did not manage. Splitting
+/// after cannot lose a match either: no phrase on the list contains a `.`, `!`, or `?`,
+/// so a break — including a spurious one after an abbreviation — always falls outside a
+/// phrase and at worst costs the reader some context in the quote.
+fn sentences(text: &str) -> Vec<String> {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut out = Vec::new();
+    let mut start = 0;
+    let bytes = flat.as_bytes();
+    for (i, ch) in flat.char_indices() {
+        let ends = matches!(ch, '.' | '!' | '?')
+            && bytes.get(i + 1).is_none_or(|b| b.is_ascii_whitespace());
+        if ends {
+            let end = i + 1;
+            if !flat[start..end].trim().is_empty() {
+                out.push(flat[start..end].trim().to_string());
+            }
+            start = end;
+        }
+    }
+    if !flat[start..].trim().is_empty() {
+        out.push(flat[start..].trim().to_string());
+    }
+    out
+}
+
+/// Trims a sentence to `SENTENCE_BUDGET` characters, keeping `hit` inside the window.
+///
+/// A long sentence is elided around the phrase rather than from the end, because the
+/// words that decide whether the finding is real — a negation, an attribution — are
+/// usually the ones next to it.
+fn elide(sentence: &str, hit: &str) -> String {
+    let chars: Vec<char> = sentence.chars().collect();
+    if chars.len() <= SENTENCE_BUDGET {
+        return sentence.to_string();
+    }
+    let at = sentence.to_lowercase().find(hit).unwrap_or(0);
+    let at_char = sentence[..at].chars().count();
+    let half = (SENTENCE_BUDGET - hit.chars().count().min(SENTENCE_BUDGET)) / 2;
+    let hi = (at_char + hit.chars().count() + half).clamp(SENTENCE_BUDGET, chars.len());
+    let lo = hi - SENTENCE_BUDGET;
+    let mut out = String::new();
+    if lo > 0 {
+        out.push('…');
+    }
+    out.extend(&chars[lo..hi]);
+    if hi < chars.len() {
+        out.push('…');
+    }
+    out
 }
 
 // ── corpus structure ──────────────────────────────────────────────────────────
@@ -1272,6 +1353,93 @@ mod tests {
     fn the_match_is_case_insensitive() {
         let c = class_asserts_purpose(&[class("x.ont.yml", "An instrument Designed To pass.")]);
         assert_eq!(c.violations.len(), 1);
+    }
+
+    #[test]
+    fn the_finding_quotes_the_sentence_the_phrase_sits_in() {
+        // Direction (3) of the report: the reader decides whether a hit is real, so the
+        // clause is put in front of them rather than left in the file.
+        let c = class_asserts_purpose(&[class(
+            "x.ont.yml",
+            "A dated procedural sequence. It was designed to obtain an outcome.",
+        )]);
+        assert_eq!(
+            c.violations[0].detail,
+            "`description` says \"designed to\" — a purpose, not a kind: \
+             \"It was designed to obtain an outcome.\""
+        );
+    }
+
+    #[test]
+    fn the_disclaiming_sentence_is_quoted_with_its_negation() {
+        // Verbatim shape from the report: the phrase occurs inside the clause refusing
+        // to assert a purpose. Still a finding — but one a reader can resolve from the
+        // message, because the words that defuse it are printed with it.
+        let c = class_asserts_purpose(&[class(
+            ".yidam/corpus/project.ont.yml",
+            "It records what a body minuted, on what date, for how much. It does not \
+             record that anyone intended an outcome, that a project was pursued in order \
+             to obtain anything, or that a named person caused it to exist.",
+        )]);
+        assert_eq!(c.violations.len(), 1);
+        let detail = &c.violations[0].detail;
+        assert!(detail.contains("does not record"), "{detail}");
+        assert!(detail.contains("in order to obtain anything"), "{detail}");
+    }
+
+    #[test]
+    fn only_the_sentence_carrying_the_phrase_is_quoted() {
+        let c = class_asserts_purpose(&[class(
+            "x.ont.yml",
+            "A minuted decision. An instrument intended to bind. Filed by date.",
+        )]);
+        assert!(
+            c.violations[0]
+                .detail
+                .ends_with("\"An instrument intended to bind.\""),
+            "{}",
+            c.violations[0].detail
+        );
+    }
+
+    #[test]
+    fn a_phrase_broken_across_lines_is_still_found() {
+        // A literal YAML block keeps its newlines. The old whole-description `contains`
+        // missed a phrase straddling one; collapsing whitespace before matching does not.
+        let c = class_asserts_purpose(&[class(
+            "x.ont.yml",
+            "A mechanism deployed\n   to obtain an outcome.",
+        )]);
+        assert_eq!(c.violations.len(), 1);
+        assert!(
+            c.violations[0].detail.ends_with(
+                "\"A mechanism deployed to obtain an \
+                 outcome.\""
+            ),
+            "{}",
+            c.violations[0].detail
+        );
+    }
+
+    #[test]
+    fn a_long_sentence_is_elided_around_the_phrase() {
+        let pad = "word ".repeat(60);
+        let c = class_asserts_purpose(&[class(
+            "x.ont.yml",
+            &format!("{pad}not designed to bind {pad}"),
+        )]);
+        let detail = &c.violations[0].detail;
+        let quoted = detail.split_once(": \"").unwrap().1.trim_end_matches('"');
+        assert!(quoted.chars().count() <= SENTENCE_BUDGET + 2, "{quoted}");
+        assert!(quoted.starts_with('…') && quoted.ends_with('…'), "{quoted}");
+        // The negation next to the phrase is what makes the quote worth printing.
+        assert!(quoted.contains("not designed to bind"), "{quoted}");
+    }
+
+    #[test]
+    fn a_short_sentence_is_quoted_whole_and_unelided() {
+        let c = class_asserts_purpose(&[class("x.ont.yml", "An instrument intended to bind.")]);
+        assert!(!c.violations[0].detail.contains('…'));
     }
 
     #[test]
