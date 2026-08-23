@@ -28,8 +28,8 @@ harness checks that they do.
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.2.0",
-    "retrieve": { "vector": false },
+    "contract": "0.4.0",
+    "retrieve": { "vector": false, "reason": "no_index" },
     "graph": true, "phases": false, "sangha": false, "resources": true
   }
 }
@@ -37,7 +37,8 @@ harness checks that they do.
 
 `retrieve.vector` is not a capability tier — `retrieve` is core either way. It says whether
 the vector index is loaded, which is the same fact `degraded` reports per call. A server that
-declares `vector: false` is promising every `retrieve` will come back `degraded: true`.
+declares `vector: false` is promising every `retrieve` will come back `degraded: true`, with
+the `reason` it names here. `reason` is null exactly when `vector` is true.
 
 ## The degraded signal
 
@@ -48,6 +49,37 @@ settings. A server that lazily builds its own index on first use and reports `de
 is answering from a different vector space and saying it is not.
 
 Omitting the flag is not an option the contract offers. There is no third state.
+
+### And why (contract 0.4.0)
+
+`degraded_reason` is required alongside it, and is null exactly when `degraded` is false —
+null rather than absent, the convention `origin` already follows, so a client testing the key
+never has to distinguish "not degraded" from "a server too old to say why".
+
+| Value | Means | Repair |
+|---|---|---|
+| `no_index` | The corpus has no vector index | Build one |
+| `no_vector_support` | An index exists; this build cannot read it | Install a build carrying the vector dependencies |
+| `stale_contract` | An index exists, built with different embedding settings than this server would use | Rebuild the index, or embed with its contract |
+
+The bare boolean made two different repositories look identical: one that never built an
+index, and one whose index the running binary cannot read. Both answer from keyword search,
+only one is fixed by indexing, and a client — or a person reading a startup banner — told
+just `degraded: true` cannot tell which it has. yidam's own CLI acquired exactly that pair
+the moment `serve` moved into the light default set, which is what forced the field.
+
+**Precedence is by what must be fixed first, not by what the server notices first.** A build
+with no vector support looking at a corpus with no index reports `no_index`: indexing is the
+repair either way, and the missing artefact is the nearer cause. `no_vector_support` is
+reserved for when the artefact is present and only the binary is in the way. That rule is
+what lets `cases/retrieve/keyword-degraded.json` pin a single value every build of every
+server must answer with — a case whose expected value changed with the harness's build would
+be no freeze at all.
+
+`stale_contract` is named here and emitted by no server in this repository: the Rust CLI
+never re-embeds, so it cannot reach that state. It is frozen anyway, because a server that
+does reach it will otherwise invent a string, which is the drift this directory exists to
+stop.
 
 ## The corpus
 

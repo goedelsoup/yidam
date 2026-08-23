@@ -23,9 +23,10 @@
 //!
 //! # Not gated behind `index`
 //!
-//! `serve --mcp` needs fastembed, lancedb and protoc. An LSP needs none of them, and an LSP
-//! that required the ML stack would be one nobody could install. `serve --lsp` is in the
-//! light default; the transports are gated separately.
+//! An LSP that required the ML stack would be one nobody could install, so this one never
+//! did. `serve --mcp` has since joined it in the light default — only the *semantic*
+//! retrieval path inside it still needs fastembed, lancedb and protoc. Neither transport is
+//! gated any more; see `cmd::serve::vector`.
 
 use anyhow::Result;
 use serde_json::{json, Value};

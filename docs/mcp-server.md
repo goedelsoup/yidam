@@ -1,7 +1,6 @@
 # Connecting an agent
 
-*How to put a corpus behind an MCP server and point an agent at it. Ten minutes, most of it
-the build.*
+*How to put a corpus behind an MCP server and point an agent at it. Five minutes.*
 
 `yidam serve --mcp` is the surface that makes a corpus reachable by an agent, which is close
 to the point of the whole system. [RFC-0005](rfcs/0005-mcp-tool-contract.md) specifies the
@@ -13,27 +12,22 @@ configuration, which tool to reach for, and how to tell what you are actually co
 
 ## 1. Which binary carries `serve`
 
-**Not the one the install script gives you.** `serve --mcp` is behind the `index` feature,
-along with `index-build` — it is compiled with the ML stack because semantic `retrieve` is,
-and the two have not yet been separated. The light default build answers:
+**Any of them.** `serve --mcp` is in the light default build — the one the install script,
+the Homebrew tap and `cargo binstall` all give you. No protoc, no ONNX runtime, no C
+toolchain.
 
-```text
-`serve --mcp` needs the `index` feature — reinstall with `cargo install yidam --features index`.
-`serve --lsp` is always available.
-```
-
-Ask the binary rather than guessing. `yidam --version` names the features it carries:
+What the `index` feature adds is not the server but the *quality of one tool*. With it,
+`retrieve` is semantic search over a vector index. Without it, `retrieve` falls back to
+keyword search and says so on every call. `get_node`, `neighbors`, `list_nodes`,
+`open_questions` and every resource are identical in both builds.
 
 ```sh
 yidam --version
-# 0.2.1 (a1b2c3d) [reports index tonpa]
+# 0.2.1 (a1b2c3d) [reports tonpa]          ← serves; retrieve is keyword
+# 0.2.1 (a1b2c3d) [reports index tonpa]    ← serves; retrieve is semantic
 ```
 
-`index` in the brackets means this binary can serve. `[reports tonpa]` — the released
-artifact — means it cannot.
-
-Building one that can needs protoc 31, a C toolchain and an ONNX runtime, which is the
-maintainer's setup rather than the collaborator's:
+If you want the semantic build, it needs protoc 31, a C toolchain and an ONNX runtime:
 
 ```sh
 cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.2.1 --locked \
@@ -41,14 +35,12 @@ cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.2.1 --locke
 ```
 
 Inside a yidam checkout, `mise install && mise run yidam-build` provisions the toolchain and
-installs a `--features full` binary into `.local/bin`, which is the shorter path if you have
-one.
+installs a `--features full` binary into `.local/bin`.
 
-> This is the awkward part of the story and it is temporary. `tonpa` can fetch a dependency
-> in the light build and `serve` cannot read one, so composition's fetch story and its use
-> story are not yet available in the same binary. The keyword fallback described below
-> already runs without an index; moving `serve` into the light set with only the vector path
-> gated is the intended repair. Until it lands, this section is the first thing to check.
+> Worth knowing what the fallback is, because it is not a stub. Keyword retrieval spans
+> installed dependencies, labels each result with its `origin`, and qualifies foreign ids —
+> which the vector path does not do. See §4. It is lexical rather than semantic, and that is
+> the whole of the difference.
 
 ---
 
@@ -148,7 +140,7 @@ Three signals, at three different moments.
 
 ```text
 yidam MCP server — domain "streamflow", 8 node(s), 1 skill(s), 2 decision(s)
-vector index: absent — `retrieve` degrades to keyword search
+vector index: absent (no_index) — `retrieve` degrades to keyword search; run `yidam embed && yidam index-build` to build one
 serving MCP over stdio
 ```
 
@@ -161,18 +153,33 @@ the commit the index was built at, and keeps serving the stale index rather than
 tool-not-found errors:
 
 ```json
-{"contract": "0.3.0", "retrieve": {"vector": false}, "graph": true,
- "phases": false, "sangha": false, "resources": true}
+{"contract": "0.4.0", "retrieve": {"vector": false, "reason": "no_index"},
+ "graph": true, "phases": false, "sangha": false, "resources": true}
 ```
 
 `phases` and `sangha` are false and will stay false for this server: both read live `ma/*`
 and `rigpa/*` refs, and this one reads a built model on disk.
 
-**`degraded`, on every `retrieve`.** It is present on every response — there is no third
-state. `true` means there is no vector index and the answer came from case-insensitive term
-matching over label, description and body, scored by the fraction of query terms hit. That
-is a real answer and often a good one, but it is lexical: it will not find a node that says
-the same thing in different words. `yidam embed` then `yidam index-build` fixes it;
+**`degraded` and `degraded_reason`, on every `retrieve`.** Both are present on every
+response — there is no third state, and `degraded_reason` is `null` exactly when `degraded`
+is `false`. `true` means the answer came from case-insensitive term matching over label,
+description and body, scored by the fraction of query terms hit. That is a real answer and
+often a good one, but it is lexical: it will not find a node that says the same thing in
+different words.
+
+The reason says which repair you need, and they are not the same repair:
+
+| `degraded_reason` | What it means | What to do |
+|---|---|---|
+| `no_index` | This corpus has no vector index | `yidam embed && yidam index-build` |
+| `no_vector_support` | An index exists; this binary cannot read it | Reinstall with `--features index` |
+
+The distinction is why the field exists. Both answer keyword-degraded, and being told to
+build an index you already built is the kind of advice that costs an afternoon. Note the
+precedence: a light binary on a corpus with *no* index reports `no_index`, not
+`no_vector_support` — indexing is the repair under either build, so the reason names the
+nearer cause.
+
 `yidam index-status` says whether an index exists and how stale it is.
 
 **`origin`, on a degraded result and on every `get_node`.** Once a dependency is installed
@@ -217,13 +224,9 @@ has `.yidam/` and no nodes in it. That is a legitimate empty corpus, and it look
 like a successful connection to nothing. `yidam status` in the repository will tell you which
 one you have.
 
-**The binary cannot serve.** If the client reports the server exited immediately, run
-`yidam serve --mcp` by hand in the repository and read stderr — the light build says so in
-one line.
-
 **`retrieve` finds nothing and `list_nodes` finds plenty.** Almost always `degraded: true`
-plus a query phrased in words the corpus does not use. Try the corpus's own vocabulary, or
-build the index.
+plus a query phrased in words the corpus does not use — keyword search matches terms, not
+meanings. Try the corpus's own vocabulary, or read `degraded_reason` and do what it says.
 
 **The client sees garbled frames.** Something is folding stderr into stdout. The banner is
 not protocol.

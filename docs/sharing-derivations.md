@@ -194,13 +194,12 @@ foreign node. Reports stay local, and that is a correctness property rather than
 limitation: a `status` or `lint` that silently counted another repository's nodes would make
 every corpus metric in every derived repository meaningless.
 
-> **A caveat worth stating.** `retrieve` lives behind the `index` feature, and `tonpa` is in
-> the light default set. So the default binary can add, verify and update a dependency, and
-> the one command that *reads* it needs `--features index`. Composition's fetch story and
-> its use story are still not available in the same build.
->
-> [mcp-server.md](mcp-server.md) says how to get a binary that can serve, and what an agent
-> should do with `origin` once it can.
+> **Both halves are in the same build.** `serve --mcp` used to need `--features index`
+> while `tonpa` was in the light default set, so the binary that could fetch a dependency
+> was not the binary that could read one. It is now: keyword retrieval spans dependencies
+> and reports `origin` in the default build, and `--features index` upgrades retrieval to
+> semantic search. [mcp-server.md](mcp-server.md) says what an agent should do with
+> `origin`.
 
 ## The epistemic status of a cross-corpus citation
 

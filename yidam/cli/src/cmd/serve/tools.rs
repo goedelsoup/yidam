@@ -3,7 +3,9 @@
 use serde_json::{json, Value};
 
 use super::resources::is_open_question;
-use super::{IndexState, ServerState};
+#[cfg(feature = "index")]
+use super::Retrieval;
+use super::ServerState;
 
 /// The frozen tool contract, compiled in.
 ///
@@ -20,11 +22,14 @@ const CONTRACT: &str = include_str!("../../../../prelude/sdks/parity/mcp/tools.j
 /// statement an agent can read once, instead of a hole it discovers through a
 /// tool-not-found error on the call it cared about.
 pub(crate) fn capabilities(state: &ServerState) -> Value {
+    let reason = state.retrieval.degraded_reason();
     json!({
         "contract": contract()["contract"].clone(),
         // Not a tier: `retrieve` is core either way. This says whether the index is loaded,
-        // which is the same fact `degraded` reports per call.
-        "retrieve": {"vector": state.index.is_some()},
+        // which is the same fact `degraded` reports per call — so it is rendered from the
+        // same source, and carries the same reason. A client that reads the handshake
+        // learns at connect time what it would otherwise learn one failed search later.
+        "retrieve": {"vector": reason.is_none(), "reason": reason},
         "graph": true,
         "phases": false,
         "sangha": false,
@@ -131,57 +136,17 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
     let k = args["k"].as_u64().unwrap_or(5).max(1) as usize;
     let class_filter = args["class"].as_str();
 
-    match &state.index {
-        Some(index) => vector_retrieve(index, query, k, class_filter),
-        None => Ok(keyword_retrieve(state, query, k, class_filter)),
+    #[cfg(feature = "index")]
+    if let Retrieval::Vector(index) = &state.retrieval {
+        return super::vector::retrieve(index, query, k, class_filter);
     }
-}
-
-fn vector_retrieve(
-    index: &IndexState,
-    query: &str,
-    k: usize,
-    class_filter: Option<&str>,
-) -> Result<Value, String> {
-    let mut embedder = index.embedder.borrow_mut();
-    if embedder.is_none() {
-        let (model, _, _) = crate::cmd::index_build::resolve_model(&index.model_id)
-            .map_err(|e| format!("resolving embedding model: {e}"))?;
-        let loaded = fastembed::TextEmbedding::try_new(fastembed::InitOptions::new(model))
-            .map_err(|e| format!("loading embedding model {}: {e}", index.model_id))?;
-        *embedder = Some(loaded);
-    }
-    let query_vec = embedder
-        .as_ref()
-        .expect("embedder initialised above")
-        .embed(vec![query.to_string()], None)
-        .map_err(|e| format!("embedding query: {e}"))?
-        .remove(0);
-
-    // Index vectors are L2-normalized (see embed.config.json), so cosine
-    // similarity reduces to the dot product.
-    let mut scored: Vec<(&super::VectorRow, f32)> = index
-        .rows
-        .iter()
-        .filter(|r| class_filter.is_none_or(|c| r.class == c))
-        .map(|r| {
-            let score: f32 = r.vector.iter().zip(&query_vec).map(|(a, b)| a * b).sum();
-            (r, score)
-        })
-        .collect();
-    scored.sort_by(|a, b| b.1.total_cmp(&a.1));
-    scored.truncate(k);
-
-    Ok(json!({
-        "degraded": false,
-        "results": scored.iter().map(|(r, score)| json!({
-            "path": r.path,
-            "class": r.class,
-            "label": r.label,
-            "text": r.text,
-            "score": score,
-        })).collect::<Vec<_>>()
-    }))
+    Ok(keyword_retrieve(
+        state,
+        query,
+        k,
+        class_filter,
+        state.retrieval.degraded_reason(),
+    ))
 }
 
 /// Fallback when no vector index exists: case-insensitive term matching over
@@ -191,6 +156,7 @@ fn keyword_retrieve(
     query: &str,
     k: usize,
     class_filter: Option<&str>,
+    reason: Option<&'static str>,
 ) -> Value {
     let terms: Vec<String> = query
         .to_lowercase()
@@ -230,6 +196,10 @@ fn keyword_retrieve(
 
     json!({
         "degraded": true,
+        // *Why* degraded, not just that it is. The bare boolean made two different
+        // repositories look identical: one that never built an index, and one whose index
+        // this binary cannot read. Both are keyword search; only one is fixed by indexing.
+        "degraded_reason": reason,
         "results": scored.iter().map(|(n, score)| json!({
             "id": n.qualified_id(),
             "path": match &n.origin {

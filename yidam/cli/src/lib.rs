@@ -16,6 +16,8 @@ mod walk;
 
 pub mod model;
 
+#[cfg(feature = "index")]
+pub use cmd::index_build;
 #[cfg(feature = "tonpa")]
 pub use cmd::tonpa;
 pub use cmd::{
@@ -23,10 +25,8 @@ pub use cmd::{
     crates_index, decisions_log, diff_corpus, doctor, embed, export, graph, graph_check,
     index_status, index_verify, lint, list_formats, log, neighbors, open_questions, overlay,
     packages_index, phases, regen, rename, replay, run_export, samudaya_audit, sangha, schema,
-    serve_lsp, skills_index, status, vocabulary, EmbedOptions, ExportFormat, ExportOptions,
-    LintOptions, LogFilter, RdfFormat,
+    serve_lsp, serve_mcp, skills_index, status, vocabulary, EmbedOptions, ExportFormat,
+    ExportOptions, LintOptions, LogFilter, RdfFormat,
 };
-#[cfg(feature = "index")]
-pub use cmd::{index_build, serve_mcp};
 pub use paths::{running_binary_note, warn_if_shadowed};
 pub use report::Format;

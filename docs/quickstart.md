@@ -193,13 +193,15 @@ any one of them, the neighbourhood around it, and the list of what is still open
 claude mcp add yidam -- yidam serve --mcp     # run from inside the repository
 ```
 
-Two things to know before you do. `serve --mcp` is in the `--features index` build, not the
-released binary — `yidam --version` says which one you have. And the server finds the corpus
-from the directory it was started in, so a server launched somewhere else serves an empty
-corpus without erroring.
+One thing to know before you do: the server finds the corpus from the directory it was
+started in, so a server launched somewhere else serves an empty corpus without erroring.
 
-Both, plus which tool an agent should reach for and how to read `degraded` and `origin`, are
-in [mcp-server.md](mcp-server.md).
+The binary you installed in step 1 already carries this. `--features index` upgrades
+`retrieve` from keyword to semantic search and changes nothing else; without it the server
+says `degraded: true` on every retrieval and names the reason.
+
+That, plus which tool an agent should reach for and how to read `origin`, is in
+[mcp-server.md](mcp-server.md).
 
 ---
 

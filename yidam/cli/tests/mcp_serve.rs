@@ -1,8 +1,15 @@
 //! End-to-end test of `yidam serve --mcp`: spawn the real binary against a
 //! fixture corpus (no vector index → keyword-degraded retrieve), speak MCP
 //! over its stdio, and assert on the responses.
-
-#![cfg(feature = "index")]
+//!
+//! This file used to open `#![cfg(feature = "index")]`, which meant the shared MCP
+//! conformance suite ran only in the full-feature job — on `main` and the weekly schedule,
+//! never on a pull request. It first spoke up *after* the merge that broke it.
+//!
+//! The gate was never about what the test needs. Every case here runs against a fixture
+//! with no vector index, on the keyword path; the feature was required only because
+//! `serve` itself was behind it. Now that it is not, the conformance suite runs on every
+//! PR in the light build, which is also the build most consumers actually have.
 
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
@@ -115,6 +122,14 @@ impl McpClient {
         self.stdin.flush().unwrap();
     }
 
+    /// Handshake, returning the `yidam` capability block.
+    fn initialize(&mut self) -> Value {
+        let init = self.request("initialize", json!({"protocolVersion": "2024-11-05"}));
+        assert_eq!(init["serverInfo"]["name"], "yidam");
+        self.notify("notifications/initialized");
+        init["capabilities"]["yidam"].clone()
+    }
+
     fn tool_json(&mut self, name: &str, arguments: Value) -> Value {
         let result = self.request("tools/call", json!({"name": name, "arguments": arguments}));
         assert!(
@@ -137,23 +152,21 @@ fn mcp_server_end_to_end() {
     let repo = make_fixture_repo();
     let mut client = McpClient::spawn(repo.path());
 
-    // Handshake
-    let init = client.request("initialize", json!({"protocolVersion": "2024-11-05"}));
-    assert_eq!(init["serverInfo"]["name"], "yidam");
-    client.notify("notifications/initialized");
-
-    // What this server declares it backs. Read once, and everything below is checked
-    // against it — a capability claimed and not served, or served and not claimed, is the
-    // failure an agent would otherwise meet as a tool-not-found on the call it cared about.
-    let capabilities = init["capabilities"]["yidam"].clone();
+    // Handshake. What this server declares it backs is read once, and everything below is
+    // checked against it — a capability claimed and not served, or served and not claimed,
+    // is the failure an agent would otherwise meet as a tool-not-found on the call it
+    // cared about.
+    let capabilities = client.initialize();
     assert_eq!(capabilities["contract"], contract()["contract"]);
     assert_eq!(capabilities["graph"], true);
     assert_eq!(capabilities["resources"], true);
     // No working git repository is read by this server, so both are honestly false.
     assert_eq!(capabilities["phases"], false);
     assert_eq!(capabilities["sangha"], false);
-    // The fixture has no vector index, which is the same fact every `retrieve` reports.
+    // The fixture has no vector index, which is the same fact every `retrieve` reports —
+    // and the handshake now says *why*, in the value the call will repeat verbatim.
     assert_eq!(capabilities["retrieve"]["vector"], false);
+    assert_eq!(capabilities["retrieve"]["reason"], "no_index");
 
     // Resources: all five kinds listable, instance fetchable
     let listed = client.request("resources/list", json!({}));
@@ -202,9 +215,12 @@ fn mcp_server_end_to_end() {
         check_case(&case, &response);
     }
 
-    // retrieve — no index in the fixture, so keyword-degraded
+    // retrieve — no index in the fixture, so keyword-degraded. `no_index` and not
+    // `no_vector_support` even when this binary has no vector support: the corpus is
+    // missing the artefact, which is the repair under either build.
     let retrieved = client.tool_json("retrieve", json!({"query": "knowledge graph"}));
     assert_eq!(retrieved["degraded"], true);
+    assert_eq!(retrieved["degraded_reason"], "no_index");
     let results = retrieved["results"].as_array().unwrap();
     assert!(!results.is_empty(), "retrieve returns at least one result");
     assert_eq!(results[0]["label"], "Knowledge graph");
@@ -232,6 +248,46 @@ fn mcp_server_end_to_end() {
         flagged.contains(&"concept/embedding-space"), // claim_tag: open, declared
         "the declared-claim-field arm found nothing: {flagged:?}"
     );
+}
+
+/// A build with no vector support, pointed at a corpus that *has* an index.
+///
+/// This is the case the `index` gate used to make unreachable: before `serve` moved into
+/// the light set there was no such binary, so there was nothing to observe. Now it is the
+/// build most people run, and it must not tell them to build an index they already built.
+///
+/// Light-only by necessity rather than by preference. The staged `corpus.arrow` is not real
+/// Arrow — under `--features index` the server would try to decode it and refuse to start,
+/// which is the correct behaviour there and a different test. What matters is that the
+/// light build reads `meta.json`, notices the artefact, and says `no_vector_support`.
+#[test]
+#[cfg(not(feature = "index"))]
+fn an_index_this_build_cannot_read_is_not_reported_as_a_missing_index() {
+    let tmp = make_fixture_repo();
+    let index_dir = tmp.path().join(".yidam/index");
+    std::fs::create_dir_all(&index_dir).unwrap();
+    std::fs::write(index_dir.join("corpus.arrow"), b"not really arrow").unwrap();
+    std::fs::write(
+        index_dir.join("meta.json"),
+        br#"{"model_name": "Xenova/all-MiniLM-L6-v2", "indexed_commit": "deadbee"}"#,
+    )
+    .unwrap();
+
+    let mut client = McpClient::spawn(tmp.path());
+    let capabilities = client.initialize();
+    assert_eq!(capabilities["retrieve"]["vector"], false);
+    assert_eq!(capabilities["retrieve"]["reason"], "no_vector_support");
+
+    let retrieved = client.tool_json("retrieve", json!({"query": "knowledge graph"}));
+    assert_eq!(retrieved["degraded"], true);
+    assert_eq!(
+        retrieved["degraded_reason"], "no_vector_support",
+        "an index is on disk; telling the user to build one is the wrong repair"
+    );
+    // Every other tool is unaffected — that is the claim that made this move safe.
+    assert!(!retrieved["results"].as_array().unwrap().is_empty());
+    let node = client.tool_json("get_node", json!({"id": "concept/knowledge-graph"}));
+    assert_eq!(node["links"][0]["target"], "concept/traversal");
 }
 
 // ── conformance ──────────────────────────────────────────────────────────────

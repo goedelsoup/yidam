@@ -148,9 +148,14 @@ fn graph_summary(state: &ServerState) -> String {
         open,
         state.skills.len(),
         state.decisions.len(),
-        match &state.index {
-            Some(idx) => format!("{} row(s), model {}", idx.rows.len(), idx.model_id),
-            None => "absent".to_string(),
+        match &state.retrieval {
+            #[cfg(feature = "index")]
+            super::Retrieval::Vector(idx) =>
+                format!("{} row(s), model {}", idx.rows.len(), idx.model_id),
+            super::Retrieval::NoIndex => "absent (no_index)".to_string(),
+            #[cfg(not(feature = "index"))]
+            super::Retrieval::NoVectorSupport =>
+                "present, unreadable by this build (no_vector_support)".to_string(),
         },
         class_lines.join("\n"),
     )

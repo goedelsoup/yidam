@@ -202,6 +202,17 @@ fn the_mcp_contract_states_one_version() {
         "tools.json says the MCP contract is {declared:?} and mcp/VERSION says {:?}",
         stated.trim()
     );
+
+    // Three times, in fact. `mcp/README.md` shows a worked capability block, and that block
+    // is the first thing an implementer copies — it had drifted two minor versions behind
+    // the file it documents before anything noticed, which is this test's own argument
+    // playing out one directory over.
+    let readme = std::fs::read_to_string(mcp.join("README.md")).unwrap();
+    assert!(
+        readme.contains(&format!(r#""contract": "{declared}""#)),
+        "mcp/README.md's example capability block does not show contract {declared:?} — \
+         an implementer copying it would conform to a version that no longer exists"
+    );
 }
 
 /// Four layers, numbered without a gap.
