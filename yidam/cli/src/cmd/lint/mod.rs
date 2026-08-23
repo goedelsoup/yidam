@@ -261,6 +261,9 @@ fn orphan_in_dated(root: &Path, nodes: &[checks::Node], classes: &[checks::Class
 
 pub fn lint(opts: Options) -> Result<()> {
     let root = repo_root()?;
+    // Same reason as `graph_check`: `lint` reported "0 finding(s), no errors" from an empty
+    // directory that was not a repository at all.
+    crate::paths::require_yidam_repo(&root)?;
     // Read the manifest here, where there is an error channel. `run_checks` degrades to the
     // built-ins so the editor keeps answering mid-edit; a gate that did the same would
     // re-scan every region the file declares and report the flood as a corpus that got

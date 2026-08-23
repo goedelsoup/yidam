@@ -195,14 +195,37 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # The binary is a pure function of the pinned commit, so cache it by that
+      # commit and skip the compile entirely on every run but the first after a
+      # `yidam-vendor-update`. Without this every CI run of every derived
+      # repository cold-compiles the CLI from source — the graph gate spent more
+      # time building its own tool than reading the corpus.
+      #
+      # Keyed on the commit and not on Cargo.lock: the lock file being cached
+      # from lives in the cloned yidam tree, which does not exist yet at restore
+      # time. The pin is the stronger key anyway — one commit, one binary.
+      - name: Cache the pinned yidam binary
+        id: yidam-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/yidam
+          key: yidam-cli-${{ runner.os }}-${{ steps.pin.outputs.commit }}
+
       # The light `reports` build — no protoc, no fastembed, no lancedb. The
       # graph gate needs none of them, and the heavy feature set turns a
       # 40-second job into a five-minute one.
       - name: Install the yidam CLI (light build)
+        if: steps.yidam-cache.outputs.cache-hit != 'true'
         run: |
           git clone --filter=blob:none --no-checkout "${{ steps.pin.outputs.source }}" /tmp/yidam
           git -C /tmp/yidam checkout --quiet "${{ steps.pin.outputs.commit }}"
           cargo install --path /tmp/yidam/yidam/cli --locked
+
+      # A cache hit restores a binary; it does not prove the binary runs. Ask it
+      # what it is — `--version` names the build commit, so a restore that came
+      # back wrong is visible in the log rather than as a mystery two steps later.
+      - name: Say which yidam is answering
+        run: yidam --version
 
       # ── How far behind is the vendored prelude? ─────────────────────────────
       #
