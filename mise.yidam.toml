@@ -353,8 +353,22 @@ if [ -n "$previous" ] && [ "$previous" != "unknown" ] && [ "$previous" != "$comm
     fi
   fi
 fi
+# A baseline, if this repository has never written one. Adoption, not blessing: the
+# command leaves an existing file alone, so this runs unconditionally.
+#
+# The gate is useless without one, and "useless" is not hyperbole — a measured derived
+# repository had a third of its corpus unreachable by traversal, reported `lint … no
+# regression` on every commit, and had no lint-baseline.yml at all. A ratchet with no
+# file to ratchet against does nothing, quietly, in exactly the repositories that most
+# need it. Waiting for somebody to run --bless is waiting for somebody to already know.
+#
+# Best-effort: a repository whose binary predates the flag, or which is mid-conflict,
+# must still finish re-vendoring. Failure here is not a failed re-vendor.
+if command -v yidam >/dev/null 2>&1; then
+  yidam lint --init-baseline 2>/dev/null || true
+fi
 echo "review the diff, then commit it as its own event:"
-echo "  git add .yidam/.vendor/prelude .yidam.toml mise.yidam.toml"
+echo "  git add .yidam/.vendor/prelude .yidam.toml mise.yidam.toml .yidam/lint-baseline.yml"
 echo "  git commit -m 'vendor: re-vendor prelude at $commit — <what changed>'"
 """
 

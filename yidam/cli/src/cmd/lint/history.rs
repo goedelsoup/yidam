@@ -304,6 +304,30 @@ pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
     }
 }
 
+/// Every commit that touched the corpus, oldest first.
+///
+/// The clock a baseline entry ages against, and deliberately the same clock
+/// [`uncited_age`] counts in: a commit that changed nothing under `.yidam/corpus` did not
+/// decline to pay down corpus debt, because it was not looking at the corpus. Two different
+/// counting rules for two ages a reader sees side by side would be a small cruelty.
+///
+/// One subprocess, and the same `git log` the replay already runs — this is the shas of
+/// that walk without the blobs.
+pub fn corpus_commits(root: &Path) -> Vec<String> {
+    change_stream(root).into_iter().map(|c| c.sha).collect()
+}
+
+/// How many corpus-touching commits have landed since `sha`, counting the one at HEAD.
+///
+/// `None` when the sha is not in the corpus history at all — a baseline written before a
+/// rebase, or hand-edited. An entry whose clock cannot be read is not expired; it is
+/// unreadable, and treating unreadable as expired would fail a build over a rewritten
+/// history rather than over anything the corpus did.
+pub fn commits_since(commits: &[String], sha: &str) -> Option<usize> {
+    let at = commits.iter().position(|c| c == sha)?;
+    Some(commits.len() - at)
+}
+
 /// How long a corpus-state condition has held, for one node.
 ///
 /// **Commits, not days.** [`super::orphan_in_dated`] reports a *date* and deliberately not
