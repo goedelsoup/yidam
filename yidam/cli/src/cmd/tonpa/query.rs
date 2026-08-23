@@ -47,7 +47,24 @@ pub fn cmd_status(tonpa_dir: &Path, config_path: &Path, lock_path: &Path) -> Res
     }
 
     let mut issues = 0usize;
-    for name in config.dependencies.keys() {
+    for (name, dep) in &config.dependencies {
+        // A path dependency has nothing to install and nothing to pin, so every question
+        // this loop asks below is the wrong one. Until this branch existed it fell through
+        // to `[missing lock] — run \`yidam tonpa install\``, and that install then failed
+        // with "not yet supported" — about a dependency `deps::resolved` was reading
+        // correctly the whole time. Three commands disagreed about whether the feature
+        // existed.
+        if let Some(rel) = &dep.path {
+            let corpus = crate::paths::yidam_corpus_dir(&repo_root().join(rel));
+            if corpus.is_dir() {
+                println!("  [linked]         {name}  → {rel}  (path, unpinned)");
+            } else {
+                println!("  [path missing]   {name}  → {rel}  — no {rel}/.yidam/corpus/");
+                issues += 1;
+            }
+            continue;
+        }
+
         let locked = lock.packages.iter().find(|p| &p.name == name);
         match locked {
             None => {
@@ -85,6 +102,14 @@ pub fn cmd_status(tonpa_dir: &Path, config_path: &Path, lock_path: &Path) -> Res
         println!("All {} package(s) up to date.", config.dependencies.len());
     }
     Ok(())
+}
+
+/// The repository root, or `.` when there is no repository.
+///
+/// Matching `add`'s resolution: a `path` in `tonpa.toml` is relative to the repository root,
+/// which is what someone writing `../sibling` means.
+fn repo_root() -> std::path::PathBuf {
+    crate::paths::repo_root().unwrap_or_else(|_| std::path::PathBuf::from("."))
 }
 
 // ── verify ────────────────────────────────────────────────────────────────────
@@ -126,6 +151,15 @@ pub async fn cmd_install(tonpa_dir: &Path, config_path: &Path, lock_path: &Path)
 
     let mut changed = false;
     for (name, dep) in &config.dependencies {
+        // Skipped, not fetched. `resolve_url` bails on a path dependency, and because that
+        // is a `?` it aborted the whole command — so one path dependency stopped every
+        // fetched one after it from installing, under an error message saying the feature
+        // was unsupported.
+        if let Some(rel) = &dep.path {
+            println!("  ok  {name} (path dependency → {rel}, nothing to fetch)");
+            continue;
+        }
+
         let url = resolve_url(dep)?;
         let existing = lock.packages.iter().find(|p| &p.name == name).cloned();
 
@@ -178,13 +212,36 @@ pub async fn cmd_update(
 
     let targets: Vec<String> = match name {
         Some(n) => {
-            if !config.dependencies.contains_key(n) {
+            let Some(dep) = config.dependencies.get(n) else {
                 bail!("no dependency named '{n}'");
+            };
+            // Naming a path dependency explicitly is worth an error rather than a silent
+            // skip: the person asked for this one and needs to know why nothing happened.
+            if let Some(rel) = &dep.path {
+                bail!(
+                    "'{n}' is a path dependency → {rel}\n  \
+                     There is nothing to update: it is read from that directory as it \
+                     currently stands. Update it by editing it."
+                );
             }
             vec![n.to_string()]
         }
-        None => config.dependencies.keys().cloned().collect(),
+        // Whereas updating everything should update everything updatable, and say so.
+        None => config
+            .dependencies
+            .iter()
+            .filter(|(_, d)| d.path.is_none())
+            .map(|(k, _)| k.clone())
+            .collect(),
     };
+
+    // Every declared dependency is a path one, so `targets` is empty. Saying so beats
+    // exiting 0 in silence, which reads as "updated, no changes" rather than "there was
+    // nothing here that update applies to".
+    if targets.is_empty() {
+        println!("Nothing to update: every declared dependency is a path dependency.");
+        return Ok(());
+    }
 
     let mut changed = false;
     for n in &targets {
