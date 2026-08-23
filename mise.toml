@@ -312,13 +312,23 @@ run = [
 
 [tasks.ci-cli]
 description = "CI for the yidam CLI workspace: fmt-check, clippy, test."
+# --locked on the cargo invocations: without it, a Cargo.lock that disagrees with
+# Cargo.toml is not a failure here — cargo silently REWRITES the lock in the working
+# tree and carries on, so the gate goes green on a tree the release build refuses.
+# The release workflow passes --locked (it must, or the artifact is not the thing the
+# tagged commit describes), which made a stale lock a failed release rather than a
+# failed test. Verified: bumping the version and leaving the lock behind passed
+# `cargo test` and failed `cargo build --locked`.
+#
+# No test can cover this from inside `cargo test` — cargo has already fixed the lock
+# by the time a test body reads it. The flag is the only place the check can live.
 run = [
   "cargo fmt --all --manifest-path yidam/cli/Cargo.toml -- --check",
   # --all-targets: without it clippy skips tests/, and the integration tests here carry
   # real logic — link resolution, layout mapping, golden redaction. A lint that does not
   # read the tests is a lint that goes green while the tests rot.
-  "cargo clippy --manifest-path yidam/cli/Cargo.toml --all-targets -- -D warnings",
-  "cargo test --manifest-path yidam/cli/Cargo.toml",
+  "cargo clippy --manifest-path yidam/cli/Cargo.toml --all-targets --locked -- -D warnings",
+  "cargo test --manifest-path yidam/cli/Cargo.toml --locked",
 ]
 
 # Full-feature CLI build (index/sqlite/rdf/tonpa) — pulls fastembed/lancedb and
@@ -329,8 +339,8 @@ run = [
 description = "Full-feature CI for the yidam CLI (all optional features)."
 run = [
   "cargo fmt --all --manifest-path yidam/cli/Cargo.toml -- --check",
-  "cargo clippy --manifest-path yidam/cli/Cargo.toml --all-features -- -D warnings",
-  "cargo test --manifest-path yidam/cli/Cargo.toml --all-features",
+  "cargo clippy --manifest-path yidam/cli/Cargo.toml --all-features --locked -- -D warnings",
+  "cargo test --manifest-path yidam/cli/Cargo.toml --all-features --locked",
 ]
 
 # The editor client. Not a cargo workspace, so it is not in the `ci` composite below —

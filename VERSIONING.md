@@ -184,6 +184,17 @@ two opinions about which yidam governs it.
 `format_version` is the compatibility axis, and it is carried in the data rather than
 declared in a manifest. A third pin would be a third thing to get out of step.
 
+### The first release is `cli/v0.2.0`, not `cli/v0.1.0`
+
+`yidam/cli/Cargo.toml` declared `0.1.0` from the commit that created it until the day the
+first release workflow existed — through every command the CLI now has, the report contract,
+and the feature partition. Nothing was ever tagged, so no consumer was misled; but `0.1.0`
+had by then named a hundred different binaries, and reusing it for the first one anybody can
+actually obtain would make the only version that ever meant something ambiguous.
+
+So the tooling layer starts at `0.2.0`. `0.1.0` is not skipped for superstition — it is
+retired because it was spent.
+
 ### What this layer is not
 
 Not the vendored prelude — that is Layer 1, and a derived repo carries none of `yidam/cli/`

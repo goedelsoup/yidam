@@ -1,6 +1,6 @@
 [package]
 name = "yidam"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 # Must match the toolchain pinned in mise.toml / rust-toolchain.toml so the
 # resolver (with incompatible-rust-versions = "fallback") avoids dependencies
