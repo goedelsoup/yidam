@@ -363,6 +363,11 @@ enum Command {
         /// Rewrite .yidam/lint-baseline.yml from this run instead of gating on it
         #[arg(long)]
         bless: bool,
+        /// Write .yidam/lint-baseline.yml only if it does not exist, then exit.
+        /// Safe to run unconditionally — this is the adoption path, called by
+        /// `mise run yidam-vendor-update`
+        #[arg(long, conflicts_with = "bless")]
+        init_baseline: bool,
         /// Output format. `json` emits the machine-readable report contract
         /// (RFC-0016); `text` is unchanged and remains the default.
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
@@ -555,6 +560,7 @@ fn main() -> Result<()> {
             commits,
             range,
             bless,
+            init_baseline,
             format,
         } => yidam::lint(yidam::LintOptions {
             warn_only: warn,
@@ -562,6 +568,7 @@ fn main() -> Result<()> {
             commits,
             range,
             bless,
+            init_baseline,
             format,
         }),
         Command::Schema { settings } => yidam::schema(settings),

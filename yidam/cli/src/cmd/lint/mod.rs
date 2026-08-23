@@ -39,7 +39,8 @@ pub(crate) fn build_report(
     checks: &[Check],
     base: &baseline::Baseline,
 ) -> json::LintReport {
-    json::build(root, checks, base, &baseline::diff(checks, base))
+    let commits = history::corpus_commits(root);
+    json::build(root, checks, base, &baseline::diff(checks, base, &commits))
 }
 
 pub(crate) fn commit_verb_severity() -> Severity {
@@ -91,6 +92,15 @@ pub struct Options {
     pub range: Option<String>,
     /// Rewrite the baseline from this run instead of gating on it.
     pub bless: bool,
+    /// Write a baseline only if there is not one already, then exit.
+    ///
+    /// The adoption path, and safe to run unconditionally — which is the whole point, so
+    /// that re-vendoring can call it without first asking whether this repository has ever
+    /// blessed anything. A repository that has never created a baseline is the case this
+    /// exists for, not the exception: the measured corpus with a third of its nodes
+    /// unreachable had no `lint-baseline.yml` at all, so a ratchet had nothing to ratchet
+    /// against and reported clean.
+    pub init_baseline: bool,
     /// Output format. `text` is what this command has always printed.
     pub format: crate::report::Format,
 }
@@ -286,6 +296,22 @@ fn orphan_in_dated(root: &Path, nodes: &[checks::Node], classes: &[checks::Class
     check
 }
 
+/// Write the baseline for this run, carrying forward the clock on entries that already
+/// stood.
+///
+/// One place, so `--bless` and `--init-baseline` cannot come to disagree about what a
+/// blessing preserves — and what it preserves is the part that constrains it.
+fn bless(root: &Path, all: &[Check]) -> Result<baseline::Baseline> {
+    let previous = baseline::Baseline::load(root)?;
+    let head = history::corpus_commits(root)
+        .last()
+        .cloned()
+        .unwrap_or_default();
+    let b = baseline::Baseline::from_checks(all, &previous, &head);
+    b.write(root)?;
+    Ok(b)
+}
+
 pub fn lint(opts: Options) -> Result<()> {
     let root = repo_root()?;
     // Same reason as `graph_check`: `lint` reported "0 finding(s), no errors" from an empty
@@ -309,10 +335,30 @@ pub fn lint(opts: Options) -> Result<()> {
         return lint_json(&root, &all, &opts);
     }
 
-    if opts.bless {
-        let b = baseline::Baseline::from_checks(&all);
+    if opts.init_baseline {
+        if baseline::path(&root).exists() {
+            println!(
+                "{} already exists — left alone",
+                baseline::path(&root).display()
+            );
+            return Ok(());
+        }
+        let b = bless(&root, &all)?;
         let count: usize = b.violations.values().map(|v| v.len()).sum();
-        b.write(&root)?;
+        println!(
+            "wrote {count} inherited violation(s) into {}",
+            baseline::path(&root).display()
+        );
+        println!(
+            "this records what was already true today, so that the next one is attributable\n\
+             to the commit that introduced it — it does not fix anything"
+        );
+        return Ok(());
+    }
+
+    if opts.bless {
+        let b = bless(&root, &all)?;
+        let count: usize = b.violations.values().map(|v| v.len()).sum();
         println!(
             "blessed {count} error-severity violation(s) into {}",
             baseline::path(&root).display()
@@ -326,7 +372,8 @@ pub fn lint(opts: Options) -> Result<()> {
     report(&all, &opts);
 
     let committed = baseline::Baseline::load(&root)?;
-    let d = baseline::diff(&all, &committed);
+    let corpus_commits = history::corpus_commits(&root);
+    let d = baseline::diff(&all, &committed, &corpus_commits);
 
     if opts.warn_only {
         let n: usize = all.iter().map(|c| c.violations.len()).sum();
@@ -354,6 +401,25 @@ pub fn lint(opts: Options) -> Result<()> {
             eprintln!("  [{check}] {node}");
         }
     }
+    if !d.expired.is_empty() {
+        eprintln!("\nbaselined, and out of time — the corpus agreed to deal with these:");
+        for e in &d.expired {
+            eprintln!(
+                "  [{}] {} — baselined {} commit(s) ago",
+                e.check, e.node, e.commits
+            );
+        }
+        // Deliberately does not offer `--bless`. Blessing carries the original `since`
+        // forward rather than restamping it, so it would print a reassuring line and
+        // change nothing — the two ways out are to fix the finding or to argue, in the
+        // file, for more time.
+        eprintln!(
+            "\nA baseline is a scheduled repayment, not a permanent exemption, and blessing\n\
+             again will not clear these — the clock runs from when the debt was first\n\
+             accepted. Fix them, or raise `expire_after` in the baseline and say in the\n\
+             commit message why this corpus needs longer than it said it did."
+        );
+    }
     if !d.resolved.is_empty() {
         eprintln!("\nin the baseline but no longer occurring — the baseline is stale:");
         for (check, node) in &d.resolved {
@@ -364,34 +430,49 @@ pub fn lint(opts: Options) -> Result<()> {
              wrong drifts, and one that over-lists silently re-permits what it over-lists."
         );
     }
-    eprintln!("\nrun `yidam lint --bless` to record the current state as the new baseline.");
+    // Only when blessing would actually do something. An expired entry is not fixed by
+    // re-recording it, and telling somebody otherwise sends them round a loop.
+    if !d.introduced.is_empty() || !d.resolved.is_empty() {
+        eprintln!("\nrun `yidam lint --bless` to record the current state as the new baseline.");
+    }
     anyhow::bail!(
-        "lint: {} introduced, {} stale",
+        "lint: {} introduced, {} expired, {} stale",
         d.introduced.len(),
+        d.expired.len(),
         d.resolved.len()
     )
 }
 
 /// The JSON path: same checks, same baseline, same verdict, same exit code.
 fn lint_json(root: &Path, all: &[Check], opts: &Options) -> Result<()> {
-    if opts.bless {
-        // Blessing writes a file and reports what it recorded; there is no gate to
-        // report on, and pretending otherwise would put `passed: true` on a run that
-        // checked nothing.
-        let b = baseline::Baseline::from_checks(all);
-        let recorded: usize = b.violations.values().map(|v| v.len()).sum();
-        b.write(root)?;
+    if opts.init_baseline && baseline::path(root).exists() {
         return crate::report::emit(
             root,
             serde_json::json!({
-                "blessed": { "recorded_violations": recorded,
+                "blessed": { "recorded_violations": 0, "wrote": false,
+                             "path": baseline::path(root).display().to_string() }
+            }),
+        );
+    }
+
+    if opts.bless || opts.init_baseline {
+        // Blessing writes a file and reports what it recorded; there is no gate to
+        // report on, and pretending otherwise would put `passed: true` on a run that
+        // checked nothing.
+        let b = bless(root, all)?;
+        let recorded: usize = b.violations.values().map(|v| v.len()).sum();
+        return crate::report::emit(
+            root,
+            serde_json::json!({
+                "blessed": { "recorded_violations": recorded, "wrote": true,
                              "path": baseline::path(root).display().to_string() }
             }),
         );
     }
 
     let committed = baseline::Baseline::load(root)?;
-    let d = baseline::diff(all, &committed);
+    let corpus_commits = history::corpus_commits(root);
+    let d = baseline::diff(all, &committed, &corpus_commits);
     crate::report::emit(root, json::build(root, all, &committed, &d))?;
 
     // Same verdict as the text path, and the same silence about it on success.
@@ -399,8 +480,9 @@ fn lint_json(root: &Path, all: &[Check], opts: &Options) -> Result<()> {
         return Ok(());
     }
     anyhow::bail!(
-        "lint: {} introduced, {} stale",
+        "lint: {} introduced, {} expired, {} stale",
         d.introduced.len(),
+        d.expired.len(),
         d.resolved.len()
     )
 }
@@ -684,12 +766,12 @@ mod tests {
         let all = run_checks(tmp.path(), &Options::default());
         assert!(errors(&all) > 0);
 
-        baseline::Baseline::from_checks(&all)
+        baseline::Baseline::from_checks(&all, &super::baseline::Baseline::default(), "")
             .write(tmp.path())
             .unwrap();
         let again = run_checks(tmp.path(), &Options::default());
         let loaded = baseline::Baseline::load(tmp.path()).unwrap();
-        assert!(baseline::diff(&again, &loaded).is_clean());
+        assert!(baseline::diff(&again, &loaded, &[]).is_clean());
     }
 
     #[test]
@@ -702,7 +784,7 @@ mod tests {
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        baseline::Baseline::from_checks(&all)
+        baseline::Baseline::from_checks(&all, &super::baseline::Baseline::default(), "")
             .write(tmp.path())
             .unwrap();
 
@@ -714,7 +796,7 @@ mod tests {
         .unwrap();
         let after = run_checks(tmp.path(), &Options::default());
         let loaded = baseline::Baseline::load(tmp.path()).unwrap();
-        let d = baseline::diff(&after, &loaded);
+        let d = baseline::diff(&after, &loaded, &[]);
         assert!(!d.resolved.is_empty(), "the fix must show as stale");
         assert!(!d.is_clean());
     }
@@ -846,13 +928,14 @@ mod tests {
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        let base = super::baseline::Baseline::from_checks(&all);
+        let base =
+            super::baseline::Baseline::from_checks(&all, &super::baseline::Baseline::default(), "");
         assert_eq!(
             base.violations.get("orphan-in").map(Vec::len),
             Some(1),
             "only the escalated finding is recorded, not its younger siblings"
         );
-        assert!(super::baseline::diff(&all, &base).is_clean());
+        assert!(super::baseline::diff(&all, &base, &[]).is_clean());
     }
 
     /// A config that does not parse must not take the checks down with it. The gate loses
@@ -869,5 +952,138 @@ mod tests {
         let all = run_checks(tmp.path(), &Options::default());
         assert_eq!(all.len(), 24, "every check still ran");
         assert_eq!(errors(&all), 0);
+    }
+
+    // ── adoption ──────────────────────────────────────────────────────────────
+
+    /// The case this exists for. A repository that has never blessed anything has no
+    /// `lint-baseline.yml`, so the ratchet has nothing to ratchet against and reports
+    /// clean forever — which is what a measured derived repository did while a third of
+    /// its corpus was unreachable.
+    #[test]
+    fn adoption_writes_a_baseline_where_there_was_none() {
+        let tmp = repo_with_an_aged_orphan(2);
+        // Give it something that gates.
+        fs::write(
+            tmp.path().join(".yidam/corpus/reach/broken.yml"),
+            "class: reach\nlabel: X\ndescription: X.\nlinks:\n  - target: gone.yml\n    relationship: refines\n",
+        )
+        .unwrap();
+        commit_all(tmp.path(), "establish: a node with a broken edge");
+
+        assert!(!super::baseline::path(tmp.path()).exists());
+        lint_at(
+            tmp.path(),
+            Options {
+                init_baseline: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let b = super::baseline::Baseline::load(tmp.path()).unwrap();
+        assert_eq!(b.violations["dangling-edge"].len(), 1);
+        assert!(
+            b.violations["dangling-edge"][0].since.is_some(),
+            "the entry starts its clock at adoption"
+        );
+    }
+
+    /// Safe to run unconditionally, which is the whole point — the re-vendor task calls it
+    /// without asking whether this repository has ever blessed anything.
+    #[test]
+    fn adoption_leaves_an_existing_baseline_alone() {
+        let tmp = repo_with_an_aged_orphan(2);
+        fs::write(
+            tmp.path().join(".yidam/corpus/reach/broken.yml"),
+            "class: reach\nlabel: X\ndescription: X.\nlinks:\n  - target: gone.yml\n    relationship: refines\n",
+        )
+        .unwrap();
+        commit_all(tmp.path(), "establish: a node with a broken edge");
+
+        let hand_written = super::baseline::Baseline {
+            expire_after: Some(42),
+            ..Default::default()
+        };
+        hand_written.write(tmp.path()).unwrap();
+
+        lint_at(
+            tmp.path(),
+            Options {
+                init_baseline: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let b = super::baseline::Baseline::load(tmp.path()).unwrap();
+        assert_eq!(b.expire_after, Some(42), "untouched");
+        assert!(
+            b.violations.is_empty(),
+            "adoption did not overwrite an existing file: {b:?}"
+        );
+    }
+
+    /// The gate an adopted baseline installs: quiet on the debt it recorded, loud on the
+    /// next thing.
+    #[test]
+    fn an_adopted_baseline_gates_the_next_violation_and_not_the_inherited_one() {
+        let tmp = repo_with_an_aged_orphan(2);
+        fs::write(
+            tmp.path().join(".yidam/corpus/reach/broken.yml"),
+            "class: reach\nlabel: X\ndescription: X.\nlinks:\n  - target: gone.yml\n    relationship: refines\n",
+        )
+        .unwrap();
+        commit_all(tmp.path(), "establish: a node with a broken edge");
+        lint_at(
+            tmp.path(),
+            Options {
+                init_baseline: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            lint_at(tmp.path(), Options::default()).is_ok(),
+            "inherited debt is quiet"
+        );
+
+        fs::write(
+            tmp.path().join(".yidam/corpus/reach/second.yml"),
+            "class: reach\nlabel: Y\ndescription: Y.\nlinks:\n  - target: also-gone.yml\n    relationship: refines\n",
+        )
+        .unwrap();
+        commit_all(tmp.path(), "establish: a second broken edge");
+        assert!(
+            lint_at(tmp.path(), Options::default()).is_err(),
+            "the next one is attributable to the commit that introduced it"
+        );
+    }
+
+    /// Run `lint` against a directory that is not the process's cwd.
+    ///
+    /// `lint()` resolves the repository itself, so the tests that need the whole command —
+    /// rather than `run_checks` — set the cwd. Serialized behind a mutex because the cwd
+    /// is process-global and the test runner is threaded.
+    fn lint_at(root: &Path, opts: Options) -> Result<()> {
+        static CWD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _held = CWD.lock().unwrap_or_else(|e| e.into_inner());
+        let previous = std::env::current_dir().unwrap();
+        std::env::set_current_dir(root).unwrap();
+        let out = lint(opts);
+        std::env::set_current_dir(previous).unwrap();
+        out
+    }
+
+    fn commit_all(root: &Path, message: &str) {
+        for args in [vec!["add", "-A"], vec!["commit", "-q", "-m", message]] {
+            let ok = std::process::Command::new("git")
+                .current_dir(root)
+                .args(&args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?}");
+        }
     }
 }

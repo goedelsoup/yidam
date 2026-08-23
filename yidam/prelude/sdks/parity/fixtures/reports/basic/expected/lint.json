@@ -12,7 +12,8 @@
     "passed": false,
     "new_violations": 1,
     "baselined_violations": 0,
-    "stale_baseline_entries": []
+    "stale_baseline_entries": [],
+    "expired_baseline_entries": []
   },
   "checks": [
     {

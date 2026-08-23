@@ -38,6 +38,22 @@ pub struct Gate {
     /// permitted to be wrong drifts, and one that over-lists silently re-permits what it
     /// over-lists.
     pub stale_baseline_entries: Vec<StaleEntry>,
+    /// Entries that have outlived the expiry the baseline declares, and so no longer
+    /// forgive the violation they list. These fail CI.
+    ///
+    /// Separate from `new_violations` although both fail: an introduced violation is
+    /// something this change did, an expired one is something the repository agreed to
+    /// deal with and has not, and a consumer telling somebody they introduced a finding
+    /// that has sat in their baseline for two hundred commits would be wrong.
+    pub expired_baseline_entries: Vec<ExpiredEntry>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ExpiredEntry {
+    pub check: String,
+    pub node: String,
+    /// Corpus-touching commits it has stood for.
+    pub commits: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -231,6 +247,15 @@ pub fn build(root: &Path, all: &[Check], baseline: &Baseline, d: &Diff) -> LintR
                     node: node.clone(),
                 })
                 .collect(),
+            expired_baseline_entries: d
+                .expired
+                .iter()
+                .map(|e| ExpiredEntry {
+                    check: e.check.clone(),
+                    node: e.node.clone(),
+                    commits: e.commits,
+                })
+                .collect(),
         },
         checks,
     }
@@ -264,6 +289,7 @@ mod tests {
                 .map(|n| Entry {
                     node: n.to_string(),
                     detail: String::new(),
+                    since: None,
                 })
                 .collect(),
         );

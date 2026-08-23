@@ -136,6 +136,53 @@ repository that has to live with it.
 An escalated finding is ordinary debt: `yidam lint --bless` records it like any other, and
 the gate is quiet until something new ages past the line.
 
+## The baseline, and its own clock
+
+`.yidam/lint-baseline.yml` records the error-severity findings that were already true when
+the gate was installed, so that the next one is attributable to the commit that introduced
+it. Two things about it are easy to get wrong, and both were measured going wrong.
+
+**A repository with no baseline has no ratchet.** Not a lenient one — none. `yidam lint`
+reports `no regression` on every commit, whatever the corpus does, because there is nothing
+to compare against. `mise run yidam-vendor-update` therefore runs `yidam lint
+--init-baseline`, which writes a baseline if and only if there is not one already. It is
+safe to run at any time and leaves an existing file untouched.
+
+**A baseline is a scheduled repayment, not a permanent exemption.** Each entry records
+`since` — the corpus commit at which it was *first* accepted — and the file may declare how
+long an entry stands:
+
+```yaml
+expire_after: 200        # corpus-touching commits an entry may survive
+violations:
+  dangling-edge:
+    - node: .yidam/corpus/concept/tailwater.yml
+      detail: 'target does not exist: ../concept/gone.yml'
+      since: 4f2a1c9…
+```
+
+Past that, the entry stops forgiving and the violation gates again. **Blessing does not
+reset the clock** — `since` is carried forward, so re-running `--bless` records new debt
+without forgiving old debt a second time. The two ways out of an expired entry are to fix
+the finding, or to raise `expire_after` and say in the commit message why this corpus needs
+longer than it said it did. That argument then lives in the repository, in a diff somebody
+reviews.
+
+Absent, entries never expire, which is where every baseline starts.
+
+### Two clocks, two questions
+
+They are named apart because they are different questions:
+
+| Declaration | Where | Asks |
+|---|---|---|
+| `escalate_after` | `.yidam/config.toml` | how long a **finding** may hold before it becomes an error |
+| `expire_after` | `.yidam/lint-baseline.yml` | how long an **accepted entry** may stand before it gates again |
+
+The first is about the corpus; the second is about the file that forgives it. A finding can
+escalate under the first, be blessed, and later expire under the second — and each step is
+a different thing having happened.
+
 ## Commits as events
 
 Not all commits carry the same kind of meaning. Two types coexist in every yidam-derived
