@@ -45,6 +45,13 @@ pub const MAPPING: &[Install] = &[
         "sadhana/github/workflows/ci.yml",
         Some(".github/workflows/ci.yml"),
     ),
+    // Overwrites yidam's own release.yml, which publishes the CLI's binaries on a `cli/v*`
+    // tag — from a repository that has no CLI. Left in place it is a workflow waiting to run
+    // against the wrong thing.
+    row(
+        "sadhana/github/workflows/release.yml",
+        Some(".github/workflows/release.yml"),
+    ),
     // Directory mirrors.
     Install {
         src: "sadhana/sangha",
