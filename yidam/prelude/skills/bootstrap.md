@@ -245,7 +245,7 @@ Then read each template file in `sadhana/`:
 - `sadhana/skills/README.md`
 - `sadhana/web/README.md`
 - `sadhana/root/README.md`, `sadhana/root/AGENTS.md`, `sadhana/root/CLAUDE.md`, `sadhana/root/mise.toml`
-- `sadhana/github/workflows/ci.yml`
+- `sadhana/github/workflows/ci.yml`, `sadhana/github/workflows/release.yml`
 - `sadhana/sangha/README.md` (and PROTOCOL.md, electors.md, resolutions/, positions/) —
   **only if `governance: collective`**; skip these five reads entirely in single-elector mode
 
@@ -296,13 +296,16 @@ sadhana/root/CLAUDE.md            → .claude/CLAUDE.md    (overwrites yidam's)
 sadhana/root/mise.toml            → mise.toml            (overwrites yidam's)
 sadhana/root/gitattributes        → .gitattributes       (overwrites yidam's)
 sadhana/github/workflows/ci.yml   → .github/workflows/ci.yml  (overwrites yidam's)
+sadhana/github/workflows/release.yml → .github/workflows/release.yml (overwrites yidam's)
 ```
 
-Yidam's copies of these six files describe yidam — its harness, its CLI workspace, its
+Yidam's copies of these seven files describe yidam — its harness, its CLI workspace, its
 bootstrap-mode entry check. Left in place they are wrong the moment genesis is written, and
 yidam's `ci.yml` is worse than wrong: it builds `yidam/cli` and `yidam/tests/harness`, paths
-that step 8 removes, so it goes green having compiled nothing. Overwrite all six now. Do not
-merge yidam's content into them.
+that step 8 removes, so it goes green having compiled nothing. Yidam's `release.yml` is
+wrong in a louder way: it publishes the yidam CLI's binaries on a `cli/v*` tag, from a
+repository that has no CLI to publish. Overwrite all seven now. Do not merge yidam's content
+into them.
 
 `gitattributes` is spelled without its dot for the same reason `root/` and `github/` are:
 `ls sadhana/` is a step in this skill and a dotfile would not appear in it. It installs as
@@ -615,8 +618,8 @@ rm -rf yidam/
 ```
 
 **Then delete the template's own top-level files.** These describe yidam, not this repository.
-`README.md`, `AGENTS.md`, `.claude/CLAUDE.md`, `mise.toml`, and `.github/workflows/ci.yml` were
-already overwritten in step 3; what remains is:
+`README.md`, `AGENTS.md`, `.claude/CLAUDE.md`, `mise.toml`, `.github/workflows/ci.yml`, and
+`.github/workflows/release.yml` were already overwritten in step 3; what remains is:
 
 ```
 rm -f BOOTSTRAP.md VERSIONING.md

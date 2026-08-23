@@ -1,0 +1,204 @@
+# Release — publish this corpus as a `.yiz` bundle another repository can depend on.
+#
+# `yidam tonpa add <org>/<repo>` fetches
+# `https://github.com/<org>/<repo>/releases/latest/download/bundle.yiz`. Nothing
+# produced that asset, so the consumer side of sharing was implemented and the
+# producer side was a URL somebody had to reverse-engineer and upload by hand.
+# This is that side.
+#
+# ── Publishing a corpus is not like publishing a binary ──────────────────────
+#
+# A bundle TRAVELS. It leaves this repository as a single file and is copied,
+# unpacked, and read somewhere else, by someone whose access to this repository
+# is not what governs it any more. That is the whole point of the format and it
+# is also its whole hazard, so this workflow fails CLOSED at every step: a check
+# that cannot establish that publishing is safe refuses to publish.
+#
+# The `privacy` job in ci.yml protects material that sits IN this repository. It
+# permits declared-private material as long as the repository is private, which
+# is the right rule for a checkout and the wrong one for an artifact — private
+# material inside a bundle is one download away from anywhere.
+
+name: Release bundle
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # Runs the guard and builds the bundle without publishing. This is the
+  # rehearsal: a publishing workflow nobody has ever run is a workflow that gets
+  # debugged for the first time on the day it matters.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  guard:
+    name: guard (may this corpus be published?)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Publishing is a deliberate act, so it takes a deliberate signal. Without
+      # this file a stray `git tag v1 && git push --tags` publishes the entire
+      # corpus, and "I did not know that tag did that" is not a thing anyone can
+      # take back once the bundle is downloaded.
+      #
+      # The marker is not a security control — anyone who can push a tag can add
+      # a file. It is a statement of intent, in the repository, that survives the
+      # person who made it.
+      - name: This repository must have opted in to publishing
+        run: |
+          set -euo pipefail
+          if [ ! -f .yidam/publishable ]; then
+            echo "::error::.yidam/publishable is absent, so this corpus is not published."
+            echo
+            echo "A bundle leaves this repository and is read elsewhere. Nothing about a"
+            echo "tag says whether that is intended, so the intent is recorded separately."
+            echo
+            echo "To publish this corpus, create .yidam/publishable and say in it who may"
+            echo "read this corpus and why that is acceptable. Then tag again."
+            exit 1
+          fi
+          echo "opted in:"
+          sed 's/^/  /' .yidam/publishable
+
+      # The stricter half, and the reason this job exists rather than reusing
+      # ci.yml's. A bundle carries corpus/, skills/ and decisions/. Anything
+      # declared private that lives in one of them would be published — and
+      # unlike ci.yml, being a private repository does not make that acceptable,
+      # because the artifact outlives the access.
+      - name: Declared-private material may not enter a bundle
+        env:
+          IS_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          set -euo pipefail
+          manifest=.yidam/private-paths
+          if [ ! -f "$manifest" ]; then
+            echo "no $manifest; nothing declared private."
+            exit 0
+          fi
+
+          # What render_bundle actually reads. Keep this list in step with
+          # cmd/bundle.rs — a directory added to the bundle and not added here is
+          # a directory this guard does not know it is publishing.
+          bundled=".yidam/corpus .yidam/skills .yidam/decisions"
+
+          in_bundle=""
+          anywhere=""
+          while IFS= read -r line || [ -n "$line" ]; do
+            entry="${line%%#*}"
+            entry="$(printf '%s' "$entry" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            [ -z "$entry" ] && continue
+            entry="${entry%/}"
+            [ -e "$entry" ] || continue
+            found=$(find "$entry" -type f ! -name .gitkeep ! -path "$entry/README.md" | sort)
+            [ -z "$found" ] && continue
+            anywhere="$anywhere$found"$'\n'
+            for dir in $bundled; do
+              case "$entry/" in
+                "$dir"/*|"$dir"/) in_bundle="$in_bundle$found"$'\n' ;;
+              esac
+              # And the other direction: a declared path that CONTAINS a bundled
+              # directory publishes everything under it.
+              case "$dir/" in
+                "$entry"/*) in_bundle="$in_bundle$found"$'\n' ;;
+              esac
+            done
+          done < "$manifest"
+
+          if [ -n "$in_bundle" ]; then
+            echo "::error::Material declared private in $manifest would be published in the bundle."
+            printf '%s' "$in_bundle" | sort -u | sed 's/^/  /'
+            echo
+            echo "A bundle is downloaded and unpacked elsewhere; this repository being"
+            echo "private does not travel with it. Remove the material from the bundled"
+            echo "directories, or stop publishing this corpus. Do not silence this job."
+            exit 1
+          fi
+
+          if [ -n "$anywhere" ] && [ "$IS_PRIVATE" != "true" ]; then
+            echo "::error::This repository is PUBLIC and holds material declared private in $manifest."
+            printf '%s' "$anywhere" | sort -u | sed 's/^/  /'
+            exit 1
+          fi
+
+          echo "no declared-private material reaches the bundle."
+
+  bundle:
+    name: bundle
+    needs: guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `yidam status` and the bundle manifest read the genesis commit, and a
+          # shallow checkout does not have one.
+          fetch-depth: 0
+
+      - name: Read the pinned yidam commit
+        id: pin
+        run: |
+          set -euo pipefail
+          if [ ! -f .yidam.toml ]; then
+            echo "::error::.yidam.toml is missing — this repo has no recorded yidam provenance."
+            exit 1
+          fi
+          commit=$(sed -n 's/^ *commit *= *"\(.*\)"/\1/p' .yidam.toml)
+          origin=$(sed -n 's/^ *origin *= *"\(.*\)"/\1/p' .yidam.toml)
+          if [ -z "$commit" ] || [ "$commit" = "unknown" ]; then
+            echo "::error::.yidam.toml records no resolvable commit."
+            exit 1
+          fi
+          origin=$(echo "$origin" | sed 's|^git@github.com:|https://github.com/|')
+          { echo "source=$origin"; echo "commit=$commit"; } >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache the pinned yidam binary
+        id: yidam-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/yidam
+          key: yidam-cli-${{ runner.os }}-${{ steps.pin.outputs.commit }}
+
+      # The light `reports` build. `export --format bundle` is in it: the bundle
+      # carries an index only when one is already built and committed, so
+      # publishing never needs protoc or an ONNX runtime.
+      - name: Install the yidam CLI (light build)
+        if: steps.yidam-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --filter=blob:none --no-checkout "${{ steps.pin.outputs.source }}" /tmp/yidam
+          git -C /tmp/yidam checkout --quiet "${{ steps.pin.outputs.commit }}"
+          cargo install --path /tmp/yidam/yidam/cli --locked
+
+      - name: Say which yidam is answering
+        run: yidam --version
+
+      # The gate before the artifact. Publishing a corpus that does not pass its
+      # own graph check would ship broken edges to every consumer, and they would
+      # read as the producer's claims.
+      - name: The corpus must pass its own gate
+        run: yidam graph-check
+
+      - name: Build the bundle
+        run: |
+          set -euo pipefail
+          yidam export --format bundle
+          ls -l .yidam/bundle.yiz
+          sha256sum .yidam/bundle.yiz > bundle.yiz.sha256
+
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # `bundle.yiz` and not `bundle-$VERSION.yiz`: the consumer resolves
+          # releases/latest/download/bundle.yiz by that exact name.
+          cp .yidam/bundle.yiz bundle.yiz
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            bundle.yiz bundle.yiz.sha256
