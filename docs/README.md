@@ -20,6 +20,7 @@ scaffold that derived repos receive, see [sadhana/docs/](../sadhana/docs/README.
 | [constitutional-governance.md](constitutional-governance.md) | The six articles of the invariant constitution |
 | [domain-computer.md](domain-computer.md) | Connectors, calculators, feature engineering, vector index |
 | [web-interface.md](web-interface.md) | Optional data export, bundle contracts, CLI-generated status fields |
+| [sharing-derivations.md](sharing-derivations.md) | Publishing a `.yiz` bundle and consuming one; what a cross-corpus citation is and is not |
 | [quality-rubric.md](quality-rubric.md) | Structural checks, scored quality criteria, regression thresholds |
 | [conduct-norms.md](conduct-norms.md) | Deliberate commits, generous linking, provenance preservation |
 | [test-harness.md](test-harness.md) | Bootstrap/domain-owner/judge triad, scenario schema, snapshot path |

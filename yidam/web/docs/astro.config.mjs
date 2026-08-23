@@ -50,6 +50,7 @@ export default defineConfig({
             { slug: 'bootstrap-flow', label: 'Bootstrap flow' },
             { slug: 'sangha-resolution-flow', label: 'Sangha resolution' },
             { slug: 'constitutional-governance', label: 'Constitutional governance' },
+            { slug: 'sharing-derivations', label: 'Sharing a derivation' },
           ],
         },
         {
