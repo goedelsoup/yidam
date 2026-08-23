@@ -394,6 +394,15 @@ fi
 
 # Composite for local use (`mise run ci`); CI runs ci-harness and ci-cli as
 # separate parallel jobs (see .github/workflows/ci.yml).
+# ── release ───────────────────────────────────────────────────────────────
+# Cutting a release is order-dependent and the order is not visible from a
+# shell about to run `git tag`. ./release.sh does the ordering rather than
+# describing it; VERSIONING.md still explains why the layers are separate.
+
+[tasks.release]
+description = "Cut a release tag for one layer, checking its preconditions. Usage: mise run release <layer> <version> [--dry-run]"
+run = "./release.sh"
+
 [tasks.ci]
 description = "Full CI pass: harness + yidam CLI fmt-check, clippy, and test."
 depends = ["ci-harness", "ci-cli"]
