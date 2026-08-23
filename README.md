@@ -45,6 +45,16 @@ It resolves the latest release for your platform, verifies the checksum, and ins
 `~/.local/bin` (override with `YIDAM_BIN_DIR`). If no checksum tool is present it declines
 the download rather than installing something it could not verify.
 
+On a Mac or a Linux box with Homebrew, the tap serves the same binary and keeps it upgradable
+with everything else:
+
+```sh
+brew install goedelsoup/tap/yidam
+```
+
+The formula is rendered from the release's own checksums by the release workflow, so the tap
+cannot lag behind a published version.
+
 With cargo already on hand, [`cargo-binstall`](https://github.com/cargo-bins/cargo-binstall)
 fetches the same artifact:
 

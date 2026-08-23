@@ -135,8 +135,19 @@ inherits: the `yidam` CLI and the editor client.
 
 | Artifact | Manifest | Tag | Registry |
 |---|---|---|---|
-| `yidam` CLI | `yidam/cli/Cargo.toml` | `cli/v{major}.{minor}.{patch}` | crates.io |
+| `yidam` CLI | `yidam/cli/Cargo.toml` | `cli/v{major}.{minor}.{patch}` | crates.io, GitHub releases, `goedelsoup/homebrew-tap` |
 | `goedelsoup.yidam` extension | `yidam/editors/vscode/package.json` | `editor/v{major}.{minor}.{patch}` | VS Code Marketplace, Open VSX |
+
+The CLI's four channels are one artifact reached four ways, and only the first is built:
+`.github/workflows/release.yml` cross-compiles the light `reports` build for four targets and
+publishes them as release assets. `install.sh`, the Homebrew formula, and `cargo binstall` all
+download *those* assets — the tap's formula is rendered from their checksums by the same
+workflow (`render-formula.sh`), never maintained by hand. crates.io carries the source,
+which is what makes `cargo install` and `cargo binstall` both work.
+
+A hand-edited formula is the failure this arrangement is shaped against: it is a second place
+the version lives, it goes stale on the first release nobody remembers to follow, and the
+staleness is invisible from here — it shows up as a stranger installing an old binary.
 
 **Two artifacts, one layer — the same shape as Layer 2.** The SDKs are three packages on
 three registries with three tags, held together by one jointly-versioned contract
