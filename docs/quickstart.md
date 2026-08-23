@@ -183,7 +183,27 @@ read.
 
 ---
 
-## 5. The loop, from here
+## 5. Point an agent at it
+
+A corpus that only a person can read is doing half its job. `yidam serve --mcp` puts it
+behind an MCP server, and an agent gets semantic retrieval over the nodes, the full YAML of
+any one of them, the neighbourhood around it, and the list of what is still open.
+
+```sh
+claude mcp add yidam -- yidam serve --mcp     # run from inside the repository
+```
+
+Two things to know before you do. `serve --mcp` is in the `--features index` build, not the
+released binary — `yidam --version` says which one you have. And the server finds the corpus
+from the directory it was started in, so a server launched somewhere else serves an empty
+corpus without erroring.
+
+Both, plus which tool an agent should reach for and how to read `degraded` and `origin`, are
+in [mcp-server.md](mcp-server.md).
+
+---
+
+## 6. The loop, from here
 
 That is the whole product:
 
@@ -204,5 +224,6 @@ anyone remembering.
 | How to write a node | [information-architecture.md](information-architecture.md) |
 | How claims are tagged, and the traps | [`prelude/guidelines/agent-conduct.md`](../yidam/prelude/guidelines/agent-conduct.md) |
 | What the gates actually check | [quality-rubric.md](quality-rubric.md) |
+| Connecting an agent over MCP | [mcp-server.md](mcp-server.md) |
 | Depending on someone else's corpus | [sharing-derivations.md](sharing-derivations.md) |
 | Working with more than one elector | [sangha-resolution-flow.md](sangha-resolution-flow.md) |

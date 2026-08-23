@@ -45,6 +45,7 @@ export default defineConfig({
             { slug: 'information-architecture', label: 'Information architecture' },
             { slug: 'git-branch-model', label: 'Git branch model' },
             { slug: 'domain-computer', label: 'Domain computer' },
+            { slug: 'mcp-server', label: 'Connecting an agent (MCP)' },
             { slug: 'web-interface', label: 'Web interface' },
           ],
         },

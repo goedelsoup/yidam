@@ -21,6 +21,7 @@ scaffold that derived repos receive, see [sadhana/docs/](../sadhana/docs/README.
 | [sangha-resolution-flow.md](sangha-resolution-flow.md) | When and how to resolve; elector registration |
 | [constitutional-governance.md](constitutional-governance.md) | The six articles of the invariant constitution |
 | [domain-computer.md](domain-computer.md) | Connectors, calculators, feature engineering, vector index |
+| [mcp-server.md](mcp-server.md) | Connecting an agent: which build carries `serve --mcp`, client configuration, which tool to reach for, and what `degraded` and `origin` mean |
 | [web-interface.md](web-interface.md) | Optional data export, bundle contracts, CLI-generated status fields |
 | [sharing-derivations.md](sharing-derivations.md) | Publishing a `.yiz` bundle and consuming one; what a cross-corpus citation is and is not |
 | [quality-rubric.md](quality-rubric.md) | Structural checks, scored quality criteria, regression thresholds |

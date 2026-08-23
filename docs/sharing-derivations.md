@@ -198,6 +198,9 @@ every corpus metric in every derived repository meaningless.
 > the light default set. So the default binary can add, verify and update a dependency, and
 > the one command that *reads* it needs `--features index`. Composition's fetch story and
 > its use story are still not available in the same build.
+>
+> [mcp-server.md](mcp-server.md) says how to get a binary that can serve, and what an agent
+> should do with `origin` once it can.
 
 ## The epistemic status of a cross-corpus citation
 
