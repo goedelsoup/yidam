@@ -89,11 +89,18 @@ pub fn samudaya_dir(root: &Path) -> PathBuf {
     root.join("samudaya")
 }
 
-#[cfg(feature = "tonpa")]
+// Not gated on the `tonpa` feature, and that is the point: the feature buys the
+// network — resolving a source, fetching an archive, writing a lock. READING a
+// dependency that is already on disk needs none of it, and a derived repository
+// installs the light build, so gating these made an installed dependency
+// invisible to the only binary that repository has.
 pub fn tonpa_dir(root: &Path) -> PathBuf {
     root.join(".yidam").join("tonpa")
 }
 
+// Still gated: this names `.yidam/tonpa.toml`, the *declaration* of what a repository
+// depends on, which only the commands that resolve and fetch ever read. Reading what is
+// already installed goes through `tonpa_dir` above and needs no feature.
 #[cfg(feature = "tonpa")]
 pub fn tonpa_config_path(root: &Path) -> PathBuf {
     root.join(".yidam").join("tonpa.toml")

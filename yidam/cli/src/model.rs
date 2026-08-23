@@ -296,6 +296,7 @@ pub fn index_rows(index: &IndexData) -> Result<Vec<VectorRow>> {
 
 /// One corpus instance parsed into graph form — the shared view consumed by
 /// the MCP server and the graph-shaped exporters (GraphML, RDF).
+#[derive(Debug)]
 pub struct NodeView {
     /// `<class>/<name>` — the stable node id.
     pub id: String,
@@ -306,6 +307,32 @@ pub struct NodeView {
     pub content: String,
     /// Outgoing edges: (target node id, relationship).
     pub links: Vec<(String, String)>,
+    /// Which corpus this node came from: `None` for this repository, `Some(pkg)` for an
+    /// installed dependency.
+    ///
+    /// Kept beside the id rather than folded into it, so every existing consumer that
+    /// parses `<class>/<name>` keeps working and a caller must *choose* to look at foreign
+    /// nodes. [`NodeView::qualified_id`] is the disambiguated form for display.
+    pub origin: Option<String>,
+}
+
+impl NodeView {
+    /// The id to show a reader: `pkg::class/name` for a dependency, `class/name` for a
+    /// local node.
+    ///
+    /// Two corpora may legitimately hold the same `class/name`; without this a retrieval
+    /// result naming one of them is not an answer to "which node is this".
+    pub fn qualified_id(&self) -> String {
+        match &self.origin {
+            Some(pkg) => format!("{pkg}::{}", self.id),
+            None => self.id.clone(),
+        }
+    }
+
+    /// Whether this node belongs to this repository rather than to a dependency.
+    pub fn is_local(&self) -> bool {
+        self.origin.is_none()
+    }
 }
 
 /// Resolve a link target (a path relative to the source instance's class
@@ -371,8 +398,116 @@ pub fn corpus_nodes(model: &DomainModel) -> Vec<NodeView> {
                 description: parsed.description.unwrap_or_default(),
                 content,
                 links,
+                origin: None,
             }
         })
+        .collect()
+}
+
+// ── installed dependencies ────────────────────────────────────────────────────
+//
+// `yidam tonpa` fetched a bundle, hashed it, locked it, and unpacked a whole corpus into
+// `.yidam/tonpa/<pkg>/` — and until this existed nothing in the CLI ever read it. The
+// package manager was complete and its product had no consumer, which meant a repository
+// could declare a dependency, verify it, commit the lock, and observe no difference in
+// anything the tool could tell it.
+//
+// What a dependency is allowed to be, here, is deliberately narrow: **readable and
+// searchable, never an edge target.** An edge in this model is a claim, and the
+// constitution governs who may assert one; a citation into a corpus with a different
+// ontology, its own electors, and its own revision history is a different object from a
+// local edge, and it wants its own argument rather than arriving as a side effect of a
+// package manager. So foreign nodes carry their own links for display, no local edge ever
+// resolves to one, and traversal does not cross the boundary.
+
+/// Names of the dependencies installed under `.yidam/tonpa/`, sorted.
+///
+/// The lock file is not consulted: this answers "what is on disk", which is what a reader
+/// can actually be shown. A declared-but-uninstalled dependency is `tonpa status`'s
+/// question, not this one.
+pub fn dependency_names(root: &Path) -> Vec<String> {
+    let dir = crate::paths::tonpa_dir(root);
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir() && e.path().join("manifest.yml").is_file())
+        .filter_map(|e| e.file_name().to_str().map(str::to_string))
+        .collect();
+    names.sort();
+    names
+}
+
+/// Every corpus instance in one installed dependency, as [`NodeView`]s tagged with its name.
+///
+/// The layout mirrors this repository's own — `corpus/<class>/<name>.yml` — because a bundle
+/// is a corpus. That is why the parsing below is the same parsing, and why a change to how
+/// instances are read cannot apply to one and not the other.
+pub fn dependency_nodes(root: &Path, package: &str) -> Vec<NodeView> {
+    let corpus = crate::paths::tonpa_dir(root).join(package).join("corpus");
+    let Ok(classes) = std::fs::read_dir(&corpus) else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    let mut class_dirs: Vec<_> = classes.filter_map(|e| e.ok()).collect();
+    class_dirs.sort_by_key(|e| e.file_name());
+
+    for class_entry in class_dirs {
+        if !class_entry.path().is_dir() {
+            continue; // `<name>.ont.yml` schema files sit beside the class directories
+        }
+        let class = class_entry.file_name().to_string_lossy().into_owned();
+        let Ok(files) = std::fs::read_dir(class_entry.path()) else {
+            continue;
+        };
+        let mut files: Vec<_> = files.filter_map(|e| e.ok()).collect();
+        files.sort_by_key(|e| e.file_name());
+
+        for f in files {
+            let path = f.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("yml") {
+                continue;
+            }
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let parsed: crate::parse::CorpusInstance =
+                serde_yaml::from_str(&content).unwrap_or_default();
+            let name = file_stem(&f.file_name().to_string_lossy());
+            let links = parsed
+                .links
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|l| {
+                    l.target.as_ref().map(|t| {
+                        (
+                            resolve_link_target(&class, t),
+                            l.relationship.clone().unwrap_or_else(|| "link".to_string()),
+                        )
+                    })
+                })
+                .collect();
+            out.push(NodeView {
+                id: format!("{class}/{name}"),
+                class: class.clone(),
+                label: parsed.label.unwrap_or_default(),
+                description: parsed.description.unwrap_or_default(),
+                content,
+                links,
+                origin: Some(package.to_string()),
+            });
+        }
+    }
+    out
+}
+
+/// Every node from every installed dependency, in dependency-name order.
+pub fn all_dependency_nodes(root: &Path) -> Vec<NodeView> {
+    dependency_names(root)
+        .iter()
+        .flat_map(|pkg| dependency_nodes(root, pkg))
         .collect()
 }
 
