@@ -48,16 +48,23 @@ fn help(args: &[&str]) -> String {
 }
 
 /// Every subcommand `yidam --help` lists.
+///
+/// The listing is `help::render`'s, not clap's flat `Commands:` block: group headings sit
+/// flush left, command rows are indented two spaces, and the trailing legend's continuation
+/// line is indented four. Anything between the usage line and `Options:` that is indented
+/// exactly two spaces is a command row.
 fn subcommands() -> HashSet<String> {
     let text = help(&[]);
     let body = text
-        .split_once("Commands:")
-        .expect("top-level help lists Commands")
+        .split_once("Usage:")
+        .expect("top-level help carries a usage line")
         .1;
     body.lines()
         .take_while(|l| !l.starts_with("Options:"))
+        .filter(|l| l.starts_with("  ") && !l.starts_with("   "))
         .filter_map(|l| l.split_whitespace().next())
-        .filter(|w| !w.starts_with('-'))
+        // `-` opens an option, `*` opens the write-marker legend.
+        .filter(|w| !w.starts_with('-') && *w != "*")
         .map(str::to_string)
         .collect()
 }

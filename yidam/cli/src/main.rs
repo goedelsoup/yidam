@@ -1,10 +1,12 @@
 use anyhow::Result;
 use clap::error::ErrorKind;
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
 use yidam::ExportFormat;
+
+mod help;
 
 /// What this binary is, in one line: version, build commit, and compiled features.
 ///
@@ -34,6 +36,29 @@ static VERSION: LazyLock<String> = LazyLock::new(|| {
 struct Cli {
     #[command(subcommand)]
     command: Command,
+}
+
+/// The parser, with the flat subcommand list replaced by `help`'s grouping.
+///
+/// Built in two passes because the listing is rendered from the names and `about` strings
+/// of the subcommands this binary compiled — which are only knowable from a built
+/// [`clap::Command`]. The first pass is read; the second carries the result as
+/// `after_help`. clap is asked for the descriptions rather than told them, so no
+/// description exists twice.
+fn command() -> clap::Command {
+    let base = Cli::command();
+    let subcommands: Vec<(String, String)> = base
+        .get_subcommands()
+        .filter(|c| !c.is_hide_set() && c.get_name() != "help")
+        .map(|c| {
+            (
+                c.get_name().to_string(),
+                c.get_about().map(|a| a.to_string()).unwrap_or_default(),
+            )
+        })
+        .collect();
+    base.help_template(help::TEMPLATE)
+        .after_help(help::render(&subcommands))
 }
 
 #[derive(Subcommand)]
@@ -386,7 +411,10 @@ fn block_on<F: std::future::Future<Output = Result<()>>>(fut: F) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    let cli = match Cli::try_parse() {
+    let cli = match command()
+        .try_get_matches()
+        .and_then(|m| Cli::from_arg_matches(&m))
+    {
         Ok(cli) => cli,
         // clap says a subcommand was not recognized without saying who did not recognize
         // it, and the answer is often a binary older than the command, from somewhere the
