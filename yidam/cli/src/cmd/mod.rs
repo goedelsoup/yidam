@@ -7,6 +7,7 @@ mod copy;
 pub(crate) mod corpus;
 pub(crate) mod decisions;
 mod diff;
+mod doctor;
 mod embed;
 mod export;
 mod export_graphml;
@@ -34,7 +35,7 @@ mod sangha;
 mod schema;
 #[cfg(feature = "index")]
 mod serve;
-mod status;
+pub(crate) mod status;
 #[cfg(feature = "tonpa")]
 pub mod tonpa;
 mod vocabulary;
@@ -48,6 +49,7 @@ pub use clone::clone;
 pub use corpus::{corpus_index, graph_check, open_questions};
 pub use decisions::decisions_log;
 pub use diff::diff_corpus;
+pub use doctor::doctor;
 pub use embed::{embed, EmbedOptions};
 pub use export::{export, list_formats, run_export, ExportFormat, ExportOptions, RdfFormat};
 pub use graph::{graph, neighbors};
@@ -61,6 +63,8 @@ pub use log::{log, Filter as LogFilter};
 pub use overlay::overlay;
 pub use phases::phases;
 pub use regen::regen;
+// `doctor` asks the same question `regen --check` asks, through the same generator list.
+pub(crate) use regen::stale_blocks;
 pub use registry::{agents_index, skills_index};
 pub use rename::rename;
 pub use replay::replay;
@@ -69,6 +73,7 @@ pub use sangha::sangha;
 pub use schema::schema;
 #[cfg(feature = "index")]
 pub use serve::serve_mcp;
+pub(crate) use status::index_status_data;
 pub use status::{index_status, status};
 pub use vocabulary::vocabulary;
 pub use web::bundle_status;

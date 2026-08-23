@@ -116,6 +116,7 @@ and diverges from there; `samudaya/` is consumed and deleted, surviving only in 
 ## The CLI
 
 ```
+yidam doctor              is this setup sound? pin, PATH, prelude age, index, REGEN — read-only
 yidam status              repo overview: nodes, open questions, catalog, index freshness, phases
 yidam graph-check         orphans, broken links, missing labels — the gate CI runs
 yidam lint --commits      corpus quality checks against a baseline ratchet, plus the commit vocabulary
@@ -131,6 +132,15 @@ yidam tonpa add …         manage bundle dependencies on other derived repos
 Index subcommands (`corpus-index`, `skills-index`, `catalog-audit`, …) back the
 `<!-- REGEN: yidam <subcommand> -->` markers embedded in README files. `mise run regen`
 refreshes them all in one pass; in derived repos a stale REGEN block is a failing build.
+
+`yidam doctor` is the one to reach for when something is off and you do not yet know what.
+It answers, in one screen, the questions that were previously spread across a stderr
+warning, a CI step, and three reports: whether this is a derived repository at all, whether
+the running binary is the one `.yidam.toml` pins, whether `.yidam/bin` is ahead on PATH, how
+old the vendored prelude is, whether the index and the REGEN blocks are current, and what
+this binary was compiled with. It writes nothing and does no network, so it is safe against
+a checkout you only mean to inspect — which the rest of the reports are not. It exits
+nonzero on what is wrong now; warnings (no index, an old pin) gate only under `--strict`.
 
 The binary is partitioned by cargo feature so the common case stays cheap to install:
 
