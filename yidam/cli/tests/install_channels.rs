@@ -249,3 +249,40 @@ fn the_cross_compile_check_mirrors_the_release_build() {
          compiler is what makes them differ"
     );
 }
+
+/// The tag the README tells people to install must be the version this repository is at.
+///
+/// `cargo install --git … --tag cli/vX --locked` is the one documented path that pins a
+/// specific release, which is what makes it reproducible and also what makes it go stale:
+/// nothing about bumping a version forces the line to move, and a reader who follows it
+/// installs whatever was current when it was last edited.
+///
+/// The other channels resolve "latest" at install time and cannot drift this way. This one
+/// buys reproducibility with a version in prose, and prose is the thing that rots.
+#[test]
+fn the_readme_pins_the_version_this_repository_declares() {
+    let manifest = read("yidam/cli/Cargo.toml");
+    let declared = manifest
+        .lines()
+        .find_map(|l| l.strip_prefix("version = \""))
+        .and_then(|v| v.split('"').next())
+        .expect("yidam/cli/Cargo.toml declares a version");
+
+    let readme = read("README.md");
+    let pinned: Vec<&str> = readme
+        .lines()
+        .filter(|l| l.contains("--tag cli/v"))
+        .collect();
+    assert!(
+        !pinned.is_empty(),
+        "README documents no pinned `cargo install --git … --tag cli/v…` line; if that \
+         channel was removed, remove this test with it"
+    );
+    for line in pinned {
+        assert!(
+            line.contains(&format!("--tag cli/v{declared} ")),
+            "README pins a different release than yidam/cli/Cargo.toml declares ({declared}):\
+             \n  {line}\nBumping the version has to move this line; nothing else will."
+        );
+    }
+}
