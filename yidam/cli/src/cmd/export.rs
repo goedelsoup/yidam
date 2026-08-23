@@ -208,18 +208,43 @@ pub fn export(
             if let Some(parent) = out.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            let text = render_llms(model, options.token_budget);
-            std::fs::write(out, &text)?;
+            let pack = render_llms(model, options.token_budget);
+            std::fs::write(out, &pack.text)?;
             let budget_note = match options.token_budget {
                 Some(budget) => format!(" (token budget: {budget})"),
                 None => String::new(),
             };
+            // The count a reader needs is what the file holds, not what the corpus
+            // holds — those differ exactly when the budget bit, which is the case
+            // where being told the corpus size is worst.
+            let count = if pack.written == pack.total {
+                format!("{} node(s)", pack.total)
+            } else {
+                format!("{} of {} node(s)", pack.written, pack.total)
+            };
             println!(
-                "llms.txt written: {} node(s), ~{} tokens{budget_note} → {}",
-                model.instances.len(),
-                text.len() / 4,
+                "llms.txt written: {count}, ~{} tokens{budget_note} → {}",
+                pack.text.len() / 4,
                 out.display(),
             );
+            if pack.omitted() > 0 {
+                let breakdown: Vec<String> = pack
+                    .omitted_by_class
+                    .iter()
+                    .map(|(class, n)| format!("{class}: {n}"))
+                    .collect();
+                println!(
+                    "  omitted {} node(s) ({}) — see the trailing `# Omitted:` line",
+                    pack.omitted(),
+                    breakdown.join(", "),
+                );
+            }
+            if pack.elided > 0 {
+                println!(
+                    "  elided {} description(s) to fit; labels and links kept",
+                    pack.elided,
+                );
+            }
         }
     }
     Ok(())

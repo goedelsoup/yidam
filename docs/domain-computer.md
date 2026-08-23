@@ -155,11 +155,26 @@ description, `[[link]]` targets) under a provenance header (domain, generation d
 node count).
 
 With `--token-budget` the output is capped at approximately `budget × 4` characters
-(1 token ≈ 4 chars — deliberately an approximation, not a tokenizer). Nodes are ordered so
-truncation keeps the most useful context: open-question nodes first, then by outgoing link
-count descending. The first node that overflows is cut at `[truncated]`; everything after it
-is counted in a trailing `# Omitted: N nodes` line, so header count always equals sections
-emitted plus omitted.
+(1 token ≈ 4 chars — deliberately an approximation, not a tokenizer). A budget degrades
+**coverage before membership**: descriptions are dropped first, leaving each node as its
+label and its `[[link]]` targets, so the shape of the graph survives a budget that its prose
+cannot. Only when even the labels do not fit are nodes dropped, and then round-robin across
+classes — every class places its first node before any class places its second — so a small
+budget yields a spread of the ontology rather than a prefix of whichever class sorts first.
+
+Prose is spent in priority order (open-question nodes first, then by outgoing link count
+descending); the node at the boundary keeps whatever description fits, cut at `[truncated]`.
+
+Whatever the budget still cost is named at the foot of the file:
+
+```
+# Omitted: 22 nodes (concept: 22)
+# Elided: 177 descriptions (label and links kept)
+```
+
+so header count always equals sections emitted plus omitted, and a budgeted pack is never
+mistakable for the whole corpus. The header reads `Nodes: 177 of 199` whenever it is a slice,
+and `yidam export` reports what it wrote rather than what it was given.
 
 ### The MCP server
 
