@@ -14,6 +14,46 @@ pub fn repo_root() -> Result<PathBuf> {
     }
 }
 
+/// Fail unless the current directory really is a yidam-derived repository.
+///
+/// [`repo_root`] falls back to the working directory when `git rev-parse` fails, which is
+/// what lets every report run somewhere no repository exists. For a *report* that is
+/// tolerable — it prints that it found nothing. For a **gate** it is not: run
+/// `yidam graph-check` from an empty directory and it prints "No corpus content found"
+/// and **exits 0**. A misconfigured repository and a clean one were the same observation,
+/// which is the one thing a gate must never allow. A derived repository that has never
+/// been able to see itself passes every check it runs, forever, and nothing says so.
+///
+/// The test is `.yidam/`, not the corpus: a repository bootstrapped an hour ago has the
+/// directory and no nodes in it yet, and that is a legitimate empty corpus rather than an
+/// absent one. `.yidam/` is written at genesis and is what `repo_root` should have found.
+pub fn require_yidam_repo(root: &Path) -> Result<()> {
+    if root.join(".yidam").is_dir() {
+        return Ok(());
+    }
+
+    let in_git = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if in_git {
+        anyhow::bail!(
+            "not a yidam repository: {} has no .yidam/ directory\n  \
+             This is a git repository, but not one yidam bootstrapped. Derive one with \
+             `yidam clone <target>`, or overlay this one with `yidam overlay .`.",
+            root.display()
+        )
+    }
+    anyhow::bail!(
+        "not a yidam repository: {} is not inside a git repository\n  \
+         yidam locates a repository with `git rev-parse --show-toplevel` and found none, so \
+         it fell back to the working directory. Run this from inside a derived repository.",
+        root.display()
+    )
+}
+
 pub fn yidam_corpus_dir(root: &Path) -> PathBuf {
     root.join(".yidam").join("corpus")
 }

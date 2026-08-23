@@ -31,8 +31,10 @@ node = "lts"
 _.path = [".local/bin"]
 
 # ── yidam CLI — build ─────────────────────────────────────────────────
-# The `yidam` binary lives in yidam/cli/. In derived repos it is
-# installed from the registry; in this repo, build it first with:
+# The `yidam` binary lives in yidam/cli/. In a derived repo it is installed by
+# that repo's own `yidam-build`, which clones this origin at the commit its
+# .yidam.toml pins and compiles it — there is no registry and no published
+# artifact to install from. In this repo, build it first with:
 #   mise run yidam-build
 
 [tasks.yidam-build]

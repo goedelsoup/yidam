@@ -2,13 +2,34 @@ use anyhow::Result;
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use std::sync::LazyLock;
 
 use yidam::ExportFormat;
+
+/// What this binary is, in one line: version, build commit, and compiled features.
+///
+/// Every correctness story here rests on the binary matching the commit pinned in
+/// `.yidam.toml`, and until now the binary could not be asked which one it was —
+/// `yidam --version` was refused as an unexpected argument. A repository whose shell
+/// resolved a `yidam` from somewhere else had no way to find out except by reading a
+/// report's JSON envelope, which is the wrong place to look and the wrong time to learn.
+///
+/// The features matter as much as the commit. A light `reports` build does not carry
+/// `tonpa` or `index-build`, so "command not found" and "this binary cannot do that"
+/// are different diagnoses that used to look identical.
+///
+/// A `static` because clap wants a `&'static str` and the feature list is only knowable
+/// once, at startup.
+static VERSION: LazyLock<String> = LazyLock::new(|| {
+    let b = yidam::report::YidamBlock::current();
+    format!("{} ({}) [{}]", b.version, b.commit, b.features.join(" "))
+});
 
 #[derive(Parser)]
 #[command(
     name = "yidam",
-    about = "Corpus analysis and index CLI for yidam-derived repositories"
+    about = "Corpus analysis and index CLI for yidam-derived repositories",
+    version = VERSION.as_str()
 )]
 struct Cli {
     #[command(subcommand)]
@@ -17,12 +38,18 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Repository overview: nodes, open questions, catalog, index freshness, phases.
+    ///
+    /// Writes the `<!-- REGEN: yidam status -->` block in the repository's README.
     Status {
         /// Output format. `json` emits the machine-readable report contract
         /// (RFC-0016); `text` is unchanged and remains the default.
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// List the corpus's unresolved questions, newest first.
+    ///
+    /// Writes the `<!-- REGEN: yidam open-questions -->` block in the repository's README.
     #[command(name = "open-questions")]
     OpenQuestions {
         /// Output format. `json` emits the machine-readable report contract
@@ -30,6 +57,9 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// Index every corpus node by class, with its label and link count.
+    ///
+    /// Writes the `<!-- REGEN: yidam corpus-index -->` block in the repository's README.
     #[command(name = "corpus-index")]
     CorpusIndex {
         /// Output format. `json` emits the machine-readable report contract
@@ -55,6 +85,9 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// Report whether the vector index is present, and how stale it is against the corpus.
+    ///
+    /// Writes the `<!-- REGEN: yidam index-status -->` block in the repository's README.
     #[command(name = "index-status")]
     IndexStatus {
         /// Output format. `json` emits the machine-readable report contract
@@ -62,6 +95,9 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// Audit catalog sources: which are cited by the corpus, and which are not.
+    ///
+    /// Writes the `<!-- REGEN: yidam catalog-audit -->` block in the repository's README.
     #[command(name = "catalog-audit")]
     CatalogAudit {
         /// Output format. `json` emits the machine-readable report contract
@@ -69,14 +105,29 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// Index the domain agents in `.yidam/agents/`.
+    ///
+    /// Writes the `<!-- REGEN: yidam agents-index -->` block in the repository's README.
     #[command(name = "agents-index")]
     AgentsIndex,
+    /// Index the domain skills in `.yidam/skills/`.
+    ///
+    /// Writes the `<!-- REGEN: yidam skills-index -->` block in the repository's README.
     #[command(name = "skills-index")]
     SkillsIndex,
+    /// Index the domain-computer crates in `crates/`.
+    ///
+    /// Writes the `<!-- REGEN: yidam crates-index -->` block in the repository's README.
     #[command(name = "crates-index")]
     CratesIndex,
+    /// Index the domain-computer packages in `packages/`.
+    ///
+    /// Writes the `<!-- REGEN: yidam packages-index -->` block in the repository's README.
     #[command(name = "packages-index")]
     PackagesIndex,
+    /// Report the freshness of `.yidam/bundle.yiz` against the corpus it was built from.
+    ///
+    /// Writes the `<!-- REGEN: yidam bundle-status -->` block in the repository's README.
     #[command(name = "bundle-status")]
     BundleStatus,
     /// Refresh every REGEN block in one pass.
@@ -122,6 +173,9 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// The graph gate CI runs: orphans, broken links, missing labels.
+    ///
+    /// Read-only. Exits nonzero when the graph does not hold together.
     #[command(name = "graph-check")]
     GraphCheck {
         /// Output format. `json` emits the machine-readable report contract
@@ -129,6 +183,9 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// List the decision records in `.yidam/decisions/`, newest first.
+    ///
+    /// Read-only.
     #[command(name = "decisions-log")]
     DecisionsLog,
     /// Show corpus node and edge changes between two git refs

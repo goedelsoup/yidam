@@ -376,6 +376,9 @@ pub fn open_questions(format: crate::report::Format) -> Result<()> {
 
 pub fn graph_check(format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
+    // Before anything is counted: a gate that cannot see the repository must say so rather
+    // than report the nothing it found as a clean bill of health. See `require_yidam_repo`.
+    crate::paths::require_yidam_repo(&root)?;
     let corpus = yidam_corpus_dir(&root);
     let data = graph_check_data(&root, &corpus);
     let issue_count = data.nodes_with_issues.len();
