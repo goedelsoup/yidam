@@ -111,3 +111,132 @@ fn ont_schema_files_are_not_read_as_nodes() {
         nodes.iter().map(|n| &n.id).collect::<Vec<_>>()
     );
 }
+
+// ── path dependencies ─────────────────────────────────────────────────────────
+//
+// A sibling repository read where it sits. Not fetched, not hashed, not locked — hashing a
+// working tree that changes under you records nothing. It is the only form that supports a
+// development loop, which is also the common case for one person with several derivations
+// on one machine.
+
+/// Write a yidam repository at `dir` holding one corpus node.
+fn sibling_repo(dir: &Path, class: &str, name: &str, label: &str) {
+    let corpus = dir.join(".yidam").join("corpus").join(class);
+    std::fs::create_dir_all(&corpus).unwrap();
+    std::fs::write(
+        corpus.join(format!("{name}.yml")),
+        format!("class: {class}\nlabel: {label}\ndescription: about {label}\n"),
+    )
+    .unwrap();
+}
+
+fn declare(root: &Path, body: &str) {
+    std::fs::create_dir_all(root.join(".yidam")).unwrap();
+    std::fs::write(root.join(".yidam").join("tonpa.toml"), body).unwrap();
+}
+
+#[test]
+fn a_path_dependency_is_read_from_where_it_sits() {
+    let tmp = tempfile::tempdir().unwrap();
+    let consumer = tmp.path().join("consumer");
+    std::fs::create_dir_all(&consumer).unwrap();
+    sibling_repo(&tmp.path().join("producer"), "concept", "weir", "Weir");
+    declare(
+        &consumer,
+        "[dependencies.producer]\npath = \"../producer\"\n",
+    );
+
+    assert_eq!(yidam::model::dependency_names(&consumer), vec!["producer"]);
+    let nodes = yidam::model::dependency_nodes(&consumer, "producer");
+    assert_eq!(nodes.len(), 1, "{nodes:?}");
+    assert_eq!(nodes[0].qualified_id(), "producer::concept/weir");
+    assert_eq!(nodes[0].origin.as_deref(), Some("producer"));
+}
+
+/// An edit in the producer is visible in the consumer with no fetch, no lock, no reinstall.
+///
+/// This is the entire reason path dependencies exist. If it needed a release cycle the
+/// mechanism would not support the loop it is for, and the fastest way to iterate on
+/// cross-corpus work would remain "do not use the mechanism".
+#[test]
+fn an_edit_in_the_producer_is_visible_immediately() {
+    let tmp = tempfile::tempdir().unwrap();
+    let consumer = tmp.path().join("consumer");
+    let producer = tmp.path().join("producer");
+    std::fs::create_dir_all(&consumer).unwrap();
+    sibling_repo(&producer, "concept", "weir", "Weir");
+    declare(
+        &consumer,
+        "[dependencies.producer]\npath = \"../producer\"\n",
+    );
+
+    assert_eq!(
+        yidam::model::dependency_nodes(&consumer, "producer")[0].label,
+        "Weir"
+    );
+
+    // Edit the producer in place — no republish, no reinstall.
+    sibling_repo(&producer, "concept", "weir", "Weir (revised)");
+    assert_eq!(
+        yidam::model::dependency_nodes(&consumer, "producer")[0].label,
+        "Weir (revised)",
+        "a path dependency that caches is not a path dependency"
+    );
+}
+
+/// A path declaration wins over an unpacked directory of the same name.
+///
+/// Silently preferring a stale fetched copy would make an edit appear to have no effect,
+/// which is the one failure a development loop must not have.
+#[test]
+fn a_path_declaration_shadows_a_fetched_copy_of_the_same_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    let consumer = tmp.path().join("consumer");
+    std::fs::create_dir_all(&consumer).unwrap();
+    sibling_repo(
+        &tmp.path().join("producer"),
+        "concept",
+        "weir",
+        "from the path",
+    );
+    install_dep(&consumer, "producer", "concept", "weir", "from the bundle");
+    declare(
+        &consumer,
+        "[dependencies.producer]\npath = \"../producer\"\n",
+    );
+
+    // The name must appear ONCE. Asserting only through `dependency_nodes` would not catch
+    // a missing dedup: that function takes the first match and path declarations are pushed
+    // first, so ordering alone would keep it looking right while the dependency was listed
+    // twice everywhere else.
+    assert_eq!(
+        yidam::model::dependency_names(&consumer),
+        vec!["producer"],
+        "a name declared as a path and also unpacked must resolve to one dependency"
+    );
+    assert_eq!(
+        yidam::model::all_dependency_nodes(&consumer).len(),
+        1,
+        "the shadowed copy must not contribute nodes of its own"
+    );
+
+    let nodes = yidam::model::dependency_nodes(&consumer, "producer");
+    assert_eq!(
+        nodes.len(),
+        1,
+        "the name must resolve once, not twice: {nodes:?}"
+    );
+    assert_eq!(nodes[0].label, "from the path");
+}
+
+/// A sibling that is not on this machine is a normal state, not an error.
+///
+/// Someone else clones the consumer without the producer beside it. "What can be read" is a
+/// different question from "what is declared", and only the second is `tonpa status`'s.
+#[test]
+fn a_path_that_does_not_exist_is_skipped_not_fatal() {
+    let tmp = tempfile::tempdir().unwrap();
+    declare(tmp.path(), "[dependencies.absent]\npath = \"../nowhere\"\n");
+    assert!(yidam::model::dependency_names(tmp.path()).is_empty());
+    assert!(yidam::model::all_dependency_nodes(tmp.path()).is_empty());
+}

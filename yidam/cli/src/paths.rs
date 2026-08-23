@@ -98,10 +98,10 @@ pub fn tonpa_dir(root: &Path) -> PathBuf {
     root.join(".yidam").join("tonpa")
 }
 
-// Still gated: this names `.yidam/tonpa.toml`, the *declaration* of what a repository
-// depends on, which only the commands that resolve and fetch ever read. Reading what is
-// already installed goes through `tonpa_dir` above and needs no feature.
-#[cfg(feature = "tonpa")]
+// Ungated for the same reason as `tonpa_dir`. This was gated one commit ago on the argument
+// that only the fetching commands read the declaration — which stopped being true the moment
+// a *path* dependency existed, because a path dependency has nothing on disk under
+// `.yidam/tonpa/` and the declaration is the only record that it exists at all.
 pub fn tonpa_config_path(root: &Path) -> PathBuf {
     root.join(".yidam").join("tonpa.toml")
 }

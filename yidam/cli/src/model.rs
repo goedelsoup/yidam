@@ -426,17 +426,10 @@ pub fn corpus_nodes(model: &DomainModel) -> Vec<NodeView> {
 /// can actually be shown. A declared-but-uninstalled dependency is `tonpa status`'s
 /// question, not this one.
 pub fn dependency_names(root: &Path) -> Vec<String> {
-    let dir = crate::paths::tonpa_dir(root);
-    let Ok(entries) = std::fs::read_dir(&dir) else {
-        return Vec::new();
-    };
-    let mut names: Vec<String> = entries
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir() && e.path().join("manifest.yml").is_file())
-        .filter_map(|e| e.file_name().to_str().map(str::to_string))
-        .collect();
-    names.sort();
-    names
+    crate::deps::resolved(root)
+        .into_iter()
+        .map(|d| d.name)
+        .collect()
 }
 
 /// Every corpus instance in one installed dependency, as [`NodeView`]s tagged with its name.
@@ -445,8 +438,13 @@ pub fn dependency_names(root: &Path) -> Vec<String> {
 /// is a corpus. That is why the parsing below is the same parsing, and why a change to how
 /// instances are read cannot apply to one and not the other.
 pub fn dependency_nodes(root: &Path, package: &str) -> Vec<NodeView> {
-    let corpus = crate::paths::tonpa_dir(root).join(package).join("corpus");
-    let Ok(classes) = std::fs::read_dir(&corpus) else {
+    let Some(dep) = crate::deps::resolved(root)
+        .into_iter()
+        .find(|d| d.name == package)
+    else {
+        return Vec::new();
+    };
+    let Ok(classes) = std::fs::read_dir(&dep.corpus_dir) else {
         return Vec::new();
     };
 
