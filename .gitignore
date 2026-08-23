@@ -9,6 +9,13 @@
 .env.*
 !.env.example
 
+# Agent worktrees. `.claude/worktrees/<name>` is a git worktree — an embedded
+# repository — and `git add -A` stages it as a gitlink pointing at a commit no
+# clone can resolve. Same family as the `.env` above: a directory that appears
+# in a working tree without anyone putting it there, in a repository whose
+# protocols prescribe `git add -A`.
+.claude/worktrees/
+
 # Rust
 # The yidam binary, installed per-repository rather than into ~/.cargo/bin so that
 # a machine with several yidam repositories does not run one repo's pinned build
