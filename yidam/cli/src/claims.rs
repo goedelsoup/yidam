@@ -191,7 +191,7 @@ impl ClaimFields {
 /// Both spellings are read: `open` is what a typed vocabulary stores, and `[open]` is what a
 /// corpus writes after being told the scan needs brackets. Accepting both means nobody has
 /// to reshape their data a second time when this lands.
-fn tag_of(value: &str) -> Option<&'static str> {
+pub fn tag_of(value: &str) -> Option<&'static str> {
     match value.trim().trim_matches(|c| c == '[' || c == ']') {
         "verified" => Some(VERIFIED),
         "inference" => Some(INFERENCE),

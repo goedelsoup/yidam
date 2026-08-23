@@ -4,7 +4,7 @@
 //! reports nothing when it passes cannot be distinguished from a check that did not run,
 //! and the difference matters when someone is deciding whether the gate covers a case.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::parse::{parse_frontmatter, CorpusInstance, CATALOG_LOCATION_KINDS};
@@ -26,15 +26,33 @@ pub struct Class {
     pub description: String,
     /// The class name — `person` for `person.ont.yml`.
     pub name: String,
-    /// Whether the class declares an `edges:` list at all.
-    pub declares_edges: bool,
-    /// Whether the class declares any edge with `direction: in`.
-    ///
-    /// An edge is documented from both ends: `person` declares `played in` as
-    /// `direction: out` and `band` declares the same relationship as `direction: in`. A
-    /// class that declares edges and none of them inbound is therefore saying, in the
-    /// ontology, that nothing points at its instances — see [`Class::is_source_class`].
-    pub declares_inbound: bool,
+    /// The typed fields the class declares, in declaration order.
+    pub properties: Vec<ClassProperty>,
+    /// The relationships the class licenses, from whichever end authors them.
+    pub edges: Vec<ClassEdge>,
+}
+
+/// One typed field a class declares.
+#[derive(Default, serde::Deserialize)]
+pub struct ClassProperty {
+    #[serde(default)]
+    pub name: String,
+    /// `string`, `text`, `date`, `ref`, `claim` — or anything else, which is unchecked.
+    #[serde(default)]
+    pub r#type: String,
+}
+
+/// One relationship a class declares.
+#[derive(Default, serde::Deserialize)]
+pub struct ClassEdge {
+    #[serde(default)]
+    pub relationship: String,
+    /// The class at the *other* end, whichever end authors the link.
+    #[serde(default)]
+    pub target: String,
+    /// `out` when instances of this class author the link, `in` when the other side does.
+    #[serde(default)]
+    pub direction: Option<String>,
 }
 
 impl Class {
@@ -51,7 +69,11 @@ impl Class {
     /// a corpus whose ontology has not been filled in — silencing the check exactly where
     /// there is least reason to trust the graph.
     pub fn is_source_class(&self) -> bool {
-        self.declares_edges && !self.declares_inbound
+        !self.edges.is_empty()
+            && !self
+                .edges
+                .iter()
+                .any(|e| e.direction.as_deref() == Some("in"))
     }
 }
 
@@ -60,13 +82,9 @@ struct ClassFields {
     #[serde(default)]
     description: Option<String>,
     #[serde(default)]
-    edges: Vec<ClassEdge>,
-}
-
-#[derive(Default, serde::Deserialize)]
-struct ClassEdge {
+    properties: Vec<ClassProperty>,
     #[serde(default)]
-    direction: Option<String>,
+    edges: Vec<ClassEdge>,
 }
 
 pub fn load_classes(root: &Path, paths: &[PathBuf], overlay: &super::Overlay) -> Vec<Class> {
@@ -82,11 +100,8 @@ pub fn load_classes(root: &Path, paths: &[PathBuf], overlay: &super::Overlay) ->
                     .file_name()
                     .map(|f| f.to_string_lossy().replace(".ont.yml", ""))
                     .unwrap_or_default(),
-                declares_edges: !fields.edges.is_empty(),
-                declares_inbound: fields
-                    .edges
-                    .iter()
-                    .any(|e| e.direction.as_deref() == Some("in")),
+                properties: fields.properties,
+                edges: fields.edges,
             }
         })
         .collect()
@@ -485,6 +500,382 @@ pub fn normalize(p: &Path) -> PathBuf {
         }
     }
     out
+}
+
+// ── the class contract ────────────────────────────────────────────────────────
+//
+// `.ont.yml` states, per class, which properties an instance carries and which
+// relationships it may enter into. Until these checks existed nothing read any of it: an
+// instance could carry a property the class never declared, omit one it does, record a
+// `claim` field as prose, or point a declared relationship at a node of the wrong class,
+// and every gate reported the corpus clean. `graph-check` and `dangling-edge` check that a
+// link *resolves*; nothing checked that it was *licensed*.
+//
+// **Silence is not a contract.** Each half of the declaration is read independently: a
+// class with no `properties:` has said nothing about properties, and a class with no
+// `edges:` has said nothing about edges. Reading either silence as "and therefore none are
+// permitted" would flood every corpus whose ontology is not filled in — which is exactly
+// the corpus with least reason to trust the graph, and the same trap `is_source_class`
+// documents one field over.
+//
+// **Only edges between instances are licensed edges.** A link to `../<class>.ont.yml` or to
+// a catalog entry is a citation, not a relationship — the bootstrap skill says so in as
+// many words, and an instance is required to carry the `instance-of` link that none of
+// these classes declares. So the licensing checks read only links resolving to another
+// corpus instance, which also means a broken edge is `dangling-edge`'s finding and not
+// reported twice here.
+
+/// The class that governs an instance, keyed by the directory name that actually governs.
+fn classes_by_name(classes: &[Class]) -> HashMap<&str, &Class> {
+    classes.iter().map(|c| (c.name.as_str(), c)).collect()
+}
+
+/// Every instance in the corpus, by its normalized path — what a link target resolves to.
+fn nodes_by_path(nodes: &[Node]) -> HashMap<PathBuf, &Node> {
+    nodes.iter().map(|n| (normalize(&n.path), n)).collect()
+}
+
+/// `(link, target node)` for each of `n`'s links that lands on another instance.
+///
+/// Everything else — the `instance-of` link to the class file, a citation into the catalog,
+/// an edge to a file that is not there — is not an ontology edge and is not licensed here.
+fn instance_links<'a>(
+    n: &'a Node,
+    by_path: &HashMap<PathBuf, &'a Node>,
+) -> Vec<(&'a crate::parse::CorpusLink, &'a Node)> {
+    let dir = n.path.parent().unwrap_or(&n.path);
+    n.inst
+        .links
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .filter_map(|l| {
+            let target = l.target.as_deref()?;
+            let to = by_path.get(&normalize(&dir.join(target)))?;
+            Some((l, *to))
+        })
+        .collect()
+}
+
+/// The properties an instance actually wrote, in file order.
+fn instance_properties(n: &Node) -> Vec<(String, &serde_yaml::Value)> {
+    n.inst
+        .properties
+        .iter()
+        .flatten()
+        .filter_map(|(k, v)| Some((k.as_str()?.to_string(), v)))
+        .collect()
+}
+
+/// Instance properties the class never declared.
+///
+/// The commonest cause is a field renamed on one instance and not on the class — which
+/// reads as data to a human and is invisible to every consumer that walks the ontology,
+/// because the ontology does not mention it. The value is not lost; it is simply not part
+/// of the class, and so no schema, export, or query will ever see it.
+pub fn undeclared_property(nodes: &[Node], classes: &[Class]) -> Check {
+    let by_name = classes_by_name(classes);
+    let mut violations = Vec::new();
+    for n in nodes {
+        let Some(class) = by_name.get(class_of(n).as_str()) else {
+            continue;
+        };
+        if class.properties.is_empty() {
+            continue;
+        }
+        for (key, _) in instance_properties(n) {
+            if class.properties.iter().any(|p| p.name == key) {
+                continue;
+            }
+            violations.push(Violation::new(
+                &n.rel,
+                format!(
+                    "`{key}` is not declared by `{}` — declare it on the class or remove it",
+                    class.rel
+                ),
+            ));
+        }
+    }
+    Check::new(
+        "undeclared-property",
+        "Instance property the class never declared",
+        Severity::Error,
+        "A property absent from the class is invisible to everything that reads the corpus \
+         through the ontology — schemas, exports, queries. It reads as data to a human and \
+         as nothing to a machine, which is the failure mode worth gating on. A class that \
+         declares no `properties:` has said nothing and is not checked.",
+        violations,
+    )
+}
+
+/// Declared properties an instance does not carry.
+///
+/// **Warn, where its four siblings are errors, and the difference is not a hedge.** Each of
+/// the others reports a statement the ontology actually made being contradicted: a property
+/// it never declared, a value contradicting a declared type, a relationship it does not
+/// license, a target of the wrong class. An omission contradicts nothing. The property
+/// declaration has no `required` field, so it cannot distinguish *every instance has this*
+/// from *an instance may have this*, and gating on the first reading asserts a contract the
+/// ontology never wrote.
+///
+/// The case that settled it is in the parity fixture and is not a corner: `claim_tag` is
+/// declared on `concept`, and two of that fixture's three concepts deliberately do not
+/// carry one — a node that makes no tagged claim is a real state, and it is the state the
+/// fixture exists to exercise. A gate on omission would have failed the corpus for being
+/// what it was written to be.
+///
+/// So this reports, and reports usefully: the commonest cause is a class that grew a field
+/// its instances never did, which is invisible to every reader and obvious in a list. When
+/// the ontology gains a way to say *required* — the schema compiler is the natural home —
+/// this check can gate on the properties that say it.
+pub fn missing_property(nodes: &[Node], classes: &[Class]) -> Check {
+    let by_name = classes_by_name(classes);
+    let mut violations = Vec::new();
+    for n in nodes {
+        let Some(class) = by_name.get(class_of(n).as_str()) else {
+            continue;
+        };
+        if class.properties.is_empty() {
+            continue;
+        }
+        let carried = instance_properties(n);
+        for declared in &class.properties {
+            if carried.iter().any(|(k, _)| *k == declared.name) {
+                continue;
+            }
+            violations.push(Violation::new(
+                &n.rel,
+                format!(
+                    "`{}` is declared by `{}` and this instance does not carry it",
+                    declared.name, class.rel
+                ),
+            ));
+        }
+    }
+    Check::new(
+        "missing-property",
+        "Declared property the instance omits",
+        Severity::Warn,
+        "The commonest cause is a class that grew a field its instances never did — \
+         invisible to every reader and obvious in a list. Reported rather than gated \
+         because the ontology has no `required` field: it cannot say whether every \
+         instance carries a property or merely may, and a node that makes no tagged claim \
+         is a real state, not a defect. Its four siblings gate; they report the ontology \
+         being contradicted, and an omission contradicts nothing.",
+        violations,
+    )
+}
+
+/// The declared types this check knows how to test.
+///
+/// Anything else is left alone rather than reported: a corpus is free to coin a type, and a
+/// check that failed on every type it had not heard of would make coining one impossible.
+fn property_type_violation(declared: &str, value: &serde_yaml::Value) -> Option<String> {
+    let scalar = |v: &serde_yaml::Value| match v {
+        serde_yaml::Value::String(s) => Ok(s.clone()),
+        serde_yaml::Value::Null => Err("is empty".to_string()),
+        serde_yaml::Value::Sequence(_) => Err("is a list".to_string()),
+        serde_yaml::Value::Mapping(_) => Err("is a mapping".to_string()),
+        // The classic YAML surprise: `parameter: 00060` is the number 60, and the code the
+        // corpus meant is gone by the time anything reads it.
+        other => Err(format!(
+            "is {}, not text — quote it",
+            match other {
+                serde_yaml::Value::Bool(_) => "a boolean",
+                serde_yaml::Value::Number(_) => "a number",
+                _ => "not text",
+            }
+        )),
+    };
+    let not_a_tag = |s: &str| {
+        format!(
+            "`{}` is not an evidence tag — write `verified`, `inference`, or `open`",
+            s.trim()
+        )
+    };
+    match declared {
+        // A sequence is legal here and nowhere else: `count_structural` reads a list of
+        // tags as one claim each, and a corpus writing `claim_tag: [open]` unquoted has
+        // written a one-element list without meaning to. Rejecting it would put this check
+        // in disagreement with the counter about the same bytes.
+        crate::claims::CLAIM_PROPERTY_TYPE => match value {
+            serde_yaml::Value::Sequence(items) => items.iter().find_map(|i| match i.as_str() {
+                Some(s) if crate::claims::tag_of(s).is_some() => None,
+                Some(s) => Some(not_a_tag(s)),
+                None => Some("holds a value that is not text".to_string()),
+            }),
+            other => match scalar(other) {
+                Err(why) => Some(why),
+                Ok(s) if crate::claims::tag_of(&s).is_some() => None,
+                Ok(s) => Some(not_a_tag(&s)),
+            },
+        },
+        "date" => match scalar(value) {
+            Err(why) => Some(why),
+            Ok(s) if is_iso_day(s.trim()) => None,
+            Ok(s) => Some(format!("`{}` is not a date — write `YYYY-MM-DD`", s.trim())),
+        },
+        "string" | "text" | "ref" => match scalar(value) {
+            Err(why) => Some(why),
+            Ok(s) if s.trim().is_empty() => Some("is empty".to_string()),
+            Ok(_) => None,
+        },
+        _ => None,
+    }
+}
+
+/// `YYYY-MM-DD`, structurally. Not a calendar — `2024-02-31` passes and is somebody else's
+/// finding; what this catches is a date field carrying prose.
+fn is_iso_day(s: &str) -> bool {
+    let mut parts = s.split('-');
+    let widths = [4, 2, 2];
+    widths.iter().all(|w| {
+        parts
+            .next()
+            .is_some_and(|p| p.len() == *w && p.chars().all(|c| c.is_ascii_digit()))
+    }) && parts.next().is_none()
+}
+
+/// Property values that do not satisfy the type the class declares.
+///
+/// `claim` is the type that pays for this check on its own. `claims.rs` matches the three
+/// evidence tokens exactly, so a field declared `type: claim` and filled with prose is
+/// counted as **no claim at all** — a node that reads as evidenced to a human and as bare
+/// assertion to every counter. That is the same silent-undercount failure
+/// `claim-tag-malformed` reports in prose, one field over, and the matcher is reused rather
+/// than re-derived so the two cannot disagree about what a tag is.
+pub fn property_type(nodes: &[Node], classes: &[Class]) -> Check {
+    let by_name = classes_by_name(classes);
+    let mut violations = Vec::new();
+    for n in nodes {
+        let Some(class) = by_name.get(class_of(n).as_str()) else {
+            continue;
+        };
+        for (key, value) in instance_properties(n) {
+            let Some(declared) = class.properties.iter().find(|p| p.name == key) else {
+                continue;
+            };
+            if let Some(why) = property_type_violation(&declared.r#type, value) {
+                violations.push(Violation::new(
+                    &n.rel,
+                    format!("`{key}` is declared `{}` and {why}", declared.r#type),
+                ));
+            }
+        }
+    }
+    Check::new(
+        "property-type",
+        "Property value that contradicts its declared type",
+        Severity::Error,
+        "A typed field the ontology declares is read by type, not by eye. A `claim` field \
+         holding prose is counted as no claim at all; a `string` holding an unquoted number \
+         has lost its leading zeros before anything reads it. Types the corpus coins for \
+         itself are left alone — this reports only the ones it can test.",
+        violations,
+    )
+}
+
+/// Edges between instances that the authoring class does not license.
+///
+/// Every relationship in a corpus is declared from one end or the other, and the class the
+/// instance belongs to is where it must appear. A relationship that appears in no
+/// declaration is either a typo or an edge the ontology has never heard of — and in both
+/// cases traversal by relationship silently misses it.
+pub fn unlicensed_edge(nodes: &[Node], classes: &[Class]) -> Check {
+    let by_name = classes_by_name(classes);
+    let by_path = nodes_by_path(nodes);
+    let mut violations = Vec::new();
+    for n in nodes {
+        let Some(class) = by_name.get(class_of(n).as_str()) else {
+            continue;
+        };
+        if class.edges.is_empty() {
+            continue;
+        }
+        for (link, _) in instance_links(n, &by_path) {
+            let rel = link.relationship.as_deref().unwrap_or_default();
+            if class.edges.iter().any(|e| e.relationship == rel) {
+                continue;
+            }
+            violations.push(Violation::new(
+                &n.rel,
+                format!(
+                    "`{}` is not a relationship `{}` declares",
+                    if rel.is_empty() { "(none)" } else { rel },
+                    class.rel
+                ),
+            ));
+        }
+    }
+    Check::new(
+        "unlicensed-edge",
+        "Relationship the class does not declare",
+        Severity::Error,
+        "An edge is licensed by the class that authors it. A relationship appearing in no \
+         declaration is a typo or an edge the ontology has never heard of, and either way \
+         a traversal that walks by relationship will not find it. Only links landing on \
+         another instance are read — a link to the class file or into the catalog is a \
+         citation, not a relationship. A class that declares no `edges:` has said nothing \
+         and is not checked.",
+        violations,
+    )
+}
+
+/// Licensed edges that land on a node of the wrong class.
+///
+/// This is the finding no existing check could produce. `dangling-edge` catches an edge to
+/// nothing; nothing caught an edge to the wrong thing, and an edge to the wrong thing
+/// resolves, traverses, and exports — it is simply false.
+pub fn edge_target_class(nodes: &[Node], classes: &[Class]) -> Check {
+    let by_name = classes_by_name(classes);
+    let by_path = nodes_by_path(nodes);
+    let mut violations = Vec::new();
+    for n in nodes {
+        let Some(class) = by_name.get(class_of(n).as_str()) else {
+            continue;
+        };
+        for (link, to) in instance_links(n, &by_path) {
+            let rel = link.relationship.as_deref().unwrap_or_default();
+            // Several declarations may share a relationship name; any one of them licenses
+            // the target. A declaration with no `target` has named no class and licenses
+            // every one of them.
+            let declared: Vec<&str> = class
+                .edges
+                .iter()
+                .filter(|e| e.relationship == rel)
+                .map(|e| e.target.as_str())
+                .collect();
+            if declared.is_empty() || declared.iter().any(|t| t.is_empty()) {
+                continue;
+            }
+            let actual = class_of(to);
+            if declared.contains(&actual.as_str()) {
+                continue;
+            }
+            violations.push(Violation::new(
+                &n.rel,
+                format!(
+                    "`{rel}` is declared to target {} and this edge lands on `{}`, a {actual}",
+                    declared
+                        .iter()
+                        .map(|t| format!("`{t}`"))
+                        .collect::<Vec<_>>()
+                        .join(" or "),
+                    link.target.as_deref().unwrap_or_default()
+                ),
+            ));
+        }
+    }
+    Check::new(
+        "edge-target-class",
+        "Edge that resolves to a node of the wrong class",
+        Severity::Error,
+        "`dangling-edge` catches an edge to nothing. This catches an edge to the wrong \
+         thing — which resolves, traverses, and exports, and is simply false. The class \
+         names the target class for each relationship it declares; a declaration that \
+         names none licenses any target.",
+        violations,
+    )
 }
 
 /// Separators that turn a tag into a tag-plus-something.
@@ -887,6 +1278,14 @@ mod tests {
         }
     }
 
+    fn edge(relationship: &str, target: &str, direction: &str) -> ClassEdge {
+        ClassEdge {
+            relationship: relationship.into(),
+            target: target.into(),
+            direction: Some(direction.into()),
+        }
+    }
+
     fn source(slug: &str, obtained: bool, used_by: &[&str]) -> Source {
         Source {
             rel: format!(".yidam/catalog/{slug}.md"),
@@ -957,8 +1356,8 @@ mod tests {
             rel: format!(".yidam/corpus/{name}.ont.yml"),
             description: String::new(),
             name: name.into(),
-            declares_edges: true,
-            declares_inbound: dir == "in",
+            properties: vec![],
+            edges: vec![edge("cited-by", "recording", dir)],
         };
         let node = |class: &str, file: &str| Node {
             path: PathBuf::from(format!("corpus/{class}/{file}.yml")),
@@ -991,8 +1390,8 @@ mod tests {
             rel: ".yidam/corpus/concept.ont.yml".into(),
             description: String::new(),
             name: "concept".into(),
-            declares_edges: false,
-            declares_inbound: false,
+            properties: vec![],
+            edges: vec![],
         };
         assert!(!silent.is_source_class());
 
@@ -1296,10 +1695,10 @@ mod tests {
                 .next()
                 .unwrap_or(rel)
                 .replace(".ont.yml", ""),
+            properties: vec![],
             // Declares an inbound edge, so instances are expected to be pointed at. The
             // source-class arm is exercised by `orphan_in`'s own tests.
-            declares_edges: true,
-            declares_inbound: true,
+            edges: vec![edge("cited-by", "concept", "in")],
         }
     }
 
@@ -1452,6 +1851,285 @@ mod tests {
         // A heuristic over wording. Gating on it would make every false positive a
         // blocked commit, and the check would be switched off within a week.
         assert_eq!(class_asserts_purpose(&[]).severity, Severity::Warn);
+    }
+
+    // ── the class contract ────────────────────────────────────────────────────
+
+    /// A class as the ontology writes it, parsed by the same deserializer `load_classes`
+    /// uses — so a test cannot pass against a shape the YAML could never produce.
+    fn class_from(name: &str, yaml: &str) -> Class {
+        let fields: ClassFields = serde_yaml::from_str(yaml).unwrap();
+        Class {
+            rel: format!(".yidam/corpus/{name}.ont.yml"),
+            description: fields.description.unwrap_or_default(),
+            name: name.into(),
+            properties: fields.properties,
+            edges: fields.edges,
+        }
+    }
+
+    const GAGE: &str = "\
+properties:
+  - name: parameter
+    type: string
+  - name: claim_tag
+    type: claim
+edges:
+  - relationship: sources-from
+    target: concept
+    direction: out
+";
+
+    fn gage_corpus(gage_yaml: &str) -> (Vec<Node>, Vec<Class>) {
+        let nodes = vec![
+            node(".yidam/corpus/gage/outlet.yml", gage_yaml),
+            node(
+                ".yidam/corpus/concept/hydropeaking.yml",
+                "class: concept\nlinks: []\n",
+            ),
+        ];
+        let classes = vec![
+            class_from("gage", GAGE),
+            class_from("concept", "properties: []\nedges: []\n"),
+        ];
+        (nodes, classes)
+    }
+
+    /// The instance carries a field the class never named. It reads as data and is
+    /// invisible to everything that reaches the corpus through the ontology.
+    #[test]
+    fn a_property_the_class_never_declared_is_reported() {
+        let (nodes, classes) = gage_corpus(
+            "class: gage\nproperties:\n  parameter: \"00060\"\n  claim_tag: verified\n  vendor: acme\nlinks: []\n",
+        );
+        let c = undeclared_property(&nodes, &classes);
+        assert_eq!(c.violations.len(), 1);
+        assert!(c.violations[0].detail.contains("`vendor`"), "{c:#?}");
+        // …and the declared ones are not reported as missing.
+        assert!(missing_property(&nodes, &classes).passed());
+    }
+
+    #[test]
+    fn a_declared_property_the_instance_omits_is_reported() {
+        let (nodes, classes) =
+            gage_corpus("class: gage\nproperties:\n  parameter: \"00060\"\nlinks: []\n");
+        let c = missing_property(&nodes, &classes);
+        assert_eq!(c.violations.len(), 1);
+        assert!(c.violations[0].detail.contains("`claim_tag`"), "{c:#?}");
+    }
+
+    /// An instance with no `properties:` at all is missing every one of them — the case a
+    /// corpus lands in when the class grew a field and the instances did not.
+    #[test]
+    fn an_instance_with_no_properties_block_is_missing_all_of_them() {
+        let (nodes, classes) = gage_corpus("class: gage\nlinks: []\n");
+        assert_eq!(missing_property(&nodes, &classes).violations.len(), 2);
+    }
+
+    /// The severity split is load-bearing and easy to lose in a refactor: four checks
+    /// report the ontology being contradicted and gate; the fifth reports an omission,
+    /// which contradicts nothing the declaration actually says.
+    #[test]
+    fn only_the_omission_check_declines_to_gate() {
+        let (nodes, classes) = gage_corpus("class: gage\nlinks: []\n");
+        assert_eq!(
+            missing_property(&nodes, &classes).severity,
+            Severity::Warn,
+            "the property declaration has no `required` field to gate on"
+        );
+        for c in [
+            undeclared_property(&nodes, &classes),
+            property_type(&nodes, &classes),
+            unlicensed_edge(&nodes, &classes),
+            edge_target_class(&nodes, &classes),
+        ] {
+            assert_eq!(c.severity, Severity::Error, "{} must gate", c.id);
+        }
+    }
+
+    /// **Silence is not a contract.** A class declaring neither properties nor edges has
+    /// said nothing, and reading that as "and therefore none are permitted" would flood
+    /// every corpus whose ontology is not filled in.
+    #[test]
+    fn a_class_that_declares_nothing_checks_nothing() {
+        let nodes = vec![node(
+            ".yidam/corpus/reach/alpha.yml",
+            "class: reach\nproperties:\n  anything: at all\nlinks:\n  - target: ../reach/beta.yml\n    relationship: whatever\n",
+        ), node(".yidam/corpus/reach/beta.yml", "class: reach\nlinks: []\n")];
+        let silent = vec![class_from("reach", "{}")];
+        assert!(undeclared_property(&nodes, &silent).passed());
+        assert!(missing_property(&nodes, &silent).passed());
+        assert!(property_type(&nodes, &silent).passed());
+        assert!(unlicensed_edge(&nodes, &silent).passed());
+        assert!(edge_target_class(&nodes, &silent).passed());
+    }
+
+    /// Each half is read on its own: a class that declares properties and no edges has
+    /// said nothing about edges, and must not have its links licensed against an empty
+    /// list. This is the same trap `is_source_class` documents, one field over.
+    #[test]
+    fn declaring_properties_says_nothing_about_edges() {
+        let nodes = vec![
+            node(
+                ".yidam/corpus/reach/alpha.yml",
+                "class: reach\nproperties:\n  datum: NAVD88\nlinks:\n  - target: ../reach/beta.yml\n    relationship: whatever\n",
+            ),
+            node(".yidam/corpus/reach/beta.yml", "class: reach\nlinks: []\n"),
+        ];
+        let classes = vec![class_from(
+            "reach",
+            "properties:\n  - name: datum\n    type: string\n",
+        )];
+        assert!(unlicensed_edge(&nodes, &classes).passed());
+        assert!(edge_target_class(&nodes, &classes).passed());
+        assert!(undeclared_property(&nodes, &classes).passed());
+    }
+
+    /// The type that pays for the check on its own: `claims.rs` matches the three tokens
+    /// exactly, so prose in a `claim` field is counted as no claim at all.
+    #[test]
+    fn a_claim_field_holding_prose_is_reported() {
+        let (nodes, classes) = gage_corpus(
+            "class: gage\nproperties:\n  parameter: \"00060\"\n  claim_tag: mostly sure\nlinks: []\n",
+        );
+        let c = property_type(&nodes, &classes);
+        assert_eq!(c.violations.len(), 1);
+        assert!(
+            c.violations[0].detail.contains("not an evidence tag"),
+            "{c:#?}"
+        );
+    }
+
+    /// Both spellings the counter accepts pass here, including the flow sequence an
+    /// unquoted `claim_tag: [open]` actually parses to. A check that disagreed with
+    /// `count_structural` about the same bytes would be worse than no check.
+    #[test]
+    fn every_spelling_the_counter_accepts_is_accepted_here() {
+        for value in ["verified", "\"[open]\"", "[open]", "[verified, inference]"] {
+            let (nodes, classes) = gage_corpus(&format!(
+                "class: gage\nproperties:\n  parameter: \"00060\"\n  claim_tag: {value}\nlinks: []\n"
+            ));
+            assert!(
+                property_type(&nodes, &classes).passed(),
+                "claim_tag: {value} should be accepted"
+            );
+        }
+    }
+
+    /// The classic YAML surprise, one level down: a `string` field holding an unquoted
+    /// number is a number by the time anything reads it.
+    #[test]
+    fn a_string_field_holding_a_bare_number_is_reported() {
+        let (nodes, classes) = gage_corpus(
+            "class: gage\nproperties:\n  parameter: 60\n  claim_tag: open\nlinks: []\n",
+        );
+        let c = property_type(&nodes, &classes);
+        assert_eq!(c.violations.len(), 1);
+        assert!(c.violations[0].detail.contains("quote it"), "{c:#?}");
+    }
+
+    /// A type the corpus coined for itself is left alone. A check that failed on every
+    /// type it had not heard of would make coining one impossible.
+    #[test]
+    fn a_type_this_check_does_not_know_is_left_alone() {
+        let nodes = vec![node(
+            ".yidam/corpus/reach/alpha.yml",
+            "class: reach\nproperties:\n  extent:\n    from: 0\n    to: 9\nlinks: []\n",
+        )];
+        let classes = vec![class_from(
+            "reach",
+            "properties:\n  - name: extent\n    type: river-mile-range\n",
+        )];
+        assert!(property_type(&nodes, &classes).passed());
+    }
+
+    #[test]
+    fn a_date_field_holding_prose_is_reported() {
+        let nodes = vec![node(
+            ".yidam/corpus/reach/alpha.yml",
+            "class: reach\nproperties:\n  surveyed: last spring\nlinks: []\n",
+        )];
+        let classes = vec![class_from(
+            "reach",
+            "properties:\n  - name: surveyed\n    type: date\n",
+        )];
+        assert_eq!(property_type(&nodes, &classes).violations.len(), 1);
+
+        let ok = vec![node(
+            ".yidam/corpus/reach/alpha.yml",
+            "class: reach\nproperties:\n  surveyed: 2024-04-01\nlinks: []\n",
+        )];
+        assert!(property_type(&ok, &classes).passed());
+    }
+
+    #[test]
+    fn a_relationship_the_class_does_not_declare_is_reported() {
+        let (nodes, classes) = gage_corpus(
+            "class: gage\nproperties:\n  parameter: \"00060\"\n  claim_tag: open\nlinks:\n  - target: ../concept/hydropeaking.yml\n    relationship: sourcs-from\n",
+        );
+        let c = unlicensed_edge(&nodes, &classes);
+        assert_eq!(c.violations.len(), 1);
+        assert!(c.violations[0].detail.contains("`sourcs-from`"), "{c:#?}");
+    }
+
+    /// A link to the class file or into the catalog is a citation, not a relationship —
+    /// the bootstrap skill says so, and requires the `instance-of` link that no class
+    /// declares. Licensing those would report every instance in every corpus.
+    #[test]
+    fn structural_links_are_not_licensed_edges() {
+        let (nodes, classes) = gage_corpus(
+            "class: gage\nproperties:\n  parameter: \"00060\"\n  claim_tag: open\nlinks:\n  - target: ../gage.ont.yml\n    relationship: instance-of\n  - target: ../../catalog/usgs.md\n    relationship: sourced-from\n",
+        );
+        assert!(unlicensed_edge(&nodes, &classes).passed());
+        assert!(edge_target_class(&nodes, &classes).passed());
+    }
+
+    /// A broken edge is `dangling-edge`'s finding, reported once. It resolves to no node,
+    /// so it is not licensed here and is not reported twice.
+    #[test]
+    fn a_broken_edge_is_not_also_reported_as_unlicensed() {
+        let (nodes, classes) = gage_corpus(
+            "class: gage\nproperties:\n  parameter: \"00060\"\n  claim_tag: open\nlinks:\n  - target: ../concept/gone.yml\n    relationship: sourcs-from\n",
+        );
+        assert!(unlicensed_edge(&nodes, &classes).passed());
+        assert_eq!(dangling_edge(&nodes).violations.len(), 1);
+    }
+
+    /// The finding no existing check could produce. `dangling-edge` catches an edge to
+    /// nothing; an edge to the wrong thing resolves, traverses, and exports, and is false.
+    #[test]
+    fn an_edge_to_a_node_of_the_wrong_class_is_reported() {
+        let mut nodes = vec![
+            node(
+                ".yidam/corpus/gage/outlet.yml",
+                "class: gage\nproperties:\n  parameter: \"00060\"\n  claim_tag: open\nlinks:\n  - target: ../gage/bridge.yml\n    relationship: sources-from\n",
+            ),
+            node(".yidam/corpus/gage/bridge.yml", "class: gage\nlinks: []\n"),
+        ];
+        nodes.sort_by(|a, b| a.rel.cmp(&b.rel));
+        let classes = vec![class_from("gage", GAGE)];
+        let c = edge_target_class(&nodes, &classes);
+        assert_eq!(c.violations.len(), 1, "{c:#?}");
+        assert!(c.violations[0].detail.contains("a gage"), "{c:#?}");
+        // …and the relationship itself is declared, so it is not also unlicensed.
+        assert!(unlicensed_edge(&nodes, &classes).passed());
+    }
+
+    /// A declaration with no `target` has named no class, so it licenses any of them.
+    #[test]
+    fn a_declaration_naming_no_target_licenses_anything() {
+        let nodes = vec![
+            node(
+                ".yidam/corpus/reach/alpha.yml",
+                "class: reach\nlinks:\n  - target: ../gage/x.yml\n    relationship: relates-to\n",
+            ),
+            node(".yidam/corpus/gage/x.yml", "class: gage\nlinks: []\n"),
+        ];
+        let classes = vec![class_from(
+            "reach",
+            "edges:\n  - relationship: relates-to\n    direction: out\n",
+        )];
+        assert!(edge_target_class(&nodes, &classes).passed());
     }
 }
 

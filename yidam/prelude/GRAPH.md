@@ -48,6 +48,43 @@ follow edges to traverse related knowledge.
 Edges are **directional** — the file containing the reference is the source node, the
 referenced file is the target. Bidirectional relationships require a reference in both files.
 
+## The class contract
+
+`<class>.ont.yml` is not documentation. It declares, per class, which properties an instance
+carries and which relationships it may enter into, and `yidam lint` checks every instance
+against it:
+
+| Check | Finding | Gates |
+|---|---|---|
+| `undeclared-property` | a property the class never declared | yes |
+| `property-type` | a value contradicting the declared `type` | yes |
+| `unlicensed-edge` | a relationship the class does not declare | yes |
+| `edge-target-class` | an edge resolving to a node of the wrong class | yes |
+| `missing-property` | a declared property the instance omits | no — reported |
+
+The fourth is the one no other check could produce. `dangling-edge` catches an edge to
+nothing; an edge to the *wrong* thing resolves, traverses, and exports, and is simply false.
+
+Two rules keep this honest, and both are about not over-reading the ontology.
+
+**Silence is not a contract**, read one field at a time. A class with no `properties:` has
+said nothing about properties and none are checked; a class with no `edges:` has said
+nothing about edges and none are licensed. Reading either silence as *and therefore none
+are permitted* would flood every corpus whose ontology is not filled in — which is the
+corpus with the least reason to trust its graph. The same rule decides which classes are
+source classes for `orphan-in`.
+
+**Only edges between instances are licensed edges.** The `instance-of` link to
+`../<class>.ont.yml` and a citation into `catalog/` are not relationships and no class
+declares them, so the licensing checks read only links landing on another corpus instance.
+A link that resolves to nothing is `dangling-edge`'s finding and is not reported twice.
+
+`missing-property` reports and does not gate. The property declaration has no `required`
+field, so it cannot distinguish *every instance has this* from *an instance may have this* —
+and a node carrying no `claim_tag` is a real state, not a defect. Its four siblings gate
+because each reports something the ontology actually said being contradicted; an omission
+contradicts nothing.
+
 ## Commits as events
 
 Not all commits carry the same kind of meaning. Two types coexist in every yidam-derived
