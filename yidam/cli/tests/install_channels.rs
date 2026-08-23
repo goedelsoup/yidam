@@ -181,3 +181,71 @@ fn the_linux_release_builds_do_not_float_to_the_newest_glibc() {
         "release.yml builds no *-linux-gnu target; this test is guarding nothing"
     );
 }
+
+/// The cross-compile CI runs must be the one the release runs.
+///
+/// `release.yml` builds `aarch64-unknown-linux-gnu` and fires on `cli/v*` and
+/// workflow_dispatch only, so no pull request had ever compiled that target — and `tonpa`
+/// joining the default set put a TLS stack, and `ring`'s vendored C, into the light build
+/// after the only release that exists. `ci.yml`'s cross job exists to compile it on every
+/// PR instead of on the tag.
+///
+/// It is worth exactly as much as its resemblance to the real thing. A cross job that stops
+/// passing `--locked`, or names a different linker, is a green check for a build nobody
+/// ships — which is the same shape as a documented install path nobody runs.
+#[test]
+fn the_cross_compile_check_mirrors_the_release_build() {
+    let ci = read(".github/workflows/ci.yml");
+    let release = read(".github/workflows/release.yml");
+
+    let cross = ci
+        .split("  cross:")
+        .nth(1)
+        .expect(
+            "ci.yml must have a cross-compile job; release.yml's aarch64 target is the \
+                 one nothing else builds",
+        )
+        .split("\n  cli-full:")
+        .next()
+        .unwrap();
+
+    for setting in [
+        "aarch64-unknown-linux-gnu",
+        "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER",
+        "CC_aarch64_unknown_linux_gnu",
+        "aarch64-linux-gnu-gcc",
+        "gcc-aarch64-linux-gnu",
+        "--locked",
+    ] {
+        assert!(
+            cross.contains(setting),
+            "ci.yml's cross job does not set `{setting}`, which release.yml's build for this \
+             target does — the rehearsal has to be the performance"
+        );
+        assert!(
+            release.contains(setting),
+            "release.yml no longer sets `{setting}`; ci.yml's cross job is now rehearsing a \
+             build that does not happen"
+        );
+    }
+
+    // No `--features`: the default IS the light set, and spelling it in either place makes
+    // a second definition for the two to drift apart on. Read from the commands rather than
+    // the whole block, since the comments above them discuss the flag by name.
+    let commanded: String = cross
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !commanded.contains("--features"),
+        "ci.yml's cross job names features explicitly; the release build does not, so the \
+         two would be compiling different things"
+    );
+    assert!(
+        cross.contains("ARM aarch64"),
+        "ci.yml's cross job must assert the artifact IS aarch64 — `it compiled` and `it \
+         compiled for aarch64` are different claims, and cc-rs falling back to the host \
+         compiler is what makes them differ"
+    );
+}
