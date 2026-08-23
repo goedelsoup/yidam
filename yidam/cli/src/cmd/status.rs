@@ -239,7 +239,7 @@ fn count_stale_corpus_files(corpus: &Path, generated_at: u64) -> usize {
 }
 
 // Civil (Gregorian) date string from a Unix timestamp — Hinnant's algorithm.
-fn unix_to_date_str(ts: u64) -> String {
+pub(crate) fn unix_to_date_str(ts: u64) -> String {
     let z = ts as i64 / 86400 + 719468;
     let era = if z >= 0 { z } else { z - 146096 } / 146097;
     let doe = (z - era * 146097) as u64;

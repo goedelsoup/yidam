@@ -130,6 +130,19 @@ enum Command {
     /// Writes the `<!-- REGEN: yidam bundle-status -->` block in the repository's README.
     #[command(name = "bundle-status")]
     BundleStatus,
+    /// Is this setup sound? One screen of checks, each with a verdict and a remedy.
+    ///
+    /// Read-only and offline. Exits nonzero when something is wrong now; warnings — no
+    /// index, an old pin — are reported and do not affect the exit code unless `--strict`.
+    Doctor {
+        /// Treat warnings as failures. For a CI job that wants the strictest reading.
+        #[arg(long)]
+        strict: bool,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Refresh every REGEN block in one pass.
     Regen {
         /// Report which blocks are stale and write nothing. Exits nonzero when any is.
@@ -411,6 +424,7 @@ fn main() -> Result<()> {
         Command::CratesIndex => yidam::crates_index(),
         Command::PackagesIndex => yidam::packages_index(),
         Command::BundleStatus => yidam::bundle_status(),
+        Command::Doctor { strict, format } => yidam::doctor(strict, format),
         Command::Regen { check, format } => yidam::regen(check, format),
         Command::Rename {
             old,

@@ -73,29 +73,45 @@ pub(crate) fn render_regen_check(r: &RegenReport) -> String {
     out
 }
 
+/// Which REGEN blocks are not what their generators produce. **Writes nothing.**
+///
+/// Extracted so `yidam doctor` can ask the same question through the same [`GENERATORS`]
+/// list. A second list there would be the third list this command exists to have
+/// prevented — see the note above.
+///
+/// [`crate::regen::begin_check`] is process-global, so this is not reentrant. Nothing calls
+/// it concurrently: both callers are a single command's single pass.
+pub(crate) fn stale_blocks() -> Result<Vec<crate::regen::Stale>> {
+    crate::regen::begin_check();
+    for (name, run) in GENERATORS {
+        let outcome = run().with_context(|| format!("running {name}"));
+        if outcome.is_err() {
+            // Leave check mode before propagating, or the next caller inherits a
+            // half-finished check and a write path that silently records instead of writes.
+            crate::regen::end_check();
+        }
+        outcome?;
+    }
+    Ok(crate::regen::end_check())
+}
+
 /// Refresh every REGEN block, or — with `check` — report which ones would change.
 ///
 /// `--check` runs the same [`GENERATORS`] list, which is the whole point: a check that
 /// walked its own list would be the third list this command exists to have prevented.
 pub fn regen(check: bool, format: crate::report::Format) -> Result<()> {
     if check {
-        crate::regen::begin_check();
+        let stale = stale_blocks()?;
+        return report_check(stale, format);
     }
     for (name, run) in GENERATORS {
-        if !check {
-            println!("── {name}");
-        }
-        let outcome = run().with_context(|| format!("running {name}"));
-        if outcome.is_err() && check {
-            crate::regen::end_check();
-        }
-        outcome?;
+        println!("── {name}");
+        run().with_context(|| format!("running {name}"))?;
     }
-    if !check {
-        return Ok(());
-    }
+    Ok(())
+}
 
-    let stale = crate::regen::end_check();
+fn report_check(stale: Vec<crate::regen::Stale>, format: crate::report::Format) -> Result<()> {
     let report = RegenReport {
         passed: stale.is_empty(),
         stale,
