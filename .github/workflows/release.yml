@@ -1,0 +1,174 @@
+# Release — prebuilt `yidam` binaries for the light `reports` build.
+#
+# VERSIONING.md has said "CI publishes to registries on matching tag patterns"
+# since it was written, and nothing did. Every adopter, every derived repository,
+# and every CI run of every derived repository compiled the CLI from source —
+# which made a Rust toolchain a prerequisite for reading a Markdown corpus.
+#
+# The light `reports` set is the whole reason this is cheap. Its dependency tree
+# is pure Rust: no protoc, no C compiler, no ML runtime (see the feature
+# partition in yidam/cli/Cargo.toml). So cross-compiling needs a linker and
+# nothing else, and no runner needs provisioning beyond a toolchain.
+#
+# `--features full` is deliberately NOT built here. It needs protoc 31 and the
+# ONNX/LanceDB stack, and the common case must not wait on it. Someone who wants
+# `index-build` or `serve --mcp` still builds from source, as they do today.
+
+name: Release
+
+on:
+  push:
+    tags:
+      # The CLI layer's tag pattern, per VERSIONING.md's artifact table. NOT `v*`
+      # — that is the template layer, which releases nothing from this workflow.
+      - 'cli/v*'
+  # Buildable without tagging, to check the matrix still cross-compiles before
+  # cutting a release. Uploads nothing.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # fail-fast: false so one broken target still reports the others — a
+      # release missing one platform is worth knowing precisely, not as
+      # "something failed".
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            # Pure-Rust dependency tree, so cross-compiling needs a linker and
+            # nothing more. If a C dependency ever reaches the light build this
+            # breaks here first, which is the right place for it to break.
+            linker: aarch64-linux-gnu-gcc
+            apt: gcc-aarch64-linux-gnu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-linker
+        if: matrix.apt != ''
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.apt }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: yidam/cli
+          key: ${{ matrix.target }}
+
+      # --locked: the release must be built from the committed Cargo.lock, or the
+      # artifact is not the thing the pinned commit describes.
+      #
+      # No --features: the default IS `reports`. Spelling it would be a second
+      # place for the light set to be defined, and the two would drift.
+      - name: Build
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.linker }}
+        run: |
+          cargo build --release --locked \
+            --manifest-path yidam/cli/Cargo.toml \
+            --target ${{ matrix.target }}
+
+      # The binary must be able to say what it is before it is published. This is
+      # the check that a cross-compiled artifact is at least the right shape, and
+      # for the two native targets it is a real smoke test.
+      - name: Say what was built
+        if: matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu'
+        run: yidam/cli/target/${{ matrix.target }}/release/yidam --version
+
+      # Asset naming is a contract, not a convenience. `yidam-build` resolves a
+      # pinned commit to a tag with `git ls-remote --tags` and then has only
+      # (tag, platform) to work with — so the name must be derivable from exactly
+      # those two things. See #197.
+      - name: Package
+        id: pkg
+        run: |
+          set -eu
+          # An explicit `case` rather than `[ x = y ] && …`: that form's exit
+          # status is the test's when it fails, and whether `set -e` acts on a
+          # short-circuited AND-OR list is not something a reader should have to
+          # recall to know if this script continues.
+          case "$GITHUB_REF_NAME" in
+            cli/v*) version="${GITHUB_REF_NAME#cli/v}" ;;
+            *)      version="dev" ;;
+          esac
+          name="yidam-${version}-${{ matrix.target }}"
+          staging="$(mktemp -d)/$name"
+          mkdir -p "$staging"
+          cp "yidam/cli/target/${{ matrix.target }}/release/yidam" "$staging/"
+          cp LICENSE "$staging/"
+          tar -czf "$name.tar.gz" -C "$(dirname "$staging")" "$name"
+          shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pkg.outputs.name }}
+          path: |
+            ${{ steps.pkg.outputs.name }}.tar.gz
+            ${{ steps.pkg.outputs.name }}.tar.gz.sha256
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    # Only a tag publishes. workflow_dispatch builds the matrix and stops, which
+    # is what makes it usable as a pre-tag check.
+    if: startsWith(github.ref, 'refs/tags/cli/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      # The tag and the manifest must agree. They can drift in either direction —
+      # a tag cut before the bump, or a bump pushed without a tag — and an
+      # artifact whose --version disagrees with the release it hangs under is
+      # exactly the confusion this whole workflow exists to remove.
+      - name: The tag and Cargo.toml must name the same version
+        run: |
+          set -eu
+          tag_version="${GITHUB_REF_NAME#cli/v}"
+          manifest=$(sed -n 's/^version = "\(.*\)"/\1/p' yidam/cli/Cargo.toml | head -1)
+          echo "tag=$tag_version  manifest=$manifest"
+          if [ "$tag_version" != "$manifest" ]; then
+            echo "::error::tag cli/v$tag_version does not match yidam/cli/Cargo.toml version $manifest"
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      # One checksum file over everything, alongside the per-asset ones. A
+      # consumer verifying a single download should not have to fetch a manifest
+      # covering platforms it will never run.
+      - name: Collect checksums
+        run: |
+          set -eu
+          cd dist
+          cat *.sha256 > SHA256SUMS
+          ls -la
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            dist/*.tar.gz dist/*.sha256 dist/SHA256SUMS

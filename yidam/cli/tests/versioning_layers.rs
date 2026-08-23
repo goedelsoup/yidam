@@ -224,3 +224,71 @@ fn the_layers_are_numbered_and_counted_consistently() {
         "the opening sentence still counts three"
     );
 }
+
+/// The tag pattern `VERSIONING.md` documents is the one a workflow actually triggers on.
+///
+/// Line 205 has said "CI publishes to registries on matching tag patterns" since it was
+/// written, and for that whole time `.github/workflows/` held `ci.yml` and nothing else.
+/// The sentence was not wrong about intent and was wrong about the world, which is the
+/// failure mode this file exists for: a versioning document is a promise, and a promise
+/// nothing checks rots at the first move.
+///
+/// It asserts the *pattern*, not merely that a release workflow exists. The CLI layer tags
+/// `cli/v{...}` and the template layer tags `v{...}`; a workflow listening on `v*` would
+/// publish a CLI binary every time the template released, and both spellings look correct
+/// in a diff.
+#[test]
+fn the_cli_release_workflow_triggers_on_the_documented_tag_pattern() {
+    let workflow = repo_root().join(".github/workflows/release.yml");
+    let text = std::fs::read_to_string(&workflow).unwrap_or_else(|e| {
+        panic!(
+            "{} is unreadable ({e}) — VERSIONING.md promises CI publishes on tag patterns",
+            workflow.display()
+        )
+    });
+
+    assert!(
+        text.contains("'cli/v*'") || text.contains("\"cli/v*\"") || text.contains("- cli/v*"),
+        "release.yml must trigger on the `cli/v*` pattern VERSIONING.md's artifact table \
+         documents for the yidam CLI"
+    );
+
+    // The template layer's bare `v*` would match `cli/v0.1.0` too under some globbing, but
+    // more importantly it would fire this workflow on a template release. Neither layer may
+    // publish the other's artifact — VERSIONING.md: "Never bump a layer as a side effect of
+    // another layer's release."
+    for line in text.lines() {
+        let t = line
+            .trim()
+            .trim_start_matches("- ")
+            .trim_matches(['\'', '"']);
+        assert_ne!(
+            t, "v*",
+            "release.yml listens on the template layer's bare `v*`; it must publish the CLI \
+             layer's `cli/v*` only"
+        );
+    }
+}
+
+/// The release must be built from the committed lock file.
+///
+/// Without `--locked`, cargo is free to update a dependency during the release build, so
+/// the artifact is not the thing the tagged commit describes — and the pin a derived
+/// repository resolves to that tag would name a build nobody can reproduce.
+#[test]
+fn the_release_build_is_locked() {
+    let text = std::fs::read_to_string(repo_root().join(".github/workflows/release.yml"))
+        .expect("release.yml");
+    let builds: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with("cargo build"))
+        .collect();
+    assert!(!builds.is_empty(), "release.yml runs no cargo build");
+    for b in &builds {
+        assert!(
+            b.contains("--locked"),
+            "release build must pass --locked, got: {b}"
+        );
+    }
+}
