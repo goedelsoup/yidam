@@ -57,6 +57,94 @@ if [ -z "$commit" ] || [ "$commit" = "unknown" ]; then
   echo "       repair it with 'mise run yidam-vendor-update'." >&2
   exit 1
 fi
+# ── 1. Can this pin be downloaded? ────────────────────────────────────
+#
+# A release is tagged; a pin is a commit. Rather than adding a version field
+# to .yidam.toml — VERSIONING.md argues against a third pin, as "a third thing
+# to get out of step" — ask the origin whether any cli/v* tag points AT this
+# commit. `git ls-remote` needs no API token and no rate limit, and works
+# against any git origin rather than only GitHub's API.
+#
+# The ^{} entries are the point. `git tag -s` makes an ANNOTATED tag, whose
+# refs/tags/<x> line carries the sha of the tag OBJECT, not of the commit; the
+# peeled refs/tags/<x>^{} line carries the commit. Matching the bare line would
+# therefore never match a signed release, and the failure is silent — it just
+# compiles, forever, and looks like there was no release.
+resolve_tag='
+  { ref = $2; sub(/^refs\\/tags\\//, "", ref)
+    if (ref ~ /\\^\\{\\}$/) { sub(/\\^\\{\\}$/, "", ref); sha[ref] = $1 }
+    else if (!(ref in sha)) sha[ref] = $1 }
+  END { for (t in sha) if (sha[t] == c) { print t; exit } }'
+tag=$(git ls-remote --tags "$origin" 'cli/v*' 2>/dev/null \\
+      | awk -v c="$commit" "$resolve_tag" || true)
+
+# ── 2. Which artifact would this machine want? ────────────────────────
+case "$(uname -s)" in
+  Darwin) os=apple-darwin ;;
+  Linux)  os=unknown-linux-gnu ;;
+  *)      os="" ;;
+esac
+case "$(uname -m)" in
+  arm64|aarch64) arch=aarch64 ;;
+  x86_64|amd64)  arch=x86_64 ;;
+  *)             arch="" ;;
+esac
+
+# ── 3. Download, if there is something to download ────────────────────
+#
+# Every failure here falls through to the source build rather than aborting.
+# A release that is missing, a platform that was never built, a network that is
+# not there — none of them are reasons a repository cannot have its binary, and
+# the compile path is the one that has always worked.
+installed=""
+if [ -n "$tag" ] && [ -n "$os" ] && [ -n "$arch" ]; then
+  repo=$(echo "$origin" | sed -e 's|^git@github.com:|https://github.com/|' -e 's|\\.git$||')
+  name="yidam-${tag#cli/v}-${arch}-${os}"
+  url="$repo/releases/download/$tag/$name.tar.gz"
+  dl=$(mktemp -d)
+  if curl -fsSL "$url" -o "$dl/$name.tar.gz" \\
+     && curl -fsSL "$url.sha256" -o "$dl/$name.tar.gz.sha256"; then
+    # Verify before trusting. `shasum` is on macOS and on the GitHub Linux
+    # images; sha256sum is the GNU spelling. If neither exists we do not skip
+    # the check — we decline the download and compile instead.
+    if command -v shasum >/dev/null 2>&1; then
+      ( cd "$dl" && shasum -a 256 -c "$name.tar.gz.sha256" >/dev/null 2>&1 ) && verified=1 || verified=0
+    elif command -v sha256sum >/dev/null 2>&1; then
+      ( cd "$dl" && sha256sum -c "$name.tar.gz.sha256" >/dev/null 2>&1 ) && verified=1 || verified=0
+    else
+      verified=0
+    fi
+    if [ "$verified" = 1 ]; then
+      mkdir -p "$PWD/.yidam/bin"
+      tar -xzf "$dl/$name.tar.gz" -C "$dl"
+      install -m 0755 "$dl/$name/yidam" "$PWD/.yidam/bin/yidam"
+      installed="$tag"
+    else
+      echo "checksum did not verify for $name — compiling instead" >&2
+    fi
+  fi
+  rm -rf "$dl"
+fi
+
+if [ -n "$installed" ]; then
+  echo
+  echo "installed .yidam/bin/yidam from release $installed ($commit)"
+  "$PWD/.yidam/bin/yidam" --version
+  echo "Put .yidam/bin first on PATH — [env] _.path in mise.toml covers anything mise"
+  echo "runs; a script or CI step that builds PATH by hand has to do it itself, or a"
+  echo "yidam from somewhere else will answer for this repository."
+  exit 0
+fi
+
+# ── 4. Otherwise, build it ────────────────────────────────────────────
+#
+# Not a fallback that will one day be removed. A repository is entitled to pin a
+# commit that was never released, and most commits are.
+if [ -n "$tag" ]; then
+  echo "release $tag exists for this pin but could not be used — building from source" >&2
+else
+  echo "no release tagged at this pin — building from source" >&2
+fi
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 git clone --quiet --filter=blob:none "$origin" "$tmp/yidam"

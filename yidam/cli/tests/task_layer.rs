@@ -235,3 +235,82 @@ fn both_build_tasks_force_the_install() {
         "mise.toml's yidam-build must pass --force too:\n{own_run}"
     );
 }
+
+/// `yidam-build`'s tag resolver must match a pin against the *commit*, not the tag object.
+///
+/// The pin in `.yidam.toml` is a commit sha; a release is a tag. `yidam-build` reconciles
+/// them with `git ls-remote --tags`, which prints two lines for an **annotated** tag:
+///
+/// ```text
+/// <tag-object-sha>  refs/tags/cli/v0.2.0
+/// <commit-sha>      refs/tags/cli/v0.2.0^{}
+/// ```
+///
+/// `git tag -s` — the spelling VERSIONING.md's release process prescribes — makes annotated
+/// tags. So a resolver that reads the bare line compares a commit against a tag object and
+/// never matches, and the failure is invisible: it silently takes the source-build path,
+/// forever, looking exactly like a pin with no release.
+///
+/// The awk program is read out of `mise.yidam.toml` rather than copied here, so the thing
+/// under test is the thing that ships. A copy would pass while the file rotted.
+#[test]
+fn the_tag_resolver_matches_the_commit_and_not_the_tag_object() {
+    let run = parse("mise.yidam.toml")["yidam-build"]["run"]
+        .as_str()
+        .expect("yidam-build.run")
+        .to_string();
+
+    let marker = "resolve_tag='";
+    let start = run.find(marker).expect("yidam-build defines resolve_tag") + marker.len();
+    let program = &run[start..start + run[start..].find('\'').expect("unterminated awk")];
+
+    // Exactly what `git ls-remote --tags` prints: cli/v0.2.0 annotated (tag object `a…`,
+    // commit `b…`), cli/v0.1.0 lightweight (`c…`).
+    let a = "a".repeat(40);
+    let b = "b".repeat(40);
+    let c = "c".repeat(40);
+    let d = "d".repeat(40);
+    let listing = format!(
+        "{a}\trefs/tags/cli/v0.2.0\n{b}\trefs/tags/cli/v0.2.0^{{}}\n{c}\trefs/tags/cli/v0.1.0\n"
+    );
+
+    let resolve = |commit: &str| -> String {
+        let dir = tempfile::tempdir().unwrap();
+        let listing_path = dir.path().join("ls");
+        let prog_path = dir.path().join("prog.awk");
+        std::fs::write(&listing_path, &listing).unwrap();
+        std::fs::write(&prog_path, program).unwrap();
+        let out = std::process::Command::new("awk")
+            .arg("-v")
+            .arg(format!("c={commit}"))
+            .arg("-f")
+            .arg(&prog_path)
+            .arg(&listing_path)
+            .output()
+            .expect("awk");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+
+    assert_eq!(
+        resolve(&b),
+        "cli/v0.2.0",
+        "an annotated tag must resolve from its peeled commit sha"
+    );
+    assert_eq!(
+        resolve(&a),
+        "",
+        "the tag OBJECT sha must not resolve — a pin is never a tag object, and matching \
+         one would install a release for a commit that is not the pin"
+    );
+    assert_eq!(
+        resolve(&c),
+        "cli/v0.1.0",
+        "a lightweight tag must still resolve from its only line"
+    );
+    assert_eq!(
+        resolve(&d),
+        "",
+        "a commit with no release must resolve to nothing, so the build falls through to \
+         the source path"
+    );
+}
