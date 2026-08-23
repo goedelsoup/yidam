@@ -121,6 +121,22 @@ fn the_channel_check_runs_on_a_schedule_and_when_it_changes() {
         "install-channels.yml must trigger on pushes that touch itself, so it runs at least \
          once at the commit that adds it"
     );
+    // ...and on main only. A tag push starts this workflow too, four seconds before the
+    // release it is about to grade has published anything: the `cli/v0.2.1` push ran it
+    // against `cli/v0.2.0` and produced four red jobs that meant nothing. A check whose
+    // failures are sometimes real and sometimes timing is one people learn to shrug at.
+    let push = workflow
+        .split("  push:")
+        .nth(1)
+        .expect("install-channels.yml has a push trigger")
+        .split("\njobs:")
+        .next()
+        .unwrap();
+    assert!(
+        push.contains("branches: [main]") || push.contains("branches:\n      - main"),
+        "install-channels.yml's push trigger is not limited to main, so a tag push races the \
+         release it is meant to check"
+    );
 }
 
 /// A publish that published nothing must not be green.
