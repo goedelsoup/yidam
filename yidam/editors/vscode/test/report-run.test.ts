@@ -22,11 +22,22 @@ test('lint owns the diagnostics; graph-check does not double-mark the same node'
   if (!out.ok) return
 
   const lowFlow = out.mapped.findings.filter((f) => f.file.endsWith('low-flow.yml'))
-  // Both reports object to this node. Only one mark, and it is the one carrying a span.
-  assert.equal(lowFlow.length, 1, JSON.stringify(lowFlow, null, 2))
-  assert.equal(lowFlow[0].code, 'dangling-edge')
-  assert.equal(lowFlow[0].level, 'error')
-  assert.ok(lowFlow[0].line > 1, 'lint carries a span; the redundant mark would sit at line 1')
+  const context = JSON.stringify(lowFlow, null, 2)
+
+  // Both reports object to this node, and only lint's mark survives. Asserted by what
+  // graph-check's mark would look like rather than by a count of the node's findings:
+  // lint may legitimately report this node more than once — the ontology checks do — and
+  // a count would read every new check as the regression this test exists to catch.
+  assert.deepEqual(
+    lowFlow.filter((f) => f.code === 'graph-check'),
+    [],
+    context,
+  )
+
+  const dangling = lowFlow.filter((f) => f.code === 'dangling-edge')
+  assert.equal(dangling.length, 1, context)
+  assert.equal(dangling[0].level, 'error')
+  assert.ok(dangling[0].line > 1, 'lint carries a span; the redundant mark would sit at line 1')
 })
 
 test('the gate verdict comes from the CLI, not from counting findings', async (t) => {
