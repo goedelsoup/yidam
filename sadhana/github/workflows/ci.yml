@@ -193,37 +193,135 @@ jobs:
             echo "commit=$commit"
           } >> "$GITHUB_OUTPUT"
 
-      - uses: dtolnay/rust-toolchain@stable
+      # ── Get the binary, without needing a compiler to do it ────────────────
+      #
+      # This job is a graph gate: pure Rust reading Markdown. Until this block
+      # existed it provisioned a Rust toolchain, cloned the yidam origin, and
+      # compiled the CLI — so every derived repository's CI depended on a
+      # toolchain for a job that never builds any of this repository's code.
+      #
+      # The order below is download, then cache, then compile. Each step is a
+      # fallback for the one above it, and the compile is permanent: a
+      # repository is entitled to pin a commit that was never released, and most
+      # commits are.
+
+      # A release is a tag; a pin is a commit. `.yidam.toml` records the commit
+      # and VERSIONING.md argues against a second version field — "a third thing
+      # to get out of step" — so the tag is resolved by asking the origin which
+      # `cli/v*` tag points AT this commit. `git ls-remote` needs no API token,
+      # no rate limit, and works against any git origin rather than GitHub's API.
+      #
+      # The awk below is character-for-character the resolver in
+      # `mise.yidam.toml`'s `yidam-build`, and a test asserts the two are
+      # identical. Two transcriptions each pinned only by itself is how one of
+      # them silently stops matching.
+      #
+      # Two traps, both silent, both already paid for once upstream:
+      #
+      #   1. `git tag -s` makes an ANNOTATED tag, whose `refs/tags/<x>` line
+      #      carries the sha of the tag OBJECT. The peeled `refs/tags/<x>^{}`
+      #      line carries the commit. Matching the bare line compares a commit
+      #      against a tag object and never matches.
+      #   2. The trailing `*` in the refspec is load-bearing. `git ls-remote`
+      #      filters BEFORE peeled refs are emitted, so a pattern naming one tag
+      #      exactly returns only its bare line — the tag object — and the
+      #      resolver can never find a release again.
+      #
+      # Neither failure is an error. Both look exactly like a pin with no
+      # release, forever.
+      - name: Resolve the pin to a release tag
+        id: release
+        run: |
+          set -eu
+          resolve_tag='
+            { ref = $2; sub(/^refs\/tags\//, "", ref)
+              if (ref ~ /\^\{\}$/) { sub(/\^\{\}$/, "", ref); sha[ref] = $1 }
+              else if (!(ref in sha)) sha[ref] = $1 }
+            END { for (t in sha) if (sha[t] == c) { print t; exit } }'
+          tag=$(git ls-remote --tags "${{ steps.pin.outputs.source }}" 'cli/v*' 2>/dev/null \
+                | awk -v c='${{ steps.pin.outputs.commit }}' "$resolve_tag" || true)
+          if [ -n "$tag" ]; then
+            echo "the pinned commit was released as $tag"
+          else
+            echo "no release is tagged at this pin; the source build will run"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      # Runners here are x86_64 Linux. Named rather than derived from `uname`:
+      # if this job ever moves to a runner the release does not build for, the
+      # download fails loudly at a step that names the target rather than
+      # falling through to a compile nobody asked for.
+      #
+      # Verified before installing, or not installed. A checksum tool is present
+      # on every GitHub-hosted runner, so its absence means something is wrong
+      # with the image and the right response is the source build, not a
+      # skipped check.
+      #
+      # `continue-on-error` — a missing asset, a network blip, a platform the
+      # release skipped: none of them is a reason this repository cannot have
+      # its binary. Every one of them falls through to the compile below.
+      - name: Download the released binary
+        id: download
+        if: steps.release.outputs.tag != ''
+        continue-on-error: true
+        run: |
+          set -eu
+          tag='${{ steps.release.outputs.tag }}'
+          repo=$(echo '${{ steps.pin.outputs.source }}' | sed -e 's|\.git$||')
+          name="yidam-${tag#cli/v}-x86_64-unknown-linux-gnu"
+          url="$repo/releases/download/$tag/$name.tar.gz"
+          dl=$(mktemp -d)
+          curl -fsSL "$url"        -o "$dl/$name.tar.gz"
+          curl -fsSL "$url.sha256" -o "$dl/$name.tar.gz.sha256"
+          ( cd "$dl" && sha256sum -c "$name.tar.gz.sha256" )
+          tar -xzf "$dl/$name.tar.gz" -C "$dl"
+          mkdir -p "$HOME/.local/bin"
+          install -m 0755 "$dl/$name/yidam" "$HOME/.local/bin/yidam"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      # ── Everything below is the fallback ───────────────────────────────────
 
       # The binary is a pure function of the pinned commit, so cache it by that
-      # commit and skip the compile entirely on every run but the first after a
-      # `yidam-vendor-update`. Without this every CI run of every derived
-      # repository cold-compiles the CLI from source — the graph gate spent more
-      # time building its own tool than reading the corpus.
+      # commit and skip the compile on every run but the first after a
+      # `yidam-vendor-update`. This mattered more before the download path
+      # existed and still matters: a repository pinned to an unreleased commit
+      # gets exactly one compile per pin rather than one per run.
       #
       # Keyed on the commit and not on Cargo.lock: the lock file being cached
       # from lives in the cloned yidam tree, which does not exist yet at restore
       # time. The pin is the stronger key anyway — one commit, one binary.
-      - name: Cache the pinned yidam binary
+      - name: Cache the compiled binary
         id: yidam-cache
+        if: steps.download.outputs.ok != 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cargo/bin/yidam
           key: yidam-cli-${{ runner.os }}-${{ steps.pin.outputs.commit }}
 
+      # Conditional, and that is the point of this whole block. A derived
+      # repository with no `crates/` workspace of its own — which the `detect`
+      # job gates on separately — now provisions no Rust toolchain at all on the
+      # ordinary path.
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.download.outputs.ok != 'true' && steps.yidam-cache.outputs.cache-hit != 'true'
+
       # The light `reports` build — no protoc, no fastembed, no lancedb. The
       # graph gate needs none of them, and the heavy feature set turns a
       # 40-second job into a five-minute one.
-      - name: Install the yidam CLI (light build)
-        if: steps.yidam-cache.outputs.cache-hit != 'true'
+      - name: Compile the yidam CLI (light build)
+        if: steps.download.outputs.ok != 'true' && steps.yidam-cache.outputs.cache-hit != 'true'
         run: |
           git clone --filter=blob:none --no-checkout "${{ steps.pin.outputs.source }}" /tmp/yidam
           git -C /tmp/yidam checkout --quiet "${{ steps.pin.outputs.commit }}"
           cargo install --path /tmp/yidam/yidam/cli --locked
 
-      # A cache hit restores a binary; it does not prove the binary runs. Ask it
-      # what it is — `--version` names the build commit, so a restore that came
-      # back wrong is visible in the log rather than as a mystery two steps later.
+      # Whichever path ran, ask the binary what it is. A cache hit restores a
+      # binary but does not prove it runs; a download proves even less about
+      # provenance until something reads it. `--version` names the build commit,
+      # so an artifact that arrived from the wrong release is visible here in the
+      # log rather than as a mystery two steps later. This is the only check that
+      # the thing which arrived is the thing that was asked for.
       - name: Say which yidam is answering
         run: yidam --version
 
@@ -251,6 +349,18 @@ jobs:
         run: |
           set -eu
           pin='${{ steps.pin.outputs.commit }}'
+          # Clone if nothing else did. This step used to assume the compile step
+          # had left a tree at /tmp/yidam, which stopped being true the moment
+          # the binary could be cached — and stopped being true on every run once
+          # it could be downloaded. `continue-on-error` meant the failure was a
+          # missing report rather than a red build, so the check that exists to
+          # make staleness visible was itself invisibly absent.
+          #
+          # Blobless and unchecked-out: this only ever reads commit metadata.
+          if [ ! -d /tmp/yidam ]; then
+            git clone --quiet --filter=blob:none --no-checkout \
+              '${{ steps.pin.outputs.source }}' /tmp/yidam
+          fi
           cd /tmp/yidam
           if ! git rev-parse --verify --quiet "origin/HEAD" >/dev/null; then
             echo "::notice::cannot resolve origin/HEAD; skipping the staleness report."
