@@ -129,6 +129,11 @@ yidam export --format …   bundle · web · rdf · graphml · sqlite · llms
 yidam tonpa add …         manage bundle dependencies on other derived repos
 ```
 
+`yidam --help` lists all of them under these same groups, and marks with `*` the ones that
+rewrite files in the repository they are run against — ten of them do, and that was
+previously visible only in each command's long help, where you had to already suspect it to
+go looking.
+
 Index subcommands (`corpus-index`, `skills-index`, `catalog-audit`, …) back the
 `<!-- REGEN: yidam <subcommand> -->` markers embedded in README files. `mise run regen`
 refreshes them all in one pass; in derived repos a stale REGEN block is a failing build.

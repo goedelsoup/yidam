@@ -160,5 +160,10 @@ fn help_is_not_treated_as_a_refusal() {
 
     let (stdout, _, code) = run(tmp.path(), &["--help"]);
     assert_eq!(code, Some(0), "help exits 0");
-    assert!(stdout.contains("Commands:"), "help still prints help");
+    // The subcommand listing is `help::render`'s, not clap's flat `Commands:` block, so
+    // this asserts on a group heading and a command under it.
+    assert!(
+        stdout.contains("Checks and gates") && stdout.contains("graph-check"),
+        "help still prints the grouped command listing:\n{stdout}"
+    );
 }
