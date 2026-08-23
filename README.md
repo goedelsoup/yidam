@@ -35,13 +35,36 @@ list and the reasoning behind closing it.
 
 ## Getting started
 
-Build the CLI from this repository:
+Get the CLI. No toolchain required — the default build is pure Rust and ships as a binary:
 
 ```sh
-git clone git@github.com:goedelsoup/yidam.git && cd yidam
-mise install              # provision toolchains (rust, protoc, python, uv, node)
-mise run yidam-build      # cargo install --path yidam/cli --features full
+tag=$(curl -fsSL https://api.github.com/repos/goedelsoup/yidam/releases/latest \
+      | sed -n 's/.*"tag_name": *"\(.*\)".*/\1/p')
+case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64)  target=aarch64-apple-darwin ;;
+  Darwin-x86_64) target=x86_64-apple-darwin ;;
+  Linux-x86_64)  target=x86_64-unknown-linux-gnu ;;
+  Linux-aarch64) target=aarch64-unknown-linux-gnu ;;
+esac
+curl -fsSL "https://github.com/goedelsoup/yidam/releases/download/$tag/yidam-${tag#cli/v}-$target.tar.gz" \
+  | tar -xz --strip-components=1        # yidam, LICENSE — put `yidam` on your PATH
 ```
+
+Or from source, if you would rather. Same light `reports` build, and it needs only a Rust
+toolchain — no protoc, no C compiler, no ML runtime. `--locked` builds from the lock file the
+tag committed, which is what makes it the same binary the release was built from; without it
+cargo re-resolves every dependency:
+
+```sh
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.2.0 --locked yidam
+```
+
+Either way, `yidam --version` should answer, naming the build and the features it carries.
+
+`--features full` adds `index-build`, `serve --mcp`, and the sqlite/rdf exports — and with
+them protoc 31, an ONNX runtime, and a C toolchain. That is the maintainer's build, described
+under [Working on yidam](#working-on-yidam) below. It is **not** what deriving a repository
+needs: `clone` and `overlay` are both in the light set, as is every report and gate.
 
 Then create a derived repository, or overlay the infrastructure onto one that already exists:
 
@@ -129,11 +152,17 @@ mise run verify          # Dafny specs and Lean 4 proofs (dafny + lake installed
 ## Working on yidam
 
 ```sh
-mise install
+mise install             # provision toolchains (rust, protoc, python, uv, node)
 mise tasks               # everything available
+mise run yidam-build     # install the full-feature binary into .local/bin
 mise run ci              # fmt-check, clippy -D warnings, tests (harness + CLI)
 mise run docs-dev        # docs site on http://localhost:4321/
 ```
+
+`yidam-build` here is `--features full`, deliberately: working on the CLI means being able to
+run `index-build`, `serve --mcp`, and the sqlite/rdf exports. That is why `mise install`
+provisions protoc and the rest, and why it is the *maintainer's* setup rather than the one
+[Getting started](#getting-started) describes.
 
 CI runs the harness and the light CLI build as parallel jobs on every PR; the full-feature
 build (protoc, ML stack) runs on `main` and on a weekly schedule.
