@@ -189,11 +189,14 @@ the key never has to distinguish "local" from "an older server that never said."
 is qualified as `pkg::class/name`, and `get_node` accepts that form and answers with `origin`
 either way.
 
-**The vector path does not span dependencies.** `index-build` indexes this repository's
-corpus only, so an indexed server's `retrieve` returns local nodes and its results carry
-neither `id` nor `origin`. The asymmetry is worth knowing before you read too much into an
-absent `origin`: on a composed corpus, `degraded: true` is currently the *more* complete
-search.
+**The vector path does not span dependencies.** `yidam embed` gathers text from
+`.yidam/corpus/` and `.yidam/catalog/` and nowhere else, so the index `index-build` writes
+holds this repository's own nodes; an indexed `retrieve` returns local results carrying
+neither `id` nor `origin`. Note that absent is not `null` here — a key that is missing
+means the search never looked outside this corpus, which is a different fact from a node
+being local. On a composed corpus, `degraded: true` is currently the *more* complete
+search. [sharing-derivations.md](sharing-derivations.md) has the history and why this is a
+gap rather than a boundary.
 
 **An agent reading a foreign node is reading someone else's claim.** It is evidence to
 consult, not a commitment this repository has made — and it may never be an edge target.

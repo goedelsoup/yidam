@@ -176,10 +176,30 @@ not have.
 
 Deliberately narrow: **readable and searchable, never an edge target.**
 
-**Retrieval spans dependencies.** `serve --mcp`'s `retrieve` returns foreign nodes
-alongside local ones. Each result carries an `origin` field — the package name for a foreign
-node, and `null` for a local one. `null` rather than absent, so a client testing the key
-never has to distinguish "this node is local" from "this server is old and never said."
+**Keyword retrieval spans dependencies.** `serve --mcp`'s `retrieve` returns foreign nodes
+alongside local ones whenever it is answering from keyword search — which is every call in
+the default build, and every call in any build over a corpus with no index. Each result
+carries an `origin` field: the package name for a foreign node, and `null` for a local one.
+`null` rather than absent, so a client testing the key never has to distinguish "this node
+is local" from "this server is old and never said."
+
+**Vector retrieval does not.** `yidam embed` reads `.yidam/corpus/` and `.yidam/catalog/`
+and nothing else, so an index holds this repository's own nodes; and a vector result carries
+neither `id` nor `origin`, only `path`, `class`, `label`, `text` and `score`. On a composed
+corpus, `degraded: true` is therefore the **more complete** search — the one arm that sees
+the whole of what is installed.
+
+That is a gap, not a rule. Everything else in this section is an argued boundary — a
+foreign node may be read and never cited — and that boundary holds under either retrieval
+path. Nothing in it implies search should get *narrower* when an index is present.
+
+The history is plain enough: both arms shipped together, and dependency-spanning was added
+to only one of them, by the change that made an installed bundle readable at all. That
+change's own opening line was that `tonpa` fetched a corpus and *nothing* read it — "not
+`serve --mcp`, not `graph`, not `neighbors`, not the index". It repaired the first of those
+and left the last. So until the embedding step learns about `.yidam/tonpa/`, a
+dependency-aware agent should know which arm it is talking to. The handshake's
+`retrieve.vector` says, before the first query.
 
 **Foreign ids are qualified.** A dependency's node is `pkg::class/name`, and `get_node`
 accepts that form. An id a client is shown and cannot then fetch is a worse affordance than
@@ -196,10 +216,10 @@ every corpus metric in every derived repository meaningless.
 
 > **Both halves are in the same build.** `serve --mcp` used to need `--features index`
 > while `tonpa` was in the light default set, so the binary that could fetch a dependency
-> was not the binary that could read one. It is now: keyword retrieval spans dependencies
-> and reports `origin` in the default build, and `--features index` upgrades retrieval to
-> semantic search. [mcp-server.md](mcp-server.md) says what an agent should do with
-> `origin`.
+> was not the binary that could read one. It is now — and note which way round that landed:
+> the default build's keyword retrieval is the arm that spans dependencies, so composition
+> works out of the box and `--features index` trades that reach for semantic ranking.
+> [mcp-server.md](mcp-server.md) says what an agent should do with `origin`.
 
 ## The epistemic status of a cross-corpus citation
 
@@ -232,9 +252,12 @@ fetch already worked.
 Guidance for an agent; see also
 [`prelude/guidelines/agent-conduct.md`](../yidam/prelude/guidelines/agent-conduct.md).
 
-**Check `origin` on every retrieval result.** A result with a non-null `origin` is not this
-corpus's claim. It was settled by another sangha, under another ontology, and this
-repository's constitution never governed it.
+**Check `origin` on every retrieval result — and know when there is none to check.** A
+result with a non-null `origin` is not this corpus's claim: it was settled by another
+sangha, under another ontology, and this repository's constitution never governed it. A
+result with no `origin` key at all is a vector result, which means the search never looked
+outside this corpus; absent is not the same as `null`, and treating it as such is how a
+foreign node would get read as a local one. `get_node` answers with `origin` either way.
 
 **You may reason from a foreign node. You may not cite it as though it were local.** Put
 what you took from it in a local node, in this corpus's own terms, tagged at this corpus's
