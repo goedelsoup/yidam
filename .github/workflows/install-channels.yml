@@ -95,9 +95,17 @@ jobs:
           apt-get install -y --no-install-recommends curl ca-certificates tar
       - name: The line the README documents
         run: curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh
+      # `set -eu`, not `set -euo pipefail`. This job's shell is the container's
+      # /bin/sh — dash on debian — which has no `pipefail` and exits 2 on the
+      # option itself. There is no pipe in this step to protect anyway.
+      #
+      # It stayed hidden until the thing it checks started working: on the first
+      # run install.sh died on glibc before this step was reached, so the release
+      # that fixed that is the one that exposed this. A check's own failure modes
+      # are only reachable once the code under it stops failing first.
       - name: yidam --version
         run: |
-          set -euo pipefail
+          set -eu
           out=$("$HOME/.local/bin/yidam" --version)
           echo "$out"
           case "$out" in

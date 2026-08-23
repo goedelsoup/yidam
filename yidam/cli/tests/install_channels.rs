@@ -302,3 +302,56 @@ fn the_readme_pins_the_version_this_repository_declares() {
         );
     }
 }
+
+/// A job running in a container must not use bash-only shell options.
+///
+/// GitHub runs `run:` steps under the *container's* `/bin/sh`, which on a slim Debian image
+/// is dash. `set -euo pipefail` — correct everywhere else in this repository — exits 2 there
+/// on the option itself, before the step does anything.
+///
+/// This survived a full run undetected, because on that run `install.sh` failed on glibc
+/// before the assertion step was reached. The release that fixed glibc is the one that
+/// exposed it: a check's own failure modes only become reachable once the thing it checks
+/// stops failing first, which is an argument for testing the checks.
+#[test]
+fn steps_inside_a_container_avoid_bash_only_shell_options() {
+    let workflow = read(".github/workflows/install-channels.yml");
+
+    // Job boundaries are lines indented exactly two spaces and ending in a colon. Splitting
+    // on "\n  " instead fragments at every deeper-indented line, which silently produced a
+    // test that passed on the very regression it was written for.
+    let mut jobs: Vec<String> = Vec::new();
+    for line in workflow.lines() {
+        let is_job_header = line.starts_with("  ")
+            && !line.starts_with("   ")
+            && line.trim_end().ends_with(':')
+            && !line.trim_start().starts_with('#');
+        if is_job_header {
+            jobs.push(String::new());
+        }
+        if let Some(current) = jobs.last_mut() {
+            current.push_str(line);
+            current.push('\n');
+        }
+    }
+    let containerised: Vec<&String> = jobs.iter().filter(|j| j.contains("container:")).collect();
+    assert!(
+        !containerised.is_empty(),
+        "no job in install-channels.yml runs in a container; the clean-container install \
+         check is the one that tests install.sh on a machine that has never seen this project"
+    );
+    for job in containerised {
+        // Commands only. The comment above the fixed step names the option it avoids, and a
+        // test that reads prose fails on the explanation of its own fix.
+        let job: String = job
+            .lines()
+            .filter(|l| !l.trim_start().starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !job.contains("pipefail"),
+            "a job in install-channels.yml runs in a container and uses `pipefail`; the \
+             container's /bin/sh is dash, which exits 2 on that option:\n{job}"
+        );
+    }
+}
