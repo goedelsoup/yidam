@@ -172,3 +172,79 @@ jobs:
             --title "$GITHUB_REF_NAME" \
             --generate-notes \
             dist/*.tar.gz dist/*.sha256 dist/SHA256SUMS
+
+  # ── The Homebrew tap ────────────────────────────────────────────────────────
+  #
+  # `brew install goedelsoup/tap/yidam` is the channel a collaborator on macOS
+  # reaches for first, and it can only stay true if the formula is rewritten by
+  # the release rather than by hand. A hand-maintained formula is a second place
+  # the version lives, and the two go out of step on the first release nobody
+  # remembers to follow up.
+  #
+  # `needs: publish` — the formula names release assets by url and pins their
+  # checksums. Rendering it before those assets exist produces a formula that is
+  # correct in every visible respect and 404s.
+  tap:
+    name: tap (goedelsoup/homebrew-tap)
+    needs: publish
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/cli/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-assets
+          merge-multiple: true
+
+      - name: Render the formula
+        run: |
+          set -eu
+          version="${GITHUB_REF_NAME#cli/v}"
+          mkdir -p out/Formula
+          ./render-formula.sh "$version" dist-assets > out/Formula/yidam.rb
+          cat out/Formula/yidam.rb
+
+      # A tap in another repository needs a token this one's GITHUB_TOKEN cannot
+      # stand in for. When it is absent this job FAILS rather than skipping: the
+      # release itself has already published by now, so nothing is lost by going
+      # red — whereas a skip leaves the tap serving the previous version with
+      # every surface still claiming `brew install` works.
+      - name: Push it to the tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO || 'goedelsoup/homebrew-tap' }}
+        run: |
+          set -eu
+          if [ -z "${TAP_TOKEN:-}" ]; then
+            echo "::error::secrets.HOMEBREW_TAP_TOKEN is not set, so the tap cannot be updated."
+            echo "::error::Create a fine-grained PAT with Contents: read and write on $TAP_REPO"
+            echo "::error::and add it to this repository as HOMEBREW_TAP_TOKEN. Until then"
+            echo "::error::'brew install goedelsoup/tap/yidam' installs whatever the last"
+            echo "::error::successful run left behind."
+            exit 1
+          fi
+          version="${GITHUB_REF_NAME#cli/v}"
+          git clone --depth 1 "https://x-access-token:$TAP_TOKEN@github.com/$TAP_REPO.git" tap
+          mkdir -p tap/Formula
+          cp out/Formula/yidam.rb tap/Formula/yidam.rb
+          cd tap
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # `git add` BEFORE asking whether anything changed. A first push into a
+          # tap that does not yet carry the formula leaves it untracked, and
+          # `git diff` on an untracked path reports no change — so the one run
+          # that most needs to push would be the one that decides not to.
+          git add Formula/yidam.rb
+          # Nothing to commit is a legitimate outcome — a re-run of the same tag
+          # renders the same formula — and must not fail the release.
+          if git diff --cached --quiet; then
+            echo "the tap already carries this formula; nothing to push."
+            exit 0
+          fi
+          git commit \
+            -m "yidam $version" \
+            -m "Rendered by the release workflow of $GITHUB_REPOSITORY from the assets of $GITHUB_REF_NAME. Do not edit by hand."
+          # `HEAD` rather than a bare push: a clone of a tap with no commits yet
+          # has an unborn branch and no upstream to push to.
+          git push origin HEAD
