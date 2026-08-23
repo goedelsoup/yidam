@@ -53,6 +53,67 @@
       ]
     },
     {
+      "id": "undeclared-property",
+      "title": "Instance property the class never declared",
+      "severity": "error",
+      "rationale": "A property absent from the class is invisible to everything that reads the corpus through the ontology — schemas, exports, queries. It reads as data to a human and as nothing to a machine, which is the failure mode worth gating on. A class that declares no `properties:` has said nothing and is not checked.",
+      "violations": []
+    },
+    {
+      "id": "missing-property",
+      "title": "Declared property the instance omits",
+      "severity": "warn",
+      "rationale": "The commonest cause is a class that grew a field its instances never did — invisible to every reader and obvious in a list. Reported rather than gated because the ontology has no `required` field: it cannot say whether every instance carries a property or merely may, and a node that makes no tagged claim is a real state, not a defect. Its four siblings gate; they report the ontology being contradicted, and an omission contradicts nothing.",
+      "violations": [
+        {
+          "node": ".yidam/corpus/concept/low-flow.yml",
+          "detail": "`datum` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it",
+          "in_baseline": false
+        },
+        {
+          "node": ".yidam/corpus/concept/mixing-zone.yml",
+          "detail": "`datum` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it",
+          "in_baseline": false
+        },
+        {
+          "node": ".yidam/corpus/concept/mixing-zone.yml",
+          "detail": "`claim_tag` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it",
+          "in_baseline": false
+        },
+        {
+          "node": ".yidam/corpus/concept/tailwater.yml",
+          "detail": "`datum` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it",
+          "in_baseline": false
+        },
+        {
+          "node": ".yidam/corpus/concept/tailwater.yml",
+          "detail": "`claim_tag` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it",
+          "in_baseline": false
+        }
+      ]
+    },
+    {
+      "id": "property-type",
+      "title": "Property value that contradicts its declared type",
+      "severity": "error",
+      "rationale": "A typed field the ontology declares is read by type, not by eye. A `claim` field holding prose is counted as no claim at all; a `string` holding an unquoted number has lost its leading zeros before anything reads it. Types the corpus coins for itself are left alone — this reports only the ones it can test.",
+      "violations": []
+    },
+    {
+      "id": "unlicensed-edge",
+      "title": "Relationship the class does not declare",
+      "severity": "error",
+      "rationale": "An edge is licensed by the class that authors it. A relationship appearing in no declaration is a typo or an edge the ontology has never heard of, and either way a traversal that walks by relationship will not find it. Only links landing on another instance are read — a link to the class file or into the catalog is a citation, not a relationship. A class that declares no `edges:` has said nothing and is not checked.",
+      "violations": []
+    },
+    {
+      "id": "edge-target-class",
+      "title": "Edge that resolves to a node of the wrong class",
+      "severity": "error",
+      "rationale": "`dangling-edge` catches an edge to nothing. This catches an edge to the wrong thing — which resolves, traverses, and exports, and is simply false. The class names the target class for each relationship it declares; a declaration that names none licenses any target.",
+      "violations": []
+    },
+    {
       "id": "catalog-unobtained-but-cited",
       "title": "Source nobody has fetched, cited anyway",
       "severity": "error",

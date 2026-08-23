@@ -16,10 +16,20 @@ golden nobody reads.
 | `concept/low-flow.yml` | `dangling-edge` — an edge to a file that is not there | error |
 | `concept/tailwater.yml` | `orphan-in` — nothing points at it | info |
 | `gauge/riffle-station.yml` | `orphan-in` — the ontology declares no edge into a gauge | info |
+| every `concept` | `missing-property` — `concept` declares `datum` and no instance carries it | warn |
+| `concept/mixing-zone.yml`, `concept/tailwater.yml` | `missing-property` — and no `claim_tag` either | warn |
 | everything else | nothing — the control | — |
 
 The error is the one that matters: it makes `gate.passed` false with an empty baseline, so
 the golden pins the failing verdict as well as the shape.
+
+The `missing-property` findings are the reason that check does not gate, and they are not
+fixture drift. Two of the three concepts deliberately carry no `claim_tag` — one is open by
+its label instead, one is the control that trips nothing — and a node making no tagged
+claim is a real state rather than a defect. The property declaration has no `required`
+field to tell *every instance has this* from *an instance may have this*, so gating on
+omission would fail this corpus for being exactly what it was written to be. Its four
+sibling checks gate; each of those reports the ontology being contradicted.
 
 ## What it is built to reach
 

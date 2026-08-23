@@ -203,6 +203,11 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::unknown_class(&nodes, &defined),
         checks::orphan_out(&nodes),
         checks::dangling_edge(&nodes),
+        checks::undeclared_property(&nodes, &classes),
+        checks::missing_property(&nodes, &classes),
+        checks::property_type(&nodes, &classes),
+        checks::unlicensed_edge(&nodes, &classes),
+        checks::edge_target_class(&nodes, &classes),
         checks::catalog_unobtained_but_cited(&sources, &cites),
         checks::missing_label(&nodes),
         checks::missing_description(&nodes),
@@ -446,7 +451,7 @@ mod tests {
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 19);
+        assert_eq!(all.len(), 24);
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
@@ -460,6 +465,14 @@ mod tests {
         assert!(ids.contains("unauthored-prose-link"));
         assert!(ids.contains("claim-tag-malformed"));
         assert!(ids.contains("authorship-region-stale"));
+        // The class contract. `clean_repo`'s ontology declares neither properties nor
+        // edges, so all five pass here — which is the case worth pinning: silence is not a
+        // contract, and a corpus whose ontology is not filled in must not be flooded.
+        assert!(ids.contains("undeclared-property"));
+        assert!(ids.contains("missing-property"));
+        assert!(ids.contains("property-type"));
+        assert!(ids.contains("unlicensed-edge"));
+        assert!(ids.contains("edge-target-class"));
     }
 
     fn check<'a>(all: &'a [Check], id: &str) -> &'a Check {
@@ -597,7 +610,7 @@ mod tests {
         assert!(crate::authorship::Authorship::load(tmp.path()).is_err());
         // …while the checks themselves keep answering, for the editor's sake.
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 19);
+        assert_eq!(all.len(), 24);
     }
 
     #[test]

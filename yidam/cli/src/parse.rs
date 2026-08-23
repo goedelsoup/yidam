@@ -77,6 +77,14 @@ pub struct CorpusInstance {
     pub class: Option<String>,
     pub label: Option<String>,
     pub description: Option<String>,
+    /// The typed fields the class declares, as the instance actually wrote them.
+    ///
+    /// Held untyped because the *ontology* is the type: `properties` is a bag whose keys
+    /// and value shapes are declared per class in `<class>.ont.yml`, so a struct here
+    /// would be a second, weaker declaration of the same thing. The checks in
+    /// `lint::checks` read it against the class; nothing else may assume a shape.
+    #[serde(default)]
+    pub properties: Option<serde_yaml::Mapping>,
     pub links: Option<Vec<CorpusLink>>,
 }
 
