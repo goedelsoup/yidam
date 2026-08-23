@@ -34,6 +34,18 @@ on:
     - cron: '0 7 * * 1'
   workflow_dispatch:
   push:
+    # `branches` as well as `paths`, and both must match — so a TAG push does not
+    # start this. Pushing `cli/v0.2.1` ran it four seconds later, where it
+    # resolved `releases/latest` (still `cli/v0.2.0`, since release.yml was
+    # mid-build) and graded every channel against the previous release. Four red
+    # jobs that meant nothing.
+    #
+    # A release is exactly when someone wants this answered, but not four seconds
+    # in. Deliberately not a `workflow_run` on Release either: crates.io index
+    # propagation is a lag nobody controls, so that trigger buys a check whose
+    # reds are sometimes real and sometimes timing. A check people learn to shrug
+    # at is worse than no check. After a release, dispatch it.
+    branches: [main]
     paths:
       - '.github/workflows/install-channels.yml'
       - 'install.sh'
