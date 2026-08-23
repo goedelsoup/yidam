@@ -3,6 +3,11 @@ name = "yidam-core"
 version = "0.1.0"
 edition = "2021"
 description = "Yidam corpus types and parity surface — Rust reference implementation"
+license = "MIT"
+repository = "https://github.com/goedelsoup/yidam"
+# The CLI depends on this crate and pins 1.85; a `yidam-core` that required newer would
+# make the CLI's own MSRV a fiction.
+rust-version = "1.85"
 
 [lib]
 name = "yidam_core"

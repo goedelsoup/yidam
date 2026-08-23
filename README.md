@@ -38,16 +38,18 @@ list and the reasoning behind closing it.
 Get the CLI. No toolchain required — the default build is pure Rust and ships as a binary:
 
 ```sh
-tag=$(curl -fsSL https://api.github.com/repos/goedelsoup/yidam/releases/latest \
-      | sed -n 's/.*"tag_name": *"\(.*\)".*/\1/p')
-case "$(uname -s)-$(uname -m)" in
-  Darwin-arm64)  target=aarch64-apple-darwin ;;
-  Darwin-x86_64) target=x86_64-apple-darwin ;;
-  Linux-x86_64)  target=x86_64-unknown-linux-gnu ;;
-  Linux-aarch64) target=aarch64-unknown-linux-gnu ;;
-esac
-curl -fsSL "https://github.com/goedelsoup/yidam/releases/download/$tag/yidam-${tag#cli/v}-$target.tar.gz" \
-  | tar -xz --strip-components=1        # yidam, LICENSE — put `yidam` on your PATH
+curl -fsSL https://raw.githubusercontent.com/goedelsoup/yidam/main/install.sh | sh
+```
+
+It resolves the latest release for your platform, verifies the checksum, and installs to
+`~/.local/bin` (override with `YIDAM_BIN_DIR`). If no checksum tool is present it declines
+the download rather than installing something it could not verify.
+
+With cargo already on hand, [`cargo-binstall`](https://github.com/cargo-bins/cargo-binstall)
+fetches the same artifact:
+
+```sh
+cargo binstall yidam
 ```
 
 Or from source, if you would rather. Same light `reports` build, and it needs only a Rust

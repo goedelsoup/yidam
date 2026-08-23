@@ -7,6 +7,13 @@ edition = "2021"
 # that require a newer rustc.
 rust-version = "1.85"
 description = "Corpus analysis and index CLI for yidam-derived repositories"
+license = "MIT"
+repository = "https://github.com/goedelsoup/yidam"
+readme = "../../README.md"
+# Keywords and categories are how this is found by someone who does not already know the
+# name — which is the entire audience a registry serves.
+keywords = ["knowledge-graph", "corpus", "git", "provenance", "mcp"]
+categories = ["command-line-utilities", "development-tools"]
 
 [lib]
 name = "yidam"
@@ -33,7 +40,7 @@ hex = "0.4"
 toml = "0.8"
 # Parity SDK — reference implementations of classify_commit etc.; the CLI
 # must not re-implement the parity surface (see prelude/sdks/parity/README.md).
-yidam-core = { path = "../prelude/sdks/rust" }
+yidam-core = { path = "../prelude/sdks/rust", version = "0.1.0" }
 
 # ── optional: `index` — semantic index build + MCP serve. Pulls the ML/native
 #    stack; lancedb's prost-build needs protoc 31 at build time. ────────────
@@ -97,3 +104,17 @@ full = ["reports", "index", "export-sqlite", "export-graph", "tonpa"]
 walkdir = "2"
 quick-xml = "0.37"
 tempfile = "3"
+
+# ── cargo-binstall ────────────────────────────────────────────────────────────
+#
+# `cargo binstall yidam` fetches the artifact the release workflow already builds instead of
+# compiling one. The whole block is a description of names that workflow chose, so the two
+# are a contract: change either and `binstall` silently falls back to a source build, which
+# looks like success and takes minutes.
+#
+# `{ version }` is the crate version and the tag is `cli/v<version>` — the CLI layer's
+# pattern from VERSIONING.md, not the template layer's bare `v<version>`.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/cli/v{ version }/yidam-{ version }-{ target }{ archive-suffix }"
+pkg-fmt = "tgz"
+bin-dir = "yidam-{ version }-{ target }/{ bin }{ binary-ext }"

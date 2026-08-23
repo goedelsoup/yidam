@@ -1,0 +1,102 @@
+# Publish to crates.io — one layer per tag.
+#
+# VERSIONING.md is explicit that the parity SDKs are a layer the CLI depends on
+# and does not release, and that no layer may be bumped as a side effect of
+# another's. So this is not a step inside the CLI's release: it is a workflow
+# that publishes whichever crate the tag names.
+#
+#   sdk/rust/v<x>  →  yidam-core   (Layer 2)
+#   cli/v<x>       →  yidam        (Layer 4)
+#
+# ── The ordering is real, and it is one-way ──────────────────────────────────
+#
+# `yidam` depends on `yidam-core` by `{ path, version }`. cargo uses the path in
+# this workspace and the VERSION when packaging, so crates.io must already hold
+# a matching `yidam-core` before `yidam` can be published at all. Verified:
+# `cargo publish --dry-run` for the CLI fails with "no matching package named
+# `yidam-core` found" until that is true. A first release therefore publishes
+# `sdk/rust/v0.1.0` and only then `cli/v0.2.0`.
+#
+# ── crates.io is forever ─────────────────────────────────────────────────────
+#
+# A published version cannot be replaced, only yanked, and a yanked version is
+# still downloadable by anything that already resolved it. That is why this runs
+# from a tag rather than from a branch, and why the version check below refuses a
+# mismatch instead of guessing.
+
+name: Publish crates
+
+on:
+  push:
+    tags:
+      - 'cli/v*'
+      - 'sdk/rust/v*'
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Which crate does this tag name?
+        id: which
+        run: |
+          set -euo pipefail
+          case "${GITHUB_REF_NAME:-}" in
+            sdk/rust/v*)
+              echo "manifest=yidam/prelude/sdks/rust/Cargo.toml" >> "$GITHUB_OUTPUT"
+              echo "crate=yidam-core" >> "$GITHUB_OUTPUT"
+              echo "version=${GITHUB_REF_NAME#sdk/rust/v}" >> "$GITHUB_OUTPUT"
+              ;;
+            cli/v*)
+              echo "manifest=yidam/cli/Cargo.toml" >> "$GITHUB_OUTPUT"
+              echo "crate=yidam" >> "$GITHUB_OUTPUT"
+              echo "version=${GITHUB_REF_NAME#cli/v}" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::notice::${GITHUB_REF_NAME:-<no tag>} names no publishable layer; nothing to do."
+              echo "crate=" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      # The tag and the manifest must agree before anything is uploaded, for the
+      # same reason the binary release checks it — except that here the mistake
+      # cannot be undone.
+      - name: The tag and the manifest must name the same version
+        if: steps.which.outputs.crate != ''
+        run: |
+          set -euo pipefail
+          declared=$(sed -n 's/^version = "\(.*\)"/\1/p' "${{ steps.which.outputs.manifest }}" | head -1)
+          echo "tag=${{ steps.which.outputs.version }}  manifest=$declared"
+          if [ "$declared" != "${{ steps.which.outputs.version }}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match ${{ steps.which.outputs.manifest }} version $declared"
+            exit 1
+          fi
+
+      # Says exactly what would be uploaded, and fails the same way a real publish
+      # would — including on the ordering above, which is the failure most likely
+      # to be met by someone releasing for the first time.
+      - name: Dry run
+        if: steps.which.outputs.crate != ''
+        run: cargo publish --dry-run --locked --manifest-path "${{ steps.which.outputs.manifest }}"
+
+      # An additional distribution channel, not the release itself. The binaries
+      # published by release.yml are what the README and `yidam-build` resolve, so
+      # a missing token must not fail a release that otherwise succeeded — but it
+      # must be visible in the log rather than looking like a publish that happened.
+      - name: Publish
+        if: steps.which.outputs.crate != '' && startsWith(github.ref, 'refs/tags/')
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
+            echo "::warning::CARGO_REGISTRY_TOKEN is not configured — ${{ steps.which.outputs.crate }} was NOT published to crates.io."
+            echo "The dry run above passed, so the crate is publishable; add the secret and re-tag to ship it."
+            exit 0
+          fi
+          cargo publish --locked --manifest-path "${{ steps.which.outputs.manifest }}"
+          echo "published ${{ steps.which.outputs.crate }} ${{ steps.which.outputs.version }}"
