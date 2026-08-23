@@ -1,7 +1,9 @@
 mod authorship;
 mod claims;
 mod cmd;
-#[cfg(feature = "index")]
+// Not feature-gated. `.yidam/config.toml` carries `[lint] escalate_after`, and `lint` is
+// in the light `reports` binary — gating this on `index` made the corpus's own declaration
+// unreadable in the build most repositories actually install.
 mod config;
 pub mod deps;
 pub mod embed_config;

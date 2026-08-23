@@ -304,14 +304,42 @@ pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
     }
 }
 
-/// For every node present at HEAD, the commit timestamp since which nothing has pointed at
-/// it — absent when something points at it now.
+/// How long a corpus-state condition has held, for one node.
+///
+/// **Commits, not days.** [`super::orphan_in_dated`] reports a *date* and deliberately not
+/// an age, because an age in days is a function of when you ask: the same corpus renders
+/// differently tomorrow and no golden can pin it. A count of commits has neither problem —
+/// it is a function of HEAD, so it is reproducible from the repository alone, and it is the
+/// unit the measurement document argues in ("a node uncited for five commits is a sweep in
+/// progress; one uncited for two hundred is over-collection").
+///
+/// **Corpus-touching commits.** The replay visits only commits that changed
+/// `.yidam/corpus`, and those are the only commits that could have changed whether a node
+/// is cited. A commit that touched nothing here is not evidence that the condition
+/// survived scrutiny, so counting it would inflate every age in a repository that also
+/// holds code — which is every repository bootstrapped in existing-repo mode.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Age {
+    /// The commit at which the condition first held.
+    pub sha: String,
+    /// That commit's timestamp. The date half of the finding, unchanged.
+    pub ts: i64,
+    /// Corpus-touching commits it has held for, counting the one at HEAD.
+    pub commits: usize,
+}
+
+/// For every node present at HEAD, how long nothing has pointed at it — absent when
+/// something points at it now.
 ///
 /// A node that has never been cited dates from the commit that added it. A node cited and
 /// later orphaned dates from the commit that removed the last edge into it, which is the
 /// distinction node age cannot draw.
-pub fn uncited_since(root: &Path) -> HashMap<String, i64> {
-    let mut since: HashMap<String, i64> = HashMap::new();
+pub fn uncited_age(root: &Path) -> HashMap<String, Age> {
+    // Value is (sha, ts, index of the frame at which it went uncited). The index becomes a
+    // count once the walk is over and the total is known; it cannot be a count while the
+    // walk is running, because the walk does not know how many frames are left.
+    let mut since: HashMap<String, (String, i64, usize)> = HashMap::new();
+    let mut frames = 0usize;
     replay(root, |f| {
         for node in f.out.keys() {
             if f.cited.contains(node) {
@@ -319,12 +347,29 @@ pub fn uncited_since(root: &Path) -> HashMap<String, i64> {
                 since.remove(node);
             } else {
                 // Uncited now. Keep the earliest commit at which that became true.
-                since.entry(node.clone()).or_insert(f.ts);
+                since
+                    .entry(node.clone())
+                    .or_insert((f.sha.to_string(), f.ts, frames));
             }
         }
         since.retain(|n, _| f.out.contains_key(n));
+        frames += 1;
     });
     since
+        .into_iter()
+        .map(|(node, (sha, ts, first))| {
+            (
+                node,
+                Age {
+                    sha,
+                    ts,
+                    // HEAD inclusive: a condition that first held at the last frame has
+                    // held for one commit, not zero.
+                    commits: frames - first,
+                },
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -430,9 +475,9 @@ mod tests {
         node(root, "concept/b.yml", "class: concept\nlinks: []\n");
         commit(root, "2026-01-05", "revise: b no longer cites a");
 
-        let since = uncited_since(root);
+        let since = uncited_age(root);
         assert_eq!(
-            since.get(".yidam/corpus/concept/a.yml").map(|t| day(*t)),
+            since.get(".yidam/corpus/concept/a.yml").map(|a| day(a.ts)),
             Some("2026-01-05".to_string()),
             "dates from the orphaning, not from authorship: {since:?}"
         );
@@ -451,13 +496,13 @@ mod tests {
         node(root, "concept/b.yml", "class: concept\nlinks: []\n");
         commit(root, "2026-01-09", "establish: b");
 
-        let since = uncited_since(root);
+        let since = uncited_age(root);
         assert_eq!(
-            since.get(".yidam/corpus/concept/a.yml").map(|t| day(*t)),
+            since.get(".yidam/corpus/concept/a.yml").map(|a| day(a.ts)),
             Some("2026-01-01".to_string())
         );
         assert_eq!(
-            since.get(".yidam/corpus/concept/b.yml").map(|t| day(*t)),
+            since.get(".yidam/corpus/concept/b.yml").map(|a| day(a.ts)),
             Some("2026-01-09".to_string())
         );
     }
@@ -481,7 +526,7 @@ mod tests {
         );
         commit(root, "2026-01-06", "revise: b cites a");
 
-        let since = uncited_since(root);
+        let since = uncited_age(root);
         assert!(
             !since.contains_key(".yidam/corpus/concept/a.yml"),
             "a is cited now and must carry no date: {since:?}"
@@ -505,11 +550,162 @@ mod tests {
         node(root, "concept/b.yml", "class: concept\nlinks: []\n");
         commit(root, "2026-01-03", "withdraw: a; establish: b");
 
-        let since = uncited_since(root);
+        let since = uncited_age(root);
         assert!(
             !since.contains_key(".yidam/corpus/concept/a.yml"),
             "{since:?}"
         );
         assert!(since.contains_key(".yidam/corpus/concept/b.yml"));
+    }
+
+    // ── residence time ────────────────────────────────────────────────────────
+
+    /// The count is what the date cannot say. Three nodes orphaned on the same day, at
+    /// different points in the history, are indistinguishable by date and ordered by this.
+    #[test]
+    fn the_commit_count_separates_findings_the_date_cannot() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init(root);
+
+        node(root, "concept/hub.yml", "class: concept\nlinks: []\n");
+        node(root, "concept/old.yml", "class: concept\nlinks: []\n");
+        commit(root, "2026-01-01", "establish: hub and old");
+        for i in 1..=3 {
+            node(
+                root,
+                &format!("concept/f{i}.yml"),
+                "class: concept\nlinks: []\n",
+            );
+            commit(root, "2026-01-01", &format!("scope: filler {i}"));
+        }
+
+        let ages = uncited_age(root);
+        let commits = |n: &str| {
+            ages.get(&format!(".yidam/corpus/concept/{n}.yml"))
+                .unwrap()
+                .commits
+        };
+
+        // Every one of them is uncited "since 2026-01-01" — the date is the same for all
+        // five and orders none of them.
+        assert_eq!(
+            ages.values()
+                .map(|a| day(a.ts))
+                .collect::<std::collections::HashSet<_>>(),
+            std::collections::HashSet::from(["2026-01-01".to_string()])
+        );
+        // Four frames: the genesis and three fillers.
+        assert_eq!(commits("old"), 4, "present since the first frame");
+        assert_eq!(commits("f1"), 3);
+        assert_eq!(commits("f3"), 1, "arrived at HEAD — one commit, not zero");
+    }
+
+    /// A commit that did not touch the corpus is not evidence that a finding survived
+    /// anything, and counting it would inflate every age in a repository that also holds
+    /// code — which is every repository bootstrapped in existing-repo mode.
+    #[test]
+    fn commits_that_miss_the_corpus_do_not_age_a_finding() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init(root);
+
+        node(root, "concept/a.yml", "class: concept\nlinks: []\n");
+        commit(root, "2026-01-01", "establish: a");
+        for i in 1..=5 {
+            std::fs::write(root.join(format!("src{i}.rs")), "fn main() {}\n").unwrap();
+            commit(root, "2026-01-02", &format!("build: unrelated {i}"));
+        }
+
+        let ages = uncited_age(root);
+        assert_eq!(
+            ages[".yidam/corpus/concept/a.yml"].commits, 1,
+            "five commits landed and none of them could have cited anything"
+        );
+    }
+
+    /// The clock restarts, rather than pausing, when a citation comes back and goes away
+    /// again. Otherwise a node briefly wired up would keep reporting its original age.
+    #[test]
+    fn a_restored_and_relost_citation_restarts_the_count() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init(root);
+
+        node(root, "concept/a.yml", "class: concept\nlinks: []\n");
+        node(root, "concept/b.yml", "class: concept\nlinks: []\n");
+        commit(root, "2026-01-01", "establish: a and b");
+        commit_touching(root, "2026-01-02", "scope: a widening pass");
+
+        // b cites a, then stops.
+        node(
+            root,
+            "concept/b.yml",
+            "class: concept\nlinks:\n  - target: ../concept/a.yml\n",
+        );
+        commit(root, "2026-01-03", "revise: b cites a");
+        node(root, "concept/b.yml", "class: concept\nlinks: []\n");
+        commit(root, "2026-01-04", "revise: b no longer cites a");
+
+        let ages = uncited_age(root);
+        let a = &ages[".yidam/corpus/concept/a.yml"];
+        assert_eq!(day(a.ts), "2026-01-04", "dates from the second orphaning");
+        assert_eq!(a.commits, 1, "and counts from it too, not from the first");
+    }
+
+    /// A touch that changes nothing about citation still advances the count: the corpus was
+    /// worked on and this node was not linked.
+    fn commit_touching(dir: &Path, day: &str, msg: &str) {
+        node(
+            dir,
+            "concept/filler.yml",
+            &format!("class: concept\nlabel: {msg}\nlinks: []\n"),
+        );
+        commit(dir, day, msg);
+    }
+
+    /// The sha is not decoration: it is the commit a reader runs `git show` on to see what
+    /// removed the last edge. Asserted against `git rev-parse` rather than pinned in a
+    /// golden, where forty opaque characters would match any other forty.
+    #[test]
+    fn the_dated_commit_is_the_one_that_orphaned_the_node() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init(root);
+
+        node(root, "concept/a.yml", "class: concept\nlinks: []\n");
+        node(
+            root,
+            "concept/b.yml",
+            "class: concept\nlinks:\n  - target: ../concept/a.yml\n",
+        );
+        commit(root, "2026-01-01", "establish: a, cited by b");
+
+        node(root, "concept/b.yml", "class: concept\nlinks: []\n");
+        commit(root, "2026-01-05", "revise: b no longer cites a");
+        let orphaning = rev_parse(root, "HEAD");
+
+        // A later commit that touches the corpus without changing what points at `a`.
+        node(root, "concept/c.yml", "class: concept\nlinks: []\n");
+        commit(root, "2026-01-07", "establish: c");
+
+        let ages = uncited_age(root);
+        let a = &ages[".yidam/corpus/concept/a.yml"];
+        assert_eq!(a.sha, orphaning, "the commit that severed the last edge");
+        assert_ne!(
+            a.sha,
+            rev_parse(root, "HEAD"),
+            "not simply the newest commit"
+        );
+        assert_eq!(a.commits, 2, "the orphaning and the commit after it");
+    }
+
+    fn rev_parse(dir: &Path, rev: &str) -> String {
+        let out = Command::new("git")
+            .current_dir(dir)
+            .args(["rev-parse", rev])
+            .output()
+            .unwrap();
+        String::from_utf8(out.stdout).unwrap().trim().to_string()
     }
 }

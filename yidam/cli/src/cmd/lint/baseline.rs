@@ -35,7 +35,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use super::model::{Check, Severity};
+use super::model::Check;
 
 const HEADER: &str = "\
 # Known error-severity lint violations — this corpus's inherited debt.
@@ -106,17 +106,22 @@ impl Baseline {
     pub fn from_checks(checks: &[Check]) -> Self {
         let mut violations: BTreeMap<String, Vec<Entry>> = BTreeMap::new();
         for check in checks {
-            if check.severity != Severity::Error || check.passed() {
-                continue;
-            }
+            // Per violation, not per check: residence time can escalate one finding of an
+            // Info check without escalating its siblings, and the baseline records what
+            // gates. Reading `check.severity` here would have quietly recorded none of
+            // them — or, for a check whose base severity is Error, all of them.
             let mut entries: Vec<Entry> = check
                 .violations
                 .iter()
+                .filter(|v| check.gates(v))
                 .map(|v| Entry {
                     node: v.node.clone(),
                     detail: v.detail.clone(),
                 })
                 .collect();
+            if entries.is_empty() {
+                continue;
+            }
             // Sorted so the file is stable across runs — a baseline that reorders itself
             // produces a diff on every bless and teaches people to ignore the diff.
             entries.sort_by(|a, b| a.node.cmp(&b.node));
@@ -156,11 +161,8 @@ pub fn diff(checks: &[Check], baseline: &Baseline) -> Diff {
         .collect();
 
     for check in checks {
-        if check.severity != Severity::Error {
-            continue;
-        }
         let pool = remaining.entry(check.id).or_default();
-        for v in &check.violations {
+        for v in check.violations.iter().filter(|v| check.gates(v)) {
             match pool.iter().position(|e| e.node == v.node) {
                 Some(i) => {
                     pool.remove(i);
@@ -184,6 +186,7 @@ pub fn diff(checks: &[Check], baseline: &Baseline) -> Diff {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cmd::lint::model::Severity;
     use crate::cmd::lint::model::Violation;
 
     fn err_check(id: &'static str, nodes: &[&str]) -> Check {

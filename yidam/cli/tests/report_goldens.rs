@@ -142,7 +142,36 @@ fn redact(out: &str, root: &Path) -> String {
             &format!("\"commit\": \"{}\"", env!("YIDAM_BUILD_COMMIT")),
             "\"commit\": \"<COMMIT>\"",
         );
-    redact_features(&redacted)
+    redact_features(&redact_first_commit(&redacted))
+}
+
+/// Collapse `first_commit` — the commit a corpus-state finding dates from — to a
+/// placeholder.
+///
+/// It is genuinely reproducible: `apply_recipe` fixes the author, the committer, both dates
+/// and every byte of content, so the fixture's shas are the same on every machine. It is
+/// redacted anyway, for the reason the module header gives about the feature set. A sha is
+/// an opaque forty characters that changes whenever `stage.toml` gains a commit *before*
+/// this one, so pinning it here would put an unreadable hex diff in front of whoever next
+/// extends the fixture — and would say nothing about whether the sha is the right one,
+/// since any sha matches any other sha's shape.
+///
+/// The property it would have pinned is stated where it can be checked exactly instead:
+/// `history::tests::the_dated_commit_is_the_one_that_orphaned_the_node` asserts the sha
+/// against `git rev-parse` on a repository built for the purpose.
+fn redact_first_commit(out: &str) -> String {
+    let key = "\"first_commit\": \"";
+    let mut result = String::with_capacity(out.len());
+    let mut rest = out;
+    while let Some(start) = rest.find(key) {
+        let after = start + key.len();
+        let end = after + rest[after..].find('"').unwrap_or(0);
+        result.push_str(&rest[..after]);
+        result.push_str("<FIRST_COMMIT>");
+        rest = &rest[end..];
+    }
+    result.push_str(rest);
+    result
 }
 
 /// Collapse the `features` array to a placeholder, whatever it holds.

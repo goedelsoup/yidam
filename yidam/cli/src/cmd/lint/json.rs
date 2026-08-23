@@ -11,7 +11,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use super::baseline::{Baseline, Diff};
-use super::model::{Check, Severity};
+use super::model::Check;
 use crate::report::Span;
 
 #[derive(Debug, Serialize)]
@@ -50,7 +50,12 @@ pub struct StaleEntry {
 pub struct CheckOut {
     pub id: &'static str,
     pub title: &'static str,
-    /// `error` | `warn` | `info`. Only `error` gates, and only `error` is ever baselined.
+    /// `error` | `warn` | `info` — the severity the check is *declared* at.
+    ///
+    /// **Not necessarily the severity of its findings.** A dated finding can escalate past
+    /// this on residence time, so a consumer deciding how loudly to render one must read
+    /// [`ViolationOut::severity`]. This field says what the check is for; that one says
+    /// what happened.
     pub severity: &'static str,
     pub rationale: &'static str,
     pub violations: Vec<ViolationOut>,
@@ -62,6 +67,14 @@ pub struct ViolationOut {
     /// presence of `span`.
     pub node: String,
     pub detail: String,
+    /// This finding's own severity — the check's, unless residence time escalated it.
+    ///
+    /// Only `error` gates and only `error` is ever baselined, and after ageing that is a
+    /// question about the finding rather than about the check it belongs to.
+    pub severity: &'static str,
+    /// How long the condition has held. Present only for corpus-state findings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub age: Option<AgeOut>,
     /// Whether the committed baseline already records this violation.
     ///
     /// **Only meaningful when `severity` is `error`.** The baseline records error-severity
@@ -71,6 +84,21 @@ pub struct ViolationOut {
     pub in_baseline: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub span: Option<Span>,
+}
+
+/// How long a corpus-state finding has held.
+///
+/// Commits rather than days, deliberately: a day count is a function of when the report was
+/// run, so the same corpus answers differently tomorrow and no consumer can cache or pin
+/// it. A commit count is a function of HEAD. `first_commit` is the full sha of the commit
+/// at which the condition began, so a consumer can `git show` it.
+#[derive(Debug, Serialize)]
+pub struct AgeOut {
+    pub first_commit: String,
+    /// The `YYYY-MM-DD` of that commit — the same day the text report prints.
+    pub first_day: String,
+    /// Corpus-touching commits it has held for, counting the one at HEAD.
+    pub commits: usize,
 }
 
 /// Split a `path:line` node into its parts.
@@ -123,9 +151,6 @@ fn detail_needle(detail: &str) -> Option<&str> {
 /// twice against one baseline entry is one debt and one regression, not two of either. Any
 /// other accounting here would disagree with the gate it is reporting on.
 fn baselined_flags(check: &Check, baseline: &Baseline) -> Vec<bool> {
-    if check.severity != Severity::Error {
-        return vec![false; check.violations.len()];
-    }
     let mut pool: Vec<&str> = baseline
         .violations
         .get(check.id)
@@ -134,12 +159,19 @@ fn baselined_flags(check: &Check, baseline: &Baseline) -> Vec<bool> {
     check
         .violations
         .iter()
-        .map(|v| match pool.iter().position(|n| *n == v.node) {
-            Some(i) => {
-                pool.remove(i);
-                true
+        .map(|v| {
+            // Only a finding that gates can be in the baseline, and which findings gate is
+            // now a per-violation question — see `Check::severity_of`.
+            if !check.gates(v) {
+                return false;
             }
-            None => false,
+            match pool.iter().position(|n| *n == v.node) {
+                Some(i) => {
+                    pool.remove(i);
+                    true
+                }
+                None => false,
+            }
         })
         .collect()
 }
@@ -168,6 +200,16 @@ pub fn build(root: &Path, all: &[Check], baseline: &Baseline, d: &Diff) -> LintR
                     .map(|(i, v)| ViolationOut {
                         node: v.node.clone(),
                         detail: v.detail.clone(),
+                        severity: check.severity_of(v).as_str(),
+                        age: v.age.as_ref().map(|a| AgeOut {
+                            first_commit: a.sha.clone(),
+                            first_day: crate::cmd::export::unix_to_iso(a.ts as u64)
+                                .split('T')
+                                .next()
+                                .unwrap_or_default()
+                                .to_string(),
+                            commits: a.commits,
+                        }),
                         in_baseline: f[i],
                         span: span_for(root, &v.node, &v.detail),
                     })
@@ -197,7 +239,7 @@ pub fn build(root: &Path, all: &[Check], baseline: &Baseline, d: &Diff) -> LintR
 #[cfg(test)]
 mod tests {
     use super::super::baseline::Entry;
-    use super::super::model::Violation;
+    use super::super::model::{Severity, Violation};
     use super::*;
 
     fn err_check(id: &'static str, nodes: &[&str]) -> Check {
