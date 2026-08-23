@@ -146,3 +146,38 @@ fn a_publish_without_a_token_fails_rather_than_passing() {
          must not look like one that did:\n{body}"
     );
 }
+
+/// The Linux tarballs must be linked against a glibc old enough to be worth serving.
+///
+/// A glibc binary runs on the version it was linked against or newer, and never on older.
+/// `ubuntu-latest` moved to 24.04 / glibc 2.39, so `cli/v0.2.0`'s Linux tarball downloaded,
+/// checksummed and installed on Debian 12 and then would not start. Every step of the
+/// install reported success; only running it failed.
+///
+/// The runner image *is* the floor — nothing else in the repository declares one — so a diff
+/// putting `ubuntu-latest` back would raise it silently.
+#[test]
+fn the_linux_release_builds_do_not_float_to_the_newest_glibc() {
+    let text = read(".github/workflows/release.yml");
+    let mut linux_targets = 0;
+    let mut os = None;
+    for line in text.lines().map(str::trim) {
+        if let Some(t) = line.strip_prefix("- target: ") {
+            os = None;
+            if t.contains("linux-gnu") {
+                linux_targets += 1;
+                os = Some(t.to_string());
+            }
+        } else if let (Some(target), Some(runner)) = (&os, line.strip_prefix("os: ")) {
+            assert_ne!(
+                runner, "ubuntu-latest",
+                "{target} builds on ubuntu-latest, whose glibc rises without a diff; pin the \
+                 runner so the binary's minimum glibc is a decision and not a default"
+            );
+        }
+    }
+    assert!(
+        linux_targets > 0,
+        "release.yml builds no *-linux-gnu target; this test is guarding nothing"
+    );
+}

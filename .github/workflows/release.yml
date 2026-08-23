@@ -51,10 +51,23 @@ jobs:
             os: macos-latest
           - target: x86_64-apple-darwin
             os: macos-latest
+          # ── ubuntu-22.04, not ubuntu-latest ──────────────────────────
+          #
+          # A glibc binary runs on the glibc it was LINKED against or newer, and
+          # never on older. ubuntu-latest is 24.04 / glibc 2.39, so the tarball
+          # `install.sh` served for `cli/v0.2.0` died on Debian 12 with
+          # `version GLIBC_2.39 not found` — a successful download, a verified
+          # checksum, an installed binary, and no way to run it. Found by
+          # install-channels.yml on its first run; nothing before it looked.
+          #
+          # 22.04 is glibc 2.35, which clears Debian 12 (2.36), Ubuntu 22.04,
+          # and RHEL 9 (2.34 — still below, and out of scope until someone asks).
+          # The floor is the runner image and nothing else declares it, so moving
+          # this line to `ubuntu-latest` silently raises it again.
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-22.04
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-22.04
             # `gcc-aarch64-linux-gnu` is the cross C compiler, not only the
             # linker. Both halves are used: the linker for the final artifact,
             # the compiler for ring's vendored C. If a dependency ever needs a
