@@ -3,6 +3,7 @@ mod claims;
 mod cmd;
 #[cfg(feature = "index")]
 mod config;
+pub mod deps;
 pub mod embed_config;
 mod git;
 mod markdown;

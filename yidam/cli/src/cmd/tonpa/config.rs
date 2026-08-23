@@ -1,40 +1,14 @@
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::path::Path;
 
 // ── tonpa.toml ────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize, Serialize, Default)]
-pub struct TonpaConfig {
-    pub package: Option<PackageMeta>,
-    #[serde(default)]
-    pub dependencies: BTreeMap<String, Dependency>,
-    pub index: Option<IndexConfig>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct PackageMeta {
-    pub name: String,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct Dependency {
-    pub url: Option<String>,
-    pub github: Option<String>,
-    pub tag: Option<String>,
-    pub path: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct IndexConfig {
-    #[serde(default = "default_true")]
-    pub merge_imported_index: bool,
-}
-
-fn default_true() -> bool {
-    true
-}
+// The config shapes live in `crate::deps`, not here. They were defined in this module when
+// only the fetching commands read them; the read layer needs them too, and two definitions of
+// "what this repository depends on" is exactly the drift this repository keeps finding in
+// other people's code.
+pub use crate::deps::{Dependency, TonpaConfig};
 
 // ── tonpa.lock ────────────────────────────────────────────────────────────────
 
