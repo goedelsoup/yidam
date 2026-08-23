@@ -123,6 +123,69 @@ jobs:
       # runner that reads it.
       - run: mise run parity
 
+  cross:
+    # The aarch64 Linux cross-compile, which nothing has ever run.
+    #
+    # `release.yml` builds this target and fires on `cli/v*` and workflow_dispatch
+    # only, so no pull request and no push to main has ever compiled it. That was
+    # survivable while the light build was pure Rust. #203 put `tonpa` in the
+    # default set, which put a TLS stack in it, and rustls needs `ring` — C and
+    # assembly, vendored in the crate, built by cc-rs with the cross-compiler.
+    # The reasoning that this cross-compiles cheaply is written down beside the
+    # release matrix, is plausible, and had never been executed. `cli/v0.2.0`
+    # predates the change.
+    #
+    # It runs on pull requests, unlike cli-full. cli-full is excluded because it
+    # is heavy — protoc, an ONNX runtime, SQLite from source. This is the light
+    # default set for one extra target: the same dependency graph the `ci (cli)`
+    # job already builds, compiled for a different machine. The thing it guards
+    # against is a dependency change that cross-compiles on nobody's laptop and
+    # is discovered mid-release, on the tag, which is the most expensive moment
+    # to find it and the only one left if this job waits for main.
+    #
+    # It must stay a mirror of release.yml's matrix row for this target — same
+    # linker, same CC_*, same --locked, same absence of --features. A test
+    # asserts that; drift between them is a green check for a build nobody ships.
+    name: ci (cli · aarch64 cross-compile)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+      # The cross C compiler, not only the linker. Both halves are used: the
+      # linker for the final artifact, the compiler for ring's vendored C.
+      - name: Install cross-linker
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: yidam/cli
+          key: cross-aarch64
+      # Named rather than inferred, for the reason release.yml gives: cc-rs
+      # guesses `<target>-gcc`, and a guess that falls back to the host compiler
+      # produces host objects for an aarch64 link.
+      - name: Build
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+        run: |
+          cargo build --release --locked \
+            --manifest-path yidam/cli/Cargo.toml \
+            --target aarch64-unknown-linux-gnu
+      # A successful link is already good evidence that ring was built for the
+      # right architecture. This says so out loud, because "it compiled" and "it
+      # compiled for aarch64" are not the same claim and only one of them is
+      # worth a green check.
+      - name: It must be an aarch64 binary
+        run: |
+          set -euo pipefail
+          bin=yidam/cli/target/aarch64-unknown-linux-gnu/release/yidam
+          file "$bin"
+          file "$bin" | grep -q 'ARM aarch64' || {
+            echo "::error::$bin is not an aarch64 binary — cc-rs likely fell back to the host compiler"
+            exit 1
+          }
+
   cli-full:
     # Full-feature CLI (index/sqlite/rdf/tonpa) — heavy: fastembed + lancedb +
     # protoc + from-source SQLite. Runs on main push + the weekly schedule only,
