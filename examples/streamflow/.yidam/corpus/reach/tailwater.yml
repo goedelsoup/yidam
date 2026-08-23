@@ -1,0 +1,21 @@
+class: reach
+label: Tailwater reach
+description: |
+  The segment immediately below the impoundment, where discharge is set by the outlet works
+  rather than by the catchment. [verified] Thermal and flow regime both depart sharply from
+  the unregulated condition here.
+
+  It is the reach where every statistic in this corpus is most likely to be misread, because
+  everything it measures is an operating decision wearing the units of a natural process.
+  [inference]
+properties:
+  length_km: "~6"
+  regulated: "yes — discharge set by outlet works"
+  claim_tag: inference
+links:
+  - target: ../reach.ont.yml
+    relationship: instance-of
+  - target: ../gage/canyon-outlet.yml
+    relationship: measured-by
+  - target: ../concept/hydropeaking.yml
+    relationship: exhibits

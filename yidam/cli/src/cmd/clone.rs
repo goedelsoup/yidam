@@ -21,7 +21,12 @@ pub fn clone(target: &Path) -> Result<()> {
     // Leave yidam's own docs/ (the RFC set and docs-site source) behind — it documents
     // yidam, not the repo being created. `sadhana/docs/` is a different directory at a
     // different depth and must ship: step 3 of the bootstrap skill reads it.
-    copy_dir_excluding_top(&root, target, &["docs"])?;
+    //
+    // `examples/` likewise. It holds a whole worked corpus — its own `.yidam/corpus`,
+    // catalog, decisions and skills — and copying it would deposit a foreign domain's
+    // nodes into a repository at the moment of its creation, before its own ontology
+    // exists. A newcomer reads the example in yidam; they do not inherit it.
+    copy_dir_excluding_top(&root, target, &["docs", "examples"])?;
 
     provenance.write(target)?;
     println!(

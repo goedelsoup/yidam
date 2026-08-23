@@ -1,0 +1,28 @@
+class: reach
+label: Reach
+description: |
+  A bounded segment of river channel, delimited by its upstream and downstream ends, treated
+  as one unit for measurement and regulation.
+properties:
+  - name: length_km
+    type: string
+    description: Approximate channel length, in kilometres.
+  - name: regulated
+    type: string
+    description: Whether flow in this reach is controlled by an upstream structure.
+  - name: claim_tag
+    type: claim
+    description: The evidence standing of this node, as a tag rather than as prose.
+edges:
+  - relationship: measured-by
+    target: gage
+    direction: out
+    description: A gage whose record describes flow in this reach.
+  - relationship: exhibits
+    target: concept
+    direction: out
+    description: A flow behaviour or regime this reach displays.
+  - relationship: downstream-of
+    target: reach
+    direction: out
+    description: The reach immediately upstream of this one.

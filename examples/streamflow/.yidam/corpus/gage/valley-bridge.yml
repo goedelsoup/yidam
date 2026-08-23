@@ -1,0 +1,24 @@
+class: gage
+label: Valley Bridge gage
+description: |
+  The downstream station, far enough below the canyon that tributary inflow is material.
+  Stage recorded continuously, discharge by rating curve. [verified]
+
+  Its usefulness here is as a contrast: the operating signal visible at Canyon Outlet is
+  attenuated by the time it reaches this station, so the difference between the two records
+  is a rough measure of how far downstream the regulation regime persists. [inference] How
+  far is a live question — the attenuation depends on channel storage this corpus has not
+  characterised. [open]
+
+  Illustrative, as above.
+properties:
+  parameter: "00060"
+  units: cubic feet per second
+  claim_tag: inference
+links:
+  - target: ../gage.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/usgs-nwis.md
+    relationship: sourced-from
+  - target: ../concept/base-flow-separation.yml
+    relationship: sources-from

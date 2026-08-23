@@ -1,0 +1,17 @@
+id: three-classes
+summary: The ontology is reach, gage, and concept — measurement is not a class.
+context: |
+  The genesis dialogue proposed a fourth class for individual observations, so that a
+  discharge value could be a node with its own edges and provenance.
+decision: |
+  Three classes. A measurement is a property of a gage's record, reached through the
+  connector, and never a corpus node.
+rationale: |
+  A corpus node is something a person authored and a sangha can be accountable for. A
+  15-minute discharge value is neither: there are millions of them, they are revised
+  upstream without notice, and nobody deliberates about one. Admitting them would have made
+  the graph mostly machine output, and every corpus metric would then have measured the
+  connector's throughput rather than the inquiry.
+
+  The cost is real — a claim about a specific observation has nowhere to hang, and must be
+  written into the gage node in prose. That was judged the cheaper failure.

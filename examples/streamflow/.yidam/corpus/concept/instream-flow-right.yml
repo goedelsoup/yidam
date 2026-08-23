@@ -1,0 +1,22 @@
+class: concept
+label: Instream flow right
+description: |
+  A water right whose beneficial use is water remaining in the channel rather than water
+  diverted from it. In several western United States jurisdictions such rights are held by a
+  state agency rather than by a private appropriator. [verified]
+
+  It is the point where this corpus's hydrology meets its law: the right is defined by a
+  flow quantity at a location, so it is only as meaningful as the record at that location.
+  A right written against a statistic nobody can recompute is unenforceable in practice.
+  [inference]
+
+  What quantity a right should be written against — a low-flow statistic, a seasonal
+  hydrograph, or a rate-of-change limit — is a live question and this corpus does not
+  resolve it. [open]
+properties:
+  claim_tag: open
+links:
+  - target: ../concept.ont.yml
+    relationship: instance-of
+  - target: ./low-flow.yml
+    relationship: refines
