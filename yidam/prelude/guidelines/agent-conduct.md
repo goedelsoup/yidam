@@ -241,6 +241,38 @@ stating a fact at `[verified]` and refusing the inference from it one sentence l
 tag-only gate passes that. **Those refusal sentences are among the most valuable text a
 corpus holds, and until something reads them, nothing does.**
 
+## When claims arrive from another repository
+
+The mirror of the section above. A repository can declare a dependency on another corpus —
+a `.yiz` bundle, fetched and pinned — and from then on `retrieve` returns nodes this sangha
+never settled, beside nodes it did.
+
+**Check `origin` on every result.** It is the package name for a foreign node and `null` for
+a local one, and it is always present. A foreign node's id is qualified — `pkg::class/name` —
+and its path points into `.yidam/tonpa/<pkg>/`, not into this corpus.
+
+**A foreign node may be read. It may not be an edge target.** An edge is a claim and the
+constitution governs who may assert one; a citation into a corpus with a different ontology,
+its own electors, and its own revision history is a different object. The tooling enforces
+this — no local edge resolves across the boundary, and traversal does not cross it — so the
+part that needs you is what you do instead: **put what you took into a local node, in this
+corpus's terms, tagged at this corpus's standard, saying in prose where it came from.** That
+local node is the thing this sangha becomes accountable for.
+
+**A foreign tag is the producer's tag.** `[verified]` in a dependency means *that* corpus's
+electors accepted *that* provenance. It does not transfer, and you cannot check it: a bundle
+carries `corpus/`, `skills/` and `decisions/` — no sangha, no elector register, no resolution
+history. You receive conclusions without the apparatus that made them accountable. The rule
+that a derived assertion travels only as far as the weakest claim beneath it still holds, and
+across this boundary "weakest" is genuinely unknown.
+
+**A shared class name is not agreement.** Classes are named per-corpus. A `concept/risk`
+there and a `concept/risk` here are two nodes sharing a string. That is a question worth
+investigating, not an identity.
+
+**A stale dependency is a normal state, not a finding.** It is pinned deliberately. Where its
+currency bears on a conclusion, say which pin you read.
+
 ## The safeguards were built against carelessness, not against interest
 
 Worth stating plainly, because it is the finding that generalizes furthest and the one
