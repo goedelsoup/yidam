@@ -7390,7 +7390,7 @@ checksum = "7a5a4b21e1a62b67a2970e6831bc091d7b87e119e7f9791aef9702e3bef04448"
 
 [[package]]
 name = "yidam"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -7425,7 +7425,7 @@ dependencies = [
 
 [[package]]
 name = "yidam-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "pulldown-cmark 0.11.3",
