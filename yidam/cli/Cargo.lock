@@ -7407,6 +7407,7 @@ dependencies = [
  "oxttl",
  "pulldown-cmark 0.11.3",
  "quick-xml 0.37.5",
+ "regex",
  "reqwest",
  "rusqlite",
  "serde",

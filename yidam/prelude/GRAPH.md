@@ -102,6 +102,39 @@ still `edge-target-class`'s question, and that check does not read the policy at
 declares them, so the licensing checks read only links landing on another corpus instance.
 A link that resolves to nothing is `dangling-edge`'s finding and is not reported twice.
 
+### Properties every class may carry
+
+`.yidam/corpus/universal.yml` is the corpus speaking about itself rather than about one of
+its classes. It is absent from most corpora, and exists because two shapes were measured
+that no per-class declaration handles:
+
+```yaml
+properties:
+  - name: seeded_because
+    type: text
+    description: Why this node is in the corpus at all
+  - pattern: '^fy\d{4}(_\d{2})?_[a-z0-9_]+$'
+    type: text
+    description: A fiscal year's figures, pasted onto the node they describe
+```
+
+A `name:` is apparatus that applies to every class — declaring it per class would be sixteen
+copies of one decision, and a seventeenth class would silently not have it. A `pattern:` is a
+self-describing family: a fiscal-year snapshot recurs, so it is not a typo, but declaring
+each by name would mean editing an ontology every July to permit next year's. Between them
+these were 29 of one derived corpus's 29 `undeclared-property` findings.
+
+**Universal does not mean untyped.** `property-type` checks these exactly as it checks a
+class's own, and a class declaring the same name wins — the more specific statement about
+its own instances. `missing-property` never reports one, because *any class may carry it* is
+not *every instance does*. Anchor a pattern: an unanchored one licenses every name that
+merely contains a match, and `undeclared-property` is what catches the next real typo.
+
+This is deliberately **not** a property-side `edge_policy`. The corpus that needed it
+measured its property vocabulary at 94% declared against its relationships at 68%, and wants
+the property gate; what it lacked was a way to say that two specific shapes are apparatus
+rather than schema.
+
 `missing-property` reports and does not gate. The property declaration has no `required`
 field, so it cannot distinguish *every instance has this* from *an instance may have this* —
 and a node carrying no `claim_tag` is a real state, not a defect. Its siblings gate on
@@ -118,7 +151,10 @@ validator or CI step that never links against yidam.
 
 The compiled schema is **no stricter than the checks above**. Declared properties are typed
 but never `required`, because `missing-property` does not gate. The property bag is closed,
-because `undeclared-property` does. Relationships are published for completion under
+because `undeclared-property` does — and every universal property is folded into it, by name
+or as `patternProperties`, so the editor accepts exactly what the gate accepts. A schema that
+stayed strict where the gate had relaxed would underline a field the build is happy with,
+which is the same drift arriving from the direction nobody watches. Relationships are published for completion under
 `x-yidam-edges` rather than constrained, because whether an edge is licensed depends on
 where its target resolves and no schema can see that.
 

@@ -31,6 +31,11 @@ clap = { version = "4", features = ["derive"] }
 flate2 = "1"
 tar = "0.4"
 walkdir = "2"
+# Property-name patterns in `.yidam/corpus/universal.yml`, written in the same regex
+# dialect as JSON Schema's `patternProperties`, so a pattern the gate honours is one
+# the published schema carries unchanged. Pure Rust — the light build stays free of
+# native libraries.
+regex = "1"
 pulldown-cmark = "0.11"
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"

@@ -175,6 +175,64 @@ pub fn corpus_ontology_schema() -> Value {
     })
 }
 
+/// Schema for `.yidam/corpus/universal.yml` — properties any class may carry.
+///
+/// The corpus speaking about itself rather than about one of its classes. Publishing the
+/// shape is what makes a malformed `pattern:` visible: the gate drops one it cannot compile
+/// and reports the property instead of crashing, which is the safe direction but a silent
+/// one, so the editor has to be the thing that says so.
+pub fn corpus_universal_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "yidam universal corpus properties",
+        "description": "Properties any class may carry, whatever its own ontology declares. \
+                        For apparatus that applies to every class — a field saying why a node \
+                        is in the corpus at all — and for self-describing families like a \
+                        fiscal-year snapshot, which recur but would mean editing every \
+                        ontology each year to permit the next one. Absent is the common case.",
+        "type": "object",
+        "properties": {
+            "properties": {
+                "type": "array",
+                "default": [],
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": non_empty_string(),
+                        "pattern": {
+                            "type": "string",
+                            "format": "regex",
+                            "description": "A regular expression over the property NAME, in \
+                                            the dialect `patternProperties` uses — the \
+                                            compiled class schemas carry it unchanged. \
+                                            Anchor it: an unanchored pattern licenses every \
+                                            name that merely contains a match."
+                        },
+                        "type": {
+                            "type": "string",
+                            "enum": ["string", "date", "ref", "text", "claim"],
+                            "description": "Universal does not mean untyped — `property-type` \
+                                            checks these exactly as it checks a class's own, \
+                                            and a class naming the same property wins."
+                        },
+                        "description": non_empty_string()
+                    },
+                    "required": ["type", "description"],
+                    // Exactly one of the two. A declaration naming neither matches nothing
+                    // and is dropped; one naming both would be two declarations wearing a
+                    // single `type`.
+                    "oneOf": [
+                        { "required": ["name"], "not": { "required": ["pattern"] } },
+                        { "required": ["pattern"], "not": { "required": ["name"] } }
+                    ],
+                    "additionalProperties": false
+                }
+            }
+        },
+        "additionalProperties": false
+    })
+}
+
 /// Schema for a catalog entry's frontmatter — `.yidam/catalog/<slug>.md`.
 pub fn catalog_entry_schema() -> Value {
     json!({
@@ -295,6 +353,11 @@ pub fn all() -> Vec<(&'static str, &'static str, Value)> {
             corpus_ontology_schema(),
         ),
         (
+            "corpus-universal.json",
+            ".yidam/corpus/universal.yml",
+            corpus_universal_schema(),
+        ),
+        (
             "catalog-entry.json",
             ".yidam/catalog/*.md",
             catalog_entry_schema(),
@@ -356,6 +419,12 @@ pub fn editor_settings_for(root: &Path) -> Value {
 /// than describing it.
 pub fn class_schemas(root: &Path) -> Vec<(String, String, Value)> {
     let corpus = crate::paths::yidam_corpus_dir(root);
+    // Folded into every compiled class, because the emitted schema must be **no stricter
+    // than the checks**. `undeclared-property` stopped reporting a universal property; a
+    // schema that still closed the bag against it would underline, in the editor, a field
+    // the gate accepts — which is precisely the drift compiling the ontology exists to
+    // prevent, arriving from the one direction nobody watches.
+    let universal = crate::universal::Universal::load(root);
     crate::walk::walk_ont_files(&corpus)
         .iter()
         .map(|path| {
@@ -377,7 +446,25 @@ pub fn class_schemas(root: &Path) -> Vec<(String, String, Value)> {
             // asserting a `const` no instance carries. Keyed by the stem it agrees with the
             // gate, which is the only agreement that matters.
             class.name = stem.to_string();
-            let schema = yidam_core::ontology::compile_class_schema(&class);
+            // Named universals join the class's own declarations before compiling, so the
+            // SDK still receives one class and knows nothing about a corpus-level file —
+            // the parity surface is unchanged. A class declaring the same name keeps its
+            // own, matching `property-type`, where the more specific statement wins.
+            for (name, property_type) in universal.named() {
+                if class.properties.iter().any(|p| p.name == name) {
+                    continue;
+                }
+                class
+                    .properties
+                    .push(yidam_core::ontology::OntologyProperty {
+                        name: name.to_string(),
+                        property_type: property_type.to_string(),
+                        description: "Declared for every class in .yidam/corpus/universal.yml"
+                            .to_string(),
+                    });
+            }
+            let mut schema = yidam_core::ontology::compile_class_schema(&class);
+            with_pattern_properties(&mut schema, &universal);
             (
                 format!("class/{}.json", class.name),
                 format!(".yidam/corpus/{}/*.yml", class.name),
@@ -385,6 +472,58 @@ pub fn class_schemas(root: &Path) -> Vec<(String, String, Value)> {
             )
         })
         .collect()
+}
+
+/// Carry the corpus's universal *patterns* into a compiled class schema.
+///
+/// Applied after [`yidam_core::ontology::compile_class_schema`] rather than inside it,
+/// which is the seam that keeps this out of the parity surface: the SDK compiles a class,
+/// and a pattern permitted across every class is not a fact about any one of them.
+///
+/// **Only where the bag is closed.** A class declaring no properties emits no
+/// `properties.properties` at all — silence is not a contract, and there is nothing there
+/// to widen. Writing one would close a bag the compiler deliberately left open.
+fn with_pattern_properties(schema: &mut Value, universal: &crate::universal::Universal) {
+    // Compile the pattern types **through the SDK** rather than re-deriving what each maps
+    // to: a synthetic class whose property names are the patterns themselves. The type
+    // mapping is private to `compile_class_schema` and should stay that way, and a second
+    // copy of it here would be a `date` accepting one thing in a class and another under a
+    // pattern — the exact drift compiling the ontology exists to prevent.
+    let synthetic = yidam_core::ontology::OntologyClass {
+        properties: universal
+            .patterns()
+            .map(
+                |(pattern, property_type)| yidam_core::ontology::OntologyProperty {
+                    name: pattern.to_string(),
+                    property_type: property_type.to_string(),
+                    description: "Permitted for every class by .yidam/corpus/universal.yml"
+                        .to_string(),
+                },
+            )
+            .collect(),
+        ..Default::default()
+    };
+    if synthetic.properties.is_empty() {
+        return;
+    }
+    let compiled = yidam_core::ontology::compile_class_schema(&synthetic);
+    let Some(patterns) = compiled
+        .get("properties")
+        .and_then(|p| p.get("properties"))
+        .and_then(|p| p.get("properties"))
+        .and_then(Value::as_object)
+        .cloned()
+    else {
+        return;
+    };
+    let Some(bag) = schema
+        .get_mut("properties")
+        .and_then(|p| p.get_mut("properties"))
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+    bag.insert("patternProperties".into(), Value::Object(patterns));
 }
 
 pub fn schema(print_settings: bool) -> Result<()> {
@@ -538,10 +677,23 @@ mod tests {
         let m = s["yaml.schemas"].as_object().unwrap();
         assert_eq!(
             m.len(),
-            3,
+            4,
             "catalog frontmatter lives in .md and is not mapped"
         );
-        assert!(m.contains_key("./.yidam/schemas/corpus-node.json"));
+        for f in [
+            "corpus-node.json",
+            "corpus-ontology.json",
+            // The corpus-level property declarations. Mapped for the reason the file
+            // exists at all: the gate drops a `pattern:` it cannot compile and reports the
+            // property instead, so the editor is the only thing that can say the pattern
+            // is the problem.
+            "corpus-universal.json",
+        ] {
+            assert!(
+                m.contains_key(&format!("./.yidam/schemas/{f}")),
+                "{f} should be mapped"
+            );
+        }
     }
 
     /// The requirement is the mechanism: a region with no addressee is a request for
