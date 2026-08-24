@@ -24,6 +24,7 @@ mod index_verify;
 pub(crate) mod lint;
 mod log;
 mod lsp;
+mod migrate;
 mod overlay;
 mod phases;
 mod regen;
@@ -63,6 +64,7 @@ pub use overlay::overlay;
 pub use phases::phases;
 pub use regen::regen;
 // `doctor` asks the same question `regen --check` asks, through the same generator list.
+pub use migrate::{migrate, Operation as MigrateOperation};
 pub(crate) use regen::stale_blocks;
 pub use registry::{agents_index, skills_index};
 pub use rename::rename;

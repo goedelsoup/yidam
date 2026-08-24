@@ -297,7 +297,9 @@ pub(crate) fn plan(root: &Path, corpus: &Path, old: &str, new: &str) -> RenameRe
     report
 }
 
-fn git_mv(root: &Path, from: &Path, to: &Path) -> bool {
+/// `pub(crate)` for `migrate`, which moves a whole class directory one instance at a time
+/// and wants history to follow each node for the same reason a rename does.
+pub(crate) fn git_mv(root: &Path, from: &Path, to: &Path) -> bool {
     std::process::Command::new("git")
         .current_dir(root)
         .arg("mv")

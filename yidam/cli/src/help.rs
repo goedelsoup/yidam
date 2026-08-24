@@ -96,6 +96,10 @@ pub const GROUPS: &[Group] = &[
             r("neighbors"),
             r("diff"),
             w("rename"),
+            // Beside `rename` and not with the gates: both move something and rewrite every
+            // reference to it. `rename` moves one node; this moves a class, a property, or
+            // the target of a relationship, which is the same operation one level up.
+            w("migrate"),
             r("log"),
             r("phases"),
             r("replay"),

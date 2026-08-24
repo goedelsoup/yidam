@@ -668,9 +668,14 @@ pub fn missing_property(nodes: &[Node], classes: &[Class]) -> Check {
 
 /// The declared types this check knows how to test.
 ///
+/// `pub(crate)` for `migrate`, which tests an instance's existing value against a *proposed*
+/// type before performing a retype. That has to be this predicate rather than a second
+/// reading of it: a migration disagreeing with the gate about what a valid value is would
+/// be a migration into a failing build.
+///
 /// Anything else is left alone rather than reported: a corpus is free to coin a type, and a
 /// check that failed on every type it had not heard of would make coining one impossible.
-fn property_type_violation(declared: &str, value: &serde_yaml::Value) -> Option<String> {
+pub(crate) fn property_type_violation(declared: &str, value: &serde_yaml::Value) -> Option<String> {
     let scalar = |v: &serde_yaml::Value| match v {
         serde_yaml::Value::String(s) => Ok(s.clone()),
         serde_yaml::Value::Null => Err("is empty".to_string()),
