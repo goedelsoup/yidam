@@ -18,6 +18,49 @@ pub struct Node {
     pub inst: CorpusInstance,
 }
 
+/// Whether a class's `edges:` list bounds what may be said about it, or merely describes it.
+///
+/// The distinction the ontology could not previously make, and the reason `unlicensed-edge`
+/// reported 210 errors against a corpus that was doing nothing wrong. A non-empty `edges:`
+/// says *these relationships exist*; on its own it does not say *and no others may*. Reading
+/// it as the second is the same over-reading [`Class::is_source_class`] refuses when it
+/// declines to treat an empty `edges:` as a contract — one field further in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EdgePolicy {
+    /// `edges:` names what the class is *defined by*. A relationship outside it is a
+    /// deliberate coinage, and not reported: the corpus was asked the question and answered
+    /// it. In the corpus that prompted this, 107 distinct undeclared relationships carried
+    /// 210 edges and `bears-on` alone carried 16 — a vocabulary, not a typo pile.
+    Characteristic,
+    /// The vocabulary is closed. Anything outside `edges:` is an error, because the class
+    /// said it would be.
+    Exhaustive,
+    /// The class has not said, which is every class written before the field existed.
+    ///
+    /// Reported, and does not gate. The typo case is real and worth seeing; gating on it
+    /// would enforce a contract nobody wrote. Measured in both directions before choosing:
+    /// of the three derived corpora, the two that declare no policy trip this check zero
+    /// times either way, and the one that declares `characteristic` on all 18 of its
+    /// classes drops from 210 errors to nothing.
+    #[default]
+    Unstated,
+}
+
+impl EdgePolicy {
+    /// Parse the declared value. An unrecognized one is [`EdgePolicy::Unstated`] rather
+    /// than an error, for the reason [`property_type_violation`] leaves an unknown type
+    /// alone: a check that failed on vocabulary it had not heard of would make coining any
+    /// impossible. `yidam schema` publishes the enum, so a typo is underlined in the editor
+    /// where it can be fixed as it is typed.
+    fn parse(raw: Option<&str>) -> Self {
+        match raw.map(str::trim) {
+            Some("characteristic") => Self::Characteristic,
+            Some("exhaustive") => Self::Exhaustive,
+            _ => Self::Unstated,
+        }
+    }
+}
+
 /// A class definition parsed once — `<class>.ont.yml`.
 pub struct Class {
     pub rel: String,
@@ -30,6 +73,8 @@ pub struct Class {
     pub properties: Vec<ClassProperty>,
     /// The relationships the class licenses, from whichever end authors them.
     pub edges: Vec<ClassEdge>,
+    /// Whether [`Self::edges`] is a bound or a description. See [`EdgePolicy`].
+    pub edge_policy: EdgePolicy,
 }
 
 /// One typed field a class declares.
@@ -85,6 +130,8 @@ struct ClassFields {
     properties: Vec<ClassProperty>,
     #[serde(default)]
     edges: Vec<ClassEdge>,
+    #[serde(default)]
+    edge_policy: Option<String>,
 }
 
 pub fn load_classes(root: &Path, paths: &[PathBuf], overlay: &super::Overlay) -> Vec<Class> {
@@ -102,6 +149,7 @@ pub fn load_classes(root: &Path, paths: &[PathBuf], overlay: &super::Overlay) ->
                     .unwrap_or_default(),
                 properties: fields.properties,
                 edges: fields.edges,
+                edge_policy: EdgePolicy::parse(fields.edge_policy.as_deref()),
             }
         })
         .collect()
@@ -717,8 +765,12 @@ pub(crate) fn property_type_violation(declared: &str, value: &serde_yaml::Value)
         },
         "date" => match scalar(value) {
             Err(why) => Some(why),
-            Ok(s) if is_iso_day(s.trim()) => None,
-            Ok(s) => Some(format!("`{}` is not a date — write `YYYY-MM-DD`", s.trim())),
+            Ok(s) if is_iso_date(s.trim()) => None,
+            Ok(s) => Some(format!(
+                "`{}` is not a date — write `YYYY-MM-DD`, or `YYYY-MM` or `YYYY` if that is \
+                 the precision it is known to",
+                s.trim()
+            )),
         },
         "string" | "text" | "ref" => match scalar(value) {
             Err(why) => Some(why),
@@ -729,16 +781,33 @@ pub(crate) fn property_type_violation(declared: &str, value: &serde_yaml::Value)
     }
 }
 
-/// `YYYY-MM-DD`, structurally. Not a calendar — `2024-02-31` passes and is somebody else's
-/// finding; what this catches is a date field carrying prose.
-fn is_iso_day(s: &str) -> bool {
+/// An ISO-8601 calendar date, structurally, **at whatever precision the corpus knows**:
+/// `YYYY`, `YYYY-MM`, or `YYYY-MM-DD`.
+///
+/// Not a calendar — `2024-02-31` passes and is somebody else's finding. What this catches is
+/// a date field carrying prose, and reduced precision is not prose. Requiring a full day
+/// rejected `formed: "1985"` 71 times in one derived corpus and `stated: "1991-06"` in
+/// another: a band formed in 1985, and the year is the precision the fact is actually known
+/// to. Demanding a month and a day there does not make the record more accurate, it makes it
+/// invented — and the check's own rationale had already said prose was the target.
+///
+/// The 45 findings that remain in that corpus are the ones worth having: `[open] No date.`,
+/// `1993. [inference], via [musicbrainz](../../catalog/musicbrainz.md) life-span.`
+fn is_iso_date(s: &str) -> bool {
     let mut parts = s.split('-');
+    // Year, then optionally month, then optionally day. A trailing separator leaves an
+    // empty part, which fails the width test rather than passing as absent — `1985-` is
+    // not a year.
     let widths = [4, 2, 2];
-    widths.iter().all(|w| {
-        parts
-            .next()
-            .is_some_and(|p| p.len() == *w && p.chars().all(|c| c.is_ascii_digit()))
-    }) && parts.next().is_none()
+    let mut seen = 0;
+    for w in widths {
+        match parts.next() {
+            None => break,
+            Some(p) if p.len() == w && p.chars().all(|c| c.is_ascii_digit()) => seen += 1,
+            Some(_) => return false,
+        }
+    }
+    seen > 0 && parts.next().is_none()
 }
 
 /// Property values that do not satisfy the type the class declares.
@@ -782,10 +851,19 @@ pub fn property_type(nodes: &[Node], classes: &[Class]) -> Check {
 
 /// Edges between instances that the authoring class does not license.
 ///
-/// Every relationship in a corpus is declared from one end or the other, and the class the
-/// instance belongs to is where it must appear. A relationship that appears in no
-/// declaration is either a typo or an edge the ontology has never heard of — and in both
-/// cases traversal by relationship silently misses it.
+/// A relationship appearing in no declaration is either a typo or a verb the corpus coined
+/// deliberately, and **the ontology is the only thing that can tell those apart**. A class
+/// declaring `edge_policy: exhaustive` has said its vocabulary is closed, so the finding is
+/// an error. A class declaring `characteristic` has said the opposite, and there is no
+/// finding. A class that has said neither gets a warning: the typo is worth seeing, and
+/// gating on it would enforce a contract nobody wrote.
+///
+/// The default was chosen by measuring rather than by taste. Reading a non-empty `edges:`
+/// as closed put 210 errors on a corpus whose 18 classes all declare `characteristic`,
+/// documented it, and enforce it in their own schema — 107 distinct relationships, of which
+/// `bears-on` alone carried 16. The two derived corpora that declare no policy trip this
+/// check zero times whichever way the default falls, so the permissive reading costs
+/// nothing that the strict one was buying.
 pub fn unlicensed_edge(nodes: &[Node], classes: &[Class]) -> Check {
     let by_name = classes_by_name(classes);
     let by_path = nodes_by_path(nodes);
@@ -794,7 +872,9 @@ pub fn unlicensed_edge(nodes: &[Node], classes: &[Class]) -> Check {
         let Some(class) = by_name.get(class_of(n).as_str()) else {
             continue;
         };
-        if class.edges.is_empty() {
+        // Silence about the *edges* is still silence, exactly as before: a class with no
+        // `edges:` has named no relationships, and a policy on an empty list bounds nothing.
+        if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic {
             continue;
         }
         for (link, _) in instance_links(n, &by_path) {
@@ -802,26 +882,44 @@ pub fn unlicensed_edge(nodes: &[Node], classes: &[Class]) -> Check {
             if class.edges.iter().any(|e| e.relationship == rel) {
                 continue;
             }
-            violations.push(Violation::new(
+            let v = Violation::new(
                 &n.rel,
                 format!(
-                    "`{}` is not a relationship `{}` declares",
+                    "`{}` is not a relationship `{}` declares{}",
                     if rel.is_empty() { "(none)" } else { rel },
-                    class.rel
+                    class.rel,
+                    match class.edge_policy {
+                        EdgePolicy::Exhaustive => ", whose vocabulary is `exhaustive`",
+                        // Names the way out, because the commonest reason to see this is a
+                        // corpus that coins verbs on purpose and has never been asked to
+                        // say so.
+                        _ => " — declare it, or set `edge_policy:` on the class",
+                    }
                 ),
-            ));
+            );
+            violations.push(match class.edge_policy {
+                EdgePolicy::Exhaustive => v.at(Severity::Error),
+                _ => v,
+            });
         }
     }
     Check::new(
         "unlicensed-edge",
         "Relationship the class does not declare",
-        Severity::Error,
-        "An edge is licensed by the class that authors it. A relationship appearing in no \
-         declaration is a typo or an edge the ontology has never heard of, and either way \
-         a traversal that walks by relationship will not find it. Only links landing on \
-         another instance are read — a link to the class file or into the catalog is a \
-         citation, not a relationship. A class that declares no `edges:` has said nothing \
-         and is not checked.",
+        // Warn is the level for a class that has not declared a policy, which is every
+        // class written before the field existed. `exhaustive` raises its own findings to
+        // Error per violation, so one corpus can hold both kinds at once.
+        Severity::Warn,
+        "An edge is licensed by the class that authors it, and `edge_policy:` says whether \
+         that list bounds the vocabulary or describes it. `exhaustive` closes it and makes \
+         anything outside an error; `characteristic` says an undeclared relationship is a \
+         deliberate coinage, and none are reported. A class that has said neither is warned \
+         about but not gated — a relationship in no declaration is worth seeing, because a \
+         traversal that walks by relationship will not find it, but a non-empty `edges:` on \
+         its own never claimed to be complete. Only links landing on another instance are \
+         read: a link to the class file or into the catalog is a citation, not a \
+         relationship. A class that declares no `edges:` has said nothing and is not \
+         checked.",
         violations,
     )
 }
@@ -1363,6 +1461,7 @@ mod tests {
             name: name.into(),
             properties: vec![],
             edges: vec![edge("cited-by", "recording", dir)],
+            edge_policy: EdgePolicy::default(),
         };
         let node = |class: &str, file: &str| Node {
             path: PathBuf::from(format!("corpus/{class}/{file}.yml")),
@@ -1397,6 +1496,7 @@ mod tests {
             name: "concept".into(),
             properties: vec![],
             edges: vec![],
+            edge_policy: EdgePolicy::default(),
         };
         assert!(!silent.is_source_class());
 
@@ -1704,6 +1804,7 @@ mod tests {
             // Declares an inbound edge, so instances are expected to be pointed at. The
             // source-class arm is exercised by `orphan_in`'s own tests.
             edges: vec![edge("cited-by", "concept", "in")],
+            edge_policy: EdgePolicy::default(),
         }
     }
 
@@ -1870,6 +1971,7 @@ mod tests {
             name: name.into(),
             properties: fields.properties,
             edges: fields.edges,
+            edge_policy: EdgePolicy::parse(fields.edge_policy.as_deref()),
         }
     }
 
@@ -1931,9 +2033,11 @@ edges:
         assert_eq!(missing_property(&nodes, &classes).violations.len(), 2);
     }
 
-    /// The severity split is load-bearing and easy to lose in a refactor: four checks
-    /// report the ontology being contradicted and gate; the fifth reports an omission,
-    /// which contradicts nothing the declaration actually says.
+    /// The severity split is load-bearing and easy to lose in a refactor. Three checks
+    /// report the ontology being contradicted and gate unconditionally; `missing-property`
+    /// reports an omission, which contradicts nothing the declaration actually says;
+    /// `unlicensed-edge` gates only where the class declared that it should, which is
+    /// pinned by [`the_three_edge_policies_are_three_different_answers`].
     #[test]
     fn only_the_omission_check_declines_to_gate() {
         let (nodes, classes) = gage_corpus("class: gage\nlinks: []\n");
@@ -1945,11 +2049,113 @@ edges:
         for c in [
             undeclared_property(&nodes, &classes),
             property_type(&nodes, &classes),
-            unlicensed_edge(&nodes, &classes),
             edge_target_class(&nodes, &classes),
         ] {
             assert_eq!(c.severity, Severity::Error, "{} must gate", c.id);
         }
+        assert_eq!(
+            unlicensed_edge(&nodes, &classes).severity,
+            Severity::Warn,
+            "an undeclared relationship gates only on a class that closed its vocabulary"
+        );
+    }
+
+    /// **The collision this field exists to resolve.** One corpus, one undeclared
+    /// relationship, three ontologies that differ in nothing but `edge_policy:` — and three
+    /// different answers, because the three say different things.
+    ///
+    /// Reported against a real derived corpus, where reading a non-empty `edges:` as closed
+    /// produced 210 errors across 107 distinct relationships on 18 classes that every one
+    /// declare `characteristic`, document it, and enforce it in their own schema.
+    #[test]
+    fn the_three_edge_policies_are_three_different_answers() {
+        let instance = "class: gage\nproperties:\n  parameter: \"00060\"\n  claim_tag: open\nlinks:\n  - target: ../concept/hydropeaking.yml\n    relationship: bears-on\n";
+        let with = |policy: &str| {
+            let (nodes, _) = gage_corpus(instance);
+            let classes = vec![
+                class_from("gage", &format!("{GAGE}{policy}")),
+                class_from("concept", "properties: []\nedges: []\n"),
+            ];
+            let c = unlicensed_edge(&nodes, &classes);
+            let gated = c.violations.iter().filter(|v| c.gates(v)).count();
+            (c.violations.len(), gated)
+        };
+
+        assert_eq!(
+            with("edge_policy: characteristic\n"),
+            (0, 0),
+            "`characteristic` says an undeclared relationship is a deliberate coinage — \
+             the corpus answered the question and there is nothing to report"
+        );
+        assert_eq!(
+            with("edge_policy: exhaustive\n"),
+            (1, 1),
+            "`exhaustive` closes the vocabulary, so the class asked for this gate"
+        );
+        assert_eq!(
+            with(""),
+            (1, 0),
+            "silence names the relationships that exist without claiming the list is \
+             complete — worth seeing, not a contract to gate on"
+        );
+    }
+
+    /// `characteristic` licenses an *undeclared* relationship. It says nothing about where a
+    /// **declared** one may land, and silencing that too would give up the one finding no
+    /// other check can produce — two of which were real in the corpus that reported this.
+    #[test]
+    fn a_characteristic_class_still_has_its_declared_targets_checked() {
+        let mut nodes = vec![
+            node(
+                ".yidam/corpus/gage/outlet.yml",
+                "class: gage\nlinks:\n  - target: ../gage/bridge.yml\n    relationship: sources-from\n",
+            ),
+            node(".yidam/corpus/gage/bridge.yml", "class: gage\nlinks: []\n"),
+        ];
+        nodes.sort_by(|a, b| a.rel.cmp(&b.rel));
+        let classes = vec![class_from(
+            "gage",
+            &format!("{GAGE}edge_policy: characteristic\n"),
+        )];
+        let c = edge_target_class(&nodes, &classes);
+        assert_eq!(c.violations.len(), 1, "{c:#?}");
+        assert!(c.gates(&c.violations[0]), "a false edge is still false");
+    }
+
+    /// A policy on an empty `edges:` bounds nothing. Silence about the relationships
+    /// outranks a statement about how to read them, or `edge_policy: exhaustive` on a class
+    /// that has named none would forbid every edge its instances draw.
+    #[test]
+    fn a_policy_without_edges_still_licenses_everything() {
+        let nodes = vec![
+            node(
+                ".yidam/corpus/reach/alpha.yml",
+                "class: reach\nlinks:\n  - target: ../reach/beta.yml\n    relationship: whatever\n",
+            ),
+            node(".yidam/corpus/reach/beta.yml", "class: reach\nlinks: []\n"),
+        ];
+        let classes = vec![class_from("reach", "edges: []\nedge_policy: exhaustive\n")];
+        assert!(unlicensed_edge(&nodes, &classes).passed());
+    }
+
+    /// A policy the corpus coined is not one this check knows how to honour, and treating it
+    /// as a closed vocabulary would gate on a misspelling. `yidam schema` publishes the enum,
+    /// so the typo is underlined where it can be fixed as it is typed.
+    #[test]
+    fn an_unrecognized_policy_reads_as_unstated() {
+        let (nodes, _) = gage_corpus(
+            "class: gage\nlinks:\n  - target: ../concept/hydropeaking.yml\n    relationship: bears-on\n",
+        );
+        let classes = vec![
+            class_from("gage", &format!("{GAGE}edge_policy: closed\n")),
+            class_from("concept", "properties: []\nedges: []\n"),
+        ];
+        let c = unlicensed_edge(&nodes, &classes);
+        assert_eq!(c.violations.len(), 1);
+        assert!(
+            !c.gates(&c.violations[0]),
+            "a typo must not close a vocabulary"
+        );
     }
 
     /// **Silence is not a contract.** A class declaring neither properties nor edges has
@@ -2065,6 +2271,46 @@ edges:
             "class: reach\nproperties:\n  surveyed: 2024-04-01\nlinks: []\n",
         )];
         assert!(property_type(&ok, &classes).passed());
+    }
+
+    /// **A date known to the year is a date.** Demanding a day where the corpus knows only
+    /// the year does not make the record more accurate, it makes it invented — and this
+    /// check's subject is prose in a date field, which `1985` is not. Requiring a full day
+    /// put 72 errors on a derived corpus recording when bands formed and definitions were
+    /// stated, every one of them the corpus being right.
+    #[test]
+    fn a_date_is_accepted_at_the_precision_it_is_known_to() {
+        let classes = vec![class_from(
+            "reach",
+            "properties:\n  - name: surveyed\n    type: date\n",
+        )];
+        let surveyed = |v: &str| {
+            vec![node(
+                ".yidam/corpus/reach/alpha.yml",
+                &format!("class: reach\nproperties:\n  surveyed: {v}\nlinks: []\n"),
+            )]
+        };
+        for v in ["\"1985\"", "\"1991-06\"", "2024-04-01"] {
+            assert!(
+                property_type(&surveyed(v), &classes).passed(),
+                "{v} is a date at the precision it is known to"
+            );
+        }
+        // Reduced precision is not a licence for a partial one. Each of these is a field
+        // that was filled in wrong rather than filled in coarsely.
+        for v in [
+            "\"198\"",
+            "\"1985-\"",
+            "\"1985-6\"",
+            "\"1985-06-\"",
+            "last spring",
+        ] {
+            assert_eq!(
+                property_type(&surveyed(v), &classes).violations.len(),
+                1,
+                "{v} is not a date"
+            );
+        }
     }
 
     #[test]

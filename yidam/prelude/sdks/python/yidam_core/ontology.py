@@ -127,7 +127,7 @@ def _property_schema(property_type: str) -> Any:
         return {"type": "string", "minLength": 1}
     # Structural, not a calendar: what it catches is a date field carrying prose.
     if property_type == "date":
-        return {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}
+        return {"type": "string", "pattern": "^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$"}
     # A list is legal here and nowhere else: the counter reads a list of tags as one claim
     # each, so `claim_tag: [open]` unquoted is a one-element list nobody meant to write.
     if property_type == "claim":

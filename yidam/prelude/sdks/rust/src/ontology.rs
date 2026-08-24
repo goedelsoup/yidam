@@ -142,8 +142,11 @@ fn property_schema(property_type: &str) -> Value {
     match property_type {
         "string" | "text" | "ref" => json!({ "type": "string", "minLength": 1 }),
         // Structural, not a calendar: `2024-02-31` satisfies this and is somebody else's
-        // finding. What it catches is a date field carrying prose.
-        "date" => json!({ "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }),
+        // finding. What it catches is a date field carrying prose — and **at whatever
+        // precision the corpus knows**, because `1985` is not prose. The three arms match
+        // `property-type`'s predicate exactly; a schema stricter than the gate underlines,
+        // in the editor, a value the build accepts.
+        "date" => json!({ "type": "string", "pattern": "^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$" }),
         // A list is legal here and nowhere else: the counter reads a list of tags as one
         // claim each, so a corpus writing `claim_tag: [open]` unquoted has written a
         // one-element list without meaning to.

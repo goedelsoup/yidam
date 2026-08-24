@@ -109,8 +109,8 @@
     {
       "id": "unlicensed-edge",
       "title": "Relationship the class does not declare",
-      "severity": "error",
-      "rationale": "An edge is licensed by the class that authors it. A relationship appearing in no declaration is a typo or an edge the ontology has never heard of, and either way a traversal that walks by relationship will not find it. Only links landing on another instance are read — a link to the class file or into the catalog is a citation, not a relationship. A class that declares no `edges:` has said nothing and is not checked.",
+      "severity": "warn",
+      "rationale": "An edge is licensed by the class that authors it, and `edge_policy:` says whether that list bounds the vocabulary or describes it. `exhaustive` closes it and makes anything outside an error; `characteristic` says an undeclared relationship is a deliberate coinage, and none are reported. A class that has said neither is warned about but not gated — a relationship in no declaration is worth seeing, because a traversal that walks by relationship will not find it, but a non-empty `edges:` on its own never claimed to be complete. Only links landing on another instance are read: a link to the class file or into the catalog is a citation, not a relationship. A class that declares no `edges:` has said nothing and is not checked.",
       "violations": []
     },
     {

@@ -58,12 +58,18 @@ against it:
 |---|---|---|
 | `undeclared-property` | a property the class never declared | yes |
 | `property-type` | a value contradicting the declared `type` | yes |
-| `unlicensed-edge` | a relationship the class does not declare | yes |
+| `unlicensed-edge` | a relationship the class does not declare | only under `edge_policy: exhaustive` |
 | `edge-target-class` | an edge resolving to a node of the wrong class | yes |
 | `missing-property` | a declared property the instance omits | no — reported |
 
 The fourth is the one no other check could produce. `dangling-edge` catches an edge to
 nothing; an edge to the *wrong* thing resolves, traverses, and exports, and is simply false.
+
+**A `date` is accepted at the precision it is known to** — `YYYY`, `YYYY-MM`, or
+`YYYY-MM-DD`. What `property-type` catches in a date field is prose, and `1985` is not
+prose: it is the precision the fact is actually known to, and demanding a month and a day
+there does not make the record more accurate, it makes it invented. `last spring` and
+`[open] No date.` still fail.
 
 Two rules keep this honest, and both are about not over-reading the ontology.
 
@@ -74,6 +80,23 @@ are permitted* would flood every corpus whose ontology is not filled in — whic
 corpus with the least reason to trust its graph. The same rule decides which classes are
 source classes for `orphan-in`.
 
+**A non-empty `edges:` is not a contract either, and this is the part that was got wrong.**
+Naming the relationships a class enters into says *these exist*; on its own it never said
+*and no others may*. Reading it as the second put 210 errors on a derived corpus that coins
+precise single-use verbs on purpose — 107 distinct relationships across 18 classes, none of
+them a defect. `edge_policy:` is what makes the difference sayable:
+
+| `edge_policy:` | An undeclared relationship is |
+|---|---|
+| `exhaustive` | an **error**. The class closed its vocabulary and asked for this gate. |
+| `characteristic` | not reported. `edges:` names what the class is *defined by*, and a verb outside it is a deliberate coinage. |
+| *absent* | a **warning**. The typo case is real and worth seeing; gating on it would enforce a contract nobody wrote. |
+
+Declaring it is how a corpus that means `exhaustive` gets a gate it can rely on, and how one
+that means `characteristic` stops being told its own vocabulary is wrong. `characteristic`
+licenses an *undeclared* relationship and nothing more: where a **declared** one may land is
+still `edge-target-class`'s question, and that check does not read the policy at all.
+
 **Only edges between instances are licensed edges.** The `instance-of` link to
 `../<class>.ont.yml` and a citation into `catalog/` are not relationships and no class
 declares them, so the licensing checks read only links landing on another corpus instance.
@@ -81,9 +104,10 @@ A link that resolves to nothing is `dangling-edge`'s finding and is not reported
 
 `missing-property` reports and does not gate. The property declaration has no `required`
 field, so it cannot distinguish *every instance has this* from *an instance may have this* —
-and a node carrying no `claim_tag` is a real state, not a defect. Its four siblings gate
-because each reports something the ontology actually said being contradicted; an omission
-contradicts nothing.
+and a node carrying no `claim_tag` is a real state, not a defect. Its siblings gate on
+something the ontology actually said being contradicted, and an omission contradicts
+nothing. `unlicensed-edge` sits between the two: it gates where the class said `exhaustive`,
+because there the ontology did make the statement being contradicted.
 
 ### Published, not only enforced
 
