@@ -1,26 +1,12 @@
-import { readFile, readdir } from 'node:fs/promises';
-import { join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFile } from 'node:fs/promises';
 import { createMarkdownProcessor } from '@astrojs/markdown-remark';
 import type { Loader, LoaderContext } from 'astro/loaders';
+import { DOCS_BASE, REPO_BASE, docId, findMdFiles, publishedIds, resolveFrom } from './docs-source.ts';
+import { SOURCE_ID, rewriteRepoLinks } from './rewrite-repo-links.ts';
 
-// Find all .md files under dir, recursively.
-async function findMdFiles(dir: string): Promise<string[]> {
-  const results: string[] = [];
-  async function walk(current: string) {
-    const entries = await readdir(current, { withFileTypes: true });
-    for (const entry of entries) {
-      const full = join(current, entry.name);
-      if (entry.isDirectory()) {
-        await walk(full);
-      } else if (entry.isFile() && entry.name.endsWith('.md')) {
-        results.push(full);
-      }
-    }
-  }
-  await walk(dir);
-  return results;
-}
+/** The repository this site publishes, and the branch it is built from. */
+const REPO_URL = 'https://github.com/goedelsoup/yidam';
+const BRANCH = 'main';
 
 // Parse a simple frontmatter block (---\nkey: value\n---) from raw markdown.
 function parseFrontmatter(raw: string): { data: Record<string, unknown>; body: string } {
@@ -57,27 +43,42 @@ function idToLabel(id: string): string {
  * outside the project root. Hot-reload in dev will not track changes to files
  * in docs/; restart `npm run dev` to pick up edits.
  */
-export function docsFromPath(base: string): Loader {
+export function docsFromPath(base: string = DOCS_BASE): Loader {
   return {
     name: 'yidam-docs',
 
     async load(context: LoaderContext) {
       const { store, parseData, config } = context;
 
-      const absBase = fileURLToPath(new URL(base, config.root));
-      const files = await findMdFiles(absBase);
+      const absBase = resolveFrom(config.root, base);
+      const repoRoot = resolveFrom(config.root, REPO_BASE);
+      const published = new Set(publishedIds(absBase));
+      const files = findMdFiles(absBase).filter((f) => published.has(docId(f, absBase)));
 
-      // Create a single shared markdown processor for all files.
+      // Create a single shared markdown processor for all files. The link
+      // rewriter needs to know which file it is rendering, which is why each
+      // render below passes the page id through the frontmatter channel: the
+      // processor is shared, the context is not.
       const processor = await createMarkdownProcessor({
         gfm: true,
         smartypants: false,
         syntaxHighlight: 'shiki',
         shikiConfig: { theme: 'github-dark' },
+        rehypePlugins: [
+          rewriteRepoLinks({
+            repoRoot,
+            docsDir: absBase,
+            published,
+            base: config.base,
+            repoUrl: REPO_URL,
+            branch: BRANCH,
+          }),
+        ],
       });
 
       await Promise.all(
         files.map(async (filePath) => {
-          const id = relative(absBase, filePath).replace(/\.md$/, '');
+          const id = docId(filePath, absBase);
 
           const raw = await readFile(filePath, 'utf-8');
           const { data, body } = parseFrontmatter(raw);
@@ -86,7 +87,9 @@ export function docsFromPath(base: string): Loader {
             data.title = extractH1(body) ?? idToLabel(id);
           }
 
-          const { code: html, metadata } = await processor.render(body);
+          const { code: html, metadata } = await processor.render(body, {
+            frontmatter: { [SOURCE_ID]: id },
+          });
 
           const parsed = await parseData({ id, data, filePath });
 

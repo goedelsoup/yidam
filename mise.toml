@@ -425,13 +425,18 @@ depends = ["ci-harness", "ci-cli"]
 # Astro/Starlight docs server. Content is loaded live from docs/ at the repo
 # root; restart dev when docs/ files change (hot-reload is not wired for
 # out-of-project paths).
+#
+# Published by .github/workflows/docs.yml at https://goedelsoup.github.io/yidam/.
+# That subpath is `base` in astro.config.mjs, so it is in the local URLs below
+# too: serving the site at a different prefix than it ships at would hide every
+# link the base affects until it was live.
 
 [tasks.docs-install]
 description = "Install docs site dependencies (run once after clone)."
 run = "npm install --prefix yidam/web/docs"
 
 [tasks.docs-dev]
-description = "Start the docs dev server on http://localhost:4321/."
+description = "Start the docs dev server on http://localhost:4321/yidam/."
 run = "npm run --prefix yidam/web/docs dev -- --port 4321"
 
 [tasks.docs-build]

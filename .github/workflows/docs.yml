@@ -1,0 +1,111 @@
+# The docs site — build it on every change, and give it a host.
+#
+# `yidam/web/docs/` has been an Astro/Starlight site rendering `docs/` since it was
+# written, and it has never had a URL. It was reachable by cloning the repository,
+# installing mise, and running `mise run docs-dev` — which is to say, by someone who
+# had already read the docs from the source tree and did not need the site. This
+# workflow is the missing half: https://goedelsoup.github.io/yidam/.
+#
+# ── it builds on every push, and the path filter is deliberately absent ───────
+#
+# The obvious filter is `docs/**` plus `yidam/web/docs/**`. It would be wrong. The
+# build resolves every relative link in `docs/` against the working tree and FAILS
+# on one that points at nothing (src/content/rewrite-repo-links.ts), because those
+# links are broken on GitHub too — that is the only check in CI that reads them.
+# Its inputs are therefore the whole repository: renaming `sadhana/sangha/PROTOCOL.md`
+# breaks twelve links in the RFCs while touching neither filtered path, and a
+# filtered workflow would let exactly that through. Same argument ci.yml makes for
+# its `paths-ignore`, applied to a different set of gated inputs.
+#
+# ── node only ────────────────────────────────────────────────────────────────
+#
+# Every other workflow here starts with `jdx/mise-action`, which provisions the
+# whole [tools] table. To run `astro build` that means a Rust toolchain, protoc,
+# Python and uv, none of which this job touches. `actions/setup-node` instead, with
+# `lts/*` tracking mise.toml's `node = "lts"` — the two must stay in step, and the
+# build command itself is `package.json`'s `build` script either way, which is what
+# `mise run docs-build` calls at a developer's terminal.
+
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'LICENSE'
+  pull_request:
+    paths-ignore:
+      - 'LICENSE'
+  # Redeploy without a commit — after a Pages settings change, or to recover a
+  # deployment that expired.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    # Superseded PR builds are cancelled; main is never cancelled, so what deploys
+    # is always the newest commit that finished.
+    concurrency:
+      group: docs-${{ github.ref }}
+      cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: yidam/web/docs/package-lock.json
+
+      # `npm ci`, not the `npm install` that `mise run docs-install` runs: a lockfile
+      # is a claim about what was built, and CI is where that claim is worth enforcing.
+      - name: Install dependencies
+        run: npm ci
+        working-directory: yidam/web/docs
+
+      # Turns Pages on if it is off and sets the source to this workflow. Idempotent,
+      # so it stays as the record of how this site is served rather than that fact
+      # living only in a settings page nobody reads. Skipped on pull requests: a fork
+      # PR has no `pages: write`, and a PR has no business changing repository
+      # settings even when it could.
+      - name: Configure GitHub Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      # On a pull request this is the whole job: a build that fails on an unlisted
+      # page, a dead relative link, or a broken sidebar slug, and publishes nothing.
+      - name: Build
+        run: npm run build
+        working-directory: yidam/web/docs
+
+      - name: Upload the site
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: yidam/web/docs/dist
+
+  deploy:
+    name: deploy
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    # Pages allows one deployment at a time and queuing is correct here: cancelling
+    # an in-flight deploy can leave the site serving a half-published build.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
