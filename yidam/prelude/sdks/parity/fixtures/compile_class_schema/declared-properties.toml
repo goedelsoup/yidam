@@ -1,0 +1,58 @@
+function = "compile_class_schema"
+description = "A class declaring typed properties compiles them, closes the bag, and requires none of them"
+
+[input]
+name = "gage"
+content = """
+class: gage
+label: Gage
+description: A fixed station on a channel where stage is recorded continuously.
+properties:
+  - name: parameter
+    type: string
+    description: The measured quantity, by its publisher's parameter code.
+  - name: claim_tag
+    type: claim
+    description: The evidence standing of this node.
+edges:
+  - relationship: sources-from
+    target: concept
+    direction: out
+    description: A concept this station's record is used to compute.
+"""
+
+[expected]
+schema = """
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "yidam corpus node — gage",
+  "description": "A fixed station on a channel where stage is recorded continuously.",
+  "type": "object",
+  "properties": {
+    "class": { "const": "gage" },
+    "properties": {
+      "type": "object",
+      "properties": {
+        "parameter": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The measured quantity, by its publisher's parameter code."
+        },
+        "claim_tag": {
+          "anyOf": [
+            { "enum": ["verified", "inference", "open", "[verified]", "[inference]", "[open]"] },
+            { "type": "array", "items": { "enum": ["verified", "inference", "open", "[verified]", "[inference]", "[open]"] } }
+          ],
+          "description": "The evidence standing of this node."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["class"],
+  "additionalProperties": true,
+  "x-yidam-edges": [
+    { "relationship": "sources-from", "target": "concept", "direction": "out" }
+  ]
+}
+"""

@@ -1,0 +1,29 @@
+function = "compile_class_schema"
+description = "A file that does not name its class is named by its filename — the name graph-check already matches an instance's directory against"
+
+[input]
+name = "person"
+content = """
+label: Person
+edges:
+  - relationship: played in
+    target: band
+    direction: out
+"""
+
+[expected]
+schema = """
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "yidam corpus node — person",
+  "type": "object",
+  "properties": {
+    "class": { "const": "person" }
+  },
+  "required": ["class"],
+  "additionalProperties": true,
+  "x-yidam-edges": [
+    { "relationship": "played in", "target": "band", "direction": "out" }
+  ]
+}
+"""

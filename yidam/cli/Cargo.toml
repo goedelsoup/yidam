@@ -132,6 +132,7 @@ full = ["reports", "index", "export-sqlite", "export-graph", "tonpa"]
 walkdir = "2"
 quick-xml = "0.37"
 tempfile = "3"
+jsonschema = { version = "0.51.0", default-features = false }
 
 # ── cargo-binstall ────────────────────────────────────────────────────────────
 #

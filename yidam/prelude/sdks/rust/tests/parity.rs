@@ -1,4 +1,4 @@
-use yidam_core::{corpus, git, graph, markers};
+use yidam_core::{corpus, git, graph, markers, ontology};
 
 fn fixture_dir(function: &str) -> std::path::PathBuf {
     // CARGO_MANIFEST_DIR = prelude/sdks/rust/
@@ -282,5 +282,39 @@ fn parity_update_regen() {
             input["new_content"].as_str().unwrap(),
         );
         assert_eq!(result, fx["expected"]["content"].as_str().unwrap());
+    }
+}
+
+// ── compile_class_schema ──────────────────────────────────────────────────────
+
+/// The compiled schema is compared as **parsed JSON**, not as text.
+///
+/// Key order and whitespace are not part of the contract — three languages will not agree
+/// on either, and a fixture that demanded they did would be pinning serializer behaviour
+/// while claiming to pin a schema.
+#[test]
+fn parity_compile_class_schema() {
+    let fixtures = load_fixtures("compile_class_schema");
+    assert!(
+        !fixtures.is_empty(),
+        "no compile_class_schema fixtures found"
+    );
+
+    for fx in &fixtures {
+        let input = &fx["input"];
+        let name = input["name"].as_str().unwrap();
+        let class = ontology::parse_class(name, input["content"].as_str().unwrap());
+        let got = ontology::compile_class_schema(&class);
+
+        let want: serde_json::Value =
+            serde_json::from_str(fx["expected"]["schema"].as_str().unwrap())
+                .unwrap_or_else(|e| panic!("{name}: fixture schema is not JSON: {e}"));
+
+        assert_eq!(
+            got,
+            want,
+            "{name}: {}",
+            fx["description"].as_str().unwrap_or("")
+        );
     }
 }

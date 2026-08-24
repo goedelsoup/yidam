@@ -85,6 +85,22 @@ and a node carrying no `claim_tag` is a real state, not a defect. Its four sibli
 because each reports something the ontology actually said being contradicted; an omission
 contradicts nothing.
 
+### Published, not only enforced
+
+`yidam schema` compiles every `.ont.yml` into a JSON Schema at
+`.yidam/schemas/class/<class>.json` and maps it to `.yidam/corpus/<class>/*.yml`, so an
+editor validates an instance against *its own class* while you type — and so does any
+validator or CI step that never links against yidam.
+
+The compiled schema is **no stricter than the checks above**. Declared properties are typed
+but never `required`, because `missing-property` does not gate. The property bag is closed,
+because `undeclared-property` does. Relationships are published for completion under
+`x-yidam-edges` rather than constrained, because whether an edge is licensed depends on
+where its target resolves and no schema can see that.
+
+That symmetry is the point. A consumer that rejected what the gate accepts would fail a
+build on a file that looked fine everywhere else, and the ontology would get the blame.
+
 ## Residence time
 
 A finding about corpus state has a level and, on its own, no clock — and the level cannot

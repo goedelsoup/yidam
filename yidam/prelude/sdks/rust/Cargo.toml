@@ -18,3 +18,7 @@ pulldown-cmark = "0.11"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 anyhow = "1"
+# The ontology compiler reads `.ont.yml` and emits JSON Schema. Both are the corpus's own
+# serialization formats rather than this crate reaching for a convenience.
+serde_yaml = "0.9"
+serde_json = "1"

@@ -80,6 +80,49 @@ Link
   anchor      : string?          — fragment identifier, if present
 ```
 
+### Ontology types
+
+The typed accessor for a class definition. A consumer reads this rather than reaching into
+`.ont.yml` and guessing at field names — which is how a mirror of a schema drifts from the
+schema.
+
+```
+OntologyClass
+  name        : string             — the class; the filename's stem when the file does not say
+  label       : string
+  description : string
+  properties  : OntologyProperty[]
+  edges       : OntologyEdge[]
+
+  isSourceClass() : bool           — declares edges, and none of them inbound. A class that
+                                     declares NO edges is not one: it has said nothing.
+
+OntologyProperty
+  name        : string
+  type        : string             — string | text | date | ref | claim, or a type this
+                                     corpus coined, which is carried through unconstrained
+  description : string
+
+OntologyEdge
+  relationship : string
+  target       : string            — the class at the OTHER end, whichever end authors it
+  direction    : string            — out | in
+  description  : string
+```
+
+`compileClassSchema` turns one of these into a JSON Schema for its instances. It is
+deliberately **no stricter than `yidam lint`**: declared properties are typed but never
+`required` (because `missing-property` reports and does not gate), the property bag is
+closed only when the class declared any (matching `undeclared-property`, which does gate),
+and `links[].relationship` is not constrained at all — the gate licenses a relationship only
+for edges landing on another instance, and JSON Schema cannot resolve a path. The declared
+relationships are published as `x-yidam-edges` for completion instead of as a rule.
+
+A consumer that rejected what the gate accepts would fail somebody's build on a file that
+looked fine everywhere else. That is the failure RFC-0002 documents at the node-model layer
+and RFC-0005 at the MCP layer; this is the same shape one level down, which is why the rule
+about silence lives in the compiler and not in each of the three consumers.
+
 ### Git types
 
 ```

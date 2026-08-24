@@ -1,7 +1,8 @@
+import json
 import tomllib
 from pathlib import Path
 
-from yidam_core import corpus, git, markers
+from yidam_core import corpus, git, markers, ontology
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent / "parity" / "fixtures"
 
@@ -112,3 +113,15 @@ def test_parity_update_regen():
         inp = fx["input"]
         result = markers.update_regen(inp["content"], inp["command"], inp["new_content"])
         assert result == fx["expected"]["content"]
+
+
+def test_parity_compile_class_schema():
+    fixtures = load_fixtures("compile_class_schema")
+    assert fixtures, "no compile_class_schema fixtures"
+    for fx in fixtures:
+        inp = fx["input"]
+        cls = ontology.parse_class(inp["name"], inp["content"])
+        got = ontology.compile_class_schema(cls)
+        # Compared as parsed JSON, not as text: key order and whitespace are not part of
+        # the contract, and three languages will not agree on either.
+        assert got == json.loads(fx["expected"]["schema"]), fx["description"]

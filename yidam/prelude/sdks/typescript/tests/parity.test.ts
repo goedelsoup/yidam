@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest'
 import { parseNode, extractClaims, extractLinks } from '../src/corpus.ts'
 import { classifyCommit, isRecognizedVerb } from '../src/git.ts'
 import { parseMarkers, updateRegen } from '../src/markers.ts'
+import { parseClass, compileClassSchema } from '../src/ontology.ts'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -167,6 +168,24 @@ describe('parity: update_regen', () => {
     it(fx['description'] as string, () => {
       const result = updateRegen(inp['content'], inp['command'], inp['new_content'])
       expect(result).toBe(exp['content'])
+    })
+  }
+})
+
+// ── compile_class_schema ──────────────────────────────────────────────────────
+
+describe('parity: compile_class_schema', () => {
+  const fixtures = loadFixtures('compile_class_schema')
+  it('has fixtures', () => expect(fixtures.length).toBeGreaterThan(0))
+
+  for (const fx of fixtures) {
+    const inp = fx['input'] as Record<string, string>
+    const exp = fx['expected'] as Record<string, string>
+    it(fx['description'] as string, () => {
+      const got = compileClassSchema(parseClass(inp['name'], inp['content']))
+      // Compared as parsed JSON, not as text: key order and whitespace are not part of the
+      // contract, and three languages will not agree on either.
+      expect(got).toEqual(JSON.parse(exp['schema']))
     })
   }
 })
