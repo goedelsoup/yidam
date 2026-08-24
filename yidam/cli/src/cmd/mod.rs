@@ -69,7 +69,7 @@ pub use rename::rename;
 pub use replay::replay;
 pub use samudaya_audit::samudaya_audit;
 pub use sangha::sangha;
-pub use schema::schema;
+pub use schema::{class_schemas, schema};
 pub use serve::serve_mcp;
 pub(crate) use status::index_status_data;
 pub use status::{index_status, status};

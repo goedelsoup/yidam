@@ -147,7 +147,7 @@ run = "cargo fmt --all --manifest-path crates/Cargo.toml"
 description = "Verify the parity fixtures in both directions: every function has one, and every fixture directory has a runner."
 run = """
 fixtures="yidam/prelude/sdks/parity/fixtures"
-functions="parse_node extract_claims extract_links classify_commit is_recognized_verb parse_markers update_regen find_reachable find_citations"
+functions="parse_node extract_claims extract_links classify_commit is_recognized_verb parse_markers update_regen find_reachable find_citations compile_class_schema"
 # Fixture families that are NOT parity functions. Each is read by a runner that is not an
 # SDK suite, and each has a section in parity/README.md naming those runners — which the
 # loop below checks, so this list cannot quietly diverge from the document explaining it.
@@ -191,7 +191,9 @@ for name in $exceptions; do
   fi
 done
 
-echo "parity fixture check: 9 functions covered, $(ls -d $fixtures/*/ | wc -l | tr -d ' ') directories all accounted for"
+# Counted, not stated. This line read "9 functions covered" while the loop above walked
+# ten — the same drift one line below the check that exists to catch it.
+echo "parity fixture check: $(echo $functions | wc -w | tr -d ' ') functions covered, $(ls -d $fixtures/*/ | wc -l | tr -d ' ') directories all accounted for"
 """
 
 [tasks.parity]

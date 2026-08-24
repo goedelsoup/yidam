@@ -30,5 +30,13 @@ pub use cmd::{
     serve_lsp, serve_mcp, skills_index, status, vocabulary, EmbedOptions, ExportFormat,
     ExportOptions, LintOptions, LogFilter, RdfFormat,
 };
+/// The per-class schemas compiled from a repository's own ontology.
+///
+/// Exposed for the test suite that holds the compiler and the gate to the same corpus. It
+/// takes a root rather than resolving one so it can run against a materialized fixture.
+pub fn class_schemas_at(root: &std::path::Path) -> Vec<(String, String, serde_json::Value)> {
+    cmd::class_schemas(root)
+}
+
 pub use paths::{running_binary_note, warn_if_shadowed};
 pub use report::Format;

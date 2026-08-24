@@ -1,0 +1,42 @@
+function = "compile_class_schema"
+description = "Each declared type compiles to its constraint; a type the corpus coined is carried through unconstrained"
+
+[input]
+name = "survey"
+content = """
+properties:
+  - name: note
+    type: text
+  - name: taken
+    type: date
+  - name: subject
+    type: ref
+  - name: extent
+    type: river-mile-range
+  - name: untyped
+"""
+
+[expected]
+schema = """
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "yidam corpus node — survey",
+  "type": "object",
+  "properties": {
+    "class": { "const": "survey" },
+    "properties": {
+      "type": "object",
+      "properties": {
+        "note": { "type": "string", "minLength": 1 },
+        "taken": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "subject": { "type": "string", "minLength": 1 },
+        "extent": true,
+        "untyped": true
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["class"],
+  "additionalProperties": true
+}
+"""

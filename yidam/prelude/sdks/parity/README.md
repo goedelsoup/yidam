@@ -1,6 +1,6 @@
 # Parity
 
-Cross-language fixture suite for the nine parity functions all three SDKs must implement
+Cross-language fixture suite for the ten parity functions all three SDKs must implement
 identically. Adding a new function to the parity surface without a fixture in this directory
 is a build error — `mise run parity` enforces it before running any SDK tests.
 
@@ -16,6 +16,8 @@ is a build error — `mise run parity` enforces it before running any SDK tests.
 | `update_regen` | Replace the content inside a named `REGEN` section, preserving the marker |
 | `find_reachable` | Return all nodes reachable from a given node following directed edges (BFS); result sorted |
 | `find_citations` | Return all nodes that have a directed edge pointing to a given node; result sorted |
+| `is_recognized_verb` | Whether a leading commit verb is in the closed vocabulary |
+| `compile_class_schema` | Compile a `.ont.yml` class definition into a JSON Schema for its instances |
 
 The parity surface is versioned in [`VERSION`](VERSION). Any change to a function's
 contract — input shape, output shape, or classification logic — requires bumping this
@@ -48,6 +50,11 @@ When adding a new parity function:
 1. Add the function to all three SDK implementations
 2. Add at least one fixture to `fixtures/<function>/` in the same PR
 3. Bump `VERSION` if the contract is new or changed
+
+`compile_class_schema`'s fixtures compare **parsed JSON**, not text. Key order and
+whitespace are not part of the contract — three languages will not agree on either, and a
+fixture demanding they did would be pinning serializer behaviour while claiming to pin a
+schema.
 
 **And every fixture directory must have a runner that reads it.** The rule runs both ways.
 A directory nobody runs looks exactly like one that is doing work — it passes every gate and

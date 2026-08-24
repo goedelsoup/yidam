@@ -295,6 +295,16 @@ pub fn all() -> Vec<(&'static str, &'static str, Value)> {
 /// Code and is reachable from Neovim and Helix over LSP. Editors using none of these still
 /// get the check from `yidam lint`.
 pub fn editor_settings() -> Value {
+    editor_settings_for(&repo_root().unwrap_or_default())
+}
+
+/// The mapping, including one entry per compiled class.
+///
+/// A per-class schema is worth exactly as much as the editor's willingness to apply it, and
+/// an editor applies what a glob names. `.yidam/corpus/<class>/*.yml` is the glob, which is
+/// also how `graph-check` decides which class governs an instance — so the validation while
+/// typing and the validation at the gate are keyed the same way.
+pub fn editor_settings_for(root: &Path) -> Value {
     let mut schemas = serde_json::Map::new();
     for (file, glob, _) in all() {
         // The catalog schema describes frontmatter inside markdown, which
@@ -305,10 +315,47 @@ pub fn editor_settings() -> Value {
         }
         schemas.insert(format!("./.yidam/schemas/{file}"), json!(glob));
     }
+    for (file, glob, _) in class_schemas(root) {
+        schemas.insert(format!("./.yidam/schemas/{file}"), json!(glob));
+    }
     json!({
         "yaml.schemas": schemas,
         "files.associations": { "*.ont.yml": "yaml" }
     })
+}
+
+/// One compiled schema per class, from the corpus's own ontology.
+///
+/// The four schemas above describe what yidam defines — what *a* node is. These describe
+/// what this corpus declared: that a `gage` carries a `parameter` typed `string` and a
+/// `claim_tag` typed `claim`. Until they existed, `.ont.yml` was a schema written in a
+/// format only yidam's own walker read, and a consumer wanting to validate an instance had
+/// to either link against yidam or re-derive the rules — which is how a mirror drifts.
+///
+/// **Compiled by `yidam_core::ontology`, not here.** The CLI is a consumer of the
+/// compiler like any other, so the schema the gate publishes and the schema an SDK
+/// produces cannot come apart. That is the whole point of compiling the ontology rather
+/// than describing it.
+pub fn class_schemas(root: &Path) -> Vec<(String, String, Value)> {
+    let corpus = crate::paths::yidam_corpus_dir(root);
+    crate::walk::walk_ont_files(&corpus)
+        .iter()
+        .map(|path| {
+            let stem = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .and_then(|n| n.strip_suffix(".ont.yml"))
+                .unwrap_or_default();
+            let text = std::fs::read_to_string(path).unwrap_or_default();
+            let class = yidam_core::ontology::parse_class(stem, &text);
+            let schema = yidam_core::ontology::compile_class_schema(&class);
+            (
+                format!("class/{}.json", class.name),
+                format!(".yidam/corpus/{}/*.yml", class.name),
+                schema,
+            )
+        })
+        .collect()
 }
 
 pub fn schema(print_settings: bool) -> Result<()> {
@@ -322,11 +369,25 @@ pub fn schema(print_settings: bool) -> Result<()> {
     let dir = schemas_dir(&root);
     std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
 
-    for (file, glob, body) in all() {
-        let path = dir.join(file);
+    let fixed = all()
+        .into_iter()
+        .map(|(f, g, b)| (f.to_string(), g.to_string(), b));
+    let mut wrote_a_class = false;
+    for (file, glob, body) in fixed.chain(class_schemas(&root)) {
+        let path = dir.join(&file);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+        wrote_a_class |= file.starts_with("class/");
         let text = format!("{}\n", serde_json::to_string_pretty(&body)?);
         std::fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
         println!("wrote .yidam/schemas/{file}  ({glob})");
+    }
+
+    if !wrote_a_class {
+        println!();
+        println!("no .ont.yml files found — no per-class schemas to compile");
     }
 
     println!();

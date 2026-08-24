@@ -1,0 +1,25 @@
+function = "compile_class_schema"
+description = "A class that declares nothing constrains nothing — the property bag is not even mentioned, let alone closed"
+
+[input]
+name = "reach"
+content = """
+class: reach
+label: Reach
+description: A length of channel between two points.
+"""
+
+[expected]
+schema = """
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "yidam corpus node — reach",
+  "description": "A length of channel between two points.",
+  "type": "object",
+  "properties": {
+    "class": { "const": "reach" }
+  },
+  "required": ["class"],
+  "additionalProperties": true
+}
+"""
