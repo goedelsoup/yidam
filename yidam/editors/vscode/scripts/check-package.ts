@@ -64,7 +64,20 @@ const FORBIDDEN: [RegExp, string][] = [
   [/^\.git|^\.vscodeignore$/, 'repository metadata'],
 ]
 
-const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'yidam-vsix-')), 'probe.vsix')
+/**
+ * Where to write it. The publish workflow passes a path because it uploads the exact bytes
+ * this script checked — packaging again downstream would publish an artifact nothing
+ * inspected, which is the whole failure mode being closed here. A person running it by hand
+ * passes nothing and gets a temp file, because the answer they want is pass or fail.
+ */
+const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
+const out = process.argv[2]
+  ? path.resolve(process.argv[2])
+  : path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'yidam-vsix-')),
+      `yidam-vscode-${manifest.version}.vsix`,
+    )
+fs.mkdirSync(path.dirname(out), { recursive: true })
 
 // `--allow-missing-repository` is deliberately NOT passed: the manifest declares one, and
 // if that ever stops being true this should fail rather than be waved through.
@@ -111,7 +124,6 @@ console.log(`\npackaged: ${entries.length} files, ${(bytes / 1024).toFixed(1)} K
 // The tag and the manifest must agree, and this script is what the publish workflow runs
 // before it reaches the registries. `release.sh` checks this too; the check is cheap and
 // the two entrances into a release are exactly where a version drifts.
-const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
 const tag = process.env.GITHUB_REF_NAME ?? ''
 if (tag.startsWith('editor/v')) {
   assert.equal(
