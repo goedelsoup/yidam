@@ -7,6 +7,24 @@ JSON report contract it consumes must version together; separating them re-creat
 the extension and the CLI, exactly the drift the RFC set exists to close. The vendor step
 copies only `yidam/prelude/`, so derived repositories carry none of this.
 
+## It needs a `yidam` binary, and does not bring one
+
+**Install this and nothing happens until a `yidam` binary is reachable.** The extension
+renders verdicts; it does not compute them, so with no binary there is nothing to render.
+
+It resolves one in this order — the repository's own build, then `yidam.path`, then `PATH`,
+then the workspace's mise shims — and it never downloads or builds one. `.yidam.toml` records
+which yidam governs a corpus, and only it gets to say; an editor that quietly installed a
+second opinion would be the drift this whole RFC set exists to close.
+
+If what it finds speaks a report contract this build does not understand, verdict features
+are disabled and the status bar says so, rather than the extension guessing at an envelope
+it cannot read. `yidam: Show binary and contract status` reports which binary answered.
+
+Install the CLI first — see the repository README — or `mise run yidam-build` inside a
+checkout. It also only activates in a yidam repository: a workspace containing `.yidam.toml`
+or `.yidam/`, and nowhere else.
+
 ## The rule
 
 > **TypeScript computes affordances. The CLI computes verdicts.**

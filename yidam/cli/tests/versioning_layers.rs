@@ -131,6 +131,59 @@ fn the_documented_format_version_is_the_declared_one() {
     );
 }
 
+/// The other end of that contract, which nothing was checking.
+///
+/// `format_version` is the whole reason the CLI and the extension can carry separate tags
+/// (VERSIONING.md, Layer 4). It is written down three times: `report.rs` declares it,
+/// `VERSIONING.md` quotes it, and `handshake.ts` names the major this build of the extension
+/// will parse. The test above pins the first two to each other — the two *documents*. The
+/// one place that acts on the value was pinned to nothing.
+///
+/// That was survivable while the extension reached people only as a `.vsix` built from a
+/// checkout, because the two constants were then the same checkout by construction. It stops
+/// being survivable the moment the extension publishes: two artifacts, two tags, two release
+/// cadences, and a reader who has one of each.
+///
+/// The failure this prevents is quiet in the worst direction. `handshake.ts` degrades loudly
+/// on a major it does not know — says so, disables verdict features rather than guessing. It
+/// is *bumping* `FORMAT_VERSION` without bumping the extension that is silent: every
+/// published extension starts refusing every current binary, and the first report of it comes
+/// from a user.
+///
+/// Compared as majors, because that is what `handshake.ts` compares. A minor added to the
+/// contract must not fail this — consumers are required to ignore fields they do not know,
+/// and if an additive change broke the check, the check would be arguing for the opposite of
+/// what Layer 4 says.
+#[test]
+fn the_extension_understands_the_contract_the_cli_speaks() {
+    let major = |v: &str| v.split('.').next().unwrap_or_default().to_string();
+
+    let report = std::fs::read_to_string(repo_root().join("yidam/cli/src/report.rs")).unwrap();
+    let declared = report
+        .split("pub const FORMAT_VERSION: &str = \"")
+        .nth(1)
+        .and_then(|t| t.split('"').next())
+        .expect("report.rs declares FORMAT_VERSION");
+
+    let handshake = repo_root().join("yidam/editors/vscode/src/handshake.ts");
+    let understood = std::fs::read_to_string(&handshake)
+        .expect("the extension's handshake.ts")
+        .split("export const SUPPORTED_FORMAT_VERSION = '")
+        .nth(1)
+        .and_then(|t| t.split('\'').next())
+        .map(str::to_string)
+        .expect("handshake.ts declares SUPPORTED_FORMAT_VERSION");
+
+    assert_eq!(
+        major(declared),
+        major(&understood),
+        "the CLI emits report contract {declared:?} and the published extension parses \
+         {understood:?}. Bumping FORMAT_VERSION strands every installed extension on the \
+         old major — update SUPPORTED_FORMAT_VERSION in \
+         yidam/editors/vscode/src/handshake.ts and release the editor layer with it."
+    );
+}
+
 /// Layer 3 declares `PROTOCOL_VERSION` as the bootstrap protocol's version, and quotes the
 /// file it lives in. Same shape as the check above — with one difference worth naming: for
 /// the whole of 0.1.0 this assertion would have failed on the harness side, because the
