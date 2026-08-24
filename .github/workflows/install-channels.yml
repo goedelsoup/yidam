@@ -222,3 +222,99 @@ jobs:
             "yidam ${{ needs.released.outputs.version }} "*) ;;
             *) echo "::error::${{ needs.released.outputs.tag }} builds '$out'; expected version ${{ needs.released.outputs.version }}"; exit 1 ;;
           esac
+
+  # ── the editor layer ────────────────────────────────────────────────────────
+  #
+  # Its own resolver rather than the `released` job's. That one reads
+  # `releases/latest`, which is a single pointer across every layer in this
+  # repository: a CLI release makes it `cli/v*` and an extension release makes it
+  # `editor/v*`, so each layer would grade the other's version on alternating
+  # weeks. `git tag`-style listing per layer is the only reading that stays
+  # correct once two layers release independently — the same reason
+  # `VERSIONING.md` gives every layer its own tag prefix.
+  #
+  # It exits GREEN when no `editor/v*` tag exists. "Nothing is released" and
+  # "what is released is unobtainable" are different states, and only the second
+  # is a defect — a job that is red from the day it lands is one people learn to
+  # ignore, which is the failure mode this whole workflow was written against.
+  # It arms itself on the first tag with no edit here.
+  editor-released:
+    name: what is released (editor)
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - name: Resolve the latest editor release
+        id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # --sort/-L1 rather than jq over the whole list: releases are returned
+          # newest-first and the layers interleave, so "the first editor/v* row"
+          # is the answer and the rest of the page is someone else's layer.
+          tag=$(gh api "repos/${{ github.repository }}/releases?per_page=100" \
+                  --jq '[.[] | select(.tag_name | startswith("editor/v"))][0].tag_name // ""')
+          if [ -z "$tag" ]; then
+            echo "no editor/v* release yet — nothing to obtain, so nothing to check."
+            echo "This job arms itself on the first one; see #313."
+            exit 0
+          fi
+          echo "version=${tag#editor/v}" >> "$GITHUB_OUTPUT"
+          echo "latest editor release: $tag"
+
+  # Both registries serve an unauthenticated API that names the published
+  # version, and both are asked the same question the CLI jobs ask: is what you
+  # are serving the version that was released?
+  #
+  # NOT `code --install-extension`: that would need a VS Code on the runner and
+  # would be testing the editor. What can be wrong here is the publish — a step
+  # that failed on a missing secret, a namespace nobody claimed, an ingestion
+  # that never finished — and every one of those is visible in the version the
+  # registry reports.
+  editor-marketplace:
+    name: VS Code Marketplace
+    needs: editor-released
+    if: needs.editor-released.outputs.version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: The version the Marketplace serves
+        run: |
+          set -euo pipefail
+          got=$(curl -sS -X POST \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json;api-version=7.2-preview.1' \
+            -d '{"filters":[{"criteria":[{"filterType":7,"value":"goedelsoup.yidam-vscode"}]}],"flags":914}' \
+            https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery \
+            | jq -r '.results[0].extensions[0].versions[0].version // ""')
+          echo "marketplace: '$got'  expected: '${{ needs.editor-released.outputs.version }}'"
+          if [ -z "$got" ]; then
+            echo "::error::the Marketplace does not know goedelsoup.yidam-vscode. Either the"
+            echo "::error::publish step never ran, or it failed on a missing VSCE_PAT (#314)."
+            exit 1
+          fi
+          [ "$got" = "${{ needs.editor-released.outputs.version }}" ] || {
+            echo "::error::the Marketplace serves $got; the latest editor release is ${{ needs.editor-released.outputs.version }}"
+            exit 1
+          }
+
+  editor-openvsx:
+    name: Open VSX
+    needs: editor-released
+    if: needs.editor-released.outputs.version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: The version Open VSX serves
+        run: |
+          set -euo pipefail
+          got=$(curl -sS https://open-vsx.org/api/goedelsoup/yidam-vscode | jq -r '.version // ""')
+          echo "open-vsx: '$got'  expected: '${{ needs.editor-released.outputs.version }}'"
+          if [ -z "$got" ]; then
+            echo "::error::Open VSX does not know goedelsoup/yidam-vscode. Either the publish"
+            echo "::error::step never ran, or the namespace is unclaimed / OVSX_PAT unset (#314)."
+            exit 1
+          fi
+          [ "$got" = "${{ needs.editor-released.outputs.version }}" ] || {
+            echo "::error::Open VSX serves $got; the latest editor release is ${{ needs.editor-released.outputs.version }}"
+            exit 1
+          }

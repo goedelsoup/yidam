@@ -154,7 +154,7 @@ inherits: the `yidam` CLI and the editor client.
 | Artifact | Manifest | Tag | Registry |
 |---|---|---|---|
 | `yidam` CLI | `yidam/cli/Cargo.toml` | `cli/v{major}.{minor}.{patch}` | crates.io, GitHub releases, `goedelsoup/homebrew-tap` |
-| `goedelsoup.yidam` extension | `yidam/editors/vscode/package.json` | `editor/v{major}.{minor}.{patch}` | VS Code Marketplace, Open VSX |
+| `goedelsoup.yidam-vscode` extension | `yidam/editors/vscode/package.json` | `editor/v{major}.{minor}.{patch}` | VS Code Marketplace, Open VSX |
 
 The CLI's four channels are one artifact reached four ways, and only the first is built:
 `.github/workflows/release.yml` cross-compiles the light `reports` build for four targets and

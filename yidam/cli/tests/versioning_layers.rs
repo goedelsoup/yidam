@@ -417,6 +417,39 @@ fn every_workflow_release_sh_requires_exists() {
     );
 }
 
+/// The extension id `VERSIONING.md` names is the one the manifest produces.
+///
+/// A Marketplace id is `<publisher>.<name>`, assembled from two fields rather than declared,
+/// which is why it can be documented wrong without anything looking wrong. Layer 4's table
+/// said `goedelsoup.yidam` while the manifest said `yidam-vscode` — a mismatch found by
+/// writing the channel check in install-channels.yml, which queries the registries by that
+/// exact string and would have reported "the Marketplace does not know this extension" for a
+/// correctly published one.
+///
+/// It is the id a person types into `code --install-extension`, and the id the channel check
+/// asks both registries about. Two consumers, one string, assembled from two fields nobody
+/// reads together.
+#[test]
+fn the_documented_extension_id_is_the_one_the_manifest_makes() {
+    let manifest = std::fs::read_to_string(repo_root().join("yidam/editors/vscode/package.json"))
+        .expect("the extension manifest");
+    let field = |key: &str| -> String {
+        manifest
+            .split(&format!("\"{key}\":"))
+            .nth(1)
+            .and_then(|t| t.split('"').nth(1))
+            .unwrap_or_else(|| panic!("package.json declares {key}"))
+            .to_string()
+    };
+    let id = format!("{}.{}", field("publisher"), field("name"));
+
+    assert!(
+        versioning().contains(&id),
+        "VERSIONING.md's Layer 4 table does not name {id:?}, which is what publisher and \
+         name in the extension manifest assemble to — and what the registries are queried by"
+    );
+}
+
 /// The release must be built from the committed lock file.
 ///
 /// Without `--locked`, cargo is free to update a dependency during the release build, so

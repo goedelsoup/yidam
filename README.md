@@ -99,6 +99,27 @@ genesis commit — a faithful rendering of the ontology you confirmed together.
 To seed that dialogue with prior commitments, drop files into `samudaya/` before the agent
 arrives (see [samudaya/README.md](samudaya/README.md)).
 
+### The editor surface
+
+There is a VS Code extension — five views over the corpus, lint and `graph-check` verdicts as
+diagnostics, claim decoration, and the inherited mise tasks as editor tasks. It **renders**
+verdicts and never computes them: `.yidam.toml` records which yidam governs a corpus, so the
+extension resolves the binary that repository pins and bundles none of its own. Install the
+CLI first or it has nothing to show.
+
+Until an `editor/v*` tag is cut it is not on the VS Code Marketplace or Open VSX, and this
+says so rather than documenting a line that cannot succeed — the failure `install-channels.yml`
+exists to catch. Build and install it from a checkout:
+
+```sh
+mise run ext-package -- dist/yidam-vscode.vsix   # packages, and checks what is in the package
+code --install-extension yidam/editors/vscode/dist/yidam-vscode.vsix
+```
+
+`mise run ext-dev` instead opens an Extension Development Host against a staged fixture,
+which is the loop for working *on* it. See
+[yidam/editors/vscode/README.md](yidam/editors/vscode/README.md).
+
 ## Layout
 
 | Path | Layer |
