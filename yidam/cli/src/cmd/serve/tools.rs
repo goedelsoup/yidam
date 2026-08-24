@@ -13,7 +13,14 @@ use super::ServerState;
 /// would have to decide what to serve without one, and there is no good answer to that. The
 /// file is the single freeze — the E2E test reads it too, rather than restating the list,
 /// which is what let three servers drift to one shared name out of five capabilities.
-const CONTRACT: &str = include_str!("../../../../prelude/sdks/parity/mcp/tools.json");
+///
+/// **Through `yidam/cli/mcp-contract.json`, which is a symlink to it**, and not up the tree
+/// directly. `cargo package` copies only what lives under the crate root, so a path escaping
+/// it compiles here and in CI — where the working tree is right there — and fails inside the
+/// packaged tarball, which is the one build nothing runs until `cargo publish` runs it. That
+/// is after the tag is pushed and the binaries are built. Cargo dereferences the symlink when
+/// packaging, so the published crate carries the bytes and the repository keeps one copy.
+const CONTRACT: &str = include_str!("../../../mcp-contract.json");
 
 /// What this server can actually back.
 ///

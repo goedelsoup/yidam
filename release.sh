@@ -191,6 +191,34 @@ if [ "$LAYER" = "cli" ] && [ -f yidam/cli/Cargo.toml ]; then
   fi
 fi
 
+# ── the packaged build, which is a different build ───────────────────────────
+#
+# `cargo package` copies only what lives under the crate root. A path escaping it
+# — `include_str!("../../../../prelude/…")` — resolves in the working tree and in
+# every CI job, because the tree is right there, and is simply absent from the
+# tarball. Nothing builds that tarball until `cargo publish` does, and that runs
+# after the tag is pushed and the binaries are built.
+#
+# `cli/v0.3.0` was one command from that: five platform binaries, a GitHub
+# release and a Homebrew formula all naming a version `cargo install` could not
+# install. Found by running this by hand; it is here so the next one is not found
+# that way.
+#
+# `--locked` because the release publishes locked, and `--allow-dirty` is refused
+# by the dirty-tree check above rather than passed here.
+if [ "$LAYER" = "cli" ] || [ "$LAYER" = "sdk/rust" ]; then
+  if ! command -v cargo >/dev/null 2>&1; then
+    refuse cargo-missing "cargo is not on PATH, so the packaged build cannot be verified"
+  else
+    printf 'verifying the packaged build (cargo publish --dry-run)...\n'
+    if cargo publish --dry-run --manifest-path "$MANIFEST" --locked >/tmp/release-package-check.log 2>&1; then
+      printf 'the packaged crate builds.\n'
+    else
+      refuse package-unbuildable "cargo publish --dry-run failed for $MANIFEST — the published crate would not build. See /tmp/release-package-check.log"
+    fi
+  fi
+fi
+
 # ── the tap's credential, asked about before the tag rather than after ───────
 #
 # `cli/v*` pushes a rendered formula to goedelsoup/homebrew-tap. That is a second
