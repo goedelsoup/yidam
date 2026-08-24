@@ -1,0 +1,38 @@
+# What does NOT go into the .vsix.
+#
+# The default is "everything git does not ignore", which for this extension was 66 files
+# and 171 KB: the TypeScript sources, the whole test suite, the lint config, the mise task
+# file. An installer would have received all of it.
+#
+# This is an exclusion list because that is the format vsce reads, but the rule it encodes
+# is an allowlist — `scripts/check-package.ts` asserts that what comes out is exactly the
+# runtime set, so adding a directory here is not enough to keep it out and forgetting to
+# add one is not enough to let it in.
+
+# ── the sources the build already turned into out/ ──────────────────────────
+src/**
+test/**
+scripts/**
+
+# Source maps point at `src/`, which is not shipped. A map whose sources are absent
+# resolves to nothing and costs 78 KB saying so.
+out/**/*.js.map
+
+# ── build and lint configuration, which runs nowhere after packaging ────────
+tsconfig.json
+tsconfig.test.json
+eslint.config.mjs
+mise.toml
+.gitignore
+.vscodeignore
+package-lock.json
+
+# ── never ───────────────────────────────────────────────────────────────────
+node_modules/**
+**/*.vsix
+.local/**
+
+# The Marketplace icon's source. `resources/icon.png` is what package.json names and what
+# ships; the SVG it was rendered from stays in git for the next render and is dead weight
+# in the package.
+resources/icon.svg

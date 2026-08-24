@@ -1,0 +1,26 @@
+<!--
+  The Marketplace listing icon. NOT the activity-bar icon.
+
+  `yidam.svg` is monochrome and `stroke="currentColor"` because VS Code recolours
+  activity-bar icons to the theme foreground. A Marketplace card does no such thing: it
+  renders the icon as-is against a card that is light for some readers and dark for others,
+  so `currentColor` there resolves to black and the icon disappears on half of them. vsce
+  refuses an SVG for `icon` outright, which is the same conclusion arrived at earlier.
+
+  Hence a second file with the same geometry, explicit colours, and its own ground. The
+  palette is the design system's `open` claim in its dark form (src/claims.ts) — the one
+  state that means "not yet settled", which is what a corpus is.
+
+  Rendered with:
+    rsvg-convert -w 128 -h 128 resources/icon.svg -o resources/icon.png
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 24 24">
+  <rect width="24" height="24" rx="5" fill="#131d2c"/>
+  <g fill="none" stroke="#9dbde8" stroke-width="1.4" stroke-linecap="round">
+    <path d="M9.9 9.9 5.8 6.3M14.6 10.6l3.5-2.6M13.6 14.6l2.6 3.4"/>
+    <circle cx="4.5" cy="5" r="1.8"/>
+    <circle cx="19.5" cy="6.5" r="1.8"/>
+    <circle cx="17" cy="19.5" r="1.8"/>
+  </g>
+  <circle cx="12" cy="12" r="3" fill="#9dbde8"/>
+</svg>
