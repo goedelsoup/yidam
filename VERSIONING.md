@@ -73,11 +73,12 @@ to drift from the Rust one.
 written down because a deferral with no condition attached is how a promise survives the
 decision not to keep it — which is what the previous version of this table was.
 
-**Parity surface version.** The nine parity functions (`parse_node`, `extract_claims`,
-`extract_links`, `classify_commit`, `is_recognized_verb`, `parse_markers`, `update_regen`,
-`find_reachable`, `find_citations`) are versioned jointly in `yidam/prelude/sdks/parity/VERSION`.
-The authoritative list is the loop in the `parity-check` task in `mise.toml`, which fails
-if any of them has no fixture. A change to any parity function's contract requires:
+**Parity surface version.** The parity functions are versioned jointly in
+`yidam/prelude/sdks/parity/VERSION`. The authoritative list is the `functions` loop in the
+`parity-check` task in `mise.toml`, which fails if any of them has no fixture — this
+document deliberately does **not** restate it. It used to, and said "the nine" while the
+loop walked ten: a document naming an authoritative source and then copying it is the drift
+the loop exists to prevent, one file over. A change to any parity function's contract requires:
 
 1. Bump `yidam/prelude/sdks/parity/VERSION`
 2. Update all three SDK implementations in the same PR

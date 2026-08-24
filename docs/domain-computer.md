@@ -197,9 +197,13 @@ Register it in the consuming project's `.mcp.json`:
 `yidam://corpus/<class>` (class listing), `yidam://corpus/<class>/<name>` (one instance),
 `yidam://skills/<name>`, and `yidam://decisions/<name>`.
 
-**Tools** — `retrieve` (semantic search over the vector index; query embedding follows
-`embed.config.json`), `get_node` (full node content plus outgoing links), `neighbors`
-(linked nodes up to `depth` hops, both edge directions), and `open_questions`.
+**Tools** — the list is frozen in
+[`prelude/sdks/parity/mcp/tools.json`](../yidam/prelude/sdks/parity/mcp/tools.json) and
+described in [the MCP server guide](mcp-server.md#3-the-tools-and-when-an-agent-should-reach-for-each);
+it is not restated here, because the copy that used to be had already lost `list_nodes`.
+Briefly: retrieval and node reads, the graph walk, the corpus's assertions at claim
+granularity, and the practice — the commit vocabulary, the evidence tags, and what a class
+licenses — as calls rather than as prose to hold.
 
 All reads come from the already-built corpus and index on disk — no live git operations.
 Without a vector index, `retrieve` degrades to keyword search and marks responses with

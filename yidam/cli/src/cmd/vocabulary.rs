@@ -188,6 +188,20 @@ fn split_scope(verb: &str) -> Option<(&str, &str)> {
 }
 
 /// Check one subject line the way `lint --commits` checks a committed one.
+/// The closed vocabulary, as a flat list.
+///
+/// From the certified lists rather than from GRAPH.md: the document supplies the `when`
+/// column and nothing else, and `drift_between` exists to report the document as the wrong
+/// half when they disagree. Exposed for `serve --mcp`'s `check_subject`, which travels the
+/// list with its verdict and must not read a file per call.
+pub(crate) fn vocabulary_verbs() -> Vec<&'static str> {
+    EPISTEMIC_VERBS
+        .iter()
+        .chain(OPERATIONAL_VERBS.iter())
+        .copied()
+        .collect()
+}
+
 pub(crate) fn check_subject(text: &str) -> SubjectCheck {
     // `classify_commit` rather than a local parse. The rule this whole check turns on —
     // *everything before the first `: ` is the verb* — is the reason a `(scope)` suffix

@@ -110,6 +110,28 @@ An absolute path and `exec` — the `exec` so signals reach the server rather th
 | `neighbors` | Nodes linked to one node, both directions, to `depth` hops | You want the argument around a node, not the node |
 | `list_nodes` | Every node, optionally in one class | You want the shape of the corpus |
 | `open_questions` | Nodes flagged as unsettled | You are looking for what is *not* known |
+| `claims` | Assertions with the standing each is made at, filterable by standing | You want what the corpus *holds*, not the documents holding it |
+| `check_subject` | Whether a commit subject is in the closed vocabulary | Before you write the commit |
+| `claim_tags` | The three tags, their meanings, and how each may be written | Before you tag a claim |
+| `licensed_edges` | What a class declares it may link to | Before you write the link |
+
+**`claims` returns assertions; every other tool returns documents.** A node is 2–10
+sentences by the model's own rule, so asking `get_node` what a corpus takes as verified means
+paying node-sized tokens for a claim-sized answer and reading the tags out of prose yourself.
+`claims` gives you the statement and its standing, and `sources` names the catalog entries
+its node cites. It serves the tag or serves nothing — an untagged sentence is prose, and
+prose is what `get_node` is for.
+
+**The last three are the practice, callable.** The commit vocabulary, the evidence tags and
+the edges a class licenses are all documented in the prelude, and an agent that has to hold
+that prose in context complies by having remembered. These make it cheap to ask instead, at
+the point in the loop where the decision is actually made. The prose stays: it carries the
+reasoning, which is what makes the rules arguable.
+
+`licensed_edges` is the one tool here that a server may not back — it needs the class
+definitions, and a projected mirror can hold nodes and edges and no `.ont.yml`. Such a server
+declares `"ontology": false` in the handshake, which is a statement you can read rather than
+a hole you discover.
 
 **`retrieve` finds; `get_node` reads.** The distinction is worth stating plainly because
 the gap is easy to miss: a `retrieve` result carries `label`, `class`, `path`, `score` and a

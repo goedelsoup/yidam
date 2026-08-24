@@ -202,6 +202,30 @@ fn mcp_server_end_to_end() {
         .collect();
     assert_eq!(names, expected_tool_names(&capabilities), "{names:?}");
 
+    // Every tool this server LISTS must answer a call. The two halves are independent:
+    // `tools/list` is derived from the contract and `tools/call` is a hand-written match, so
+    // a tool added to the contract and not to the match is advertised and errors — and the
+    // assertion above still passes, because both sides of it read the same file. That is a
+    // green build for a server that cannot do what it says it can.
+    //
+    // Arguments are deliberately empty. A tool that needs one answers "class is required",
+    // which is a tool doing its job; the failure this catches says "unknown tool".
+    for name in &names {
+        let result = client.request("tools/call", json!({"name": name, "arguments": {}}));
+        // `request` returns the `result` object, not the envelope. Reading `["result"]`
+        // here yielded null, `unwrap_or("")` swallowed it, and the assertion below could
+        // not fail — a check that looked exactly like one doing work. Caught by deleting a
+        // dispatch arm and watching this pass, which is the only way that class of defect
+        // ever announces itself.
+        let text = result["content"][0]["text"].as_str().unwrap_or_default();
+        assert!(
+            !text.contains("unknown tool"),
+            "{name} is listed and not implemented — the contract and the dispatch disagree \
+             about what this server can do, and the list assertion above cannot see it \
+             because both sides of it read the same file"
+        );
+    }
+
     // Every case in the contract's `cases/` directory, run against this server.
     for case in contract_cases() {
         let capability = case["capability"].as_str();

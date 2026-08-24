@@ -132,6 +132,35 @@ pub const OPEN: &str = "[open]";
 /// The ontology property type that marks a field as carrying an evidence tag.
 pub const CLAIM_PROPERTY_TYPE: &str = "claim";
 
+/// The three tags, their bare spellings, and what each means.
+///
+/// **The prose stays.** `prelude/guidelines/agent-conduct.md` carries the *reasoning* —
+/// which is what makes the vocabulary arguable and revisable — and this carries the
+/// *content*, which is what makes it cheap for an agent to obey without holding a document
+/// in context. Neither is a substitute for the other.
+///
+/// The glosses are the one piece of prose duplicated from that file, so they are pinned to
+/// it by test rather than trusted: `agent_conduct_defines_exactly_these_tags` asserts the
+/// document names these three and no fourth. Parsing it at runtime was the alternative and
+/// is worse — it would make a tool's answer depend on a vendored file that may be absent.
+pub const TAG_MEANINGS: [(&str, &str, &str); 3] = [
+    (
+        "verified",
+        VERIFIED,
+        "supported by a committed primary source linked from this node or its catalog entry",
+    ),
+    (
+        "inference",
+        INFERENCE,
+        "a reasonable conclusion drawn from verified facts; not directly witnessed",
+    ),
+    (
+        "open",
+        OPEN,
+        "a live question; the answer is unknown, contested, or under investigation",
+    ),
+];
+
 /// Which properties of each class carry an evidence tag.
 ///
 /// Built once from the `.ont.yml` files and passed to the counters, because the answer is a
@@ -255,6 +284,219 @@ pub fn count_structural(text: &str, fields: &[String]) -> ClaimCounts {
         }
     }
     counts
+}
+
+// ── serving claims, not counting them ─────────────────────────────────────────
+//
+// The counter answers *how many*. An agent needs *which*, with the standing attached, and
+// that is a different return type over the same discrimination. Everything below reuses
+// `is_narrated`, `mask_fenced` and `tag_of` rather than re-deriving them: a second reading
+// of what counts as a claim is how a corpus comes to be described two ways at once, and
+// this module exists because that already happened once.
+//
+// The invariant is asserted rather than assumed — see `served_claims_match_the_count`.
+
+/// Where a served claim was found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ClaimScope {
+    /// A tagged statement in the node's prose or in a property value.
+    Statement,
+    /// A property the class declared `type: claim`, whose value is the tag itself. The
+    /// standing is the *node's*, not one sentence's.
+    Node,
+}
+
+/// One assertion a node makes, with the standing it makes it at.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ServedClaim {
+    /// The statement, tag removed. For a node-level standing, the property that carries it.
+    pub text: String,
+    /// `verified`, `inference`, or `open` — never inferred, only read.
+    pub standing: &'static str,
+    pub scope: ClaimScope,
+    /// The declared `type: claim` property this came from, when it came from one.
+    pub property: Option<String>,
+    /// Byte offset of the marker, so two passes can tell one occurrence from another.
+    /// Not part of the served contract; used to dedupe.
+    #[serde(skip)]
+    at: usize,
+}
+
+/// The sentence a marker sits in, with the marker removed.
+///
+/// Two shapes occur and both are in the corpus. A tag usually *follows* a completed
+/// sentence — `"…converted by a rating curve. [verified]"` — and sometimes sits inside one:
+/// `"Whether the money and the vote are connected is `[open]`"`. Reading only the first
+/// would truncate every mid-sentence claim to its opening clause.
+fn statement_around(text: &str, start: usize, end: usize) -> String {
+    let before = text[..start].trim_end();
+    // A terminator immediately before the marker belongs to the claim's own sentence, so the
+    // search for where that sentence began has to start behind it.
+    let terminated = before.ends_with(['.', '!', '?']);
+    let head_end = if terminated {
+        before.len() - 1
+    } else {
+        before.len()
+    };
+    let head_start = text[..head_end]
+        .rfind(['.', '!', '?', '\n'])
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    let mut out = text[head_start..before.len()].trim().to_string();
+    if !terminated {
+        let after = &text[end..];
+        let stop = after
+            .find(['.', '!', '?', '\n'])
+            .map(|i| i + 1)
+            .unwrap_or(after.len());
+        out.push_str(&after[..stop]);
+    }
+    // Backticks that wrapped the marker are left behind by removing it from the middle.
+    let out = out.trim().trim_end_matches('`').trim();
+    // A claim written on the same line as its YAML key — `description: Finding a node. [open]`
+    // — starts at the line boundary, so the key comes with it. The key is not part of what
+    // the corpus asserted. Stripped only for a real key: one token, no spaces, then `: `.
+    let key_len = out
+        .find(": ")
+        .filter(|i| !out[..*i].contains(char::is_whitespace) && *i > 0);
+    match key_len {
+        Some(i) => out[i + 2..].trim().to_string(),
+        None => out.to_string(),
+    }
+}
+
+/// Every asserted marker in `text`, as a claim.
+///
+/// Masked exactly as the counter masks — fenced blocks only. Inline code is **not** a
+/// mention signal: 80% of a mature corpus's `[open]` tags are backticked and are claims, and
+/// treating backticks as narration understated that repository's open questions fivefold.
+fn prose_claims(text: &str) -> Vec<ServedClaim> {
+    let masked = crate::markdown::mask_fenced(text);
+    let mut out = Vec::new();
+    for (tag, standing) in [
+        (VERIFIED, "verified"),
+        (INFERENCE, "inference"),
+        (OPEN, "open"),
+    ] {
+        for (i, _) in masked.match_indices(tag) {
+            if is_narrated(&masked, i, i + tag.len()) {
+                continue;
+            }
+            out.push(ServedClaim {
+                text: statement_around(&masked, i, i + tag.len()),
+                standing,
+                scope: ClaimScope::Statement,
+                property: None,
+                at: i,
+            });
+        }
+    }
+    out.sort_by_key(|c| c.at);
+    out
+}
+
+/// The standings a node declares structurally, in properties its class typed `claim`.
+///
+/// A value that is *already bracketed* is visible to the prose pass too. The counter
+/// subtracts a tally to correct for that; a list cannot, because it has to know *which*
+/// occurrence is the duplicate — so this pass reports the byte offset of the value and the
+/// caller drops the prose claim that sits inside it.
+fn structural_claims(text: &str, fields: &[String]) -> Vec<ServedClaim> {
+    if fields.is_empty() {
+        return Vec::new();
+    }
+    let Ok(doc) = serde_yaml::from_str::<serde_yaml::Value>(text) else {
+        return Vec::new();
+    };
+    let mut named: Vec<(String, String)> = Vec::new();
+    named_values(&doc, fields, &mut named);
+
+    named
+        .into_iter()
+        .filter_map(|(field, value)| {
+            let standing = match tag_of(&value)? {
+                VERIFIED => "verified",
+                INFERENCE => "inference",
+                OPEN => "open",
+                _ => return None,
+            };
+            // Where the value sits in the raw bytes, so a bracketed one can be matched
+            // against the prose pass's finding. `find` is enough: the value is a short
+            // scalar and a false match would have to be the same string in the same file,
+            // which dedupes to the same claim either way.
+            let at = text.find(value.trim()).unwrap_or(0);
+            Some(ServedClaim {
+                text: field.clone(),
+                standing,
+                scope: ClaimScope::Node,
+                property: Some(field),
+                at,
+            })
+        })
+        .collect()
+}
+
+/// `(field, value)` for every value held under one of `fields`, at any depth.
+///
+/// The same walk `structural_values` performs, keeping the key so a served claim can say
+/// which property gave it its standing.
+fn named_values(value: &serde_yaml::Value, fields: &[String], out: &mut Vec<(String, String)>) {
+    match value {
+        serde_yaml::Value::Mapping(map) => {
+            for (k, v) in map {
+                if let Some(key) = k.as_str() {
+                    if fields.iter().any(|f| f == key) {
+                        match v {
+                            serde_yaml::Value::String(s) => out.push((key.to_string(), s.clone())),
+                            serde_yaml::Value::Sequence(items) => out.extend(
+                                items
+                                    .iter()
+                                    .filter_map(|i| i.as_str())
+                                    .map(|s| (key.to_string(), s.to_string())),
+                            ),
+                            _ => {}
+                        }
+                        continue;
+                    }
+                }
+                named_values(v, fields, out);
+            }
+        }
+        serde_yaml::Value::Sequence(items) => {
+            for item in items {
+                named_values(item, fields, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Every claim a node makes, prose and structure both.
+///
+/// The list form of [`count_in_node`], and held to it: the two must agree tag for tag, or
+/// the corpus is described one way by `status` and another way by the agent surface.
+pub fn claims_in_node(text: &str, fields: &[String]) -> Vec<ServedClaim> {
+    let structural = structural_claims(text, fields);
+    let mut prose = prose_claims(text);
+
+    // Drop the prose sighting of a structural value that was written bracketed. Matched by
+    // position rather than by count: `claim_tag: "[open]"` and a genuine `[open]` elsewhere
+    // in the same node are two claims, and subtracting one from a tally cannot tell them
+    // apart.
+    for s in &structural {
+        if let Some(i) = prose
+            .iter()
+            .position(|p| p.standing == s.standing && p.at >= s.at && p.at < s.at + 64)
+        {
+            prose.remove(i);
+        }
+    }
+
+    let mut all = structural;
+    all.extend(prose);
+    all.sort_by_key(|c| c.at);
+    all
 }
 
 /// Every marker in a node: prose and structure both.
@@ -635,6 +877,175 @@ mod tests {
         a.add(count_in_source("[open] [open]"));
         assert_eq!(a.verified, 1);
         assert_eq!(a.open, 2);
+    }
+
+    // ── serving claims ────────────────────────────────────────────────────────
+
+    /// **The invariant.** The list and the tally are one extraction seen two ways, and a
+    /// corpus described one way by `status` and another by the agent surface is the exact
+    /// failure this module was written to end.
+    ///
+    /// Asserted per tag, not on the total: two errors in opposite directions cancel in a
+    /// sum, and cancelling is how a disagreement survives a test.
+    fn assert_served_matches_counted(text: &str, fields: &[String]) {
+        let served = claims_in_node(text, fields);
+        let counted = count_in_node(text, fields);
+        for (standing, n) in [
+            ("verified", counted.verified),
+            ("inference", counted.inference),
+            ("open", counted.open),
+        ] {
+            assert_eq!(
+                served.iter().filter(|c| c.standing == standing).count(),
+                n,
+                "{standing}: served {served:#?} against count {counted:?} for:\n{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn served_claims_match_the_count() {
+        let fields = vec!["claim_tag".to_string()];
+        for text in [
+            "description: |\n  A fact. [verified]\n  A guess. [inference]\n  A question. [open]\n",
+            "description: plain prose with no markers\n",
+            "description: |\n  Whether it holds is `[open]` — nobody has checked.\n",
+            // Structural, bare: one claim, from the property.
+            "class: gage\nproperties:\n  claim_tag: inference\n",
+            // Structural, bracketed: seen by both passes, and still ONE claim.
+            "class: gage\nproperties:\n  claim_tag: \"[open]\"\n",
+            // Both arms at once.
+            "class: gage\ndescription: |\n  A fact. [verified]\nproperties:\n  claim_tag: open\n",
+            // A node discussing the vocabulary rather than using it.
+            "description: |\n  The `[open]` tag marks an unanswered claim.\n  This claim is not [verified]\n",
+            // A fenced block is masked in both.
+            "description: |\n  ```\n  [verified]\n  ```\n  A real one. [verified]\n",
+        ] {
+            assert_served_matches_counted(text, &fields);
+        }
+    }
+
+    /// The text is the statement, not the tag and not the whole node.
+    #[test]
+    fn a_served_claim_carries_the_statement_it_tags() {
+        let c = claims_in_node(
+            "description: |\n  Stage is converted by a rating curve. [verified]\n",
+            &[],
+        );
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].standing, "verified");
+        assert_eq!(c[0].text, "Stage is converted by a rating curve.");
+    }
+
+    /// A tag written mid-sentence carries the whole sentence, not the half before it.
+    #[test]
+    fn a_mid_sentence_tag_keeps_the_rest_of_the_sentence() {
+        let c = claims_in_node(
+            "description: |\n  Whether the two are connected is `[open]` and nobody has checked.\n",
+            &[],
+        );
+        assert_eq!(c.len(), 1, "{c:#?}");
+        assert!(
+            c[0].text.contains("nobody has checked"),
+            "truncated at the tag: {:?}",
+            c[0].text
+        );
+    }
+
+    /// Narration is not assertion, and the four shapes are the counter's — not a fifth
+    /// invented to make a case pass.
+    #[test]
+    fn a_named_tag_is_not_served_as_a_claim() {
+        for text in [
+            "description: The `[open]` tag marks an unanswered claim.\n",
+            "description: An earlier version said they were [open]\n",
+            "description: This claim is not [verified]\n",
+        ] {
+            assert!(
+                claims_in_node(text, &[]).is_empty(),
+                "narrated tag served as a claim: {text}"
+            );
+        }
+    }
+
+    /// **Backticks are not a mention signal.** Measured: 80% of a mature corpus's `[open]`
+    /// tags are backticked and are claims. A tool that filtered them would pass its own
+    /// tests and understate that corpus fivefold.
+    #[test]
+    fn a_backticked_tag_is_still_a_claim() {
+        let c = claims_in_node("description: The reach is regulated. `[verified]`\n", &[]);
+        assert_eq!(c.len(), 1, "{c:#?}");
+        assert_eq!(c[0].standing, "verified");
+    }
+
+    /// A declared `type: claim` property gives the NODE its standing, and says so.
+    #[test]
+    fn a_structural_tag_is_scoped_to_the_node() {
+        let c = claims_in_node(
+            "class: gage\nproperties:\n  claim_tag: inference\n",
+            &["claim_tag".to_string()],
+        );
+        assert_eq!(c.len(), 1, "{c:#?}");
+        assert_eq!(c[0].scope, ClaimScope::Node);
+        assert_eq!(c[0].property.as_deref(), Some("claim_tag"));
+        assert_eq!(c[0].standing, "inference");
+    }
+
+    /// Only a property the class DECLARED as a claim field counts. A bare `open` under an
+    /// undeclared key is a word.
+    #[test]
+    fn an_undeclared_property_holding_a_bare_token_is_not_a_claim() {
+        assert!(claims_in_node("properties:\n  status: open\n", &[]).is_empty());
+    }
+
+    /// Both spellings, because the counter accepts both.
+    #[test]
+    fn both_spellings_of_a_structural_tag_are_served_once() {
+        for value in ["open", "\"[open]\""] {
+            let c = claims_in_node(
+                &format!("class: g\nproperties:\n  claim_tag: {value}\n"),
+                &["claim_tag".to_string()],
+            );
+            assert_eq!(c.len(), 1, "{value}: {c:#?}");
+            assert_eq!(c[0].standing, "open");
+        }
+    }
+
+    /// There is no untagged arm. An unmarked sentence is prose, and prose is `get_node`'s
+    /// job — inventing a fourth standing for it would turn every aside in the corpus into a
+    /// weakly-evidenced claim.
+    #[test]
+    fn untagged_prose_is_not_served_as_a_claim() {
+        assert!(claims_in_node(
+            "description: |\n  Randomization eliminates confounding by design.\n",
+            &[]
+        )
+        .is_empty());
+    }
+
+    /// The glosses `claim_tags` serves are copied from the guidelines, so they are pinned
+    /// to them. Not the wording — that would make the document unrevisable — but the SET:
+    /// this asserts the guidelines define exactly these three tokens and no fourth, which
+    /// is the fact a tool serving them would otherwise silently outlive.
+    #[test]
+    fn agent_conduct_defines_exactly_these_tags() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../prelude/guidelines/agent-conduct.md");
+        let text = std::fs::read_to_string(&path).expect("agent-conduct.md");
+
+        // The definition list: a bullet opening with the bracketed token and an em dash.
+        let defined: Vec<String> = text
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix("- `["))
+            .filter(|r| r.contains("]` — "))
+            .filter_map(|r| r.split("]`").next().map(str::to_string))
+            .collect();
+
+        assert_eq!(
+            defined,
+            TAG_MEANINGS.iter().map(|(b, _, _)| *b).collect::<Vec<_>>(),
+            "the guidelines and the served tags have come apart: {defined:?}"
+        );
     }
 }
 
