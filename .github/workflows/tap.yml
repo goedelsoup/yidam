@@ -1,0 +1,161 @@
+# The Homebrew tap — render `Formula/yidam.rb` for a published release and push it.
+#
+# `brew install goedelsoup/tap/yidam` is the channel a collaborator on macOS
+# reaches for first, and it can only stay true if the formula is rewritten by
+# machine. A hand-maintained formula is a second place the version lives, and the
+# two go out of step on the first release nobody remembers to follow up.
+#
+# ── why this is its own workflow ─────────────────────────────────────────────
+#
+# It was a job inside release.yml, reachable only by pushing a `cli/v*` tag. On
+# `cli/v0.2.1` the render succeeded and the push failed — `HOMEBREW_TAP_TOKEN` did
+# not exist — and every other channel shipped. The repair on offer was "re-run the
+# failed job", which works only while that run's build artifacts are still
+# retained, and only from the release run. After retention there was no way to
+# correct the tap except editing the formula by hand: the exact failure the
+# generated formula exists to prevent, reached by a different road (#246).
+#
+# So the tap is a workflow with two entrances. release.yml calls it on a tag, and
+# a person can dispatch it for any published CLI release. Both run the same steps
+# against the same source of truth, which is what makes the repair path credible —
+# a recovery path that is a separate implementation is a second thing to be wrong.
+#
+# ── the source of truth is the RELEASE, not the run ──────────────────────────
+#
+# The formula's checksums come from `SHA256SUMS`, an asset of the release itself,
+# rather than from the artifacts of the run that built it. Release assets do not
+# expire, so a formula stays renderable for a version tagged months ago; and the
+# checksums are then of the exact bytes `brew` downloads rather than of an
+# artifact believed to be identical to them.
+
+name: Tap
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: The CLI release tag whose formula the tap should serve.
+        required: true
+        type: string
+    secrets:
+      HOMEBREW_TAP_TOKEN:
+        # Deliberately not `required: true`. A required secret the caller cannot
+        # supply fails the job before its first step, with GitHub's own wording
+        # about an unset input — and the message below, which says exactly which
+        # PAT to create with which scope on which repository, is never printed.
+        required: false
+
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'CLI release tag to publish to the tap, e.g. cli/v0.2.1'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  tap:
+    name: tap (goedelsoup/homebrew-tap)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── the tap serves one formula, so an older tag is a downgrade ──────────
+      #
+      # This guards the dispatch path against a typo, and the tag path against
+      # something subtler: re-running the tap job of an old release — the very
+      # repair this workflow exists to make possible — would overwrite a newer
+      # formula with an older one. It would report success, and the tap would
+      # then serve a version behind everything else, which is the state that
+      # opened #246 in the first place.
+      - name: The tag must be the latest CLI release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          case "$TAG" in
+            cli/v*) ;;
+            *) echo "::error::'$TAG' is not a CLI release tag (expected cli/v*)"; exit 1 ;;
+          esac
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          if [ "$TAG" != "$latest" ]; then
+            echo "::error::$TAG is not the latest release ($latest), and the tap serves"
+            echo "::error::one formula — pushing this would downgrade it. Dispatch this"
+            echo "::error::workflow with $latest instead."
+            exit 1
+          fi
+          echo "$TAG is the latest release."
+
+      # `--pattern SHA256SUMS`: the combined manifest is one asset covering every
+      # target, so a partial download is a missing file rather than a formula
+      # rendered with a platform quietly absent.
+      - name: Take the checksums from the published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern SHA256SUMS \
+            --dir release
+          cat release/SHA256SUMS
+
+      - name: Render the formula
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          mkdir -p out/Formula
+          ./render-formula.sh "${TAG#cli/v}" release/SHA256SUMS > out/Formula/yidam.rb
+          cat out/Formula/yidam.rb
+
+      # A tap in another repository needs a token this one's GITHUB_TOKEN cannot
+      # stand in for. When it is absent this job FAILS rather than skipping: by
+      # the time it runs the release has already published, so nothing is lost by
+      # going red — whereas a skip leaves the tap serving the previous version
+      # with every surface still claiming `brew install` works.
+      - name: Push it to the tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO || 'goedelsoup/homebrew-tap' }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          if [ -z "${TAP_TOKEN:-}" ]; then
+            echo "::error::secrets.HOMEBREW_TAP_TOKEN is not set, so the tap cannot be updated."
+            echo "::error::Create a fine-grained PAT with Contents: read and write on $TAP_REPO"
+            echo "::error::and add it to this repository as HOMEBREW_TAP_TOKEN. Then dispatch"
+            echo "::error::the Tap workflow with $TAG — no re-tag is needed, since it renders"
+            echo "::error::from the release's own SHA256SUMS. Until then 'brew install"
+            echo "::error::goedelsoup/tap/yidam' installs whatever the last successful run"
+            echo "::error::left behind."
+            exit 1
+          fi
+          version="${TAG#cli/v}"
+          git clone --depth 1 "https://x-access-token:$TAP_TOKEN@github.com/$TAP_REPO.git" tap
+          mkdir -p tap/Formula
+          cp out/Formula/yidam.rb tap/Formula/yidam.rb
+          cd tap
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # `git add` BEFORE asking whether anything changed. A first push into a
+          # tap that does not yet carry the formula leaves it untracked, and
+          # `git diff` on an untracked path reports no change — so the one run
+          # that most needs to push would be the one that decides not to.
+          git add Formula/yidam.rb
+          # Nothing to commit is a legitimate outcome — a re-run of the same tag
+          # renders the same formula — and must not fail the release.
+          if git diff --cached --quiet; then
+            echo "the tap already carries this formula; nothing to push."
+            exit 0
+          fi
+          git commit \
+            -m "yidam $version" \
+            -m "Rendered by the tap workflow of $GITHUB_REPOSITORY from the assets of $TAG. Do not edit by hand."
+          # `HEAD` rather than a bare push: a clone of a tap with no commits yet
+          # has an unborn branch and no upstream to push to.
+          git push origin HEAD

@@ -37,6 +37,20 @@ fn checksums(dir: &Path, version: &str, targets: &[&str]) {
     }
 }
 
+/// The same fixture checksums, written as the single combined `SHA256SUMS` the release
+/// uploads as an asset. Returns the path to the file itself, which is what the generator is
+/// given — the tap renders from the release rather than from a directory of run artifacts.
+fn combined(dir: &Path, version: &str, targets: &[&str]) -> PathBuf {
+    let mut body = String::new();
+    for (n, t) in targets.iter().enumerate() {
+        let hash = format!("{}", n + 1).repeat(64);
+        body.push_str(&format!("{hash}  yidam-{version}-{t}.tar.gz\n"));
+    }
+    let path = dir.join("SHA256SUMS");
+    std::fs::write(&path, body).unwrap();
+    path
+}
+
 fn render_in(dir: &Path, version: &str) -> Output {
     Command::new(root().join("render-formula.sh"))
         .arg(version)
@@ -242,10 +256,15 @@ fn the_tap_job_waits_for_the_publish() {
 /// version while the README, the docs, and the release notes all say `brew install` gets
 /// you the new one — and nothing anywhere is red. By the time this job runs the release is
 /// already published, so failing costs nothing that was not already delivered.
+///
+/// The secret is also declared optional on `workflow_call` for the sake of this message. A
+/// required one the caller cannot supply fails the job before its first step, with GitHub's
+/// wording about an unset input, and the branch below — which names the PAT, its scope, and
+/// the repository it needs — never runs.
 #[test]
 fn an_absent_tap_token_fails_loudly() {
-    let w = std::fs::read_to_string(root().join(".github/workflows/release.yml")).unwrap();
-    let workflow: serde_yaml::Value = serde_yaml::from_str(&w).expect("release.yml parses");
+    let w = std::fs::read_to_string(root().join(".github/workflows/tap.yml")).unwrap();
+    let workflow: serde_yaml::Value = serde_yaml::from_str(&w).expect("tap.yml parses");
     let steps = workflow["jobs"]["tap"]["steps"]
         .as_sequence()
         .expect("the tap job has steps");
@@ -277,4 +296,183 @@ fn an_absent_tap_token_fails_loudly() {
         exits.iter().any(|l| l.contains("HOMEBREW_TAP_TOKEN")),
         "the failure must name the secret to create: {exits:?}"
     );
+}
+
+/// `SHA256SUMS` and the directory of per-asset files must render the identical formula.
+///
+/// They are the same checksums in two packagings, and the tap now reads the combined one
+/// because a release keeps its assets forever while a run's artifacts expire. That only
+/// helps if the two agree: a formula that differs by the road its hashes travelled is a
+/// formula whose correctness depends on which entrance the tap workflow was called from.
+#[test]
+fn a_combined_sha256sums_renders_the_same_formula_as_the_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    checksums(dir.path(), "1.2.3", &TARGETS);
+    let from_dir = render_in(dir.path(), "1.2.3");
+    assert!(
+        from_dir.status.success(),
+        "directory render failed: {}",
+        String::from_utf8_lossy(&from_dir.stderr)
+    );
+
+    let other = tempfile::tempdir().unwrap();
+    let sums = combined(other.path(), "1.2.3", &TARGETS);
+    let from_file = render_in(&sums, "1.2.3");
+    assert!(
+        from_file.status.success(),
+        "SHA256SUMS render failed: {}",
+        String::from_utf8_lossy(&from_file.stderr)
+    );
+
+    assert_eq!(
+        String::from_utf8_lossy(&from_dir.stdout),
+        String::from_utf8_lossy(&from_file.stdout),
+        "the two checksum packagings render different formulae"
+    );
+}
+
+/// A platform missing from `SHA256SUMS` is a hard failure, exactly as it is for a directory.
+///
+/// The combined file is the form a repair renders from, months after the release. If a
+/// truncated or partially-downloaded manifest merely omitted an `on_arm` block, the repair
+/// would push a formula that installs for most people and reports "no available formula" to
+/// the rest — a worse state than the stale tap it was fixing.
+#[test]
+fn a_platform_missing_from_the_combined_file_is_a_hard_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let sums = combined(dir.path(), "1.2.3", &TARGETS[1..]);
+    let out = render_in(&sums, "1.2.3");
+    assert!(
+        !out.status.success(),
+        "rendered a formula from a SHA256SUMS with a platform missing:\n{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains(TARGETS[0]),
+        "the failure must name the platform it lacks: {err}"
+    );
+}
+
+/// The asset name in `SHA256SUMS` is matched whole, not as a substring.
+///
+/// The manifest covers everything a release uploads, and a release may one day upload more
+/// than four tarballs — a signature, a `.zip`, a differently-suffixed target. A substring
+/// match would take the first line that merely *contains* the asset name, pairing a real url
+/// with some other file's hash. That formula is valid Ruby pointing at a real download, and
+/// it fails verification on the user's machine as a corrupted archive.
+#[test]
+fn the_combined_file_matches_the_asset_name_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let sums = dir.path().join("SHA256SUMS");
+    let decoy = "d".repeat(64);
+    let mut body = String::new();
+    // First, so a substring matcher stopping at its first hit takes this one.
+    body.push_str(&format!("{decoy}  yidam-1.2.3-{}.tar.gz.sig\n", TARGETS[0]));
+    for (n, t) in TARGETS.iter().enumerate() {
+        body.push_str(&format!(
+            "{}  yidam-1.2.3-{t}.tar.gz\n",
+            format!("{}", n + 1).repeat(64)
+        ));
+    }
+    std::fs::write(&sums, body).unwrap();
+
+    let out = render_in(&sums, "1.2.3");
+    assert!(
+        out.status.success(),
+        "extra assets in SHA256SUMS must be inert: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let f = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        !f.contains(&decoy),
+        "a `.sig` line supplied the hash for {}:\n{f}",
+        TARGETS[0]
+    );
+    assert!(
+        f.contains(&"1".repeat(64)),
+        "the tarball's own hash is not in the formula:\n{f}"
+    );
+}
+
+/// The tap must be pushable for a release that is already out.
+///
+/// It was reachable only by pushing a `cli/v*` tag, and its checksums came from the
+/// artifacts of that run. So when the push failed on `cli/v0.2.1` the only repair was
+/// re-running that job — which stops working once the run's artifacts age out, after which
+/// the tap could be corrected only by editing the formula by hand. That is the failure the
+/// generated formula exists to prevent, reached from the other side.
+///
+/// Two properties keep the repair available: a person can start it, and it reads the
+/// release's own assets rather than a run's.
+#[test]
+fn the_tap_can_be_pushed_for_a_release_that_is_already_out() {
+    let text = std::fs::read_to_string(root().join(".github/workflows/tap.yml"))
+        .expect(".github/workflows/tap.yml is unreadable");
+    assert!(
+        text.contains("workflow_dispatch:"),
+        "tap.yml is not dispatchable, so a failed push can only be repaired by re-running \
+         the release that failed"
+    );
+    assert!(
+        text.contains("workflow_call:"),
+        "tap.yml is not callable, so the release cannot use the same steps a repair does"
+    );
+    assert!(
+        !text.contains("download-artifact"),
+        "tap.yml reads the run's artifacts; those expire, and a formula must stay \
+         renderable for a release tagged months ago"
+    );
+    assert!(
+        text.contains("gh release download") && text.contains("SHA256SUMS"),
+        "tap.yml must take its checksums from the published release's SHA256SUMS"
+    );
+
+    // And the release delegates to it rather than carrying a second copy of the steps.
+    let w = std::fs::read_to_string(root().join(".github/workflows/release.yml")).unwrap();
+    let release: serde_yaml::Value = serde_yaml::from_str(&w).expect("release.yml parses");
+    assert_eq!(
+        release["jobs"]["tap"]["uses"].as_str(),
+        Some("./.github/workflows/tap.yml"),
+        "release.yml no longer calls tap.yml; a recovery path that is a separate \
+         implementation is a second thing to be wrong"
+    );
+}
+
+/// The tap must refuse a tag that is not the latest release.
+///
+/// The repair path is "dispatch it with a tag", and the tap serves exactly one formula, so a
+/// mistyped older tag is a downgrade that reports success. The same is true of the repair
+/// this file's neighbour describes: re-running an old release's tap job after a newer
+/// release shipped would quietly put the tap behind again — which is the state #246 is.
+#[test]
+fn the_tap_refuses_a_tag_that_is_not_the_latest_release() {
+    let text = std::fs::read_to_string(root().join(".github/workflows/tap.yml")).unwrap();
+    let workflow: serde_yaml::Value = serde_yaml::from_str(&text).expect("tap.yml parses");
+    let steps = workflow["jobs"]["tap"]["steps"]
+        .as_sequence()
+        .expect("the tap job has steps");
+    let guard = steps
+        .iter()
+        .find_map(|s| s["run"].as_str())
+        .filter(|r| r.contains("releases/latest"))
+        .expect("no step compares the requested tag against the latest release");
+    assert!(
+        guard.contains("exit 1"),
+        "the latest-release check must fail the job: {guard}"
+    );
+    // Before the push, or it is a check on something already done.
+    let latest = steps
+        .iter()
+        .position(|s| {
+            s["run"]
+                .as_str()
+                .is_some_and(|r| r.contains("releases/latest"))
+        })
+        .unwrap();
+    let push = steps
+        .iter()
+        .position(|s| s["run"].as_str().is_some_and(|r| r.contains("TAP_TOKEN")))
+        .expect("no step pushes to the tap");
+    assert!(latest < push, "the tap is pushed before the tag is checked");
 }

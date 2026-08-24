@@ -130,6 +130,67 @@ fn the_cli_release_checks_that_yidam_core_is_published() {
     );
 }
 
+/// The CLI's release must ask whether the Homebrew tap's credential exists.
+///
+/// `cli/v0.2.1` published four tarballs, both crates, and every checksum, and went red at
+/// one job: the tap push, on a `HOMEBREW_TAP_TOKEN` that had never been created. The
+/// failure was loud and the log said exactly what to do — and "loud" and "fixed" are
+/// different states. In between them the tap served 0.2.0, which is the release whose Linux
+/// binary does not run on Debian 12, which is why 0.2.1 exists (#246).
+///
+/// A missing credential is knowable before the tag. After it, the assets are out and the
+/// release notes already claim `brew install` works.
+#[test]
+fn the_cli_release_checks_that_the_tap_token_exists() {
+    let script = read("release.sh");
+    assert!(
+        script.contains("HOMEBREW_TAP_TOKEN"),
+        "release.sh must ask whether the tap's token exists; without it a cli/v* tag \
+         publishes every channel but the tap, and finds out afterwards"
+    );
+    assert!(
+        script.contains("tap-token-missing"),
+        "release.sh must name the missing-token refusal, so the message says which PAT to \
+         create rather than reporting a red job from inside a release that already shipped"
+    );
+    // Secrets are listable only with admin. "Not there" and "you cannot see" want opposite
+    // responses — create the PAT, or ask someone who can look — and collapsing them is how
+    // a precondition check becomes one people learn to skip.
+    assert!(
+        script.contains("tap-token-unknown"),
+        "release.sh must distinguish an absent token from one it is not allowed to see"
+    );
+}
+
+/// A `cli/v*` tag must require tap.yml at HEAD, not only release.yml.
+///
+/// release.yml calls the tap by path, and a local `uses:` resolves at the caller's ref. A
+/// tag carrying one file and not the other fires a release whose tap job cannot start —
+/// the same silence as tagging before a workflow exists, which is the failure the
+/// no-workflow refusal was written for.
+#[test]
+fn the_cli_release_requires_every_workflow_the_tag_fires() {
+    let script = read("release.sh");
+    let cli = script
+        .lines()
+        .find(|l| l.contains("TAG=\"cli/v$VERSION\""))
+        .expect("release.sh no longer has a cli layer");
+    for wf in [
+        ".github/workflows/release.yml",
+        ".github/workflows/tap.yml",
+        ".github/workflows/publish-crates.yml",
+    ] {
+        assert!(
+            cli.contains(wf),
+            "a cli tag fires {wf} and release.sh does not require it at HEAD: {cli}"
+        );
+        assert!(
+            repo_root().join(wf).exists(),
+            "release.sh requires {wf} and it does not exist"
+        );
+    }
+}
+
 /// The release process must point at the script, not at `git tag`.
 ///
 /// Every fact this script enforces was already written down somewhere. Being written down is
