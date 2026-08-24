@@ -58,7 +58,7 @@
       "id": "undeclared-property",
       "title": "Instance property the class never declared",
       "severity": "error",
-      "rationale": "A property absent from the class is invisible to everything that reads the corpus through the ontology — schemas, exports, queries. It reads as data to a human and as nothing to a machine, which is the failure mode worth gating on. A class that declares no `properties:` has said nothing and is not checked.",
+      "rationale": "A property absent from the class is invisible to everything that reads the corpus through the ontology — schemas, exports, queries. It reads as data to a human and as nothing to a machine, which is the failure mode worth gating on. A class that declares no `properties:` has said nothing and is not checked, and a property `.yidam/corpus/universal.yml` declares — by name or by pattern — may be carried by any class without being declared on each.",
       "violations": []
     },
     {

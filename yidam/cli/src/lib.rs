@@ -14,6 +14,7 @@ mod paths;
 pub mod provenance;
 mod regen;
 pub mod report;
+pub mod universal;
 mod walk;
 
 pub mod model;

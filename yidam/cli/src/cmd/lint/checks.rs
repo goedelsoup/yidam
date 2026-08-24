@@ -621,7 +621,11 @@ fn instance_properties(n: &Node) -> Vec<(String, &serde_yaml::Value)> {
 /// reads as data to a human and is invisible to every consumer that walks the ontology,
 /// because the ontology does not mention it. The value is not lost; it is simply not part
 /// of the class, and so no schema, export, or query will ever see it.
-pub fn undeclared_property(nodes: &[Node], classes: &[Class]) -> Check {
+pub fn undeclared_property(
+    nodes: &[Node],
+    classes: &[Class],
+    universal: &crate::universal::Universal,
+) -> Check {
     let by_name = classes_by_name(classes);
     let mut violations = Vec::new();
     for n in nodes {
@@ -632,7 +636,7 @@ pub fn undeclared_property(nodes: &[Node], classes: &[Class]) -> Check {
             continue;
         }
         for (key, _) in instance_properties(n) {
-            if class.properties.iter().any(|p| p.name == key) {
+            if class.properties.iter().any(|p| p.name == key) || universal.covers(&key) {
                 continue;
             }
             violations.push(Violation::new(
@@ -651,7 +655,9 @@ pub fn undeclared_property(nodes: &[Node], classes: &[Class]) -> Check {
         "A property absent from the class is invisible to everything that reads the corpus \
          through the ontology — schemas, exports, queries. It reads as data to a human and \
          as nothing to a machine, which is the failure mode worth gating on. A class that \
-         declares no `properties:` has said nothing and is not checked.",
+         declares no `properties:` has said nothing and is not checked, and a property \
+         `.yidam/corpus/universal.yml` declares — by name or by pattern — may be carried by \
+         any class without being declared on each.",
         violations,
     )
 }
@@ -818,7 +824,11 @@ fn is_iso_date(s: &str) -> bool {
 /// assertion to every counter. That is the same silent-undercount failure
 /// `claim-tag-malformed` reports in prose, one field over, and the matcher is reused rather
 /// than re-derived so the two cannot disagree about what a tag is.
-pub fn property_type(nodes: &[Node], classes: &[Class]) -> Check {
+pub fn property_type(
+    nodes: &[Node],
+    classes: &[Class],
+    universal: &crate::universal::Universal,
+) -> Check {
     let by_name = classes_by_name(classes);
     let mut violations = Vec::new();
     for n in nodes {
@@ -826,13 +836,23 @@ pub fn property_type(nodes: &[Node], classes: &[Class]) -> Check {
             continue;
         };
         for (key, value) in instance_properties(n) {
-            let Some(declared) = class.properties.iter().find(|p| p.name == key) else {
+            // The class first, then the corpus. Universal does not mean untyped — a
+            // fiscal-year snapshot is prose and a `claim` written into one is still
+            // counted as no claim — but a class naming the same property has said
+            // something more specific about its own instances, and wins.
+            let declared = class
+                .properties
+                .iter()
+                .find(|p| p.name == key)
+                .map(|p| p.r#type.as_str())
+                .or_else(|| universal.declared_type(&key));
+            let Some(declared) = declared else {
                 continue;
             };
-            if let Some(why) = property_type_violation(&declared.r#type, value) {
+            if let Some(why) = property_type_violation(declared, value) {
                 violations.push(Violation::new(
                     &n.rel,
-                    format!("`{key}` is declared `{}` and {why}", declared.r#type),
+                    format!("`{key}` is declared `{declared}` and {why}"),
                 ));
             }
         }
@@ -1372,6 +1392,11 @@ pub fn malformed_table(files: &[(String, String)]) -> Check {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A corpus declaring no universal properties — the state every corpus starts in, and
+    /// what these cases are about. The universal path has its own tests below and in
+    /// `crate::universal`.
+    const NONE: crate::universal::Universal = crate::universal::Universal::empty();
 
     fn node(rel: &str, yaml: &str) -> Node {
         Node {
@@ -2009,7 +2034,7 @@ edges:
         let (nodes, classes) = gage_corpus(
             "class: gage\nproperties:\n  parameter: \"00060\"\n  claim_tag: verified\n  vendor: acme\nlinks: []\n",
         );
-        let c = undeclared_property(&nodes, &classes);
+        let c = undeclared_property(&nodes, &classes, &NONE);
         assert_eq!(c.violations.len(), 1);
         assert!(c.violations[0].detail.contains("`vendor`"), "{c:#?}");
         // …and the declared ones are not reported as missing.
@@ -2047,8 +2072,8 @@ edges:
             "the property declaration has no `required` field to gate on"
         );
         for c in [
-            undeclared_property(&nodes, &classes),
-            property_type(&nodes, &classes),
+            undeclared_property(&nodes, &classes, &NONE),
+            property_type(&nodes, &classes, &NONE),
             edge_target_class(&nodes, &classes),
         ] {
             assert_eq!(c.severity, Severity::Error, "{} must gate", c.id);
@@ -2168,9 +2193,9 @@ edges:
             "class: reach\nproperties:\n  anything: at all\nlinks:\n  - target: ../reach/beta.yml\n    relationship: whatever\n",
         ), node(".yidam/corpus/reach/beta.yml", "class: reach\nlinks: []\n")];
         let silent = vec![class_from("reach", "{}")];
-        assert!(undeclared_property(&nodes, &silent).passed());
+        assert!(undeclared_property(&nodes, &silent, &NONE).passed());
         assert!(missing_property(&nodes, &silent).passed());
-        assert!(property_type(&nodes, &silent).passed());
+        assert!(property_type(&nodes, &silent, &NONE).passed());
         assert!(unlicensed_edge(&nodes, &silent).passed());
         assert!(edge_target_class(&nodes, &silent).passed());
     }
@@ -2193,7 +2218,64 @@ edges:
         )];
         assert!(unlicensed_edge(&nodes, &classes).passed());
         assert!(edge_target_class(&nodes, &classes).passed());
-        assert!(undeclared_property(&nodes, &classes).passed());
+        assert!(undeclared_property(&nodes, &classes, &NONE).passed());
+    }
+
+    /// **A universal property is not an undeclared one.** Both shapes, against the corpus
+    /// that reported them: `seeded_because` is apparatus carried by six different classes,
+    /// and `fy2024_profile` is a fiscal year's figures pasted onto the node they describe.
+    /// Declaring the first per class would be sixteen copies of one decision; declaring the
+    /// second by name would mean editing an ontology every July.
+    #[test]
+    fn a_universal_property_is_not_reported_as_undeclared() {
+        let universal = crate::universal::Universal::parse(
+            "properties:\n  - name: seeded_because\n    type: text\n  - pattern: '^fy\\d{4}_[a-z0-9_]+$'\n    type: text\n",
+        );
+        let (nodes, classes) = gage_corpus(
+            "class: gage\nproperties:\n  parameter: \"00060\"\n  claim_tag: open\n  seeded_because: the anchor case\n  fy2024_profile: the figures\nlinks: []\n",
+        );
+        assert!(undeclared_property(&nodes, &classes, &universal).passed());
+        // Reverting the declaration must bring both back, or this fixture pins nothing.
+        assert_eq!(
+            undeclared_property(&nodes, &classes, &NONE)
+                .violations
+                .len(),
+            2
+        );
+        // …and they are not then reported as *missing* either: universal means any class
+        // MAY carry it, and `missing-property` reads only what the class itself declared.
+        assert!(missing_property(&nodes, &classes)
+            .violations
+            .iter()
+            .all(|v| !v.detail.contains("seeded_because")));
+    }
+
+    /// Universal does not mean untyped. A `claim` field is counted by exact token wherever
+    /// it was declared, so a universal one holding prose is the same silent undercount.
+    #[test]
+    fn a_universal_property_is_still_type_checked() {
+        let universal =
+            crate::universal::Universal::parse("properties:\n  - name: verdict\n    type: claim\n");
+        let (nodes, classes) = gage_corpus(
+            "class: gage\nproperties:\n  parameter: \"00060\"\n  verdict: mostly sure\nlinks: []\n",
+        );
+        let c = property_type(&nodes, &classes, &universal);
+        assert_eq!(c.violations.len(), 1, "{c:#?}");
+        assert!(c.violations[0].detail.contains("not an evidence tag"));
+    }
+
+    /// The class is the more specific statement about its own instances and wins. Otherwise
+    /// a corpus could not narrow a universal property for one class without renaming it.
+    #[test]
+    fn a_class_declaring_the_same_property_outranks_the_universal_one() {
+        let universal = crate::universal::Universal::parse(
+            "properties:\n  - name: parameter\n    type: claim\n",
+        );
+        let (nodes, classes) = gage_corpus(
+            "class: gage\nproperties:\n  parameter: \"00060\"\n  claim_tag: open\nlinks: []\n",
+        );
+        // `gage` declares `parameter` as `string`; "00060" satisfies that and not `claim`.
+        assert!(property_type(&nodes, &classes, &universal).passed());
     }
 
     /// The type that pays for the check on its own: `claims.rs` matches the three tokens
@@ -2203,7 +2285,7 @@ edges:
         let (nodes, classes) = gage_corpus(
             "class: gage\nproperties:\n  parameter: \"00060\"\n  claim_tag: mostly sure\nlinks: []\n",
         );
-        let c = property_type(&nodes, &classes);
+        let c = property_type(&nodes, &classes, &NONE);
         assert_eq!(c.violations.len(), 1);
         assert!(
             c.violations[0].detail.contains("not an evidence tag"),
@@ -2221,7 +2303,7 @@ edges:
                 "class: gage\nproperties:\n  parameter: \"00060\"\n  claim_tag: {value}\nlinks: []\n"
             ));
             assert!(
-                property_type(&nodes, &classes).passed(),
+                property_type(&nodes, &classes, &NONE).passed(),
                 "claim_tag: {value} should be accepted"
             );
         }
@@ -2234,7 +2316,7 @@ edges:
         let (nodes, classes) = gage_corpus(
             "class: gage\nproperties:\n  parameter: 60\n  claim_tag: open\nlinks: []\n",
         );
-        let c = property_type(&nodes, &classes);
+        let c = property_type(&nodes, &classes, &NONE);
         assert_eq!(c.violations.len(), 1);
         assert!(c.violations[0].detail.contains("quote it"), "{c:#?}");
     }
@@ -2251,7 +2333,7 @@ edges:
             "reach",
             "properties:\n  - name: extent\n    type: river-mile-range\n",
         )];
-        assert!(property_type(&nodes, &classes).passed());
+        assert!(property_type(&nodes, &classes, &NONE).passed());
     }
 
     #[test]
@@ -2264,13 +2346,13 @@ edges:
             "reach",
             "properties:\n  - name: surveyed\n    type: date\n",
         )];
-        assert_eq!(property_type(&nodes, &classes).violations.len(), 1);
+        assert_eq!(property_type(&nodes, &classes, &NONE).violations.len(), 1);
 
         let ok = vec![node(
             ".yidam/corpus/reach/alpha.yml",
             "class: reach\nproperties:\n  surveyed: 2024-04-01\nlinks: []\n",
         )];
-        assert!(property_type(&ok, &classes).passed());
+        assert!(property_type(&ok, &classes, &NONE).passed());
     }
 
     /// **A date known to the year is a date.** Demanding a day where the corpus knows only
@@ -2292,7 +2374,7 @@ edges:
         };
         for v in ["\"1985\"", "\"1991-06\"", "2024-04-01"] {
             assert!(
-                property_type(&surveyed(v), &classes).passed(),
+                property_type(&surveyed(v), &classes, &NONE).passed(),
                 "{v} is a date at the precision it is known to"
             );
         }
@@ -2306,7 +2388,9 @@ edges:
             "last spring",
         ] {
             assert_eq!(
-                property_type(&surveyed(v), &classes).violations.len(),
+                property_type(&surveyed(v), &classes, &NONE)
+                    .violations
+                    .len(),
                 1,
                 "{v} is not a date"
             );

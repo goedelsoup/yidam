@@ -120,6 +120,10 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
 
     let ont_paths = walk_ont_files(&corpus_dir);
     let classes = checks::load_classes(root, &ont_paths, overlay);
+    // Read through the overlay like every class, so the editor lints an unsaved
+    // `universal.yml` against the buffer rather than against the file on disk.
+    let universal =
+        crate::universal::Universal::parse(&overlay.read(&crate::universal::Universal::path(root)));
     let defined: HashSet<String> = ont_paths
         .iter()
         .filter_map(|p| {
@@ -224,9 +228,9 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::unknown_class(&nodes, &defined),
         checks::orphan_out(&nodes),
         checks::dangling_edge(&nodes),
-        checks::undeclared_property(&nodes, &classes),
+        checks::undeclared_property(&nodes, &classes, &universal),
         checks::missing_property(&nodes, &classes),
-        checks::property_type(&nodes, &classes),
+        checks::property_type(&nodes, &classes, &universal),
         checks::unlicensed_edge(&nodes, &classes),
         checks::edge_target_class(&nodes, &classes),
         checks::catalog_unobtained_but_cited(&sources, &cites),
