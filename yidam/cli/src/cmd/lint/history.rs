@@ -200,12 +200,39 @@ pub(crate) fn class_of(path: &str) -> &str {
         .unwrap_or_default()
 }
 
-/// Whether a class definition declares edges and declares none of them inbound.
+/// What a class definition says about being pointed at.
 ///
-/// The same rule [`super::checks::Class::is_source_class`] applies, read from a blob rather
-/// than from disk. Silence is not a declaration: a class with no `edges:` list has said
-/// nothing about its shape and is not exempt.
-fn blob_is_source_class(content: &str) -> bool {
+/// Three states, and the third is not the absence of the question. A class that declares no
+/// `edges:` has said **nothing** about its shape — which is why it is not a source class,
+/// and equally why an uncited instance of it is not a finding against a declared
+/// expectation. Collapsing "declares no expectation" into "expects to be cited" would
+/// report every corpus whose ontology is not filled in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Expectation {
+    /// Declares edges, none inbound: nothing is meant to point at its instances.
+    Uncited,
+    /// Declares an inbound edge: its instances are meant to be pointed at.
+    Cited,
+    /// Declares no edges at all. Says nothing, and is not read as saying anything.
+    Unstated,
+}
+
+impl Expectation {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Expectation::Uncited => "uncited",
+            Expectation::Cited => "cited",
+            Expectation::Unstated => "unstated",
+        }
+    }
+}
+
+/// Read a class definition's expectation from a blob.
+///
+/// The same rule [`super::checks::Class::is_source_class`] applies, read from history rather
+/// than from disk, so the replay and the check cannot disagree about which classes are
+/// exempt.
+fn blob_expectation(content: &str) -> Expectation {
     #[derive(Default, serde::Deserialize)]
     struct Edge {
         #[serde(default)]
@@ -217,7 +244,13 @@ fn blob_is_source_class(content: &str) -> bool {
         edges: Vec<Edge>,
     }
     let f: Fields = serde_yaml::from_str(content).unwrap_or_default();
-    !f.edges.is_empty() && !f.edges.iter().any(|e| e.direction.as_deref() == Some("in"))
+    if f.edges.is_empty() {
+        return Expectation::Unstated;
+    }
+    match f.edges.iter().any(|e| e.direction.as_deref() == Some("in")) {
+        true => Expectation::Cited,
+        false => Expectation::Uncited,
+    }
 }
 
 /// The corpus as it stood at one commit.
@@ -230,6 +263,11 @@ pub(crate) struct Frame<'a> {
     pub cited: HashSet<&'a String>,
     /// Classes that declare no inbound edge, whose instances are orphans by design.
     pub source_classes: &'a HashSet<String>,
+    /// What each class declares about being pointed at, for the classes that say anything.
+    ///
+    /// A class absent from this map declared nothing — which is the third state, not a
+    /// missing entry. See [`Expectation`].
+    pub expectations: &'a HashMap<String, Expectation>,
 }
 
 impl Frame<'_> {
@@ -268,6 +306,7 @@ pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
     // Live corpus state, rebuilt forward: each node's outbound targets.
     let mut out: HashMap<String, HashSet<String>> = HashMap::new();
     let mut source_classes: HashSet<String> = HashSet::new();
+    let mut expectations: HashMap<String, Expectation> = HashMap::new();
 
     for c in &commits {
         let mut touched = false;
@@ -283,10 +322,25 @@ pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
             } else if is_class(&ch.path) {
                 touched = true;
                 let name = class_of(&ch.path).trim_end_matches(".ont.yml").to_string();
-                if ch.status == b'D' || !blob_is_source_class(content()) {
-                    source_classes.remove(&name);
-                } else {
-                    source_classes.insert(name);
+                let expectation = (ch.status != b'D').then(|| blob_expectation(content()));
+                match expectation {
+                    Some(Expectation::Uncited) => {
+                        source_classes.insert(name.clone());
+                    }
+                    _ => {
+                        source_classes.remove(&name);
+                    }
+                }
+                match expectation {
+                    // A class that declares nothing is absent from the map rather than
+                    // present with a default — the third state has to survive the round
+                    // trip or it collapses into the second.
+                    None | Some(Expectation::Unstated) => {
+                        expectations.remove(&name);
+                    }
+                    Some(e) => {
+                        expectations.insert(name, e);
+                    }
                 }
             }
         }
@@ -300,6 +354,7 @@ pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
             out: &out,
             cited,
             source_classes: &source_classes,
+            expectations: &expectations,
         });
     }
 }

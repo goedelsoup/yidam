@@ -17,11 +17,17 @@
       "by_class": {
         "concept": {
           "nodes": 3,
-          "orphans": 1
+          "orphans": 1,
+          "uncited": 1,
+          "expectation": "cited",
+          "meets_expectation": false
         },
         "gauge": {
           "nodes": 1,
-          "orphans": 0
+          "orphans": 0,
+          "uncited": 1,
+          "expectation": "uncited",
+          "meets_expectation": true
         }
       }
     },
@@ -33,11 +39,17 @@
       "by_class": {
         "concept": {
           "nodes": 3,
-          "orphans": 1
+          "orphans": 1,
+          "uncited": 1,
+          "expectation": "cited",
+          "meets_expectation": false
         },
         "gauge": {
           "nodes": 1,
-          "orphans": 0
+          "orphans": 0,
+          "uncited": 1,
+          "expectation": "uncited",
+          "meets_expectation": true
         }
       }
     }
