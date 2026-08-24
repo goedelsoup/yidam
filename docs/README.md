@@ -7,6 +7,10 @@ This directory is part of the yidam template and does **not** get copied into de
 repositories. It describes yidam, not any domain being bootstrapped. For the documentation
 scaffold that derived repos receive, see [sadhana/docs/](../sadhana/docs/README.md).
 
+Everything below is published at **[goedelsoup.github.io/yidam](https://goedelsoup.github.io/yidam/)**,
+rendered from these files on every push to `main`. This page is the exception: the site's
+sidebar is its version of the contents table, so publishing it would ship a second copy.
+
 ## Contents
 
 | Document | Topic |

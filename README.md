@@ -128,11 +128,11 @@ which is the loop for working *on* it. See
 | [`yidam/cli/`](yidam/cli/) | The `yidam` binary — corpus analysis, linting, indexing, export, MCP server |
 | [`yidam/tests/`](yidam/tests/) | Bootstrap test harness — scenarios scored against a judge [rubric](yidam/tests/rubric.md) |
 | [`yidam/design/`](yidam/design/) | Design system and UI kits for the web surfaces |
-| [`yidam/web/docs/`](yidam/web/docs/) | Astro/Starlight docs site, rendering `docs/` |
+| [`yidam/web/docs/`](yidam/web/docs/) | Astro/Starlight docs site, rendering `docs/` — published at [goedelsoup.github.io/yidam](https://goedelsoup.github.io/yidam/) |
 | [`sadhana/`](sadhana/) | The scaffold copied into derived repos — directory shape, README stubs, root files, CI |
 | [`samudaya/`](samudaya/) | Seed layer — axioms, hints, constraints, augmentations; consumed at genesis |
 | [`packages/web/`](packages/web/) | Browser shell over an exported bundle — embeddings and vector search in WASM |
-| [`docs/`](docs/README.md) | Documentation for yidam itself: design docs, RFCs, vocabulary |
+| [`docs/`](docs/README.md) | Documentation for yidam itself: design docs, RFCs, vocabulary — [read it as a site](https://goedelsoup.github.io/yidam/) |
 | [`examples/`](examples/README.md) | Worked corpora for reading — not copied into a derived repository |
 | [`BOOTSTRAP.md`](BOOTSTRAP.md) | The agent entry prompt a derived repo is bootstrapped from |
 | [`mise.yidam.toml`](mise.yidam.toml) | The inherited task layer derived repos include |
@@ -216,7 +216,7 @@ mise install             # provision toolchains (rust, protoc, python, uv, node)
 mise tasks               # everything available
 mise run yidam-build     # install the full-feature binary into .local/bin
 mise run ci              # fmt-check, clippy -D warnings, tests (harness + CLI)
-mise run docs-dev        # docs site on http://localhost:4321/
+mise run docs-dev        # docs site on http://localhost:4321/yidam/
 ```
 
 `yidam-build` here is `--features full`, deliberately: working on the CLI means being able to
