@@ -361,6 +361,18 @@ run = [
   "npm run test:unit",
 ]
 
+# The packaging gate. Not in `ci-vscode`: it needs `out/` built and it runs vsce, which
+# is a minute this repository's PR loop should not spend on every editor change. The
+# publish workflow runs it, which is where a wrong package would actually reach someone.
+#
+# It is a task rather than a step inside that workflow so that the thing CI does and the
+# thing a person can do before tagging are one command. `release.sh` exists for the same
+# reason one layer up.
+[tasks.ext-package]
+description = "Package the VS Code extension and assert the .vsix holds the runtime set and nothing else."
+dir = "yidam/editors/vscode"
+run = "npm run package"
+
 # ── running the extension by hand ─────────────────────────────────────
 # 143 unit tests cover the logic that does not need an editor, which is the
 # deliberate architecture. What they cannot reach is the part a person has to
