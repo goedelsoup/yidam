@@ -244,13 +244,36 @@ or `yidam/editors/`. Not the parity SDKs, which the CLI depends on and does not 
    sdk/rust 0.2.0`, `mise run release cli 0.2.1`, and so on. It refuses a version the
    manifest does not declare, a dirty tree, a commit that is not `origin/main`, a tag whose
    workflow is not present at that commit, and — for `cli` — a `yidam-core` that is not yet
-   on crates.io. Add `--dry-run` to see the checks without tagging. The TypeScript and
-   Python SDKs are not tagged; see Layer 2.
+   on crates.io or a missing `HOMEBREW_TAP_TOKEN`. Add `--dry-run` to see the checks without
+   tagging. The TypeScript and Python SDKs are not tagged; see Layer 2.
 6. **Push tags** to origin. CI publishes to registries on matching tag patterns.
    `sdk/rust/v*` must be published before `cli/v*`: the CLI's own publish fails on a
    missing `yidam-core` until it is. `release.sh` enforces that ordering, which is the
    reason it exists — the ordering was documented in a workflow comment and then not
    followed by the person who had written it a few hours earlier.
+7. **Dispatch [Install channels](.github/workflows/install-channels.yml)** once the release
+   is out. It runs each documented install line in a clean container and asserts the version
+   it gets. Deliberately not automatic on a release: crates.io index propagation is a lag
+   nobody controls, and a check whose reds are sometimes timing is one people learn to shrug
+   at.
+
+### Two credentials the release needs
+
+`CARGO_REGISTRY_TOKEN` publishes both crates. `HOMEBREW_TAP_TOKEN` is a fine-grained PAT
+with *Contents: read and write* on `goedelsoup/homebrew-tap` — a second repository, which
+this one's `GITHUB_TOKEN` cannot reach. `vars.HOMEBREW_TAP_REPO` overrides the destination
+if the tap moves.
+
+Missing either one, the release still publishes everything else and goes red at the one job.
+That is on purpose — a skip would leave a channel stale with nothing anywhere red — but red
+is not the same as fixed, and on `cli/v0.2.1` the tap served the previous release in
+between. `release.sh` now asks about the tap token *before* the tag, which is the only point
+at which the answer can still change anything.
+
+If a tap push does fail, no re-tag is needed:
+[Tap](.github/workflows/tap.yml) is dispatchable with a release tag, and renders the formula
+from that release's own `SHA256SUMS`. It refuses a tag that is not the latest release, since
+the tap serves one formula and an older one is a downgrade.
 
 Never bump a layer as a side effect of another layer's release. Each bump is an
 intentional signal to downstream consumers.

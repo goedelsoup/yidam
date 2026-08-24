@@ -82,7 +82,10 @@ case "$LAYER" in
   sdk/rust)
     TAG="sdk/rust/v$VERSION";      MANIFEST="yidam/prelude/sdks/rust/Cargo.toml";       WORKFLOWS=".github/workflows/publish-crates.yml" ;;
   cli)
-    TAG="cli/v$VERSION";           MANIFEST="yidam/cli/Cargo.toml";                     WORKFLOWS=".github/workflows/release.yml .github/workflows/publish-crates.yml" ;;
+    # tap.yml as well as release.yml: release.yml *calls* it by path, and a local
+    # `uses:` resolves at the caller's ref — so a tag carrying release.yml without
+    # tap.yml fires a release whose tap job cannot start.
+    TAG="cli/v$VERSION";           MANIFEST="yidam/cli/Cargo.toml";                     WORKFLOWS=".github/workflows/release.yml .github/workflows/tap.yml .github/workflows/publish-crates.yml" ;;
   bootstrap)
     TAG="bootstrap/v$VERSION";     MANIFEST="yidam/tests/harness/yidam-harness/src/lib.rs"; WORKFLOWS="" ;;
   editor)
@@ -184,6 +187,46 @@ if [ "$LAYER" = "cli" ] && [ -f yidam/cli/Cargo.toml ]; then
         refuse dependency-unpublished "yidam-core $core is not on crates.io — tag sdk/rust/v$core first, or the CLI's publish fails on a missing dependency" ;;
       *)
         refuse registry-unreachable "crates.io answered $code; cannot confirm yidam-core $core is published" ;;
+    esac
+  fi
+fi
+
+# ── the tap's credential, asked about before the tag rather than after ───────
+#
+# `cli/v*` pushes a rendered formula to goedelsoup/homebrew-tap. That is a second
+# repository, and it needs a PAT this repository's GITHUB_TOKEN cannot stand in
+# for. When the PAT is missing the release publishes every other channel and goes
+# red at the tap alone — which is loud, and loud at the one moment the situation
+# cannot be fixed by pausing: the assets are out, the release notes say `brew
+# install`, and the tap serves the previous version until a person acts. That is
+# cli/v0.2.1 exactly (#246); "loud" and "fixed" are different states, and the tap
+# is wrong in between.
+#
+# A missing credential is knowable before the tag, which is the whole argument
+# for asking here. Secret VALUES are never readable — only whether the name
+# exists, and only with admin on the repository. Being unable to ask is refused
+# rather than assumed, for the same reason an unreachable crates.io is: a check
+# that guesses when it cannot see is a check people learn to skip.
+if [ "$LAYER" = "cli" ]; then
+  if ! command -v gh >/dev/null 2>&1; then
+    refuse tap-token-unknown "gh is not installed, so whether HOMEBREW_TAP_TOKEN exists cannot be checked"
+  else
+    # `-i` prints the status line even when the request fails, which is what
+    # separates "the secret is not there" from "you cannot see whether it is".
+    resp=$(gh api -i "repos/{owner}/{repo}/actions/secrets/HOMEBREW_TAP_TOKEN" 2>&1 || true)
+    # One awk rather than `sed | head`: `set -o pipefail` is on, and a reader that
+    # exits early on a producer still writing is a way for this check to abort the
+    # script over its own plumbing.
+    status=$(printf '%s\n' "$resp" | awk '/^HTTP\// { print $2; exit }')
+    case "$status" in
+      200)
+        printf 'HOMEBREW_TAP_TOKEN is set.\n' ;;
+      404)
+        refuse tap-token-missing "HOMEBREW_TAP_TOKEN is not set on this repository, so the release would ship every channel but the tap. Create a fine-grained PAT with Contents: read and write on goedelsoup/homebrew-tap and add it under that name" ;;
+      401|403)
+        refuse tap-token-unknown "GitHub answered $status; listing a repository's secrets needs admin, so whether HOMEBREW_TAP_TOKEN exists cannot be confirmed" ;;
+      *)
+        refuse tap-token-unknown "could not ask GitHub whether HOMEBREW_TAP_TOKEN exists${status:+ (HTTP $status)}" ;;
     esac
   fi
 fi

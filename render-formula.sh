@@ -1,11 +1,19 @@
 #!/bin/sh
 # Render the Homebrew formula for a released yidam.
 #
-#   render-formula.sh <version> <checksum-dir> > Formula/yidam.rb
+#   render-formula.sh <version> <checksums> > Formula/yidam.rb
 #
-# <checksum-dir> holds the `.tar.gz.sha256` files the release workflow packaged —
-# one per target, in `shasum -a 256` format. The release job runs this against the
-# artifacts it just published and pushes the result to goedelsoup/homebrew-tap.
+# <checksums> is either a DIRECTORY of the per-asset `.tar.gz.sha256` files the
+# release workflow packaged, or the single combined `SHA256SUMS`. Both are
+# `shasum -a 256` format; the difference is only how many assets a file covers.
+#
+# The combined form is the one the tap job reads, and the reason is retention. A
+# run's build artifacts expire; a published release keeps its assets forever. So
+# rendering from `SHA256SUMS` — an asset of the release itself — is what lets the
+# formula be re-pushed for a version tagged months ago, which is the only repair
+# for a tap push that failed at the time. Rendering from the release also pins
+# the checksums of the exact bytes a user downloads rather than of an artifact
+# believed to be identical to them.
 #
 # At the repository root beside `install.sh`, and deliberately not under `dist/`:
 # `.gitignore` excludes `dist/` twice over, for Python and for Node build output,
@@ -27,9 +35,14 @@ set -eu
 version="${1:-}"
 sums="${2:-}"
 [ -n "$version" ] && [ -n "$sums" ] || {
-  echo "usage: $0 <version> <checksum-dir>" >&2
+  echo "usage: $0 <version> <checksum-dir-or-SHA256SUMS>" >&2
   exit 2
 }
+# Named separately from the per-target lookups below, which report a missing
+# checksum. A path that does not exist at all is a mistyped argument, and saying
+# "no checksum for aarch64-apple-darwin" about it sends the reader to the release
+# to look for an asset that is sitting there.
+[ -e "$sums" ] || { echo "no checksums at $sums" >&2; exit 1; }
 
 repo="${YIDAM_REPO:-goedelsoup/yidam}"
 tag="cli/v$version"
@@ -38,12 +51,27 @@ base="https://github.com/$repo/releases/download/$tag"
 # The four targets .github/workflows/release.yml builds, in the two shapes
 # Homebrew asks about them: on_macos/on_linux × on_arm/on_intel.
 sha() {
-  file="$sums/yidam-$version-$1.tar.gz.sha256"
-  [ -f "$file" ] || { echo "no checksum for $1 at $file" >&2; exit 1; }
-  # shasum format is `<hash>  <name>`. Take the hash and check it looks like one:
-  # an empty or truncated field renders a formula that fails verification on the
-  # user's machine rather than here.
-  h=$(awk '{print $1; exit}' "$file")
+  asset="yidam-$version-$1.tar.gz"
+  # shasum format is `<hash>  <name>` either way. A directory holds one such line
+  # per file; SHA256SUMS holds all of them in one file, in no guaranteed order.
+  if [ -d "$sums" ]; then
+    file="$sums/$asset.sha256"
+    [ -f "$file" ] || { echo "no checksum for $1 at $file" >&2; exit 1; }
+    h=$(awk '{print $1; exit}' "$file")
+  else
+    # The name field is matched WHOLE, not by substring. Every target today is
+    # distinguishable either way, but a target whose asset name ends with
+    # another's would take the wrong platform's hash — and the formula that
+    # results is valid Ruby, with a real url, that fails verification for exactly
+    # one platform's users. `sub` strips shasum's binary-mode `*` marker and any
+    # leading path, so a SHA256SUMS generated from another directory still reads.
+    h=$(awk -v want="$asset" '
+          { name = $2; sub(/^[*]/, "", name); sub(/.*\//, "", name)
+            if (name == want) { print $1; exit } }' "$sums")
+    [ -n "$h" ] || { echo "no checksum for $1 in $sums (no line names $asset)" >&2; exit 1; }
+  fi
+  # Check the hash looks like one: an empty or truncated field renders a formula
+  # that fails verification on the user's machine rather than here.
   case "$h" in
     [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
     *) echo "malformed checksum for $1: '$h'" >&2; exit 1 ;;
