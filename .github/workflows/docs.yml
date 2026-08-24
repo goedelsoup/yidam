@@ -69,11 +69,27 @@ jobs:
         run: npm ci
         working-directory: yidam/web/docs
 
-      # Turns Pages on if it is off and sets the source to this workflow. Idempotent,
-      # so it stays as the record of how this site is served rather than that fact
-      # living only in a settings page nobody reads. Skipped on pull requests: a fork
-      # PR has no `pages: write`, and a PR has no business changing repository
-      # settings even when it could.
+      # Pins the Pages source to this workflow, so a source flipped to a branch in the
+      # settings UI is put back by the next deploy rather than silently serving
+      # something else. It keeps that fact in the repository instead of only in a
+      # settings page nobody reads.
+      #
+      # `enablement: true` does NOT bootstrap a repository that has never had Pages.
+      # `GITHUB_TOKEN` may update an existing site and may not create the first one,
+      # so the step fails with `Resource not accessible by integration` — which is how
+      # this site's first deploy failed, nineteen seconds after the merge that was
+      # supposed to publish it. Someone with repository admin has to create the site
+      # once:
+      #
+      #   gh api -X POST repos/goedelsoup/yidam/pages -f build_type=workflow
+      #
+      # or Settings → Pages → Source: GitHub Actions. Everything after that is this
+      # workflow's job. The flag stays because the failure it produces is loud, names
+      # the missing permission, and happens before anything is published — which is
+      # better than a deploy step failing later with less to say.
+      #
+      # Skipped on pull requests: a fork PR has no `pages: write`, and a PR has no
+      # business changing repository settings even when it could.
       - name: Configure GitHub Pages
         if: github.event_name != 'pull_request'
         uses: actions/configure-pages@v5
