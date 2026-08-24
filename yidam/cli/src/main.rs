@@ -192,6 +192,22 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// Change an ontology and every instance that adopted it, as one event
+    ///
+    /// A class definition cannot be corrected in place once the class contract gates:
+    /// editing it puts every instance in violation until each is fixed by hand. These
+    /// subcommands do both halves together and write a record of what they touched.
+    Migrate {
+        #[command(subcommand)]
+        operation: MigrateCommand,
+        /// Print the plan and change nothing
+        #[arg(long)]
+        dry_run: bool,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Report the corpus graph: nodes, resolved edges, and the classes that license them
     Graph {
         /// Output format. `json` emits the machine-readable report contract
@@ -408,6 +424,78 @@ enum Command {
     },
 }
 
+/// The ontology migrations, each naming exactly what it changes.
+///
+/// Subcommands rather than flags on one command: the four take different arguments and
+/// mean different things, and a single `--operation` with four optional operands would let
+/// a caller ask for a retype while naming a relationship.
+#[derive(Subcommand)]
+enum MigrateCommand {
+    /// Rename a class: its definition, its directory, and every edge that named it
+    Class {
+        /// The class as it is now, e.g. `gage`
+        old: String,
+        /// What it becomes, e.g. `station`
+        new: String,
+    },
+    /// Rename a declared property on a class and on every instance carrying it
+    Property {
+        /// The class that declares it
+        class: String,
+        /// The property as it is now
+        old: String,
+        /// What it becomes
+        new: String,
+    },
+    /// Change a declared property's type; refuses when an instance would not satisfy it
+    Retype {
+        /// The class that declares it
+        class: String,
+        /// The property to retype
+        property: String,
+        /// The new type — `string`, `text`, `date`, `ref`, `claim`, or one this corpus coined
+        new_type: String,
+    },
+    /// Point a declared relationship at a different class, at both ends
+    Edge {
+        /// The class that declares it
+        class: String,
+        /// The relationship to re-target
+        relationship: String,
+        /// The class it should target instead
+        new_target: String,
+    },
+}
+
+impl From<MigrateCommand> for yidam::MigrateOperation {
+    fn from(c: MigrateCommand) -> Self {
+        match c {
+            MigrateCommand::Class { old, new } => Self::ClassRename { old, new },
+            MigrateCommand::Property { class, old, new } => {
+                Self::PropertyRename { class, old, new }
+            }
+            MigrateCommand::Retype {
+                class,
+                property,
+                new_type,
+            } => Self::PropertyRetype {
+                class,
+                property,
+                new_type,
+            },
+            MigrateCommand::Edge {
+                class,
+                relationship,
+                new_target,
+            } => Self::EdgeRetarget {
+                class,
+                relationship,
+                new_target,
+            },
+        }
+    }
+}
+
 /// Build a Tokio runtime on demand for the async commands (`index-build`,
 /// `tonpa`). Only compiled when one of those features is on; the default
 /// `reports` build has no async work and links no runtime.
@@ -571,6 +659,11 @@ fn main() -> Result<()> {
             init_baseline,
             format,
         }),
+        Command::Migrate {
+            operation,
+            dry_run,
+            format,
+        } => yidam::migrate(operation.into(), dry_run, format),
         Command::Schema { settings } => yidam::schema(settings),
         Command::SamudayaAudit => yidam::samudaya_audit(),
         Command::Sangha { format } => yidam::sangha(format),

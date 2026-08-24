@@ -101,6 +101,41 @@ where its target resolves and no schema can see that.
 That symmetry is the point. A consumer that rejected what the gate accepts would fail a
 build on a file that looked fine everywhere else, and the ontology would get the blame.
 
+### Changing a class
+
+An ontology is only as good as its ability to change, and once the contract gates, editing
+a class definition in place breaks the corpus that adopted it: add a property and every
+instance trips `missing-property`, retype one and they trip `property-type`, re-target an
+edge and they trip `edge-target-class`. That is a strong incentive to leave a definition
+wrong.
+
+`yidam migrate` does both halves as one event:
+
+| Command | What it touches |
+|---|---|
+| `migrate class <old> <new>` | the class file, its directory, every instance's `class:`, the `instance-of` edge into the class file, and every edge declaring the class at either end |
+| `migrate property <class> <old> <new>` | the declaration, and the key on every instance carrying it |
+| `migrate retype <class> <prop> <type>` | the declaration — and **refuses** if any instance's value would not satisfy the new type |
+| `migrate edge <class> <rel> <target>` | the declaration at both ends, plus a report of the instances now in violation |
+
+`--dry-run` prints the plan and writes nothing.
+
+**A retype is refused rather than guessed.** `type: string` → `type: date` over a value
+reading `last spring` has no mechanical conversion, and writing it back unchanged while
+reporting success would leave the corpus in a state its own gate rejects. The predicate that
+decides is the one `property-type` gates on, so a migration that succeeds leaves a corpus
+`yidam lint` still accepts.
+
+**An edge re-target reports what it cannot decide.** Which instances should now point
+elsewhere is a question about the corpus, not about the ontology. The migration names every
+one of them; it does not repoint them.
+
+Each applied migration writes a record to `.yidam/migrations/` naming the operation, the
+files it rewrote, and any violations it left behind. That is the *mechanical* half of the
+event. The **argument** — why the class was wrong — belongs in `.yidam/decisions/`, and the
+two are meant to be read together: a record that also had to carry the reasoning would make
+`decisions-log` a list of two different kinds of thing.
+
 ## Residence time
 
 A finding about corpus state has a level and, on its own, no clock — and the level cannot

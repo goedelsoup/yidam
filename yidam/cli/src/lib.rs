@@ -25,10 +25,10 @@ pub use cmd::tonpa;
 pub use cmd::{
     agents_index, backfill, bundle, bundle_status, catalog_audit, clone, corpus_index,
     crates_index, decisions_log, diff_corpus, doctor, embed, export, graph, graph_check,
-    index_status, index_verify, lint, list_formats, log, neighbors, open_questions, overlay,
-    packages_index, phases, regen, rename, replay, run_export, samudaya_audit, sangha, schema,
-    serve_lsp, serve_mcp, skills_index, status, vocabulary, EmbedOptions, ExportFormat,
-    ExportOptions, LintOptions, LogFilter, RdfFormat,
+    index_status, index_verify, lint, list_formats, log, migrate, neighbors, open_questions,
+    overlay, packages_index, phases, regen, rename, replay, run_export, samudaya_audit, sangha,
+    schema, serve_lsp, serve_mcp, skills_index, status, vocabulary, EmbedOptions, ExportFormat,
+    ExportOptions, LintOptions, LogFilter, MigrateOperation, RdfFormat,
 };
 /// The per-class schemas compiled from a repository's own ontology.
 ///
