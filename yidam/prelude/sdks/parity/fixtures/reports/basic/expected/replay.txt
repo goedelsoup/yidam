@@ -1,7 +1,11 @@
-Date         Commit    Nodes   Orphans   Share
-──────────   ───────   ─────   ───────   ─────
-2026-01-01   cbb30b7       4         1     25%
-2026-01-01   45be5ff       4         1     25%
+Date         Commit    Nodes   Uncited   Uncited%
+──────────   ───────   ─────   ───────   ────────
+2026-01-01   cbb30b7       4         1        25%
+2026-01-01   45be5ff       4         1        25%
 
-Uncited at HEAD, by class
-  concept                  1 of 3
+Series excludes source classes — the classes whose instances nothing is meant to
+point at. The breakdown below counts every uncited node, those included.
+
+Uncited at HEAD, by class, against what the class declares
+  concept                    1 of 3    declared cited — this is the asymmetry worth reading
+  gauge                      1 of 1    uncited by design — the ontology holding

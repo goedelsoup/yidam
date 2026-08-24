@@ -162,6 +162,28 @@ written. A node cited on the day it was authored and orphaned two hundred commit
 dates from the orphaning — which is why this is a replay of the graph rather than a look at
 each file's age.
 
+### Reachability is per class, not a corpus rate
+
+`yidam replay` reports uncited nodes per class, against what the class declared:
+
+```text
+Uncited at HEAD, by class, against what the class declares
+  recording                 13 of 20   declared cited — this is the asymmetry worth reading
+  person                    12 of 12   uncited by design — the ontology holding
+  note                       3 of 5    the class declares no edges, so no expectation to read against
+```
+
+Three readings, and a single corpus-wide percentage sums them into one that means none of
+them. A source class at 12 of 12 is the model working. The same figure on a class declaring
+an inbound edge is the only one of the three that is a finding. A class that declared no
+edges is not being scored at all — and saying so beats printing nothing, which reads as a
+pass.
+
+The series keeps a percentage column because a trend needs one number per commit to be a
+trend. It counts the population `orphan-in` reports, so source classes are excluded from it
+— which is the difference between the 22% and the 7% the same corpus reads at, and why the
+column says what it is a percentage *of*.
+
 ### Ageing into an error
 
 Residence time is what makes a corpus-state check gate-eligible at all. The commit checks
