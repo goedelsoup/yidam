@@ -132,6 +132,22 @@ pub fn corpus_ontology_schema() -> Value {
                     "additionalProperties": false
                 }
             },
+            "edge_policy": {
+                "type": "string",
+                "enum": ["characteristic", "exhaustive"],
+                "description": "Whether `edges` bounds the vocabulary or describes it. \
+                                `exhaustive` closes it: a relationship outside the list is \
+                                an error, because the class said it would be. \
+                                `characteristic` says `edges` names what the class is \
+                                *defined by*, and a relationship outside it is a deliberate \
+                                coinage — none are reported. Omitting the field is neither: \
+                                an undeclared relationship is reported and does not gate, \
+                                because naming the relationships a class enters into never \
+                                claimed the list was complete. Declared here so a misspelled \
+                                policy is underlined as it is typed — `unlicensed-edge` \
+                                reads an unrecognized value as absent rather than gating on \
+                                a typo."
+            },
             "edges": {
                 "type": "array",
                 "default": [],
@@ -149,9 +165,11 @@ pub fn corpus_ontology_schema() -> Value {
             }
         },
         "required": ["class", "label", "description"],
-        // Permissive for the same reason as the node schema, and measured the same way: one
-        // derived repository declares `edge_policy` on all 18 of its classes and another
-        // carries `analytic_note` — the field `class-asserts-purpose` recommends by name.
+        // Permissive for the same reason as the node schema, and measured the same way: a
+        // derived repository carries `analytic_note` — the field `class-asserts-purpose`
+        // recommends by name. `edge_policy` was the other half of this argument until the
+        // gate started reading it; a field the checks depend on belongs in the schema, where
+        // a typo in it is underlined rather than silently read as absent.
         // The `properties[]`, `edges[]` and `foundational_type` shapes below stay closed.
         "additionalProperties": true
     })

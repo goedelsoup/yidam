@@ -56,6 +56,17 @@ pub struct Violation {
     /// could only ever be noise. An orphaned node can be linked or deleted today, so it
     /// has one.
     pub age: Option<super::history::Age>,
+    /// This finding's severity, where the check's declared level cannot speak for all of
+    /// them.
+    ///
+    /// `None` for almost every finding, and that is the point: a check meaning the same
+    /// thing every time it fires says so once, in [`Check::severity`]. This is `Some`
+    /// only where the *corpus* decides how much a finding matters, which is one
+    /// invariant reported at two levels rather than two invariants. `unlicensed-edge` is
+    /// the case it exists for: an undeclared relationship gates on a class that wrote
+    /// `edge_policy: exhaustive` and reports on a class that said nothing, because the
+    /// first contradicts a contract and the second contradicts an assumption.
+    pub severity: Option<Severity>,
 }
 
 impl Violation {
@@ -64,7 +75,17 @@ impl Violation {
             node: node.into(),
             detail: detail.into(),
             age: None,
+            severity: None,
         }
+    }
+
+    /// Declare this one finding's severity, overriding the check's.
+    ///
+    /// Builder-shaped for the same reason [`Check::escalating_after`] is: the check
+    /// functions stay pure, taking nodes and returning findings.
+    pub fn at(mut self, severity: Severity) -> Self {
+        self.severity = Some(severity);
+        self
     }
 }
 
@@ -111,7 +132,8 @@ impl Check {
         self.violations.is_empty()
     }
 
-    /// The severity of one finding: the check's, unless residence time has escalated it.
+    /// The severity of one finding: the check's, unless the finding or its residence time
+    /// says otherwise.
     ///
     /// This is the function every consumer of severity must go through, and the reason the
     /// field is not enough on its own. `orphan-in` is Info because a node authored this
@@ -122,7 +144,10 @@ impl Check {
     pub fn severity_of(&self, v: &Violation) -> Severity {
         match (self.escalate_after, &v.age) {
             (Some(n), Some(age)) if age.commits >= n => Severity::Error,
-            _ => self.severity,
+            // The finding's own level, then the check's. Escalation still wins over both:
+            // it is a statement about a finding that has outlived every argument for
+            // leniency, and nothing a check or a class declared up front outranks it.
+            _ => v.severity.unwrap_or(self.severity),
         }
     }
 
@@ -175,6 +200,7 @@ mod tests {
         Violation {
             node: node.into(),
             detail: "d".into(),
+            severity: None,
             age: Some(crate::cmd::lint::history::Age {
                 sha: "abc".into(),
                 ts: 1,

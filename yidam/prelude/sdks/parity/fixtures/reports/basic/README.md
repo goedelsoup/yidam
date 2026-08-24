@@ -28,8 +28,10 @@ fixture drift. Two of the three concepts deliberately carry no `claim_tag` — o
 its label instead, one is the control that trips nothing — and a node making no tagged
 claim is a real state rather than a defect. The property declaration has no `required`
 field to tell *every instance has this* from *an instance may have this*, so gating on
-omission would fail this corpus for being exactly what it was written to be. Its four
-sibling checks gate; each of those reports the ontology being contradicted.
+omission would fail this corpus for being exactly what it was written to be. Its sibling
+checks gate on the ontology being contradicted — `unlicensed-edge` among them only where a
+class declared `edge_policy: exhaustive`, since a non-empty `edges:` on its own never
+claimed to be the complete vocabulary.
 
 ## What it is built to reach
 
