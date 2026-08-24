@@ -334,6 +334,89 @@ fn the_cli_release_workflow_triggers_on_the_documented_tag_pattern() {
     }
 }
 
+/// The editor layer's tag pattern, and the two workflows that must not answer to it.
+///
+/// Same reasoning as the CLI check above, and a sharper case for it. Three patterns in this
+/// repository end in `v*` and two of them are prefixed; `release.sh` is the only place that
+/// knows which belongs to which layer, and it knows it as a string. A workflow listening on
+/// the wrong one publishes the wrong artifact on someone else's release, and every spelling
+/// involved looks correct in a diff.
+///
+/// The inverse matters as much: `release.yml` must NOT fire on `editor/v*`. A CLI patch
+/// must not imply an extension release and an extension patch must not imply a CLI one —
+/// that independence is the whole reason Layer 4 carries two tags for one layer.
+#[test]
+fn the_editor_workflow_triggers_on_the_documented_tag_pattern() {
+    let workflow = repo_root().join(".github/workflows/editor.yml");
+    let text = std::fs::read_to_string(&workflow).unwrap_or_else(|e| {
+        panic!(
+            "{} is unreadable ({e}) — release.sh names it as the editor layer's workflow, \
+             and refuses to tag editor/v* without it",
+            workflow.display()
+        )
+    });
+
+    assert!(
+        text.contains("'editor/v*'")
+            || text.contains("\"editor/v*\"")
+            || text.contains("- editor/v*"),
+        "editor.yml must trigger on the `editor/v*` pattern VERSIONING.md's artifact table \
+         documents for the extension"
+    );
+
+    for line in text.lines() {
+        let t = line
+            .trim()
+            .trim_start_matches("- ")
+            .trim_matches(['\'', '"']);
+        assert!(
+            t != "v*" && t != "cli/v*",
+            "editor.yml listens on {t:?}, which belongs to another layer; it must publish \
+             on `editor/v*` only"
+        );
+    }
+
+    let cli = std::fs::read_to_string(repo_root().join(".github/workflows/release.yml"))
+        .expect("release.yml");
+    assert!(
+        !cli.contains("editor/v*"),
+        "release.yml triggers on the editor layer's tag — a CLI release workflow must not \
+         fire on an extension release"
+    );
+}
+
+/// `release.sh` names a workflow file per layer, and refuses a tag whose workflow is absent
+/// at HEAD. That refusal is only as good as the paths it names.
+///
+/// The failure it guards against has already happened once here: `publish-crates.yml` was
+/// committed AFTER the only tag this repository had, and a workflow fires only if it exists
+/// at the ref being pushed — so it had never run, and nothing looked like it was wrong. The
+/// script now refuses that case. A typo in one of these paths would restore it silently,
+/// because a path that resolves to nothing and a workflow that does not exist produce the
+/// same refusal, and the refusal is the thing a person is trying to get past.
+#[test]
+fn every_workflow_release_sh_requires_exists() {
+    let script = std::fs::read_to_string(repo_root().join("release.sh")).expect("release.sh");
+    let mut checked = 0;
+    for chunk in script.split("WORKFLOWS=\"").skip(1) {
+        let Some(list) = chunk.split('"').next() else {
+            continue;
+        };
+        for path in list.split_whitespace() {
+            assert!(
+                repo_root().join(path).is_file(),
+                "release.sh requires {path} for a layer's tag, and it does not exist — the \
+                 tag would be refused with `no-workflow` and the path is the reason"
+            );
+            checked += 1;
+        }
+    }
+    assert!(
+        checked >= 4,
+        "found only {checked} required workflows — the scan is broken"
+    );
+}
+
 /// The release must be built from the committed lock file.
 ///
 /// Without `--locked`, cargo is free to update a dependency during the release build, so

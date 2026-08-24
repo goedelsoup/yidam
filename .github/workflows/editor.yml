@@ -1,0 +1,173 @@
+# The VS Code extension — package it, prove it works against a real binary, publish it.
+#
+# `release.sh:91-92` has named this file since the release script was written: the `editor`
+# layer tags `editor/v*`, declares its version in `yidam/editors/vscode/package.json`, and
+# requires `.github/workflows/editor.yml` to exist at HEAD. VERSIONING.md:157 has named the
+# tag pattern and both registries for longer than that. Until now the file was not here, so
+# `./release.sh editor 0.1.0` refused — correctly — with `no-workflow`, and the extension
+# reached a person only as a `.vsix` somebody built on their own machine.
+#
+# ── the gate is the point, not the packaging ─────────────────────────────────
+#
+# The extension shells out to `yidam` for report JSON and renders what comes back. Its
+# binary-dependent tests SKIP when no yidam speaking the contract resolves — a courtesy to
+# a contributor without the CLI, and a trap for a publish workflow, because a skip is
+# indistinguishable from a pass in the summary.
+#
+# The guard is `YIDAM_REQUIRE_CONTRACT`, not `YIDAM_BIN`. Setting only the latter still lets
+# `test/stage.ts` resolve nothing and skip. It is set below for the same reason ci.yml sets
+# it, and it does more than assert a binary exists: it re-runs `status` against the fixture's
+# committed goldens, so a binary that is merely STALE — one that answers, speaks the right
+# contract, and predates a corpus feature — fails here rather than shipping.
+#
+# ── three channels, and only one of them needs a secret ──────────────────────
+#
+# The `.vsix` goes onto a GitHub release before either registry is attempted. That channel
+# needs no PAT and no publisher account, so the first tag produces something installable
+# whether or not #314 has been done — and it stays the repair path when a registry step
+# fails after the release exists.
+
+name: Editor
+
+on:
+  push:
+    tags:
+      # The editor layer's pattern, per VERSIONING.md's Layer 4 table. NOT `v*` (the
+      # template layer) and NOT `cli/v*` — a CLI patch must not imply an extension release.
+      - 'editor/v*'
+  # Buildable without tagging, to check that the extension still packages and still passes
+  # its gate against a freshly built CLI. Publishes nothing.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: package and gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: yidam/cli
+          key: editor-cli
+
+      # The light default (`reports`) — no protoc, no ONNX. The extension needs a binary
+      # that speaks the contract, not the full feature set. Built from THIS tree rather
+      # than downloaded from the latest CLI release on purpose: what must be true before
+      # publishing is that the extension reads the contract as it stands on the commit
+      # being tagged. A released binary would test the extension against the past.
+      - name: Install the yidam CLI so the gate has something to read
+        run: cargo install --path yidam/cli --locked
+
+      - run: npm install
+        working-directory: yidam/editors/vscode
+
+      # Skipping must never be how this workflow goes green. See the header.
+      - name: The gate
+        run: mise run ci-vscode
+        env:
+          YIDAM_REQUIRE_CONTRACT: "1"
+
+      # Packages the .vsix AND asserts its contents are the runtime set — an allowlist, so a
+      # file nobody thought to exclude fails here rather than landing on an installer's disk.
+      # On a tag it also asserts the tag and package.json name the same version, which is the
+      # same guard release.yml applies to the CLI and the same drift release.sh refuses.
+      - name: Package, and check what is in the package
+        run: mise run ext-package -- dist/yidam-vscode.vsix
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: yidam/editors/vscode/dist/yidam-vscode.vsix
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: package
+    runs-on: ubuntu-latest
+    # Only a tag publishes. workflow_dispatch packages, gates, and stops — which is what
+    # makes it usable as a pre-tag check, exactly as in release.yml.
+    if: startsWith(github.ref, 'refs/tags/editor/v')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: vsix
+          path: dist
+
+      # The pinned `@vscode/vsce` and `ovsx` from the extension's own devDependencies, so
+      # the version that publishes is one this repository chose rather than whatever
+      # `npx --yes` resolves that morning.
+      - run: npm install
+        working-directory: yidam/editors/vscode
+
+      # ── the channel that needs no account ─────────────────────────────────
+      #
+      # First, and unconditionally. If both registry steps below fail on a missing secret,
+      # this tag still produced something a person can install by hand, and #314 can be
+      # done afterwards without re-tagging.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          version="${GITHUB_REF_NAME#editor/v}"
+          asset="dist/yidam-vscode-${version}.vsix"
+          mv dist/yidam-vscode.vsix "$asset"
+          shasum -a 256 "$asset" > "$asset.sha256"
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            "$asset" "$asset.sha256"
+
+      # ── the two registries ────────────────────────────────────────────────
+      #
+      # Separate steps, and `if: always()` on the second, so one failing does not strand the
+      # other. They are independent services with independent outages and independent tokens;
+      # a run that publishes to neither because the first was down is a tag spent for nothing.
+      #
+      # `--packagePath` on both: they publish the exact bytes the gate above inspected.
+      # Letting either tool repackage from source would publish an artifact nothing checked,
+      # which is the failure this whole workflow is shaped against.
+      - name: VS Code Marketplace
+        working-directory: yidam/editors/vscode
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          set -eu
+          version="${GITHUB_REF_NAME#editor/v}"
+          if [ -z "${VSCE_PAT:-}" ]; then
+            echo "::error::secrets.VSCE_PAT is not set, so the Marketplace was not updated."
+            echo "::error::Create an Azure DevOps PAT with Marketplace: Manage for the"
+            echo "::error::'goedelsoup' publisher and add it as VSCE_PAT (see #314). The"
+            echo "::error::.vsix for $GITHUB_REF_NAME is already on the GitHub release, so"
+            echo "::error::re-running this job publishes it — no re-tag is needed."
+            exit 1
+          fi
+          npx vsce publish --packagePath "$GITHUB_WORKSPACE/dist/yidam-vscode-${version}.vsix"
+
+      - name: Open VSX
+        # `always()` and not `success()`: see above. It still runs if the Marketplace step
+        # failed, and the job still reports red if either did.
+        if: always()
+        working-directory: yidam/editors/vscode
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          set -eu
+          version="${GITHUB_REF_NAME#editor/v}"
+          if [ -z "${OVSX_PAT:-}" ]; then
+            echo "::error::secrets.OVSX_PAT is not set, so Open VSX was not updated."
+            echo "::error::Claim the 'goedelsoup' namespace, sign the publisher agreement —"
+            echo "::error::which a person has to do, not CI — and add the token as OVSX_PAT"
+            echo "::error::(see #314). Re-running this job then publishes the .vsix already"
+            echo "::error::attached to the $GITHUB_REF_NAME release."
+            exit 1
+          fi
+          npx ovsx publish "$GITHUB_WORKSPACE/dist/yidam-vscode-${version}.vsix" -p "$OVSX_PAT"
