@@ -347,7 +347,18 @@ pub fn class_schemas(root: &Path) -> Vec<(String, String, Value)> {
                 .and_then(|n| n.strip_suffix(".ont.yml"))
                 .unwrap_or_default();
             let text = std::fs::read_to_string(path).unwrap_or_default();
-            let class = yidam_core::ontology::parse_class(stem, &text);
+            let mut class = yidam_core::ontology::parse_class(stem, &text);
+            // **The filename governs, not the `class:` field.** `parse_class` prefers the
+            // field and falls back to the stem, which is right for the SDK; the *gate* does
+            // the opposite — `load_classes` keys by filename always, and `unknown-class`
+            // compares an instance's `class:` against the set of stems.
+            //
+            // Where the two disagree this compiler followed the field, and emitted
+            // `class/station.json` mapped to `.yidam/corpus/station/*.yml` for a class
+            // whose instances live in `gage/` — a schema the editor applies to nothing,
+            // asserting a `const` no instance carries. Keyed by the stem it agrees with the
+            // gate, which is the only agreement that matters.
+            class.name = stem.to_string();
             let schema = yidam_core::ontology::compile_class_schema(&class);
             (
                 format!("class/{}.json", class.name),

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "contract": "0.4.0",
+  "contract": "0.5.0",
   "description": "The frozen MCP tool contract (RFC-0005). Names are bare — no `yidam_` prefix — because the server is already namespaced by its own name in every client that mounts one. `tier` is `core` (every server MUST back it) or a capability name (backed iff the server declares that capability true). This file is the only place the list lives; a harness that restates it is a second freeze, which is how three servers ended up sharing one name out of five capabilities.",
   "capabilities": {
     "retrieve": {
@@ -13,7 +13,8 @@
     "graph": "Backs the bidirectional walk. A server whose corpus is a projected mirror can still back it; one that holds no edges declares false.",
     "phases": "Reads live `ma/*` and `rigpa/*` refs. Backable only by a server with the working git repository.",
     "sangha": "Reads elector positions from those refs. Same constraint as `phases`.",
-    "resources": "Serves the `yidam://` URI scheme over MCP `resources/*`. A tools-only server declares false and MUST map each URI to its tool peer without diverging — `read_resource(\"yidam://corpus/<class>/<name>\")` returns the same node as `get_node(\"<class>/<name>\")`."
+    "resources": "Serves the `yidam://` URI scheme over MCP `resources/*`. A tools-only server declares false and MUST map each URI to its tool peer without diverging — `read_resource(\"yidam://corpus/<class>/<name>\")` returns the same node as `get_node(\"<class>/<name>\")`.",
+    "ontology": "Backs the class contract: what a class declares it may link to. A server whose corpus is a projected mirror holds nodes and edges and may hold no `.ont.yml` at all — it can back `graph` and not this. Optional is not absent: such a server declares false and its cases are skipped rather than passed."
   },
   "tools": [
     {
@@ -113,6 +114,91 @@
       }
     },
     {
+      "name": "claims",
+      "tier": "core",
+      "description": "Assertions, not documents. Returns the claims a corpus makes with the standing each is made at — `verified`, `inference`, or `open` — filterable by standing and class, without returning the nodes' full prose. A node is 2-10 sentences; a claim is one.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "standing": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "inference",
+              "open"
+            ],
+            "description": "Only claims made at this standing. `verified` is the query an agent should make before it writes anything."
+          },
+          "class": {
+            "type": "string",
+            "description": "Restrict to one class"
+          },
+          "node": {
+            "type": "string",
+            "description": "Restrict to one node (\"<class>/<name>\")"
+          },
+          "k": {
+            "type": "integer",
+            "description": "Maximum claims to return (default 50)"
+          }
+        },
+        "required": []
+      },
+      "response": {
+        "required": [
+          "claims",
+          "returned",
+          "total"
+        ],
+        "notes": "WHAT COUNTS AS A CLAIM. The same predicate `status`, `open-questions` and `lint` use, and deliberately not the SDK's `extract_claims` — that is a line-oriented parser for the markdown node model, and over a YAML instance it reads `class: gage` as an untagged claim. Concretely: the three tokens matched exactly; fenced blocks masked and inline code NOT masked; a tag that is pluralised, named by the noun after it, the object of a past-tense reporting verb, or negated is a MENTION and is not served; and a property the class declared `type: claim` contributes the node's own standing, once, whether it is written `open` or `[open]`.\n\nSERVE THE TAG OR SERVE NOTHING. There is no untagged arm. An unmarked sentence is prose and `get_node` is where prose lives; inventing a fourth standing for it would turn every aside in a corpus into a weakly-evidenced claim.\n\nTHE INVARIANT IS NOT `WHEN IN DOUBT, DROP IT`. It is: never make the corpus look better-evidenced than it is. Serving a `[verified]` nobody asserted breaks it — and so does dropping an `[open]` somebody did, because a corpus with its open questions silenced reads as settled. Both are promotion, on different tags. A server that filtered backticked tags as mentions would understate a real corpus's open questions fivefold; that rule was measured and thrown out.\n\n`standing` is the claim's OWN tag. It is not a minimum over the claims it rests on — no implementation computes that, and a field named for it would manufacture a tier nobody derived.\n\n`total` is the count before `k`, always. An agent told `here are 5 claims` and one told `here are 5 of 41` can take different next actions, and only the second can decide to ask for more.\n\nLOCAL CORPUS ONLY. A dependency's assertions are its corpus's. Composition is retrieval-only (`retrieve` reaches them, and says so with `origin`); presenting a foreign claim here as this repository's would cross a boundary nothing has argued across."
+      }
+    },
+    {
+      "name": "check_subject",
+      "tier": "core",
+      "description": "Whether a commit subject is in the closed vocabulary, and what the commit would be filed as. Asked before writing the commit rather than learned from a failing gate.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "description": "The subject line, e.g. `establish: confounding framework`"
+          }
+        },
+        "required": [
+          "subject"
+        ]
+      },
+      "response": {
+        "required": [
+          "text",
+          "verb",
+          "kind",
+          "recognized",
+          "violations",
+          "vocabulary"
+        ],
+        "notes": "TOTAL, AND NEVER AN ERROR. An unrecognized verb is a finding in the payload, not a failed call: the gate reports it at warn severity because history cannot be rewritten to fix a verb, and a tool that failed harder than the gate would assert a verdict nobody agreed to. Each violation carries that severity read from the check rather than restated.\n\n`verb` IS EVERYTHING BEFORE THE FIRST `: `, which is why a conventional-commits `(scope)` suffix costs twice — `vendor(yidam): …` is read as the verb `vendor(yidam)`, which is in no list, and classification then falls through to Epistemic and files an operational commit as a change in understanding. That case is reported as its own violation rather than folded into `unrecognized-verb`, because it has a known cause and a known fix.\n\n`vocabulary` CARRIES THE CLOSED LIST so a caller that got it wrong can correct without a second call, which is the whole point of asking before the act."
+      }
+    },
+    {
+      "name": "claim_tags",
+      "tier": "core",
+      "description": "The three evidence tags, what each means, and how each may be written. Tens of tokens instead of a prose file held in context.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "response": {
+        "required": [
+          "tags",
+          "note"
+        ],
+        "notes": "THE PROSE STAYS. `prelude/guidelines/agent-conduct.md` carries the REASONING, which is what makes the vocabulary arguable and revisable; this carries the CONTENT, which is what makes it cheap to obey. A server must not let this become the only statement of the rule.\n\nBOTH SPELLINGS. A property the class declared `type: claim` accepts the bare token (`open`) and the bracketed one (`[open]`). Prose is scanned for the BRACKETED form only — a bare `open` in a sentence is a word.\n\nWRITE THE TAG ALONE. `[verified — Pearl 2009]` matches nothing and is counted as no claim at all: it looks tagged to a reader and reads as bare assertion to every tool. Write the tag and put the citation beside it."
+      }
+    },
+    {
       "name": "neighbors",
       "tier": "graph",
       "description": "Nodes linked to a given node, following edges in both directions up to `depth` hops (default 1).",
@@ -138,6 +224,32 @@
           "neighbors"
         ],
         "notes": "Undirected: each reached node once, at its shortest hop, carrying the direction of the edge it was reached by. Half the interesting connections are inbound, which is why the corpus has an `orphan-in` check at all."
+      }
+    },
+    {
+      "name": "licensed_edges",
+      "tier": "ontology",
+      "description": "What a class declares it may link to: the relationships it licenses, the class each targets, and the direction each is authored from. Asked before writing a link rather than discovered from a failing gate.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "class": {
+            "type": "string",
+            "description": "Class name — the `<class>.ont.yml` stem, which is also the directory its instances live in"
+          }
+        },
+        "required": [
+          "class"
+        ]
+      },
+      "response": {
+        "required": [
+          "class",
+          "declares_edges",
+          "edges",
+          "note"
+        ],
+        "notes": "`declares_edges: false` DOES NOT MEAN THE CLASS LICENSES NOTHING. It means the class has said nothing, and the gate skips it. The two answers are opposite and a client that collapses them will report every instance in a corpus whose ontology is not filled in. `note` states which case this is in words, so a client that reads only prose still gets it right.\n\nEVERY DECLARED EDGE, BOTH DIRECTIONS. An edge is documented from both ends — `person` declares `played in` as `direction: out` and `band` declares the same relationship as `direction: in`. The licensing check ignores direction, so filtering to `out` here would answer a question the gate does not ask.\n\nAN EMPTY `target` LICENSES ANY TARGET CLASS, rather than none.\n\nLICENSING APPLIES ONLY TO EDGES BETWEEN INSTANCES. The `instance-of` link to `../<class>.ont.yml` and a citation into the catalog are not relationships and no class declares them; an edge to a file that is not there is `dangling-edge`'s finding, not this one's.\n\nTHE CLASS IS ITS FILENAME. Where a `.ont.yml`'s `class:` field disagrees with its stem, the stem governs — it is what the gate keys on and what an instance's directory must match."
       }
     }
   ]

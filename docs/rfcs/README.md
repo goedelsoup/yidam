@@ -47,6 +47,7 @@ re-deriving it.
 | [0014](0014-node-rename.md) | I9 | Node rename as a sanctioned operation — dangling-edge gate + atomic `yidam rename` | Draft |
 | [0015](0015-epistemic-log.md) | I10 | An epistemic-only history view (`yidam log --epistemic`) | Draft |
 | [0016](0016-editor-surface.md) | I11 | An editor surface for derived repositories (`yidam` for VS Code) | Draft |
+| [0017](0017-assertion-surface.md) | I12 | Serving assertions, not documents (`claims` and the practice tools) | Draft |
 
 ## Reading order
 

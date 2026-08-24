@@ -31,6 +31,10 @@ pub(crate) fn capabilities(state: &ServerState) -> Value {
         // learns at connect time what it would otherwise learn one failed search later.
         "retrieve": {"vector": reason.is_none(), "reason": reason},
         "graph": true,
+        // The class contract, from `.ont.yml`. True because this server reads the corpus
+        // on disk, ontology included. A projected mirror holding nodes and edges and no
+        // class definitions declares false — optional is not the same as absent.
+        "ontology": !state.classes.is_empty(),
         "phases": false,
         "sangha": false,
         "resources": true,
@@ -78,6 +82,10 @@ pub(crate) fn call(state: &ServerState, name: &str, args: &Value) -> Value {
         "neighbors" => neighbors(state, args),
         "list_nodes" => Ok(list_nodes(state, args)),
         "open_questions" => Ok(open_questions(state)),
+        "claims" => Ok(claims(state, args)),
+        "check_subject" => check_subject(args),
+        "claim_tags" => Ok(claim_tags()),
+        "licensed_edges" => licensed_edges(state, args),
         other => Err(format!("unknown tool: {other}")),
     };
     match outcome {
@@ -323,6 +331,186 @@ fn open_questions(state: &ServerState) -> Value {
         })
         .collect();
     json!({"open_questions": questions})
+}
+
+// ── assertions, not documents (contract 0.5.0) ────────────────────────────────
+
+/// The claims a corpus makes, with the standing each is made at.
+///
+/// Every other tool here returns a node. The unit of assertion is not the node — a node is
+/// 2–10 sentences by the model's own rule, so an agent asking what is known about something
+/// pays node-sized tokens for a claim-sized answer and learns the standing only if the tag
+/// survived into the prose it was handed.
+///
+/// Extraction is [`crate::claims::claims_in_node`], the list form of the counter every
+/// report already routes through — and deliberately not the SDK's `extract_claims`, which
+/// is a line-oriented parser for the markdown node model and reads `class: gage` as a claim
+/// over a YAML instance. The two are held equal per tag by a unit test.
+///
+/// **Local nodes only.** A dependency's assertions are its corpus's; composition is
+/// retrieval-only and `retrieve` is where a foreign node is reachable, marked with `origin`.
+fn claims(state: &ServerState, args: &Value) -> Value {
+    let want_standing = args["standing"].as_str();
+    let want_class = args["class"].as_str();
+    let want_node = args["node"].as_str();
+    let k = args["k"].as_u64().unwrap_or(50) as usize;
+
+    let mut all = Vec::new();
+    for node in state.nodes.iter().filter(|n| n.is_local()) {
+        if want_class.is_some_and(|c| c != node.class) {
+            continue;
+        }
+        if want_node.is_some_and(|id| find_node(state, id).map(|n| n.id.as_str()) != Some(&node.id))
+        {
+            continue;
+        }
+        let fields = state.claim_fields.for_class(&node.class);
+        for claim in crate::claims::claims_in_node(&node.content, fields) {
+            if want_standing.is_some_and(|s| s != claim.standing) {
+                continue;
+            }
+            all.push(json!({
+                // A node-scoped standing has no sentence of its own — the subject is the
+                // node, so the node is what a reader needs to see. `property` says where
+                // the standing came from either way.
+                "text": match claim.scope {
+                    crate::claims::ClaimScope::Node => node.label.clone(),
+                    crate::claims::ClaimScope::Statement => claim.text.clone(),
+                },
+                "standing": claim.standing,
+                "scope": claim.scope,
+                "property": claim.property,
+                "node": node.id,
+                "class": node.class,
+                "sources": state.citations.get(&node.id).cloned().unwrap_or_default(),
+            }));
+        }
+    }
+
+    // `total` before `k`, always. "Here are 5 claims" and "here are 5 of 41" license
+    // different next actions, and only the second lets an agent decide to spend more.
+    let total = all.len();
+    all.truncate(k);
+    json!({ "claims": all, "returned": all.len(), "total": total })
+}
+
+/// What a class declares it may link to.
+///
+/// Asked before writing a link rather than discovered from a failing gate — which is the
+/// whole difference between a practice an agent complies with by remembering and one it
+/// complies with by asking.
+///
+/// **The class is its filename.** `load_classes` keys by the `<class>.ont.yml` stem and
+/// `unknown-class` compares an instance's `class:` against the set of stems, so the stem is
+/// what governs; answering from the file's own `class:` field would license edges for a
+/// class no instance belongs to.
+fn licensed_edges(state: &ServerState, args: &Value) -> Result<Value, String> {
+    let want = args["class"]
+        .as_str()
+        .ok_or("class is required")?
+        .trim()
+        .trim_end_matches(".ont.yml");
+
+    let Some((name, class)) = state.classes.iter().find(|(n, _)| n == want) else {
+        return Err(format!(
+            "no class `{want}` — this corpus declares: {}",
+            state
+                .classes
+                .iter()
+                .map(|(n, _)| n.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    };
+
+    // Every declared edge, both directions. An edge is documented from both ends and the
+    // licensing check ignores direction, so filtering to `out` would answer a question the
+    // gate does not ask.
+    let edges: Vec<Value> = class
+        .edges
+        .iter()
+        .map(|e| {
+            json!({
+                "relationship": e.relationship,
+                // An empty target licenses ANY target class, rather than none.
+                "target": if e.target.is_empty() { Value::Null } else { json!(e.target) },
+                "direction": e.direction,
+                "description": e.description,
+            })
+        })
+        .collect();
+
+    // Silence is not a contract, and the two answers are opposite. A client that read an
+    // empty list as "may link to nothing" would report every instance in a corpus whose
+    // ontology is not filled in.
+    let note = if edges.is_empty() {
+        format!(
+            "`{name}` declares no edges, so it has said nothing about what it may link to — \
+             the gate does not check its links. This is not the same as licensing nothing."
+        )
+    } else {
+        format!(
+            "`{name}` licenses these {} relationship(s). Licensing applies to edges between \
+             instances: the `instance-of` link to `../{name}.ont.yml` and a citation into \
+             the catalog are not relationships and no class declares them.",
+            edges.len()
+        )
+    };
+
+    Ok(json!({
+        "class": name,
+        "declares_edges": !edges.is_empty(),
+        "edges": edges,
+        "note": note,
+    }))
+}
+
+/// Whether a commit subject is in the closed vocabulary, before the commit is written.
+///
+/// Calls the function `yidam vocabulary --check` calls, and serializes what it returns.
+/// Rebuilding the verb parse here would be its fourth copy and would lose the scope-suffix
+/// rule, which is the one that catches the common mistake.
+///
+/// **Never an error.** An unrecognized verb is a finding in the payload: the gate reports it
+/// at warn severity because history cannot be rewritten to fix a verb, and a tool that
+/// failed harder than the gate would assert a verdict nobody agreed to.
+fn check_subject(args: &Value) -> Result<Value, String> {
+    let subject = args["subject"].as_str().ok_or("subject is required")?;
+    let checked = crate::cmd::vocabulary::check_subject(subject);
+    let mut out = serde_json::to_value(&checked).map_err(|e| e.to_string())?;
+    // The closed list travels with the verdict, so a caller that got it wrong can correct
+    // without a second call — which is the point of asking before the act.
+    out["vocabulary"] = json!(crate::cmd::vocabulary::vocabulary_verbs());
+    Ok(out)
+}
+
+/// The three evidence tags, what each means, and how each may be written.
+///
+/// Tens of tokens instead of a prose file held in context every session. The prose stays
+/// where the reasoning lives; this is the content.
+fn claim_tags() -> Value {
+    let tags: Vec<Value> = crate::claims::TAG_MEANINGS
+        .iter()
+        .map(|(bare, bracketed, meaning)| {
+            json!({
+                "standing": bare,
+                // Both spellings, because both are accepted — and they are accepted in
+                // different places, which is the part worth saying.
+                "in_prose": bracketed,
+                "in_property": [bare, bracketed],
+                "meaning": meaning,
+            })
+        })
+        .collect();
+    json!({
+        "tags": tags,
+        "note": "In prose, only the bracketed token is scanned — a bare `open` in a sentence \
+                 is a word. In a property the class declared `type: claim`, both spellings \
+                 are read. Write the tag alone and put any citation beside it: \
+                 `[verified — Pearl 2009]` matches nothing and is counted as no claim at \
+                 all, so it looks tagged to a reader and reads as bare assertion to every \
+                 tool.",
+    })
 }
 
 #[cfg(test)]

@@ -1,0 +1,13 @@
+class: note
+label: Note
+description: |
+  A class that declares no edges, and exists to be one.
+
+  `licensed_edges` has two answers that look alike and mean opposite things: a class that
+  licenses no relationships, and a class that has said nothing about its relationships. Only
+  the second is reachable here, and only if some class declares nothing — so this one does.
+  A server that collapses the two passes every other case in this directory and reports every
+  instance in a half-filled corpus.
+
+  It holds no instances deliberately: the resource list and every node count in these cases
+  are derived from instances, so a class file adds nothing to them.

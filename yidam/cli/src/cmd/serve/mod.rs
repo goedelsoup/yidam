@@ -105,6 +105,22 @@ pub(crate) struct ServerState {
     /// second copy of the predicate, and a corpus with structured tags was under-reported by
     /// both in the same way — which is the kind of agreement that looks like correctness.
     pub claim_fields: crate::claims::ClaimFields,
+    /// The class contract, keyed by the `<class>.ont.yml` **stem**.
+    ///
+    /// Keyed by the filename and not by the file's `class:` field, because the filename is
+    /// what the gate keys on: `load_classes` uses the stem always, and `unknown-class`
+    /// compares an instance's `class:` against the set of stems. Where the two disagree,
+    /// answering from the field would license edges for a class no instance belongs to.
+    pub classes: Vec<(String, yidam_core::ontology::OntologyClass)>,
+    /// Catalog entries each node cites, keyed by node id.
+    ///
+    /// Resolved once at startup with the gate's own resolver rather than from
+    /// [`Node::links`], which cannot answer it: a prose citation —
+    /// `[Pearl 2009](../../catalog/pearl-2009.md)`, the form the conventions prescribe —
+    /// never enters that list, and a catalog target is carried verbatim rather than
+    /// resolved. Not by slug, either: that read failed an error-severity gate on a node
+    /// containing no citation, because connector crates are named after what they fetch.
+    pub citations: std::collections::HashMap<String, Vec<String>>,
 }
 
 impl ServerState {
@@ -138,6 +154,17 @@ impl ServerState {
         let (retrieval, indexed_commit) = load_retrieval(&model)?;
 
         let claim_fields = crate::claims::ClaimFields::load(&crate::paths::yidam_corpus_dir(root));
+        let classes = model
+            .classes
+            .iter()
+            .map(|c| {
+                let name = stem(&c.filename).replace(".ont", "");
+                let text = String::from_utf8_lossy(&c.content);
+                let class = yidam_core::ontology::parse_class(&name, &text);
+                (name, class)
+            })
+            .collect();
+        let citations = load_citations(root, &nodes);
         Ok(ServerState {
             domain: model.provenance.domain,
             commit: model.provenance.commit,
@@ -148,8 +175,58 @@ impl ServerState {
             retrieval,
             indexed_commit,
             claim_fields,
+            classes,
+            citations,
         })
     }
+}
+
+/// Which catalog entries each node cites.
+///
+/// `linked_paths` is the resolver `catalog-uncited` gates on — `links:` targets and prose
+/// markdown links both, resolved against the node's own directory. Reusing it is what keeps
+/// the agent surface and the gate from disagreeing about what a citation is.
+///
+/// `walk_md_files` for the catalog, not a recursive walk: it is `max_depth(1)` and skips
+/// `README.md`, which is a REGEN target rather than a source. A deeper walk would invent
+/// catalog entries no check knows about.
+fn load_citations(root: &Path, nodes: &[Node]) -> std::collections::HashMap<String, Vec<String>> {
+    let catalog_dir = crate::paths::yidam_catalog_dir(root);
+    let corpus_dir = crate::paths::yidam_corpus_dir(root);
+    let sources: Vec<(String, std::path::PathBuf)> = crate::walk::walk_md_files(&catalog_dir)
+        .into_iter()
+        .map(|p| {
+            let rel = p
+                .strip_prefix(root)
+                .unwrap_or(&p)
+                .to_string_lossy()
+                .replace('\\', "/");
+            (rel, crate::cmd::lint::checks::normalize(&p))
+        })
+        .collect();
+    if sources.is_empty() {
+        return Default::default();
+    }
+
+    nodes
+        .iter()
+        .filter(|n| n.is_local())
+        .map(|n| {
+            let path = corpus_dir.join(format!("{}.yml", n.id));
+            let rel = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            let linked = crate::cmd::lint::checks::linked_paths(&path, &rel, &n.content);
+            let cited = sources
+                .iter()
+                .filter(|(_, p)| linked.contains(p))
+                .map(|(rel, _)| rel.clone())
+                .collect();
+            (n.id.clone(), cited)
+        })
+        .collect()
 }
 
 /// Decide how `retrieve` will answer, and read the indexed commit either way.
@@ -416,6 +493,23 @@ mod tests {
             // No class declares a claim field here, so the predicate reads prose only —
             // which is what these fixtures are written in.
             claim_fields: Default::default(),
+            // A class that declares edges and one that declares none. The second is what
+            // makes `licensed_edges`' "has said nothing" arm reachable, and that arm is the
+            // one a client is most likely to read backwards.
+            classes: vec![
+                (
+                    "concept".to_string(),
+                    yidam_core::ontology::parse_class(
+                        "concept",
+                        "class: concept\nedges:\n  - relationship: enables\n    target: concept\n    direction: out\n",
+                    ),
+                ),
+                (
+                    "silent".to_string(),
+                    yidam_core::ontology::parse_class("silent", "class: silent\n"),
+                ),
+            ],
+            citations: Default::default(),
         }
     }
 

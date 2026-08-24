@@ -28,9 +28,10 @@ harness checks that they do.
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.4.0",
+    "contract": "0.5.0",
     "retrieve": { "vector": false, "reason": "no_index" },
-    "graph": true, "phases": false, "sangha": false, "resources": true
+    "graph": true, "ontology": true,
+    "phases": false, "sangha": false, "resources": true
   }
 }
 ```
@@ -39,6 +40,35 @@ harness checks that they do.
 the vector index is loaded, which is the same fact `degraded` reports per call. A server that
 declares `vector: false` is promising every `retrieve` will come back `degraded: true`, with
 the `reason` it names here. `reason` is null exactly when `vector` is true.
+
+## Assertions, not documents (contract 0.5.0)
+
+Four tools were added at 0.5.0. Three are `core`; `licensed_edges` introduces the `ontology`
+capability, because a projected mirror can hold nodes and edges and hold no `.ont.yml`.
+
+| Tool | Tier | Answers |
+|---|---|---|
+| `claims` | core | the assertions a corpus makes, with the standing each is made at |
+| `check_subject` | core | is this commit subject in vocabulary, before the commit is written |
+| `claim_tags` | core | the three tags, their meanings, and how each may be written |
+| `licensed_edges` | ontology | what a class declares it may link to |
+
+The first exists because the other five tools all return **nodes**, and the unit of assertion
+here is not the node — it is the claim. A node is 2–10 sentences by the model's own rule, so
+an agent asking what is known about something pays node-sized tokens for a claim-sized answer
+and learns the standing only if the tag survived into the prose.
+
+The last three exist because the practice was prose an agent reloaded every session. A norm
+holds when something echoes it back inside the act; for a human writing a commit that echo is
+`lint --commits`, and for an agent it should be a call made *before* the act. Compliance by
+asking, rather than by having remembered.
+
+**`claims` serves the tag or serves nothing.** There is no untagged arm, and the rule for what
+counts is the one the reports use — not the SDK's `extract_claims`, which is a line-oriented
+parser for the markdown node model and reads `class: gage` as a claim over a YAML instance.
+The full predicate is in `tools.json`'s notes for the tool; the part most easily got wrong is
+that the invariant is *never make the corpus look better-evidenced than it is*, which is not
+the same as "when in doubt, drop it": dropping an `[open]` promotes too.
 
 ## The degraded signal
 
