@@ -49,6 +49,7 @@ re-deriving it.
 | [0016](0016-editor-surface.md) | I11 | An editor surface for derived repositories (`yidam` for VS Code) | Draft |
 | [0017](0017-assertion-surface.md) | I12 | Serving assertions, not documents (`claims` and the practice tools) | Draft |
 | [0018](0018-query-surface.md) | I13 | The query surface — typed traversal bounded by the ontology (`yidam query`) | Draft |
+| [0019](0019-external-citation.md) | I14 | Citing a corpus you cannot revise (`cites:`) | Draft |
 
 ## Reading order
 
