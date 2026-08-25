@@ -125,7 +125,17 @@ fn step_holds(node: &Node, step: &Step, allowed: &[String]) -> bool {
 }
 
 /// Run a checked query.
-pub fn execute(query: &Query, checked: &Checked, nodes: &[Node], corpus_dir: &str) -> Outcome {
+///
+/// `entry` is the resolved similarity anchor when the first step had one. It replaces the
+/// entry scan rather than filtering it: that substitution *is* hybrid anchoring, and it is
+/// where the cost difference the benchmark measures actually comes from.
+pub fn execute(
+    query: &Query,
+    checked: &Checked,
+    nodes: &[Node],
+    corpus_dir: &str,
+    entry: Option<&super::anchor::Resolved>,
+) -> Outcome {
     let by_path = crate::cmd::lint::checks::nodes_by_path(nodes);
     let id = |n: &Node| id_of(n, corpus_dir);
 
@@ -150,21 +160,44 @@ pub fn execute(query: &Query, checked: &Checked, nodes: &[Node], corpus_dir: &st
     let empty = Vec::new();
     let allowed = |index: usize| checked.narrowed.get(index).unwrap_or(&empty);
     let mut current: Vec<String> = Vec::new();
-    for node in nodes {
-        // **Class narrowing is a directory listing, not a read.** A corpus stores each class
-        // in its own directory, so an agent that knows the class never opens the others —
-        // and charging the entry step for the whole corpus would make an anchored lookup
-        // cost exactly what a full scan costs, which is the comparison #264 exists to make.
-        //
-        // Every node of a *candidate* class is charged, matching or not: a predicate has to
-        // be evaluated against a node to reject it, and charging only for the matches would
-        // make a filter that rejects everything look free.
-        if !allowed(0).contains(&class_of(node)) {
-            continue;
+    match entry {
+        // Anchored: the entry set is what retrieval returned, in score order — the one place
+        // in this surface where the order is not corpus order. The step's predicates still
+        // apply, so `reach~"…"[claim_tag=open]` means what it reads as; what the anchor
+        // replaces is *which nodes were considered*, not what qualifies them.
+        Some(resolved) => {
+            for id in &resolved.read {
+                read.insert(id.clone());
+            }
+            for want in &resolved.entries {
+                let Some(node) = nodes.iter().find(|n| id(n) == *want) else {
+                    continue;
+                };
+                read.insert(want.clone());
+                if step_holds(node, &query.steps[0], allowed(0)) {
+                    current.push(want.clone());
+                }
+            }
         }
-        read.insert(id(node));
-        if step_holds(node, &query.steps[0], allowed(0)) {
-            current.push(id(node));
+        None => {
+            for node in nodes {
+                // **Class narrowing is a directory listing, not a read.** A corpus stores
+                // each class in its own directory, so an agent that knows the class never
+                // opens the others — and charging the entry step for the whole corpus would
+                // make an anchored lookup cost exactly what a full scan costs, which is the
+                // comparison #264 exists to make.
+                //
+                // Every node of a *candidate* class is charged, matching or not: a predicate
+                // has to be evaluated against a node to reject it, and charging only for the
+                // matches would make a filter that rejects everything look free.
+                if !allowed(0).contains(&class_of(node)) {
+                    continue;
+                }
+                read.insert(id(node));
+                if step_holds(node, &query.steps[0], allowed(0)) {
+                    current.push(id(node));
+                }
+            }
         }
     }
 
@@ -361,7 +394,7 @@ mod tests {
                 .map(|v| v.into_iter().map(String::from).collect())
                 .collect(),
         };
-        execute(&q, &checked, &nodes, ".yidam/corpus")
+        execute(&q, &checked, &nodes, ".yidam/corpus", None)
     }
 
     #[test]
@@ -468,12 +501,12 @@ mod tests {
             narrowed: vec![vec!["concept".to_string()]],
         };
         assert_eq!(
-            execute(&q, &checked, &nodes, ".yidam/corpus").matched,
+            execute(&q, &checked, &nodes, ".yidam/corpus", None).matched,
             vec!["concept/low-flow.yml"]
         );
         // ...and `!=` has to hold of every element, or a node tagged both would satisfy it.
         let q = super::super::lang::parse("concept[claim_tag!=open]").unwrap();
-        assert!(execute(&q, &checked, &nodes, ".yidam/corpus")
+        assert!(execute(&q, &checked, &nodes, ".yidam/corpus", None)
             .matched
             .is_empty());
     }
@@ -494,13 +527,15 @@ mod tests {
         for query in ["note[observed_on=2026-08]", "note[observed_on=2026-08-23]"] {
             let q = super::super::lang::parse(query).unwrap();
             assert_eq!(
-                execute(&q, &checked, &nodes, ".yidam/corpus").matched.len(),
+                execute(&q, &checked, &nodes, ".yidam/corpus", None)
+                    .matched
+                    .len(),
                 1,
                 "{query}"
             );
         }
         let q = super::super::lang::parse("note[observed_on=2026-09]").unwrap();
-        assert!(execute(&q, &checked, &nodes, ".yidam/corpus")
+        assert!(execute(&q, &checked, &nodes, ".yidam/corpus", None)
             .matched
             .is_empty());
     }

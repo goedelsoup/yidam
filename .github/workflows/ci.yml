@@ -188,8 +188,10 @@ jobs:
 
   bench-scaling:
     # The scaling arms need no index and no corpus: the flat arm is constant in N and is
-    # excluded by argument, so what is left — full-scan and (pending #261) anchored — is
-    # structural. That is why this one runs on pull requests where `cli-full` cannot.
+    # excluded by argument, and the anchored arm is excluded here too — these corpora are
+    # generated in memory and carry no embeddings, so anchoring over them would resolve by
+    # keyword search. What is left is full-scan and focused-scan, which are structural. That
+    # is why this one runs on pull requests where `cli-full` cannot.
     #
     # It guards the generator's determinism end to end. The unit tests assert the shape of
     # the curve; this asserts that a real binary over the committed config still produces

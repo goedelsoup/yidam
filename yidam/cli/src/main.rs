@@ -236,6 +236,10 @@ enum Command {
         /// bounds the projection, not the traversal
         #[arg(long, default_value_t = yidam::QUERY_DEFAULT_LIMIT)]
         limit: usize,
+        /// How many entry nodes a `class~"…"` anchor opens on. An anchor is a starting
+        /// point, not an answer — widening it walks from every entry
+        #[arg(long, default_value_t = yidam::QUERY_DEFAULT_ANCHOR_K)]
+        anchor_k: usize,
         /// Output format. `json` emits the machine-readable report contract
         /// (RFC-0016); `text` is unchanged and remains the default.
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
@@ -596,8 +600,9 @@ fn main() -> Result<()> {
             query,
             select,
             limit,
+            anchor_k,
             format,
-        } => yidam::query(&query, select, limit, format),
+        } => yidam::query(&query, select, limit, anchor_k, format),
         Command::Graph { format } => yidam::graph(format),
         Command::Neighbors {
             node,

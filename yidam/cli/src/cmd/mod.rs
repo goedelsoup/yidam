@@ -20,7 +20,10 @@ mod export_sqlite;
 mod export_web;
 pub(crate) mod graph;
 #[cfg(feature = "index")]
-mod index_build;
+// Widened for `crate::retrieval::vector`, which resolves the embedding model by name and
+// used to live under `cmd/serve` where a sibling `mod` sufficed. The gate that would have
+// caught this on a pull request does not exist: PR CI never compiles `--features index`.
+pub(crate) mod index_build;
 mod index_verify;
 pub(crate) mod lint;
 mod log;

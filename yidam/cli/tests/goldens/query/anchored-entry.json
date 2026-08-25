@@ -8,12 +8,12 @@
     ]
   },
   "root": "<ROOT>",
-  "query": "concept <-exhibits- reach",
+  "query": "concept~\"hydropeaking below a dam\" <-exhibits- reach",
   "scope": "local",
   "steps": [
     {
       "class": "concept",
-      "anchor": null,
+      "anchor": "hydropeaking below a dam",
       "predicates": [],
       "classes": [
         "concept"
@@ -34,28 +34,36 @@
     }
   ],
   "rejected": null,
-  "anchor": null,
+  "anchor": {
+    "step": 0,
+    "text": "hydropeaking below a dam",
+    "k": 1,
+    "degraded": true,
+    "degraded_reason": "no_index",
+    "repair": "run `yidam embed && yidam index-build` to build one",
+    "entries": [
+      {
+        "node": "concept/hydropeaking.yml",
+        "score": 0.75
+      }
+    ]
+  },
   "diagnostics": [],
   "results": [
-    {
-      "class": "reach",
-      "label": "Lower canyon reach",
-      "node": "reach/lower-canyon.yml"
-    },
     {
       "class": "reach",
       "label": "Tailwater reach",
       "node": "reach/tailwater.yml"
     }
   ],
-  "matched": 2,
-  "returned": 2,
+  "matched": 1,
+  "returned": 1,
   "cost": {
     "steps": 2,
-    "edges_walked": 2,
-    "nodes_read": 6,
-    "chars": 153,
-    "tokens": 38,
+    "edges_walked": 1,
+    "nodes_read": 5,
+    "chars": 74,
+    "tokens": 18,
     "corpus_nodes": 8
   },
   "unschematised": false

@@ -28,7 +28,7 @@ harness checks that they do.
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.5.0",
+    "contract": "0.6.0",
     "retrieve": { "vector": false, "reason": "no_index" },
     "graph": true, "ontology": true,
     "phases": false, "sangha": false, "resources": true
@@ -41,6 +41,50 @@ the vector index is loaded, which is the same fact `degraded` reports per call. 
 declares `vector: false` is promising every `retrieve` will come back `degraded: true`, with
 the `reason` it names here. `reason` is null exactly when `vector` is true.
 
+## Walking by the types (contract 0.6.0)
+
+One tool, `query`, at the `ontology` tier. It is the answer to a gap that had been open since
+the ontology acquired relationship names: **the graph was typed and the only way to walk it
+was an undirected flood.** `neighbors` chains outbound and inbound edges unconditionally,
+filters on neither relationship nor direction, and carries both out as *labels* on the result
+while reading neither as an input. A server offering only that has typed its graph and left
+no way to walk by the types.
+
+`query` takes a path — `concept -enables-> concept`, `concept <-enables- concept`,
+`*[claim_tag=open]`, `concept~"embedding space" -relates-to-> concept` — and answers with the
+nodes, the diagnostics, and what the walk cost.
+
+**Its tier is `ontology`, not `graph`, and the reason is worth stating.** The tier names what
+the *diagnosis* needs. Without `.ont.yml` every class name and every relationship is accepted,
+so a misspelling comes back as zero results — indistinguishable from a true negative, which is
+the one failure this tool exists to prevent. A server that backs `ontology` and holds no edges
+is fine: its hops are licensed and match nothing, which is a true statement about its corpus.
+
+Three distinctions a conforming server has to get right, each with a case:
+
+| | Means | `rejected` |
+|---|---|---|
+| **rejection** | the query is wrong — unknown class, unlicensed edge, unprojectable field | `{step, code, message}` |
+| **diagnostic** | the query ran and something is worth saying — an undeclared relationship under a non-exhaustive `edge_policy`, a `*` narrowed to the classes declaring a property | `null` |
+| **empty** | the query was well-formed and matched nothing | `null` |
+
+A server that promotes diagnostics to rejections refuses legal queries: a non-empty `edges:`
+says *these relationships exist*, not *and no others may*, and reading it as the second put 210
+errors on a compliant corpus. A server that demotes rejections to empty results tells an agent
+its typo was a true negative. Neither is signalled with MCP's `isError` — a rejection is an
+answer, and a client branches on `rejected.code`.
+
+**The anchor.** `class~"…"` enters by similarity and leaves by typed edge. It is
+class-qualified because a hop's verdict depends on the source class's `edge_policy`, so a bare
+anchor could not be typechecked before it ran. It is an *entry* — only the first step may carry
+one, and a later one is refused rather than reinterpreted as a similarity filter. It is
+**local**: unlike `retrieve`, it must not enter through an installed dependency's node, because
+the response says `"scope": "local"`. And it degrades on the keys `retrieve` already
+established, with the same present-and-null discipline and the same frozen reason strings —
+carried on `anchor`, and deliberately *not* duplicated at the top level, because a query with
+no anchor performed no retrieval and a `degraded: false` there would read as retrieval having
+succeeded.
+
 ## Assertions, not documents (contract 0.5.0)
 
 Four tools were added at 0.5.0. Three are `core`; `licensed_edges` introduces the `ontology`
@@ -52,6 +96,7 @@ capability, because a projected mirror can hold nodes and edges and hold no `.on
 | `check_subject` | core | is this commit subject in vocabulary, before the commit is written |
 | `claim_tags` | core | the three tags, their meanings, and how each may be written |
 | `licensed_edges` | ontology | what a class declares it may link to |
+| `query` | ontology | a typed path over the graph (added at 0.6.0, above) |
 
 The first exists because the other five tools all return **nodes**, and the unit of assertion
 here is not the node — it is the claim. A node is 2–10 sentences by the model's own rule, so
@@ -145,3 +190,10 @@ scores, which are a property of a model rather than of a contract.
 
 A server declaring a capability MUST pass its cases. One declaring it absent MUST return a
 capability-not-supported error, and its cases are skipped rather than passed.
+
+**Every name in an `expect` block is a dotted path.** `count`, `each`, `nonEmpty`,
+`everyItemHas` and `fields` resolve `cost.nodes_read`, `anchor.entries` and `steps.0.classes`
+the same way `equalsAt` always did; a single segment means what it has always meant. This
+arrived with `query`, whose response is the first with structure below the top level — a
+harness that could only assert on top-level keys would have had its cases written against a
+flattened response, which is a second shape for one answer.

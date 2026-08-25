@@ -242,6 +242,16 @@ pub struct ArmReport {
     /// documents. The arms are charged the same per-node rate, so they differ only in
     /// *which* nodes and *how many* — which is the whole comparison.
     pub tokens: Option<usize>,
+    /// Nodes the *engine* touched to produce the answer, where that differs from what the
+    /// agent read. `None` for the two arms where it does not.
+    ///
+    /// The anchored arm is the only one with an inside. `flat` and `full-scan` hand the agent
+    /// exactly the nodes they considered, so one number says everything; a typed walk
+    /// evaluates predicates and tests hop classes on nodes the agent never sees. Charging the
+    /// agent for those would be wrong — it issues one query and receives rows — and *omitting
+    /// them entirely* would let the arm look free, which is the more flattering error and
+    /// therefore the one worth a field.
+    pub traversal_nodes_read: Option<usize>,
 }
 
 /// How many ranked ids a report shows per arm before it is summarising rather than listing.
@@ -265,6 +275,7 @@ impl ArmReport {
             recall: None,
             nodes_read: None,
             tokens: None,
+            traversal_nodes_read: None,
         }
     }
 
@@ -280,6 +291,7 @@ impl ArmReport {
             recall: None,
             nodes_read: None,
             tokens: None,
+            traversal_nodes_read: None,
         }
     }
 
@@ -325,7 +337,14 @@ impl ArmReport {
             hits,
             precision,
             recall,
+            traversal_nodes_read: None,
         }
+    }
+
+    /// Record what the engine touched inside, for an arm that has an inside.
+    fn walked(mut self, nodes: usize) -> Self {
+        self.traversal_nodes_read = Some(nodes);
+        self
     }
 }
 
@@ -412,6 +431,57 @@ fn flat_arm(
         })
         .unwrap_or_default();
     ArmReport::scored("flat", returned, expect, chars)
+}
+
+/// The anchored arm: enter by similarity, traverse by typed edge (#263).
+///
+/// **This is the arm the whole benchmark exists to score.** `docs/research/system` argues
+/// that ontological anchoring converts an O(*n*) scan into an O(depth) walk; the flat and
+/// full-scan arms are the two things it is claimed to beat, and until #261 and #263 there was
+/// no third arm to compare them against — `bench` reported it unavailable on every goal, which
+/// is honest and is not a measurement.
+///
+/// Routed through [`crate::cmd::query::run_on`] with the server's own `Retrieval`, for the
+/// reason `flat_arm` goes through `tools::call`: this must provably be the path an agent
+/// takes, not a reimplementation of it that could quietly differ in the arm's favour.
+///
+/// `limit` is the budget, so the arm is scored on what it put in front of the agent under the
+/// same cap the flat arm gets — precision at fixed budget, which is #264's stated baseline.
+/// `anchor_k` stays at the default 1: widening the entry and then walking from every entry is
+/// a flood wearing a type, and an arm allowed to widen until it hits the answer is measuring
+/// the person who tuned it.
+fn anchored_arm(
+    graph: &crate::cmd::query::Graph,
+    retrieval: &crate::retrieval::Retrieval,
+    query: &str,
+    budget: usize,
+    expect: &[String],
+    chars: &BTreeMap<String, usize>,
+) -> ArmReport {
+    let opts = crate::cmd::query::Options {
+        limit: budget,
+        ..Default::default()
+    };
+    let report = crate::cmd::query::run_on(graph, Some(retrieval), query, &opts);
+    if let Some(rejection) = report.rejected {
+        // A rejected query is a defect in the goal set, not a result, and it must never be
+        // scored as a miss: an arm that answers nothing because the query was malformed would
+        // drag the mean down and read as the mechanism failing.
+        return ArmReport::unavailable(
+            "anchored",
+            format!(
+                "the goal's query was rejected ({}): {}",
+                rejection.code, rejection.message
+            ),
+        );
+    }
+    let returned: Vec<String> = report
+        .results
+        .iter()
+        .filter_map(|row| row.get("node").and_then(|v| v.as_str()))
+        .map(node_id)
+        .collect();
+    ArmReport::scored("anchored", returned, expect, chars).walked(report.cost.nodes_read)
 }
 
 /// The full-scan arm: read the whole corpus and find the answer inside it.
@@ -518,13 +588,6 @@ fn summarize(goals: &[GoalReport]) -> Summary {
     }
 }
 
-/// The anchored arm's standing until `yidam query` exists.
-///
-/// Reported as unavailable on every goal rather than quietly skipped: a benchmark that
-/// prints one arm and says nothing about the other reads as a benchmark with one arm.
-const ANCHORED_PENDING: &str =
-    "the query executor does not exist yet (#261); no anchored result is available";
-
 pub fn run(root: &std::path::Path, budget: usize) -> Result<BenchReport> {
     let goals_path = yidam_bench_dir(root).join(GOALS_FILE);
     if !goals_path.is_file() {
@@ -547,6 +610,9 @@ pub fn run(root: &std::path::Path, budget: usize) -> Result<BenchReport> {
 
     let shape = corpus_shape(&state);
     let (all_ids, chars) = corpus_text(&state);
+    // The corpus as the query engine reads it, loaded once for every goal — the same
+    // structure `serve --mcp` holds, and for the same reason.
+    let graph = crate::cmd::query::Graph::load(root);
     let goals = set
         .goals
         .iter()
@@ -560,7 +626,9 @@ pub fn run(root: &std::path::Path, budget: usize) -> Result<BenchReport> {
                 ),
             };
             let anchored = match &goal.anchored {
-                Some(_) => ArmReport::unavailable("anchored", ANCHORED_PENDING),
+                Some(query) => {
+                    anchored_arm(&graph, &state.retrieval, query, budget, &expect, &chars)
+                }
                 None => ArmReport::unavailable(
                     "anchored",
                     goal.anchored_omitted_because.clone().unwrap_or_default(),
@@ -628,13 +696,20 @@ fn render_arm(arm: &ArmReport) -> String {
         );
     }
     format!(
-        "    {:<10} precision {}  recall {}  read {} node(s) / {} token(s), {} correct\n",
+        "    {:<10} precision {}  recall {}  read {} node(s) / {} token(s), {} correct{}\n",
         arm.arm,
         pct(arm.precision),
         pct(arm.recall),
         arm.nodes_read.unwrap_or(0),
         arm.tokens.unwrap_or(0),
         arm.hits.len(),
+        // Printed rather than left to the JSON. An arm whose engine touched most of the
+        // corpus to hand back two nodes has not converted a scan into a walk, and that is
+        // exactly the failure a two-node result set makes invisible.
+        match arm.traversal_nodes_read {
+            Some(walked) => format!("  (walk touched {walked})"),
+            None => String::new(),
+        }
     )
 }
 
@@ -700,6 +775,13 @@ pub fn bench(budget: usize, scaling: bool, format: crate::report::Format) -> Res
 
 #[cfg(test)]
 mod tests {
+    /// A goal set's own reason, standing in for one in these fixtures. The distinction it
+    /// pins is the load-bearing one: an arm that *cannot express* a goal is absent from the
+    /// mean, where an arm that ran and answered nothing scores zero and drags it.
+    const GOAL_CANNOT_EXPRESS: &str =
+        "the ontology has no vocabulary for this distinction, so no path of typed hops \
+         separates the answer";
+
     use super::*;
 
     const MINIMAL: &str = r#"
@@ -941,6 +1023,7 @@ goals:
                 recall: flat_precision,
                 nodes_read: Some(0),
                 tokens: Some(0),
+                traversal_nodes_read: None,
             },
             full_scan: ArmReport::scored(
                 "full-scan",
@@ -948,7 +1031,7 @@ goals:
                 &["a/one.yml".to_string()],
                 &chars_fixture(),
             ),
-            anchored: ArmReport::unavailable("anchored", ANCHORED_PENDING),
+            anchored: ArmReport::unavailable("anchored", GOAL_CANNOT_EXPRESS),
         }
     }
 
@@ -967,14 +1050,14 @@ goals:
     }
 
     #[test]
-    fn the_anchored_arm_reports_its_absence_rather_than_scoring_zero() {
+    fn an_arm_that_cannot_express_a_goal_reports_its_absence_rather_than_scoring_zero() {
         let goals = vec![goal_report("one", true, Some(1.0))];
         let summary = summarize(&goals);
         assert_eq!(summary.anchored_mean_precision, None);
         assert!(!goals[0].anchored.ran);
         assert_eq!(
             goals[0].anchored.unavailable_reason.as_deref(),
-            Some(ANCHORED_PENDING)
+            Some(GOAL_CANNOT_EXPRESS)
         );
     }
 

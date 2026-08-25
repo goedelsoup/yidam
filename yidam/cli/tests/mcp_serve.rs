@@ -316,6 +316,55 @@ fn an_index_this_build_cannot_read_is_not_reported_as_a_missing_index() {
 
 // ── conformance ──────────────────────────────────────────────────────────────
 
+/// The MCP `query` tool and `yidam query` must answer the same thing (#263).
+///
+/// They are two front doors onto one function, and the case files can only ever see one of
+/// them. The risk is specific rather than theoretical: the server answers from a corpus it
+/// parsed at startup and the CLI parses one per invocation, so a divergence would look like
+/// staleness on whichever surface was read less — and an agent asking through MCP would get a
+/// confidently wrong answer with a cost block attached.
+///
+/// `results`, `matched` and `cost` only. The envelope differs by design: the CLI wraps the
+/// payload in the RFC-0016 report envelope with a root and a build commit, and the tool
+/// returns the payload bare.
+#[test]
+fn the_mcp_tool_and_the_cli_answer_the_same_query() {
+    let repo = make_fixture_repo();
+    let mut client = McpClient::spawn(repo.path());
+
+    for query in [
+        "concept -enables-> concept",
+        "concept <-enables- concept",
+        "*[claim_tag=open]",
+        "concept~\"embedding space\"",
+        // A rejection too: both surfaces must reject it, and for the same reason. The CLI
+        // exits 1 here and the tool does not error — the difference is in how the verdict
+        // travels, never in what it is.
+        "concpet",
+    ] {
+        let served = client.tool_json("query", json!({"query": query}));
+        let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+            .args(["query", query, "--format", "json"])
+            .current_dir(repo.path())
+            .output()
+            .unwrap();
+        let envelope: Value = serde_json::from_slice(&out.stdout).unwrap();
+        for field in [
+            "results",
+            "matched",
+            "cost",
+            "rejected",
+            "anchor",
+            "diagnostics",
+        ] {
+            assert_eq!(
+                served[field], envelope[field],
+                "`{query}`: the MCP tool and the CLI disagree about `{field}`"
+            );
+        }
+    }
+}
+
 fn contract_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../prelude/sdks/parity/mcp")
 }
@@ -367,11 +416,25 @@ fn at<'a>(value: &'a Value, path: &str) -> &'a Value {
     current
 }
 
+/// An array at a dotted path, or a failure naming the case rather than `Option::unwrap`.
+fn array<'a>(response: &'a Value, path: &str, tool: &str, why: &str) -> &'a Vec<Value> {
+    at(response, path)
+        .as_array()
+        .unwrap_or_else(|| panic!("{tool}.{path} is not an array\n{why}\n{response}"))
+}
+
 /// Assert one case's expectations.
 ///
 /// Shape and invariants only: never a score. A score is a property of a model, and a
 /// contract that pinned one would fail on every server that legitimately embeds differently
 /// — which is the thing `degraded` exists to report rather than forbid.
+///
+/// **Every name here is a dotted path**, not just `equalsAt`'s. `query` is the first tool
+/// whose response has structure below the top level — `cost.nodes_read`, `anchor.entries`,
+/// `steps.0.classes` — and a harness that could only assert on top-level keys would have had
+/// its cases written against a flattened response, which is a second shape for one answer. A
+/// single segment resolves to exactly what `response[name]` used to, so the existing cases
+/// mean what they meant.
 fn check_case(case: &Value, response: &Value) {
     let tool = case["tool"].as_str().unwrap();
     let expect = &case["expect"];
@@ -381,7 +444,7 @@ fn check_case(case: &Value, response: &Value) {
         for f in fields {
             let name = f.as_str().unwrap();
             assert!(
-                response.get(name).is_some(),
+                !at(response, name).is_null() || response.get(name).is_some(),
                 "{tool}: response has no `{name}`.\n{why}\n{response}"
             );
         }
@@ -400,7 +463,7 @@ fn check_case(case: &Value, response: &Value) {
         for n in names {
             let name = n.as_str().unwrap();
             assert!(
-                !response[name].as_array().unwrap().is_empty(),
+                !array(response, name, tool, why).is_empty(),
                 "{tool}.{name} is empty\n{why}"
             );
         }
@@ -408,7 +471,7 @@ fn check_case(case: &Value, response: &Value) {
     if let Some(counts) = expect["count"].as_object() {
         for (name, n) in counts {
             assert_eq!(
-                response[name].as_array().unwrap().len(),
+                array(response, name, tool, why).len(),
                 n.as_u64().unwrap() as usize,
                 "{tool}.{name}\n{why}\n{response}"
             );
@@ -416,7 +479,7 @@ fn check_case(case: &Value, response: &Value) {
     }
     if let Some(each) = expect["each"].as_object() {
         for (name, fields) in each {
-            for item in response[name].as_array().unwrap() {
+            for item in array(response, name, tool, why) {
                 for f in fields.as_array().unwrap() {
                     let field = f.as_str().unwrap();
                     assert!(
@@ -429,7 +492,7 @@ fn check_case(case: &Value, response: &Value) {
     }
     if let Some(every) = expect["everyItemHas"].as_object() {
         for (name, pairs) in every {
-            for item in response[name].as_array().unwrap() {
+            for item in array(response, name, tool, why) {
                 for (k, v) in pairs.as_object().unwrap() {
                     assert_eq!(&item[k], v, "{tool}.{name}[].{k}\n{why}");
                 }

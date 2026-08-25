@@ -165,6 +165,24 @@ const CASES: &[Case] = &[
         query: "gage -sourced-from-> concept",
         code: 0,
     },
+    // #263's mechanism, end to end: enter by meaning, leave by typed edge. The example ships
+    // no vector index, so this pins the *degraded* path — which is the one almost every
+    // reader of this repository will run, and the one whose cost block has to stay honest.
+    // `nodes_read` is 5 of 8 and not 2: a keyword anchor reads every candidate concept to
+    // score it, so the narrowing arrives with the index rather than with the syntax.
+    Case {
+        name: "anchored-entry",
+        query: r#"concept~"hydropeaking below a dam" <-exhibits- reach"#,
+        code: 0,
+    },
+    // An anchor enters, and only the first step is entered. Frozen because the tempting fix
+    // is to reinterpret this as a similarity filter over the landing set, which is a
+    // different operation wearing the same syntax.
+    Case {
+        name: "anchor-not-entry",
+        query: r#"reach -exhibits-> concept~"low flow""#,
+        code: 1,
+    },
 ];
 
 fn run_case(dir: &Path, case: &Case) -> (String, i32) {

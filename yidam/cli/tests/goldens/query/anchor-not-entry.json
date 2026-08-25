@@ -8,13 +8,13 @@
     ]
   },
   "root": "<ROOT>",
-  "query": "reach -measured-by-> concept",
+  "query": "reach -exhibits-> concept~\"low flow\"",
   "scope": "local",
   "steps": [],
   "rejected": {
-    "step": 0,
-    "code": "unlicensed-hop",
-    "message": "`measured-by` is declared on `reach` toward `gage` and this hop asks for `concept`"
+    "step": 1,
+    "code": "anchor-not-entry",
+    "message": "an anchor enters the graph, and only the first step is entered — this step is reached by a hop. Anchor the first step instead, or filter this one with a predicate."
   },
   "anchor": null,
   "diagnostics": [],
