@@ -27,7 +27,7 @@ pub use cmd::{
     agents_index, backfill, bench, bundle, bundle_status, catalog_audit, clone, corpus_index,
     crates_index, decisions_log, diff_corpus, doctor, embed, export, graph, graph_check,
     index_status, index_verify, lint, list_formats, log, migrate, neighbors, open_questions,
-    overlay, packages_index, parse_bench_goals, phases, regen, rename, replay, run_export,
+    overlay, packages_index, parse_bench_goals, phases, query, regen, rename, replay, run_export,
     samudaya_audit, sangha, schema, serve_lsp, serve_mcp, skills_index, status, vocabulary,
     BenchGoal, BenchGoalSet, EmbedOptions, ExportFormat, ExportOptions, LintOptions, LogFilter,
     MigrateOperation, RdfFormat,
@@ -40,5 +40,6 @@ pub fn class_schemas_at(root: &std::path::Path) -> Vec<(String, String, serde_js
     cmd::class_schemas(root)
 }
 
+pub use cmd::query::DEFAULT_LIMIT as QUERY_DEFAULT_LIMIT;
 pub use paths::{running_binary_note, warn_if_shadowed};
 pub use report::Format;

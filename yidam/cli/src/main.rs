@@ -223,6 +223,24 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// Execute a typed path over the resolved graph — `reach -measured-by-> gage`
+    Query {
+        /// The query. Whitespace around a hop is required: `-rel->` and `<-rel-` are single
+        /// tokens, which is what makes a hyphenated relationship unambiguous
+        query: String,
+        /// Fields to project, comma-separated: node, class, label, description, body, or
+        /// `properties.<name>`
+        #[arg(long)]
+        select: Option<String>,
+        /// Maximum results shown. The count reported is always the full one — a limit
+        /// bounds the projection, not the traversal
+        #[arg(long, default_value_t = yidam::QUERY_DEFAULT_LIMIT)]
+        limit: usize,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Report the corpus graph: nodes, resolved edges, and the classes that license them
     Graph {
         /// Output format. `json` emits the machine-readable report contract
@@ -574,6 +592,12 @@ fn main() -> Result<()> {
             scaling,
             format,
         } => yidam::bench(budget, scaling, format),
+        Command::Query {
+            query,
+            select,
+            limit,
+            format,
+        } => yidam::query(&query, select, limit, format),
         Command::Graph { format } => yidam::graph(format),
         Command::Neighbors {
             node,

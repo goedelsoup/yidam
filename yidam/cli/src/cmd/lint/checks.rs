@@ -489,7 +489,7 @@ pub fn dangling_edge(nodes: &[Node]) -> Check {
 }
 
 /// The class an instance belongs to, from its path: `.yidam/corpus/person/x.yml` → `person`.
-fn class_of(n: &Node) -> String {
+pub(crate) fn class_of(n: &Node) -> String {
     n.path
         .parent()
         .and_then(|d| d.file_name())
@@ -579,7 +579,7 @@ fn classes_by_name(classes: &[Class]) -> HashMap<&str, &Class> {
 }
 
 /// Every instance in the corpus, by its normalized path — what a link target resolves to.
-fn nodes_by_path(nodes: &[Node]) -> HashMap<PathBuf, &Node> {
+pub(crate) fn nodes_by_path(nodes: &[Node]) -> HashMap<PathBuf, &Node> {
     nodes.iter().map(|n| (normalize(&n.path), n)).collect()
 }
 
@@ -587,7 +587,7 @@ fn nodes_by_path(nodes: &[Node]) -> HashMap<PathBuf, &Node> {
 ///
 /// Everything else — the `instance-of` link to the class file, a citation into the catalog,
 /// an edge to a file that is not there — is not an ontology edge and is not licensed here.
-fn instance_links<'a>(
+pub(crate) fn instance_links<'a>(
     n: &'a Node,
     by_path: &HashMap<PathBuf, &'a Node>,
 ) -> Vec<(&'a crate::parse::CorpusLink, &'a Node)> {

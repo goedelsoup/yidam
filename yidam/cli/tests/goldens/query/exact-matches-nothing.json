@@ -1,0 +1,40 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "query": "reach[regulated=yes]",
+  "scope": "local",
+  "steps": [
+    {
+      "class": "reach",
+      "anchor": null,
+      "predicates": [
+        "regulated=yes"
+      ],
+      "classes": [
+        "reach"
+      ],
+      "hop": null
+    }
+  ],
+  "rejected": null,
+  "diagnostics": [],
+  "results": [],
+  "matched": 0,
+  "returned": 0,
+  "cost": {
+    "steps": 1,
+    "edges_walked": 0,
+    "nodes_read": 2,
+    "chars": 2,
+    "tokens": 0,
+    "corpus_nodes": 8
+  },
+  "unschematised": false
+}

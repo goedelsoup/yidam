@@ -94,6 +94,7 @@ pub const GROUPS: &[Group] = &[
         commands: &[
             r("graph"),
             r("neighbors"),
+            r("query"),
             r("diff"),
             w("rename"),
             // Beside `rename` and not with the gates: both move something and rewrite every

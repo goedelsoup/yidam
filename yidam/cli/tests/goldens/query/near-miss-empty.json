@@ -1,0 +1,57 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "query": "gage -sourced-from-> concept",
+  "scope": "local",
+  "steps": [
+    {
+      "class": "gage",
+      "anchor": null,
+      "predicates": [],
+      "classes": [
+        "gage"
+      ],
+      "hop": {
+        "relationship": "sourced-from",
+        "direction": "out"
+      }
+    },
+    {
+      "class": "concept",
+      "anchor": null,
+      "predicates": [],
+      "classes": [
+        "concept"
+      ],
+      "hop": null
+    }
+  ],
+  "rejected": null,
+  "diagnostics": [
+    {
+      "level": "warn",
+      "step": 0,
+      "code": "undeclared-relationship",
+      "message": "`sourced-from` is not declared by `gage` (edge_policy: unstated), and `sources-from` differs by one character; it is authored by gage"
+    }
+  ],
+  "results": [],
+  "matched": 0,
+  "returned": 0,
+  "cost": {
+    "steps": 2,
+    "edges_walked": 0,
+    "nodes_read": 2,
+    "chars": 2,
+    "tokens": 0,
+    "corpus_nodes": 8
+  },
+  "unschematised": false
+}
