@@ -41,12 +41,14 @@
     {
       "class": "gage",
       "label": "Canyon Outlet gage",
-      "node": "gage/canyon-outlet.yml"
+      "node": "gage/canyon-outlet.yml",
+      "origin": null
     },
     {
       "class": "gage",
       "label": "Valley Bridge gage",
-      "node": "gage/valley-bridge.yml"
+      "node": "gage/valley-bridge.yml",
+      "origin": null
     }
   ],
   "matched": 2,

@@ -248,6 +248,10 @@ enum Command {
         /// range meaning: `a` itself is excluded
         #[arg(long, value_name = "A..B")]
         between: Option<String>,
+        /// Query installed dependencies as well. Every result says whose corpus it came
+        /// from, and no hop crosses a corpus boundary
+        #[arg(long, conflicts_with_all = ["at", "between"])]
+        across: bool,
         /// Output format. `json` emits the machine-readable report contract
         /// (RFC-0016); `text` is unchanged and remains the default.
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
@@ -611,8 +615,9 @@ fn main() -> Result<()> {
             anchor_k,
             at,
             between,
+            across,
             format,
-        } => yidam::query(&query, select, limit, anchor_k, at, between, format),
+        } => yidam::query(&query, select, limit, anchor_k, at, between, across, format),
         Command::Graph { format } => yidam::graph(format),
         Command::Neighbors {
             node,

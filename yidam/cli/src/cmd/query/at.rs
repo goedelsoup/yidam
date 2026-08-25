@@ -275,6 +275,11 @@ impl Graph {
             classes,
             universal,
             corpus_dir: ".yidam/corpus".to_string(),
+            // A dependency's state at a past commit is not reconstructible from here: what
+            // this repository has is whatever bundle is unpacked now, and a bundle carries no
+            // history. `--across` and `--at` are refused together for that reason, in
+            // `run_on`, rather than silently answering about today's dependencies.
+            across: Vec::new(),
         })
     }
 }

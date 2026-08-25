@@ -75,6 +75,27 @@ pub struct Graph {
     pub universal: crate::universal::Universal,
     /// Repo-relative, e.g. `.yidam/corpus` — the prefix node ids are stripped of.
     pub corpus_dir: String,
+    /// Installed dependencies, when the caller asked to query across them (`--across`, #268).
+    ///
+    /// Empty by default, and that is the boundary: a query that did not ask cannot see a
+    /// foreign node, and one that did sees it labelled.
+    pub across: Vec<Foreign>,
+}
+
+/// A dependency's corpus, as a query sees it.
+///
+/// **Its own everything.** Its own nodes, its own classes, its own `universal.yml`, and its
+/// own execution — the query runs once per corpus rather than once over a merged node list.
+/// That is not a performance choice: it is what makes it *structurally impossible* for a hop
+/// to cross the boundary, because no execution ever holds two corpora's nodes at once. The
+/// alternative — merge and rely on relative paths not resolving across directories — is true
+/// today and is a property of the filesystem layout rather than of this code.
+pub struct Foreign {
+    pub package: String,
+    pub nodes: Vec<crate::cmd::lint::checks::Node>,
+    pub classes: Vec<crate::cmd::lint::checks::Class>,
+    pub universal: crate::universal::Universal,
+    pub corpus_dir: String,
 }
 
 impl Graph {
@@ -98,6 +119,48 @@ impl Graph {
             classes,
             universal: crate::universal::Universal::load(root),
             corpus_dir: rel,
+            across: Vec::new(),
+        }
+    }
+
+    /// The same, plus every installed dependency's corpus.
+    ///
+    /// A dependency's `universal.yml` is read from its own bundle, not inherited from here:
+    /// a corpus-wide property declaration is that corpus's, and applying this repository's to
+    /// a dependency's nodes would accept property names it never declared.
+    pub fn across(root: &std::path::Path) -> Graph {
+        let overlay = crate::cmd::lint::Overlay::default();
+        let across = crate::deps::resolved(root)
+            .into_iter()
+            .map(|dep| {
+                let dir = dep.corpus_dir;
+                // The dependency's root is its corpus dir's parent — `.yidam/tonpa/<pkg>/`
+                // for a fetched one, `<sibling>/.yidam/` for a path one. `rel_of` strips it,
+                // so ids come out as `<class>/<name>.yml` on both sides of the boundary and
+                // the package name is what distinguishes them.
+                let owner = dir.parent().unwrap_or(&dir).to_path_buf();
+                Foreign {
+                    nodes: crate::cmd::lint::checks::load_nodes(
+                        &owner,
+                        &walk_corpus_instances(&dir),
+                        &overlay,
+                    ),
+                    classes: crate::cmd::lint::checks::load_classes(
+                        &owner,
+                        &walk_ont_files(&dir),
+                        &overlay,
+                    ),
+                    universal: crate::universal::Universal::parse(
+                        &std::fs::read_to_string(dir.join("universal.yml")).unwrap_or_default(),
+                    ),
+                    corpus_dir: "corpus".to_string(),
+                    package: dep.name,
+                }
+            })
+            .collect();
+        Graph {
+            across,
+            ..Graph::load(root)
         }
     }
 }
@@ -127,8 +190,13 @@ pub struct HopView {
 #[derive(Debug, serde::Serialize)]
 pub struct QueryReport {
     pub query: String,
-    /// `local` always, for now. Traversing a package boundary is E3 (#251), and a client
-    /// must never have to infer the scope of an answer.
+    /// `local`, or `across` when the query ran over the dependency set too (#268).
+    ///
+    /// A client must never have to infer the scope of an answer, which is why this is a field
+    /// and not something read off the presence of qualified ids: a corpus with no
+    /// dependencies installed answers `across` with the same rows a `local` run gives, and
+    /// the difference between "nothing foreign matched" and "nothing foreign was looked at"
+    /// is the whole point.
     pub scope: &'static str,
     pub steps: Vec<StepView>,
     /// Present and null when the query ran, so a consumer testing the key does not have to
@@ -205,7 +273,22 @@ fn rejected_report(query: &str, rejection: check::Rejection) -> QueryReport {
 /// never anchor. A parse that fails twice costs nothing worth measuring; a corpus that decodes
 /// its embeddings on every `yidam query reach` does.
 pub fn run(root: &std::path::Path, text: &str, opts: &Options) -> QueryReport {
-    let graph = Graph::load(root);
+    run_scoped(root, text, opts, false)
+}
+
+/// [`run`], over every installed dependency's corpus as well (`--across`, #268).
+pub fn run_across(root: &std::path::Path, text: &str, opts: &Options) -> QueryReport {
+    run_scoped(root, text, opts, true)
+}
+
+/// Two named entry points rather than a boolean at every call site: `run(root, q, o)` and
+/// `run(root, q, o, true)` read the same at a glance and mean opposite things about whether a
+/// foreign node can appear in the answer.
+fn run_scoped(root: &std::path::Path, text: &str, opts: &Options, across: bool) -> QueryReport {
+    let graph = match across {
+        true => Graph::across(root),
+        false => Graph::load(root),
+    };
     let anchored = lang::parse(text).is_ok_and(|q| q.steps.iter().any(|s| s.anchor.is_some()));
     if !anchored {
         return run_on(&Context::now(&graph, None), text, opts);
@@ -429,6 +512,29 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
         );
     }
 
+    // **An anchored `--across` is refused, and the reason is the one #268 gives.** The vector
+    // index is built from this repository's corpus alone — `embed` walks `.yidam/corpus`, and
+    // `IndexConfig::merge_imported_index` names a merge nothing performs — so an anchor would
+    // enter through local text and then hand back rows from a dependency's scan beside it.
+    // The keyword fallback *could* span, and that is worse rather than better: anchoring would
+    // then reach further in the build without the index than in the build with it. Refused
+    // uniformly, because a boundary that is invisible at the moment an agent is about to write
+    // a claim is the failure this flag exists to prevent.
+    if !ctx.graph.across.is_empty() && parsed.steps.iter().any(|s| s.anchor.is_some()) {
+        return rejected_report(
+            text,
+            check::Rejection {
+                step: Some(0),
+                code: "anchor-across",
+                message: "the vector index covers this repository's corpus and not its \
+                          dependencies, so an anchored query cannot span them without \
+                          entering through local text and answering with foreign rows. Enter \
+                          at the class and filter with a predicate, or drop `--across`."
+                    .to_string(),
+            },
+        );
+    }
+
     if let Some(bad) = opts
         .select
         .iter()
@@ -471,7 +577,7 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
         _ => Vec::new(),
     };
 
-    let checked = match verdict {
+    let mut checked = match verdict {
         Ok(checked) => checked,
         Err(rejection) => {
             let mut report = rejected_report(text, rejection);
@@ -532,25 +638,109 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
         &graph.corpus_dir,
         resolved.as_ref(),
     );
-    let matched = outcome.matched.len();
+    let mut matched = outcome.matched.len();
     let shown: Vec<String> = outcome.matched.into_iter().take(opts.limit).collect();
-    let (results, chars) = exec::project(&shown, &graph.nodes, &graph.corpus_dir, &opts.select);
+    let (mut results, mut chars) =
+        exec::project(&shown, &graph.nodes, &graph.corpus_dir, &opts.select);
+    for row in &mut results {
+        // Present and null for this repository's own nodes rather than absent — the
+        // convention `retrieve` already follows. A consumer testing the key must not have to
+        // distinguish "local" from "a binary too old to say", and #268's requirement is that
+        // a result be attributed *at every point of presentation*, which includes the one
+        // where everything happens to be local.
+        row.insert("origin".into(), serde_json::Value::Null);
+    }
+    let mut cost = outcome.cost;
+    // Taken by value here and the rest of `checked` kept: `view` still needs `narrowed`, and
+    // the foreign corpora append to this list.
+    let mut diagnostics = std::mem::take(&mut checked.diagnostics);
+
+    for foreign in &graph.across {
+        let schema = check::Schema {
+            classes: &foreign.classes,
+            universal: &foreign.universal,
+            authored: exec::authored(&foreign.nodes),
+        };
+        // Checked against **its own** ontology, and a corpus that cannot answer the query is
+        // excluded with the reason rather than failing the run. A shared class name is not
+        // agreement — `concept` here and `concept` there are two names — so a dependency that
+        // declares neither is not a defect in the query, and a dependency that declares one
+        // and licenses the hop differently is answering a question about itself.
+        let checked = match check::check(&parsed, &schema) {
+            Ok(checked) => checked,
+            Err(rejection) => {
+                diagnostics.push(check::Diagnostic {
+                    level: "info",
+                    step: rejection.step.unwrap_or(0),
+                    code: "corpus-excluded",
+                    message: format!(
+                        "`{}` was not queried: {} ({})",
+                        foreign.package, rejection.message, rejection.code
+                    ),
+                });
+                continue;
+            }
+        };
+        let outcome = exec::execute(
+            &parsed,
+            &checked,
+            &foreign.nodes,
+            &foreign.corpus_dir,
+            // No anchor: an anchored `--across` is refused above. Passing `None` here is not
+            // a silent downgrade, it is the arm that cannot be reached.
+            None,
+        );
+        matched += outcome.matched.len();
+        let shown: Vec<String> = outcome
+            .matched
+            .into_iter()
+            .take(opts.limit.saturating_sub(results.len()))
+            .collect();
+        let (rows, foreign_chars) =
+            exec::project(&shown, &foreign.nodes, &foreign.corpus_dir, &opts.select);
+        chars += foreign_chars;
+        cost.edges_walked += outcome.cost.edges_walked;
+        cost.nodes_read += outcome.cost.nodes_read;
+        cost.corpus_nodes += outcome.cost.corpus_nodes;
+        for mut row in rows {
+            // Qualified at the point the row is built, not at render time. A consumer reading
+            // `node` must get an id it can hand back to `get_node`, and an unqualified one
+            // from a dependency names a local node that may not exist — or, worse, one that
+            // does and is a different thing.
+            if let Some(node) = row.get("node").and_then(|v| v.as_str()) {
+                let qualified = format!("{}::{node}", foreign.package);
+                row.insert("node".into(), serde_json::Value::String(qualified));
+            }
+            row.insert(
+                "origin".into(),
+                serde_json::Value::String(foreign.package.clone()),
+            );
+            results.push(row);
+        }
+    }
 
     QueryReport {
         query: text.to_string(),
-        scope: "local",
+        // Not inferred from whether any foreign row came back. A repository with no
+        // dependencies installed answers `across` with exactly the rows a `local` run gives,
+        // and "nothing foreign matched" must stay distinguishable from "nothing foreign was
+        // looked at".
+        scope: match graph.across.is_empty() {
+            true => "local",
+            false => "across",
+        },
         steps: view(&parsed, &checked),
         rejected: None,
         anchor: resolved.map(|r| r.anchor),
         at: ctx.at.cloned(),
-        diagnostics: checked.diagnostics.into_iter().chain(moved).collect(),
+        diagnostics: diagnostics.into_iter().chain(moved).collect(),
         returned: results.len(),
         results,
         matched,
         cost: exec::Cost {
             chars,
             tokens: chars / 4,
-            ..outcome.cost
+            ..cost
         },
         unschematised: graph.classes.is_empty(),
     }
@@ -643,7 +833,16 @@ pub fn render(report: &QueryReport) -> String {
         };
         let (node, label) = (field("node"), field("label"));
         out.push_str(&format!(
-            "  {}{}\n",
+            "  {}{}{}\n",
+            // #268's requirement is that a foreign result be distinguishable *at every point
+            // of presentation*. The qualified id carries the attribution and sits at the end
+            // of the line, where a reader scanning a list does not look; this puts it where
+            // they do. An agent about to write a claim must not have to parse an id to notice
+            // that the answer came from a corpus this repository merely cites.
+            match field("origin").as_str() {
+                "" => String::new(),
+                pkg => format!("[{pkg}] "),
+            },
             match label.is_empty() {
                 true => node.clone(),
                 false => format!("{label}  ({node})"),
@@ -651,7 +850,7 @@ pub fn render(report: &QueryReport) -> String {
             // Anything the caller selected beyond the default is worth showing, or
             // `--select` would silently do nothing in text mode.
             row.iter()
-                .filter(|(k, _)| !["node", "class", "label"].contains(&k.as_str()))
+                .filter(|(k, _)| !["node", "class", "label", "origin"].contains(&k.as_str()))
                 .map(|(k, v)| format!("  {k}={}", v.as_str().unwrap_or("—")))
                 .collect::<String>()
         ));
@@ -691,8 +890,19 @@ pub fn render(report: &QueryReport) -> String {
     }
     let c = &report.cost;
     out.push_str(&format!(
-        "{} step(s), {} edge(s) walked, {} of {} node(s) read, ~{} token(s)\n",
-        c.steps, c.edges_walked, c.nodes_read, c.corpus_nodes, c.tokens
+        "{} step(s), {} edge(s) walked, {} of {} node(s) read, ~{} token(s){}\n",
+        c.steps,
+        c.edges_walked,
+        c.nodes_read,
+        c.corpus_nodes,
+        c.tokens,
+        // Said on every `--across` run, including the one where nothing foreign matched.
+        // Otherwise a spanning query over a corpus with no dependencies installed is
+        // indistinguishable from a local one, which is the difference the flag is for.
+        match report.scope {
+            "across" => " — across the dependency set",
+            _ => "",
+        }
     ));
     out.trim_end().to_string()
 }
@@ -706,6 +916,7 @@ pub fn query(
     anchor_k: usize,
     at: Option<String>,
     between: Option<String>,
+    across: bool,
     format: crate::report::Format,
 ) -> Result<()> {
     let root = repo_root()?;
@@ -735,6 +946,7 @@ pub fn query(
 
     let report = match at {
         Some(rev) => run_at(&root, &rev, text, &opts)?,
+        None if across => run_across(&root, text, &opts),
         None => run(&root, text, &opts),
     };
     let rejected = report.rejected.is_some();
@@ -858,6 +1070,182 @@ mod tests {
         assert_eq!(anchor.degraded_reason, Some("no_index"));
         assert_eq!(report.matched, 1);
         assert!(render(&report).contains("anchored on reach/tailwater.yml"));
+    }
+
+    // ── --across (#268) ───────────────────────────────────────────────────────
+
+    /// A repository and one installed dependency, both declaring `concept` and both holding
+    /// a node called `hydrology`. The collision is the fixture's whole point: a shared class
+    /// name is not agreement, and two nodes sharing a string must come back as two answers.
+    fn with_dependency() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let ont = "class: concept\nedges:\n  - relationship: relates-to\n    target: concept\n\
+                   \x20   direction: out\n";
+        let write = |rel: &str, body: &str| {
+            let path = dir.path().join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, body).unwrap();
+        };
+        write(".yidam/corpus/concept.ont.yml", ont);
+        write(
+            ".yidam/corpus/concept/hydrology.yml",
+            "class: concept\nlabel: Local hydrology\nlinks:\n  - target: flow.yml\n    \
+             relationship: relates-to\n",
+        );
+        write(
+            ".yidam/corpus/concept/flow.yml",
+            "class: concept\nlabel: Local flow\n",
+        );
+        write(
+            ".yidam/tonpa/upstream/manifest.yml",
+            "commit: \"abc1234\"\n",
+        );
+        write(".yidam/tonpa/upstream/corpus/concept.ont.yml", ont);
+        write(
+            ".yidam/tonpa/upstream/corpus/concept/hydrology.yml",
+            "class: concept\nlabel: Upstream hydrology\nlinks:\n  - target: routing.yml\n    \
+             relationship: relates-to\n",
+        );
+        write(
+            ".yidam/tonpa/upstream/corpus/concept/routing.yml",
+            "class: concept\nlabel: Upstream routing\n",
+        );
+        dir
+    }
+
+    fn origins(report: &QueryReport) -> Vec<String> {
+        report
+            .results
+            .iter()
+            .map(|r| {
+                r.get("origin")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("<local>")
+                    .to_string()
+            })
+            .collect()
+    }
+
+    /// Without the flag a dependency is not looked at, and the report says `local`.
+    #[test]
+    fn a_query_that_did_not_ask_cannot_see_a_dependency() {
+        let dir = with_dependency();
+        let report = run(dir.path(), "concept", &opts());
+        assert_eq!(report.scope, "local");
+        assert_eq!(report.matched, 2);
+    }
+
+    /// Every result is attributed, including the local ones — present and null rather than
+    /// absent, so a consumer testing the key never has to distinguish "local" from "a binary
+    /// too old to say".
+    #[test]
+    fn across_attributes_every_result_including_the_local_ones() {
+        let dir = with_dependency();
+        let report = run_across(dir.path(), "concept", &opts());
+        assert_eq!(report.scope, "across");
+        assert_eq!(report.matched, 4);
+        assert_eq!(
+            origins(&report),
+            vec!["<local>", "<local>", "upstream", "upstream"]
+        );
+        assert!(report.results.iter().all(|r| r.contains_key("origin")));
+    }
+
+    /// Two corpora hold `concept/hydrology.yml`. A shared class name is not agreement, and an
+    /// unqualified id would name a node that is not the one that answered.
+    #[test]
+    fn a_foreign_id_is_qualified_so_a_collision_is_two_answers() {
+        let dir = with_dependency();
+        let report = run_across(dir.path(), "concept", &opts());
+        let nodes: Vec<&str> = report
+            .results
+            .iter()
+            .filter_map(|r| r.get("node").and_then(|v| v.as_str()))
+            .collect();
+        assert!(nodes.contains(&"concept/hydrology.yml"));
+        assert!(nodes.contains(&"upstream::concept/hydrology.yml"));
+    }
+
+    /// **The boundary.** The local node links `routing.yml`, a name only the dependency has.
+    /// A merged execution would resolve it; one execution per corpus cannot, and the only
+    /// answer is the one the dependency reached through its *own* edge.
+    #[test]
+    fn no_hop_crosses_the_corpus_boundary() {
+        let dir = with_dependency();
+        std::fs::write(
+            dir.path().join(".yidam/corpus/concept/hydrology.yml"),
+            "class: concept\nlabel: Local hydrology\nlinks:\n  - target: routing.yml\n    \
+             relationship: relates-to\n",
+        )
+        .unwrap();
+        let report = run_across(dir.path(), "concept -relates-to-> concept", &opts());
+        assert_eq!(report.matched, 1, "{:?}", report.results);
+        assert_eq!(
+            report.results[0]["node"],
+            serde_json::json!("upstream::concept/routing.yml"),
+            "the only match must be the one the dependency reached itself"
+        );
+    }
+
+    /// A dependency whose ontology cannot answer the query is excluded with the reason, and
+    /// the local answer still comes back. A shared class name is not agreement; the absence
+    /// of one is not a defect in the query.
+    #[test]
+    fn a_dependency_that_cannot_typecheck_the_query_is_excluded_with_the_reason() {
+        let dir = with_dependency();
+        std::fs::rename(
+            dir.path()
+                .join(".yidam/tonpa/upstream/corpus/concept.ont.yml"),
+            dir.path().join(".yidam/tonpa/upstream/corpus/note.ont.yml"),
+        )
+        .unwrap();
+        let report = run_across(dir.path(), "concept", &opts());
+        assert_eq!(report.matched, 2, "the local answer survives");
+        let excluded = report
+            .diagnostics
+            .iter()
+            .find(|d| d.code == "corpus-excluded")
+            .expect("said which corpus and why");
+        assert_eq!(excluded.level, "info");
+        assert!(
+            excluded.message.contains("upstream"),
+            "{}",
+            excluded.message
+        );
+    }
+
+    /// Scope is a field, not something read off the rows. A corpus with nothing installed
+    /// answers `across` with exactly the rows a local run gives, and "nothing foreign matched"
+    /// must stay distinguishable from "nothing foreign was looked at".
+    #[test]
+    fn across_over_no_dependencies_still_says_it_looked() {
+        let dir = fixture();
+        let report = run_across(dir.path(), "reach", &opts());
+        // No dependencies are installed, so there is nothing to widen to — and the report is
+        // honest that this is a local answer rather than claiming a scope it did not have.
+        assert_eq!(report.scope, "local");
+    }
+
+    /// The text path must show the boundary too. An agent about to write a claim should not
+    /// have to parse an id to notice the answer came from a corpus this repository cites.
+    #[test]
+    fn the_text_report_marks_a_foreign_row() {
+        let dir = with_dependency();
+        let rendered = render(&run_across(dir.path(), "concept", &opts()));
+        assert!(
+            rendered.contains("[upstream] Upstream hydrology"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("across the dependency set"), "{rendered}");
+    }
+
+    /// The index covers this repository and not its dependencies, so an anchored span would
+    /// enter through local text and answer with foreign rows.
+    #[test]
+    fn an_anchored_across_is_refused_with_the_reason() {
+        let dir = with_dependency();
+        let report = run_across(dir.path(), r#"concept~"flow""#, &opts());
+        assert_eq!(report.rejected.unwrap().code, "anchor-across");
     }
 
     /// An anchor is an entry. Ranking a set a typed edge already produced is a different
