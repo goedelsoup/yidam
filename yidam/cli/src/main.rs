@@ -208,6 +208,16 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// Measure the committed goal set: anchored traversal against flat retrieval
+    Bench {
+        /// The flat arm's budget — `retrieve`'s `k`, defaulting to the 5 `serve --mcp` uses
+        #[arg(long, default_value_t = 5)]
+        budget: usize,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Report the corpus graph: nodes, resolved edges, and the classes that license them
     Graph {
         /// Output format. `json` emits the machine-readable report contract
@@ -554,6 +564,7 @@ fn main() -> Result<()> {
             dry_run,
             format,
         } => yidam::rename(&old, &new, dry_run, format),
+        Command::Bench { budget, format } => yidam::bench(budget, format),
         Command::Graph { format } => yidam::graph(format),
         Command::Neighbors {
             node,

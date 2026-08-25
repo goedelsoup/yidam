@@ -1,4 +1,5 @@
 mod backfill;
+mod bench;
 mod build;
 mod bundle;
 mod catalog;
@@ -34,7 +35,7 @@ mod replay;
 mod samudaya_audit;
 mod sangha;
 mod schema;
-mod serve;
+pub(crate) mod serve;
 pub(crate) mod status;
 #[cfg(feature = "tonpa")]
 pub mod tonpa;
@@ -42,6 +43,9 @@ mod vocabulary;
 mod web;
 
 pub use backfill::backfill;
+pub use bench::{
+    bench, parse_goals as parse_bench_goals, Goal as BenchGoal, GoalSet as BenchGoalSet,
+};
 pub use build::{crates_index, packages_index};
 pub use bundle::bundle;
 pub use catalog::catalog_audit;

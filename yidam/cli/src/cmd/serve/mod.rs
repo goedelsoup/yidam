@@ -18,7 +18,7 @@
 //! cannot install.
 
 mod resources;
-mod tools;
+pub(crate) mod tools;
 #[cfg(feature = "index")]
 mod vector;
 

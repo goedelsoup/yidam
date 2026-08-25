@@ -85,6 +85,14 @@ pub fn yidam_index_dir(root: &Path) -> PathBuf {
     root.join(".yidam").join("index")
 }
 
+/// The benchmark's fixed inputs — `goals.yml`, and later the scaling generator's config.
+///
+/// Absent in most repositories, and `bench` says so rather than inventing a goal set: a
+/// benchmark that supplies its own goals is measuring whoever wrote the fallback.
+pub fn yidam_bench_dir(root: &Path) -> PathBuf {
+    root.join(".yidam").join("bench")
+}
+
 pub fn samudaya_dir(root: &Path) -> PathBuf {
     root.join("samudaya")
 }

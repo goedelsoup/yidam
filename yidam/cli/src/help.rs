@@ -121,6 +121,12 @@ pub const GROUPS: &[Group] = &[
         commands: &[r("serve")],
     },
     Group {
+        // Its own group rather than beside the gates: `bench` measures and does not gate,
+        // and a measurement filed under "exit nonzero on a problem" would be read as one.
+        title: "Measuring the corpus",
+        commands: &[r("bench")],
+    },
+    Group {
         title: "Deriving and maintaining a repository",
         commands: &[w("clone"), w("overlay"), w("backfill"), w("tonpa")],
     },
