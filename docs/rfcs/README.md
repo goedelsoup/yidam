@@ -48,6 +48,7 @@ re-deriving it.
 | [0015](0015-epistemic-log.md) | I10 | An epistemic-only history view (`yidam log --epistemic`) | Draft |
 | [0016](0016-editor-surface.md) | I11 | An editor surface for derived repositories (`yidam` for VS Code) | Draft |
 | [0017](0017-assertion-surface.md) | I12 | Serving assertions, not documents (`claims` and the practice tools) | Draft |
+| [0018](0018-query-surface.md) | I13 | The query surface — typed traversal bounded by the ontology (`yidam query`) | Draft |
 
 ## Reading order
 
