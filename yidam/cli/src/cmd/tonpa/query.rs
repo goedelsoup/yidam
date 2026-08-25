@@ -210,6 +210,19 @@ pub async fn cmd_update(
     let config = load_config(config_path)?;
     let mut lock = load_lock(lock_path)?;
 
+    // What every citation in this corpus resolves to, **before** anything is fetched (#267).
+    // An update moves a pin; the question it was never able to answer is what that does to the
+    // claims resting on the other side of it, and the only way to answer it is to have looked
+    // first. `.yidam/tonpa/<pkg>/` is overwritten in place a few lines down.
+    //
+    // The repository root is the tonpa directory's grandparent: `<root>/.yidam/tonpa`.
+    let root = tonpa_dir
+        .parent()
+        .and_then(Path::parent)
+        .unwrap_or(tonpa_dir)
+        .to_path_buf();
+    let before = crate::cmd::lint::citations::survey(&root);
+
     let targets: Vec<String> = match name {
         Some(n) => {
             let Some(dep) = config.dependencies.get(n) else {
@@ -272,6 +285,25 @@ pub async fn cmd_update(
 
     if changed {
         save_lock(&lock, lock_path)?;
+    }
+
+    // In terms of *my* graph rather than theirs. A diff of the dependency would be the
+    // producer's news; this is the consumer's, and the consumer is the one accountable for
+    // the claims.
+    //
+    // Only when something was actually fetched. `changed` is false exactly when every target
+    // was already at the installed hash, so no bundle was replaced and no citation can have
+    // moved — the second survey would be the first one, byte for byte, and printing "nothing
+    // moved" there is a reassurance about a comparison that had nothing to compare.
+    if changed {
+        println!();
+        println!(
+            "{}",
+            crate::cmd::lint::citations::render_movements(&crate::cmd::lint::citations::moved(
+                &before,
+                &crate::cmd::lint::citations::survey(&root)
+            ))
+        );
     }
     Ok(())
 }

@@ -524,3 +524,420 @@ mod tests {
         assert_eq!(run(&dir)["unpinned"].severity, Severity::Info);
     }
 }
+
+// ── what moved under a claim (#267) ───────────────────────────────────────────
+//
+// `tonpa update` moves a pin. Nothing said what that did to the claims resting on the other
+// side of it: a dependency can revise a node out from under a citation, and the citing corpus
+// learns nothing until someone happens to run `lint`.
+//
+// **This opens a question; it does not resolve one.** A tool that decided a local claim was no
+// longer warranted because a foreign one moved would be performing synthesis, and that is the
+// line `cmd/sangha.rs` draws and the constitution draws. Every movement below is phrased as a
+// question for a person, and nothing here writes to the corpus.
+//
+// The survey is in the light build on purpose, and `tonpa update` is not. The feature buys the
+// network; comparing two states of an installed dependency needs none of it — and keeping the
+// comparison out of the gated half is what makes it testable without one.
+
+/// What one citation resolved to, at one moment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Standing {
+    /// The citing local node, repo-relative.
+    pub node: String,
+    pub package: String,
+    /// The cited node's id inside that corpus.
+    pub target: String,
+    pub resolved: bool,
+    pub span_present: bool,
+    /// The standings the cited node carries **now** — not the one the citation recorded.
+    /// Sorted, so two surveys compare without ordering noise.
+    pub standings: Vec<&'static str>,
+    /// The standing the citing author recorded having read.
+    pub recorded: Option<String>,
+    pub pin: Option<String>,
+}
+
+/// Resolve every citation in the corpus against the dependencies currently on disk.
+///
+/// Called twice by `tonpa update` — once before the fetch and once after — because the
+/// question is not what the dependency says, it is *what changed about what I was leaning on*.
+pub fn survey(root: &Path) -> Vec<Standing> {
+    let corpus_dir = crate::paths::yidam_corpus_dir(root);
+    let nodes = super::checks::load_nodes(
+        root,
+        &crate::walk::walk_corpus_instances(&corpus_dir),
+        &super::Overlay::default(),
+    );
+    let deps = installed(root);
+    // One `ClaimFields` per dependency, not per citation: it is a property of that corpus's
+    // ontology, and loading it per citation would re-read every `.ont.yml` in the bundle for
+    // every claim that leans on it.
+    let fields: BTreeMap<&String, crate::claims::ClaimFields> = deps
+        .iter()
+        .map(|(name, dep)| (name, crate::claims::ClaimFields::load(&dep.corpus_dir)))
+        .collect();
+
+    let mut out = Vec::new();
+    for (node, cite) in all(&nodes) {
+        let (Some(package), Some(target)) = (cite.package.as_deref(), cite.node.as_deref()) else {
+            continue;
+        };
+        let dep = deps.get(package);
+        let text = dep
+            .map(|d| node_path(d, target))
+            .and_then(|p| std::fs::read_to_string(p).ok());
+        let standings = match (
+            &text,
+            deps.get_key_value(package).and_then(|(k, _)| fields.get(k)),
+        ) {
+            (Some(text), Some(fields)) => {
+                let class = target.split('/').next().unwrap_or_default();
+                let mut seen: Vec<&'static str> =
+                    crate::claims::claims_in_node(text, fields.for_class(class))
+                        .into_iter()
+                        .map(|c| c.standing)
+                        .collect();
+                seen.sort_unstable();
+                seen.dedup();
+                seen
+            }
+            _ => Vec::new(),
+        };
+        out.push(Standing {
+            node: node.rel.clone(),
+            package: package.to_string(),
+            target: target.to_string(),
+            resolved: text.is_some(),
+            span_present: match (&text, cite.span.as_deref()) {
+                (Some(text), Some(span)) => flatten(text).contains(&flatten(span)),
+                _ => false,
+            },
+            standings,
+            recorded: cite.tag.clone(),
+            pin: dep.and_then(|d| d.pin.clone()),
+        });
+    }
+    out
+}
+
+/// One thing that moved beneath a local claim.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Movement {
+    /// The **local** node, because this report is about my graph and not theirs.
+    pub node: String,
+    pub package: String,
+    pub target: String,
+    /// From a closed set, so a consumer branches without matching prose:
+    /// `vanished`, `span-drifted`, `standing-withdrawn`, `standing-changed`, `pin-moved`.
+    pub kind: &'static str,
+    /// Phrased as a question, deliberately. The answer is a person's.
+    pub question: String,
+}
+
+/// What changed between two surveys, in terms of the citing corpus.
+///
+/// Matched on `(node, package, target)`. A citation present in one survey and not the other is
+/// not a movement — the corpus itself changed between the two, which cannot happen inside an
+/// update and would be a different report if it could.
+pub fn moved(before: &[Standing], after: &[Standing]) -> Vec<Movement> {
+    let mut out = Vec::new();
+    for old in before {
+        let key = |s: &&Standing| {
+            s.node == old.node && s.package == old.package && s.target == old.target
+        };
+        let Some(new) = after.iter().find(key) else {
+            continue;
+        };
+        let at = |kind, question| Movement {
+            node: old.node.clone(),
+            package: old.package.clone(),
+            target: old.target.clone(),
+            kind,
+            question,
+        };
+
+        if old.resolved && !new.resolved {
+            out.push(at(
+                "vanished",
+                format!(
+                    "`{}::{}` is gone. Does the claim in `{}` still stand without it, and if \
+                     so on what?",
+                    old.package, old.target, old.node
+                ),
+            ));
+            // Everything downstream of a node that is not there is not a second finding.
+            continue;
+        }
+        if old.span_present && !new.span_present {
+            out.push(at(
+                "span-drifted",
+                format!(
+                    "the text `{}` quoted from `{}::{}` is no longer there. Read what replaced \
+                     it: does it still support the claim, or did the far side change its mind?",
+                    old.node, old.package, old.target
+                ),
+            ));
+        }
+        // The precise form, available only when the citation recorded what it read. This is
+        // the case #267 names: a foreign `[verified]` demoted to `[open]`.
+        match old.recorded.as_deref() {
+            Some(recorded) => {
+                if old.standings.contains(&recorded) && !new.standings.contains(&recorded) {
+                    out.push(at(
+                        "standing-withdrawn",
+                        format!(
+                            "`{}::{}` no longer carries [{recorded}] — it now carries {}. Your \
+                             claim in `{}` was written against the stronger reading.",
+                            old.package,
+                            old.target,
+                            describe_standings(&new.standings),
+                            old.node
+                        ),
+                    ));
+                }
+            }
+            // The coarse form, and it says it is coarse. A citation that recorded no `tag:`
+            // cannot be asked the precise question, and reporting nothing would make the
+            // missing field look like a clean bill of health.
+            None if old.standings != new.standings => out.push(at(
+                "standing-changed",
+                format!(
+                    "`{}::{}` carried {} and now carries {}. This citation recorded no `tag:`, \
+                     so which of those you were leaning on is not written down — check `{}`.",
+                    old.package,
+                    old.target,
+                    describe_standings(&old.standings),
+                    describe_standings(&new.standings),
+                    old.node
+                ),
+            )),
+            None => {}
+        }
+        if old.pin != new.pin {
+            out.push(at(
+                "pin-moved",
+                format!(
+                    "`{}` moved from {} to {}. `{}` records the older one; is the citation \
+                     still describing what you read?",
+                    old.package,
+                    old.pin.as_deref().unwrap_or("no pin"),
+                    new.pin.as_deref().unwrap_or("no pin"),
+                    old.node
+                ),
+            ));
+        }
+    }
+    out
+}
+
+fn describe_standings(standings: &[&'static str]) -> String {
+    match standings.is_empty() {
+        true => "no tagged claim".to_string(),
+        false => standings
+            .iter()
+            .map(|s| format!("[{s}]"))
+            .collect::<Vec<_>>()
+            .join(" and "),
+    }
+}
+
+/// The movements, as `tonpa update` prints them.
+///
+/// **Questions, and a sentence saying nothing was changed.** The temptation on a report like
+/// this is a summary line that reads like a verdict — *3 claims weakened* — and that is
+/// precisely the synthesis this must not perform.
+pub fn render_movements(movements: &[Movement]) -> String {
+    if movements.is_empty() {
+        return "Nothing your corpus cites moved.".to_string();
+    }
+    let mut out = format!(
+        "{} question(s) opened by this update — nothing was changed, and no claim was \
+         re-tagged:\n",
+        movements.len()
+    );
+    let mut current = String::new();
+    for m in movements {
+        if m.node != current {
+            out.push_str(&format!("\n  {}\n", m.node));
+            current = m.node.clone();
+        }
+        out.push_str(&format!("    [{}] {}\n", m.kind, m.question));
+    }
+    out.push_str(
+        "\nThese are findings, not revisions. Answer them in the corpus — a claim that no \
+         longer holds is rewritten by a person, and one whose support moved may need to be \
+         re-tagged or made an open question.\n",
+    );
+    out
+}
+
+#[cfg(test)]
+mod survey_tests {
+    use super::*;
+
+    /// A repository citing an installed dependency whose node carries a tagged claim.
+    ///
+    /// The dependency ships its own `.ont.yml` declaring a `type: claim` property, because
+    /// that is what a real bundle carries and it is what decides whether the structural arm
+    /// of the claim reader sees anything at all. A fixture without it would exercise the
+    /// prose arm only and pass while the arm that matters read nothing.
+    fn fixture(foreign: &str) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let corpus = dir.path().join(".yidam/corpus/reach");
+        std::fs::create_dir_all(&corpus).unwrap();
+        std::fs::write(
+            corpus.join("tailwater.yml"),
+            "class: reach\nlabel: Tailwater\ncites:\n  - package: upstream\n    \
+             node: concept/base-flow\n    tag: verified\n    span: \"groundwater discharge\"\n",
+        )
+        .unwrap();
+
+        let pkg = dir.path().join(".yidam/tonpa/upstream/corpus");
+        std::fs::create_dir_all(pkg.join("concept")).unwrap();
+        std::fs::write(
+            pkg.join("concept.ont.yml"),
+            "class: concept\nproperties:\n  - name: claim_tag\n    type: claim\n",
+        )
+        .unwrap();
+        std::fs::write(pkg.join("concept/base-flow.yml"), foreign).unwrap();
+        std::fs::write(
+            dir.path().join(".yidam/tonpa/upstream/manifest.yml"),
+            "bundle_version: \"1\"\ncommit: \"aaa1111\"\n",
+        )
+        .unwrap();
+        dir
+    }
+
+    const VERIFIED: &str = "class: concept\nlabel: Base flow\ndescription: Sustained by \
+                            groundwater discharge.\nproperties:\n  claim_tag: verified\n";
+
+    /// The survey reads the *producer's current* standing, not the one the citation recorded.
+    /// If this returns empty the whole of #267 reports nothing and looks healthy.
+    #[test]
+    fn a_survey_reads_the_standing_the_dependency_carries_now() {
+        let dir = fixture(VERIFIED);
+        let survey = survey(dir.path());
+        assert_eq!(survey.len(), 1);
+        assert!(survey[0].resolved);
+        assert!(survey[0].span_present);
+        assert_eq!(survey[0].standings, vec!["verified"]);
+        assert_eq!(survey[0].recorded.as_deref(), Some("verified"));
+        assert_eq!(survey[0].pin.as_deref(), Some("aaa1111"));
+    }
+
+    /// End to end, without a network: survey, revise the dependency the way `tonpa update`
+    /// would by overwriting it, survey again, and ask what moved.
+    #[test]
+    fn a_demotion_on_the_far_side_opens_a_question_about_the_local_node() {
+        let dir = fixture(VERIFIED);
+        let before = survey(dir.path());
+
+        std::fs::write(
+            dir.path()
+                .join(".yidam/tonpa/upstream/corpus/concept/base-flow.yml"),
+            VERIFIED.replace("claim_tag: verified", "claim_tag: open"),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join(".yidam/tonpa/upstream/manifest.yml"),
+            "bundle_version: \"1\"\ncommit: \"bbb2222\"\n",
+        )
+        .unwrap();
+
+        let movements = moved(&before, &survey(dir.path()));
+        let kinds: Vec<&str> = movements.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&"standing-withdrawn"), "{kinds:?}");
+        assert!(kinds.contains(&"pin-moved"), "{kinds:?}");
+        assert!(
+            movements.iter().all(|m| m.node.ends_with("tailwater.yml")),
+            "the report is about my graph, not theirs"
+        );
+    }
+}
+
+#[cfg(test)]
+mod movement_tests {
+    use super::*;
+
+    fn standing(recorded: Option<&str>, standings: &[&'static str], pin: &str) -> Standing {
+        Standing {
+            node: ".yidam/corpus/reach/tailwater.yml".into(),
+            package: "upstream".into(),
+            target: "concept/base-flow".into(),
+            resolved: true,
+            span_present: true,
+            standings: standings.to_vec(),
+            recorded: recorded.map(str::to_string),
+            pin: Some(pin.into()),
+        }
+    }
+
+    /// The case #267 names: a foreign `[verified]` demoted to `[open]`.
+    #[test]
+    fn a_withdrawn_standing_is_reported_against_the_local_node() {
+        let before = vec![standing(Some("verified"), &["verified"], "aaa")];
+        let after = vec![standing(Some("verified"), &["open"], "aaa")];
+        let moved = moved(&before, &after);
+        assert_eq!(moved.len(), 1);
+        assert_eq!(moved[0].kind, "standing-withdrawn");
+        assert!(
+            moved[0].question.contains("[open]"),
+            "{}",
+            moved[0].question
+        );
+        // In terms of *my* graph. The local node is the subject, not the foreign one.
+        assert!(moved[0].node.ends_with("tailwater.yml"));
+    }
+
+    /// A node gaining a standing it did not have is not a withdrawal of the one I cited.
+    #[test]
+    fn a_standing_added_beside_the_one_i_cited_is_not_a_movement() {
+        let before = vec![standing(Some("verified"), &["verified"], "aaa")];
+        let after = vec![standing(Some("verified"), &["open", "verified"], "aaa")];
+        assert!(moved(&before, &after).is_empty());
+    }
+
+    /// Without a recorded tag the precise question cannot be asked, and silence would make
+    /// the missing field look like a clean bill of health.
+    #[test]
+    fn a_citation_with_no_recorded_tag_gets_the_coarse_question_and_is_told_so() {
+        let before = vec![standing(None, &["verified"], "aaa")];
+        let after = vec![standing(None, &["open"], "aaa")];
+        let moved = moved(&before, &after);
+        assert_eq!(moved[0].kind, "standing-changed");
+        assert!(moved[0].question.contains("recorded no `tag:`"));
+    }
+
+    /// A node that is gone is one question, not four.
+    #[test]
+    fn a_vanished_node_does_not_also_report_its_span_and_standing() {
+        let before = vec![standing(Some("verified"), &["verified"], "aaa")];
+        let mut gone = standing(Some("verified"), &[], "bbb");
+        gone.resolved = false;
+        gone.span_present = false;
+        let moved = moved(&before, &[gone]);
+        assert_eq!(moved.len(), 1, "{moved:?}");
+        assert_eq!(moved[0].kind, "vanished");
+    }
+
+    /// The output must not read as a verdict. This is the constitutional line, and it is the
+    /// one a future edit is most likely to cross while making the summary friendlier.
+    #[test]
+    fn the_report_says_it_changed_nothing() {
+        let before = vec![standing(Some("verified"), &["verified"], "aaa")];
+        let after = vec![standing(Some("verified"), &["open"], "bbb")];
+        let text = render_movements(&moved(&before, &after));
+        assert!(text.contains("nothing was changed"));
+        assert!(text.contains("findings, not revisions"));
+        assert!(
+            text.contains('?'),
+            "every movement is phrased as a question"
+        );
+    }
+
+    #[test]
+    fn an_update_that_moved_nothing_says_so_rather_than_printing_a_heading() {
+        assert_eq!(render_movements(&[]), "Nothing your corpus cites moved.");
+    }
+}
