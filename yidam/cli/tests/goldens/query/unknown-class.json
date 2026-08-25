@@ -1,0 +1,32 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "query": "gauge",
+  "scope": "local",
+  "steps": [],
+  "rejected": {
+    "step": 0,
+    "code": "unknown-class",
+    "message": "`gauge` is not a class this corpus declares — did you mean `gage`?"
+  },
+  "diagnostics": [],
+  "results": [],
+  "matched": 0,
+  "returned": 0,
+  "cost": {
+    "steps": 0,
+    "edges_walked": 0,
+    "nodes_read": 0,
+    "chars": 0,
+    "tokens": 0,
+    "corpus_nodes": 0
+  },
+  "unschematised": false
+}

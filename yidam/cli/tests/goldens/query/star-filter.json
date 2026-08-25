@@ -1,0 +1,58 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "query": "*[claim_tag=open]",
+  "scope": "local",
+  "steps": [
+    {
+      "class": "*",
+      "anchor": null,
+      "predicates": [
+        "claim_tag=open"
+      ],
+      "classes": [
+        "concept",
+        "gage",
+        "reach"
+      ],
+      "hop": null
+    }
+  ],
+  "rejected": null,
+  "diagnostics": [],
+  "results": [
+    {
+      "class": "concept",
+      "label": "Base-flow separation",
+      "node": "concept/base-flow-separation.yml"
+    },
+    {
+      "class": "concept",
+      "label": "Hydropeaking",
+      "node": "concept/hydropeaking.yml"
+    },
+    {
+      "class": "concept",
+      "label": "Instream flow right",
+      "node": "concept/instream-flow-right.yml"
+    }
+  ],
+  "matched": 3,
+  "returned": 3,
+  "cost": {
+    "steps": 1,
+    "edges_walked": 0,
+    "nodes_read": 8,
+    "chars": 262,
+    "tokens": 65,
+    "corpus_nodes": 8
+  },
+  "unschematised": false
+}

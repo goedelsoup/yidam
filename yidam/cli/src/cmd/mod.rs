@@ -28,6 +28,7 @@ mod lsp;
 mod migrate;
 mod overlay;
 mod phases;
+pub(crate) mod query;
 mod regen;
 pub(crate) mod registry;
 mod rename;
@@ -66,6 +67,7 @@ pub use lsp::serve_lsp;
 pub use log::{log, Filter as LogFilter};
 pub use overlay::overlay;
 pub use phases::phases;
+pub use query::query;
 pub use regen::regen;
 // `doctor` asks the same question `regen --check` asks, through the same generator list.
 pub use migrate::{migrate, Operation as MigrateOperation};

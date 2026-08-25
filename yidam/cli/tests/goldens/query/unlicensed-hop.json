@@ -1,0 +1,32 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "query": "reach -measured-by-> concept",
+  "scope": "local",
+  "steps": [],
+  "rejected": {
+    "step": 0,
+    "code": "unlicensed-hop",
+    "message": "`measured-by` is declared on `reach` toward `gage` and this hop asks for `concept`"
+  },
+  "diagnostics": [],
+  "results": [],
+  "matched": 0,
+  "returned": 0,
+  "cost": {
+    "steps": 0,
+    "edges_walked": 0,
+    "nodes_read": 0,
+    "chars": 0,
+    "tokens": 0,
+    "corpus_nodes": 0
+  },
+  "unschematised": false
+}

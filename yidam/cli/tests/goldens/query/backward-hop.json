@@ -1,0 +1,61 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "query": "concept <-exhibits- reach",
+  "scope": "local",
+  "steps": [
+    {
+      "class": "concept",
+      "anchor": null,
+      "predicates": [],
+      "classes": [
+        "concept"
+      ],
+      "hop": {
+        "relationship": "exhibits",
+        "direction": "in"
+      }
+    },
+    {
+      "class": "reach",
+      "anchor": null,
+      "predicates": [],
+      "classes": [
+        "reach"
+      ],
+      "hop": null
+    }
+  ],
+  "rejected": null,
+  "diagnostics": [],
+  "results": [
+    {
+      "class": "reach",
+      "label": "Lower canyon reach",
+      "node": "reach/lower-canyon.yml"
+    },
+    {
+      "class": "reach",
+      "label": "Tailwater reach",
+      "node": "reach/tailwater.yml"
+    }
+  ],
+  "matched": 2,
+  "returned": 2,
+  "cost": {
+    "steps": 2,
+    "edges_walked": 2,
+    "nodes_read": 6,
+    "chars": 153,
+    "tokens": 38,
+    "corpus_nodes": 8
+  },
+  "unschematised": false
+}

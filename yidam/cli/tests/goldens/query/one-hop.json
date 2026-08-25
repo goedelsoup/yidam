@@ -1,0 +1,61 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "query": "reach -measured-by-> gage",
+  "scope": "local",
+  "steps": [
+    {
+      "class": "reach",
+      "anchor": null,
+      "predicates": [],
+      "classes": [
+        "reach"
+      ],
+      "hop": {
+        "relationship": "measured-by",
+        "direction": "out"
+      }
+    },
+    {
+      "class": "gage",
+      "anchor": null,
+      "predicates": [],
+      "classes": [
+        "gage"
+      ],
+      "hop": null
+    }
+  ],
+  "rejected": null,
+  "diagnostics": [],
+  "results": [
+    {
+      "class": "gage",
+      "label": "Canyon Outlet gage",
+      "node": "gage/canyon-outlet.yml"
+    },
+    {
+      "class": "gage",
+      "label": "Valley Bridge gage",
+      "node": "gage/valley-bridge.yml"
+    }
+  ],
+  "matched": 2,
+  "returned": 2,
+  "cost": {
+    "steps": 2,
+    "edges_walked": 2,
+    "nodes_read": 4,
+    "chars": 157,
+    "tokens": 39,
+    "corpus_nodes": 8
+  },
+  "unschematised": false
+}
