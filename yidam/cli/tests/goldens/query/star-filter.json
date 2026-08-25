@@ -33,17 +33,20 @@
     {
       "class": "concept",
       "label": "Base-flow separation",
-      "node": "concept/base-flow-separation.yml"
+      "node": "concept/base-flow-separation.yml",
+      "origin": null
     },
     {
       "class": "concept",
       "label": "Hydropeaking",
-      "node": "concept/hydropeaking.yml"
+      "node": "concept/hydropeaking.yml",
+      "origin": null
     },
     {
       "class": "concept",
       "label": "Instream flow right",
-      "node": "concept/instream-flow-right.yml"
+      "node": "concept/instream-flow-right.yml",
+      "origin": null
     }
   ],
   "matched": 3,
