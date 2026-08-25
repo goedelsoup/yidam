@@ -93,6 +93,7 @@ pub(crate) fn call(state: &ServerState, name: &str, args: &Value) -> Value {
         "check_subject" => check_subject(args),
         "claim_tags" => Ok(claim_tags()),
         "licensed_edges" => licensed_edges(state, args),
+        "query" => query(state, args),
         other => Err(format!("unknown tool: {other}")),
     };
     match outcome {
@@ -153,7 +154,22 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
 
     #[cfg(feature = "index")]
     if let Retrieval::Vector(index) = &state.retrieval {
-        return super::vector::retrieve(index, query, k, class_filter);
+        let hits = crate::retrieval::vector::search(index, query, k, |r| {
+            class_filter.is_none_or(|c| r.class == c)
+        })?;
+        let results = hits
+            .iter()
+            .map(|(r, score)| {
+                json!({
+                    "path": r.path,
+                    "class": r.class,
+                    "label": r.label,
+                    "text": r.text,
+                    "score": score,
+                })
+            })
+            .collect();
+        return Ok(body(None, results));
     }
     Ok(keyword_retrieve(
         state,
@@ -162,6 +178,27 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
         class_filter,
         state.retrieval.degraded_reason(),
     ))
+}
+
+/// The `retrieve` response, around whichever path produced the results.
+///
+/// One function for both arms. The two halves of the `degraded` convention used to live in
+/// different files, and the present-and-null half lived in the module the degradable build
+/// does not compile — so the shape a light build owed was written where a light build could
+/// not read it.
+fn body(reason: Option<&'static str>, results: Vec<Value>) -> Value {
+    json!({
+        "degraded": reason.is_some(),
+        // *Why* degraded, not just that it is. The bare boolean made two different
+        // repositories look identical: one that never built an index, and one whose index
+        // this binary cannot read. Both are keyword search; only one is fixed by indexing.
+        //
+        // Present and null when not degraded, the same convention `origin` follows: a client
+        // testing the key must not have to distinguish "not degraded" from "a server too old
+        // to say why".
+        "degraded_reason": reason,
+        "results": results,
+    })
 }
 
 /// Fallback when no vector index exists: case-insensitive term matching over
@@ -173,16 +210,15 @@ fn keyword_retrieve(
     class_filter: Option<&str>,
     reason: Option<&'static str>,
 ) -> Value {
-    let terms: Vec<String> = query
-        .to_lowercase()
-        .split_whitespace()
-        .map(str::to_string)
-        .collect();
+    let terms = crate::retrieval::terms(query);
 
     // Local nodes first, then every installed dependency's. Retrieval is the one surface a
     // dependency is allowed on: an agent asking "what is known about X" should be told when
     // the answer lives in a corpus this repository merely cites, not have it withheld — and
     // each result says whose it is, so it can never be mistaken for this repository's claim.
+    //
+    // A query's similarity anchor does *not* get this reach — see `query::anchor`. The
+    // difference is the whole reason the scorer is shared and the candidate set is not.
     let mut scored: Vec<(&super::Node, f32)> = state
         .nodes
         .iter()
@@ -190,15 +226,7 @@ fn keyword_retrieve(
         .filter(|n| class_filter.is_none_or(|c| n.class == c))
         .filter_map(|n| {
             let haystack = format!("{} {} {}", n.label, n.description, n.content).to_lowercase();
-            let hits = terms
-                .iter()
-                .filter(|t| haystack.contains(t.as_str()))
-                .count();
-            if hits == 0 || terms.is_empty() {
-                None
-            } else {
-                Some((n, hits as f32 / terms.len() as f32))
-            }
+            crate::retrieval::keyword_score(&terms, &haystack).map(|score| (n, score))
         })
         .collect();
     // Ties break on the qualified id, not the bare one: two corpora may hold the same
@@ -209,28 +237,71 @@ fn keyword_retrieve(
     });
     scored.truncate(k);
 
-    json!({
-        "degraded": true,
-        // *Why* degraded, not just that it is. The bare boolean made two different
-        // repositories look identical: one that never built an index, and one whose index
-        // this binary cannot read. Both are keyword search; only one is fixed by indexing.
-        "degraded_reason": reason,
-        "results": scored.iter().map(|(n, score)| json!({
-            "id": n.qualified_id(),
-            "path": match &n.origin {
-                Some(pkg) => format!(".yidam/tonpa/{pkg}/corpus/{}.yml", n.id),
-                None => format!(".yidam/corpus/{}.yml", n.id),
-            },
-            // Always present, and null for this repository's own nodes rather than absent:
-            // a consumer testing for the key must not have to distinguish "local" from "an
-            // older server that never said".
-            "origin": n.origin,
-            "class": n.class,
-            "label": n.label,
-            "text": n.description,
-            "score": score,
-        })).collect::<Vec<_>>()
-    })
+    body(
+        reason,
+        scored
+            .iter()
+            .map(|(n, score)| {
+                json!({
+                    "id": n.qualified_id(),
+                    "path": match &n.origin {
+                        Some(pkg) => format!(".yidam/tonpa/{pkg}/corpus/{}.yml", n.id),
+                        None => format!(".yidam/corpus/{}.yml", n.id),
+                    },
+                    // Always present, and null for this repository's own nodes rather than absent:
+                    // a consumer testing for the key must not have to distinguish "local" from "an
+                    // older server that never said".
+                    "origin": n.origin,
+                    "class": n.class,
+                    "label": n.label,
+                    "text": n.description,
+                    "score": score,
+                })
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
+/// A typed path over the graph — #263's half of hybrid anchoring that an agent can reach.
+///
+/// The whole tool is a call into `cmd::query`, deliberately. Before this, an agent's only
+/// traversal was `neighbors`, which chains outbound and inbound edges unconditionally and
+/// filters on neither relationship nor direction — so the surface that argues a scan is the
+/// wrong shape offered an agent a scan and a flood. Re-implementing the walk here would have
+/// been a second answer to what an edge is, and `retrieve`'s own history is the argument
+/// against that.
+///
+/// **`isError` is not set for a rejected query.** A rejection is an answer: it names the step,
+/// the code and the near miss, which is exactly what #261 requires an unknown name to produce
+/// instead of an empty result. `check_subject` returns its verdict in the payload for the same
+/// reason. `isError` stays for a tool that could not run at all.
+fn query(state: &ServerState, args: &Value) -> Result<Value, String> {
+    let text = args["query"]
+        .as_str()
+        .ok_or("missing required argument: query")?;
+    let opts = crate::cmd::query::Options {
+        select: match args["select"].as_str() {
+            Some(select) => select
+                .split(',')
+                .map(|f| f.trim().to_string())
+                .filter(|f| !f.is_empty())
+                .collect(),
+            None => crate::cmd::query::Options::default().select,
+        },
+        limit: args["limit"]
+            .as_u64()
+            .unwrap_or(crate::cmd::query::DEFAULT_LIMIT as u64)
+            .max(1) as usize,
+        anchor_k: args["anchor_k"]
+            .as_u64()
+            .unwrap_or(crate::cmd::query::DEFAULT_ANCHOR_K as u64)
+            .max(1) as usize,
+    };
+    // The `Retrieval` this server loaded at startup — the same one `retrieve` answers from,
+    // so the two can never report different reasons for the same degradation. That sharing is
+    // the one refactor RFC-0018 asked for, and this is the call site it was asked for.
+    let report = crate::cmd::query::run_on(&state.graph, Some(&state.retrieval), text, &opts);
+    serde_json::to_value(&report).map_err(|e| e.to_string())
 }
 
 fn get_node(state: &ServerState, args: &Value) -> Result<Value, String> {

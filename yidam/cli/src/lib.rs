@@ -14,6 +14,7 @@ mod paths;
 pub mod provenance;
 mod regen;
 pub mod report;
+mod retrieval;
 pub mod universal;
 mod walk;
 
@@ -40,6 +41,7 @@ pub fn class_schemas_at(root: &std::path::Path) -> Vec<(String, String, serde_js
     cmd::class_schemas(root)
 }
 
+pub use cmd::query::DEFAULT_ANCHOR_K as QUERY_DEFAULT_ANCHOR_K;
 pub use cmd::query::DEFAULT_LIMIT as QUERY_DEFAULT_LIMIT;
 pub use paths::{running_binary_note, warn_if_shadowed};
 pub use report::Format;

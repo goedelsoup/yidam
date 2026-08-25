@@ -16,6 +16,7 @@
     "code": "unknown-class",
     "message": "`gauge` is not a class this corpus declares — did you mean `gage`?"
   },
+  "anchor": null,
   "diagnostics": [],
   "results": [],
   "matched": 0,

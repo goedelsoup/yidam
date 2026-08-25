@@ -178,7 +178,7 @@ structurally bounded.
 - Any work on "semantic efficiency" in LLM pipelines
 
 **The executable, and what it can and cannot settle.** `yidam bench` measures this section's
-claim against a goal set committed to the repository. Three corrections it forced on the
+claim against a goal set committed to the repository. Four corrections it forced on the
 argument above, each of which the prose should carry rather than the benchmark alone:
 
 1. **The cost model's disjunction is not symmetric.** Point 1 says candidates evaluated is
@@ -202,7 +202,32 @@ argument above, each of which the prose should carry rather than the benchmark a
    parameters is distrusting the right thing, and the file names which of them were measured
    and which were derived from two order statistics.
 
+4. **The entry node is the whole answer, and it is a single point of failure.** The anchored
+   arm ran for the first time once `yidam query` existed (#261, #263). On the 8-node example
+   it reads **1 node where the flat arm reads 5** and answers three of five compared goals at
+   100% precision and 100% recall — and answers the other two at **zero**, because the anchor
+   landed on the wrong node and the typed walk faithfully carried the mistake to the end. Both
+   failures are one paraphrase: *"river segment directly below a dam where flow is set by
+   operations"* scores `reach/lower-canyon` at 0.59 and `reach/tailwater` — the regulated one,
+   the answer — at 0.49. The walk from the node it chose is correct; the node is not.
+
+   This is the asymmetry the cost argument omits. A top-*k* baseline degrades gracefully: at
+   `k=5` the right node is usually somewhere in the five, and the model reads past the others.
+   A depth-first walk from `k=1` either starts right or is wrong all the way down, and it is
+   *cheapest* exactly when it is wrong, because a walk that starts in the wrong neighbourhood
+   visits fewer nodes. **Mean precision is 60% for the anchored arm against 12% flat and 15%
+   full-scan, and that 60% is a bimodal 100/100/100/0/0 rather than a middling score on every
+   goal** — which a mean will hide on any corpus large enough that nobody reads the per-goal
+   lines. The obvious repair is to widen `--anchor-k`, and it is not taken here: at `k=2` this
+   goal answers correctly, and choosing the width that makes the benchmark pass is fitting the
+   instrument to the result. The width stays at 1, argued in RFC-0018, and the failures stay
+   printed.
+
 **Open questions:**
 - Is there a class of goals for which anchored traversal is reliably worse than blind scan?
+  **Partly answered, in the affirmative** (correction 4): goals whose natural paraphrase is
+  nearer a sibling than the target. The anchored arm does not merely score worse on these — it
+  scores zero, and does so cheaply. What is still open is whether that class is characterisable
+  before running the goal, which is the difference between a known limitation and a usable one.
 - How does the approach interact with goals that span multiple domains (multi-hop across
   ontology boundaries)?

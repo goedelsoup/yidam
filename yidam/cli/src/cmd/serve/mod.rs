@@ -11,16 +11,14 @@
 //! # What the `index` feature does and does not gate
 //!
 //! It gates one tool's *quality*, not the server. Everything here compiles in the light
-//! default build; only [`vector`] — the embedder and the index decode — needs the ML stack.
-//! Without it `retrieve` answers from keyword search and reports `degraded: true` with a
-//! [`Retrieval::degraded_reason`], and every other tool is byte-identical. The command that
-//! makes a corpus reachable by an agent should not be the one command a collaborator
-//! cannot install.
+//! default build; only [`crate::retrieval::vector`] — the embedder and the index decode —
+//! needs the ML stack. Without it `retrieve` answers from keyword search and reports
+//! `degraded: true` with a [`Retrieval::degraded_reason`], and every other tool is
+//! byte-identical. The command that makes a corpus reachable by an agent should not be the
+//! one command a collaborator cannot install.
 
 mod resources;
 pub(crate) mod tools;
-#[cfg(feature = "index")]
-mod vector;
 
 use anyhow::Result;
 use serde_json::{json, Value};
@@ -28,7 +26,7 @@ use std::io::{BufRead, Write};
 use std::path::Path;
 
 use crate::git::head_commit_short;
-use crate::model::{corpus_nodes, file_stem as stem, load_domain_model, DomainModel};
+use crate::model::{corpus_nodes, file_stem as stem, load_domain_model};
 use crate::paths::repo_root;
 
 /// One corpus instance, parsed for serving. The id (`<class>/<name>`) is
@@ -37,46 +35,10 @@ pub(crate) use crate::model::NodeView as Node;
 
 /// How `retrieve` will answer, and — when it will answer badly — why.
 ///
-/// Three states rather than a bare `Option`, because "this corpus has no index" and "this
-/// binary cannot read the index this corpus has" are different diagnoses with different
-/// repairs, and a lone `degraded: true` collapses them into one. The first is fixed by
-/// `yidam embed && yidam index-build`; the second by reinstalling with `--features index`.
-/// A client told only that retrieval was degraded cannot tell which it is looking at.
-pub(crate) enum Retrieval {
-    /// Semantic search, over a loaded index.
-    ///
-    /// Boxed: it carries the decoded rows and a lazily-loaded embedder, and an unboxed
-    /// variant would make every `Retrieval` — including the two empty ones the light build
-    /// uses exclusively — as large as the heaviest.
-    #[cfg(feature = "index")]
-    Vector(Box<vector::IndexState>),
-    /// Keyword search: the corpus has no vector index.
-    NoIndex,
-    /// Keyword search: the corpus *has* an index and this build cannot read it.
-    ///
-    /// Compiled only into the build that can actually be in this state. A binary carrying
-    /// `index` reads any index it finds or fails to start, so the variant would be
-    /// unreachable there — and an unreachable state that still appears in a match is one a
-    /// reader has to rule out by hand every time.
-    #[cfg(not(feature = "index"))]
-    NoVectorSupport,
-}
-
-impl Retrieval {
-    /// The machine-readable reason retrieval is degraded, or `None` when it is not.
-    ///
-    /// Stable strings, not prose: a client branches on these, and the banner and the
-    /// capability block are both rendered from the same source so they cannot disagree.
-    pub(crate) fn degraded_reason(&self) -> Option<&'static str> {
-        match self {
-            #[cfg(feature = "index")]
-            Retrieval::Vector(_) => None,
-            Retrieval::NoIndex => Some("no_index"),
-            #[cfg(not(feature = "index"))]
-            Retrieval::NoVectorSupport => Some("no_vector_support"),
-        }
-    }
-}
+/// Lifted to [`crate::retrieval`] by #263 and re-exported here, so `serve` and `query` can
+/// never come to disagree about why retrieval is degraded. RFC-0018 asked for exactly this
+/// refactor and nothing else.
+pub(crate) use crate::retrieval::Retrieval;
 
 pub(crate) struct ServerState {
     pub domain: String,
@@ -112,6 +74,20 @@ pub(crate) struct ServerState {
     /// compares an instance's `class:` against the set of stems. Where the two disagree,
     /// answering from the field would license edges for a class no instance belongs to.
     pub classes: Vec<(String, yidam_core::ontology::OntologyClass)>,
+    /// The corpus as `yidam query` reads it, loaded once.
+    ///
+    /// A second parse of the same directory, and deliberately not a projection of `nodes`.
+    /// The query surface resolves edges with the *gate's* own resolver
+    /// ([`crate::cmd::lint::checks::instance_links`]), which is narrower than what
+    /// `neighbors` reports — it drops the link to the class file and citations into the
+    /// catalog. Deriving one from the other would mean re-implementing that rule here, and
+    /// `cmd/graph.rs` already states what happens then: the two would disagree about which
+    /// edges exist, silently, in the direction of "looks fine here".
+    ///
+    /// Loaded at startup rather than per call: the server answers many queries against one
+    /// corpus, and re-walking `.yidam/corpus` on each would make the cheapest query the most
+    /// expensive thing the server does.
+    pub graph: crate::cmd::query::Graph,
     /// Catalog entries each node cites, keyed by node id.
     ///
     /// Resolved once at startup with the gate's own resolver rather than from
@@ -151,7 +127,7 @@ impl ServerState {
             })
             .collect();
 
-        let (retrieval, indexed_commit) = load_retrieval(&model)?;
+        let (retrieval, indexed_commit) = crate::retrieval::load(&model)?;
 
         let claim_fields = crate::claims::ClaimFields::load(&crate::paths::yidam_corpus_dir(root));
         let classes = model
@@ -165,6 +141,7 @@ impl ServerState {
             })
             .collect();
         let citations = load_citations(root, &nodes);
+        let graph = crate::cmd::query::Graph::load(root);
         Ok(ServerState {
             domain: model.provenance.domain,
             commit: model.provenance.commit,
@@ -177,6 +154,7 @@ impl ServerState {
             claim_fields,
             classes,
             citations,
+            graph,
         })
     }
 }
@@ -227,57 +205,6 @@ fn load_citations(root: &Path, nodes: &[Node]) -> std::collections::HashMap<Stri
             (n.id.clone(), cited)
         })
         .collect()
-}
-
-/// Decide how `retrieve` will answer, and read the indexed commit either way.
-///
-/// Two bodies, one signature. The split is what lets the light build compile: decoding
-/// `index/corpus.arrow` needs `arrow-ipc` and embedding a query needs `fastembed`, and
-/// neither is in the default dependency set. What *is* in it is the raw `index/meta.json`
-/// that `load_domain_model` already read — enough to know an index exists and which commit
-/// it was built at, which is exactly the two facts a degraded server should still report.
-#[cfg(feature = "index")]
-fn load_retrieval(model: &DomainModel) -> Result<(Retrieval, Option<String>)> {
-    use crate::embed_config::EmbedConfig;
-    use crate::model::index_rows;
-
-    match &model.index {
-        Some(idx) => {
-            let rows = index_rows(idx)?;
-            // The reproducibility contract is authoritative for the model;
-            // fall back to meta.json for indexes built before it existed.
-            let model_id = idx
-                .embed_config
-                .as_ref()
-                .map(|c: &EmbedConfig| c.model_id.clone())
-                .or_else(|| idx.meta["model_name"].as_str().map(str::to_string))
-                .unwrap_or_default();
-            Ok((
-                Retrieval::Vector(Box::new(vector::IndexState {
-                    rows,
-                    model_id,
-                    embedder: std::cell::RefCell::new(None),
-                })),
-                indexed_commit(idx),
-            ))
-        }
-        None => Ok((Retrieval::NoIndex, None)),
-    }
-}
-
-#[cfg(not(feature = "index"))]
-fn load_retrieval(model: &DomainModel) -> Result<(Retrieval, Option<String>)> {
-    match &model.index {
-        // An index is on disk and this build cannot read it. Not `NoIndex`: the repair is
-        // a different one, and telling a user to run `index-build` against an index they
-        // already have is the kind of advice that costs an afternoon.
-        Some(idx) => Ok((Retrieval::NoVectorSupport, indexed_commit(idx))),
-        None => Ok((Retrieval::NoIndex, None)),
-    }
-}
-
-fn indexed_commit(idx: &crate::model::IndexData) -> Option<String> {
-    idx.meta["indexed_commit"].as_str().map(str::to_string)
 }
 
 /// Serve the domain computer over MCP stdio. Blocks until stdin closes.
@@ -510,20 +437,15 @@ mod tests {
                 ),
             ],
             citations: Default::default(),
+            // Empty, and the reason is worth stating: every query assertion worth making is
+            // an assertion about a *corpus*, and this fixture is a hand-built `ServerState`
+            // with no directory behind it. The query tool's cases live in the contract's
+            // `cases/query/`, against the shared fixture corpus, where another language's
+            // server runs the same ones.
+            graph: crate::cmd::query::Graph::load(std::path::Path::new(
+                "/nonexistent/query-fixture",
+            )),
         }
-    }
-
-    #[test]
-    #[cfg(not(feature = "index"))]
-    fn the_two_degraded_reasons_are_distinct_and_stable() {
-        // The strings are a contract (`prelude/sdks/parity/mcp/tools.json`), not a
-        // diagnostic — a client branches on them. Pinning them here means a rename has to
-        // be a deliberate act that also touches the freeze.
-        assert_eq!(Retrieval::NoIndex.degraded_reason(), Some("no_index"));
-        assert_eq!(
-            Retrieval::NoVectorSupport.degraded_reason(),
-            Some("no_vector_support")
-        );
     }
 
     #[test]

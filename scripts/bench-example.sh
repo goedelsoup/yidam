@@ -32,3 +32,29 @@ git commit -qm "chore: genesis — bench"
 "$bin" embed
 "$bin" index-build
 "$bin" bench
+
+# The anchored query, against a real index (#263).
+#
+# This is the only place the vector anchor is exercised at all. PR CI never compiles
+# `--features index`, and every test and golden fixture in the repository runs on the keyword
+# fallback — so an anchor that resolved to nothing, or resolved through a path the corpus
+# loader spells differently from the one `embed` records, would ship green through all of
+# them. The two checks below are the two ways that can be wrong: it degraded, or it landed
+# nowhere.
+echo
+echo "--- anchored query, with the index built above ---"
+anchored="$("$bin" query 'concept~"rapid sub-daily variation below a dam" <-exhibits- reach')"
+echo "$anchored"
+case "$anchored" in
+  *"anchored on nothing"*)
+    echo "the anchor resolved to no entry node against an indexed corpus" >&2
+    exit 1
+    ;;
+esac
+case "$anchored" in
+  *"— semantic search"*) ;;
+  *)
+    echo "the anchor did not use the index it was just handed — see the reason above" >&2
+    exit 1
+    ;;
+esac

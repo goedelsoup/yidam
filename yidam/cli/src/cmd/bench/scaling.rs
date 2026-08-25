@@ -356,9 +356,19 @@ const FLAT_EXCLUDED: &str = "top-k retrieval considers k candidates whatever N i
      cost and precision are constant in N by construction. Measuring it across sizes would \
      spend an embedding run to rediscover the k we chose. O(n) lives on the full-scan arm.";
 
-const ANCHORED_PENDING: &str = "the query executor does not exist yet (#261). The corpora \
-     and goals here are deterministic, so the anchored arm can be run over exactly these \
-     inputs when it lands, and compared with this run.";
+/// Why the anchored arm is absent *here*, where it now runs everywhere else.
+///
+/// It was "the query executor does not exist yet (#261)" until that landed and #263 gave it a
+/// vector entry. That reason is spent, and the remaining one is a property of this arm rather
+/// than of the tooling: these corpora are generated in memory and have no embeddings, so an
+/// anchor over them would fall through to keyword search over synthetic prose — which is the
+/// baseline the measurement exists to beat, wearing the name of the thing being measured. The
+/// same refusal `run` makes on a degraded corpus, made one layer earlier.
+const ANCHORED_PENDING: &str = "these corpora are generated in memory and carry no \
+     embeddings, so an anchor over them would resolve by keyword search over synthetic \
+     prose — a keyword baseline scored as the arm that is supposed to beat one. Embedding \
+     four thousand generated nodes to fix that would measure the generator's vocabulary. \
+     The anchored arm is measured on a real corpus, by `yidam bench` without `--scaling`.";
 
 pub fn run() -> Result<ScalingReport> {
     let config = config()?;
