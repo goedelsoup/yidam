@@ -530,11 +530,11 @@ takes the `*` rules above.
 
 - `--anchor-k` defaults to **1**. An anchor is a starting point, not an answer; a five-wide
   anchor followed by a two-hop walk is a flood wearing a type. `retrieve`'s own default of 5
-  ([`tools.rs:151`](../../yidam/cli/src/cmd/serve/tools.rs#L151)) is right for retrieval and
+  ([`tools.rs:152`](../../yidam/cli/src/cmd/serve/tools.rs#L152)) is right for retrieval and
   wrong here. The report lists the resolved entry nodes with their scores, so what it anchored
   on is always visible, and `bench` can vary k as part of the budget.
 - **The anchor is local.** `keyword_retrieve` chains `state.dep_nodes` after `state.nodes`
-  ([`tools.rs:186-189`](../../yidam/cli/src/cmd/serve/tools.rs#L186-L189)) — correct for
+  ([`tools.rs:222-225`](../../yidam/cli/src/cmd/serve/tools.rs#L222-L225)) — correct for
   retrieval, where an agent should be told the answer lives in a corpus this repository cites.
   A query labelled `"scope": "local"` must not silently enter through a dependency's node, so
   the query's anchor restricts to local nodes on both paths.
@@ -551,18 +551,25 @@ worth a paragraph because the naive reading makes this look free:
 
 - Those keys are fields on an MCP `tools/call` result, not on the RFC-0016 envelope — `report.rs`
   has neither.
-- The "present-and-null when not degraded" half lives in `vector.rs`
-  ([`:65-68`](../../yidam/cli/src/cmd/serve/vector.rs#L65-L68)), which is
-  `#[cfg(feature = "index")]` ([`serve/mod.rs:22`](../../yidam/cli/src/cmd/serve/mod.rs#L22)) —
-  it does not exist in the build that can actually degrade. The light path hard-codes the other
-  branch at [`tools.rs:213`](../../yidam/cli/src/cmd/serve/tools.rs#L213).
+- The "present-and-null when not degraded" half lived in `cmd/serve/vector.rs`, which was
+  `#[cfg(feature = "index")]` — so it did not exist in the build that can actually degrade,
+  and the light path hard-coded the other branch. **One convention, written in two files, only
+  one of which every build compiles.**
 
 So the query report defines `anchor.degraded` and `anchor.degraded_reason` with the same key
 names and the same present-and-null discipline, and the *reason strings* come from one place:
-`Retrieval::degraded_reason` ([`serve/mod.rs:38`](../../yidam/cli/src/cmd/serve/mod.rs#L38))
-distinguishes "no index built" from "this binary cannot read the index this corpus has", and
-lifting it out of `serve` is the one refactor this RFC asks for — so `query` and `serve` cannot
-come to disagree about why retrieval is degraded.
+`Retrieval::degraded_reason` distinguishes "no index built" from "this binary cannot read the
+index this corpus has", and lifting it out of `serve` is the one refactor this RFC asks for —
+so `query` and `serve` cannot come to disagree about why retrieval is degraded.
+
+> **Landed in #263**, and the paragraph above is left in the past tense it now needs rather
+> than rewritten, because the split it describes is the argument for the move. `Retrieval` is
+> [`retrieval/mod.rs:56`](../../yidam/cli/src/retrieval/mod.rs#L56) and the embedder is
+> [`retrieval/vector.rs`](../../yidam/cli/src/retrieval/vector.rs); `vector::retrieve` became
+> `vector::search` and returns *scores* rather than a response, so both branches of the
+> `degraded` shape are now built in one ungated place
+> ([`tools.rs:189`](../../yidam/cli/src/cmd/serve/tools.rs#L189)) — which is the half of the
+> problem this section identified and did not propose fixing.
 
 ### `--at` is not free, and #262 should know it
 
