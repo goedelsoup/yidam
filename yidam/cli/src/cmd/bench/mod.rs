@@ -36,6 +36,8 @@
 //! on the retrieval state rather than on the compiled feature, because a full build with no
 //! index built is in exactly the same position.
 
+pub mod scaling;
+
 use anyhow::{bail, Result};
 use std::collections::BTreeMap;
 
@@ -57,7 +59,7 @@ pub const GOALS_VERSION: u32 = 1;
 /// Used only to tell a reader whether the corpus in front of them could show that effect at
 /// all. A corpus whose class-narrowing ceiling is below this cannot reach the claim by
 /// arithmetic, whatever the traversal does.
-const CLAIMED_NARROWING_FLOOR: f64 = 10.0;
+pub(crate) const CLAIMED_NARROWING_FLOOR: f64 = 10.0;
 
 // ── the goal set ──────────────────────────────────────────────────────────────
 
@@ -219,53 +221,106 @@ pub struct ArmReport {
     pub ran: bool,
     /// Why this arm did not run: the goal set's stated reason, or the tooling's.
     pub unavailable_reason: Option<String>,
-    /// Node ids in the order the arm ranked them.
+    /// Node ids the arm put in front of the agent, in rank order.
+    ///
+    /// Capped by [`RETURNED_SHOWN`] — the full-scan arm's candidate set is the corpus, and a
+    /// four-thousand-entry array in a report is not a result, it is a copy of the input.
+    /// `candidates` is the number that matters and is never capped.
     pub returned: Vec<String>,
     pub hits: Vec<String>,
+    /// How many nodes the agent had to consider. **Precision's denominator**, and not
+    /// `returned.len()`: the full-scan arm considers every node and returns the ones that
+    /// answer, so scoring it on what it returned would give it perfect precision for
+    /// reading the whole corpus.
+    pub candidates: Option<usize>,
     pub precision: Option<f64>,
     pub recall: Option<f64>,
-    /// Nodes an agent consuming this answer would have to read.
+    /// Nodes an agent consuming this answer would have to read — the same number as
+    /// `candidates`, named for what it costs rather than for what it scores.
     pub nodes_read: Option<usize>,
+    /// `chars / 4` over those nodes' instance text, the approximation `export_llms`
+    /// documents. The arms are charged the same per-node rate, so they differ only in
+    /// *which* nodes and *how many* — which is the whole comparison.
+    pub tokens: Option<usize>,
 }
 
+/// How many ranked ids a report shows per arm before it is summarising rather than listing.
+const RETURNED_SHOWN: usize = 20;
+
 impl ArmReport {
-    fn unavailable(arm: &'static str, reason: impl Into<String>) -> Self {
+    /// An arm with nothing filled in, for a caller that computes its own aggregate.
+    ///
+    /// `--scaling`'s full-scan arm reads every node for every goal, so its cost is one
+    /// number for the whole size rather than one per goal, and going through [`Self::scored`]
+    /// would mean materialising four thousand ids to count them.
+    pub(crate) fn empty(arm: &'static str) -> Self {
+        Self {
+            arm,
+            ran: false,
+            unavailable_reason: None,
+            returned: Vec::new(),
+            hits: Vec::new(),
+            candidates: None,
+            precision: None,
+            recall: None,
+            nodes_read: None,
+            tokens: None,
+        }
+    }
+
+    pub(crate) fn unavailable(arm: &'static str, reason: impl Into<String>) -> Self {
         Self {
             arm,
             ran: false,
             unavailable_reason: Some(reason.into()),
             returned: Vec::new(),
             hits: Vec::new(),
+            candidates: None,
             precision: None,
             recall: None,
             nodes_read: None,
+            tokens: None,
         }
     }
 
-    /// Score a set of returned ids against the goal's exhaustive expected set.
+    /// Score a candidate set against the goal's exhaustive expected set.
     ///
-    /// Precision over an empty result is `None`, not 0. An arm that returned nothing has no
-    /// precision — 0/0 is undefined, and recording it as zero would drag a mean downward on
-    /// a goal where the arm made no claim at all.
-    fn scored(arm: &'static str, returned: Vec<String>, expect: &[String]) -> Self {
-        let hits: Vec<String> = returned
+    /// Precision over an empty candidate set is `None`, not 0. An arm that considered
+    /// nothing has no precision — 0/0 is undefined, and recording it as zero would drag a
+    /// mean downward on a goal where the arm made no claim at all.
+    fn scored(
+        arm: &'static str,
+        candidates: Vec<String>,
+        expect: &[String],
+        chars: &BTreeMap<String, usize>,
+    ) -> Self {
+        let hits: Vec<String> = candidates
             .iter()
             .filter(|id| expect.contains(id))
             .cloned()
             .collect();
-        let precision = match returned.is_empty() {
-            true => None,
-            false => Some(hits.len() as f64 / returned.len() as f64),
+        let considered = candidates.len();
+        let precision = match considered {
+            0 => None,
+            n => Some(hits.len() as f64 / n as f64),
         };
         let recall = match expect.is_empty() {
             true => None,
             false => Some(hits.len() as f64 / expect.len() as f64),
         };
+        let read: usize = candidates
+            .iter()
+            .map(|id| chars.get(id).copied().unwrap_or_default())
+            .sum();
+        let mut returned = candidates;
+        returned.truncate(RETURNED_SHOWN);
         Self {
             arm,
             ran: true,
             unavailable_reason: None,
-            nodes_read: Some(returned.len()),
+            candidates: Some(considered),
+            nodes_read: Some(considered),
+            tokens: Some(read / 4),
             returned,
             hits,
             precision,
@@ -290,6 +345,7 @@ pub struct GoalReport {
     pub expect: Vec<String>,
     pub counts_toward_ratio: bool,
     pub flat: ArmReport,
+    pub full_scan: ArmReport,
     pub anchored: ArmReport,
 }
 
@@ -300,6 +356,8 @@ pub struct Summary {
     pub reported_only: usize,
     pub flat_mean_precision: Option<f64>,
     pub flat_mean_recall: Option<f64>,
+    pub full_scan_mean_precision: Option<f64>,
+    pub full_scan_mean_recall: Option<f64>,
     pub anchored_mean_precision: Option<f64>,
     pub anchored_mean_recall: Option<f64>,
 }
@@ -324,7 +382,13 @@ pub struct BenchReport {
 /// Routed through `tools::call` by tool name rather than through the retrieval function, so
 /// that this is provably the same path an agent takes — envelope, error convention and all.
 /// The envelope carries the payload as pretty-printed JSON in `content[0].text`.
-fn flat_arm(state: &ServerState, query: &str, budget: usize, expect: &[String]) -> ArmReport {
+fn flat_arm(
+    state: &ServerState,
+    query: &str,
+    budget: usize,
+    expect: &[String],
+    chars: &BTreeMap<String, usize>,
+) -> ArmReport {
     let args = serde_json::json!({ "query": query, "k": budget });
     let envelope = tools::call(state, "retrieve", &args);
     if envelope["isError"].as_bool().unwrap_or(false) {
@@ -347,7 +411,40 @@ fn flat_arm(state: &ServerState, query: &str, budget: usize, expect: &[String]) 
                 .collect()
         })
         .unwrap_or_default();
-    ArmReport::scored("flat", returned, expect)
+    ArmReport::scored("flat", returned, expect, chars)
+}
+
+/// The full-scan arm: read the whole corpus and find the answer inside it.
+///
+/// This is the long-context regime, and **it is the only arm the paper's O(*n*) claim is
+/// actually about**. `outline.md` §5 says candidates evaluated is "≈ k (top-k retrieval) *or*
+/// document count (full scan)" and then that blind cost grows without bound as N grows. Only
+/// the second half of that disjunction does. Against top-*k*, blind cost is `k ×
+/// tokens-per-candidate` — constant in N — so a benchmark that offered only the flat arm
+/// would be reporting the `k` we chose.
+///
+/// Its recall is 1 by construction: everything is read, so nothing is missed. That is not a
+/// win, it is the definition of the baseline — the arm pays for it in `candidates`, which is
+/// N, and in `tokens`, which is the whole corpus. Precision is `|expect| / N`, which is the
+/// quantity that decays as the corpus grows.
+fn full_scan_arm(ids: &[String], expect: &[String], chars: &BTreeMap<String, usize>) -> ArmReport {
+    ArmReport::scored("full-scan", ids.to_vec(), expect, chars)
+}
+
+/// Every local node's id, in corpus order, and the size of its instance text.
+///
+/// One pass, because both arms are charged the same per-node rate: they differ in which
+/// nodes and how many, and nothing else. Charging them differently is how a benchmark
+/// arrives at the answer it wanted.
+fn corpus_text(state: &ServerState) -> (Vec<String>, BTreeMap<String, usize>) {
+    let mut ids = Vec::new();
+    let mut chars = BTreeMap::new();
+    for node in state.nodes.iter().filter(|n| n.is_local()) {
+        let id = format!("{}.yml", node.id);
+        chars.insert(id.clone(), node.content.len());
+        ids.push(id);
+    }
+    (ids, chars)
 }
 
 /// What the corpus is, measured rather than declared.
@@ -414,6 +511,8 @@ fn summarize(goals: &[GoalReport]) -> Summary {
         reported_only: goals.len() - compared.len(),
         flat_mean_precision: mean(&collect(|g| &g.flat, |a| a.precision)),
         flat_mean_recall: mean(&collect(|g| &g.flat, |a| a.recall)),
+        full_scan_mean_precision: mean(&collect(|g| &g.full_scan, |a| a.precision)),
+        full_scan_mean_recall: mean(&collect(|g| &g.full_scan, |a| a.recall)),
         anchored_mean_precision: mean(&collect(|g| &g.anchored, |a| a.precision)),
         anchored_mean_recall: mean(&collect(|g| &g.anchored, |a| a.recall)),
     }
@@ -447,13 +546,14 @@ pub fn run(root: &std::path::Path, budget: usize) -> Result<BenchReport> {
     }
 
     let shape = corpus_shape(&state);
+    let (all_ids, chars) = corpus_text(&state);
     let goals = set
         .goals
         .iter()
         .map(|goal| {
             let expect: Vec<String> = goal.expect.iter().map(|e| expected_id(e)).collect();
             let flat = match &goal.flat {
-                Some(query) => flat_arm(&state, query, budget, &expect),
+                Some(query) => flat_arm(&state, query, budget, &expect, &chars),
                 None => ArmReport::unavailable(
                     "flat",
                     goal.flat_omitted_because.clone().unwrap_or_default(),
@@ -466,6 +566,10 @@ pub fn run(root: &std::path::Path, budget: usize) -> Result<BenchReport> {
                     goal.anchored_omitted_because.clone().unwrap_or_default(),
                 ),
             };
+            // The full-scan arm has no query to omit: reading everything is available for
+            // every goal, which is exactly why it is the baseline the claim is measured
+            // against rather than a competitor.
+            let full_scan = full_scan_arm(&all_ids, &expect, &chars);
             GoalReport {
                 id: goal.id.clone(),
                 question: goal.question.clone(),
@@ -475,6 +579,7 @@ pub fn run(root: &std::path::Path, budget: usize) -> Result<BenchReport> {
                 counts_toward_ratio: goal.counts_toward_ratio(),
                 expect,
                 flat,
+                full_scan,
                 anchored,
             }
         })
@@ -506,7 +611,7 @@ fn pct(value: Option<f64>) -> String {
 /// The reasons are authored as YAML folded scalars and arrive with their newlines intact.
 /// They are prose worth reading in full, so this reflows rather than truncating — it only
 /// stops a reason from breaking the two-lines-per-goal shape the rest of the report has.
-fn one_line(text: &str) -> String {
+pub(crate) fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
@@ -514,7 +619,7 @@ fn render_arm(arm: &ArmReport) -> String {
     if !arm.ran {
         let reason = arm.unavailable_reason.as_deref().map(one_line);
         return format!(
-            "    {:<9} not run — {}\n",
+            "    {:<10} not run — {}\n",
             arm.arm,
             match reason.as_deref() {
                 Some("") | None => "no reason given",
@@ -523,11 +628,12 @@ fn render_arm(arm: &ArmReport) -> String {
         );
     }
     format!(
-        "    {:<9} precision {}  recall {}  read {} node(s), {} correct\n",
+        "    {:<10} precision {}  recall {}  read {} node(s) / {} token(s), {} correct\n",
         arm.arm,
         pct(arm.precision),
         pct(arm.recall),
         arm.nodes_read.unwrap_or(0),
+        arm.tokens.unwrap_or(0),
         arm.hits.len(),
     )
 }
@@ -555,23 +661,34 @@ pub fn render(report: &BenchReport) -> String {
             }
         ));
         out.push_str(&render_arm(&goal.flat));
+        out.push_str(&render_arm(&goal.full_scan));
         out.push_str(&render_arm(&goal.anchored));
     }
     let s = &report.summary;
     out.push_str(&format!(
-        "\n{} goal(s) compared, {} reported only\n  flat      mean precision {}  mean recall {}\n  anchored  mean precision {}  mean recall {}\n",
+        "\n{} goal(s) compared, {} reported only\n  flat       mean precision {}  mean recall {}\n  full-scan  mean precision {}  mean recall {}\n  anchored   mean precision {}  mean recall {}\n",
         s.compared,
         s.reported_only,
         pct(s.flat_mean_precision),
         pct(s.flat_mean_recall),
+        pct(s.full_scan_mean_precision),
+        pct(s.full_scan_mean_recall),
         pct(s.anchored_mean_precision),
         pct(s.anchored_mean_recall),
     ));
     out.trim_end().to_string()
 }
 
-/// Measure the goal set against both arms.
-pub fn bench(budget: usize, format: crate::report::Format) -> Result<()> {
+/// Measure the goal set against every arm.
+pub fn bench(budget: usize, scaling: bool, format: crate::report::Format) -> Result<()> {
+    if scaling {
+        let report = scaling::run()?;
+        if format.is_json() {
+            return crate::report::emit(&repo_root()?, report);
+        }
+        println!("{}", scaling::render(&report));
+        return Ok(());
+    }
     let root = repo_root()?;
     let report = run(&root, budget)?;
     if format.is_json() {
@@ -688,6 +805,15 @@ goals:
 
     // ── scoring ───────────────────────────────────────────────────────────────
 
+    /// Four nodes of 40 characters each, so token arithmetic in these tests is checkable by
+    /// hand: 40 chars is 10 tokens under the `chars / 4` approximation.
+    fn chars_fixture() -> BTreeMap<String, usize> {
+        ["a/one.yml", "a/two.yml", "b/three.yml", "b/four.yml"]
+            .into_iter()
+            .map(|id| (id.to_string(), 40usize))
+            .collect()
+    }
+
     #[test]
     fn precision_and_recall_are_computed_against_the_exhaustive_expected_set() {
         let expect = vec!["a/one.yml".to_string(), "a/two.yml".to_string()];
@@ -699,11 +825,50 @@ goals:
                 "b/four.yml".to_string(),
             ],
             &expect,
+            &chars_fixture(),
         );
         assert_eq!(arm.hits, vec!["a/one.yml"]);
         assert_eq!(arm.precision, Some(1.0 / 3.0));
         assert_eq!(arm.recall, Some(0.5));
         assert_eq!(arm.nodes_read, Some(3));
+        assert_eq!(arm.candidates, Some(3));
+        // Three nodes of 40 characters, charged at the one rate both arms pay.
+        assert_eq!(arm.tokens, Some(30));
+    }
+
+    /// The full-scan arm's recall is 1 by construction — it reads everything, so it misses
+    /// nothing. That is the definition of the baseline, not a win, and it pays for it in
+    /// candidates and tokens. Precision is `|expect| / N`, the quantity that decays as the
+    /// corpus grows, and the reason O(*n*) lives on this arm and not on top-*k*.
+    #[test]
+    fn the_full_scan_arm_has_perfect_recall_and_pays_the_whole_corpus_for_it() {
+        let chars = chars_fixture();
+        let all: Vec<String> = chars.keys().cloned().collect();
+        let expect = vec!["a/one.yml".to_string()];
+        let arm = full_scan_arm(&all, &expect, &chars);
+        assert_eq!(arm.recall, Some(1.0));
+        assert_eq!(arm.precision, Some(0.25));
+        assert_eq!(arm.candidates, Some(4));
+        assert_eq!(arm.tokens, Some(40));
+    }
+
+    /// Precision's denominator is the candidate set, not what came back. Scoring the
+    /// full-scan arm on what it "returned" would hand it perfect precision for reading the
+    /// entire corpus, which is the exact inversion of what it costs.
+    #[test]
+    fn precision_is_scored_on_candidates_rather_than_on_the_listed_result() {
+        let chars: BTreeMap<String, usize> =
+            (0..50).map(|i| (format!("a/n{i}.yml"), 4usize)).collect();
+        let all: Vec<String> = chars.keys().cloned().collect();
+        let expect = vec!["a/n0.yml".to_string()];
+        let arm = full_scan_arm(&all, &expect, &chars);
+        assert_eq!(arm.candidates, Some(50));
+        assert_eq!(arm.precision, Some(1.0 / 50.0));
+        assert_eq!(
+            arm.returned.len(),
+            RETURNED_SHOWN,
+            "the listing is capped; the score is not"
+        );
     }
 
     /// 0/0 is undefined, and recording it as zero drags the mean down on a goal where the
@@ -711,7 +876,7 @@ goals:
     #[test]
     fn an_arm_that_returned_nothing_has_no_precision_rather_than_zero() {
         let expect = vec!["a/one.yml".to_string()];
-        let arm = ArmReport::scored("flat", vec![], &expect);
+        let arm = ArmReport::scored("flat", vec![], &expect, &chars_fixture());
         assert_eq!(arm.precision, None);
         assert_eq!(arm.recall, Some(0.0));
     }
@@ -771,10 +936,18 @@ goals:
                 unavailable_reason: None,
                 returned: vec![],
                 hits: vec![],
+                candidates: Some(0),
                 precision: flat_precision,
                 recall: flat_precision,
                 nodes_read: Some(0),
+                tokens: Some(0),
             },
+            full_scan: ArmReport::scored(
+                "full-scan",
+                vec!["a/one.yml".to_string()],
+                &["a/one.yml".to_string()],
+                &chars_fixture(),
+            ),
             anchored: ArmReport::unavailable("anchored", ANCHORED_PENDING),
         }
     }
@@ -833,6 +1006,8 @@ goals:
                 reported_only: 0,
                 flat_mean_precision: Some(1.0),
                 flat_mean_recall: Some(1.0),
+                full_scan_mean_precision: Some(1.0),
+                full_scan_mean_recall: Some(1.0),
                 anchored_mean_precision: None,
                 anchored_mean_recall: None,
             },

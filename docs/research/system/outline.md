@@ -177,6 +177,31 @@ structurally bounded.
 - Literature on scaling laws and retrieval efficiency
 - Any work on "semantic efficiency" in LLM pipelines
 
+**The executable, and what it can and cannot settle.** `yidam bench` measures this section's
+claim against a goal set committed to the repository. Three corrections it forced on the
+argument above, each of which the prose should carry rather than the benchmark alone:
+
+1. **The cost model's disjunction is not symmetric.** Point 1 says candidates evaluated is
+   "≈ k (top-k retrieval) *or* document count (full scan)", and point 2 says blind cost
+   grows without bound as N grows. Only the second half of that disjunction does. Under
+   top-*k*, blind cost is `k × tokens-per-candidate` — **constant in N**. Against a top-*k*
+   baseline the honest claim is not cost but **precision at fixed budget**, and the O(*n*)
+   claim belongs to the full-scan arm alone. The benchmark carries all three arms for this
+   reason.
+2. **A small corpus cannot see the effect, for arithmetic reasons.** Focused scan's
+   narrowing is bounded above by `N / min|C|`. On the 8-node worked example that ceiling is
+   4×, against the 10–100× claimed here — unreachable, not merely unmet. Every report prints
+   N, the class count and the ceiling beside its numbers so a reader can tell a null result
+   from a corpus with no room in it.
+3. **The synthetic corpora are circular, and no amount of care removes it.** The scaling
+   arm generates corpora at N ∈ {8, 64, 512, 4096}, and the slope it reports follows from
+   the chosen degree distribution and class shares. The mitigation is that those parameters
+   are derived from a real 102-node corpus, committed as configuration rather than embedded
+   in code, and printed in every report — which makes the result **arguable** rather than
+   merely produced. **It does not make it neutral.** A reader who distrusts the generator's
+   parameters is distrusting the right thing, and the file names which of them were measured
+   and which were derived from two order statistics.
+
 **Open questions:**
 - Is there a class of goals for which anchored traversal is reliably worse than blind scan?
 - How does the approach interact with goals that span multiple domains (multi-hop across

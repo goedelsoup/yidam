@@ -1,0 +1,72 @@
+# Generator parameters for `yidam bench --scaling`.
+#
+# ── The objection, on the record ──────────────────────────────────────────────
+#
+# **A synthetic corpus is circular.** The slope `--scaling` reports can be made to be
+# almost anything by choosing the degree distribution and the class shares, and this file
+# is where that choosing happens. Nothing below removes that; the point of committing it
+# is that the choice is *arguable* rather than merely made.
+#
+# The mitigation is threefold and none of it makes the result neutral:
+#
+#   1. the parameters are derived from a real corpus rather than picked to be flattering,
+#   2. they are committed here rather than living in the code that consumes them, and
+#   3. every `--scaling` report prints them beside its numbers, so a reader can see what
+#      was assumed without opening this file.
+#
+# `docs/research/system` carries the same caveat. If it ever stops carrying it, this
+# comment is the thing that has gone stale.
+#
+# ── Provenance: measured, and derived ─────────────────────────────────────────
+#
+# **Measured**, on a real 102-node derived corpus (2026-08-23, recorded on #264):
+#
+#   nodes                              102
+#   resolved instance-instance edges   213      → mean out-degree 4.18
+#   class-narrowing ceiling N/min|C|   102x     → smallest class is 1 node, ~0.98%
+#   median narrowing                   25.5x    → median class is 4 nodes, ~3.9%
+#   whole corpus                       ~150k tokens  → ~1470 tokens/node, ~5900 chars
+#
+# **Derived, not measured:** the class *count* and the full share vector. The record
+# holds two order statistics of the class-size distribution — its minimum and its median —
+# and not the distribution itself. `class_shares` below is the simplest skewed vector that
+# reproduces both: twelve classes, minimum share 1.0% (ceiling 100x, against a measured
+# 102x) and median share 3.9% (median narrowing 25.6x, against a measured 25.5x).
+#
+# A reader who has a real class-size distribution should replace the vector and say so
+# here. That is a better fix than any amount of argument about which skew is typical.
+
+version = 1
+source = "a 102-node derived corpus, measured 2026-08-23 (#264)"
+
+# Measured: 213 edges / 102 nodes.
+mean_out_degree = 4.18
+
+# Measured: ~150k tokens over 102 nodes, at the 4-chars-per-token approximation the rest
+# of this CLI uses. Uniform per node, because the record holds a total and not a spread —
+# and inventing a spread would be inventing exactly the kind of parameter this file exists
+# to expose.
+node_chars = 5900
+
+# Derived from the measured minimum (0.98%) and median (3.9%) shares. Sums to 1.
+# Sorted ascending; the largest-remainder allocation walks it from the top.
+class_shares = [
+  0.010, 0.015, 0.020, 0.025, 0.030, 0.035,
+  0.043, 0.060, 0.090, 0.140, 0.230, 0.302,
+]
+
+# N ∈ {8, 64, 512, 4096}, per decision 3 on #250. The first is streamflow's size, so the
+# smallest row is comparable with the single-corpus run.
+sizes = [8, 64, 512, 4096]
+
+# Goals generated per size. Enough that a mean is not one goal's accident, small enough
+# that the report stays readable.
+goals_per_size = 24
+
+# The longest generated path. Two hops is what the committed goal set uses and what the
+# first cut of the query language expresses.
+max_hops = 2
+
+# Fixed, so two runs of the same binary over the same config produce the same corpora and
+# the same goals. A benchmark whose inputs move between runs cannot be a regression guard.
+seed = 20260823
