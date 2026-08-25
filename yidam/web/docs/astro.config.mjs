@@ -102,6 +102,7 @@ const sidebar = [
       { slug: 'rfcs/0016-editor-surface', label: '0016 · The editor surface' },
       { slug: 'rfcs/0017-assertion-surface', label: '0017 · The assertion surface' },
       { slug: 'rfcs/0018-query-surface', label: '0018 · The query surface' },
+      { slug: 'rfcs/0019-external-citation', label: '0019 · External citation' },
     ],
   },
 ];
