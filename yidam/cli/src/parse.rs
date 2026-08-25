@@ -86,6 +86,40 @@ pub struct CorpusInstance {
     #[serde(default)]
     pub properties: Option<serde_yaml::Mapping>,
     pub links: Option<Vec<CorpusLink>>,
+    /// What this node leaned on in a corpus this repository does not own (RFC-0019).
+    ///
+    /// **Beside `links:` and never inside it.** A foreign node may be read and may not be an
+    /// edge target — `prelude/guidelines/agent-conduct.md` states the rule and the reason —
+    /// so a citation is a different object from a relationship. Putting it in `links:` would
+    /// have put it in the list `instance_links` reads, and every traversal in the system
+    /// would then have to learn to skip it; one that forgot would cross a corpus boundary
+    /// silently.
+    #[serde(default)]
+    pub cites: Option<Vec<ExternalCitation>>,
+}
+
+/// One claim resting on a node in an installed dependency.
+///
+/// `span` is the field the design turns on. A node reference alone rots invisibly — the node
+/// keeps its name while its content is rewritten, and the citation still resolves — and a
+/// span cannot: it either still appears or it does not. It is also the only check available
+/// that does not need the producer's apparatus, which is exactly the apparatus a bundle does
+/// not carry: no sangha, no elector register, no resolution history.
+#[derive(serde::Deserialize, Default, Debug, Clone)]
+pub struct ExternalCitation {
+    /// The dependency, as `.yidam/tonpa.toml` names it.
+    pub package: Option<String>,
+    /// `<class>/<name>` inside that corpus. Unqualified — `package` already says whose.
+    pub node: Option<String>,
+    /// The `manifest.yml` commit this was read at. Absent for a path dependency, which
+    /// cannot be pinned.
+    pub commit: Option<String>,
+    /// The producer's standing, **as observed at that pin**. Recorded, never transferred:
+    /// a foreign tag is the producer's tag, and across this boundary the rule that a derived
+    /// assertion travels only as far as the weakest claim beneath it cannot be computed.
+    pub tag: Option<String>,
+    /// Verbatim text from the cited node.
+    pub span: Option<String>,
 }
 
 #[derive(serde::Deserialize, Default)]

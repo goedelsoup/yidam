@@ -7,6 +7,7 @@
 
 mod baseline;
 pub(crate) mod checks;
+pub(crate) mod citations;
 mod commits;
 pub(crate) mod history;
 pub mod json;
@@ -134,6 +135,11 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         })
         .collect();
 
+    // What this repository depends on and can actually read. Off disk, in the light build:
+    // `--features tonpa` buys the network, and derived-repo CI downloads a binary rather than
+    // compiling one — so a citation check behind that feature would never run where it counts.
+    let deps = citations::installed(root);
+
     let catalog_paths = walk_md_files(&catalog_dir);
     let sources = checks::load_sources(root, &catalog_paths, overlay);
     let node_texts: Vec<String> = instance_paths.iter().map(|p| overlay.read(p)).collect();
@@ -233,6 +239,10 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::property_type(&nodes, &classes, &universal),
         checks::unlicensed_edge(&nodes, &classes),
         checks::edge_target_class(&nodes, &classes),
+        citations::external_citation_unresolved(&nodes, &deps),
+        citations::external_citation_span_drift(&nodes, &deps),
+        citations::external_citation_pin_moved(&nodes, &deps),
+        citations::external_citation_unpinned(&nodes, &deps),
         checks::catalog_unobtained_but_cited(&sources, &cites),
         checks::missing_label(&nodes),
         checks::missing_description(&nodes),
@@ -571,7 +581,7 @@ mod tests {
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 24);
+        assert_eq!(all.len(), 28);
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
@@ -730,7 +740,29 @@ mod tests {
         assert!(crate::authorship::Authorship::load(tmp.path()).is_err());
         // …while the checks themselves keep answering, for the editor's sake.
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 24);
+        assert_eq!(all.len(), 28);
+    }
+
+    /// The four citation checks are registered, and reach the reporting path a unit test
+    /// cannot see. The unit tests in `citations` prove each one decides correctly; this
+    /// proves `run_checks` actually calls them — the half that fails silently, because a
+    /// check nobody runs looks exactly like a check that found nothing.
+    #[test]
+    fn an_unresolvable_citation_gates() {
+        let tmp = clean_repo();
+        fs::write(
+            tmp.path().join(".yidam/corpus/reach/alpha.yml"),
+            "class: reach\nlabel: A\ndescription: A.\ncites:\n  - package: nowhere\n    \
+             node: concept/x\n    span: y\n",
+        )
+        .unwrap();
+        let all = run_checks(tmp.path(), &Options::default());
+        let cite = all
+            .iter()
+            .find(|c| c.id == "external-citation-unresolved")
+            .expect("registered");
+        assert_eq!(cite.violations.len(), 1);
+        assert!(errors(&all) > 0, "an unresolvable citation must gate");
     }
 
     #[test]
@@ -954,7 +986,7 @@ mod tests {
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 24, "every check still ran");
+        assert_eq!(all.len(), 28, "every check still ran");
         assert_eq!(errors(&all), 0);
     }
 
