@@ -38,7 +38,12 @@ Full section-by-section structure with key claims: [outline.md](outline.md)
 ## What this paper is not
 
 - Not a systems paper proposing a new retrieval algorithm
-- Not a benchmark paper (though benchmarks would strengthen it)
+- Not a benchmark paper — though it now carries one. `yidam bench` measures the §5 claim
+  against a committed goal set, and `yidam bench --scaling` measures it over generated
+  corpora. The generated corpora are circular by construction: the slope follows from the
+  degree distribution chosen for them. Their parameters are derived from a real corpus,
+  committed as configuration, and reported in every run, which makes the result arguable
+  rather than neutral — see §5 of [outline.md](outline.md).
 - Not an argument against embedding-based retrieval — retrieval is the right fallback;
   the paper argues it should be a fallback, not the default
 

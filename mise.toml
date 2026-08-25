@@ -345,6 +345,30 @@ run = [
   "cargo test --manifest-path yidam/cli/Cargo.toml --all-features --locked",
 ]
 
+# #264: "Run it in CI against `examples/streamflow`." Which needs the full build, because
+# `bench` refuses to measure against keyword search — so this cannot live in the light gate
+# and runs where `cli-full` runs: main push and the weekly schedule, not on pull requests.
+#
+# The regression guard it provides is real but narrow until #261 lands. It ratchets nothing
+# yet: the arms that exist — flat and full-scan — cannot regress from a change to the
+# traversal path, because neither traverses. What it does catch today is the goal set and
+# the corpus drifting apart, retrieval breaking outright, and the example losing its index.
+[tasks.bench-example]
+description = "Run `yidam bench` against examples/streamflow, with a real index (needs --features index)."
+run = [
+  "cargo build --manifest-path yidam/cli/Cargo.toml --features index --locked",
+  "bash scripts/bench-example.sh",
+]
+
+# `--scaling` generates its corpora in memory and has no retrieval arm, so it needs neither
+# the index feature nor a corpus — which is why this one *can* run on every pull request.
+[tasks.bench-scaling]
+description = "Run `yidam bench --scaling` over generated corpora."
+run = [
+  "cargo build --manifest-path yidam/cli/Cargo.toml --locked",
+  "yidam/cli/target/debug/yidam bench --scaling",
+]
+
 # The editor client. Not a cargo workspace, so it is not in the `ci` composite below —
 # `mise run ci` is the Rust gate and stays fast. CI runs this as its own job.
 #

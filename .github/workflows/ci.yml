@@ -186,6 +186,25 @@ jobs:
             exit 1
           }
 
+  bench-scaling:
+    # The scaling arms need no index and no corpus: the flat arm is constant in N and is
+    # excluded by argument, so what is left — full-scan and (pending #261) anchored — is
+    # structural. That is why this one runs on pull requests where `cli-full` cannot.
+    #
+    # It guards the generator's determinism end to end. The unit tests assert the shape of
+    # the curve; this asserts that a real binary over the committed config still produces
+    # it, which is the thing a later anchored run will be compared against.
+    name: ci (bench · scaling)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: yidam/cli
+          key: cli
+      - run: mise run bench-scaling
+
   cli-full:
     # Full-feature CLI (index/sqlite/rdf/tonpa) — heavy: fastembed + lancedb +
     # protoc + from-source SQLite. Runs on main push + the weekly schedule only,
@@ -204,3 +223,10 @@ jobs:
           workspaces: yidam/cli
           key: cli-full
       - run: mise run ci-cli-full
+      # #264: "Run it in CI against `examples/streamflow`." It lives here rather than in the
+      # light gate because `bench` refuses to measure against keyword search, and the vector
+      # arm of `retrieve` is `--features index`. So the benchmark runs where the full build
+      # runs — main push and the weekly schedule — and not on pull requests. That is one
+      # commit later than the "every PR" the issue imagined, and it is the latest it can be
+      # without the number being about keyword matching.
+      - run: mise run bench-example

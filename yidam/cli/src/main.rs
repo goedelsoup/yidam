@@ -213,6 +213,11 @@ enum Command {
         /// The flat arm's budget — `retrieve`'s `k`, defaulting to the 5 `serve --mcp` uses
         #[arg(long, default_value_t = 5)]
         budget: usize,
+        /// Measure the arms that are functions of N over generated corpora, rather than
+        /// this repository's corpus. Needs no index: the flat arm is constant in N and is
+        /// excluded by argument
+        #[arg(long)]
+        scaling: bool,
         /// Output format. `json` emits the machine-readable report contract
         /// (RFC-0016); `text` is unchanged and remains the default.
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
@@ -564,7 +569,11 @@ fn main() -> Result<()> {
             dry_run,
             format,
         } => yidam::rename(&old, &new, dry_run, format),
-        Command::Bench { budget, format } => yidam::bench(budget, format),
+        Command::Bench {
+            budget,
+            scaling,
+            format,
+        } => yidam::bench(budget, scaling, format),
         Command::Graph { format } => yidam::graph(format),
         Command::Neighbors {
             node,
