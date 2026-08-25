@@ -1,0 +1,162 @@
+# The benchmark goal set for this corpus.
+#
+# `yidam bench` resolves each goal twice — once by anchored traversal, once by flat
+# retrieval — and reports precision and recall at a fixed budget alongside the cost of
+# each arm. This file is what makes that result arguable rather than merely reported.
+#
+# ── The integrity rules this file exists to satisfy ───────────────────────────────────
+#
+# 1. **The goals are fixed before any result is visible.** This file is committed on its
+#    own, ahead of the harness and both arms. Neither arm has been run against it — the
+#    executor (#261) does not exist yet and the flat arm needs an index this build has
+#    not made. A goal set chosen after seeing the results measures the chooser.
+#
+# 2. **`expect` is exhaustive, not a floor.** It is the complete set of nodes a correct
+#    answer contains, so recall is computable and an arm cannot score well by returning
+#    everything. Every entry was derived by hand from the 11 traversable edges in
+#    `.yidam/corpus` — the instance-to-instance links, excluding `instance-of` (which
+#    points at a class file) and `sourced-from` (which points into the catalog).
+#
+# 3. **Anchor text is the user's language, not the node's.** Lifting a node's own
+#    sentence into its anchor would test string matching and report it as semantic
+#    anchoring. Each `anchored` query paraphrases the question as someone who had not
+#    read the corpus would put it. Some of these will anchor badly. That is the point:
+#    §3 of `docs/research/system` is *about* the regime where anchoring does not fully
+#    succeed, and a goal that misses is a finding rather than an embarrassment.
+#
+# 4. **Goals the flat arm cannot express are excluded from the cost ratio.** They carry
+#    `flat: null` with a reason. Folding them into the headline number would be the
+#    strawman comparison #264 forbids; dropping them entirely would hide the cases where
+#    the two approaches differ in kind rather than in degree. So they are kept, reported,
+#    and reported separately.
+#
+# ── What this corpus can and cannot show ──────────────────────────────────────────────
+#
+# `examples/streamflow` is 8 nodes over 3 classes with a class-narrowing ceiling of 4x,
+# against a thesis claiming 10-100x. Depth-2 traversal reaches 91% of it. **A run over
+# this goal set is a regression guard, not evidence** — it catches the traversal path
+# getting more expensive between commits, and it cannot separate the arms on cost.
+# Evidence comes from `bench --scaling` over generated corpora. `bench` says so in its
+# own output; this file says so too, because the two must not be able to disagree.
+#
+# The budget (the flat arm's `k`) is a property of the run, not of a goal, and is set on
+# the command line so the same goals can be measured at several budgets.
+
+version: 1
+corpus: streamflow
+
+goals:
+  - id: gage-for-the-regulated-reach
+    question: Which gage measures the reach immediately below the dam?
+    kind: traversal
+    hops: 1
+    anchored: 'reach~"river segment directly below a dam where flow is set by operations" -measured-by-> gage'
+    flat: which gage measures the reach below the dam
+    expect:
+      - gage/canyon-outlet.yml
+    why: >
+      The simplest typed lookup in the corpus, and the one where the arms should differ
+      most cleanly: one edge is followed, one node is returned, and the flat arm must
+      spend its whole budget to contain the same answer among k. If anchored traversal
+      does not win here it does not win anywhere.
+
+  - id: concepts-computed-from-the-regulated-record
+    question: >
+      Which concepts are computed from the record of the gage on the reach below the dam?
+    kind: traversal
+    hops: 2
+    anchored: 'reach~"river segment directly below a dam where flow is set by operations" -measured-by-> gage -sources-from-> concept'
+    flat: concepts computed from the gage record below the dam
+    expect:
+      - concept/hydropeaking.yml
+      - concept/low-flow.yml
+    why: >
+      Two hops through two different relationship types, which is the shape `neighbors`
+      cannot express and the reason the query language exists. Also the goal where this
+      corpus's size starts to bite: two hops from a reach already reaches most of it, so
+      the arms converge here in a way they would not on a corpus with room.
+
+  - id: reaches-behind-the-low-flow-statistic
+    question: Which reaches' records is the low-flow statistic computed from?
+    kind: traversal
+    hops: 2
+    anchored: 'concept~"the low flow statistic used in water quality standards" <-sources-from- gage <-measured-by- reach'
+    flat: which reaches feed the low flow statistic
+    expect:
+      - reach/tailwater.yml
+    why: >
+      The only goal that runs backwards along both hops — the edges are authored on the
+      gage and on the reach, and the question is asked from the far end. It doubles as an
+      anchor-precision test: the anchor names a regulatory context, and `instream-flow-right`
+      is the node in this corpus that talks about regulation, so a plausible failure is
+      that the anchor lands there instead of on `low-flow`. That failure is left in
+      deliberately rather than tuned out.
+
+  - id: what-hydropeaking-narrows
+    question: What concept does hydropeaking depend on or narrow?
+    kind: traversal
+    hops: 1
+    anchored: 'concept~"daily flow swings caused by power generation" -refines-> concept'
+    flat: what does hydropeaking depend on
+    expect:
+      - concept/low-flow.yml
+    why: >
+      A hop within a single class, along the corpus's only self-referential relationship.
+      It is the case a class-filtered retrieval cannot help with: every candidate is a
+      concept, so narrowing by class buys nothing and only the edge distinguishes the
+      answer from the other three.
+
+  - id: what-is-base-flow-separation
+    question: What is base-flow separation, and why is there no unique answer?
+    kind: traversal
+    hops: 0
+    anchored: 'concept~"splitting a hydrograph into slow and fast components"'
+    flat: what is base flow separation
+    expect:
+      - concept/base-flow-separation.yml
+    why: >
+      A definitional lookup with no traversal at all — the boundary case. Whatever the
+      anchored arm wins here it wins from the budget (one node against k), not from the
+      ontology. Included so that the headline number can be read with the zero-hop goals
+      taken out, which is the honest way to see what traversal itself contributed.
+
+  - id: what-this-corpus-leaves-open
+    question: What does this corpus still treat as unsettled?
+    kind: filter
+    hops: 0
+    anchored: '*[claim_tag=open]'
+    flat: null
+    flat_omitted_because: >
+      Retrieval cannot filter on evidence standing. It can match prose that happens to
+      discuss uncertainty, which is a different question with a different answer — every
+      node in this corpus discusses uncertainty somewhere. Scoring the flat arm against
+      this goal would measure a category difference and report it as a cost ratio.
+    expect:
+      - concept/base-flow-separation.yml
+      - concept/hydropeaking.yml
+      - concept/instream-flow-right.yml
+    why: >
+      The structural claim the corpus makes about itself, and the one place a typed query
+      answers a question retrieval has no way to pose. Excluded from the cost ratio by
+      rule 4, reported on its own.
+
+  - id: regulatory-rather-than-hydrological
+    question: Which of this corpus's concepts are regulatory rather than hydrological?
+    kind: unanchorable
+    hops: null
+    anchored: null
+    anchored_omitted_because: >
+      The distinction is not in the ontology. `concept.ont.yml` declares one property
+      (`claim_tag`) and one relationship (`refines`); nothing types a concept as
+      regulatory, and no path of typed hops separates the answer from the other three
+      concepts. The query language cannot express this goal, and inventing a property to
+      make it expressible would be fitting the corpus to the benchmark.
+    flat: regulatory water right instream flow law
+    expect:
+      - concept/instream-flow-right.yml
+    why: >
+      **The goal the anchored arm loses.** #264 is explicit that a goal which anchors
+      badly is a finding, and this is the sharpest kind: not a near miss, but a question
+      the ontology has no vocabulary for, where flat retrieval should answer immediately
+      from prose. It is §3's fallback regime with a name, and the standing argument for
+      keeping retrieval in the system rather than replacing it.

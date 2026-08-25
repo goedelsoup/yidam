@@ -2,9 +2,9 @@
 
 *A worked yidam corpus: streamflow on regulated rivers.*
 
-Eight instances across three classes, one catalog source, two decision records, one skill.
-Small enough to read in ten minutes and structured enough that the ontology is doing real
-work.
+Eight instances across three classes, one catalog source, two decision records, one skill,
+and a benchmark goal set. Small enough to read in ten minutes and structured enough that the
+ontology is doing real work.
 
 ## The domain, in one paragraph
 
@@ -39,6 +39,7 @@ a fabricated record, and this one is meant to be copied.
   decisions/three-classes.yml
   decisions/base-flow-index-carries-its-method.yml
   skills/read-a-regulated-record.md
+  bench/goals.yml
 ```
 
 ## What each piece is here to demonstrate
@@ -68,6 +69,15 @@ section is the one most often left out of a catalog entry and the one most worth
 **A ledger of what was examined and not used.** `concept/base-flow-separation` names the
 published figures it excluded and the rule it excluded them under. It is a weak instrument
 and the only auditable trace of selection that exists.
+
+**A goal set that says what this corpus cannot show.**
+[`bench/goals.yml`](.yidam/bench/goals.yml) is the fixed input to `yidam bench`: seven
+questions with their complete expected answers, committed before either arm was ever run.
+Two of the seven are there to lose. One asks something retrieval cannot express, one asks
+something the ontology has no vocabulary for, and the file names both rather than reporting
+five wins. It also states, in its own header, that a run over eight nodes is a regression
+guard and not evidence for anything — the corpus is below the arithmetic floor of the claim
+the benchmark is about.
 
 ## Running the gates
 
