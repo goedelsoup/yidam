@@ -175,11 +175,14 @@ fn keyword_entries(
         // Charged whether it scores or not. Rejecting a node still means having read it, and
         // a fallback that only charged for its hits would look cheaper the worse it did.
         read.push(id.clone());
+        // `node.text` and not a re-read of `node.path`: at a past commit the path names a
+        // file whose current contents are a different revision's, and scoring against those
+        // would anchor the query in the wrong year.
         let haystack = format!(
             "{} {} {}",
             node.inst.label.as_deref().unwrap_or_default(),
             node.inst.description.as_deref().unwrap_or_default(),
-            std::fs::read_to_string(&node.path).unwrap_or_default()
+            node.text
         )
         .to_lowercase();
         if let Some(score) = crate::retrieval::keyword_score(&terms, &haystack) {

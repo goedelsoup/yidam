@@ -300,7 +300,8 @@ fn query(state: &ServerState, args: &Value) -> Result<Value, String> {
     // The `Retrieval` this server loaded at startup — the same one `retrieve` answers from,
     // so the two can never report different reasons for the same degradation. That sharing is
     // the one refactor RFC-0018 asked for, and this is the call site it was asked for.
-    let report = crate::cmd::query::run_on(&state.graph, Some(&state.retrieval), text, &opts);
+    let ctx = crate::cmd::query::Context::now(&state.graph, Some(&state.retrieval));
+    let report = crate::cmd::query::run_on(&ctx, text, &opts);
     serde_json::to_value(&report).map_err(|e| e.to_string())
 }
 

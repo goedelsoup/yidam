@@ -240,6 +240,14 @@ enum Command {
         /// point, not an answer — widening it walks from every entry
         #[arg(long, default_value_t = yidam::QUERY_DEFAULT_ANCHOR_K)]
         anchor_k: usize,
+        /// Answer as of a commit — a sha, tag, or `HEAD~5`. Reconstructed from git objects;
+        /// the working tree is never touched
+        #[arg(long, value_name = "REF", conflicts_with = "between")]
+        at: Option<String>,
+        /// Answer at every commit in `a..b` that touched the corpus, as a series. Git's own
+        /// range meaning: `a` itself is excluded
+        #[arg(long, value_name = "A..B")]
+        between: Option<String>,
         /// Output format. `json` emits the machine-readable report contract
         /// (RFC-0016); `text` is unchanged and remains the default.
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
@@ -601,8 +609,10 @@ fn main() -> Result<()> {
             select,
             limit,
             anchor_k,
+            at,
+            between,
             format,
-        } => yidam::query(&query, select, limit, anchor_k, format),
+        } => yidam::query(&query, select, limit, anchor_k, at, between, format),
         Command::Graph { format } => yidam::graph(format),
         Command::Neighbors {
             node,
