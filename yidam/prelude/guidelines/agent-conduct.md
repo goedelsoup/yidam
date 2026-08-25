@@ -266,6 +266,31 @@ history. You receive conclusions without the apparatus that made them accountabl
 that a derived assertion travels only as far as the weakest claim beneath it still holds, and
 across this boundary "weakest" is genuinely unknown.
 
+**The prose form has a structured form, and the gate reads it.** *"Saying where it came
+from"* leaves no trace a tool can check, so a local node may carry a `cites:` block beside its
+`links:` — never inside it, because a citation is not a relationship and must never enter a
+traversal:
+
+```yaml
+cites:
+  - package: upstream          # the dependency, as .yidam/tonpa.toml names it
+    node: concept/base-flow    # <class>/<name> over there; `package` already says whose
+    commit: 8d35441            # the manifest commit it was read at; absent for a path dependency
+    tag: verified              # the producer's standing AS OBSERVED — recorded, never transferred
+    span: >-                   # verbatim text from that node
+      the slowly varying component sustained by groundwater discharge
+```
+
+**`span` is the load-bearing field, for the reason the outbound rule gives.** Cite a span, not
+a node: a node reference alone rots invisibly, because the node keeps its name while its
+content is rewritten and the citation still resolves. The gate asserts the span still appears
+there. It is the only check that survives this boundary, because it needs nothing from the
+producer — and the producer's apparatus is exactly what a bundle does not carry.
+
+When it fails, **the repair is never to re-quote.** The far side changed its mind; the question
+is whether your claim survives it. And `commit` is recorded rather than enforced: a moved pin
+reports, because a producer cutting a release must not be able to turn your build red.
+
 **A shared class name is not agreement.** Classes are named per-corpus. A `concept/risk`
 there and a `concept/risk` here are two nodes sharing a string. That is a question worth
 investigating, not an identity.

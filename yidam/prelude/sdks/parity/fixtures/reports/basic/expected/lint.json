@@ -121,6 +121,34 @@
       "violations": []
     },
     {
+      "id": "external-citation-unresolved",
+      "title": "Citation into a dependency that is not there",
+      "severity": "error",
+      "rationale": "A citation that does not resolve asserts a provenance that is not there, which is strictly worse than claiming none. The local graph is trustworthy because a link cannot rot silently; a corpus that cites across a boundary without this check has inverted that property at exactly the point where it is hardest to recover. A missing package and a missing node inside a present one are different findings with different repairs, and the message says which.",
+      "violations": []
+    },
+    {
+      "id": "external-citation-span-drift",
+      "title": "Cited span no longer appears in the dependency",
+      "severity": "error",
+      "rationale": "A node reference alone rots invisibly: the node keeps its name while its content is rewritten, and the citation still resolves. The span is what makes the rot visible, and it is the only check available across this boundary that needs nothing from the producer — a bundle carries no sangha, no elector register and no resolution history, so the text is the whole of the evidence. Re-quoting to clear the finding is the one repair that is always wrong: the far side changed its mind, and the question is whether the local claim survives it.",
+      "violations": []
+    },
+    {
+      "id": "external-citation-pin-moved",
+      "title": "Citation written against a pin that has moved",
+      "severity": "warn",
+      "rationale": "A stale dependency is a normal state: it is pinned deliberately, and where its currency bears on a conclusion the thing to do is say which pin was read. This reports rather than gates because escalating it would let a producer cutting a release turn a stranger's CI red without the stranger changing anything — the exact failure a pin exists to prevent. Where the text this claim rests on actually moved, `external-citation-span-drift` is the finding that gates.",
+      "violations": []
+    },
+    {
+      "id": "external-citation-unpinned",
+      "title": "Citation into a dependency that carries no pin",
+      "severity": "info",
+      "rationale": "A path dependency is read where it sits and is not fetched, not hashed and not locked, because hashing a working tree that changes under you records nothing. It is also the only dependency form that supports a development loop, so refusing to cite one would exclude the case people actually work in. Reported rather than refused, and reported every time: a citation whose pin is silently absent is indistinguishable from one whose pin is current.",
+      "violations": []
+    },
+    {
       "id": "catalog-unobtained-but-cited",
       "title": "Source nobody has fetched, cited anyway",
       "severity": "error",
