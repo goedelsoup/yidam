@@ -462,7 +462,8 @@ fn anchored_arm(
         limit: budget,
         ..Default::default()
     };
-    let report = crate::cmd::query::run_on(graph, Some(retrieval), query, &opts);
+    let ctx = crate::cmd::query::Context::now(graph, Some(retrieval));
+    let report = crate::cmd::query::run_on(&ctx, query, &opts);
     if let Some(rejection) = report.rejected {
         // A rejected query is a defect in the goal set, not a result, and it must never be
         // scored as a miss: an arm that answers nothing because the query was malformed would

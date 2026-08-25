@@ -267,9 +267,12 @@ pub fn project(
                 "description" => node.inst.description.clone().map(serde_json::Value::String),
                 // The raw instance text. For a YAML corpus that is the whole node, which is
                 // what an agent asked for `body` actually wants.
-                "body" => Some(serde_json::Value::String(
-                    std::fs::read_to_string(&node.path).unwrap_or_default(),
-                )),
+                //
+                // From the node rather than from `node.path`. A query at a past commit holds
+                // nodes whose paths name today's files — or name nothing at all — and reading
+                // the working tree there would answer with the wrong revision's prose under a
+                // report that says which commit it is about.
+                "body" => Some(serde_json::Value::String(node.text.clone())),
                 other => other.strip_prefix("properties.").map(|name| {
                     property(node, name)
                         .map(|v| serde_json::Value::String(scalars(v).join(", ")))
@@ -338,6 +341,10 @@ mod tests {
                         .collect(),
                 ),
             },
+            // These fixtures build the instance directly rather than from YAML, so there is
+            // no source text to keep. `--select body` is the only reader, and no case here
+            // selects it.
+            text: String::new(),
         }
     }
 

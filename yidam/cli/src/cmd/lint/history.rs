@@ -43,7 +43,7 @@ struct Change {
 /// Class definitions sit at depth 1 and end `.ont.yml`; instances sit at depth 2. Anything
 /// else under the corpus (a README, an ACTIONS.md) is not a node and neither points nor is
 /// pointed at.
-fn is_instance(path: &str) -> bool {
+pub(crate) fn is_instance(path: &str) -> bool {
     let Some(rest) = path.strip_prefix(".yidam/corpus/") else {
         return false;
     };
@@ -136,7 +136,10 @@ fn change_stream(root: &Path) -> Vec<CommitChanges> {
 ///
 /// One subprocess for the whole history. Feeding these one at a time is the difference
 /// between a replay that costs milliseconds and one that costs a subprocess per revision.
-fn read_blobs(root: &Path, shas: &[String]) -> HashMap<String, String> {
+///
+/// Shared with [`crate::cmd::query::at`], which reconstructs a whole tree rather than a
+/// stream of changes but reads its blobs the same way and for the same reason.
+pub(crate) fn read_blobs(root: &Path, shas: &[String]) -> HashMap<String, String> {
     let mut found = HashMap::new();
     if shas.is_empty() {
         return found;
@@ -188,7 +191,7 @@ fn read_blobs(root: &Path, shas: &[String]) -> HashMap<String, String> {
 }
 
 /// Whether a repo-relative path is a class definition — `.yidam/corpus/<class>.ont.yml`.
-fn is_class(path: &str) -> bool {
+pub(crate) fn is_class(path: &str) -> bool {
     path.strip_prefix(".yidam/corpus/")
         .is_some_and(|r| r.ends_with(".ont.yml") && !r.contains('/'))
 }

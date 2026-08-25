@@ -599,6 +599,24 @@ Two rules for that reconstruction:
   against HEAD, the report carries an `info` diagnostic naming the step and both verdicts —
   rather than silently picking either.
 
+> **Landed in #262**, as [`cmd/query/at.rs`](../../yidam/cli/src/cmd/query/at.rs): one
+> `git ls-tree -r` and one `git cat-file --batch` — the two-subprocess shape `replay` uses,
+> costing the size of the corpus rather than the length of history. Three things the estimate
+> did not name, found in the building:
+>
+> - **`--select body` was reading the working tree.** Node paths are keys and are never
+>   opened, except that one projection read `node.path` from disk — so a query at a past
+>   commit answered with today's prose under a report saying which commit it was about. Fixed
+>   by carrying the text on the node, which `load_nodes` already had in hand and dropped.
+> - **A similarity anchor cannot be evaluated as of another commit.** The index is built from
+>   one commit's text. Refused with `anchor-at-revision`; degrading to keyword search would be
+>   a different retrieval than the same query gets at HEAD, which makes a series where the
+>   answer changed because the *arm* changed.
+> - **`--between` needs its own report type.** A series has no single `matched` and no single
+>   `cost`, and a report carrying both shapes leaves one half meaningless — which a consumer
+>   reads as zero. It also does not gate: one rejected row in a range is the ordinary case for
+>   a class the corpus grew into.
+
 ### What is deliberately not expressible, and why
 
 1. **No joins or variable binding.** Not a pattern language. A path has one answer set and

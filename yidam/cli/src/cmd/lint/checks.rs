@@ -16,6 +16,15 @@ pub struct Node {
     pub path: PathBuf,
     pub rel: String,
     pub inst: CorpusInstance,
+    /// The file's bytes, as they were read.
+    ///
+    /// Kept rather than dropped after parsing, because three callers were reading the same
+    /// file again from disk to get it back: `query`'s `--select body`, the keyword arm of a
+    /// similarity anchor, and — the one that makes this a correctness fix rather than a
+    /// tidy-up — a query at a past commit, where `path` names a file whose *current*
+    /// contents are the wrong answer and which may not exist at all. `load_nodes` already
+    /// had this string in hand and threw it away.
+    pub text: String,
 }
 
 /// Whether a class's `edges:` list bounds what may be said about it, or merely describes it.
@@ -123,7 +132,7 @@ impl Class {
 }
 
 #[derive(Default, serde::Deserialize)]
-struct ClassFields {
+pub(crate) struct ClassFields {
     #[serde(default)]
     description: Option<String>,
     #[serde(default)]
@@ -134,23 +143,38 @@ struct ClassFields {
     edge_policy: Option<String>,
 }
 
+impl Class {
+    /// Build one from a parsed class file and the path it came from.
+    ///
+    /// Shared with `query::at`, which reconstructs classes from git blobs rather than from a
+    /// walk. Two builders would be two answers to what a class *is* — and the one used less
+    /// often is the one that would quietly stop reading `edge_policy`, which is the field the
+    /// whole typecheck ladder turns on.
+    pub(crate) fn from_fields(rel: impl Into<String>, fields: ClassFields) -> Class {
+        let rel = rel.into();
+        Class {
+            name: Path::new(&rel)
+                .file_name()
+                .map(|f| f.to_string_lossy().replace(".ont.yml", ""))
+                .unwrap_or_default(),
+            rel,
+            description: fields.description.unwrap_or_default(),
+            properties: fields.properties,
+            edges: fields.edges,
+            edge_policy: EdgePolicy::parse(fields.edge_policy.as_deref()),
+        }
+    }
+}
+
 pub fn load_classes(root: &Path, paths: &[PathBuf], overlay: &super::Overlay) -> Vec<Class> {
     paths
         .iter()
         .map(|p| {
             let text = overlay.read(p);
-            let fields: ClassFields = serde_yaml::from_str(&text).unwrap_or_default();
-            Class {
-                rel: rel_of(root, p),
-                description: fields.description.unwrap_or_default(),
-                name: p
-                    .file_name()
-                    .map(|f| f.to_string_lossy().replace(".ont.yml", ""))
-                    .unwrap_or_default(),
-                properties: fields.properties,
-                edges: fields.edges,
-                edge_policy: EdgePolicy::parse(fields.edge_policy.as_deref()),
-            }
+            Class::from_fields(
+                rel_of(root, p),
+                serde_yaml::from_str(&text).unwrap_or_default(),
+            )
         })
         .collect()
 }
@@ -183,6 +207,7 @@ pub fn load_nodes(root: &Path, paths: &[PathBuf], overlay: &super::Overlay) -> V
                 path: p.clone(),
                 rel: rel_of(root, p),
                 inst: serde_yaml::from_str(&text).unwrap_or_default(),
+                text,
             }
         })
         .collect()
@@ -1403,6 +1428,7 @@ mod tests {
             path: PathBuf::from(rel),
             rel: rel.to_string(),
             inst: serde_yaml::from_str(yaml).unwrap(),
+            text: yaml.to_string(),
         }
     }
 
@@ -1457,11 +1483,13 @@ mod tests {
             path: PathBuf::from("corpus/reach/a.yml"),
             rel: "corpus/reach/a.yml".into(),
             inst: serde_yaml::from_str("class: c\nlinks: []\n").unwrap(),
+            text: "class: c\nlinks: []\n".to_string(),
         };
         let b = Node {
             path: PathBuf::from("corpus/other/b.yml"),
             rel: "corpus/other/b.yml".into(),
             inst: serde_yaml::from_str("class: c\nlinks:\n  - target: ../reach/a.yml\n").unwrap(),
+            text: "class: c\nlinks:\n  - target: ../reach/a.yml\n".to_string(),
         };
         let c = orphan_in(&[a, b], &[]);
         let flagged: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
@@ -1492,6 +1520,7 @@ mod tests {
             path: PathBuf::from(format!("corpus/{class}/{file}.yml")),
             rel: format!("corpus/{class}/{file}.yml"),
             inst: serde_yaml::from_str("class: c\nlinks: []\n").unwrap(),
+            text: "class: c\nlinks: []\n".to_string(),
         };
 
         // `person` declares only outbound edges; `recording` declares an inbound one.
@@ -1529,6 +1558,7 @@ mod tests {
             path: PathBuf::from("corpus/concept/x.yml"),
             rel: "corpus/concept/x.yml".into(),
             inst: serde_yaml::from_str("class: c\nlinks: []\n").unwrap(),
+            text: "class: c\nlinks: []\n".to_string(),
         };
         let c = orphan_in(&[node], &[silent]);
         assert_eq!(
@@ -1597,6 +1627,7 @@ mod tests {
             path: PathBuf::from("/tmp/x.yml"),
             rel: "x.yml".to_string(),
             inst: Default::default(),
+            text: String::new(),
         };
         let text = "description: Never write `[verified — source]`; the counter reads it as \
                     untagged.\n";
@@ -1611,6 +1642,7 @@ mod tests {
             path: PathBuf::from("/tmp/x.yml"),
             rel: ".yidam/corpus/c/x.yml".to_string(),
             inst: Default::default(),
+            text: String::new(),
         };
         let text = "class: c\nlabel: X\ndescription: |\n  Settled [verified — Pearl 2009].\n";
         let c = claim_tag_malformed(std::slice::from_ref(&node), &[text.to_string()]);
@@ -1639,6 +1671,7 @@ mod tests {
                 path: PathBuf::from(format!("/repo/.yidam/corpus/concept/{name}.yml")),
                 rel: format!(".yidam/corpus/concept/{name}.yml"),
                 inst: serde_yaml::from_str(yaml).unwrap_or_default(),
+                text: yaml.to_string(),
             },
             yaml.to_string(),
         )
