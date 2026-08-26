@@ -462,10 +462,15 @@ fn check_case(case: &Value, response: &Value) {
     if let Some(names) = expect["nonEmpty"].as_array() {
         for n in names {
             let name = n.as_str().unwrap();
-            assert!(
-                !array(response, name, tool, why).is_empty(),
-                "{tool}.{name} is empty\n{why}"
-            );
+            // A string counts. `pack.text` is the first response field whose emptiness is the
+            // thing worth asserting and which is not a list — and a case forced to say
+            // `count: {text: …}` about prose would be pinning the renderer's byte layout on
+            // every server, which is exactly what that case's `why` says it must not do.
+            let empty = match at(response, name) {
+                Value::String(s) => s.is_empty(),
+                _ => array(response, name, tool, why).is_empty(),
+            };
+            assert!(!empty, "{tool}.{name} is empty\n{why}");
         }
     }
     if let Some(counts) = expect["count"].as_object() {
@@ -499,4 +504,40 @@ fn check_case(case: &Value, response: &Value) {
             }
         }
     }
+}
+
+/// Every frozen tool has a row in the document that tells an agent when to reach for it.
+///
+/// The same procedural hole RFC-0017 closed one layer out. There, a tool added to
+/// `tools.json` and not to `tools/call` was advertised by the server and errored on
+/// invocation, and the E2E list assertion still passed because both halves read the same
+/// file. Here, a tool added to the contract and not to `docs/mcp-server.md` is served
+/// correctly, conforms fully, and is invisible to the only reader who decides whether to call
+/// it. `query` shipped at contract 0.6.0 and spent a release exactly like that.
+///
+/// The row is the assertion and the prose is not: the table is what an agent scans, and a
+/// tool that has one is discoverable whatever else the page does or does not say about it.
+#[test]
+fn every_tool_in_the_contract_is_in_the_document_an_agent_reads() {
+    let doc = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/mcp-server.md"),
+    )
+    .expect("docs/mcp-server.md is readable");
+    let table: Vec<&str> = doc.lines().filter(|l| l.starts_with("| `")).collect();
+    let missing: Vec<String> = contract()["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap().to_string())
+        .filter(|name| {
+            !table
+                .iter()
+                .any(|row| row.starts_with(&format!("| `{name}` |")))
+        })
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "docs/mcp-server.md's tool table has no row for {missing:?} — a conforming server \
+         serves them and no agent reading the documentation knows they exist"
+    );
 }

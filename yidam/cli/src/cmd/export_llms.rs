@@ -60,9 +60,44 @@ pub fn render_llms(model: &DomainModel, token_budget: Option<usize>) -> LlmsPack
         header(model, total, total, token_budget).len() + trailer(&class_totals, total).len();
     let room = char_budget.saturating_sub(reserve);
 
+    let filled = fill(&nodes, room);
+
+    let mut text = header(model, filled.written, total, token_budget);
+    text.push_str(&filled.body);
+    text.push_str(&trailer(&filled.omitted_by_class, filled.elided));
+    pack(
+        text,
+        total,
+        filled.written,
+        filled.elided,
+        filled.omitted_by_class,
+    )
+}
+
+/// A body filled to a character budget, and the account of what filling it cost.
+pub(crate) struct Filled {
+    pub body: String,
+    /// Nodes present as a section, whether full prose or label-only.
+    pub written: usize,
+    /// Written nodes whose description was dropped to fit.
+    pub elided: usize,
+    /// Nodes with no section at all, by class.
+    pub omitted_by_class: BTreeMap<String, usize>,
+}
+
+/// Fit as much of `nodes` into `room` characters as it will hold, and say what was lost.
+///
+/// **Shared with the per-goal pack (#282), which is the point.** Two packs that spend a
+/// budget by different rules — one dropping prose first and the other dropping whole nodes,
+/// or one spreading membership across classes and the other taking the head of a sorted list
+/// — would both be called "the pack" and would answer the same corpus differently. The
+/// degradation order is a design decision (coverage before membership, membership
+/// round-robin across classes), argued once at [`render_llms`], and it belongs to whatever
+/// renders a pack rather than to one caller.
+pub(crate) fn fill(nodes: &[NodeView], room: usize) -> Filled {
     let compact: Vec<usize> = nodes.iter().map(|n| render_compact(n).len()).collect();
-    let (selected, mut used) = select_membership(&nodes, &compact, room);
-    let (detail, elided) = select_detail(&nodes, &compact, &selected, room, &mut used);
+    let (selected, mut used) = select_membership(nodes, &compact, room);
+    let (detail, elided) = select_detail(nodes, &compact, &selected, room, &mut used);
 
     let written = selected.iter().filter(|s| **s).count();
     let mut omitted_by_class: BTreeMap<String, usize> = BTreeMap::new();
@@ -78,11 +113,26 @@ pub fn render_llms(model: &DomainModel, token_budget: Option<usize>) -> LlmsPack
             Detail::LabelOnly => body.push_str(&render_compact(node)),
         }
     }
+    Filled {
+        body,
+        written,
+        elided,
+        omitted_by_class,
+    }
+}
 
-    let mut text = header(model, written, total, token_budget);
-    text.push_str(&body);
-    text.push_str(&trailer(&omitted_by_class, elided));
-    pack(text, total, written, elided, omitted_by_class)
+/// Every node, at full detail — the shape a pack takes when no budget bounds it.
+///
+/// Not `fill(nodes, usize::MAX)`: that path computes a membership plan and a detail plan to
+/// arrive at "everything", and the arithmetic it does on the way is what the reserve
+/// calculation exists to keep honest. An unbudgeted pack has nothing to be honest about.
+pub(crate) fn fill_all(nodes: &[NodeView]) -> Filled {
+    Filled {
+        body: nodes.iter().map(render_section).collect(),
+        written: nodes.len(),
+        elided: 0,
+        omitted_by_class: BTreeMap::new(),
+    }
 }
 
 fn pack(
@@ -108,6 +158,18 @@ fn sorted_nodes(model: &DomainModel) -> Vec<NodeView> {
     let fields = crate::paths::repo_root()
         .map(|r| crate::claims::ClaimFields::load(&crate::paths::yidam_corpus_dir(&r)))
         .unwrap_or_default();
+    order(&mut nodes, &fields);
+    nodes
+}
+
+/// Priority order for a pack: open questions, then connectivity, then id.
+///
+/// **The order is what a budget spends in**, so it is shared with the per-goal pack for the
+/// same reason [`fill`] is. It is also deliberately not a relevance ranking: after a typed
+/// hop there is no similarity score to rank by, and inventing one would put a number on the
+/// most consequential decision the pack makes — which nodes an agent sees — that nothing
+/// derived.
+pub(crate) fn order(nodes: &mut [NodeView], fields: &crate::claims::ClaimFields) {
     nodes.sort_by(|a, b| {
         let open_a =
             crate::claims::is_open_question(&a.label, &a.content, fields.for_class(&a.class));
@@ -118,7 +180,6 @@ fn sorted_nodes(model: &DomainModel) -> Vec<NodeView> {
             .then_with(|| b.links.len().cmp(&a.links.len()))
             .then_with(|| a.id.cmp(&b.id))
     });
-    nodes
 }
 
 fn render_all(
@@ -260,7 +321,7 @@ fn header(model: &DomainModel, written: usize, total: usize, budget: Option<usiz
 /// The account of what the budget cost, per class. A pack that silently holds a
 /// slice is indistinguishable from one that holds the corpus; this is the line
 /// that distinguishes them.
-fn trailer(omitted_by_class: &BTreeMap<String, usize>, elided: usize) -> String {
+pub(crate) fn trailer(omitted_by_class: &BTreeMap<String, usize>, elided: usize) -> String {
     let mut s = String::new();
     let omitted: usize = omitted_by_class.values().sum();
     if omitted > 0 {

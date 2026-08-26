@@ -257,6 +257,24 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// Build a context pack for one goal — a query's full answer, filled to a token budget,
+    /// with an account of what did not fit
+    Pack {
+        /// The query naming the goal, in `yidam query`'s language — including a similarity
+        /// anchor, e.g. `concept~"hydropeaking" <-exhibits- reach`
+        query: String,
+        /// Approximate token budget (1 token ≈ 4 chars). Unbudgeted by default: a default
+        /// budget would silently truncate the first pack anybody builds
+        #[arg(long)]
+        budget: Option<usize>,
+        /// How many entry nodes a `class~"…"` anchor opens on
+        #[arg(long, default_value_t = yidam::QUERY_DEFAULT_ANCHOR_K)]
+        anchor_k: usize,
+        /// Output format. `text` prints the pack itself, which is the artefact; `json` wraps
+        /// it in the report contract (RFC-0016) beside the receipt
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Report the corpus graph: nodes, resolved edges, and the classes that license them
     Graph {
         /// Output format. `json` emits the machine-readable report contract
@@ -618,6 +636,12 @@ fn main() -> Result<()> {
             across,
             format,
         } => yidam::query(&query, select, limit, anchor_k, at, between, across, format),
+        Command::Pack {
+            query,
+            budget,
+            anchor_k,
+            format,
+        } => yidam::pack(&query, budget, anchor_k, format),
         Command::Graph { format } => yidam::graph(format),
         Command::Neighbors {
             node,

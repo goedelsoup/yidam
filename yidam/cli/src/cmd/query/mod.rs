@@ -249,7 +249,7 @@ fn view(query: &lang::Query, checked: &check::Checked) -> Vec<StepView> {
         .collect()
 }
 
-fn rejected_report(query: &str, rejection: check::Rejection) -> QueryReport {
+pub(crate) fn rejected_report(query: &str, rejection: check::Rejection) -> QueryReport {
     QueryReport {
         query: query.to_string(),
         scope: "local",
@@ -411,7 +411,7 @@ pub fn run_between(
     })
 }
 
-fn load_index(root: &std::path::Path) -> Result<Retrieval> {
+pub(crate) fn load_index(root: &std::path::Path) -> Result<Retrieval> {
     let model = crate::model::load_domain_model(root)?;
     Ok(crate::retrieval::load(&model)?.0)
 }

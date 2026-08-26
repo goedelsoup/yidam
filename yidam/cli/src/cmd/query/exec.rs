@@ -253,9 +253,13 @@ pub fn project(
     corpus_dir: &str,
     select: &[String],
 ) -> (Vec<Row>, usize) {
+    // Indexed once rather than scanned per id. With `--limit 50` the linear scan was
+    // invisible; the per-goal pack (#282) projects every match, and `matched × nodes` on a
+    // corpus of any size is the whole command.
+    let by_id: BTreeMap<String, &Node> = nodes.iter().map(|n| (id_of(n, corpus_dir), n)).collect();
     let mut rows = Vec::new();
     for want in matched {
-        let Some(node) = nodes.iter().find(|n| id_of(n, corpus_dir) == *want) else {
+        let Some(node) = by_id.get(want.as_str()) else {
             continue;
         };
         let mut row = Row::new();

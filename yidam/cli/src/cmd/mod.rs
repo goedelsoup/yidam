@@ -30,6 +30,7 @@ mod log;
 mod lsp;
 mod migrate;
 mod overlay;
+pub(crate) mod pack;
 mod phases;
 pub(crate) mod query;
 mod regen;
@@ -69,6 +70,7 @@ pub use lsp::serve_lsp;
 
 pub use log::{log, Filter as LogFilter};
 pub use overlay::overlay;
+pub use pack::pack;
 pub use phases::phases;
 pub use query::query;
 pub use regen::regen;
