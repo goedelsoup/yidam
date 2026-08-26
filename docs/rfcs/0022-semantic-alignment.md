@@ -204,6 +204,35 @@ exists either way, so a wrong candidate costs a bad lead and never a false findi
 the prefix rule offers a candidate for 57 of A's 267 unmatched types, 10 of B's 46 and 85 of
 C's 203 — and adds no rows to any report.
 
+### Re-measured against the shipped rule
+
+The section above was measured 2026-08-22 against a prototype. Re-running the rule as built
+(#349) against the same three repositories on 2026-08-26 gives **56 of A's 273, 11 of B's 46
+and 79 of C's 203**. The vocabularies are unchanged at 150, 83 and 189, and B's and C's
+unmatched populations are unchanged too; A has gained six types since.
+
+C is the one that does not reconcile — the same 203 names and the same 189 declarations,
+79 candidates against 85. Every looser reading of *"differ by at most three trailing
+characters"* was tried and none of them lands on 85 while leaving B at 10: dropping the
+length bound gives 83/13, letting sub-four-character words match on equality gives 81/11.
+**The prose is the specification and the prototype is not recoverable from it**, so what
+shipped is the prose, and these are its numbers. The conclusion is untouched — a candidate on
+roughly a quarter of unmatched types, and no new rows.
+
+### The shared root is what makes a bad lead cheap
+
+The measurement #349 was asked for is whether the *suggested* name is right, not how many are
+suggested. Read in full, wrong suggestions concentrate almost entirely in one place: a shared
+root of exactly four characters that is a truncation rather than a whole word — `state` →
+`status` on `stat`, `profile` → `profession` on `prof`, `lever` → `level` on `leve`. Where
+the four characters are a whole word on both sides (`vote`, `plan`, `case`, `line`, `read`)
+the suggestion is almost always right, and every root of five characters or more is.
+
+That is an argument for reporting the root rather than a score, and not an argument for a
+fifth character. `shared: "stat"` tells a reader at a glance that the lead is weak, which a
+fabricated 0.83 would have concealed; and lifting the floor would take `vote` and `case` with
+it. Recorded as evidence for the open question below rather than acted on.
+
 ## Design
 
 ### One field, not one pass

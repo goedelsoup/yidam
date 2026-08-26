@@ -70,10 +70,12 @@ content = ""
 # the empty arm. Written by this commit rather than shipped in `repo/`, because the check
 # reads a *diff*: a file that has always been there introduces nothing.
 #
-# The three declarations are the three outcomes. `Gauge` matches a class, `Datum` matches a
-# property — which is what stops the vocabulary quietly narrowing to class names alone — and
-# `RatingCurve` matches nothing, so it is the finding. `Reads` is a trait and is never asked
-# about, which no unit test can pin here: only a golden shows it absent from real output.
+# The four declarations are the four outcomes. `Gauge` matches a class, `Datum` matches a
+# property — which is what stops the vocabulary quietly narrowing to class names alone —
+# `RatingCurve` matches nothing at all, and `Measurement` matches nothing while sharing a
+# root with `measured-by`, so it is the finding that carries a `nearest`. `Reads` is a trait
+# and is never asked about, which no unit test can pin here: only a golden shows it absent
+# from real output.
 [[commits.write]]
 file = "crates/gauge/src/lib.rs"
 content = '''
@@ -91,9 +93,18 @@ pub enum Datum {
     Local,
 }
 
-/// Nothing the ontology declares is named `rating-curve`.
+/// Nothing the ontology declares is named `rating-curve`, and nothing shares a root with
+/// it either, so this finding is offered no candidate.
 pub struct RatingCurve {
     pub gauge: Gauge,
+}
+
+/// Nothing the ontology declares is named `measurement` — but `measured-by` shares the root
+/// `measure`, which is the near-miss the report hands the reader rather than making them
+/// find it against the whole vocabulary.
+pub struct Measurement {
+    pub gauge: Gauge,
+    pub datum: Datum,
 }
 
 /// A capability rather than a concept, so this is never asked about.

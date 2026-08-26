@@ -11,6 +11,10 @@
 //! RFC-0021 is the specification. This is Phase A of #23: deterministic, no model call, no
 //! vector index, no parity-surface change, no network.
 //!
+//! RFC-0022 is Phase B, and it changed nothing about that sentence. Its measurement is the
+//! reason: the semantic pass #23 planned turns out to be a string rule, so a near-miss is one
+//! optional field on the finding below rather than a second check. See [`near`].
+//!
 //! # Why a diff, and not the corpus
 //!
 //! Because the gap is enormous. One repository declares **15 classes** and its code defines
@@ -34,6 +38,7 @@
 //! `docs/post-genesis-measurement.md` recorded.
 
 pub mod extract;
+pub mod near;
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -42,13 +47,16 @@ use std::process::Command;
 use anyhow::{Context, Result};
 
 use crate::authorship::Authorship;
+use crate::cmd::check_diff::near::Nearest;
 use crate::cmd::lint;
 use crate::paths::{repo_root, require_yidam_repo, yidam_corpus_dir};
 use crate::report::Span;
 
-/// The one finding Phase A reports.
+/// The one finding this command reports, in either phase.
 ///
-/// `CONFLICT` — code contradicting a claim — requires reading semantics and is #343.
+/// `CONFLICT` — code contradicting a claim — is **withdrawn rather than deferred**. It is a
+/// fact about meaning, and RFC-0022 decided that nothing which may not call a remote model
+/// can hold one; #23's table is closed rather than left implying a third phase is coming.
 /// `ALIGNED` is not a finding at all: one per correctly implemented concept is a permanently
 /// non-empty report by construction, so it is [`CheckDiffReport::aligned`], a number in the
 /// summary line, which is the same thing a reader wanted at none of the cost.
@@ -66,6 +74,12 @@ pub struct Finding {
     pub concept: String,
     /// What the ontology would have to name for this to match: `agenda-item`.
     pub name: String,
+    /// A declared name this one shares a root with, when the vocabulary holds one.
+    ///
+    /// A lead and not a verdict: it annotates a finding that exists either way, so a wrong
+    /// candidate costs a reader one look and never a spurious row. See [`near`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nearest: Option<Nearest>,
     pub file: String,
     pub span: Span,
     /// Phrased as a question, deliberately. The answer is a person's.
@@ -121,6 +135,32 @@ fn read_diff(root: &Path, before: &str, after: &str) -> Result<String> {
     String::from_utf8(out.stdout).context("git diff output is not UTF-8")
 }
 
+/// The finding's sentence, with the near-miss carried as evidence when there is one.
+///
+/// **Three answers rather than two**, because a shared root rules none of them out: the type
+/// may be what the ontology already declares under another word form, a concept the corpus
+/// should model, or a helper it has no reason to know about. Phase A's two answers survive
+/// verbatim, and the candidate is offered before them rather than instead of them.
+///
+/// The register is unchanged, and is `citations::moved`'s: phrased as a question,
+/// deliberately, because the answer is a person's. What the candidate is not is a verdict —
+/// a shared root is a fact about two strings, and [`near`] says why nothing here reports a
+/// score alongside it.
+fn question(name: &str, nearest: Option<&Nearest>) -> String {
+    let Some(n) = nearest else {
+        return format!(
+            "nothing the ontology declares is named `{name}`. Is it a concept this corpus \
+             should model, or a helper the ontology has no reason to know about?"
+        );
+    };
+    format!(
+        "nothing the ontology declares is named `{name}`, though `{}` shares the root `{}`. \
+         Is that the same concept, one this corpus should model, or a helper the ontology \
+         has no reason to know about?",
+        n.name, n.shared
+    )
+}
+
 /// The report, from a diff and a vocabulary. Pure — the subprocess is [`read_diff`]'s.
 ///
 /// **Exclusions come from [`crate::authorship`] and nowhere else.** #23 lists "scope of
@@ -152,18 +192,17 @@ fn build(
             aligned += 1;
             continue;
         }
+        let nearest = near::nearest(&name, vocabulary);
         findings.push(Finding {
             check: CHECK,
             // `generated` and `imported` are still reported, and reported to somebody: the
             // finding is real and it belongs to a generator or an upstream rather than to
             // whoever ran this.
             severity: if region.is_some() { "info" } else { "warn" },
-            question: format!(
-                "nothing the ontology declares is named `{name}`. Is it a concept this \
-                 corpus should model, or a helper the ontology has no reason to know about?"
-            ),
+            question: question(&name, nearest.as_ref()),
             region: region.map(|r| r.explain()),
             concept: d.name,
+            nearest,
             name,
             file: d.file,
             span: Span { line: d.line },
@@ -251,6 +290,16 @@ fn render(r: &CheckDiffReport) -> String {
         r.findings.len(),
         r.vocabulary
     ));
+    // Only when one was offered. A report that suggested nothing should not explain how it
+    // would have — and a reader who sees the sentence has a candidate in front of them to
+    // read it against.
+    if r.findings.iter().any(|f| f.nearest.is_some()) {
+        out.push_str(
+            "A nearest name is two names sharing a root and nothing more. No model read \
+             either of them, and the suggestion is a lead to check rather than a claim that \
+             the two are the same thing.\n",
+        );
+    }
     out
 }
 
