@@ -244,6 +244,9 @@ const COMMANDS: &[(&str, &[&str])] = &[
     // rather than the series, and would move whenever the fixture gained a commit.
     ("replay", &["replay", "--every", "0"]),
     ("diff", &["diff", "HEAD~1..HEAD"]),
+    // The same range as `diff`, and deliberately: one reads the corpus change and the
+    // other reads the code change, and the fixture's last commit makes both non-empty.
+    ("check-diff", &["check-diff", "HEAD~1..HEAD"]),
     ("log", &["log"]),
     ("log-epistemic", &["log", "--epistemic"]),
     ("index-status", &["index-status"]),

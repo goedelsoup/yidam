@@ -3,6 +3,7 @@ mod bench;
 mod build;
 mod bundle;
 mod catalog;
+pub(crate) mod check_diff;
 mod clone;
 mod copy;
 pub(crate) mod corpus;
@@ -56,6 +57,7 @@ pub use bench::{
 pub use build::{crates_index, packages_index};
 pub use bundle::bundle;
 pub use catalog::catalog_audit;
+pub use check_diff::check_diff;
 pub use clone::clone;
 pub use corpus::{corpus_index, graph_check, open_questions};
 pub use decisions::decisions_log;

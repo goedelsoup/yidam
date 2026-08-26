@@ -1,0 +1,8 @@
+2 of 3 type(s) introduced in `crates/` by HEAD~1..HEAD match a concept the ontology declares.
+
+  crates/gauge/src/lib.rs
+    line 16 [warn] RatingCurve — nothing the ontology declares is named `rating-curve`. Is it a concept this corpus should model, or a helper the ontology has no reason to know about?
+
+1 concept(s) the ontology has not modelled, against the 8 name(s) it declares.
+Matching is by name alone: this cannot tell a gap in the ontology from a helper it has no reason to know about, and does not claim to. Nothing was changed, and no class was created.
+

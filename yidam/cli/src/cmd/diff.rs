@@ -206,7 +206,7 @@ pub fn diff_corpus(range: &str, format: crate::report::Format) -> Result<()> {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-fn parse_range(range: &str) -> (String, String) {
+pub(crate) fn parse_range(range: &str) -> (String, String) {
     if let Some(idx) = range.find("..") {
         let before = range[..idx].to_string();
         let after = range[idx + 2..].to_string();

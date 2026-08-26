@@ -98,6 +98,11 @@ pub const GROUPS: &[Group] = &[
             r("pack"),
             r("estimate"),
             r("diff"),
+            // Beside `diff` rather than with the gates: it reads a code diff the way `diff`
+            // reads a corpus one, and it cannot fail. A command filed under "exit nonzero on
+            // a problem" would be read as one more thing that can break the build, and every
+            // finding it has is a question somebody has to answer rather than a defect.
+            r("check-diff"),
             w("rename"),
             // Beside `rename` and not with the gates: both move something and rewrite every
             // reference to it. `rename` moves one node; this moves a class, a property, or

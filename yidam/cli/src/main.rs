@@ -340,6 +340,22 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// Ask what a code diff names that the ontology does not (RFC-0021).
+    ///
+    /// Read-only, and it never gates: every finding is a question about the corpus, and
+    /// the answer — a new class, or a decision not to have one — is an author's.
+    ///
+    /// The range is explicit, exactly as `diff`'s is. What a CI default should be is an
+    /// open question in RFC-0021 and is not answered by picking one here.
+    #[command(name = "check-diff")]
+    CheckDiff {
+        /// Git range, e.g. `main..HEAD`, `HEAD~5`, `abc123..def456`
+        range: String,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Bundle ontology, corpus, skills, decisions, and vector index into .yidam/bundle.yiz
     /// (backwards-compatible alias for `export --format bundle`)
     Bundle,
@@ -731,6 +747,7 @@ fn main() -> Result<()> {
         Command::GraphCheck { format } => yidam::graph_check(format),
         Command::DecisionsLog => yidam::decisions_log(),
         Command::Diff { range, format } => yidam::diff_corpus(&range, format),
+        Command::CheckDiff { range, format } => yidam::check_diff(&range, format),
         Command::Bundle => yidam::bundle(),
         Command::Export {
             format,

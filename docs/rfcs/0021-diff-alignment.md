@@ -187,21 +187,73 @@ What licenses this one is the finding itself, which is RFC-0020's ordinary case.
 ## What this does not touch
 
 - **The parity surface.** No SDK gains a function; see above.
-- **The template.** No new directory, no new frontmatter field, no prelude rule. A derived
-  repository gets this by re-vendoring the binary.
+- **The template.** No new directory, no new frontmatter field, no rule the prelude enforces.
+  A derived repository gets the check by re-vendoring the binary. `guidelines/directories.md`
+  gained a paragraph under `crates/` saying the check exists, that it never gates, and that
+  `.yidam/authorship.yml` is the vocabulary for excluding test code — the same amendment #270
+  made to `agent-conduct.md`, and for the same reason: a check nobody in a derived repository
+  knows about is a report nobody reads.
 - **The MCP contract.** No tool is added.
 - **The network, and any model.** Phase A is deterministic. Whether the tool may ever call a
   model is #343's first question, and it is unanswered.
 - **`--features index`.** Nothing here needs the vector index, which is what keeps it testable
   in the CI that would run it — PR CI never compiles that feature.
 
+## What implementation found
+
+Added after #342 landed, because four things the design treated as incidental turned out to
+be load-bearing and one open question answered itself.
+
+**`.rs` is not a formality.** `crates/README.md` in one repository contains the sentence
+fragment *"a struct rather"*, which the declaration pattern matches happily. A line-based
+extractor over a diff of `crates/` reads whatever `crates/` holds, and the file-type filter
+is what stops it reporting prose as a domain concept.
+
+**The removal guard is what makes the diff scoping honest.** C's busiest code commit in the
+sample adds 42 declarations — the maximum in the table above — and reports **zero**. It is a
+file split: *"the feed's types and its serializer stop sharing a file"*, 42 added and 42
+removed. Without the guard the single loudest finding this check could produce in three
+repositories would have been a no-op refactor, which is exactly the shape of noise that gets
+a check turned off.
+
+**`trait` and `type` stay out, measured.** Widening to both adds 14, 3 and 13 names across
+A, B and C, and none of them is a concept — `Connector`, `Result`, `BoxFut`. A trait names a
+capability and an alias names a spelling.
+
+**Authorship-only exclusion costs nothing.** Of the 68, 101 and 20 types introduced across
+each repository's most recent 60 code-touching commits, **2 apiece** sit under a `tests/`
+path. The second vocabulary #23 asked for would have bought six findings' worth of quiet
+across three repositories.
+
+**Property and relationship names carry real weight.** The ontology vocabulary is 152, 84 and
+189 names against 15, 12 and 18 classes. A check reading class names alone would ask about a
+concept the corpus already models, as a property of something else or as the name of an edge.
+
+**The `open:` proposal has nowhere to land, and RFC-0020 already said why.** [Under E4, a
+finding becomes a question](#under-e4-a-finding-becomes-a-question) claims `yidam propose`
+drafts an `open:` for a finding here on ordinary terms. It does not, and #342 does not wire
+it. Each of `propose`'s three acts writes a paragraph into a corpus node or a catalog entry,
+and an unmodelled concept has neither *by construction* — that it is in no file is the
+finding. Proposing the class would be composition, which the carriage rule forbids; choosing
+which existing node should carry the question is RFC-0020's own *"the ontology names a class
+and not a node"* correction one step further along, with no candidate rather than seven. And
+`propose` takes no range, so wiring it would mean answering the `--from`/`--to` question below
+instead of deferring it. That section stands as an intent, not as built behaviour.
+
 ## Open questions
+
+- **A stoplist does not survive its own measurement, and that is the answer.** The question
+  above asked for recurrence across A, B and C before writing one. Measured: of **514 distinct
+  type names**, exactly **one** — `Coverage` — appears in all three, and 31 appear in two. That
+  list is not infrastructure either; it holds `Chamber`, `Reach`, `Sponsor`, `Provenance` and
+  `Standing`, every one of them a domain noun in the repository that has it. A recurrence-derived
+  stoplist would be a handful of entries long and would suppress real concepts to get there. If
+  the forty-types-in-one-commit case needs something, it is not this.
 
 - **What counts as a domain type.** Diff-scoping makes this much less pressing — each type is
   asked about once, where the author is — but a repository that lands forty types in one
-  commit (C's maximum is 42) will want something. A stoplist is the obvious answer and the
-  obvious way to get it wrong; measuring which names recur across A, B and C before writing
-  one is the cheaper order.
+  commit will want something. See the measurement above: the obvious answer is measurably
+  wrong, and C's 42-declaration commit turned out to report nothing anyway.
 - **The calculator/connector boundary**, which #23 raises and this RFC does not need for its
   one finding. It becomes load-bearing the moment a finding's *text* depends on which kind of
   code it is in. Measurable now: A has ~17 connector-ish and ~13 calculator-ish files, C ~32
