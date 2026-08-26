@@ -200,6 +200,12 @@ told "here are 5 of 41 claims" can take different next actions, and only the sec
 decide to ask for more. This is the `LlmsPack` receipt principle at its cheapest; the full
 per-goal version is #282 and depends on E2.
 
+**#284 landed as `estimate`, at contract 0.9.0** — quote before, account after. The objection
+worth recording is the one it survives: knowing exactly what a query costs means running it, so
+a quote is the answer with the prose withheld and no cheaper. That is true of the *server* and
+false of the *caller*, which is the distinction `nodes_read` already draws when it refuses to
+count the corpus load. It is the speculative child the epic named, and nothing depends on it.
+
 **#283 landed as `absence`, at contract 0.8.0.** The same principle applied to coverage
 rather than to method: `query` and `pack` now say *why* an answer is empty, from a closed set
 of codes each read off something the corpus states. The one worth the most is

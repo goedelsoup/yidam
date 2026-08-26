@@ -28,7 +28,7 @@ harness checks that they do.
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.8.0",
+    "contract": "0.9.0",
     "retrieve": { "vector": false, "reason": "no_index" },
     "graph": true, "ontology": true,
     "phases": false, "sangha": false, "resources": true
@@ -40,6 +40,54 @@ harness checks that they do.
 the vector index is loaded, which is the same fact `degraded` reports per call. A server that
 declares `vector: false` is promising every `retrieve` will come back `degraded: true`, with
 the `reason` it names here. `reason` is null exactly when `vector` is true.
+
+## Quote before, account after (contract 0.9.0)
+
+One tool, `estimate`, at the `ontology` tier. An agent budgets in tokens and, until this,
+could only discover what a retrieval cost by paying for it — so the only strategy available was
+to ask for less than might be needed and hope.
+
+**It is cheap for the caller and not for the server, and that asymmetry is the whole point.**
+Knowing exactly what a query costs means running it, so a quote is the answer with the prose
+withheld. The server holds every node either way — the same reason `nodes_read` refuses to
+count the corpus load — and the caller pays for what comes back. A conforming server returns no
+rows here, and runs the traversal exactly **once**: a quote that resolved a similarity anchor
+twice charges double for the thing it exists to call affordable.
+
+```text
+8 node(s) match — priced against a budget of 200 token(s)
+
+  select                          chars    ~tokens
+  node,class,label                  639        159  fits
+  node,class,label,description     5991       1497  over budget
+  node,class,label,body            8512       2128  over budget
+  a context pack                   6138       1534  over budget
+
+  chars are exact; ~tokens is chars/4 — use chars with a real tokenizer
+```
+
+**A table, because the decision is not whether.** A caller has its question either way; what it
+chooses is how much of each node to ask for. Every row prices the same match set at a different
+`select`, cheapest first, and `fits` is the verdict against the quoted budget — null exactly
+when no budget was given.
+
+**`chars` is exact and `tokens` is not.** `chars` is the serialized length of the payload that
+would come back; a server that rounds it has broken the only promise here. There is
+deliberately **no range**: a range would be a second invented number laid over the first, and a
+caller with a real tokenizer needs the exact figure rather than a wider guess.
+
+**`limit` is part of the call, so it is part of the quote.** Projections are priced at it;
+`pack` has no limit, so its row prices the whole match set. The two sit side by side because a
+caller comparing them is comparing a page of names against the corpus's prose.
+
+**A quote of zero reads as cheap**, which is why `absence` is carried here too. A caller told a
+query costs nothing, and not told the class is unpopulated, has been handed the most affordable
+possible way to learn nothing. `pack.chars` on an empty answer is not zero — the pack carries
+the diagnosis, and that is the part worth paying for when there is no answer.
+
+**Speculative, and said so.** This is the one tool added on a guess about how callers behave
+rather than on a measured gap. Nothing else depends on it, it reads nothing new, and it
+computes entirely from what `query` already produces.
 
 ## Where a corpus is ignorant (contract 0.8.0)
 
@@ -179,6 +227,7 @@ capability, because a projected mirror can hold nodes and edges and hold no `.on
 | `licensed_edges` | ontology | what a class declares it may link to |
 | `query` | ontology | a typed path over the graph (added at 0.6.0, above) |
 | `pack` | ontology | that path's answer, budgeted, with what did not fit (added at 0.7.0, above) |
+| `estimate` | ontology | what either would cost, before paying for it (added at 0.9.0, above) |
 
 The first exists because the other five tools all return **nodes**, and the unit of assertion
 here is not the node — it is the claim. A node is 2–10 sentences by the model's own rule, so

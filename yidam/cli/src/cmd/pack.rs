@@ -190,19 +190,34 @@ fn view(node: &Node, id: &str) -> NodeView {
 
 /// Build the pack against an already-loaded corpus.
 pub fn run_on(ctx: &query::Context, text: &str, opts: &Options) -> PackReport {
-    let report = query::run_on(
-        ctx,
-        text,
-        &query::Options {
-            // `node` alone. The projection is discarded — the pack renders the nodes
-            // themselves — and selecting more would serialize every field of every match to
-            // compute a `chars` figure nothing here reads.
-            select: vec!["node".to_string()],
-            // Every match, for the reason in the module docs.
-            limit: usize::MAX,
-            anchor_k: opts.anchor_k,
-        },
-    );
+    from_report(ctx, text, query::run_on(ctx, text, &traversal(opts)), opts)
+}
+
+/// The query a pack runs, separated so a caller that has already run it can hand the answer
+/// over instead of running it twice.
+///
+/// `estimate` is that caller (#284): quoting what a pack would cost alongside what a
+/// projection would cost must not resolve the similarity anchor a second time, which is the
+/// most expensive thing either of them does.
+pub(crate) fn traversal(opts: &Options) -> query::Options {
+    query::Options {
+        // `node` alone. The projection is discarded — the pack renders the nodes themselves —
+        // and selecting more would serialize every field of every match to compute a `chars`
+        // figure nothing here reads.
+        select: vec!["node".to_string()],
+        // Every match, for the reason in the module docs.
+        limit: usize::MAX,
+        anchor_k: opts.anchor_k,
+    }
+}
+
+/// Build the pack from a traversal already performed by [`traversal`]'s query.
+pub(crate) fn from_report(
+    ctx: &query::Context,
+    text: &str,
+    report: query::QueryReport,
+    opts: &Options,
+) -> PackReport {
     if report.rejected.is_some() {
         return rejected(text, report);
     }
