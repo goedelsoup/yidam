@@ -498,6 +498,33 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// Draft findings as proposed epistemic commits on a `propose/<head>` branch
+    ///
+    /// Turns findings that are failing the gate into commits a person reviews and
+    /// merges, amends, or deletes. Three acts only — `open` records a finding's
+    /// question against the node it is about, `withdraw` deletes a node this corpus
+    /// declared over-collected via `[propose] withdraw_uncited_after`, and `close`
+    /// retires a question this command opened whose finding is gone.
+    ///
+    /// Nothing merges itself and nothing synthesizes: no edge is drawn, no claim is
+    /// re-tagged, and no node is authored. Writes git objects and one ref — the working
+    /// tree, the index and HEAD are untouched, so it is safe to run mid-edit. `.yidam/`
+    /// must be committed, because the findings are read from the working tree and the
+    /// commits are built on HEAD.
+    ///
+    /// See docs/rfcs/0020-proposal-surface.md for why the surface is this small.
+    Propose {
+        /// Draft everything and write nothing
+        #[arg(long)]
+        dry_run: bool,
+        /// Replace an existing propose/<head> branch rather than refusing it
+        #[arg(long)]
+        force: bool,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Report the sangha: electors, positions, and settled resolutions
     Sangha {
         /// Output format. `json` emits the machine-readable report contract
@@ -637,6 +664,15 @@ fn main() -> Result<()> {
         Command::BundleStatus => yidam::bundle_status(),
         Command::Doctor { strict, format } => yidam::doctor(strict, format),
         Command::Regen { check, format } => yidam::regen(check, format),
+        Command::Propose {
+            dry_run,
+            force,
+            format,
+        } => yidam::propose(yidam::ProposeOptions {
+            dry_run,
+            force,
+            format,
+        }),
         Command::Rename {
             old,
             new,

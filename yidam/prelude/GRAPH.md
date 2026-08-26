@@ -16,10 +16,19 @@ This repository's knowledge graph lives in git. No external store is required.
 | `refs/heads/phase/<name>` | A bounded phase of inquiry in progress |
 | `refs/heads/rigpa/<evolution>` | *Collective mode only* — a settled, named collective understanding |
 | `refs/heads/ma/<elector>` | *Collective mode only* — one elector's current working position |
+| `refs/heads/propose/<head>` | A branch of proposed commits `yidam propose` drafted, awaiting review |
 
-The last two exist only in repositories bootstrapped as `governance: collective`. In a
+`rigpa/` and `ma/` exist only in repositories bootstrapped as `governance: collective`. In a
 single-elector repository — the common case — the baseline is `main` and inquiry runs on
 `phase/<name>` branches. See [PHASES.md](PHASES.md).
+
+`propose/<head>` is deliberately named in plain English while the others are not. The
+distinction between `ma/` and `rigpa/` is ontological rather than procedural — `ma/` is a
+voice moving toward recognition, `rigpa/` is recognition — and a proposal is neither. It is a
+draft awaiting a person, and a name from that vocabulary would be the first move toward
+treating it as a standing it does not have. It is named after the commit it was computed
+against, for the reason the residence clock counts commits: a date is a function of when you
+ran the command, and a commit is a function of the repository.
 
 ## Nodes
 
@@ -421,6 +430,25 @@ bootstrap layer consumed at genesis.
 | `fix` | A defect corrected |
 | `vendor` | The prelude re-vendored |
 | `consume` | A transient bootstrap layer consumed |
+
+### A tool may write three of these verbs
+
+`yidam propose` drafts `open`, `withdraw` and `close` commits onto a `propose/<head>` branch,
+and nothing else in this list. It is the only tool that writes an epistemic commit, and what
+licenses it is `transport`'s licence one paragraph up: **carriage is not synthesis.** A
+proposal records a question a finding already phrased, withdraws a node this corpus declared
+over-collected in its own `.yidam/config.toml`, or retires a question `propose` itself opened
+once the finding is gone. Each asserts only what was already asserted.
+
+What it may never do follows from the same rule, and the boundary is worth stating because it
+is easy to cross by accident: **no `establish`** (authoring a node), **no `revise`**
+(retagging a claim, or splitting one node into two), **no `synthesize`**, **no `resolve`**.
+Drawing an edge asserts a relationship; retagging asserts a standing; splitting asserts two
+nodes and a partition of claims. None of those is in any finding.
+
+**Nothing merges itself.** The branch is reviewed as commits and rejected by deleting it. See
+[RFC-0020](https://github.com/goedelsoup/yidam/blob/main/docs/rfcs/0020-proposal-surface.md) for the argument, including why three of
+the four acts originally proposed for it are not here.
 
 **Why closed.** An open vocabulary decays into one verb per commit. A repository derived
 from this template ran a hundred commits with roughly sixty distinct leading words — `lift`,
