@@ -46,6 +46,21 @@ pub type Row = BTreeMap<String, serde_json::Value>;
 pub struct Outcome {
     pub matched: Vec<String>,
     pub cost: Cost,
+    /// How many nodes satisfied each step, in order. `reached[0]` is the entry set and the
+    /// last entry is `matched.len()`.
+    ///
+    /// Kept for the sake of the **first zero**. An empty answer has a place where it became
+    /// empty, and that place is the only thing a diagnosis of the absence can be derived
+    /// from (#283) — without it, "no results" is one fact about a whole path and there is
+    /// nothing to say about it that is not a guess.
+    pub reached: Vec<usize>,
+    /// Edges followed *into* each step, in order.
+    ///
+    /// Indexed to line up with [`Self::reached`] rather than with `hops`, which is one
+    /// shorter: `followed[0]` is always 0, because the entry step is not reached by an edge.
+    /// It separates the two ways a hop comes back empty — no edge of that relationship left
+    /// the set at all, or edges were followed and nothing they landed on satisfied the step.
+    pub followed: Vec<usize>,
 }
 
 /// The corpus-relative id of a node — `class/name.yml`, as `corpus-index` reports it.
@@ -201,9 +216,13 @@ pub fn execute(
         }
     }
 
+    let mut reached: Vec<usize> = vec![current.len()];
+    let mut followed: Vec<usize> = vec![0];
+
     for (index, hop) in query.hops.iter().enumerate() {
         let landing = &query.steps[index + 1];
         let mut next: Vec<String> = Vec::new();
+        let mut into = 0usize;
         for (from, relationship, to) in &edges {
             if relationship != &hop.relationship {
                 continue;
@@ -218,6 +237,7 @@ pub fn execute(
                 continue;
             }
             edges_walked += 1;
+            into += 1;
             let Some(node) = nodes.iter().find(|n| id(n) == *target) else {
                 continue;
             };
@@ -229,6 +249,8 @@ pub fn execute(
         // Corpus order again, not discovery order: two runs must agree.
         next.sort_by_key(|target| nodes.iter().position(|n| id(n) == *target).unwrap_or(0));
         current = next;
+        reached.push(current.len());
+        followed.push(into);
     }
 
     Outcome {
@@ -240,6 +262,8 @@ pub fn execute(
             corpus_nodes: nodes.len(),
             ..Cost::default()
         },
+        reached,
+        followed,
     }
 }
 

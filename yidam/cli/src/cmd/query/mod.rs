@@ -20,6 +20,7 @@
 //! envelope, and every rejection this surface specifies would be invisible to a JSON
 //! consumer.
 
+pub mod absence;
 pub mod anchor;
 pub mod at;
 pub mod check;
@@ -75,6 +76,13 @@ pub struct Graph {
     pub universal: crate::universal::Universal,
     /// Repo-relative, e.g. `.yidam/corpus` — the prefix node ids are stripped of.
     pub corpus_dir: String,
+    /// The repository this corpus was loaded from.
+    ///
+    /// Carried so an *absent* answer can ask a question a present one never needs to: whether
+    /// an installed dependency holds what this corpus does not (#283). The look is lazy and
+    /// happens only when the answer came back empty, which is the one time it is worth a
+    /// directory walk per package.
+    pub root: std::path::PathBuf,
     /// Installed dependencies, when the caller asked to query across them (`--across`, #268).
     ///
     /// Empty by default, and that is the boundary: a query that did not ask cannot see a
@@ -119,6 +127,7 @@ impl Graph {
             classes,
             universal: crate::universal::Universal::load(root),
             corpus_dir: rel,
+            root: root.to_path_buf(),
             across: Vec::new(),
         }
     }
@@ -204,6 +213,13 @@ pub struct QueryReport {
     pub rejected: Option<check::Rejection>,
     /// What the similarity anchor did, or null when the query had none.
     pub anchor: Option<anchor::Anchor>,
+    /// Why the answer is empty, when it is — and null when the query matched something.
+    ///
+    /// Present-and-null rather than absent, for the reason every other field on this report
+    /// is: a client testing the key must not have to distinguish "the query found something"
+    /// from "a binary too old to say why it did not". #283's whole finding is that an empty
+    /// result is where an agent invents, so the one thing this key must never be is ambiguous.
+    pub absence: Option<absence::Absence>,
     /// The commit this answer is about, or null for the working tree.
     ///
     /// Present-and-null rather than absent: an answer about a past commit and an answer about
@@ -256,6 +272,11 @@ pub(crate) fn rejected_report(query: &str, rejection: check::Rejection) -> Query
         steps: Vec::new(),
         rejected: Some(rejection),
         anchor: None,
+        // A rejected query never ran, so there is no absence to diagnose. The two are
+        // deliberately not merged: `rejected` says the query is wrong, `absence` says the
+        // query is right and the corpus is quiet, and a surface that collapsed them would
+        // tell an agent its typo was a true negative.
+        absence: None,
         at: None,
         diagnostics: Vec::new(),
         results: Vec::new(),
@@ -639,7 +660,7 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
         resolved.as_ref(),
     );
     let mut matched = outcome.matched.len();
-    let shown: Vec<String> = outcome.matched.into_iter().take(opts.limit).collect();
+    let shown: Vec<String> = outcome.matched.iter().take(opts.limit).cloned().collect();
     let (mut results, mut chars) =
         exec::project(&shown, &graph.nodes, &graph.corpus_dir, &opts.select);
     for row in &mut results {
@@ -650,7 +671,7 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
         // where everything happens to be local.
         row.insert("origin".into(), serde_json::Value::Null);
     }
-    let mut cost = outcome.cost;
+    let mut cost = outcome.cost.clone();
     // Taken by value here and the rest of `checked` kept: `view` still needs `narrowed`, and
     // the foreign corpora append to this list.
     let mut diagnostics = std::mem::take(&mut checked.diagnostics);
@@ -719,6 +740,25 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
         }
     }
 
+    // Diagnosed only on an empty answer, and only after the dependency loop has had its say:
+    // a `--across` run that found a foreign row matched, and the local corpus being quiet is
+    // then a fact about the boundary rather than about the answer.
+    //
+    // The look next door is a directory read per installed package. It is the reason this is
+    // behind the emptiness test rather than computed alongside `matched` — an answer with rows
+    // has no question to ask, and that is the overwhelming majority of them.
+    let absence = match matched {
+        0 => Some(absence::diagnose(
+            ctx,
+            &parsed,
+            &checked,
+            &schema.authored,
+            &outcome,
+            resolved.as_ref().map(|r| &r.anchor),
+        )),
+        _ => None,
+    };
+
     QueryReport {
         query: text.to_string(),
         // Not inferred from whether any foreign row came back. A repository with no
@@ -732,6 +772,7 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
         steps: view(&parsed, &checked),
         rejected: None,
         anchor: resolved.map(|r| r.anchor),
+        absence,
         at: ctx.at.cloned(),
         diagnostics: diagnostics.into_iter().chain(moved).collect(),
         returned: results.len(),
@@ -875,6 +916,17 @@ pub fn render(report: &QueryReport) -> String {
                     format!("keyword search, not similarity ({reason}); {repair}"),
                 _ => "semantic search".to_string(),
             }
+        ));
+    }
+    // Before the diagnostics rather than after: this is the answer to the question a reader
+    // of an empty result is actually holding, and burying it under a list of notes about
+    // steps that ran fine is how it gets skimmed past.
+    if let Some(a) = &report.absence {
+        out.push_str(&format!(
+            "  [absent] step {}: {} ({})\n",
+            a.step + 1,
+            a.message,
+            a.code
         ));
     }
     for d in &report.diagnostics {

@@ -287,3 +287,77 @@ fn at_and_between_are_mutually_exclusive() {
     );
     assert_eq!(run.code, 2, "{}", run.stdout);
 }
+
+/// A historical answer that is empty says why, and does **not** point at today's packages.
+///
+/// The diagnosis itself travels to a past commit intact: it is read off the ontology
+/// reconstructed at that commit rather than off the working tree. What must not travel is the
+/// offer to look next door — **a dependency set has no history.** What this repository holds
+/// is whatever bundle is unpacked now, so naming it to explain a corpus from a year ago would
+/// be an anachronism dressed as a lead. It is the same argument that refuses `--across` and
+/// `--at` together, one field further in.
+///
+/// Its own history rather than [`history`]'s: this needs a commit where a class is declared
+/// and empty, and adding one to the shared fixture would change what every other test in this
+/// file is looking at.
+#[test]
+fn an_empty_historical_answer_is_diagnosed_and_offered_no_dependency() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    git(dir, &["init", "-q", "-b", "main"]);
+    git(dir, &["config", "user.email", "t@t.co"]);
+    git(dir, &["config", "user.name", "T"]);
+    // Declared and empty, at every commit there is.
+    write(dir, ".yidam/corpus/note.ont.yml", "class: note\n");
+    write(dir, ".yidam/corpus/gage.ont.yml", "class: gage\n");
+    write(
+        dir,
+        ".yidam/corpus/gage/canyon.yml",
+        "class: gage\nlabel: Canyon\n",
+    );
+    git(dir, &["add", "-A"]);
+    git(dir, &["commit", "-qm", "chore: genesis — absence"]);
+
+    // An installed package holding exactly what the query asks for. On a present-tense run
+    // this is what `elsewhere` names — the first assertion below is what makes the second
+    // one mean something.
+    write(
+        dir,
+        ".yidam/tonpa/upstream/manifest.yml",
+        "commit: \"abc1234\"\n",
+    );
+    write(
+        dir,
+        ".yidam/tonpa/upstream/corpus/note.ont.yml",
+        "class: note\n",
+    );
+    write(
+        dir,
+        ".yidam/tonpa/upstream/corpus/note/upstream-note.yml",
+        "class: note\nlabel: Upstream note\n",
+    );
+
+    let now = json(dir, &["note"]);
+    assert_eq!(now["matched"], 0);
+    assert_eq!(now["absence"]["code"], "class-unpopulated");
+    assert_eq!(now["absence"]["elsewhere"], serde_json::json!(["upstream"]));
+
+    let past = json(dir, &["note", "--at", "HEAD"]);
+    assert_eq!(past["matched"], 0);
+    assert_eq!(
+        past["absence"]["code"], "class-unpopulated",
+        "a historical empty answer is still an empty answer: {past}"
+    );
+    assert_eq!(
+        past["absence"]["elsewhere"],
+        serde_json::json!([]),
+        "a dependency set has no history, so it cannot explain a past commit's silence"
+    );
+    assert!(
+        !past["absence"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("--across"),
+        "{past}"
+    );
+}

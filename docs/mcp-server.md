@@ -137,6 +137,16 @@ direction as the question. The difference matters most where it is least visible
 misspelled relationship comes back from a flood as a plausible neighbourhood and from `query`
 as a rejection naming the near miss.
 
+**Both say why an empty answer is empty.** Zero rows is otherwise indistinguishable from a
+bad embedding, a class nobody has written into, and a corpus that genuinely has no view — and
+an agent that cannot tell those apart fills the gap from its own weights. `absence` carries a
+code read off what the corpus *states*: the class is declared and empty; it has instances and
+none has that value (and here are the values it does have); the relationship is declared and
+no instance authors it; the edges exist and go somewhere else. **An empty result is where an
+agent invents**, and this is the field that stops it. `absence.elsewhere` names installed
+packages holding what this corpus does not — a pointer, and whatever it names is that corpus's
+claim rather than this one's.
+
 **`pack` is `query` with a budget and a receipt.** `query` reports `matched` beside
 `returned`, which says how many nodes it dropped; `pack` says *what kind* — `omitted_by_class`
 — and that is the difference between knowing you are missing 28 nodes and knowing they were
@@ -269,6 +279,12 @@ one you have.
 **`retrieve` finds nothing and `list_nodes` finds plenty.** Almost always `degraded: true`
 plus a query phrased in words the corpus does not use — keyword search matches terms, not
 meanings. Try the corpus's own vocabulary, or read `degraded_reason` and do what it says.
+
+**`query` or `pack` finds nothing.** Read `absence` rather than guessing: it says whether the
+class is declared and empty, whether it has instances that all fail the predicate (and what
+values they do carry), whether the relationship is one the ontology promises and no instance
+has written, or whether the edges are there and land somewhere else. Each has a different
+repair, and only the first and third mean the corpus is genuinely quiet on the subject.
 
 **The client sees garbled frames.** Something is folding stderr into stdout. The banner is
 not protocol.

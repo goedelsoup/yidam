@@ -15,6 +15,11 @@
 //!   returns nothing, and says in the diagnostic that the name differs by one character from
 //!   one the class declares.
 //!
+//! Since #283 both empty cases also carry an `absence`: *which kind* of empty, derived from
+//! the ontology rather than guessed. `exact-matches-nothing` is the one worth reading — it is
+//! the row RFC-0018's first draft shipped wrong, and the golden now shows the query answering
+//! its own confusion by naming the values `regulated` actually holds.
+//!
 //! Run with `UPDATE_GOLDENS=1` to rewrite the expected files after an intended change. The
 //! diff is the review.
 
@@ -137,6 +142,11 @@ const CASES: &[Case] = &[
     // The row that shipped wrong in RFC-0018's first draft: `regulated` holds prose, so `=`
     // is correct to match nothing and `~` is the working form. Both are pinned so the pair
     // cannot drift apart.
+    //
+    // And this is where #283 pays for itself in one line. The empty result now carries
+    // `predicate-unsatisfied` with the values `regulated` does hold — which is exactly the
+    // fact whose absence made the draft ship wrong in the first place. A reader of the golden
+    // is told the shape of the data rather than left to infer it from a zero.
     Case {
         name: "exact-matches-nothing",
         query: "reach[regulated=yes]",
@@ -159,7 +169,9 @@ const CASES: &[Case] = &[
         code: 1,
     },
     // The near miss: `sourced-from` is authored (into the catalog) and `sources-from` is
-    // declared. It runs, returns nothing, and says which is which.
+    // declared. It runs, returns nothing, and says which is which — in the diagnostic, and
+    // now also in `absence`, which reports `no-edge-from-here` rather than blaming the class:
+    // the relationship is in use in this corpus, and not from any node that reached step 1.
     Case {
         name: "near-miss-empty",
         query: "gage -sourced-from-> concept",

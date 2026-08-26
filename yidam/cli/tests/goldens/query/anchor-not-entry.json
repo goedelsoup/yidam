@@ -17,6 +17,7 @@
     "message": "an anchor enters the graph, and only the first step is entered — this step is reached by a hop. Anchor the first step instead, or filter this one with a predicate."
   },
   "anchor": null,
+  "absence": null,
   "at": null,
   "diagnostics": [],
   "results": [],
