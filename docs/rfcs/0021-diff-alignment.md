@@ -10,7 +10,7 @@
   touch](#what-this-does-not-touch)
 - **Downstream reference case:** Project BOSC (watermark-directory)
 - **Parent epic:** #23, restructured — this RFC specifies **#342** (Phase A). The semantic half
-  is **#343** and is deliberately not here.
+  is **#343**, specified in RFC-0022, which measured the embedding pass and dropped it.
 
 ## Summary
 
@@ -254,6 +254,9 @@ instead of deferring it. That section stands as an intent, not as built behaviou
   asked about once, where the author is — but a repository that lands forty types in one
   commit will want something. See the measurement above: the obvious answer is measurably
   wrong, and C's 42-declaration commit turned out to report nothing anyway.
+- **Near-miss matching**, which RFC-0022 settles: an embedding pass is not worth its feature
+  gate, and the candidate belongs on this finding as a `nearest` field rather than in a pass
+  of its own.
 - **The calculator/connector boundary**, which #23 raises and this RFC does not need for its
   one finding. It becomes load-bearing the moment a finding's *text* depends on which kind of
   code it is in. Measurable now: A has ~17 connector-ish and ~13 calculator-ish files, C ~32
