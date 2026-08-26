@@ -29,6 +29,11 @@ target-*/
 
 # Python
 __pycache__/
+# fastembed downloads its ONNX weights to a cwd-relative directory the first time a model is
+# resolved, so `yidam index-build` run from a repository root leaves 23MB of untracked model
+# blobs in it. Not a build artifact of this repository, and not one of a derived repository
+# either — `bootstrap.md` keeps this file when a repo is derived, so the rule travels.
+.fastembed_cache/
 *.pyc
 *.pyo
 .venv/

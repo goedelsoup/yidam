@@ -52,6 +52,7 @@ re-deriving it.
 | [0019](0019-external-citation.md) | I14 | Citing a corpus you cannot revise (`cites:`) | Draft |
 | [0020](0020-proposal-surface.md) | I15 | Proposing what a finding already says (`yidam propose`) | Draft |
 | [0021](0021-diff-alignment.md) | I16 | Code that names what the ontology has not (`yidam check-diff`) | Draft |
+| [0022](0022-semantic-alignment.md) | I17 | What a tool may say about code it cannot read (`check-diff`, Phase B) | Draft |
 
 ## Reading order
 
