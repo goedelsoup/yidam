@@ -291,7 +291,7 @@
     },
     "findings": {
       "type": "array",
-      "description": "`check-diff` only. Types the diff introduces that the ontology does not name. Every one carries `severity` (`warn`, or `info` where the file sits in a declared `generated` or `imported` region) and `question` — phrased as a question deliberately, because matching is by name and cannot tell a gap in the ontology from a helper it has no reason to know about. This report never gates: a consumer must not read a non-empty array as a failure."
+      "description": "`check-diff` only. Types the diff introduces that the ontology does not name. Every one carries `severity` (`warn`, or `info` where the file sits in a declared `generated` or `imported` region) and `question` — phrased as a question deliberately, because matching is by name and cannot tell a gap in the ontology from a helper it has no reason to know about. A finding may also carry `nearest`, an object of `name` (a declared name sharing a root with this one) and `shared` (that root). It is a lead and never a verdict: two names sharing a four-character prefix is a fact about two strings, arrived at without a model, and the finding exists whether or not a candidate was found — so a consumer must not render `nearest` as a confidence, a score, or a proposed fix. This report never gates: a consumer must not read a non-empty array as a failure."
     },
     "blessed": {
       "type": "object",

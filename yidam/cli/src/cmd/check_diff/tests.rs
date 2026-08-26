@@ -85,6 +85,60 @@ fn the_finding_is_a_question_and_offers_both_answers() {
     assert!(q.contains("no reason to know about"), "{q}");
 }
 
+/// RFC-0022's worked example, end to end: the reader is handed the name they were about to
+/// go looking for.
+#[test]
+fn a_near_miss_is_carried_on_the_finding_and_named_in_the_question() {
+    let r = report("+pub struct Sponsorship;\n", &Authorship::default());
+    let f = &r.findings[0];
+    let n = f.nearest.as_ref().expect("`sponsored-by` shares a root");
+    assert_eq!(n.name, "sponsored-by");
+    assert_eq!(n.shared, "sponsor");
+    assert!(f.question.contains("`sponsored-by`"), "{}", f.question);
+    assert!(f.question.contains("root `sponsor`"), "{}", f.question);
+}
+
+/// **It annotates a finding that exists either way.** This is the whole reason no threshold
+/// needed calibrating: a candidate cannot add a row, so a wrong one costs a bad lead and
+/// never a false finding.
+#[test]
+fn a_near_miss_adds_no_row_and_does_not_count_as_alignment() {
+    let r = report("+pub struct Sponsorship;\n", &Authorship::default());
+    assert_eq!((r.introduced, r.aligned, r.findings.len()), (1, 0, 1));
+}
+
+/// Most unmatched types have no near-miss, and those findings must read exactly as they did
+/// before Phase B.
+#[test]
+fn a_finding_with_no_candidate_keeps_phase_as_question_and_omits_the_field() {
+    let r = report("+pub struct AgendaItem;\n", &Authorship::default());
+    let f = &r.findings[0];
+    assert!(f.nearest.is_none());
+    assert_eq!(
+        f.question,
+        "nothing the ontology declares is named `agenda-item`. Is it a concept this corpus \
+         should model, or a helper the ontology has no reason to know about?"
+    );
+}
+
+/// A shared root is a fact about two strings, and the report has to keep saying that — but
+/// only where it offered one.
+#[test]
+fn the_report_explains_a_candidate_only_when_it_offered_one() {
+    let with = render(&report(
+        "+pub struct Sponsorship;\n",
+        &Authorship::default(),
+    ));
+    assert!(with.contains("sharing a root and nothing more"), "{with}");
+    assert!(with.contains("No model read"), "{with}");
+
+    let without = render(&report("+pub struct AgendaItem;\n", &Authorship::default()));
+    assert!(
+        !without.contains("sharing a root"),
+        "a report that suggested nothing must not explain how it would have:\n{without}"
+    );
+}
+
 fn manifest(body: &str) -> Authorship {
     let tmp = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(tmp.path().join(".yidam")).unwrap();

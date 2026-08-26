@@ -10,7 +10,7 @@
   "root": "<ROOT>",
   "range": "HEAD~1..HEAD",
   "vocabulary": 8,
-  "introduced": 3,
+  "introduced": 4,
   "aligned": 2,
   "findings": [
     {
@@ -20,9 +20,24 @@
       "name": "rating-curve",
       "file": "crates/gauge/src/lib.rs",
       "span": {
-        "line": 16
+        "line": 17
       },
       "question": "nothing the ontology declares is named `rating-curve`. Is it a concept this corpus should model, or a helper the ontology has no reason to know about?"
+    },
+    {
+      "check": "unmodelled-concept",
+      "severity": "warn",
+      "concept": "Measurement",
+      "name": "measurement",
+      "nearest": {
+        "name": "measured-by",
+        "shared": "measure"
+      },
+      "file": "crates/gauge/src/lib.rs",
+      "span": {
+        "line": 24
+      },
+      "question": "nothing the ontology declares is named `measurement`, though `measured-by` shares the root `measure`. Is that the same concept, one this corpus should model, or a helper the ontology has no reason to know about?"
     }
   ]
 }

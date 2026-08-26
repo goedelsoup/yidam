@@ -1,8 +1,10 @@
-2 of 3 type(s) introduced in `crates/` by HEAD~1..HEAD match a concept the ontology declares.
+2 of 4 type(s) introduced in `crates/` by HEAD~1..HEAD match a concept the ontology declares.
 
   crates/gauge/src/lib.rs
-    line 16 [warn] RatingCurve — nothing the ontology declares is named `rating-curve`. Is it a concept this corpus should model, or a helper the ontology has no reason to know about?
+    line 17 [warn] RatingCurve — nothing the ontology declares is named `rating-curve`. Is it a concept this corpus should model, or a helper the ontology has no reason to know about?
+    line 24 [warn] Measurement — nothing the ontology declares is named `measurement`, though `measured-by` shares the root `measure`. Is that the same concept, one this corpus should model, or a helper the ontology has no reason to know about?
 
-1 concept(s) the ontology has not modelled, against the 8 name(s) it declares.
+2 concept(s) the ontology has not modelled, against the 8 name(s) it declares.
 Matching is by name alone: this cannot tell a gap in the ontology from a helper it has no reason to know about, and does not claim to. Nothing was changed, and no class was created.
+A nearest name is two names sharing a root and nothing more. No model read either of them, and the suggestion is a lead to check rather than a claim that the two are the same thing.
 
