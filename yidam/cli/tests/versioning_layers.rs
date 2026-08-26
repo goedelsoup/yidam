@@ -417,6 +417,101 @@ fn every_workflow_release_sh_requires_exists() {
     );
 }
 
+/// Every registry Layer 4 names is one this project actually publishes to AND checks.
+///
+/// The Layer 2 version of this asserts a publisher exists. This asserts two things, because
+/// #231's whole finding was that a publisher is not enough: six channels existed, two had
+/// delivered, and nothing anywhere tested whether a person could obtain what was published.
+/// A registry named here is read as a promise, so it must have a path that publishes to it
+/// and a check that asks it what it serves.
+///
+/// It is what makes `editor.yml`'s Marketplace step honest in skipping. That step notices and
+/// exits 0 on a missing `VSCE_PAT` — acceptable only while nothing claims the Marketplace, and
+/// a permanently red release step otherwise. Putting the row back without the publish path and
+/// the channel check fails here, so the three cannot drift apart in either direction.
+#[test]
+fn the_registries_layer_4_names_are_delivered_and_checked() {
+    /// Registry as the table spells it → (what publishes to it, what asks what it serves).
+    ///
+    /// Both are substrings of files under `.github/workflows/`. Deliberately the *command*
+    /// and the *host*, not a job name: a job can be renamed and a workflow reorganised, but
+    /// nothing publishes to Open VSX without `ovsx publish` and nothing asks the Marketplace
+    /// what it serves without naming its host.
+    const CHANNELS: &[(&str, &str, &str)] = &[
+        ("crates.io", "cargo publish", "cargo install --locked yidam"),
+        ("GitHub releases", "gh release create", "install.sh"),
+        (
+            "`goedelsoup/homebrew-tap`",
+            "Formula/yidam.rb",
+            "brew install",
+        ),
+        ("Open VSX", "ovsx publish", "open-vsx.org"),
+        (
+            "VS Code Marketplace",
+            "vsce publish",
+            "marketplace.visualstudio.com",
+        ),
+    ];
+
+    let text = versioning();
+    let layer_4 = text
+        .split("## Layer 4")
+        .nth(1)
+        .expect("VERSIONING.md has a Layer 4 section")
+        .split("\n## ")
+        .next()
+        .unwrap();
+
+    let workflows = repo_root().join(".github/workflows");
+    let all: String = std::fs::read_dir(&workflows)
+        .expect("the workflows directory")
+        .filter_map(|e| std::fs::read_to_string(e.ok()?.path()).ok())
+        .collect();
+    let checks = std::fs::read_to_string(workflows.join("install-channels.yml"))
+        .expect("install-channels.yml");
+
+    let mut named = 0;
+    for row in layer_4.lines().filter(|l| l.starts_with("| `")) {
+        let cell = row
+            .rsplit('|')
+            .nth(1)
+            .expect("a table row has a last cell")
+            .trim();
+        if cell == "Registry" {
+            continue;
+        }
+        for registry in cell.split(", ").map(str::trim).filter(|r| !r.is_empty()) {
+            let (_, publishes, checked) = CHANNELS
+                .iter()
+                .find(|(name, _, _)| *name == registry)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Layer 4 names the registry {registry:?}, which this test does not \
+                         know how to verify. Add it to CHANNELS with the command that \
+                         publishes to it and the string that checks it — or stop naming a \
+                         registry nothing delivers to."
+                    )
+                });
+            assert!(
+                all.contains(publishes),
+                "Layer 4 names {registry:?} as a registry this project publishes to, and no \
+                 workflow contains {publishes:?}. Ship the channel, or stop naming it."
+            );
+            assert!(
+                checks.contains(checked),
+                "Layer 4 names {registry:?} and install-channels.yml never asks what it \
+                 serves. A channel with a publisher and no check is exactly #231: the \
+                 artifact builds and nobody has asked whether it can be obtained."
+            );
+            named += 1;
+        }
+    }
+    assert!(
+        named >= 5,
+        "found only {named} registries in Layer 4 — the scan is broken"
+    );
+}
+
 /// The extension id `VERSIONING.md` names is the one the manifest produces.
 ///
 /// A Marketplace id is `<publisher>.<name>`, assembled from two fields rather than declared,

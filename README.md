@@ -107,9 +107,27 @@ verdicts and never computes them: `.yidam.toml` records which yidam governs a co
 extension resolves the binary that repository pins and bundles none of its own. Install the
 CLI first or it has nothing to show.
 
-Until an `editor/v*` tag is cut it is not on the VS Code Marketplace or Open VSX, and this
-says so rather than documenting a line that cannot succeed — the failure `install-channels.yml`
-exists to catch. Build and install it from a checkout:
+**On VS Code itself, install the `.vsix` from the [latest `editor/v*`
+release](https://github.com/goedelsoup/yidam/releases).** VS Code reads the Microsoft
+Marketplace and nothing else, and this project does not publish there — the publisher needs an
+Azure DevOps organisation that does not exist yet. That is stated rather than papered over: a
+documented install line that cannot succeed is the failure `install-channels.yml` was written
+to catch.
+
+```sh
+code --install-extension yidam-vscode-<version>.vsix
+```
+
+**On VSCodium, Cursor, Windsurf, Gitpod or code-server**, which read [Open
+VSX](https://open-vsx.org/extension/goedelsoup/yidam-vscode), search for *yidam* in the
+extensions panel, or:
+
+```sh
+codium --install-extension goedelsoup.yidam-vscode
+```
+
+Before the first `editor/v*` tag, neither exists yet and there is nothing to be wrong about.
+Build it from a checkout instead:
 
 ```sh
 mise run ext-package -- dist/yidam-vscode.vsix   # packages, and checks what is in the package
