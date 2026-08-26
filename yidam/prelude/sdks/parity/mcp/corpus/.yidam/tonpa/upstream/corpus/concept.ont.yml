@@ -1,0 +1,15 @@
+class: concept
+label: Concept
+description: |
+  The dependency's own class, declared in its own bundle.
+
+  Deliberately the same NAME as the local `concept` and not the same class: it declares an
+  edge the local one does not, and the local one declares `enables` and `supersedes` that
+  this does not. A shared class name is not agreement, which is why a foreign id comes back
+  qualified — `upstream::concept/name.yml` — rather than as a bare id that would name a node
+  the caller cannot fetch and did not mean.
+edges:
+  - relationship: informs
+    target: concept
+    direction: out
+    description: The source constrains how the target is read.

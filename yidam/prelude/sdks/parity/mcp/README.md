@@ -28,7 +28,7 @@ harness checks that they do.
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.10.0",
+    "contract": "0.11.0",
     "retrieve": { "vector": false, "reason": "no_index" },
     "graph": true, "ontology": true,
     "phases": false, "sangha": false, "resources": true
@@ -40,6 +40,53 @@ harness checks that they do.
 the vector index is loaded, which is the same fact `degraded` reports per call. A server that
 declares `vector: false` is promising every `retrieve` will come back `degraded: true`, with
 the `reason` it names here. `reason` is null exactly when `vector` is true.
+
+## Querying a dependency, on request (contract 0.11.0)
+
+`query` gains an `across` boolean input, defaulting **false**.
+
+`yidam query --across` shipped at #268 and this surface went three contract bumps without it,
+so the composition story was split by consumer: an agent could `retrieve` from a dependency and
+`get_node` one out of it, and could not ask the composed corpus a typed question that a person
+at the CLI could ask.
+
+**The default is the boundary.** A caller that did not ask must not be shown a foreign node.
+Spanning runs **one execution per corpus**, never one over a merged node list — every result
+carries `origin` (null for this repository, the package name for a dependency) and foreign ids
+are qualified `pkg::class/name.yml`. A hop must not cross the boundary, and the way to
+guarantee that is for no execution to hold two corpora's nodes at once. Two corpora sharing a
+class name is not agreement.
+
+**`scope` reports what happened, not what was asked.** A server with no dependencies installed
+that is asked to span answers `local`, with the same rows a local run gives. That is not an
+error and must not be reported as one — it is what the CLI already does, and `scope` is where a
+caller learns whether its request took effect.
+
+**An anchored spanning query is rejected `anchor-across`**, unchanged: the vector index is this
+corpus's, and resolving an anchor against it to enter a foreign corpus would rank a
+dependency's nodes in a space built from someone else's text.
+
+**When the dependency set is read is part of the snapshot.** A conforming server answers a
+spanning call from the corpus it loaded at startup, like every other tool. Reading dependencies
+lazily on the first spanning call would create a *second* snapshot moment — a `tonpa install`
+mid-session invisible to `retrieve` and visible to `query` — and the one-snapshot promise made
+at 0.9.1 would then hold for some tools and not others. Freshness is a restart, for this too.
+
+**Spanning is `query`-only, and that is a decision.** `pack` and `estimate` take no `across` and
+a conforming server must not add one. A pack is context an agent writes *from*, and one mixing
+two corpora would put a dependency's prose in a context window under this repository's class
+names — where `omitted_by_class` would report `concept: 12` over two corpora that each mean
+something different by `concept`. The receipt would be arithmetic over a category nobody
+declared, which is worse than a pack that says it is local. `estimate` quotes a pack and
+inherits the answer.
+
+So the composition story, whole: `retrieve` and `get_node` reach a dependency, `query` may be
+asked to, and `pack` and `estimate` are local by construction.
+
+**The fixture has an installed dependency** (`upstream`, two nodes, its own class file
+declaring `informs` and no local class declaring it). Before that, no case here could tell a
+server that backs `across` from one that accepts the flag and ignores it — and none could
+exercise a non-empty `absence.elsewhere` either, since there was no package to name.
 
 ## Which kind of nothing (contract 0.10.0)
 
