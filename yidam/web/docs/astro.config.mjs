@@ -104,6 +104,7 @@ const sidebar = [
       { slug: 'rfcs/0018-query-surface', label: '0018 · The query surface' },
       { slug: 'rfcs/0019-external-citation', label: '0019 · External citation' },
       { slug: 'rfcs/0020-proposal-surface', label: '0020 · The proposal surface' },
+      { slug: 'rfcs/0021-diff-alignment', label: '0021 · Diff-to-ontology alignment' },
     ],
   },
 ];
