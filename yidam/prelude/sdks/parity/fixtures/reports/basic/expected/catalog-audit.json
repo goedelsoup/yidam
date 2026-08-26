@@ -14,7 +14,9 @@
       "type": "dataset",
       "description": "A stream gauge series, registered and unretrieved.",
       "obtained": false,
-      "citations": 0
+      "citations": 1,
+      "nodes": 0,
+      "elsewhere": 1
     }
   ]
 }

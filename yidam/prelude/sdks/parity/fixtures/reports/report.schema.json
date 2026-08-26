@@ -222,7 +222,48 @@
     },
     "sources": {
       "type": "array",
-      "description": "`catalog-audit` only."
+      "description": "`catalog-audit` only. One row per catalog entry. Each carries THREE citation counts and they mean different things: `nodes` is corpus instances linking to the entry — the number every gate reads, and what `catalog-uncited` means by \"no corpus node draws on this source\"; `elsewhere` is other files under .yidam/corpus/ that link to it, which is class definitions and README prose; `citations` is their sum, retained with exactly the meaning it had before the two were separated. A consumer deciding whether a claim rests on a source MUST read `nodes`, never `citations`.",
+      "items": {
+        "type": "object",
+        "required": [
+          "entry",
+          "type",
+          "description",
+          "obtained",
+          "citations",
+          "nodes",
+          "elsewhere"
+        ],
+        "properties": {
+          "entry": {
+            "type": "string",
+            "description": "File name of the entry within .yidam/catalog/."
+          },
+          "type": {
+            "type": "string",
+            "description": "The entry's declared `type:`, or an em dash when it declares none."
+          },
+          "description": {
+            "type": "string"
+          },
+          "obtained": {
+            "type": "boolean",
+            "description": "Absent in the entry means obtained; only an explicit `false` claims otherwise."
+          },
+          "citations": {
+            "type": "integer",
+            "description": "`nodes` + `elsewhere`. Kept so a consumer written against the single-count contract still reads the number it always read."
+          },
+          "nodes": {
+            "type": "integer",
+            "description": "Corpus instances linking to this entry. The gate-bearing count."
+          },
+          "elsewhere": {
+            "type": "integer",
+            "description": "Non-instance corpus files linking to this entry — class definitions and READMEs. Never added to `nodes`: a claim resting on a source and a page linking to one are different things."
+          }
+        }
+      }
     },
     "phases": {
       "type": "array",
