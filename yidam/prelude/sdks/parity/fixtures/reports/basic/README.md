@@ -16,6 +16,7 @@ golden nobody reads.
 | `concept/low-flow.yml` | `dangling-edge` — an edge to a file that is not there | error |
 | `concept/tailwater.yml` | `orphan-in` — nothing points at it | info |
 | `gauge/riffle-station.yml` | `orphan-in` — the ontology declares no edge into a gauge | info |
+| `gauge/riffle-station.yml` | `verified-unsourced` — it asserts `[verified]` and links no catalog entry | warn |
 | every `concept` | `missing-property` — `concept` declares `datum` and no instance carries it | warn |
 | `concept/mixing-zone.yml`, `concept/tailwater.yml` | `missing-property` — and no `claim_tag` either | warn |
 | everything else | nothing — the control | — |
@@ -45,7 +46,7 @@ present.
 | **Both open-question arms** | `concept/low-flow.yml` is open through a declared `claim` property; `concept/mixing-zone.yml` is open through a `?` label. A corpus using one arm alone cannot tell an implementation reading both from one reading either — the defect the MCP cases were split to expose. |
 | **A claim tag of each kind** | `[verified]`, `[inference]`, and a structural `open`, so `status`'s three counters are each non-zero. |
 | **A mention that is not a use** | `concept/tailwater.yml` names `[open]` and `[verified]` in backticks. The counters and the open-question predicate must both ignore them. A corpus that never discusses its own vocabulary cannot tell a scanner reading claims from one reading bytes — and the byte reader published a verified claim against a true zero, inside a `REGEN` block, for four commits. |
-| **A named source that is not cited** | `gauge/riffle-station.yml` writes the slug of the `obtained: false` catalog entry in prose and links nothing. `catalog-unobtained-but-cited` is Error severity and gates, so a checker matching the bare slug fails a build on a node that cites nothing — which is what it did in a derived repository, where the slug collided with a connector crate named after the source it fetches. |
+| **A named source that is not cited** | `gauge/riffle-station.yml` writes the slug of the `obtained: false` catalog entry in prose and links nothing. `catalog-unobtained-but-cited` is Error severity and gates, so a checker matching the bare slug fails a build on a node that cites nothing — which is what it did in a derived repository, where the slug collided with a connector crate named after the source it fetches. The same node is what makes `verified-unsourced` reachable: it asserts `[verified]` while resting on nothing, which is the shape that check exists for, and naming a source in prose must not discharge it. |
 | **An inbound edge two hops out** | The gauge authors `measured-by`, so the neighborhood panel has a direction to group by other than `out`. |
 | **Two phase branches** | `phases` has rows. `ma/gauge-reader` is deliberately absent though the elector is registered, so `branch_present: false` is a golden rather than only a unit test. |
 | **Three commits, one operational** | `diff HEAD~1..HEAD` has a range and a modified node, and the log goldens show the classifier splitting rather than a column of `[E]`. |

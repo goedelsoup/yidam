@@ -9,5 +9,8 @@ WARN [missing-property] Declared property the instance omits — 5 finding(s)
   .yidam/corpus/concept/tailwater.yml: `datum` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it
   .yidam/corpus/concept/tailwater.yml: `claim_tag` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it
 
+WARN [verified-unsourced] A claim asserted at `[verified]` that rests on nothing — 1 finding(s)
+  .yidam/corpus/gauge/riffle-station.yml: 1 `[verified]` claim, and this node draws on no source
+
 INFO [orphan-in] Node nothing points to — 1 finding(s)
   .yidam/corpus/concept/tailwater.yml: nothing links to this node — uncited since 2026-01-01, 2 commit(s)

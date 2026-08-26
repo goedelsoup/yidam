@@ -2,7 +2,7 @@ class: reach
 label: Tailwater reach
 description: |
   The segment immediately below the impoundment, where discharge is set by the outlet works
-  rather than by the catchment. [verified] Thermal and flow regime both depart sharply from
+  rather than by the catchment. [inference] Thermal and flow regime both depart sharply from
   the unregulated condition here.
 
   It is the reach where every statistic in this corpus is most likely to be misread, because
