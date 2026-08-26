@@ -33,6 +33,7 @@ mod migrate;
 mod overlay;
 pub(crate) mod pack;
 mod phases;
+pub(crate) mod propose;
 pub(crate) mod query;
 mod regen;
 pub(crate) mod registry;
@@ -74,6 +75,7 @@ pub use log::{log, Filter as LogFilter};
 pub use overlay::overlay;
 pub use pack::pack;
 pub use phases::phases;
+pub use propose::{propose, Options as ProposeOptions};
 pub use query::query;
 pub use regen::regen;
 // `doctor` asks the same question `regen --check` asks, through the same generator list.

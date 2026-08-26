@@ -103,6 +103,11 @@ pub const GROUPS: &[Group] = &[
             // reference to it. `rename` moves one node; this moves a class, a property, or
             // the target of a relationship, which is the same operation one level up.
             w("migrate"),
+            // Beside the corpus commands rather than with the gates: it reads the gate's
+            // findings and answers none of them. A command filed under "exit nonzero on a
+            // problem" would be read as one more thing that can fail the build, and this
+            // one cannot — it drafts commits and leaves.
+            w("propose"),
             r("log"),
             r("phases"),
             r("replay"),

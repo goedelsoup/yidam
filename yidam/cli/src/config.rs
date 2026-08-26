@@ -12,6 +12,8 @@ pub struct YidamConfig {
     pub index: IndexConfig,
     #[serde(default)]
     pub lint: LintConfig,
+    #[serde(default)]
+    pub propose: ProposeConfig,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -40,6 +42,36 @@ pub struct LintConfig {
     /// escalate_after = 100
     /// ```
     pub escalate_after: Option<usize>,
+}
+
+/// What this corpus has licensed `yidam propose` to draft.
+///
+/// Empty by default, and the default is the design rather than caution. `propose` drafts a
+/// question from any finding, because recording a question asserts nothing the finding did
+/// not already assert. Drafting a *deletion* asserts that the node should go, and no finding
+/// says that — so it is licensed only by a corpus that says so here, about itself.
+#[derive(Debug, Default, Deserialize)]
+pub struct ProposeConfig {
+    /// Corpus-touching commits an uncited node may hold before `propose` drafts its
+    /// withdrawal.
+    ///
+    /// Absent means no withdrawal is ever drafted, which is every corpus until someone turns
+    /// it on. The reasoning is [`LintConfig::escalate_after`]'s and is not repeated: a number
+    /// compiled into the binary would be one repository's judgement arriving as a proposed
+    /// deletion in another that never agreed to it.
+    ///
+    /// ```toml
+    /// [propose]
+    /// withdraw_uncited_after = 400
+    /// ```
+    ///
+    /// **Not `escalate_after` under another name.** That declares when a finding becomes a
+    /// build failure, which is a statement about the gate. This declares when an uncited node
+    /// stops being a sweep in progress and becomes over-collection, which is a statement
+    /// about the corpus. A repository may reasonably hold the first and not the second, and
+    /// most will: failing the build asks a person to look, and deleting the node decides what
+    /// they would have concluded.
+    pub withdraw_uncited_after: Option<usize>,
 }
 
 pub fn load_yidam_config(root: &Path) -> Result<YidamConfig> {

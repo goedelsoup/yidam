@@ -5,13 +5,13 @@
 //! Conflating the two is what produces a gate that is either permanently red or
 //! permanently ignored; see [`baseline`].
 
-mod baseline;
+pub(crate) mod baseline;
 pub(crate) mod checks;
 pub(crate) mod citations;
 mod commits;
 pub(crate) mod history;
 pub mod json;
-mod model;
+pub(crate) mod model;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
