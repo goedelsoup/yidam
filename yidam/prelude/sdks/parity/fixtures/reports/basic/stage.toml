@@ -65,3 +65,39 @@ message = "regen: REGEN blocks refreshed"
 [[commits.write]]
 file = ".yidam/corpus/.gitkeep"
 content = ""
+
+# A domain crate, so `check-diff` has code to read and the golden pins something other than
+# the empty arm. Written by this commit rather than shipped in `repo/`, because the check
+# reads a *diff*: a file that has always been there introduces nothing.
+#
+# The three declarations are the three outcomes. `Gauge` matches a class, `Datum` matches a
+# property — which is what stops the vocabulary quietly narrowing to class names alone — and
+# `RatingCurve` matches nothing, so it is the finding. `Reads` is a trait and is never asked
+# about, which no unit test can pin here: only a golden shows it absent from real output.
+[[commits.write]]
+file = "crates/gauge/src/lib.rs"
+content = '''
+//! A domain crate, so the alignment check has code to read.
+
+/// Matches the `gauge` class.
+pub struct Gauge {
+    pub station: String,
+}
+
+/// Matches the `datum` property, and nothing else — the ontology's vocabulary is wider
+/// than its class list, and a check that read only class names would ask about this.
+pub enum Datum {
+    Navd88,
+    Local,
+}
+
+/// Nothing the ontology declares is named `rating-curve`.
+pub struct RatingCurve {
+    pub gauge: Gauge,
+}
+
+/// A capability rather than a concept, so this is never asked about.
+pub trait Reads {
+    fn read(&self) -> f64;
+}
+'''

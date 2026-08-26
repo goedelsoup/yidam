@@ -149,6 +149,7 @@ yidam status              repo overview: nodes, open questions, catalog, index f
 yidam graph-check         orphans, broken links, missing labels — the gate CI runs
 yidam lint --commits      corpus quality checks against a baseline ratchet, plus the commit vocabulary
 yidam diff main..HEAD     node and edge changes between two refs
+yidam check-diff a..b     types a code diff introduces that the ontology does not name
 yidam phases              active inquiry branches
 yidam embed               extract embedding text from corpus instances
 yidam index-build         build the LanceDB vector index

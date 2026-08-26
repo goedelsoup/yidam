@@ -98,6 +98,25 @@ Found in a derived repository by a commit whose message says it exactly: *the fi
 being normalised, so the committed record was of what git did rather than what the register
 said.*
 
+**A type declared here is a claim about the domain, and `yidam check-diff a..b` asks about
+it.** The ontology is a contract that every check reads from the corpus side; this reads it
+from the code side, comparing the type and enum names a diff *adds* under `crates/` against
+the classes, properties and relationships `.ont.yml` declares. `RatingCurve` where nothing is
+named `rating-curve` is a question — is this a concept the corpus should model, or a helper
+the ontology has no reason to know about? — and the answer is yours. It never gates and never
+will: the fix is a new class or a decision not to have one, and both are judgement.
+
+Expect it to be quiet. Across the three repositories derived from this template the median
+code-touching commit introduces no new type at all, and it is the commit that lands ten that
+you want to be asked about. Where it is *not* quiet, the vocabulary is what to look at: one
+of those repositories declares fifteen classes while its code defines two hundred and
+seventy-five types, and a 7% match rate is not a naming problem.
+
+Do not exclude test or fixture code by inventing a path convention. `.yidam/authorship.yml`
+is the vocabulary for that, and it is the same one every prose check uses — a region declared
+`imported` or `generated` is still reported, at info severity, naming who can act on it;
+only `excluded` is silent.
+
 ---
 
 ## `docs/`

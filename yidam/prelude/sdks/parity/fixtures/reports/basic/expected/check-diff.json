@@ -1,0 +1,28 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "range": "HEAD~1..HEAD",
+  "vocabulary": 8,
+  "introduced": 3,
+  "aligned": 2,
+  "findings": [
+    {
+      "check": "unmodelled-concept",
+      "severity": "warn",
+      "concept": "RatingCurve",
+      "name": "rating-curve",
+      "file": "crates/gauge/src/lib.rs",
+      "span": {
+        "line": 16
+      },
+      "question": "nothing the ontology declares is named `rating-curve`. Is it a concept this corpus should model, or a helper the ontology has no reason to know about?"
+    }
+  ]
+}

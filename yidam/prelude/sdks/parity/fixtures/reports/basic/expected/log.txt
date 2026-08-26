@@ -1,4 +1,4 @@
-359261da  [O]  regen: REGEN blocks refreshed
+7b5c6d24  [O]  regen: REGEN blocks refreshed
 45be5ffe  [E]  revise: the corpus carries a claim tag of each kind
 cbb30b73  [E]  genesis: reports fixture
 
