@@ -89,6 +89,41 @@ are permitted* would flood every corpus whose ontology is not filled in — whic
 corpus with the least reason to trust its graph. The same rule decides which classes are
 source classes for `orphan-in`.
 
+### Which classes are source classes, and which end declares it
+
+A **source class** is one the ontology says nothing points at. Its instances have no inbound
+edges by design, so reporting them as orphans reports the ontology working — in one derived
+repository that was 17 of 35 `orphan-in` findings.
+
+**Both ends of the edge are read.** `gage` declaring
+
+```yaml
+edges:
+  - relationship: sources-from
+    target: concept
+    direction: out
+```
+
+is a statement that gages point at concepts, so `concept` is a class something is meant to
+point at — whether or not `concept.ont.yml` also says so from its own side. `target` is *the
+class at the other end, whichever end authors the link*, and either end may author it.
+
+This is stated because the derivation once read only a class's own list, looking for a
+`direction: in` entry. That treated a class's silence about inbound edges as a positive
+declaration that nothing points at it, while the ontology said elsewhere that something
+does — the inverse of the over-read above. It was measured on the worked example, where all
+three classes derived as source classes and `orphan-in` could not fire anywhere in the
+corpus. **You do not need to declare an edge from both ends**, and declaring it twice is not
+an error; it is simply not required.
+
+Two cases the derivation deliberately leaves alone:
+
+| Declaration | Read as |
+|---|---|
+| a class with no `edges:` at all | **not** a source class — silence is not a contract |
+| a self-edge (`reach -downstream-of-> reach`) | says instances relate to each other, not that every instance is cited: any acyclic self-relation has an endpoint that is not, so it decides nothing either way |
+| an edge with no `direction:` | exempts neither end — it says a relationship exists, not which way it runs |
+
 **A non-empty `edges:` is not a contract either, and this is the part that was got wrong.**
 Naming the relationships a class enters into says *these exist*; on its own it never said
 *and no others may*. Reading it as the second put 210 errors on a derived corpus that coins

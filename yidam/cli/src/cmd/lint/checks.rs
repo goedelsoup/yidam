@@ -32,7 +32,7 @@ pub struct Node {
 /// The distinction the ontology could not previously make, and the reason `unlicensed-edge`
 /// reported 210 errors against a corpus that was doing nothing wrong. A non-empty `edges:`
 /// says *these relationships exist*; on its own it does not say *and no others may*. Reading
-/// it as the second is the same over-reading [`Class::is_source_class`] refuses when it
+/// it as the second is the same over-reading [`source_classes`] refuses when it
 /// declines to treat an empty `edges:` as a contract — one field further in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EdgePolicy {
@@ -109,26 +109,96 @@ pub struct ClassEdge {
     pub direction: Option<String>,
 }
 
-impl Class {
-    /// A class nothing is meant to point at.
-    ///
-    /// Instances of such a class have no inbound edges *by design*, so reporting them as
-    /// orphans is reporting the ontology working. In a derived repository this was 17 of 35
-    /// `orphan-in` findings — every `person` and every `boundary-case` — and the noise is
-    /// why the check's own rationale had already conceded it was "worth seeing, not worth
-    /// blocking on". The corpus was not the thing that needed to change.
-    ///
-    /// **A class that declares no edges at all is not a source class.** It has said nothing
-    /// about its shape, and reading silence as a declaration would exempt every instance in
-    /// a corpus whose ontology has not been filled in — silencing the check exactly where
-    /// there is least reason to trust the graph.
-    pub fn is_source_class(&self) -> bool {
-        !self.edges.is_empty()
-            && !self
-                .edges
-                .iter()
-                .any(|e| e.direction.as_deref() == Some("in"))
+/// One class's edge declarations, which is all the source-class derivation reads.
+///
+/// A view rather than a `&[Class]` because the derivation has two callers holding different
+/// things: the checks hold parsed [`Class`]es from disk, and [`super::history`] holds class
+/// blobs replayed out of git. One derivation over a shape both can produce is what stops
+/// them disagreeing about which classes are exempt — which they would, silently, and the
+/// replay's own doc comment already promised they would not.
+pub struct EdgeView<'a> {
+    pub name: &'a str,
+    pub edges: &'a [ClassEdge],
+}
+
+/// Classes the ontology says nothing points at.
+///
+/// Instances of such a class have no inbound edges *by design*, so reporting them as orphans
+/// is reporting the ontology working. In a derived repository this was 17 of 35 `orphan-in`
+/// findings — every `person` and every `boundary-case` — and the noise is why the check's own
+/// rationale had already conceded it was "worth seeing, not worth blocking on". The corpus
+/// was not the thing that needed to change.
+///
+/// # Both ends of the edge, which is the correction
+///
+/// This used to read one class at a time: a source class was one declaring edges, none of
+/// them `direction: in`. That reads half the ontology. `B: {relationship: r, target: A,
+/// direction: out}` is a declaration that instances of `B` point at instances of `A` — the
+/// same fact as `A: {..., direction: in}`, stated from the authoring end, and
+/// [`ClassEdge::target`] is documented as "the class at the *other* end, **whichever end
+/// authors the link**".
+///
+/// Reading only a class's own list therefore treated its silence about inbound edges as a
+/// positive declaration that nothing points at it, while the ontology said elsewhere that
+/// something does. That is the inverse of the over-read `GRAPH.md` warns about, and it was
+/// measured: in `examples/streamflow` all three classes derived as source classes, so
+/// `orphan-in` could not fire anywhere in the corpus yidam ships to teach people — while
+/// `gage` declared `sources-from → concept, direction: out` the whole time.
+///
+/// # What it does not change
+///
+/// **A class that declares no edges at all is still not a source class.** It has said
+/// nothing about its shape, and reading silence as a declaration would exempt every instance
+/// in a corpus whose ontology has not been filled in — silencing the check exactly where
+/// there is least reason to trust the graph.
+///
+/// **A declaration with no `direction` exempts neither end.** It says a relationship exists
+/// and not which way it runs, and exempting on it would be reading an ambiguous declaration
+/// in the one direction that silences findings. No measured corpus has one — A, B and C
+/// declare a direction on all 254 edges between them — so this costs nothing today and is
+/// the safe reading when it stops being free.
+///
+/// **A self-edge does not make a class pointed at.** `reach -downstream-of-> reach` says
+/// instances relate to each other; it cannot say every instance is cited, because any
+/// acyclic self-relation has an endpoint that is not. Reading it either way is wrong in one
+/// direction, so it is read neither way — which is also exactly what the one-sided
+/// derivation did, making this correction change only the cross-class case it is about.
+/// Measured: with self-edges counted, the terminal reach of `examples/streamflow`'s
+/// `downstream-of` chain becomes a finding, and every river has one.
+pub fn source_classes(view: &[EdgeView<'_>]) -> HashSet<String> {
+    // Every class the ontology says something points at, from whichever end said it.
+    let mut pointed: HashSet<&str> = HashSet::new();
+    for v in view {
+        for e in v.edges.iter().filter(|e| e.target != v.name) {
+            match e.direction.as_deref() {
+                Some("in") => {
+                    pointed.insert(v.name);
+                }
+                Some("out") => {
+                    pointed.insert(e.target.as_str());
+                }
+                _ => {
+                    pointed.insert(v.name);
+                    pointed.insert(e.target.as_str());
+                }
+            }
+        }
     }
+    view.iter()
+        .filter(|v| !v.edges.is_empty() && !pointed.contains(v.name))
+        .map(|v| v.name.to_string())
+        .collect()
+}
+
+/// The [`EdgeView`]s of a parsed ontology.
+pub fn edge_views(classes: &[Class]) -> Vec<EdgeView<'_>> {
+    classes
+        .iter()
+        .map(|c| EdgeView {
+            name: c.name.as_str(),
+            edges: &c.edges,
+        })
+        .collect()
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -535,24 +605,21 @@ pub fn orphan_in(nodes: &[Node], classes: &[Class]) -> Check {
     }
     // Classes the ontology says nothing points at. Their instances are exempt: an orphan
     // there is the model holding, not the corpus failing.
-    let source_classes: HashSet<&str> = classes
-        .iter()
-        .filter(|c| c.is_source_class())
-        .map(|c| c.name.as_str())
-        .collect();
+    let exempt = source_classes(&edge_views(classes));
 
     let violations = nodes
         .iter()
         .filter(|n| !targeted.contains(&normalize(&n.path)))
-        .filter(|n| !source_classes.contains(class_of(n).as_str()))
+        .filter(|n| !exempt.contains(&class_of(n)))
         .map(|n| Violation::new(&n.rel, "nothing links to this node"))
         .collect();
     Check::new(
         "orphan-in",
         "Node nothing points to",
         Severity::Info,
-        "Instances of a class that declares no `direction: in` edge are exempt — the \
-         ontology says nothing points at them, so an orphan there is the model working. \
+        "Instances of a class the ontology declares no inbound edge for — from either end \
+         of the edge — are exempt: nothing is meant to point at them, so an orphan there is \
+         the model working. \
          What remains is a class whose *other* instances are cited and this one is not, \
          which is the asymmetry worth reading. Still reported rather than gated: a node \
          authored this morning legitimately has no inbound edges yet.",
@@ -588,7 +655,7 @@ pub fn normalize(p: &Path) -> PathBuf {
 // class with no `properties:` has said nothing about properties, and a class with no
 // `edges:` has said nothing about edges. Reading either silence as "and therefore none are
 // permitted" would flood every corpus whose ontology is not filled in — which is exactly
-// the corpus with least reason to trust the graph, and the same trap `is_source_class`
+// the corpus with least reason to trust the graph, and the same trap `source_classes`
 // documents one field over.
 //
 // **Only edges between instances are licensed edges.** A link to `../<class>.ont.yml` or to
@@ -1539,6 +1606,91 @@ mod tests {
         );
     }
 
+    /// An inbound relationship may be declared from the authoring end, and reading only a
+    /// class's own list misses it (#336).
+    ///
+    /// This is the shape of `examples/streamflow` and it was entirely silent: `gage`
+    /// declares `sources-from → concept, direction: out` — a statement that gages point at
+    /// concepts — while `concept`'s own list held no `direction: in` entry, so `concept`
+    /// derived as a class nothing points at and every orphaned concept was exempt.
+    #[test]
+    fn a_class_another_class_points_at_is_not_a_source_class() {
+        let gage = Class {
+            rel: ".yidam/corpus/gage.ont.yml".into(),
+            description: String::new(),
+            name: "gage".into(),
+            properties: vec![],
+            edges: vec![edge("sources-from", "concept", "out")],
+            edge_policy: EdgePolicy::default(),
+        };
+        let concept = Class {
+            rel: ".yidam/corpus/concept.ont.yml".into(),
+            description: String::new(),
+            name: "concept".into(),
+            properties: vec![],
+            edges: vec![edge("refines", "concept", "out")],
+            edge_policy: EdgePolicy::default(),
+        };
+        let classes = [gage, concept];
+        let sources = source_classes(&edge_views(&classes));
+
+        assert!(
+            !sources.contains("concept"),
+            "`gage` declares it points at concepts, so concepts are pointed at"
+        );
+        assert!(
+            sources.contains("gage"),
+            "and nothing declares an edge at gages, so a gage is exempt"
+        );
+    }
+
+    /// A self-edge says instances relate to each other, not that every instance is cited:
+    /// any acyclic self-relation has an endpoint that is not.
+    ///
+    /// Measured on the worked example — counting self-edges makes the terminal reach of the
+    /// `downstream-of` chain a finding, and every river has one.
+    #[test]
+    fn a_self_edge_does_not_make_a_class_pointed_at() {
+        let reach = Class {
+            rel: ".yidam/corpus/reach.ont.yml".into(),
+            description: String::new(),
+            name: "reach".into(),
+            properties: vec![],
+            edges: vec![edge("downstream-of", "reach", "out")],
+            edge_policy: EdgePolicy::default(),
+        };
+        let classes = [reach];
+        assert!(source_classes(&edge_views(&classes)).contains("reach"));
+    }
+
+    /// A declaration that does not say which way it runs exempts neither end. Exempting on
+    /// it would read an ambiguous declaration in the one direction that silences findings.
+    #[test]
+    fn a_directionless_declaration_exempts_neither_end() {
+        let a = Class {
+            rel: ".yidam/corpus/a.ont.yml".into(),
+            description: String::new(),
+            name: "a".into(),
+            properties: vec![],
+            edges: vec![ClassEdge {
+                relationship: "relates-to".into(),
+                target: "b".into(),
+                direction: None,
+            }],
+            edge_policy: EdgePolicy::default(),
+        };
+        let b = Class {
+            rel: ".yidam/corpus/b.ont.yml".into(),
+            description: String::new(),
+            name: "b".into(),
+            properties: vec![],
+            edges: vec![edge("other", "c", "out")],
+            edge_policy: EdgePolicy::default(),
+        };
+        let classes = [a, b];
+        assert!(source_classes(&edge_views(&classes)).is_empty());
+    }
+
     /// Silence is not a declaration. A class that declares no edges has said nothing about
     /// its shape, and reading that as "nothing points at me" would exempt every instance in
     /// a corpus whose ontology is not filled in — switching the check off precisely where
@@ -1553,7 +1705,10 @@ mod tests {
             edges: vec![],
             edge_policy: EdgePolicy::default(),
         };
-        assert!(!silent.is_source_class());
+        assert!(
+            source_classes(&edge_views(std::slice::from_ref(&silent))).is_empty(),
+            "a class that declared nothing was read as declaring nothing points at it"
+        );
 
         let node = Node {
             path: PathBuf::from("corpus/concept/x.yml"),
@@ -2233,7 +2388,7 @@ edges:
 
     /// Each half is read on its own: a class that declares properties and no edges has
     /// said nothing about edges, and must not have its links licensed against an empty
-    /// list. This is the same trap `is_source_class` documents, one field over.
+    /// list. This is the same trap `source_classes` documents, one field over.
     #[test]
     fn declaring_properties_says_nothing_about_edges() {
         let nodes = vec![

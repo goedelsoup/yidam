@@ -18,7 +18,7 @@
 
 mod common;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use common::{repo_root, tracked_under};
@@ -119,6 +119,89 @@ fn the_example_corpus_lints_clean_at_every_severity() {
 
 /// The example has to be *worth* reading, not only valid — a corpus of four disconnected
 /// stubs passes both gates above.
+/// `orphan-in` can actually fire here, which it could not before #336.
+///
+/// The check reads the *whole* ontology to decide which classes are exempt. Reading only a
+/// class's own edge list made all three of this corpus's classes derive as source classes —
+/// so `orphan-in` was structurally silent across the entire worked example, and the corpus
+/// yidam ships to teach people taught nothing about the one check with a residence clock.
+///
+/// `gage` declares `sources-from → concept, direction: out` and always did. That is a
+/// statement that gages point at concepts, so an uncited concept is a finding, and it took
+/// reading the far end of the edge to see it.
+///
+/// Asserted by breaking the corpus rather than by inspecting the derivation: this is about
+/// what the gate reports, and a unit test on the rule would have passed throughout the
+/// period the gate was silent.
+#[test]
+fn an_uncited_concept_is_reported_here_at_all() {
+    let ex = Example::materialize();
+    let target = "low-flow.yml";
+
+    // Cut every inbound link to one concept, leaving the ontology untouched.
+    let mut cut = 0;
+    for entry in walkdir(&ex.path().join(".yidam/corpus")) {
+        let text = std::fs::read_to_string(&entry).unwrap_or_default();
+        if !text.contains(target) || entry.ends_with(target) {
+            continue;
+        }
+        let kept: Vec<&str> = {
+            let lines: Vec<&str> = text.split('\n').collect();
+            let mut out = Vec::new();
+            let mut i = 0;
+            while i < lines.len() {
+                if lines[i].contains(target) && lines[i].trim_start().starts_with("- target:") {
+                    i += 1;
+                    while i < lines.len()
+                        && lines[i].starts_with("    ")
+                        && !lines[i].trim_start().starts_with("- ")
+                    {
+                        i += 1;
+                    }
+                    cut += 1;
+                    continue;
+                }
+                out.push(lines[i]);
+                i += 1;
+            }
+            out
+        };
+        std::fs::write(&entry, kept.join("\n")).unwrap();
+    }
+    assert!(
+        cut > 0,
+        "no inbound link to {target} to cut — has the example changed?"
+    );
+
+    let (stdout, _, _) = ex.run(&["lint", "--warn"]);
+    assert!(
+        stdout.contains("orphan-in") && stdout.contains(target),
+        "an uncited concept is not reported — every class is deriving as a source class \
+         again (#336):\n{stdout}"
+    );
+}
+
+/// Every `.yml` under `dir`, recursively.
+fn walkdir(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "yml") {
+                out.push(p);
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 #[test]
 fn the_example_corpus_is_substantial_enough_to_teach_from() {
     let ex = Example::materialize();
