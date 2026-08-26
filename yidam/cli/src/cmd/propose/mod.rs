@@ -133,6 +133,23 @@ fn plan(
     head: &str,
 ) -> Result<(Vec<Proposal>, Vec<Skipped>)> {
     let gates = gating(root, checks)?;
+
+    // Findings that are live but do not gate, because the corpus licensed being asked about
+    // them rather than the gate deciding. Today that is one check: an expired source record,
+    // licensed by the `ttl_days` this corpus declared — the same shape as
+    // `withdraw_uncited_after` licensing a deletion. Severity is not the licence; a
+    // declaration is.
+    let licensed: BTreeSet<(String, String)> = checks
+        .iter()
+        .filter(|c| c.id == "catalog-expired")
+        .flat_map(|c| {
+            c.violations
+                .iter()
+                .map(move |v| (c.id.to_string(), v.node.clone()))
+        })
+        .collect();
+    // What `close:` measures against: everything still true, however it became true.
+    let live: BTreeSet<(String, String)> = gates.union(&licensed).cloned().collect();
     let mut proposals = Vec::new();
     let mut skipped = Vec::new();
 
@@ -179,12 +196,33 @@ fn plan(
         }
     }
 
+    // ── open, on the sources themselves ─────────────────────────────────────
+    for e in draft::eligible(checks, &licensed) {
+        let text = read(root, &e.node);
+        if draft::marked(&text).iter().any(|m| m.check == e.check) {
+            continue;
+        }
+        match draft::open_source_proposal(head, &e, &text) {
+            Some(p) => proposals.push(p),
+            None => skipped.push(Skipped {
+                check: e.check.clone(),
+                node: e.node.clone(),
+                reason: "it has no closing frontmatter fence, so a paragraph cannot be \
+                         appended where a reader would find it"
+                    .into(),
+            }),
+        }
+    }
+
     // ── close ───────────────────────────────────────────────────────────────
     //
     // Every paragraph this command wrote whose finding is no longer gating. Read from the
     // corpus rather than from the run's proposals, because a question opened at an earlier
     // HEAD is exactly the one that needs retiring.
-    for path in crate::walk::walk_corpus_instances(&yidam_corpus_dir(root)) {
+    let closable = crate::walk::walk_corpus_instances(&yidam_corpus_dir(root))
+        .into_iter()
+        .chain(crate::walk::walk_md_files(&yidam_catalog_dir(root)));
+    for path in closable {
         let node = rel(root, &path);
         if withdrawn.contains(&node) {
             continue;
@@ -195,7 +233,7 @@ fn plan(
         loop {
             let Some(m) = draft::marked(&text)
                 .into_iter()
-                .find(|m| !gates.contains(&(m.check.clone(), node.clone())))
+                .find(|m| !live.contains(&(m.check.clone(), node.clone())))
             else {
                 break;
             };

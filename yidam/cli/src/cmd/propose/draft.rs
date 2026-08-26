@@ -345,6 +345,28 @@ pub fn append_to_description(text: &str, para: &str) -> Option<String> {
     Some(out.join("\n"))
 }
 
+/// Append a paragraph to the end of a markdown body, after the frontmatter.
+///
+/// A catalog entry is markdown with YAML frontmatter, not an instance with a `description:`
+/// block scalar, so [`append_to_description`] cannot reach it. The question about a source
+/// belongs *on* that source — where `catalog-audit` and the claim counter already read, since
+/// `claims::count_in_source` scans an entry's prose the same way it scans a node's.
+///
+/// `None` when the file has no closing frontmatter fence: appending to something whose shape
+/// is not what it claims would put a question somewhere nobody looks.
+pub fn append_to_body(text: &str, para: &str) -> Option<String> {
+    let body = text.trim_start_matches('\n');
+    if !body.starts_with("---\n") {
+        return None;
+    }
+    body[4..].find("\n---")?;
+    let mut out = text.trim_end().to_string();
+    out.push_str("\n\n");
+    out.push_str(&wrap(para, 0));
+    out.push('\n');
+    Some(out)
+}
+
 /// One paragraph this command wrote, found in a node.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Marked {
@@ -425,6 +447,46 @@ pub fn strip(text: &str, m: &Marked) -> String {
     let mut out: Vec<&str> = lines[..from].to_vec();
     out.extend(&lines[m.to..]);
     out.join("\n")
+}
+
+/// The `open:` proposal for an expired source record.
+///
+/// The second thing `propose` can append a question to, and the reason the surface needed a
+/// second one: a source record's expiry is a finding about a *file that is not a node*, and
+/// RFC-0020 scoped the first `open:` to instances. What does not change is the rule — the
+/// body quotes the finding, the paragraph marks itself, and nothing is re-tagged.
+///
+/// Licensed by the corpus's own `ttl_days`, exactly as a withdrawal is licensed by
+/// `withdraw_uncited_after`: no finding says a source should be refreshed, and this corpus
+/// said how long a record may stand before it wants to be asked.
+pub fn open_source_proposal(head: &str, e: &Eligible, text: &str) -> Option<Proposal> {
+    let para = paragraph(head, &e.check, &e.detail);
+    let content = append_to_body(text, &para)?;
+    let subject = format!(
+        "{} — {}",
+        stem(&e.node),
+        subject_tail(&e.detail, stem(&e.node).chars().count() + 9)
+    );
+    let body = format!(
+        "{}\n\nRecorded on `{}` itself as an [open] paragraph, because the question is about \
+         the source rather than about any one node that draws on it. Nothing was refreshed \
+         and no claim was re-tagged: whether the record still holds is a knowledge event, and \
+         this commit is not one.",
+        e.detail.trim(),
+        e.node
+    );
+    Some(Proposal {
+        verb: Verb::Open,
+        subject,
+        body,
+        check: e.check.clone(),
+        node: e.node.clone(),
+        detail: e.detail.clone(),
+        changes: vec![Change::Write {
+            path: e.node.clone(),
+            content,
+        }],
+    })
 }
 
 /// Drop `node` from a catalog entry's `used-by:` list.

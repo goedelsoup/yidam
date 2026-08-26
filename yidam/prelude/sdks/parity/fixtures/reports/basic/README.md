@@ -51,6 +51,17 @@ present.
 | **Two phase branches** | `phases` has rows. `ma/gauge-reader` is deliberately absent though the elector is registered, so `branch_present: false` is a golden rather than only a unit test. |
 | **Three commits, one operational** | `diff HEAD~1..HEAD` has a range and a modified node, and the log goldens show the classifier splitting rather than a column of `[E]`. |
 
+## Why this fixture declares no TTL
+
+`catalog-expired` appears in the goldens with no violations, and that is deliberate. A TTL is
+the one clock in yidam measured in **days**, so a fixture that declared one would produce a
+golden that changed every morning — green on the day it was written and failing by the end of
+the week, for no reason anyone could act on.
+
+So the golden pins the *passing* state, which is what a corpus that has not opted in looks
+like, and the expiry arithmetic is held by unit tests that pass their own `today` in. Do not
+add `ttl_days` here.
+
 ## `stage.toml`
 
 The reports cannot run against a bare directory, so every harness builds a repository out of

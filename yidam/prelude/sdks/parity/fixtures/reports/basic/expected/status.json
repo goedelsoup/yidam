@@ -11,6 +11,7 @@
   "nodes": 4,
   "open_questions": 3,
   "catalog_entries": 1,
+  "catalog_expired": 0,
   "claims_verified": 1,
   "claims_inference": 1,
   "claims_open": 2,

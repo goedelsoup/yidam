@@ -14,6 +14,30 @@ pub struct Frontmatter {
     /// either way (see `catalog-unobtained-but-cited`).
     #[serde(default)]
     pub obtained: Option<bool>,
+    /// Catalog entries only. When the source was last actually fetched.
+    ///
+    /// `YYYY-MM-DD`. Optional, and its absence is not a defect: an entry that never said
+    /// falls back to the date its file was last committed, which is a real answer and a
+    /// weaker one. What the fallback cannot tell is a re-fetch from a typo fix, and it errs
+    /// in the flattering direction — the record looks fresher than the source is — so the
+    /// report always says which of the two it used.
+    #[serde(default)]
+    pub retrieved: Option<String>,
+    /// Catalog entries only. How long this record may stand before it is worth looking at
+    /// again, in days.
+    ///
+    /// **Days, and not commits.** Every other clock in this repository counts commits, for
+    /// the argued reason that a corpus-state finding must be a function of `HEAD` rather
+    /// than of when you ran the report. This one is different in kind: a statute or a gauge
+    /// record does not become stale because you committed, it becomes stale because the
+    /// world moved. The cost is real and accepted — this is the one report that answers
+    /// differently tomorrow, which is exactly what a TTL is for.
+    ///
+    /// Per entry, because a gauge record and a statute do not age at the same rate. Absent,
+    /// the corpus-wide default in `.yidam/config.toml` applies; absent both, the entry never
+    /// expires.
+    #[serde(default)]
+    pub ttl_days: Option<u32>,
     /// Catalog entries only. Where the source can be reached.
     #[serde(default)]
     pub location: Option<Vec<CatalogLocation>>,

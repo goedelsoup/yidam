@@ -468,6 +468,128 @@ fn a_quiet_run_says_the_withdrawal_threshold_is_undeclared() {
     assert!(text.contains("That is the default"), "{text}");
 }
 
+/// An expired source record, licensed by a TTL this corpus declared.
+fn with_expired_source(root: &Path) {
+    std::fs::write(
+        root.join(".yidam/config.toml"),
+        "[catalog]\nttl_days = 30\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join(".yidam/catalog/source.md"),
+        "---\nname: source\ndescription: A source.\ntype: api\nobtained: true\n\
+         retrieved: 2000-01-01\nlocation:\n  - kind: url\n    \
+         value: https://example.org\n---\n\n# Source\n\nProse about the source.\n",
+    )
+    .unwrap();
+    commit(root, "catalog: a source with a declared ttl");
+}
+
+/// The second `open:` target. A source record's expiry is a finding about a file that is not
+/// a node, and the question belongs on the source rather than on any one node citing it.
+#[test]
+fn an_expired_source_is_proposed_as_a_question_on_the_source_itself() {
+    let dir = repo();
+    let root = dir.path();
+    with_expired_source(root);
+
+    let (proposals, skipped) = plan_at(root, None);
+    assert!(skipped.is_empty(), "{skipped:?}");
+    let p = proposals
+        .iter()
+        .find(|p| p.check == "catalog-expired")
+        .unwrap_or_else(|| panic!("no expiry proposal: {:?}", subjects(&proposals)));
+    assert_eq!(p.verb, Verb::Open);
+    assert_eq!(p.node, ".yidam/catalog/source.md");
+    assert_eq!(p.changes[0].path(), ".yidam/catalog/source.md");
+    assert!(p.carries(), "{}", p.body);
+}
+
+/// Severity is not the licence — `catalog-expired` is Warn and never gates. What licenses the
+/// proposal is the `ttl_days` this corpus declared, the same shape as
+/// `withdraw_uncited_after` licensing a deletion.
+#[test]
+fn an_expired_source_is_proposed_although_it_never_gates() {
+    let dir = repo();
+    let root = dir.path();
+    with_expired_source(root);
+
+    let checks = checks_at(root);
+    let expired = checks.iter().find(|c| c.id == "catalog-expired").unwrap();
+    assert_eq!(expired.violations.len(), 1);
+    assert!(
+        !expired.gates(&expired.violations[0]),
+        "the check must not gate; the declaration is what licenses the proposal"
+    );
+    assert!(plan_at(root, None)
+        .0
+        .iter()
+        .any(|p| p.check == "catalog-expired"));
+}
+
+/// Refreshing the source retires the question, and the entry comes back to exactly what it
+/// was — the same round trip the node case makes.
+#[test]
+fn refreshing_a_source_closes_the_question_and_restores_the_entry() {
+    let dir = repo();
+    let root = dir.path();
+    with_expired_source(root);
+    let before = read(root, ".yidam/catalog/source.md");
+
+    let (first, _) = plan_at(root, None);
+    let p = first.iter().find(|p| p.check == "catalog-expired").unwrap();
+    let Change::Write { path, content } = &p.changes[0] else {
+        panic!("an open proposal writes")
+    };
+    std::fs::write(root.join(path), content).unwrap();
+    commit(root, "open: source — the record has aged");
+
+    // Somebody re-fetches it. Today rather than a date far in the future: a future
+    // `retrieved:` is read as *undatable* and not as fresh — deliberately, since treating it
+    // as fresh would silence the entry forever — so it would leave the finding standing.
+    let today = crate::cmd::export::unix_to_iso(crate::dates::today_days() as u64 * 86_400)
+        .split('T')
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    let refreshed = read(root, ".yidam/catalog/source.md").replace("2000-01-01", &today);
+    std::fs::write(root.join(".yidam/catalog/source.md"), refreshed).unwrap();
+    commit(root, "refresh: source re-fetched");
+
+    let (second, _) = plan_at(root, None);
+    let close = second
+        .iter()
+        .find(|p| p.verb == Verb::Close)
+        .unwrap_or_else(|| panic!("no close: {:?}", subjects(&second)));
+    let Change::Write { content, .. } = &close.changes[0] else {
+        panic!("a close proposal writes")
+    };
+    assert_eq!(
+        *content,
+        before.replace("2000-01-01", &today),
+        "closing the question did not restore the entry"
+    );
+}
+
+/// A corpus that declared no TTL is asked nothing about its sources.
+#[test]
+fn without_a_declared_ttl_no_source_is_proposed_about() {
+    let dir = repo();
+    let root = dir.path();
+    std::fs::write(
+        root.join(".yidam/catalog/source.md"),
+        "---\nname: source\ndescription: A source.\ntype: api\nobtained: true\n\
+         retrieved: 2000-01-01\nlocation:\n  - kind: url\n    \
+         value: https://example.org\n---\n\n# Source\n\nProse.\n",
+    )
+    .unwrap();
+    commit(root, "catalog: a source with no ttl");
+    assert!(plan_at(root, None)
+        .0
+        .iter()
+        .all(|p| p.check != "catalog-expired"));
+}
+
 fn subjects(p: &[Proposal]) -> Vec<String> {
     p.iter()
         .map(|x| format!("{}: {}", x.verb.as_str(), x.subject))

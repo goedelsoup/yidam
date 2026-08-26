@@ -218,6 +218,8 @@ name: Pearl 2009
 description: Causality — models, reasoning, inference.
 type: paper                  # paper | dataset | api | database | other
 obtained: true               # absent means true; see below
+retrieved: 2026-08-22        # optional; when it was last actually fetched
+ttl_days: 3650               # optional; how long this record may stand
 location:
   - kind: url                # url | url_template | address | file
     value: https://example.org/pearl-2009
@@ -241,6 +243,24 @@ used-by:
   body to close the gap. **When an entry is created for one fact, say in its body what else
   the document holds, or say plainly that nobody has looked.** The second sentence is the
   useful one; it is the only thing that distinguishes an unread source from a read one.
+- **`ttl_days` says how long this record may stand**, and `retrieved` says what to count
+  from. Both are optional and absent means nothing expires. Declare it per entry, because a
+  gauge record and a statute do not age at the same rate — Pearl 2009 will say what it says
+  in ten years, and an inventory pulled from an API will not. A corpus whose sources mostly
+  age alike can set one default instead, under `[catalog] ttl_days` in `.yidam/config.toml`;
+  an entry's own value always wins.
+
+  **Days, not commits.** Every other clock in yidam counts commits, because a corpus-state
+  finding must be a function of `HEAD` rather than of when you ran the report. This one is
+  different in kind: a statute does not become stale because you committed, and a gauge
+  record does not stay fresh because you did not.
+
+  Without `retrieved`, the date is read from the commit that last touched the entry's file —
+  which counts a typo fix as a refresh, so it errs in the flattering direction. `yidam lint`
+  says which of the two it used, every time. **Expiry is reported, never enforced**, and it
+  does not claim the source changed: nothing here reads upstream and `doctor` does no
+  network. It claims nobody has looked. Refreshing a source is a knowledge event, and it is
+  yours to own.
 - **`used-by`** is optional and hand-maintained, so it can drift; the citations cannot.
   Both are kept so the disagreement is visible rather than averaged away
   (`catalog-used-by-drift`). Declaring a list asserts it is current.

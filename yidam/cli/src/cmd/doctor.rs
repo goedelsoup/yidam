@@ -97,6 +97,7 @@ impl Check {
     const INDEX: &'static str = "index";
     const REGEN: &'static str = "regen";
     const BUILD: &'static str = "build";
+    const CATALOG: &'static str = "catalog";
 
     fn new(
         id: &'static str,
@@ -359,7 +360,7 @@ fn check_prelude(root: &Path, today: i64) -> Check {
             Some("mise run yidam-vendor-status"),
         );
     };
-    let Some(days) = days_from_civil_str(&committed).map(|d| today - d) else {
+    let Some(days) = crate::dates::days_from_civil_str(&committed).map(|d| today - d) else {
         return Check::new(
             Check::PRELUDE,
             Q,
@@ -529,6 +530,7 @@ pub(crate) fn diagnose(
             Check::skipped(Check::PRELUDE, "How stale is the vendored prelude?", why),
             Check::skipped(Check::INDEX, "Is the index built, and is it current?", why),
             Check::skipped(Check::REGEN, "Are the REGEN blocks current?", why),
+            Check::skipped(Check::CATALOG, "Have any source records aged out?", why),
             check_build(),
         ];
     }
@@ -540,8 +542,89 @@ pub(crate) fn diagnose(
         check_prelude(root, today),
         check_index(root),
         check_regen(),
+        check_catalog(root, today),
         check_build(),
     ]
+}
+
+/// Have any source records aged past what the corpus said they may?
+///
+/// **No network, and none is possible from here.** This reads the entry's own `retrieved:`,
+/// or the commit that last touched its file, against a TTL the corpus declared. It cannot
+/// say the upstream changed and does not claim to — it says nobody has looked.
+///
+/// Silent where no TTL applies, which is every corpus that has not asked. A `doctor` line
+/// saying "0 expired" on a repository that never declared a TTL would read as a clean bill of
+/// health on a question nobody put.
+fn check_catalog(root: &Path, today: i64) -> Check {
+    const Q: &str = "Have any source records aged out?";
+    let dir = crate::paths::yidam_catalog_dir(root);
+    let sources = crate::cmd::lint::checks::load_sources(
+        root,
+        &crate::walk::walk_md_files(&dir),
+        &Default::default(),
+    );
+    let default_ttl = crate::config::load_yidam_config(root)
+        .map(|c| c.catalog.ttl_days)
+        .unwrap_or_default();
+    let iso = crate::cmd::export::unix_to_iso(today as u64 * 86_400);
+    let ages = crate::cmd::lint::ttl::ages(
+        &sources,
+        &crate::cmd::lint::ttl::committed_dates(root, &dir),
+        default_ttl,
+        iso.split('T').next().unwrap_or_default(),
+    );
+
+    let governed = ages.iter().filter(|a| a.ttl_days.is_some()).count();
+    if governed == 0 {
+        return Check::new(
+            Check::CATALOG,
+            Q,
+            Verdict::Ok,
+            format!(
+                "no TTL declared — {} source(s) never expire. Set `[catalog] ttl_days` or \
+                 declare `ttl_days:` on an entry.",
+                ages.len()
+            ),
+            None,
+        );
+    }
+    let expired: Vec<&crate::cmd::lint::ttl::Age> =
+        ages.iter().filter(|a| a.overdue_days().is_some()).collect();
+    let undatable = ages.iter().filter(|a| a.undatable()).count();
+    if expired.is_empty() && undatable == 0 {
+        return Check::new(
+            Check::CATALOG,
+            Q,
+            Verdict::Ok,
+            format!("{governed} source(s) under a TTL, none expired"),
+            None,
+        );
+    }
+    let mut detail = Vec::new();
+    if let Some(worst) = expired
+        .iter()
+        .max_by_key(|a| a.overdue_days().unwrap_or_default())
+    {
+        detail.push(format!(
+            "{} of {governed} source(s) expired, worst {} day(s) past ({})",
+            expired.len(),
+            worst.overdue_days().unwrap_or_default(),
+            worst.entry
+        ));
+    }
+    if undatable > 0 {
+        detail.push(format!(
+            "{undatable} under a TTL with no date to measure against"
+        ));
+    }
+    Check::new(
+        Check::CATALOG,
+        Q,
+        Verdict::Warn,
+        detail.join("; "),
+        Some("yidam lint  # catalog-expired names each one"),
+    )
 }
 
 pub(crate) fn render(report: &DoctorReport, root: &Path) -> String {
@@ -587,7 +670,7 @@ pub fn doctor(strict: bool, format: crate::report::Format) -> Result<()> {
         &root,
         running.as_deref(),
         path_var.as_deref(),
-        today_days_from_civil(),
+        crate::dates::today_days(),
     );
     let report = DoctorReport::new(checks, strict);
     let passed = report.passed;
@@ -601,43 +684,6 @@ pub fn doctor(strict: bool, format: crate::report::Format) -> Result<()> {
         std::process::exit(1);
     }
     Ok(())
-}
-
-// ── dates ─────────────────────────────────────────────────────────────────────
-//
-// `cmd::status` converts a Unix timestamp to a civil date; this needs the inverse, to turn
-// `.yidam.toml`'s `committed = "YYYY-MM-DD"` into a day count it can subtract. Both are
-// Hinnant's algorithms and neither pulls a date crate for the arithmetic.
-
-/// Days since 1970-01-01 for a civil date. Hinnant's `days_from_civil`.
-fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = if y >= 0 { y } else { y - 399 } / 400;
-    let yoe = y - era * 400;
-    let mp = if m > 2 { m - 3 } else { m + 9 } as i64;
-    let doy = (153 * mp + 2) / 5 + d as i64 - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146097 + doe - 719468
-}
-
-/// Parse `YYYY-MM-DD` into days since the epoch. `None` on anything else — including the
-/// `"unknown"` that [`crate::provenance::Provenance`] degrades to.
-fn days_from_civil_str(s: &str) -> Option<i64> {
-    let mut parts = s.trim().splitn(3, '-');
-    let y: i64 = parts.next()?.parse().ok()?;
-    let m: u32 = parts.next()?.parse().ok()?;
-    let d: u32 = parts.next()?.parse().ok()?;
-    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
-        return None;
-    }
-    Some(days_from_civil(y, m, d))
-}
-
-fn today_days_from_civil() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| (d.as_secs() / 86400) as i64)
-        .unwrap_or(0)
 }
 
 // ── .yidam.toml ───────────────────────────────────────────────────────────────
@@ -692,7 +738,7 @@ mod tests {
 
     #[test]
     fn the_epoch_is_day_zero() {
-        assert_eq!(days_from_civil_str("1970-01-01"), Some(0));
+        assert_eq!(crate::dates::days_from_civil_str("1970-01-01"), Some(0));
     }
 
     /// The round trip against `cmd::status`'s forward conversion. If these two ever
@@ -700,7 +746,7 @@ mod tests {
     #[test]
     fn days_and_dates_round_trip() {
         for date in ["2026-07-01", "2000-02-29", "1999-12-31", "2026-08-23"] {
-            let days = days_from_civil_str(date).unwrap();
+            let days = crate::dates::days_from_civil_str(date).unwrap();
             let secs = (days as u64) * 86400;
             assert_eq!(
                 crate::cmd::status::unix_to_date_str(secs),
@@ -712,9 +758,9 @@ mod tests {
 
     #[test]
     fn an_unknown_pin_date_is_not_a_date() {
-        assert_eq!(days_from_civil_str("unknown"), None);
-        assert_eq!(days_from_civil_str(""), None);
-        assert_eq!(days_from_civil_str("2026-13-01"), None);
+        assert_eq!(crate::dates::days_from_civil_str("unknown"), None);
+        assert_eq!(crate::dates::days_from_civil_str(""), None);
+        assert_eq!(crate::dates::days_from_civil_str("2026-13-01"), None);
     }
 
     // ── repository ───────────────────────────────────────────────────────────
@@ -905,7 +951,7 @@ mod tests {
 
     #[test]
     fn a_recent_pin_is_fine_and_still_says_how_old_it_is() {
-        let today = days_from_civil_str("2026-08-23").unwrap();
+        let today = crate::dates::days_from_civil_str("2026-08-23").unwrap();
         let tmp = repo_with_prelude("2026-08-01");
         let c = check_prelude(tmp.path(), today);
         assert_eq!(c.verdict, Verdict::Ok);
@@ -914,7 +960,7 @@ mod tests {
 
     #[test]
     fn a_pin_older_than_the_threshold_warns() {
-        let today = days_from_civil_str("2026-08-23").unwrap();
+        let today = crate::dates::days_from_civil_str("2026-08-23").unwrap();
         let tmp = repo_with_prelude("2026-01-01");
         assert_eq!(check_prelude(tmp.path(), today).verdict, Verdict::Warn);
     }
@@ -923,7 +969,7 @@ mod tests {
     /// is a question this command deliberately declines to answer.
     #[test]
     fn the_prelude_check_always_points_at_the_networked_command() {
-        let today = days_from_civil_str("2026-08-23").unwrap();
+        let today = crate::dates::days_from_civil_str("2026-08-23").unwrap();
         let tmp = repo_with_prelude("2026-08-01");
         assert!(check_prelude(tmp.path(), today)
             .remedy

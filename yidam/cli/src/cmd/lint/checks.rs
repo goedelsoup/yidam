@@ -259,6 +259,10 @@ pub struct Source {
     pub obtained: bool,
     pub used_by: Vec<String>,
     pub locations: Vec<crate::parse::CatalogLocation>,
+    /// When the entry says it was last fetched, verbatim. See [`super::ttl`].
+    pub retrieved: Option<String>,
+    /// The entry's own TTL, which beats the corpus default.
+    pub ttl_days: Option<u32>,
 }
 
 fn rel_of(root: &Path, path: &Path) -> String {
@@ -296,6 +300,8 @@ pub fn load_sources(root: &Path, paths: &[PathBuf], overlay: &super::Overlay) ->
                 obtained: fm.obtained.unwrap_or(true),
                 used_by: fm.used_by.unwrap_or_default(),
                 locations: fm.location.unwrap_or_default(),
+                retrieved: fm.retrieved,
+                ttl_days: fm.ttl_days,
             }
         })
         .collect()
@@ -1358,6 +1364,66 @@ pub fn verified_unsourced(
     )
 }
 
+/// A catalog record that has stood longer than the corpus said it may.
+///
+/// `docs/domain-computer.md` specified "refreshed on TTL or on demand" and there was no TTL:
+/// an entry recorded where something came from and never that the record had aged, so a
+/// corpus resting on a source fetched a year ago read exactly like one fetched today.
+///
+/// **An aged source is a thing to look at, not an error.** Refreshing it is a knowledge
+/// event a person should own, so this reports and does not gate — and it says only what it
+/// knows. An expiry does not claim the upstream changed; nothing here can see upstream, and
+/// `doctor` must keep doing no network. It claims that nobody has looked.
+///
+/// Two silences are kept apart, because the fix differs. An entry with no applicable TTL is
+/// not reported at all: absent a declaration the corpus never asked to be told, which is
+/// every corpus until someone turns it on. An entry that *does* carry a TTL and has no date
+/// to measure against is reported as **undatable** rather than as expired — a gap in the
+/// bookkeeping, not a stale source, and calling it stale would assert something nobody knows.
+pub fn catalog_expired(ages: &[super::ttl::Age]) -> Check {
+    let violations = ages
+        .iter()
+        .filter_map(|a| {
+            if a.undatable() {
+                return Some(Violation::new(
+                    &a.entry,
+                    format!(
+                        "declares a {}-day TTL and nothing records when it was fetched — add \
+                         `retrieved:`, or commit the entry so its date can be read",
+                        a.ttl_days.unwrap_or(0)
+                    ),
+                ));
+            }
+            let over = a.overdue_days()?;
+            Some(Violation::new(
+                &a.entry,
+                format!(
+                    "retrieved {} ({}), {} day(s) ago against a {}-day TTL — {} day(s) past",
+                    a.retrieved.as_deref().unwrap_or("?"),
+                    a.dated.map(|d| d.as_str()).unwrap_or("?"),
+                    a.age_days.unwrap_or(0),
+                    a.ttl_days.unwrap_or(0),
+                    over
+                ),
+            ))
+        })
+        .collect();
+    Check::new(
+        "catalog-expired",
+        "A source record older than the corpus said it may be",
+        Severity::Warn,
+        "A catalog entry records where something came from; until it could also record how \
+         long that record may stand, a source fetched a year ago read exactly like one \
+         fetched today. Declare `ttl_days:` on the entry — a gauge record and a statute do \
+         not age at the same rate — or a corpus-wide default under `[catalog]` in \
+         `.yidam/config.toml`. Absent both, nothing expires. This reports rather than gates \
+         because an aged record is a thing to look at, and refreshing it is a knowledge event \
+         a person owns. It does not claim the source changed: nothing here reads upstream, \
+         and `doctor` does no network. It claims nobody has looked.",
+        violations,
+    )
+}
+
 pub fn catalog_uncited(sources: &[Source], cites: &[Vec<String>]) -> Check {
     let violations = sources
         .iter()
@@ -1616,6 +1682,8 @@ mod tests {
             obtained,
             used_by: used_by.iter().map(|s| s.to_string()).collect(),
             locations: vec![],
+            retrieved: None,
+            ttl_days: None,
         }
     }
 
@@ -1752,6 +1820,91 @@ mod tests {
             "class: c\ndescription: |\n  A statement. [verified]\nlinks: []\n",
         )];
         let c = verified_unsourced(&nodes, &[], &claim_fields());
+        assert_eq!(c.severity, Severity::Warn);
+        assert!(!c.gates(&c.violations[0]));
+    }
+
+    fn aged(
+        entry: &str,
+        retrieved: Option<&str>,
+        dated: Option<super::super::ttl::Dated>,
+        age: Option<i64>,
+        ttl: Option<u32>,
+    ) -> super::super::ttl::Age {
+        super::super::ttl::Age {
+            entry: entry.to_string(),
+            retrieved: retrieved.map(str::to_string),
+            dated,
+            age_days: age,
+            ttl_days: ttl,
+        }
+    }
+
+    /// A corpus that declared no TTL asked nothing, and is told nothing.
+    #[test]
+    fn an_entry_with_no_ttl_is_not_reported() {
+        let c = catalog_expired(&[aged("a.md", Some("1999-01-01"), None, Some(9_000), None)]);
+        assert!(c.passed(), "{:?}", c.violations);
+    }
+
+    #[test]
+    fn an_entry_inside_its_ttl_is_not_reported() {
+        let c = catalog_expired(&[aged("a.md", Some("2026-08-01"), None, Some(25), Some(180))]);
+        assert!(c.passed(), "{:?}", c.violations);
+    }
+
+    /// The finding names the date, where the date came from, and how far past it is — the
+    /// three things a maintainer needs before deciding whether to re-fetch.
+    #[test]
+    fn an_expired_entry_says_how_it_was_dated() {
+        let c = catalog_expired(&[aged(
+            "a.md",
+            Some("2024-01-15"),
+            Some(super::super::ttl::Dated::Declared),
+            Some(954),
+            Some(30),
+        )]);
+        assert_eq!(c.violations.len(), 1);
+        let d = &c.violations[0].detail;
+        assert!(d.contains("2024-01-15"), "{d}");
+        assert!(d.contains("declared"), "{d}");
+        assert!(d.contains("924 day(s) past"), "{d}");
+    }
+
+    /// A date read from git is labelled as such: it counts a typo fix as a refresh, so it
+    /// errs in the flattering direction and a reader is owed the difference.
+    #[test]
+    fn a_git_dated_entry_says_so() {
+        let c = catalog_expired(&[aged(
+            "a.md",
+            Some("2024-01-15"),
+            Some(super::super::ttl::Dated::Committed),
+            Some(954),
+            Some(30),
+        )]);
+        assert!(
+            c.violations[0].detail.contains("from git"),
+            "{:?}",
+            c.violations[0]
+        );
+    }
+
+    /// A TTL with nothing to measure against is a gap in the bookkeeping, not a stale
+    /// source. Calling it expired would assert something nobody knows.
+    #[test]
+    fn an_undatable_entry_is_reported_as_undatable_and_not_as_expired() {
+        let c = catalog_expired(&[aged("a.md", None, None, None, Some(30))]);
+        assert_eq!(c.violations.len(), 1);
+        let d = &c.violations[0].detail;
+        assert!(d.contains("nothing records when it was fetched"), "{d}");
+        assert!(!d.contains("past"), "it must not read as an expiry: {d}");
+    }
+
+    /// It reports and does not gate. An aged record is a thing to look at, and refreshing it
+    /// is a knowledge event a person owns.
+    #[test]
+    fn an_expired_entry_reports_rather_than_gates() {
+        let c = catalog_expired(&[aged("a.md", Some("2024-01-15"), None, Some(954), Some(30))]);
         assert_eq!(c.severity, Severity::Warn);
         assert!(!c.gates(&c.violations[0]));
     }
@@ -2056,6 +2209,8 @@ mod tests {
             obtained,
             used_by: vec![],
             locations: vec![],
+            retrieved: None,
+            ttl_days: None,
         }
     }
 

@@ -320,6 +320,10 @@
       "type": "integer",
       "description": "`status` only."
     },
+    "catalog_expired": {
+      "type": "integer",
+      "description": "`status` only. Source records past the TTL this corpus declared, per entry or under `[catalog]`. Zero when no TTL is declared, which is every corpus that has not opted in."
+    },
     "claims_verified": {
       "type": "integer",
       "description": "`status` only."
