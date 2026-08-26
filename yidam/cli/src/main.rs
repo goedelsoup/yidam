@@ -275,6 +275,28 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// Quote what a query would cost before running it — nodes matched, and what each
+    /// projection would run to in characters and approximate tokens
+    Estimate {
+        /// The query to price, in `yidam query`'s language
+        query: String,
+        /// A projection to price beside the standard three, comma-separated
+        #[arg(long)]
+        select: Option<String>,
+        /// The `--limit` the quoted call would carry. Projections are priced at it; a pack
+        /// has no limit and is priced whole
+        #[arg(long, default_value_t = yidam::QUERY_DEFAULT_LIMIT)]
+        limit: usize,
+        /// Token budget to price against. Each row is marked `fits` or `over budget`
+        #[arg(long)]
+        budget: Option<usize>,
+        /// How many entry nodes a `class~"…"` anchor opens on
+        #[arg(long, default_value_t = yidam::QUERY_DEFAULT_ANCHOR_K)]
+        anchor_k: usize,
+        /// Output format. `json` emits the machine-readable report contract (RFC-0016)
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Report the corpus graph: nodes, resolved edges, and the classes that license them
     Graph {
         /// Output format. `json` emits the machine-readable report contract
@@ -642,6 +664,14 @@ fn main() -> Result<()> {
             anchor_k,
             format,
         } => yidam::pack(&query, budget, anchor_k, format),
+        Command::Estimate {
+            query,
+            select,
+            limit,
+            budget,
+            anchor_k,
+            format,
+        } => yidam::estimate(&query, select, limit, budget, anchor_k, format),
         Command::Graph { format } => yidam::graph(format),
         Command::Neighbors {
             node,

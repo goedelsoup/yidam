@@ -10,6 +10,7 @@ pub(crate) mod decisions;
 mod diff;
 mod doctor;
 mod embed;
+pub(crate) mod estimate;
 mod export;
 mod export_graphml;
 mod export_llms;
@@ -60,6 +61,7 @@ pub use decisions::decisions_log;
 pub use diff::diff_corpus;
 pub use doctor::doctor;
 pub use embed::{embed, EmbedOptions};
+pub use estimate::estimate;
 pub use export::{export, list_formats, run_export, ExportFormat, ExportOptions, RdfFormat};
 pub use graph::{graph, neighbors};
 #[cfg(feature = "index")]

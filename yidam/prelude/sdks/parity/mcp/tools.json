@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "contract": "0.8.0",
+  "contract": "0.9.0",
   "description": "The frozen MCP tool contract (RFC-0005). Names are bare — no `yidam_` prefix — because the server is already namespaced by its own name in every client that mounts one. `tier` is `core` (every server MUST back it) or a capability name (backed iff the server declares that capability true). This file is the only place the list lives; a harness that restates it is a second freeze, which is how three servers ended up sharing one name out of five capabilities.",
   "capabilities": {
     "retrieve": {
@@ -314,6 +314,56 @@
           "text"
         ],
         "notes": "THE RECEIPT IS THE CONTRACT; THE PROSE IS NOT (contract 0.7.0). `text` is a rendering, and no case in this directory pins a byte of it — a server whose sections carry a different heading is conforming, and one that pins `written: 2` on a corpus of four would be freezing yidam's section layout on every other implementation. What is frozen is the accounting: `written + omitted == reachable`, `omitted_by_class` sums to `omitted`, and every one of those keys is present on every response including the unbudgeted one.\n\n`reachable` IS THE COUNT BEFORE THE BUDGET, ALWAYS — the rule `claims.total` follows, one field further out. A server reporting the post-budget count has produced a receipt that says nothing: `12 of 12` is what silent truncation looks like from the inside, and the failure this tool exists to prevent is a caller reporting what it was given rather than what it wrote.\n\n`omitted_by_class` IS THE FIELD THIS TOOL IS FOR. \"I retrieved 12 nodes\" and \"I retrieved 12 of 40, and the 28 I dropped were all `recording` instances\" license completely different next actions, and only the second lets a caller decide between spending more budget and reporting incompleteness. A server may not collapse it to a total it already reports.\n\nBUDGET IS AN ESTIMATE AND SAYS SO. `budget` carries `{tokens, used, chars, basis, over_budget}`. `tokens` is what was asked for and is null on an unbudgeted pack; `used` is what the pack runs to; `basis` names how both were computed and is `chars/4` for a server that does not tokenize. A precise-looking number computed with the wrong tokenizer is worse than a stated approximation, so the approximation is stated rather than hidden.\n\nTHE RECEIPT IS THE FLOOR. A budget too small to hold the account itself cannot be met, and `over_budget` is true exactly then. Dropping the receipt to fit would produce a pack that silently holds nothing — the failure mode, arriving through the door marked compliance. Whenever a single node is written, the pack fits.\n\nREJECTION IS AN ANSWER, AND AN EMPTY PACK IS NOT ONE. `rejected` carries `query`'s own codes and MUST NOT be signalled with `isError`; when it is non-null, `text` is empty and `reachable` is 0. Handing back an empty pack for a misspelled class would give a caller a context window that reads as a corpus with nothing to say.\n\nABSENCE TRAVELS INTO THE TEXT (contract 0.8.0). `absence` carries the shape and the frozen codes `query` defines, and it matters MORE here: a pack is what a caller reads *as* the corpus, so an empty one that says nothing is a context window asserting the corpus has no view. A conforming server renders the diagnosis into `text` as well as into the field \u2014 the artefact travels without the envelope, and a caller handed only the pack must still be able to tell 'the corpus does not cover this' from 'the retrieval missed'.\n\nLOCAL ONLY, like `query` and for the same reason one step further: a pack is context a caller is about to write from. Mixing a dependency's prose into it would put foreign nodes under this corpus's class names, where `omitted_by_class` would then be arithmetic over a category nobody declared."
+      }
+    },
+    {
+      "name": "estimate",
+      "tier": "ontology",
+      "description": "What a query would cost, before paying for it. Returns the number of nodes it matches and what each projection of them would run to in characters and approximate tokens — and none of the prose.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "The query to price, in `query`'s language."
+          },
+          "select": {
+            "type": "string",
+            "description": "A projection to price beside the standard three, comma-separated."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "The `limit` the quoted call would carry (default 50). Projections are priced at it; a pack has no limit and is priced whole."
+          },
+          "budget": {
+            "type": "integer",
+            "description": "Token budget to price against. Each row comes back with a `fits` verdict."
+          },
+          "anchor_k": {
+            "type": "integer",
+            "description": "How many entry nodes a `class~\"…\"` anchor opens on (default 1)."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "response": {
+        "required": [
+          "query",
+          "scope",
+          "rejected",
+          "absence",
+          "diagnostics",
+          "cost",
+          "matched",
+          "limit",
+          "budget",
+          "projections",
+          "pack",
+          "basis"
+        ],
+        "notes": "QUOTE BEFORE, ACCOUNT AFTER (contract 0.9.0). `pack` reports what a call cost; this reports what it would cost, so a caller can widen a query it can afford and narrow one it cannot instead of discovering the difference by having paid.\n\nIT IS CHEAP FOR THE CALLER, NOT FOR THE SERVER, and that asymmetry is the whole point. Knowing exactly what a query costs means running it \u2014 so a quote is the answer with the prose withheld. The server holds every node either way (the same reason `nodes_read` refuses to count the corpus load); the caller pays for what comes back. A conforming server therefore MUST NOT return rows here, and MUST run the traversal exactly ONCE: a quote that resolved a similarity anchor twice charges double for the thing it exists to call affordable.\n\n`chars` IS EXACT AND `tokens` IS NOT. `chars` is the serialized length of the payload that would come back \u2014 not an estimate, and a server that rounds it has broken the only promise here. `tokens` is `chars / 4` and `basis` names it. There is deliberately NO RANGE: a range would be a second invented number laid over the first, and a caller holding a real tokenizer needs the exact figure rather than a wider guess.\n\n`projections` IS A TABLE BECAUSE THE DECISION IS NOT WHETHER. A caller has its question either way; what it chooses is how much of each node to ask for. Every entry prices the SAME match set at a different `select`, cheapest first, and `fits` is the verdict against `budget` \u2014 null exactly when no budget was quoted, the present-and-null discipline every other field on this contract follows.\n\n`limit` IS PART OF THE CALL, SO IT IS PART OF THE QUOTE. Projections are priced at it and `rows` is `matched` capped by it; `matched` is always the full walk. `pack` has no limit \u2014 a budget is its only bound \u2014 so `pack.nodes` is the whole match set. The two figures sit side by side because a caller comparing them is comparing a page of names against the corpus's prose, and must be able to see which is which.\n\nA QUOTE OF ZERO READS AS CHEAP. `absence` is carried here for that reason and follows `query`'s rules exactly: a caller told a query costs nothing, and not told the class is unpopulated, has been handed the most affordable possible way to learn nothing. `pack.chars` on an empty answer is NOT zero \u2014 the pack carries the diagnosis, which is the part worth paying for when there is no answer.\n\nSPECULATIVE, AND SAID SO. This tool is the one part of the surface added on a guess about how callers behave rather than on a measured gap. Nothing else depends on it, it reads nothing new, and it computes entirely from what `query` already produces \u2014 so a server that declines to back `ontology` loses it along with `query` and `pack`, and nothing else changes."
       }
     },
     {

@@ -116,6 +116,7 @@ An absolute path and `exec` — the `exec` so signals reach the server rather th
 | `licensed_edges` | What a class declares it may link to | Before you write the link |
 | `query` | A typed path over the graph — `reach -measured-by-> gage` | You know the *shape* of the answer, not the node |
 | `pack` | That path's answer as prose, filled to a token budget, with what did not fit | You are about to write from the corpus and have a budget |
+| `estimate` | What that would cost, in nodes and approximate tokens, before you pay for it | You have a budget and want to know what fits |
 
 **`claims` returns assertions; every other tool returns documents.** A node is 2–10
 sentences by the model's own rule, so asking `get_node` what a corpus takes as verified means
@@ -155,8 +156,20 @@ reporting that the corpus does not cover this. It is unbudgeted unless you ask f
 and the token figure is `chars / 4` and says so: an honest approximation beats a
 precise-looking number computed with the wrong tokenizer.
 
-`licensed_edges`, `query` and `pack` are the three a server may not back — all three need the
-class definitions, and a projected mirror can hold nodes and edges and no `.ont.yml`. Such a
+**`estimate` quotes; `pack` accounts.** An agent budgets in tokens and could otherwise only
+discover what a retrieval cost by paying for it — so the only strategy available was to ask
+for less than might be needed and hope. `estimate` runs the traversal, returns none of the
+prose, and prices the same match set at each projection with a `fits` verdict against your
+budget. `chars` is exact — it is the payload that would come back — and `~tokens` is
+`chars / 4` and says so; use `chars` if you have a real tokenizer. The decision it serves is
+not *whether* to ask but *how much of each node to ask for*, which is why it comes back as a
+table rather than a number.
+
+It is also the most speculative thing here, and the epic that asked for it says so: if agents
+do not act differently given a quote, this is the surface to drop. Nothing depends on it.
+
+`licensed_edges`, `query`, `pack` and `estimate` are the four a server may not back — all of them need
+the class definitions, and a projected mirror can hold nodes and edges and no `.ont.yml`. Such a
 server declares `"ontology": false` in the handshake, which is a statement you can read rather
 than a hole you discover.
 

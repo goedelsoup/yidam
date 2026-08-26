@@ -96,6 +96,7 @@ pub const GROUPS: &[Group] = &[
             r("neighbors"),
             r("query"),
             r("pack"),
+            r("estimate"),
             r("diff"),
             w("rename"),
             // Beside `rename` and not with the gates: both move something and rewrite every

@@ -95,6 +95,7 @@ pub(crate) fn call(state: &ServerState, name: &str, args: &Value) -> Value {
         "licensed_edges" => licensed_edges(state, args),
         "query" => query(state, args),
         "pack" => pack(state, args),
+        "estimate" => estimate(state, args),
         other => Err(format!("unknown tool: {other}")),
     };
     match outcome {
@@ -304,6 +305,40 @@ fn query(state: &ServerState, args: &Value) -> Result<Value, String> {
     let ctx = crate::cmd::query::Context::now(&state.graph, Some(&state.retrieval));
     let report = crate::cmd::query::run_on(&ctx, text, &opts);
     serde_json::to_value(&report).map_err(|e| e.to_string())
+}
+
+/// What a query would cost, before paying for it (#284).
+///
+/// Returns no rows, which is the whole asymmetry: the traversal costs this server what an
+/// answer costs, and costs the caller a few hundred bytes. The walk happens **once** — the
+/// pack figure is derived from the same report rather than from a second run, because a quote
+/// that resolved the similarity anchor twice would charge double for the thing it exists to
+/// call affordable.
+fn estimate(state: &ServerState, args: &Value) -> Result<Value, String> {
+    let text = args["query"]
+        .as_str()
+        .ok_or("missing required argument: query")?;
+    let opts = crate::cmd::estimate::Options {
+        select: match args["select"].as_str() {
+            Some(select) => select
+                .split(',')
+                .map(|f| f.trim().to_string())
+                .filter(|f| !f.is_empty())
+                .collect(),
+            None => crate::cmd::estimate::Options::default().select,
+        },
+        limit: args["limit"]
+            .as_u64()
+            .unwrap_or(crate::cmd::query::DEFAULT_LIMIT as u64)
+            .max(1) as usize,
+        budget: args["budget"].as_u64().map(|b| b as usize),
+        anchor_k: args["anchor_k"]
+            .as_u64()
+            .unwrap_or(crate::cmd::query::DEFAULT_ANCHOR_K as u64)
+            .max(1) as usize,
+    };
+    let ctx = crate::cmd::query::Context::now(&state.graph, Some(&state.retrieval));
+    serde_json::to_value(crate::cmd::estimate::run_on(&ctx, text, &opts)).map_err(|e| e.to_string())
 }
 
 /// A context pack for one goal (#282).
