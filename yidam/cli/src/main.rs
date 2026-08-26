@@ -657,7 +657,21 @@ fn main() -> Result<()> {
             between,
             across,
             format,
-        } => yidam::query(&query, select, limit, anchor_k, at, between, across, format),
+        } => yidam::query(
+            &query,
+            select,
+            limit,
+            anchor_k,
+            // Clap has already refused every combination of the three; this is where that
+            // becomes a fact the rest of the command can rely on rather than a convention.
+            match (at, between, across) {
+                (Some(rev), _, _) => yidam::QueryScope::At(rev),
+                (_, Some(range), _) => yidam::QueryScope::Between(range),
+                (_, _, true) => yidam::QueryScope::Across,
+                _ => yidam::QueryScope::Now,
+            },
+            format,
+        ),
         Command::Pack {
             query,
             budget,

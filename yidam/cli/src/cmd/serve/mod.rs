@@ -87,6 +87,15 @@ pub(crate) struct ServerState {
     /// Loaded at startup rather than per call: the server answers many queries against one
     /// corpus, and re-walking `.yidam/corpus` on each would make the cheapest query the most
     /// expensive thing the server does.
+    ///
+    /// **`query --select body` answers from here too**, and since #324 that is a startup
+    /// snapshot rather than a read of the file at request time. It is the same snapshot every
+    /// other tool answers from — `nodes`, `retrieval`, `classes` and `citations` are all built
+    /// once above — so the change made `body` consistent with the server rather than stale
+    /// against it. A `body` that reached for the working tree would be one field, on one tool,
+    /// answering about a different corpus than every field beside it, including the `at` key
+    /// that would still read null. The contract states it (`parity/mcp/tools.json`, 0.9.1) and
+    /// the connect-time staleness banner reports the same fact. Freshness is a restart.
     pub graph: crate::cmd::query::Graph,
     /// Catalog entries each node cites, keyed by node id.
     ///

@@ -26,6 +26,43 @@ fn git(dir: &Path, args: &[&str]) {
     assert!(status.success(), "git {args:?} failed");
 }
 
+/// The same, at a fixed timestamp on both dates.
+///
+/// A branchy fixture needs its commits to be *datable* independently of the order they are
+/// created in, or the ordering under test is the order the test happened to write them.
+fn git_at(dir: &Path, args: &[&str], epoch: u64) {
+    // Git's raw date format. Without the `@` it refuses the whole commit.
+    let when = format!("@{epoch} +0000");
+    let status = Command::new("git")
+        .current_dir(dir)
+        .args(args)
+        .env("GIT_AUTHOR_DATE", &when)
+        .env("GIT_COMMITTER_DATE", &when)
+        .status()
+        .unwrap();
+    assert!(status.success(), "git {args:?} failed");
+}
+
+/// An empty repository with an identity, ready for a corpus.
+fn repo() -> tempfile::TempDir {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    git(dir, &["init", "-q", "-b", "main"]);
+    git(dir, &["config", "user.email", "t@t.co"]);
+    git(dir, &["config", "user.name", "T"]);
+    tmp
+}
+
+/// The node ids an answer holds, in order.
+fn ids(report: &serde_json::Value) -> Vec<String> {
+    report["results"]
+        .as_array()
+        .unwrap_or(&Vec::new())
+        .iter()
+        .map(|r| r["node"].as_str().unwrap_or_default().to_string())
+        .collect()
+}
+
 fn write(dir: &Path, rel: &str, body: &str) {
     let path = dir.join(rel);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -34,11 +71,8 @@ fn write(dir: &Path, rel: &str, body: &str) {
 
 /// Three commits, each changing something a query can see.
 fn history() -> tempfile::TempDir {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = repo();
     let dir = tmp.path();
-    git(dir, &["init", "-q", "-b", "main"]);
-    git(dir, &["config", "user.email", "t@t.co"]);
-    git(dir, &["config", "user.name", "T"]);
 
     write(
         dir,
@@ -302,11 +336,8 @@ fn at_and_between_are_mutually_exclusive() {
 /// file is looking at.
 #[test]
 fn an_empty_historical_answer_is_diagnosed_and_offered_no_dependency() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = repo();
     let dir = tmp.path();
-    git(dir, &["init", "-q", "-b", "main"]);
-    git(dir, &["config", "user.email", "t@t.co"]);
-    git(dir, &["config", "user.name", "T"]);
     // Declared and empty, at every commit there is.
     write(dir, ".yidam/corpus/note.ont.yml", "class: note\n");
     write(dir, ".yidam/corpus/gage.ont.yml", "class: gage\n");
@@ -359,5 +390,523 @@ fn an_empty_historical_answer_is_diagnosed_and_offered_no_dependency() {
             .unwrap()
             .contains("--across"),
         "{past}"
+    );
+}
+
+// ── the corpus the two paths must agree about ────────────────────────────────
+
+/// `--at HEAD` on a clean tree is the identity.
+///
+/// The one property that makes every other assertion here mean something: if the
+/// reconstruction and the walk disagree about what the corpus *is*, a series is comparing two
+/// answers to two different questions. Three ways they came to differ, one fixture each.
+fn agrees_with_the_working_tree(dir: &Path, query: &str) {
+    let now = json(dir, &[query]);
+    let head = json(dir, &[query, "--at", "HEAD"]);
+    assert_eq!(
+        ids(&now),
+        ids(&head),
+        "`--at HEAD` on a clean tree answered differently from the working tree\nnow:  {now}\nhead: {head}"
+    );
+    assert_eq!(
+        now["cost"]["corpus_nodes"], head["cost"]["corpus_nodes"],
+        "the two paths disagree about how many nodes the corpus holds"
+    );
+}
+
+/// A node path git quotes. `ls-tree` without `-z` emits `".yidam/corpus/gage/caf\303\251.yml"`
+/// — quotes included — and the node left the corpus at every revision, silently and at exit 0.
+#[test]
+fn a_node_whose_path_git_quotes_is_still_a_node() {
+    let tmp = repo();
+    let dir = tmp.path();
+    write(dir, ".yidam/corpus/gage.ont.yml", "class: gage\n");
+    write(
+        dir,
+        ".yidam/corpus/gage/canyon.yml",
+        "class: gage\nlabel: C\n",
+    );
+    write(
+        dir,
+        ".yidam/corpus/gage/café.yml",
+        "class: gage\nlabel: Café\n",
+    );
+    git(dir, &["add", "-A"]);
+    git(dir, &["commit", "-qm", "chore: genesis — quoted"]);
+
+    agrees_with_the_working_tree(dir, "gage");
+    assert_eq!(json(dir, &["gage", "--at", "HEAD"])["matched"], 2);
+}
+
+/// A symlink is mode `120000` and type `blob`, so a filter on the type made its *link target*
+/// a node — one that exists at every revision and in no working tree, because walkdir does not
+/// follow links and `is_file()` excludes them.
+#[test]
+#[cfg(unix)]
+fn a_symlink_in_the_corpus_is_not_a_node() {
+    let tmp = repo();
+    let dir = tmp.path();
+    write(dir, ".yidam/corpus/gage.ont.yml", "class: gage\n");
+    write(
+        dir,
+        ".yidam/corpus/gage/real.yml",
+        "class: gage\nlabel: Real\n",
+    );
+    std::os::unix::fs::symlink("real.yml", dir.join(".yidam/corpus/gage/alias.yml")).unwrap();
+    git(dir, &["add", "-A"]);
+    git(dir, &["commit", "-qm", "chore: genesis — symlink"]);
+
+    agrees_with_the_working_tree(dir, "gage");
+    assert_eq!(
+        json(dir, &["gage", "--at", "HEAD"])["matched"],
+        1,
+        "the link target was read as a node"
+    );
+}
+
+/// The live walk takes instances at depth **two or more**; the historical test took exactly
+/// two. So a node one directory further in existed at HEAD, was read by the gate, resolved as
+/// a link target — and vanished at every revision.
+#[test]
+fn a_node_below_its_class_directory_exists_at_every_revision_too() {
+    let tmp = repo();
+    let dir = tmp.path();
+    write(dir, ".yidam/corpus/gage.ont.yml", "class: gage\n");
+    write(
+        dir,
+        ".yidam/corpus/gage/canyon.yml",
+        "class: gage\nlabel: C\n",
+    );
+    write(
+        dir,
+        ".yidam/corpus/gage/upper/deep.yml",
+        "class: gage\nlabel: Deep\n",
+    );
+    git(dir, &["add", "-A"]);
+    git(dir, &["commit", "-qm", "chore: genesis — deep"]);
+
+    agrees_with_the_working_tree(dir, "*");
+}
+
+// ── what git is asked, and what it does with the answer ──────────────────────
+
+/// A revision beginning with `-` is an *option* to git wherever the argument lands.
+///
+/// `--at=--output=<path>` reached `git rev-list` as `--output` and truncated the named file to
+/// zero bytes — a read-only command destroying a corpus node, and the falsification of both
+/// this file's headline property and the module's own docstring. `--between` passed the
+/// `contains("..")` guard and did the same at exit 0.
+#[test]
+fn a_revision_that_looks_like_an_option_is_not_one() {
+    let repo = history();
+    let dir = repo.path();
+    let node = dir.join(".yidam/corpus/gage/canyon.yml");
+    let before = std::fs::read_to_string(&node).unwrap();
+    assert!(!before.is_empty());
+
+    let target = node.display().to_string();
+    for arg in [
+        format!("--at=--output={target}"),
+        format!("--between=--output={target}.."),
+    ] {
+        let run = query(dir, &["gage", &arg]);
+        assert_ne!(run.code, 0, "`{arg}` was accepted: {}", run.stdout);
+        assert_eq!(
+            std::fs::read_to_string(&node).unwrap(),
+            before,
+            "`{arg}` wrote to the working tree"
+        );
+    }
+}
+
+/// A blob git cannot return as text is not an empty node.
+///
+/// `unwrap_or_default` on the read turned every I/O failure into a well-formed node with no
+/// class, no label and no links — a corpus quietly missing whatever the failure covered, at
+/// exit 0. On a class blob it is worse: the emptied schema looks bare, the query is rejected
+/// as `unknown-class`, and the divergence note then attributes the failure to the ontology's
+/// history.
+#[test]
+fn a_blob_that_cannot_be_read_stops_the_answer_rather_than_shrinking_it() {
+    let tmp = repo();
+    let dir = tmp.path();
+    write(dir, ".yidam/corpus/gage.ont.yml", "class: gage\n");
+    write(
+        dir,
+        ".yidam/corpus/gage/canyon.yml",
+        "class: gage\nlabel: C\n",
+    );
+    // Not text, so `cat-file` returns bytes `read_blobs` cannot decode.
+    std::fs::write(
+        dir.join(".yidam/corpus/gage/broken.yml"),
+        [0xff, 0xfe, 0x00, 0x01],
+    )
+    .unwrap();
+    git(dir, &["add", "-A"]);
+    git(dir, &["commit", "-qm", "chore: genesis — unreadable"]);
+
+    let run = query(dir, &["gage", "--at", "HEAD", "--format", "json"]);
+    let report: serde_json::Value = serde_json::from_str(&run.stdout).unwrap();
+    assert_eq!(
+        report["rejected"]["code"], "history-unreadable",
+        "an unreadable object was answered around: {}",
+        run.stdout
+    );
+    assert_eq!(run.code, 1);
+}
+
+/// A branchy history read in date order intermixes its branches, so a series shows nodes
+/// appearing, disappearing and returning — changes that never happened, in a report read
+/// precisely for where the answer changed.
+#[test]
+fn a_branchy_history_is_ordered_by_the_graph_and_not_by_the_clock() {
+    let tmp = repo();
+    let dir = tmp.path();
+    write(dir, ".yidam/corpus/gage.ont.yml", "class: gage\n");
+    write(dir, ".yidam/corpus/gage/a.yml", "class: gage\nlabel: A\n");
+    git(dir, &["add", "-A"]);
+    git_at(dir, &["commit", "-qm", "chore: genesis — branchy"], 1_000);
+
+    // A branch adds two nodes, main adds one *between* them by the clock, and the two lines
+    // are merged. In date order the rows read b, d, c; in graph order, b, c, d.
+    git(dir, &["checkout", "-q", "-b", "x"]);
+    write(dir, ".yidam/corpus/gage/b.yml", "class: gage\nlabel: B\n");
+    git(dir, &["add", "-A"]);
+    git_at(dir, &["commit", "-qm", "feat: b"], 1_100);
+    write(dir, ".yidam/corpus/gage/c.yml", "class: gage\nlabel: C\n");
+    git(dir, &["add", "-A"]);
+    git_at(dir, &["commit", "-qm", "feat: c"], 1_300);
+
+    git(dir, &["checkout", "-q", "main"]);
+    write(dir, ".yidam/corpus/gage/d.yml", "class: gage\nlabel: D\n");
+    git(dir, &["add", "-A"]);
+    git_at(dir, &["commit", "-qm", "feat: d"], 1_200);
+    git_at(
+        dir,
+        &["merge", "-q", "--no-ff", "-m", "chore: merge x", "x"],
+        1_400,
+    );
+
+    let genesis = String::from_utf8_lossy(
+        &Command::new("git")
+            .current_dir(dir)
+            .args(["rev-list", "--max-parents=0", "HEAD"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .trim()
+    .to_string();
+    let series = json(dir, &["gage", "--between", &format!("{genesis}..HEAD")]);
+    let rows: Vec<Vec<String>> = series["series"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            row["results"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r["node"].as_str().unwrap().to_string())
+                .collect()
+        })
+        .collect();
+    let holding = |node: &str| {
+        rows.iter()
+            .position(|r| r.iter().any(|id| id == node))
+            .unwrap_or_else(|| panic!("{node} is in no row: {series}"))
+    };
+    assert_eq!(
+        holding("gage/c.yml"),
+        holding("gage/b.yml") + 1,
+        "the branch's two commits were separated by a commit from the other line: {rows:?}"
+    );
+}
+
+/// `log.showSignature=true` makes git prepend verification lines to every commit, and the
+/// parser took the first word of one — `Good` — for a sha and asked for the tree at it.
+#[test]
+fn a_signature_verifying_configuration_does_not_become_a_revision() {
+    let tmp = repo();
+    let dir = tmp.path();
+    let key = dir.join("signing-key");
+    let keygen = Command::new("ssh-keygen")
+        .args(["-t", "ed25519", "-N", "", "-C", "t@t.co", "-f"])
+        .arg(&key)
+        .output();
+    // A machine without `ssh-keygen`, or a git too old to sign with SSH, cannot exercise this.
+    // Skipping is honest; asserting on the unsigned path would pass against the bug.
+    if !keygen.map(|o| o.status.success()).unwrap_or(false) {
+        eprintln!("skipped: ssh-keygen unavailable");
+        return;
+    }
+    git(dir, &["config", "gpg.format", "ssh"]);
+    git(
+        dir,
+        &["config", "user.signingkey", &key.display().to_string()],
+    );
+    git(dir, &["config", "log.showSignature", "true"]);
+
+    write(dir, ".yidam/corpus/gage.ont.yml", "class: gage\n");
+    write(
+        dir,
+        ".yidam/corpus/gage/canyon.yml",
+        "class: gage\nlabel: C\n",
+    );
+    git(dir, &["add", "-A"]);
+    if !Command::new("git")
+        .current_dir(dir)
+        .args(["commit", "-qS", "-m", "chore: genesis — signed"])
+        .status()
+        .unwrap()
+        .success()
+    {
+        eprintln!("skipped: this git cannot sign with SSH");
+        return;
+    }
+    write(
+        dir,
+        ".yidam/corpus/gage/valley.yml",
+        "class: gage\nlabel: V\n",
+    );
+    git(dir, &["add", "-A"]);
+    git(dir, &["commit", "-qS", "-m", "feat: a second gage"]);
+
+    let run = query(dir, &["gage", "--between", "HEAD~1..HEAD"]);
+    assert_eq!(run.code, 0, "{}", run.stdout);
+    assert!(
+        run.stdout.contains("1 commit(s)"),
+        "a verification line was read as a commit: {}",
+        run.stdout
+    );
+}
+
+// ── the report envelope ──────────────────────────────────────────────────────
+
+/// A rejection about a past commit says which one — in both formats.
+///
+/// `rejected_report` hardcoded `at: null`, so a JSON consumer was handed `anchor-at-revision`
+/// — a code only reachable when `--at` was supplied — beside the key that means *the working
+/// tree*. In text mode the two runs were byte-identical, so a reader who asked about a tag and
+/// mistyped a class name was told they had mistyped against today's ontology.
+#[test]
+fn a_rejected_historical_query_says_which_commit_it_is_about() {
+    let repo = history();
+    let dir = repo.path();
+
+    let rejected = json(dir, &["gage~\"x\"", "--at", "HEAD~1"]);
+    assert_eq!(rejected["rejected"]["code"], "anchor-at-revision");
+    assert_eq!(rejected["at"]["rev"], "HEAD~1", "{rejected}");
+
+    let now = query(dir, &["nosuchclass"]);
+    let then = query(dir, &["nosuchclass", "--at", "HEAD"]);
+    assert_eq!(now.code, 1);
+    assert_eq!(then.code, 1);
+    assert_ne!(
+        now.stdout, then.stdout,
+        "a refusal about a commit read exactly like a refusal about now"
+    );
+}
+
+/// A failure to reconstruct the corpus is still an answer with a shape.
+///
+/// Returning `Err` printed `Error: …` on stderr with an empty stdout, which a `--format json`
+/// consumer cannot distinguish from a crash or a truncated pipe — against this module's own
+/// stated rule that a rejection emits its report and *then* exits 1.
+#[test]
+fn a_bad_revision_comes_back_inside_the_envelope() {
+    let repo = history();
+    let dir = repo.path();
+
+    for args in [
+        vec!["gage", "--at", "no-such-ref"],
+        vec!["gage", "--between", "nope..alsonope"],
+        vec!["gage", "--between", "HEAD"],
+    ] {
+        let mut argv = args.clone();
+        argv.extend_from_slice(&["--format", "json"]);
+        let run = query(dir, &argv);
+        let report: serde_json::Value = serde_json::from_str(&run.stdout)
+            .unwrap_or_else(|e| panic!("{args:?} emitted no envelope: {e}\n{}", run.stdout));
+        assert_eq!(report["format_version"], "1", "{args:?}");
+        assert_eq!(report["rejected"]["code"], "history-unreadable", "{args:?}");
+        assert_eq!(run.code, 1, "{args:?}");
+    }
+}
+
+/// A query that is wrong at every commit in a range is wrong, and `--between` returned
+/// `Ok(())` for it. The second case is the one that hides: the query is never parsed, so a
+/// syntax error printed `0 commit(s) touching the corpus` — what an empty range prints.
+#[test]
+fn a_malformed_query_is_refused_once_rather_than_per_row() {
+    let repo = history();
+    let dir = repo.path();
+
+    for text in ["gage -->", "this is (( not valid"] {
+        let run = query(dir, &[text, "--between", "HEAD~2..HEAD"]);
+        assert_eq!(run.code, 1, "`{text}` exited 0: {}", run.stdout);
+        assert!(
+            run.stdout.starts_with("rejected (parse)"),
+            "`{text}`: {}",
+            run.stdout
+        );
+
+        let report = json(dir, &[text, "--between", "HEAD~2..HEAD"]);
+        assert_eq!(report["kind"], "series");
+        assert_eq!(report["rejected"]["code"], "parse");
+        assert_eq!(
+            report["series"].as_array().unwrap().len(),
+            0,
+            "the range was reconstructed to emit the same refusal per commit"
+        );
+    }
+
+    // `unknown-class` is the exception and stays a *row*: a class the corpus grew into is the
+    // ordinary case for a series, and exiting 1 for it would make the flag unusable.
+    let run = query(dir, &["concept", "--between", "HEAD~2..HEAD"]);
+    assert_eq!(run.code, 0, "{}", run.stdout);
+}
+
+/// The marker is the point of the report, and it compared the *rendered count*: a commit that
+/// deleted one node and added another printed `2 result(s)` on both sides and carried no mark.
+#[test]
+fn a_row_that_changed_the_answer_without_changing_its_size_is_marked() {
+    let tmp = repo();
+    let dir = tmp.path();
+    write(dir, ".yidam/corpus/gage.ont.yml", "class: gage\n");
+    write(
+        dir,
+        ".yidam/corpus/gage/alpha.yml",
+        "class: gage\nlabel: A\n",
+    );
+    write(
+        dir,
+        ".yidam/corpus/gage/beta.yml",
+        "class: gage\nlabel: B\n",
+    );
+    git(dir, &["add", "-A"]);
+    git(dir, &["commit", "-qm", "chore: genesis — swap"]);
+
+    std::fs::remove_file(dir.join(".yidam/corpus/gage/alpha.yml")).unwrap();
+    write(
+        dir,
+        ".yidam/corpus/gage/gamma.yml",
+        "class: gage\nlabel: G\n",
+    );
+    git(dir, &["add", "-A"]);
+    git(dir, &["commit", "-qm", "feat: alpha out, gamma in"]);
+
+    // A third commit, so the range holds the two rows a comparison needs.
+    write(
+        dir,
+        ".yidam/corpus/gage/delta.yml",
+        "class: gage\nlabel: D\n",
+    );
+    std::fs::remove_file(dir.join(".yidam/corpus/gage/beta.yml")).unwrap();
+    git(dir, &["add", "-A"]);
+    git(dir, &["commit", "-qm", "feat: beta out, delta in"]);
+
+    let series = json(dir, &["gage", "--between", "HEAD~2..HEAD"]);
+    let rows = series["series"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "{series}");
+    // Same size at every row, different nodes — the case the marker exists for.
+    assert_eq!(rows[0]["matched"], 2);
+    assert_eq!(rows[1]["matched"], 2);
+    assert_eq!(
+        rows[0]["changed"], false,
+        "the first row has nothing to differ from"
+    );
+    assert_eq!(
+        rows[1]["changed"], true,
+        "the commit that swapped one node for another was unmarked: {series}"
+    );
+
+    let run = query(dir, &["gage", "--between", "HEAD~2..HEAD"]);
+    assert!(run.stdout.contains("← changed"), "{}", run.stdout);
+}
+
+/// A series over a class the corpus grew into is a column of `rejected (unknown-class)` with
+/// nothing saying the name is a perfectly good class today. The note was computed per row and
+/// thrown away by the renderer.
+#[test]
+fn a_series_prints_the_notes_it_computes() {
+    let repo = history();
+    let dir = repo.path();
+    let genesis = String::from_utf8_lossy(
+        &Command::new("git")
+            .current_dir(dir)
+            .args(["rev-list", "--max-parents=0", "HEAD"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .trim()
+    .to_string();
+
+    let run = query(dir, &["concept", "--between", &format!("{genesis}..HEAD")]);
+    assert_eq!(run.code, 0, "{}", run.stdout);
+    assert!(
+        run.stdout.contains("ontology-moved") || run.stdout.contains("HEAD's ontology"),
+        "the rejected row explained nothing: {}",
+        run.stdout
+    );
+}
+
+/// The commit where the ontology *arrived* is the one a reader asks about, and it was the one
+/// commit the comparison was silent on: `check` accepts every class name against a corpus with
+/// no `.ont.yml`, so both verdicts came back `Ok` with no diagnostics and the answer read as
+/// "nothing matched" rather than "nothing was checked".
+#[test]
+fn the_commit_before_the_ontology_existed_says_nothing_was_checked() {
+    let tmp = repo();
+    let dir = tmp.path();
+    write(dir, "README.md", "# before the corpus\n");
+    write(
+        dir,
+        ".yidam/corpus/gage/canyon.yml",
+        "class: gage\nlabel: C\n",
+    );
+    git(dir, &["add", "-A"]);
+    git(dir, &["commit", "-qm", "chore: genesis — unschematised"]);
+
+    write(dir, ".yidam/corpus/gage.ont.yml", "class: gage\n");
+    git(dir, &["add", "-A"]);
+    git(dir, &["commit", "-qm", "feat: an ontology"]);
+
+    let then = json(dir, &["gage", "--at", "HEAD~1"]);
+    assert_eq!(then["unschematised"], true, "{then}");
+    let moved = then["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["code"] == "ontology-moved")
+        .unwrap_or_else(|| panic!("no divergence note where the ontology arrived: {then}"));
+    assert!(
+        moved["message"].as_str().unwrap().contains("no classes"),
+        "{moved}"
+    );
+
+    // And at HEAD, where both sides are schematised, it stays quiet.
+    let now = json(dir, &["gage", "--at", "HEAD"]);
+    assert_eq!(now["diagnostics"].as_array().unwrap().len(), 0, "{now}");
+}
+
+/// The note says "HEAD", and HEAD is a commit. It compared against `Graph::load` — the working
+/// tree — so an **untracked** `.ont.yml` made the note vanish with nothing else in the output
+/// changing, and the historical path read the working tree against its one stated property.
+#[test]
+fn the_divergence_note_is_about_head_and_not_about_the_working_tree() {
+    let repo = history();
+    let dir = repo.path();
+
+    let before = json(dir, &["concept", "--at", "HEAD~2"]);
+    assert_eq!(before["rejected"]["code"], "unknown-class");
+
+    // A class HEAD does not declare, present only on disk.
+    write(dir, ".yidam/corpus/legacy.ont.yml", "class: legacy\n");
+    let after = json(dir, &["concept", "--at", "HEAD~2"]);
+    assert_eq!(
+        before["diagnostics"], after["diagnostics"],
+        "an uncommitted ontology edit changed a claim about HEAD"
     );
 }

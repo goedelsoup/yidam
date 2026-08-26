@@ -8,6 +8,7 @@
     ]
   },
   "root": "<ROOT>",
+  "kind": "query",
   "query": "reach -measured-by-> gage",
   "scope": "local",
   "steps": [

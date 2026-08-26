@@ -411,6 +411,8 @@ pub fn run(root: &std::path::Path, text: &str, opts: &Options) -> PackReport {
                         "the similarity anchor needs the index, and it did not load: {e}"
                     ),
                 },
+                // The present tense: this caller has no revision to be about.
+                None,
             ),
         ),
     }

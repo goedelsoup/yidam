@@ -198,6 +198,13 @@ pub struct HopView {
 
 #[derive(Debug, serde::Serialize)]
 pub struct QueryReport {
+    /// Which of this command's two report shapes this is — always `query`.
+    ///
+    /// `--between` emits a [`SeriesReport`], and both flatten into the same RFC-0016 envelope
+    /// at the same `format_version`. Without a discriminator a consumer tells them apart by
+    /// testing for a key that is *absent* — exactly the inference [`QueryReport::at`]'s own
+    /// doc forbids, eight fields down.
+    pub kind: &'static str,
     pub query: String,
     /// `local`, or `across` when the query ran over the dependency set too (#268).
     ///
@@ -265,8 +272,21 @@ fn view(query: &lang::Query, checked: &check::Checked) -> Vec<StepView> {
         .collect()
 }
 
-pub(crate) fn rejected_report(query: &str, rejection: check::Rejection) -> QueryReport {
+/// A report for a query that never ran.
+///
+/// **`at` is a parameter and not a hardcoded `None`.** A rejection about a past commit is
+/// still about that commit: `yidam query 'gage~"x"' --at HEAD~1 --format json` emitted
+/// `"code": "anchor-at-revision"` — a code only reachable when `--at` was supplied — beside
+/// `"at": null`, which the field's own doc defines as *the working tree*. Only the typecheck
+/// path patched it back in afterwards, so the parse, `unknown-field` and anchor rejections
+/// all told a consumer the answer was about now.
+pub(crate) fn rejected_report(
+    query: &str,
+    rejection: check::Rejection,
+    at: Option<&at::Revision>,
+) -> QueryReport {
     QueryReport {
+        kind: "query",
         query: query.to_string(),
         scope: "local",
         steps: Vec::new(),
@@ -277,7 +297,7 @@ pub(crate) fn rejected_report(query: &str, rejection: check::Rejection) -> Query
         // query is right and the corpus is quiet, and a surface that collapsed them would
         // tell an agent its typo was a true negative.
         absence: None,
-        at: None,
+        at: at.cloned(),
         diagnostics: Vec::new(),
         results: Vec::new(),
         matched: 0,
@@ -326,16 +346,28 @@ fn run_scoped(root: &std::path::Path, text: &str, opts: &Options, across: bool) 
                 code: "anchor-unresolvable",
                 message: format!("the similarity anchor needs the index, and it did not load: {e}"),
             },
+            // The present tense: `run_scoped` is the working-tree path.
+            None,
         ),
     }
 }
 
 /// Build the report against the corpus as it stood at one commit.
 ///
-/// HEAD's corpus is loaded too, and only to answer one question: would this query be judged
-/// differently today? #262 asks for that in a line — *"where the two disagree, say so rather
-/// than silently using either"* — and the cost of saying so is one extra walk of the working
-/// tree, which is the cheapest half of this command.
+/// HEAD's corpus is reconstructed too, and only to answer one question: would this query be
+/// judged differently today? #262 asks for that in a line — *"where the two disagree, say so
+/// rather than silently using either"* — and the cost of saying so is one more tree read,
+/// which is the cheapest half of this command.
+///
+/// # HEAD is a commit here, not the working tree
+///
+/// This called `Graph::load`, which walks `.yidam/corpus` on disk. So the note that says *"…
+/// would be rejected against HEAD's"* was comparing against whatever is checked out, and an
+/// **untracked** `.yidam/corpus/<class>.ont.yml` made it disappear — or, symmetrically, appear
+/// — with nothing else in the output changing. It also meant the historical path read the
+/// working tree, against this module's one stated property. `Graph::at(.., "HEAD")` is the
+/// same reconstruction the answer itself comes from, and it costs a `cat-file` the [`at::Blobs`]
+/// cache mostly already holds.
 pub fn run_at(
     root: &std::path::Path,
     rev: &str,
@@ -343,18 +375,33 @@ pub fn run_at(
     opts: &Options,
 ) -> Result<QueryReport> {
     let revision = at::resolve(root, rev)?;
-    let graph = Graph::at(root, &revision.commit)?;
-    let head = Graph::load(root);
+    // Shared across both reconstructions: HEAD and a nearby commit differ by the objects that
+    // changed between them, and the rest is one read either way.
+    let mut blobs = at::Blobs::default();
+    let graph = Graph::at_with(root, &revision.commit, &mut blobs)?;
+    let head = Graph::at_with(root, "HEAD", &mut blobs)?;
+    let head_schema = head_schema(&head);
     let ctx = Context {
         graph: &graph,
         // No index. A similarity anchor at a past commit is refused inside `run_on`, with the
         // reason — not by handing it an absent index and letting it report `no_index`, which
         // would be true of nothing and would send a reader off to run `index-build`.
         retrieval: None,
-        at: Some(&revision),
-        head: Some(&head),
+        history: Some(History {
+            revision: &revision,
+            head: &head_schema,
+        }),
     };
     Ok(run_on(&ctx, text, opts))
+}
+
+/// What the check reads about a corpus, gathered once.
+fn head_schema(graph: &Graph) -> check::Schema<'_> {
+    check::Schema {
+        classes: &graph.classes,
+        universal: &graph.universal,
+        authored: exec::authored(&graph.nodes),
+    }
 }
 
 /// One commit's answer, in a series.
@@ -369,14 +416,37 @@ pub struct SeriesRow {
     pub matched: usize,
     pub returned: usize,
     pub cost: exec::Cost,
+    /// True when the corpus declared no classes at this commit, so class names were not
+    /// checked — the same carve-out [`QueryReport::unschematised`] reports, which a row
+    /// without it renders as an ordinary answer.
+    pub unschematised: bool,
+    /// Whether this row's answer differs from the previous row's.
+    ///
+    /// Computed from the **full matched set**, not from its size. The text renderer compared
+    /// the rendered string `"{n} result(s)"`, so a commit that deleted one node and added
+    /// another — the one commit in the range where the answer actually moved — printed
+    /// `2 result(s)` twice and carried no marker. Carried as a field rather than derived at
+    /// render time so a JSON consumer reads the same series a human does.
+    pub changed: bool,
 }
 
 #[derive(Debug, serde::Serialize)]
 pub struct SeriesReport {
+    /// Which of this command's two report shapes this is — always `series`. See
+    /// [`QueryReport::kind`].
+    pub kind: &'static str,
     pub query: String,
     pub scope: &'static str,
     /// The range as written.
     pub range: String,
+    /// Why no series was produced, and null when one was.
+    ///
+    /// Present-and-null, like every other report field here. A rejection that depends only on
+    /// the query text is wrong at *every* commit in the range, so it belongs to the series and
+    /// not to a row — and `--between` used to return `Ok(())` unconditionally, which made
+    /// `yidam query 'this is (( not valid' --between HEAD..HEAD` print `0 commit(s) touching
+    /// the corpus` at exit 0: a syntax error rendered as an empty range.
+    pub rejected: Option<check::Rejection>,
     /// One row per commit in the range that touched the corpus, oldest first.
     ///
     /// Filtered by path exactly as `replay`'s own walk is: a row per commit in a range would
@@ -397,22 +467,49 @@ pub fn run_between(
     opts: &Options,
 ) -> Result<SeriesReport> {
     let commits = at::commits_in(root, range)?;
-    // Once, not once per commit: it is the same tree for every row, and walking it N times
-    // would make the divergence note the most expensive thing in the command.
-    let head = Graph::load(root);
-    // Carried across the whole range rather than rebuilt per commit — see `at::Blobs`. It is
-    // the difference between reading the corpus once per commit and reading each object once.
+    let series_report = |rejected, series| SeriesReport {
+        kind: "series",
+        query: text.to_string(),
+        scope: "local",
+        range: range.to_string(),
+        rejected,
+        series,
+    };
+    // Once, before a single tree is reconstructed. A rejection that depends only on the query
+    // text is wrong at every commit in the range, and this reconstructed all of them first and
+    // then emitted the identical refusal per row — N `ls-tree` and N `cat-file` subprocesses
+    // to say one thing N times, at exit 0 because a series does not gate.
+    let parsed = match precheck(text, opts, true, false) {
+        Ok(parsed) => parsed,
+        Err(rejection) => return Ok(series_report(Some(rejection), Vec::new())),
+    };
+    // Once, not once per commit: it is the same tree for every row, and rebuilding it — the
+    // typecheck *and* `exec::authored`'s walk of every node's links — would make the
+    // divergence note the most expensive thing in the command.
+    //
+    // Reconstructed rather than walked, for the reason `run_at` gives: the working tree is
+    // not HEAD, and this path may not read it.
     let mut blobs = at::Blobs::default();
+    let head = Graph::at_with(root, "HEAD", &mut blobs)?;
+    let head_schema = head_schema(&head);
     let mut series = Vec::new();
+    // The previous row's answer, as the pair that identifies one: why it was refused, if it
+    // was, and every node that matched if it was not.
+    let mut previous: Option<(Option<&'static str>, Vec<String>)> = None;
     for revision in commits {
         let graph = Graph::at_with(root, &revision.commit, &mut blobs)?;
         let ctx = Context {
             graph: &graph,
             retrieval: None,
-            at: Some(&revision),
-            head: Some(&head),
+            history: Some(History {
+                revision: &revision,
+                head: &head_schema,
+            }),
         };
-        let report = run_on(&ctx, text, opts);
+        let (report, answer) = run_checked(&ctx, text, &parsed, opts);
+        let key = (report.rejected.as_ref().map(|r| r.code), answer);
+        let changed = previous.as_ref().is_some_and(|p| *p != key);
+        previous = Some(key);
         series.push(SeriesRow {
             commit: revision.commit,
             date: revision.date,
@@ -422,14 +519,11 @@ pub fn run_between(
             matched: report.matched,
             returned: report.returned,
             cost: report.cost,
+            unschematised: report.unschematised,
+            changed,
         });
     }
-    Ok(SeriesReport {
-        query: text.to_string(),
-        scope: "local",
-        range: range.to_string(),
-        series,
-    })
+    Ok(series_report(None, series))
 }
 
 pub(crate) fn load_index(root: &std::path::Path) -> Result<Retrieval> {
@@ -437,25 +531,41 @@ pub(crate) fn load_index(root: &std::path::Path) -> Result<Retrieval> {
     Ok(crate::retrieval::load(&model)?.0)
 }
 
+/// The historical half of a query's context: the commit it is about, and HEAD's schema.
+///
+/// **One field, not two `Option`s.** `at` and `head` were separate and were set together at
+/// every call site, with nothing making them: a `Context` carrying `at` and no `head`
+/// typechecks, answers about a past commit, and silently produces no divergence note — the
+/// `_ => Vec::new()` arm that read "the ontology has not moved" and "nobody compared" as the
+/// same observation. Pairing them in one value is what removes that arm.
+///
+/// HEAD is a [`check::Schema`] rather than a [`Graph`] because a series built one per row out
+/// of a tree that does not change across the range — [`exec::authored`] walks every node's
+/// links — and it is the same schema at every commit in it.
+#[derive(Clone, Copy)]
+pub struct History<'a> {
+    pub revision: &'a at::Revision,
+    pub head: &'a check::Schema<'a>,
+}
+
 /// What a query runs against.
 ///
-/// A struct rather than four positional arguments, because two of the four exist only for the
-/// historical path and passing `None, None` at every present-tense call site is how the
-/// meaning of the third one gets lost.
+/// A struct rather than positional arguments, because the historical half exists only for
+/// `--at` and `--between` and passing `None` at every present-tense call site is how the
+/// meaning of the others gets lost.
 pub struct Context<'a> {
     pub graph: &'a Graph,
     /// `None` when the caller knows the query does not anchor. An anchored query arriving with
     /// `None` is rejected rather than silently run unanchored — dropping an anchor would
     /// return the whole class and look exactly like a query that worked.
     pub retrieval: Option<&'a Retrieval>,
-    /// The commit `graph` was reconstructed at, or `None` for the working tree.
-    pub at: Option<&'a at::Revision>,
-    /// HEAD's corpus, present only alongside `at`.
+    /// The commit `graph` was reconstructed at and the schema to compare it against, or
+    /// `None` for the working tree.
     ///
     /// Carried so the report can say where the same query would be judged differently today.
     /// The historical ontology decides — it is the schema that commit's data obeys — and this
     /// is what keeps "decides" from meaning "silently picks".
-    pub head: Option<&'a Graph>,
+    pub history: Option<History<'a>>,
 }
 
 impl<'a> Context<'a> {
@@ -464,29 +574,43 @@ impl<'a> Context<'a> {
         Context {
             graph,
             retrieval,
-            at: None,
-            head: None,
+            history: None,
         }
+    }
+
+    /// The commit this answer is about, or `None` for the working tree.
+    pub fn at(&self) -> Option<&'a at::Revision> {
+        self.history.map(|h| h.revision)
     }
 }
 
 /// Build the report against an already-loaded corpus.
 pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
-    let graph = ctx.graph;
-    let retrieval = ctx.retrieval;
-    let parsed = match lang::parse(text) {
+    let parsed = match precheck(text, opts, ctx.at().is_some(), !ctx.graph.across.is_empty()) {
         Ok(parsed) => parsed,
-        Err(e) => {
-            return rejected_report(
-                text,
-                check::Rejection {
-                    step: e.token,
-                    code: "parse",
-                    message: e.message,
-                },
-            )
-        }
+        Err(rejection) => return rejected_report(text, rejection, ctx.at()),
     };
+    run_checked(ctx, text, &parsed, opts).0
+}
+
+/// Every rejection that depends on the query text and the projection alone — on no corpus,
+/// and on no commit.
+///
+/// Separated so `--between` can refuse **once** rather than per row, and so it can refuse at
+/// exit 1: these are wrong at every commit in a range, unlike `unknown-class`, which is the
+/// ordinary answer for a class the corpus grew into and is what makes a series tolerate a
+/// rejected row at all.
+fn precheck(
+    text: &str,
+    opts: &Options,
+    at_revision: bool,
+    across: bool,
+) -> Result<lang::Query, check::Rejection> {
+    let parsed = lang::parse(text).map_err(|e| check::Rejection {
+        step: e.token,
+        code: "parse",
+        message: e.message,
+    })?;
 
     // **An anchor is an entry, and only the first step is entered.** The grammar allows one
     // anywhere; a later step is *arrived at* by a hop, and ranking a set that a typed edge
@@ -500,17 +624,14 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
         .position(|s| s.anchor.is_some())
         .map(|i| i + 1)
     {
-        return rejected_report(
-            text,
-            check::Rejection {
-                step: Some(step),
-                code: "anchor-not-entry",
-                message: "an anchor enters the graph, and only the first step is entered — \
-                          this step is reached by a hop. Anchor the first step instead, or \
-                          filter this one with a predicate."
-                    .to_string(),
-            },
-        );
+        return Err(check::Rejection {
+            step: Some(step),
+            code: "anchor-not-entry",
+            message: "an anchor enters the graph, and only the first step is entered — this \
+                      step is reached by a hop. Anchor the first step instead, or filter this \
+                      one with a predicate."
+                .to_string(),
+        });
     }
 
     // **An anchor cannot be evaluated as of a past commit.** The index is built from one
@@ -519,18 +640,15 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
     // keyword search over the historical text is well-defined and is *a different retrieval
     // than the same query gets at HEAD*, which would make a series where the answer changed
     // because the arm changed. Refused with the reason rather than silently either.
-    if ctx.at.is_some() && parsed.steps.iter().any(|s| s.anchor.is_some()) {
-        return rejected_report(
-            text,
-            check::Rejection {
-                step: Some(0),
-                code: "anchor-at-revision",
-                message: "the vector index is built from one commit's text, so a similarity \
-                          anchor cannot be resolved as of another. Enter at the class and \
-                          filter with a predicate, or drop the revision."
-                    .to_string(),
-            },
-        );
+    if at_revision && parsed.steps.iter().any(|s| s.anchor.is_some()) {
+        return Err(check::Rejection {
+            step: Some(0),
+            code: "anchor-at-revision",
+            message: "the vector index is built from one commit's text, so a similarity \
+                      anchor cannot be resolved as of another. Enter at the class and filter \
+                      with a predicate, or drop the revision."
+                .to_string(),
+        });
     }
 
     // **An anchored `--across` is refused, and the reason is the one #268 gives.** The vector
@@ -541,19 +659,16 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
     // then reach further in the build without the index than in the build with it. Refused
     // uniformly, because a boundary that is invisible at the moment an agent is about to write
     // a claim is the failure this flag exists to prevent.
-    if !ctx.graph.across.is_empty() && parsed.steps.iter().any(|s| s.anchor.is_some()) {
-        return rejected_report(
-            text,
-            check::Rejection {
-                step: Some(0),
-                code: "anchor-across",
-                message: "the vector index covers this repository's corpus and not its \
-                          dependencies, so an anchored query cannot span them without \
-                          entering through local text and answering with foreign rows. Enter \
-                          at the class and filter with a predicate, or drop `--across`."
-                    .to_string(),
-            },
-        );
+    if across && parsed.steps.iter().any(|s| s.anchor.is_some()) {
+        return Err(check::Rejection {
+            step: Some(0),
+            code: "anchor-across",
+            message: "the vector index covers this repository's corpus and not its \
+                      dependencies, so an anchored query cannot span them without entering \
+                      through local text and answering with foreign rows. Enter at the class \
+                      and filter with a predicate, or drop `--across`."
+                .to_string(),
+        });
     }
 
     if let Some(bad) = opts
@@ -561,18 +676,32 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
         .iter()
         .find(|f| !KNOWN_FIELDS.contains(&f.as_str()) && !f.starts_with("properties."))
     {
-        return rejected_report(
-            text,
-            check::Rejection {
-                step: None,
-                code: "unknown-field",
-                message: format!(
-                    "`{bad}` is not a projectable field — {} or `properties.<name>`",
-                    KNOWN_FIELDS.join(", ")
-                ),
-            },
-        );
+        return Err(check::Rejection {
+            step: None,
+            code: "unknown-field",
+            message: format!(
+                "`{bad}` is not a projectable field — {} or `properties.<name>`",
+                KNOWN_FIELDS.join(", ")
+            ),
+        });
     }
+
+    Ok(parsed)
+}
+
+/// The report for a query that has already passed [`precheck`], and every node that matched.
+///
+/// The second half of the pair is the **full** match list, not the prefix `--limit` projects:
+/// it is what makes a series row's `changed` a statement about the answer rather than about
+/// its size. `run_on` drops it.
+fn run_checked(
+    ctx: &Context,
+    text: &str,
+    parsed: &lang::Query,
+    opts: &Options,
+) -> (QueryReport, Vec<String>) {
+    let graph = ctx.graph;
+    let retrieval = ctx.retrieval;
 
     let schema = check::Schema {
         classes: &graph.classes,
@@ -580,31 +709,25 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
         authored: exec::authored(&graph.nodes),
     };
 
-    let verdict = check::check(&parsed, &schema);
+    let verdict = check::check(parsed, &schema);
 
     // Both ontologies are in hand exactly when the query is about a past commit, so this is
     // where the two verdicts get compared. Computed before the historical one is unwrapped:
     // a rejection deserves the note as much as an answer does, and more, because a reader
     // looking at a refusal wants to know whether it is the query or the year that is wrong.
-    let moved: Vec<check::Diagnostic> = match (ctx.at, ctx.head) {
-        (Some(revision), Some(head)) => {
-            let head_schema = check::Schema {
-                classes: &head.classes,
-                universal: &head.universal,
-                authored: exec::authored(&head.nodes),
-            };
-            at::divergence(&verdict, &check::check(&parsed, &head_schema), revision)
+    let moved: Vec<check::Diagnostic> = match ctx.history {
+        Some(History { revision, head }) => {
+            at::divergence(&verdict, &check::check(parsed, head), revision)
         }
-        _ => Vec::new(),
+        None => Vec::new(),
     };
 
     let mut checked = match verdict {
         Ok(checked) => checked,
         Err(rejection) => {
-            let mut report = rejected_report(text, rejection);
-            report.at = ctx.at.cloned();
+            let mut report = rejected_report(text, rejection, ctx.at());
             report.diagnostics = moved;
-            return report;
+            return (report, Vec::new());
         }
     };
 
@@ -615,15 +738,19 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
         None => None,
         Some(text_anchor) => {
             let Some(retrieval) = retrieval else {
-                return rejected_report(
-                    text,
-                    check::Rejection {
-                        step: Some(0),
-                        code: "anchor-unavailable",
-                        message: "this caller supplied no index, so a similarity anchor \
-                                  cannot be resolved"
-                            .to_string(),
-                    },
+                return (
+                    rejected_report(
+                        text,
+                        check::Rejection {
+                            step: Some(0),
+                            code: "anchor-unavailable",
+                            message: "this caller supplied no index, so a similarity anchor \
+                                      cannot be resolved"
+                                .to_string(),
+                        },
+                        ctx.at(),
+                    ),
+                    Vec::new(),
                 );
             };
             let empty = Vec::new();
@@ -639,13 +766,17 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
             ) {
                 Ok(resolved) => Some(resolved),
                 Err(message) => {
-                    return rejected_report(
-                        text,
-                        check::Rejection {
-                            step: Some(0),
-                            code: "anchor-unresolvable",
-                            message,
-                        },
+                    return (
+                        rejected_report(
+                            text,
+                            check::Rejection {
+                                step: Some(0),
+                                code: "anchor-unresolvable",
+                                message,
+                            },
+                            ctx.at(),
+                        ),
+                        Vec::new(),
                     )
                 }
             }
@@ -653,7 +784,7 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
     };
 
     let outcome = exec::execute(
-        &parsed,
+        parsed,
         &checked,
         &graph.nodes,
         &graph.corpus_dir,
@@ -687,7 +818,7 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
         // agreement — `concept` here and `concept` there are two names — so a dependency that
         // declares neither is not a defect in the query, and a dependency that declares one
         // and licenses the hop differently is answering a question about itself.
-        let checked = match check::check(&parsed, &schema) {
+        let checked = match check::check(parsed, &schema) {
             Ok(checked) => checked,
             Err(rejection) => {
                 diagnostics.push(check::Diagnostic {
@@ -703,7 +834,7 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
             }
         };
         let outcome = exec::execute(
-            &parsed,
+            parsed,
             &checked,
             &foreign.nodes,
             &foreign.corpus_dir,
@@ -750,7 +881,7 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
     let absence = match matched {
         0 => Some(absence::diagnose(
             ctx,
-            &parsed,
+            parsed,
             &checked,
             &schema.authored,
             &outcome,
@@ -759,7 +890,12 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
         _ => None,
     };
 
-    QueryReport {
+    // Moved out rather than cloned: nothing below reads `outcome` again, and this is the list
+    // a series compares one row against the next.
+    let answer = outcome.matched;
+
+    let report = QueryReport {
+        kind: "query",
         query: text.to_string(),
         // Not inferred from whether any foreign row came back. A repository with no
         // dependencies installed answers `across` with exactly the rows a `local` run gives,
@@ -769,11 +905,11 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
             true => "local",
             false => "across",
         },
-        steps: view(&parsed, &checked),
+        steps: view(parsed, &checked),
         rejected: None,
         anchor: resolved.map(|r| r.anchor),
         absence,
-        at: ctx.at.cloned(),
+        at: ctx.at().cloned(),
         diagnostics: diagnostics.into_iter().chain(moved).collect(),
         returned: results.len(),
         results,
@@ -783,8 +919,9 @@ pub fn run_on(ctx: &Context, text: &str, opts: &Options) -> QueryReport {
             tokens: chars / 4,
             ..cost
         },
-        unschematised: graph.classes.is_empty(),
-    }
+        unschematised: checked.unschematised,
+    };
+    (report, answer)
 }
 
 /// A commit, short enough to read and long enough to paste.
@@ -798,8 +935,12 @@ fn short(commit: &str) -> &str {
 /// that under the rows where nothing moved. The nodes are one line further in — under
 /// `--format json`, or under `--at` on the commit the reader has now identified.
 pub fn render_series(report: &SeriesReport) -> String {
+    // A rejection about the query text is about every row there would have been, so it is
+    // printed instead of the series and not inside it.
+    if let Some(rejection) = &report.rejected {
+        return render_rejection(rejection, None, &[]);
+    }
     let mut out = format!("{} commit(s) touching the corpus\n", report.series.len());
-    let mut previous: Option<String> = None;
     for row in &report.series {
         let answer = match &row.rejected {
             Some(rejection) => format!("rejected ({})", rejection.code),
@@ -808,18 +949,37 @@ pub fn render_series(report: &SeriesReport) -> String {
         // The marker is the point of the report. Two hundred rows of "3 result(s)" and one
         // "4 result(s)" is a series a reader scans; the same rows with the changed one
         // unmarked is a series a reader gives up on.
-        let changed = previous.as_deref().is_some_and(|p| p != answer);
         out.push_str(&format!(
             "  {} {}  {}{}\n",
             short(&row.commit),
             row.date,
             answer,
-            match changed {
+            match row.changed {
                 true => "  ← changed",
                 false => "",
             }
         ));
-        previous = Some(answer);
+        // **Rendered, not computed and dropped.** Without these a series over a class the
+        // corpus grew into prints a column of `rejected (unknown-class)` with nothing saying
+        // the name is a perfectly good class today — the exact misreading the rejection-path
+        // diagnostic loop was added one function earlier to prevent.
+        for d in &row.diagnostics {
+            out.push_str(&format!(
+                "    [{}] step {}: {}\n",
+                d.level,
+                d.step + 1,
+                d.message
+            ));
+        }
+        // Only when nothing has already said it: an `ontology-moved` note on an unschematised
+        // row is this sentence with the comparison attached, and printing both is one line of
+        // noise on every commit before the corpus had a schema.
+        if row.unschematised && !row.diagnostics.iter().any(|d| d.code == "ontology-moved") {
+            out.push_str(
+                "    [info] this corpus declared no classes at this commit, so class names \
+                 were not checked\n",
+            );
+        }
     }
     if report.series.is_empty() {
         out.push_str("  no commit in this range touched .yidam/corpus\n");
@@ -827,29 +987,48 @@ pub fn render_series(report: &SeriesReport) -> String {
     out.trim_end().to_string()
 }
 
+/// A refusal, with the commit it is about and whatever the comparison had to say.
+///
+/// Shared by both report shapes, and the reason it takes `at`: in text mode
+/// `diff <(yidam query bogus) <(yidam query bogus --at v0.1.0)` was byte-identical, because
+/// this branch never printed `report.at` even when it was set. So whenever both ontologies
+/// reject — which is every genuine typo — a reader who asked about a tag was told the name
+/// "is not a class this corpus declares" and concluded they had mistyped against today's.
+fn render_rejection(
+    rejection: &check::Rejection,
+    at: Option<&at::Revision>,
+    diagnostics: &[check::Diagnostic],
+) -> String {
+    let mut out = format!(
+        "rejected ({}){}{}: {}",
+        rejection.code,
+        match rejection.step {
+            Some(step) => format!(" at step {}", step + 1),
+            None => String::new(),
+        },
+        match at {
+            Some(rev) => format!(" as of {} ({})", short(&rev.commit), rev.date),
+            None => String::new(),
+        },
+        rejection.message
+    );
+    // A rejection carries diagnostics in exactly one case, and it is the case they matter
+    // most in: a query refused at a past commit that would be accepted today. Returning
+    // early here printed the refusal and swallowed the reason it is not the user's typo.
+    for d in diagnostics {
+        out.push_str(&format!(
+            "\n  [{}] step {}: {}",
+            d.level,
+            d.step + 1,
+            d.message
+        ));
+    }
+    out
+}
+
 pub fn render(report: &QueryReport) -> String {
     if let Some(rejection) = &report.rejected {
-        let mut out = format!(
-            "rejected ({}){}: {}",
-            rejection.code,
-            match rejection.step {
-                Some(step) => format!(" at step {}", step + 1),
-                None => String::new(),
-            },
-            rejection.message
-        );
-        // A rejection carries diagnostics in exactly one case, and it is the case they matter
-        // most in: a query refused at a past commit that would be accepted today. Returning
-        // early here printed the refusal and swallowed the reason it is not the user's typo.
-        for d in &report.diagnostics {
-            out.push_str(&format!(
-                "\n  [{}] step {}: {}",
-                d.level,
-                d.step + 1,
-                d.message
-            ));
-        }
-        return out;
+        return render_rejection(rejection, report.at.as_ref(), &report.diagnostics);
     }
     let mut out = format!(
         "{} result(s){}{}\n",
@@ -959,16 +1138,44 @@ pub fn render(report: &QueryReport) -> String {
     out.trim_end().to_string()
 }
 
+/// Which corpus a query runs against — the working tree, or one of the three flags, as one
+/// value.
+///
+/// `at`, `between` and `across` were three parameters of which at most one may be set, under
+/// an `#[allow(clippy::too_many_arguments)]` that was suppressing the lint which had noticed
+/// exactly that. Clap refuses the combinations at the boundary; nothing below clap did, and
+/// `query(.., Some(rev), Some(range), ..)` silently answered about the range.
+pub enum Scope {
+    /// The working tree.
+    Now,
+    /// The working tree and every installed dependency's corpus (`--across`, #268).
+    Across,
+    /// One commit (`--at`, #262).
+    At(String),
+    /// Every commit in a range that touched the corpus (`--between`, #262).
+    Between(String),
+}
+
+/// The corpus at a revision could not be reconstructed.
+///
+/// One code for both flags, because the failures are one fact: the argument does not name a
+/// commit or a range in this repository, or git could not return an object the corpus tree at
+/// it names. Either way there is no corpus to answer about.
+fn history_unreadable(e: anyhow::Error) -> check::Rejection {
+    check::Rejection {
+        step: None,
+        code: "history-unreadable",
+        message: format!("{e:#}"),
+    }
+}
+
 /// Execute a query against the resolved graph.
-#[allow(clippy::too_many_arguments)]
 pub fn query(
     text: &str,
     select: Option<String>,
     limit: usize,
     anchor_k: usize,
-    at: Option<String>,
-    between: Option<String>,
-    across: bool,
+    scope: Scope,
     format: crate::report::Format,
 ) -> Result<()> {
     let root = repo_root()?;
@@ -983,29 +1190,56 @@ pub fn query(
         anchor_k: anchor_k.max(1),
     };
 
-    if let Some(range) = between {
-        let report = run_between(&root, &range, text, &opts)?;
-        // A series does not gate. One rejected row in a range is the ordinary case — the
-        // class did not exist yet — and exiting 1 for it would make `--between` unusable on
-        // any query about a class the corpus grew into.
-        if format.is_json() {
-            crate::report::emit(&root, report)?;
-        } else {
-            println!("{}", render_series(&report));
-        }
-        return Ok(());
-    }
-
-    let report = match at {
-        Some(rev) => run_at(&root, &rev, text, &opts)?,
-        None if across => run_across(&root, text, &opts),
-        None => run(&root, text, &opts),
+    let report = match scope {
+        Scope::Between(range) => return series(&root, &range, text, &opts, format),
+        // **Emitted, not returned as `Err`.** `run_at` fails on a revision that is not one,
+        // and propagating that printed `Error: …` on stderr with an empty stdout at exit 1 —
+        // indistinguishable, to a `--format json` consumer, from a crash or a truncated pipe.
+        // This module's docstring states the rule in as many words: a rejection emits its
+        // report and *then* exits 1, or every rejection it specifies is invisible.
+        Scope::At(rev) => run_at(&root, &rev, text, &opts)
+            .unwrap_or_else(|e| rejected_report(text, history_unreadable(e), None)),
+        Scope::Across => run_across(&root, text, &opts),
+        Scope::Now => run(&root, text, &opts),
     };
     let rejected = report.rejected.is_some();
     if format.is_json() {
         crate::report::emit(&root, report)?;
     } else {
         println!("{}", render(&report));
+    }
+    if rejected {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+/// `--between`: the series, or the one refusal that applies to every row of it.
+fn series(
+    root: &std::path::Path,
+    range: &str,
+    text: &str,
+    opts: &Options,
+    format: crate::report::Format,
+) -> Result<()> {
+    let report = run_between(root, range, text, opts).unwrap_or_else(|e| SeriesReport {
+        kind: "series",
+        query: text.to_string(),
+        scope: "local",
+        range: range.to_string(),
+        rejected: Some(history_unreadable(e)),
+        series: Vec::new(),
+    });
+    // A series does not gate on its *rows*. One rejected row in a range is the ordinary case
+    // — the class did not exist yet — and exiting 1 for it would make `--between` unusable on
+    // any query about a class the corpus grew into. A rejection of the series itself is a
+    // different claim: the query text or the range was wrong, and it is wrong at every commit
+    // in it. That is what exit 1 has always meant here.
+    let rejected = report.rejected.is_some();
+    if format.is_json() {
+        crate::report::emit(root, report)?;
+    } else {
+        println!("{}", render_series(&report));
     }
     if rejected {
         std::process::exit(1);
