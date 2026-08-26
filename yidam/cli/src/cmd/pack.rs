@@ -34,7 +34,7 @@ use anyhow::Result;
 
 use crate::cmd::export_llms::{fill, fill_all, order, trailer};
 use crate::cmd::lint::checks::{class_of, Node};
-use crate::cmd::query::{self, anchor, check, exec};
+use crate::cmd::query::{self, absence, anchor, check, exec};
 use crate::model::NodeView;
 use crate::paths::repo_root;
 
@@ -98,6 +98,13 @@ pub struct PackReport {
     /// Present and null when the query ran, exactly as [`query::QueryReport`] carries it.
     pub rejected: Option<check::Rejection>,
     pub anchor: Option<anchor::Anchor>,
+    /// Why the pack is empty, when it is (#283). Null when it holds something.
+    ///
+    /// **This is the field that matters most here**, more than on `query`. A pack is what an
+    /// agent reads *as* the corpus, and an empty one that says nothing is a context window
+    /// asserting the corpus has no view. It is carried into the pack's own text for the same
+    /// reason the receipt is: the artefact travels without the envelope.
+    pub absence: Option<absence::Absence>,
     pub diagnostics: Vec<check::Diagnostic>,
     /// What the *traversal* cost, unchanged from `query`. Distinct from [`Budget`], which is
     /// what the pack costs the caller who reads it.
@@ -125,6 +132,7 @@ fn rejected(text: &str, report: query::QueryReport) -> PackReport {
         scope: "local",
         rejected: report.rejected,
         anchor: report.anchor,
+        absence: report.absence,
         diagnostics: report.diagnostics,
         cost: report.cost,
         reachable: 0,
@@ -263,6 +271,7 @@ pub fn run_on(ctx: &query::Context, text: &str, opts: &Options) -> PackReport {
         scope: "local",
         rejected: None,
         anchor: report.anchor,
+        absence: report.absence,
         diagnostics: report.diagnostics,
         cost: report.cost,
         reachable,
@@ -333,6 +342,18 @@ fn header(
                     format!("keyword search, not similarity ({reason}); {repair}"),
                 _ => "semantic search".to_string(),
             }
+        ));
+    }
+    // The pack's most important line when it is there. A pack with no sections and no
+    // explanation is a context window that says the corpus has nothing on the subject, which
+    // is the invention #283 is about — arriving in the one artefact an agent reads as though
+    // it were the corpus.
+    if let Some(a) = &report.absence {
+        s.push_str(&format!(
+            "# Absent ({}) at step {}: {}\n",
+            a.code,
+            a.step + 1,
+            a.message
         ));
     }
     for d in &report.diagnostics {
@@ -651,6 +672,36 @@ mod tests {
             (0, 0, 0)
         );
         assert!(report.text.contains("Nodes: 0 of 0"), "{}", report.text);
+    }
+
+    /// **A pack with nothing in it and nothing to say is a context window asserting the
+    /// corpus has no view** (#283). The diagnosis has to be in the *text*, because that is
+    /// what travels into a model — an agent handed the JSON envelope reads the envelope, and
+    /// an agent handed the pack reads only this.
+    #[test]
+    fn an_empty_pack_carries_the_reason_in_the_artefact_itself() {
+        let dir = fixture();
+        let report = pack_of(&dir, "concept[claim_tag=open]", None);
+        let absence = report.absence.as_ref().expect("an empty pack is diagnosed");
+        assert_eq!(absence.code, "predicate-unsatisfied");
+        assert!(
+            report.text.contains("# Absent (predicate-unsatisfied)"),
+            "{}",
+            report.text
+        );
+        assert!(
+            report.text.contains(&absence.message),
+            "the pack's text must carry the whole diagnosis, not a code:\n{}",
+            report.text
+        );
+    }
+
+    /// And a pack that holds something is not absent.
+    #[test]
+    fn a_pack_with_nodes_in_it_carries_no_absence() {
+        let dir = fixture();
+        assert!(pack_of(&dir, "*", None).absence.is_none());
+        assert!(pack_of(&dir, "*", Some(40)).absence.is_none());
     }
 
     /// The anchor's own account travels into the pack, because an anchor that landed

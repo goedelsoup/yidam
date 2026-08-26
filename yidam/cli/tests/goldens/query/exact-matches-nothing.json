@@ -25,6 +25,13 @@
   ],
   "rejected": null,
   "anchor": null,
+  "absence": {
+    "step": 0,
+    "code": "predicate-unsatisfied",
+    "message": "`reach` holds 2 instance(s) and none satisfies `regulated=yes`. The value(s) present are `yes — discharge set by outlet works`, `yes — inherited from upstream`. This is a real empty result: the corpus has the nodes and does not have the value.",
+    "instances": 2,
+    "elsewhere": []
+  },
   "at": null,
   "diagnostics": [],
   "results": [],

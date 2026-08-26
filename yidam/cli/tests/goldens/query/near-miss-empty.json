@@ -35,6 +35,13 @@
   ],
   "rejected": null,
   "anchor": null,
+  "absence": {
+    "step": 1,
+    "code": "no-edge-from-here",
+    "message": "`sourced-from` is authored in this corpus, by `gage`, and none of the 2 node(s) that reached the previous step has one leaving it. The relationship is in use; it is not in use here.",
+    "instances": 2,
+    "elsewhere": []
+  },
   "at": null,
   "diagnostics": [
     {

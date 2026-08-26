@@ -17,6 +17,7 @@
     "message": "`gauge` is not a class this corpus declares — did you mean `gage`?"
   },
   "anchor": null,
+  "absence": null,
   "at": null,
   "diagnostics": [],
   "results": [],

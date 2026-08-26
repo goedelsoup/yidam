@@ -18,3 +18,13 @@ edges:
     target: concept
     direction: out
     description: A bare association between two concepts.
+  # Declared and authored by nothing, deliberately. It is the only way to reach
+  # `relationship-unauthored`: a relationship a class licenses and no instance uses is
+  # either an ontology that reached past its corpus or a gap worth an open question, and
+  # from outside it is indistinguishable from a name that was mistyped. Without a
+  # declaration nobody has used, that arm cannot be told from `relationship-unknown` by
+  # any case in this directory.
+  - relationship: supersedes
+    target: concept
+    direction: out
+    description: A concept this one replaces. Declared here and used by no instance.

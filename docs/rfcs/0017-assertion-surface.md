@@ -200,6 +200,14 @@ told "here are 5 of 41 claims" can take different next actions, and only the sec
 decide to ask for more. This is the `LlmsPack` receipt principle at its cheapest; the full
 per-goal version is #282 and depends on E2.
 
+**#283 landed as `absence`, at contract 0.8.0.** The same principle applied to coverage
+rather than to method: `query` and `pack` now say *why* an answer is empty, from a closed set
+of codes each read off something the corpus states. The one worth the most is
+`relationship-unauthored` — a relationship a class licenses and no instance uses, which is
+invisible from every other angle and returns exactly as a mistyped name does. It is split from
+`relationship-unknown` for that reason: the two are identical from outside and their repairs
+are opposite.
+
 **#282 landed as `pack`, at contract 0.7.0.** It shares the whole-corpus pack's fill rather
 than re-deriving it, so the two cannot come to spend a budget by different rules, and it adds
 the one field this cheap version cannot carry: `omitted_by_class`. `total` beside `returned`

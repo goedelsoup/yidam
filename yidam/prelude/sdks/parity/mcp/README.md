@@ -28,7 +28,7 @@ harness checks that they do.
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.7.0",
+    "contract": "0.8.0",
     "retrieve": { "vector": false, "reason": "no_index" },
     "graph": true, "ontology": true,
     "phases": false, "sangha": false, "resources": true
@@ -40,6 +40,55 @@ harness checks that they do.
 the vector index is loaded, which is the same fact `degraded` reports per call. A server that
 declares `vector: false` is promising every `retrieve` will come back `degraded: true`, with
 the `reason` it names here. `reason` is null exactly when `vector` is true.
+
+## Where a corpus is ignorant (contract 0.8.0)
+
+`query` and `pack` gain `absence`: **why** an answer is empty, when it is.
+
+Zero rows is otherwise indistinguishable from a bad embedding, a class nobody has written
+into, and a corpus that genuinely has no view. A caller that cannot tell those apart fills the
+gap from its own weights — confidently, and under a claim that will be attributed to having
+worked in the corpus. `retrieve` already has the right instinct one door over: it degrades and
+says so rather than quietly answering worse. This is the same principle applied to **coverage**
+rather than to method.
+
+Every code is read off something the corpus *states* — a class the ontology declares, a
+relationship a class licenses, the edge set the gate resolves — so the diagnosis can be trusted
+at the moment it matters most.
+
+| Code | Step | Means |
+|---|---|---|
+| `class-unpopulated` | entry | the ontology declares the class and it holds no instances |
+| `predicate-unsatisfied` | entry | it holds instances and none satisfies the predicate |
+| `anchor-empty` | entry | the similarity anchor resolved to no entry node |
+| `relationship-unauthored` | hop | a class in the source set declares it and no instance authors it |
+| `relationship-unknown` | hop | no class declares it and no instance authors it |
+| `no-edge-from-here` | hop | authored elsewhere, and by nothing that reached the previous step |
+| `edge-lands-elsewhere` | hop | edges were followed and nothing they landed on satisfied the step |
+| `no-match` | either | none of the above; reported rather than asserted away |
+
+**`relationship-unauthored` is worth the most, and is why the corpus declares `supersedes`.**
+A relationship a class licenses and no instance uses is either an ontology that reached past
+its corpus or a gap worth an open question — and it is invisible from every other angle: the
+class file says it exists, the gate has nothing to complain about, and the traversal comes back
+exactly as a mistyped name would. It is split from `relationship-unknown` because the two
+return identically and their repairs are opposite; one code for both answers a misspelling with
+a sentence about the ontology.
+
+**Absence is not a rejection.** `rejected` says the query is wrong; `absence` says the query is
+right and the corpus is quiet. A server reporting a typo as `class-unpopulated` tells a caller
+its mistake was a true negative. Both keys are on every response and at most one is non-null.
+
+**`elsewhere` is a pointer, not an answer.** It names installed packages holding what this
+corpus does not, and whatever it names is *that* corpus's claim. Empty by construction on a run
+that already spanned the dependency set — it looked — and on a run about a past commit, because
+a dependency set has no history and naming today's packages to explain an older corpus's
+silence would be an anachronism dressed as a lead.
+
+**On `pack` it matters more.** A pack is what a caller reads *as* the corpus, so an empty one
+that says nothing is a context window asserting the corpus has no view. A conforming server
+renders the diagnosis into `text` as well as into the field: the artefact travels without the
+envelope around it.
 
 ## Packing for a goal (contract 0.7.0)
 
@@ -209,6 +258,11 @@ directly is the obvious way to consume these files, and it is now also the corre
 | `concept/traversal` | Open by its **label**. Nothing points out of it, so `neighbors` can answer from it only by walking the edge backwards. |
 | `concept/retrieval` | Open by an **[open] claim in its body**. |
 | `concept/embedding-space` | Open by a **declared `type: claim` property**, and no other way — no `?`, no bracketed token anywhere in the file. |
+
+`concept.ont.yml` also declares `supersedes`, a relationship **no instance authors**. It is
+the only way to reach `relationship-unauthored`: a relationship a class licenses and nothing
+uses returns zero rows exactly as a mistyped name does, and without a declaration nobody has
+used, no case here could tell that arm from `relationship-unknown`.
 
 `concept.ont.yml` declares `claim_tag` as `type: claim`. Without that declaration the third
 arm of the open-question predicate reads nothing — which is exactly why the node is here: it
