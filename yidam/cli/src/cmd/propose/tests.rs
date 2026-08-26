@@ -505,6 +505,49 @@ fn an_expired_source_is_proposed_as_a_question_on_the_source_itself() {
     assert!(p.carries(), "{}", p.body);
 }
 
+/// #270's gap, and the reason the carriage rule pays for itself here.
+///
+/// The question lands on the source, so a reader of a node resting on it would not otherwise
+/// learn that its evidence aged. `catalog-expired` names those nodes in its finding, and
+/// because a proposal must quote its finding verbatim, the names arrive in the commit body
+/// with no code in `propose` that knows anything about citations.
+#[test]
+fn the_expiry_proposal_names_the_nodes_resting_on_the_source() {
+    let dir = repo();
+    let root = dir.path();
+    with_expired_source(root);
+    // A node that draws on it, which is the case the naming exists for.
+    let cited = root.join(".yidam/corpus/concept/cited.yml");
+    let text = std::fs::read_to_string(&cited).unwrap();
+    std::fs::write(
+        &cited,
+        format!(
+            "{text}
+  Drawn from [the source](../../catalog/source.md).
+"
+        ),
+    )
+    .unwrap();
+    commit(root, "revise: the concept draws on the source");
+
+    let (proposals, _) = plan_at(root, None);
+    let p = proposals
+        .iter()
+        .find(|p| p.check == "catalog-expired")
+        .expect("an expiry proposal");
+    assert!(
+        p.detail.contains("concept/cited.yml"),
+        "the finding names what rests on it: {}",
+        p.detail
+    );
+    assert!(
+        p.body.contains("concept/cited.yml"),
+        "and carriage puts it in the message: {}",
+        p.body
+    );
+    assert!(p.carries(), "{}", p.body);
+}
+
 /// Severity is not the licence — `catalog-expired` is Warn and never gates. What licenses the
 /// proposal is the `ttl_days` this corpus declared, the same shape as
 /// `withdraw_uncited_after` licensing a deletion.

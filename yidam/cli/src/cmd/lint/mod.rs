@@ -260,7 +260,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         citations::external_citation_pin_moved(&nodes, &deps),
         citations::external_citation_unpinned(&nodes, &deps),
         checks::verified_unsourced(&nodes, &sources, &claim_fields),
-        checks::catalog_expired(&catalog_ages),
+        checks::catalog_expired(&catalog_ages, &sources, &cites),
         checks::catalog_unobtained_but_cited(&sources, &cites),
         checks::missing_label(&nodes),
         checks::missing_description(&nodes),
