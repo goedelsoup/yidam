@@ -197,13 +197,18 @@ echo "parity fixture check: $(echo $functions | wc -w | tr -d ' ') functions cov
 """
 
 [tasks.parity]
-description = "Run cross-language parity tests across all three SDK implementations."
+description = "Run every SDK test suite: the cross-language parity fixtures, and each SDK's own unit tests."
 depends = ["parity-check"]
+# The whole suite per SDK, not `-- parity`. The filters used to be narrower, and the effect
+# was that an SDK test outside the parity fixtures ran nowhere: `ci-cli` builds only the
+# CLI's workspace, and this was the only job that touched yidam/prelude/sdks — with a filter
+# that excluded anything not named `parity`. A test nothing runs looks exactly like one that
+# is doing work, which is the finding `parity-check`'s own directory loop exists to produce,
+# one level up.
 run = [
-  "cargo test --manifest-path yidam/prelude/sdks/rust/Cargo.toml -- parity",
-  # vitest takes positional filename filters (--testPathPattern is a jest flag)
-  "cd yidam/prelude/sdks/typescript && npm test -- parity",
-  "cd yidam/prelude/sdks/python && uv run --extra dev pytest tests/parity/",
+  "cargo test --manifest-path yidam/prelude/sdks/rust/Cargo.toml",
+  "cd yidam/prelude/sdks/typescript && npm test",
+  "cd yidam/prelude/sdks/python && uv run --extra dev pytest tests/",
 ]
 
 [tasks.domain-parity-check]

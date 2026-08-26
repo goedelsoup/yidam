@@ -22,7 +22,7 @@
 //! It is nonetheless not free, and `orphan-in` on a healthy corpus has nothing to explain —
 //! so [`super::run_checks`] calls this only when there are orphans to date.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -241,30 +241,57 @@ impl Expectation {
     }
 }
 
-/// Read a class definition's expectation from a blob.
+/// A class definition's declared edges, read from a blob.
 ///
-/// The same rule [`super::checks::Class::is_source_class`] applies, read from history rather
-/// than from disk, so the replay and the check cannot disagree about which classes are
-/// exempt.
-fn blob_expectation(content: &str) -> Expectation {
-    #[derive(Default, serde::Deserialize)]
-    struct Edge {
-        #[serde(default)]
-        direction: Option<String>,
-    }
+/// The expectation cannot be computed from one blob any more, and that is the point: an
+/// inbound relationship may be declared from either end, so which classes are exempt is a
+/// property of the whole ontology at a commit rather than of one file in it. The replay
+/// therefore keeps the declarations and derives the answer per frame, through
+/// [`super::checks::source_classes`] — the same function the check calls, so the two cannot
+/// disagree about which classes are exempt.
+fn blob_edges(content: &str) -> Vec<super::checks::ClassEdge> {
     #[derive(Default, serde::Deserialize)]
     struct Fields {
         #[serde(default)]
-        edges: Vec<Edge>,
+        edges: Vec<super::checks::ClassEdge>,
     }
-    let f: Fields = serde_yaml::from_str(content).unwrap_or_default();
-    if f.edges.is_empty() {
-        return Expectation::Unstated;
-    }
-    match f.edges.iter().any(|e| e.direction.as_deref() == Some("in")) {
-        true => Expectation::Cited,
-        false => Expectation::Uncited,
-    }
+    serde_yaml::from_str::<Fields>(content)
+        .unwrap_or_default()
+        .edges
+}
+
+/// What the ontology at this commit says about each class being pointed at.
+///
+/// Three states, and the third has to survive: a class nothing points at *and* which
+/// declares no edges said nothing at all, which is not the same as saying it is a source
+/// class. A class that declares no edges but which another class targets has been spoken
+/// for, from the other end, and is `Cited`.
+fn expectations_of(
+    decls: &BTreeMap<String, Vec<super::checks::ClassEdge>>,
+) -> HashMap<String, Expectation> {
+    let view: Vec<super::checks::EdgeView<'_>> = decls
+        .iter()
+        .map(|(name, edges)| super::checks::EdgeView { name, edges })
+        .collect();
+    let sources = super::checks::source_classes(&view);
+    decls
+        .iter()
+        .filter_map(|(name, edges)| {
+            if sources.contains(name) {
+                Some((name.clone(), Expectation::Uncited))
+            } else if edges.is_empty() && !is_targeted(name, &view) {
+                None
+            } else {
+                Some((name.clone(), Expectation::Cited))
+            }
+        })
+        .collect()
+}
+
+/// Whether any class declares an edge naming `name` at either end.
+fn is_targeted(name: &str, view: &[super::checks::EdgeView<'_>]) -> bool {
+    view.iter()
+        .any(|v| v.edges.iter().any(|e| e.target == name))
 }
 
 /// The corpus as it stood at one commit.
@@ -319,8 +346,9 @@ pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
 
     // Live corpus state, rebuilt forward: each node's outbound targets.
     let mut out: HashMap<String, HashSet<String>> = HashMap::new();
-    let mut source_classes: HashSet<String> = HashSet::new();
-    let mut expectations: HashMap<String, Expectation> = HashMap::new();
+    // The ontology as it stands, class by class. Kept rather than reduced on the way in,
+    // because the reduction reads every class at once.
+    let mut decls: BTreeMap<String, Vec<super::checks::ClassEdge>> = BTreeMap::new();
 
     for c in &commits {
         let mut touched = false;
@@ -336,24 +364,12 @@ pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
             } else if is_class(&ch.path) {
                 touched = true;
                 let name = class_of(&ch.path).trim_end_matches(".ont.yml").to_string();
-                let expectation = (ch.status != b'D').then(|| blob_expectation(content()));
-                match expectation {
-                    Some(Expectation::Uncited) => {
-                        source_classes.insert(name.clone());
+                match ch.status {
+                    b'D' => {
+                        decls.remove(&name);
                     }
                     _ => {
-                        source_classes.remove(&name);
-                    }
-                }
-                match expectation {
-                    // A class that declares nothing is absent from the map rather than
-                    // present with a default — the third state has to survive the round
-                    // trip or it collapses into the second.
-                    None | Some(Expectation::Unstated) => {
-                        expectations.remove(&name);
-                    }
-                    Some(e) => {
-                        expectations.insert(name, e);
+                        decls.insert(name, blob_edges(content()));
                     }
                 }
             }
@@ -362,6 +378,14 @@ pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
             continue;
         }
         let cited: HashSet<&String> = out.values().flatten().collect();
+        // Derived per frame rather than maintained incrementally: one class's edit can
+        // change another class's exemption, so there is nothing to update in place.
+        let view: Vec<super::checks::EdgeView<'_>> = decls
+            .iter()
+            .map(|(name, edges)| super::checks::EdgeView { name, edges })
+            .collect();
+        let source_classes = super::checks::source_classes(&view);
+        let expectations = expectations_of(&decls);
         frame(Frame {
             sha: &c.sha,
             ts: c.ts,

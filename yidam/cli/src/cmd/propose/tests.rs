@@ -10,17 +10,20 @@ use std::process::Command;
 use super::draft::Verb;
 use super::*;
 
-/// A corpus whose ontology declares an inbound edge, so `orphan-in` can actually fire.
+/// A corpus shaped like the worked example: one class points at another.
 ///
-/// The worked example cannot be used here and #336 is why: every class in
-/// `examples/streamflow` declares outbound edges only, so all three derive as source classes
-/// and every instance is exempt. A fixture built from it would test that this command
-/// proposes nothing, and pass.
+/// `gage` declares `sources-from -> concept, direction: out`, and that is what makes
+/// `concept` a class something is meant to point at — so an uncited `concept` is a finding,
+/// while a `gage` is exempt because nothing is declared to point at gages.
+///
+/// Self-edges do not count. `concept.refines -> concept` says concepts relate to each other,
+/// not that every concept is cited: any acyclic self-relation has an endpoint that is not.
 fn repo() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let corpus = root.join(".yidam/corpus");
     std::fs::create_dir_all(corpus.join("concept")).unwrap();
+    std::fs::create_dir_all(corpus.join("gage")).unwrap();
     std::fs::create_dir_all(root.join(".yidam/catalog")).unwrap();
 
     std::fs::write(
@@ -28,30 +31,39 @@ fn repo() -> tempfile::TempDir {
         "class: concept\nlabel: Concept\ndescription: |\n  A notion used to describe flow.\n\
          properties:\n  - name: claim_tag\n    type: claim\n    description: The standing.\n\
          edges:\n  - relationship: refines\n    target: concept\n    direction: out\n    \
-         description: A concept this one narrows.\n  - relationship: cited-by\n    \
-         target: concept\n    direction: in\n    description: A concept that draws on this.\n",
+         description: A concept this one narrows.\n",
     )
     .unwrap();
-    // `anchor` and `cited` point at each other, so neither is an orphan. Any acyclic shape
-    // would leave its own root uncited and give this fixture two findings where it means one.
+    std::fs::write(
+        corpus.join("gage.ont.yml"),
+        "class: gage\nlabel: Gage\ndescription: |\n  A station on a channel.\n\
+         properties:\n  - name: claim_tag\n    type: claim\n    description: The standing.\n\
+         edges:\n  - relationship: sources-from\n    target: concept\n    direction: out\n    \
+         description: A concept this record computes.\n",
+    )
+    .unwrap();
     node(
         root,
-        "anchor",
-        "  It refines the other one. [verified]",
-        &["./cited.yml"],
-    );
-    node(
-        root,
+        "concept",
         "cited",
-        "  And that one refines it back. [verified]",
-        &["./anchor.yml"],
+        "  A gage points at this one. [verified]",
+        &[],
     );
     node(
         root,
+        "concept",
         "lonely",
         "  Nothing points at this one. [verified]",
         &[],
     );
+    node(
+        root,
+        "gage",
+        "probe",
+        "  It sources from a concept. [verified]",
+        &["../concept/cited.yml"],
+    );
+
     git(root, &["init", "-q", "-b", "main"]);
     git(root, &["config", "user.email", "t@t"]);
     git(root, &["config", "user.name", "Tester"]);
@@ -59,17 +71,17 @@ fn repo() -> tempfile::TempDir {
     dir
 }
 
-/// Write a concept node whose description is a block scalar, with `refines` edges to `links`.
-fn node(root: &Path, name: &str, prose: &str, links: &[&str]) {
+/// Write an instance whose description is a block scalar, pointing at `links`.
+fn node(root: &Path, class: &str, name: &str, prose: &str, links: &[&str]) {
     let edges: String = links
         .iter()
-        .map(|t| format!("  - target: {t}\n    relationship: refines\n"))
+        .map(|t| format!("  - target: {t}\n    relationship: sources-from\n"))
         .collect();
     std::fs::write(
-        root.join(format!(".yidam/corpus/concept/{name}.yml")),
+        root.join(format!(".yidam/corpus/{class}/{name}.yml")),
         format!(
-            "class: concept\nlabel: {name}\ndescription: |\n{prose}\nproperties:\n  \
-             claim_tag: verified\nlinks:\n  - target: ../concept.ont.yml\n    \
+            "class: {class}\nlabel: {name}\ndescription: |\n{prose}\nproperties:\n  \
+             claim_tag: verified\nlinks:\n  - target: ../{class}.ont.yml\n    \
              relationship: instance-of\n{edges}"
         ),
     )
@@ -99,9 +111,9 @@ fn read(root: &Path, rel: &str) -> String {
     std::fs::read_to_string(root.join(rel)).unwrap_or_default()
 }
 
-/// Point `anchor` at `lonely`, which is what resolves the orphan finding.
+/// Point `cited` at `lonely`, which is what resolves the orphan finding.
 fn link_lonely(root: &Path) {
-    let p = ".yidam/corpus/concept/anchor.yml";
+    let p = ".yidam/corpus/concept/cited.yml";
     let text = read(root, p).replace(
         "    relationship: instance-of\n",
         "    relationship: instance-of\n  - target: ./lonely.yml\n    relationship: refines\n",
@@ -260,8 +272,8 @@ fn a_question_a_person_wrote_is_never_closed() {
     let root = dir.path();
     let p = ".yidam/corpus/concept/cited.yml";
     let text = read(root, p).replace(
-        "  And that one refines it back. [verified]\n",
-        "  And that one refines it back. [verified]\n\n  Whether it should is unresolved. \
+        "  A gage points at this one. [verified]\n",
+        "  A gage points at this one. [verified]\n\n  Whether it should is unresolved. \
          [open]\n",
     );
     std::fs::write(root.join(p), text).unwrap();

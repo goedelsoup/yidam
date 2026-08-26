@@ -201,7 +201,7 @@
       "id": "orphan-in",
       "title": "Node nothing points to",
       "severity": "info",
-      "rationale": "Instances of a class that declares no `direction: in` edge are exempt — the ontology says nothing points at them, so an orphan there is the model working. What remains is a class whose *other* instances are cited and this one is not, which is the asymmetry worth reading. Still reported rather than gated: a node authored this morning legitimately has no inbound edges yet.",
+      "rationale": "Instances of a class the ontology declares no inbound edge for — from either end of the edge — are exempt: nothing is meant to point at them, so an orphan there is the model working. What remains is a class whose *other* instances are cited and this one is not, which is the asymmetry worth reading. Still reported rather than gated: a node authored this morning legitimately has no inbound edges yet.",
       "violations": [
         {
           "node": ".yidam/corpus/concept/tailwater.yml",

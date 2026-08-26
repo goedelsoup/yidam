@@ -94,8 +94,13 @@ OntologyClass
   properties  : OntologyProperty[]
   edges       : OntologyEdge[]
 
-  isSourceClass() : bool           — declares edges, and none of them inbound. A class that
-                                     declares NO edges is not one: it has said nothing.
+
+sourceClasses(classes) : Set<string>
+                                   — free function, NOT a method: which classes are source
+                                     classes is a property of the whole ontology, because an
+                                     inbound relationship may be declared from either end.
+                                     A class declaring NO edges is never one — it has said
+                                     nothing. A self-edge does not make a class pointed at.
 
 OntologyProperty
   name        : string

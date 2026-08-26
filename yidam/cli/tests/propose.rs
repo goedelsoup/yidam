@@ -9,12 +9,12 @@
 //!           → somebody fixes the finding → propose → close → the node is as it was
 //! ```
 //!
-//! # The fixture declares an inbound edge, and #336 is why
+//! # The fixture is shaped like the worked example
 //!
-//! `examples/streamflow` cannot be used here. Every class in it declares outbound edges only,
-//! so all three derive as source classes under `is_source_class` and every instance is exempt
-//! from `orphan-in` — the check this command's only aged finding comes from. A fixture built
-//! on it would assert that `propose` proposes nothing, and pass for the wrong reason.
+//! One class declaring an outbound edge at another is what makes the target's instances
+//! citable, and therefore what makes an uncited one a finding. Before #336 that was not
+//! enough — the derivation read only a class's own edge list — and a fixture in this shape
+//! would have asserted that `propose` proposes nothing, and passed for the wrong reason.
 
 use std::path::Path;
 use std::process::Command;
@@ -62,16 +62,17 @@ fn propose(dir: &Path, args: &[&str]) -> Run {
     }
 }
 
-fn node(dir: &Path, name: &str, prose: &str, links: &[&str]) {
+/// Write an instance whose description is a block scalar, pointing at `links`.
+fn node(dir: &Path, class: &str, name: &str, prose: &str, links: &[&str]) {
     let edges: String = links
         .iter()
-        .map(|t| format!("  - target: {t}\n    relationship: refines\n"))
+        .map(|t| format!("  - target: {t}\n    relationship: sources-from\n"))
         .collect();
     std::fs::write(
-        dir.join(format!(".yidam/corpus/concept/{name}.yml")),
+        dir.join(format!(".yidam/corpus/{class}/{name}.yml")),
         format!(
-            "class: concept\nlabel: {name}\ndescription: |\n  {prose}\nproperties:\n  \
-             claim_tag: verified\nlinks:\n  - target: ../concept.ont.yml\n    \
+            "class: {class}\nlabel: {name}\ndescription: |\n  {prose}\nproperties:\n  \
+             claim_tag: verified\nlinks:\n  - target: ../{class}.ont.yml\n    \
              relationship: instance-of\n{edges}"
         ),
     )
@@ -79,10 +80,15 @@ fn node(dir: &Path, name: &str, prose: &str, links: &[&str]) {
 }
 
 /// A corpus with exactly one orphan, escalating to an error after one commit.
+///
+/// Shaped like the worked example: `gage` declares `sources-from -> concept`, which is what
+/// makes an uncited `concept` a finding. A gage is exempt, because nothing is declared to
+/// point at gages.
 fn fixture() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     std::fs::create_dir_all(root.join(".yidam/corpus/concept")).unwrap();
+    std::fs::create_dir_all(root.join(".yidam/corpus/gage")).unwrap();
     std::fs::write(
         root.join(".yidam/config.toml"),
         "[lint]\nescalate_after = 1\n",
@@ -93,28 +99,37 @@ fn fixture() -> tempfile::TempDir {
         "class: concept\nlabel: Concept\ndescription: |\n  A notion.\nproperties:\n  \
          - name: claim_tag\n    type: claim\n    description: The standing.\nedges:\n  \
          - relationship: refines\n    target: concept\n    direction: out\n    \
-         description: A concept this one narrows.\n  - relationship: cited-by\n    \
-         target: concept\n    direction: in\n    description: One that draws on this.\n",
+         description: A concept this one narrows.\n",
     )
     .unwrap();
-    // A cycle, so neither of these two is itself an orphan.
+    std::fs::write(
+        root.join(".yidam/corpus/gage.ont.yml"),
+        "class: gage\nlabel: Gage\ndescription: |\n  A station.\nproperties:\n  \
+         - name: claim_tag\n    type: claim\n    description: The standing.\nedges:\n  \
+         - relationship: sources-from\n    target: concept\n    direction: out\n    \
+         description: A concept this record computes.\n",
+    )
+    .unwrap();
     node(
         root,
-        "anchor",
-        "It refines the other. [verified]",
-        &["./cited.yml"],
-    );
-    node(
-        root,
+        "concept",
         "cited",
-        "And that refines it back. [verified]",
-        &["./anchor.yml"],
+        "A gage points at this one. [verified]",
+        &[],
     );
     node(
         root,
+        "concept",
         "lonely",
         "Nothing points at this one. [verified]",
         &[],
+    );
+    node(
+        root,
+        "gage",
+        "probe",
+        "It sources from a concept. [verified]",
+        &["../concept/cited.yml"],
     );
 
     git(root, &["init", "-q", "-b", "main"]);
@@ -200,11 +215,12 @@ fn a_finding_becomes_a_reviewable_commit_and_the_question_it_opens_is_later_clos
     // ── somebody answers it ─────────────────────────────────────────────────
     node(
         root,
-        "anchor",
-        "It refines the other. [verified]",
-        &["./cited.yml", "./lonely.yml"],
+        "concept",
+        "cited",
+        "A gage points at this one. [verified]",
+        &["./lonely.yml"],
     );
-    commit(root, "establish: anchor refines lonely");
+    commit(root, "establish: cited refines lonely");
 
     // ── and the question this command opened is retired, exactly ────────────
     let run = propose(root, &[]);
