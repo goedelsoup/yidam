@@ -105,6 +105,7 @@ const sidebar = [
       { slug: 'rfcs/0019-external-citation', label: '0019 · External citation' },
       { slug: 'rfcs/0020-proposal-surface', label: '0020 · The proposal surface' },
       { slug: 'rfcs/0021-diff-alignment', label: '0021 · Diff-to-ontology alignment' },
+      { slug: 'rfcs/0022-semantic-alignment', label: '0022 · Semantic alignment' },
     ],
   },
 ];
