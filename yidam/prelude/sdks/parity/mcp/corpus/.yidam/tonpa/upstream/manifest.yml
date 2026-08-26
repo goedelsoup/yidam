@@ -1,0 +1,5 @@
+# An installed dependency, so the fixture can tell a server that backs `across` from one
+# that accepts the flag and ignores it (#333). Before this there was no foreign node in the
+# conformance corpus at all, so every spanning case would have passed on a server that
+# never looked.
+commit: "abc1234"

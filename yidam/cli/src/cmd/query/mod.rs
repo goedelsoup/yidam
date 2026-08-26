@@ -138,8 +138,20 @@ impl Graph {
     /// a corpus-wide property declaration is that corpus's, and applying this repository's to
     /// a dependency's nodes would accept property names it never declared.
     pub fn across(root: &std::path::Path) -> Graph {
+        Graph {
+            across: Self::foreign(root),
+            ..Graph::load(root)
+        }
+    }
+
+    /// The foreign half alone.
+    ///
+    /// Split out so a caller that already holds a local [`Graph`] pays only for what it does
+    /// not have. `serve --mcp` is that caller: it loads the corpus once at startup and would
+    /// otherwise re-read every local instance file to obtain a set of *dependencies*.
+    pub fn foreign(root: &std::path::Path) -> Vec<Foreign> {
         let overlay = crate::cmd::lint::Overlay::default();
-        let across = crate::deps::resolved(root)
+        crate::deps::resolved(root)
             .into_iter()
             .map(|dep| {
                 let dir = dep.corpus_dir;
@@ -166,11 +178,7 @@ impl Graph {
                     package: dep.name,
                 }
             })
-            .collect();
-        Graph {
-            across,
-            ..Graph::load(root)
-        }
+            .collect()
     }
 }
 

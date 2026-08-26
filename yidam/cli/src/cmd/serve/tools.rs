@@ -331,10 +331,26 @@ fn query(state: &ServerState, args: &Value) -> Result<Value, String> {
             .unwrap_or(crate::cmd::query::DEFAULT_ANCHOR_K as u64)
             .max(1) as usize,
     };
+    // ── the spanning boundary (#333) ─────────────────────────────────────────
+    //
+    // `across` defaults to false and a caller that did not ask cannot see a foreign node.
+    // The two graphs are separate objects rather than one graph and a flag, so a local call
+    // is *incapable* of spanning rather than merely instructed not to — see
+    // `ServerState::graph_across`.
+    //
+    // Asking to span a repository with no dependencies is not an error and is not silently
+    // downgraded either: the local graph answers, and `scope` reads `local`, which is the
+    // same thing `yidam query --across` reports in that situation. A caller comparing
+    // `scope` against what it asked for can tell the difference; one told only that nothing
+    // matched could not.
+    let graph = match args["across"].as_bool().unwrap_or(false) {
+        true => state.graph_across.as_ref().unwrap_or(&state.graph),
+        false => &state.graph,
+    };
     // The `Retrieval` this server loaded at startup — the same one `retrieve` answers from,
     // so the two can never report different reasons for the same degradation. That sharing is
     // the one refactor RFC-0018 asked for, and this is the call site it was asked for.
-    let ctx = crate::cmd::query::Context::now(&state.graph, Some(&state.retrieval));
+    let ctx = crate::cmd::query::Context::now(graph, Some(&state.retrieval));
     let report = crate::cmd::query::run_on(&ctx, text, &opts);
     serde_json::to_value(&report).map_err(|e| e.to_string())
 }
@@ -703,6 +719,25 @@ mod tests {
     /// and said nothing was wrong, which reads to a caller as a true negative. Searching first
     /// and diagnosing after would have produced `class-unpopulated`, i.e. a sentence about the
     /// corpus in answer to a typo.
+    /// Asking to span a repository with no dependencies is not an error.
+    ///
+    /// It answers locally and says `local`, which is what `yidam query --across` already does
+    /// and is the only reading that stays honest: the request was legal, nothing foreign
+    /// exists, and `scope` is where a caller learns the difference. Refusing would make an
+    /// agent's willingness to compose depend on whether anyone had run `tonpa install`;
+    /// answering `across` would claim a dependency set that is not there.
+    #[test]
+    fn spanning_a_repository_with_no_dependencies_answers_locally_and_says_so() {
+        let state = test_state();
+        let result = call_ok(&state, "query", json!({"query": "concept", "across": true}));
+
+        assert_eq!(
+            result["scope"], "local",
+            "scope reports what happened, not what was asked"
+        );
+        assert!(result["rejected"].is_null());
+    }
+
     #[test]
     fn an_unknown_class_filter_is_rejected_before_the_search() {
         let state = test_state();

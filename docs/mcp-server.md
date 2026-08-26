@@ -114,7 +114,7 @@ An absolute path and `exec` — the `exec` so signals reach the server rather th
 | `check_subject` | Whether a commit subject is in the closed vocabulary | Before you write the commit |
 | `claim_tags` | The three tags, their meanings, and how each may be written | Before you tag a claim |
 | `licensed_edges` | What a class declares it may link to | Before you write the link |
-| `query` | A typed path over the graph — `reach -measured-by-> gage` | You know the *shape* of the answer, not the node |
+| `query` | A typed path over the graph — `reach -measured-by-> gage`, optionally `across` the dependency set | You know the *shape* of the answer, not the node |
 | `pack` | That path's answer as prose, filled to a token budget, with what did not fit | You are about to write from the corpus and have a budget |
 | `estimate` | What that would cost, in nodes and approximate tokens, before you pay for it | You have a budget and want to know what fits |
 
@@ -188,6 +188,20 @@ do not act differently given a quote, this is the surface to drop. Nothing depen
 the class definitions, and a projected mirror can hold nodes and edges and no `.ont.yml`. Such a
 server declares `"ontology": false` in the handshake, which is a statement you can read rather
 than a hole you discover.
+
+**A dependency is queryable, and only if you ask.** `query` takes `across: true`, which runs
+the query over every installed dependency's corpus as well — one execution per corpus, every
+result attributed by `origin`, foreign ids qualified `pkg::class/name.yml`. Without it you
+cannot see a foreign node at all, which is the boundary rather than an oversight. A hop never
+crosses between corpora: two corpora sharing a class name is not agreement, so the walk stays
+inside whichever corpus it started in. `scope` on the response says what actually happened —
+asking to span a repository with no dependencies installed answers `local`, and that is not an
+error.
+
+`pack` and `estimate` have no `across`, deliberately. A pack is what you write *from*, and one
+mixing two corpora would put a dependency's prose under this repository's class names, where
+the `omitted_by_class` receipt would be arithmetic over a category nobody declared. Retrieve
+across, query across, then pack what you decided to keep.
 
 **`retrieve` finds; `get_node` reads.** The distinction is worth stating plainly because
 the gap is easy to miss: a `retrieve` result carries `label`, `class`, `path`, `score` and a

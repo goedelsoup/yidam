@@ -1,0 +1,6 @@
+class: concept
+label: Telemetry
+description: >-
+  Readings a field instrument emits. The target of the dependency's own `informs` edge,
+  which is what makes a spanning hop reachable inside the dependency and unreachable across
+  the boundary.

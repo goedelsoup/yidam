@@ -1,0 +1,10 @@
+class: concept
+label: Sensor calibration
+description: >-
+  Establishing the reference values a field instrument reports against. The dependency's
+  subject, chosen so it shares no vocabulary with the local corpus — a foreign node that
+  answered a local keyword search would make `retrieve`'s cases depend on which corpus won a
+  tie rather than on the boundary they are about.
+links:
+  - target: telemetry.yml
+    relationship: informs

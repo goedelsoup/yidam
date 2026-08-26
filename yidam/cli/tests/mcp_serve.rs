@@ -541,3 +541,45 @@ fn every_tool_in_the_contract_is_in_the_document_an_agent_reads() {
          serves them and no agent reading the documentation knows they exist"
     );
 }
+
+/// Spanning is `query`-only, and that is a decision rather than an omission (#333).
+///
+/// `pack` and `estimate` take no `across`, for the reason `cmd::pack::run` states: a pack is
+/// context an agent writes *from*, and one mixing two corpora would put a dependency's prose
+/// in a context window under this repository's class names — where `omitted_by_class` would
+/// report `concept: 12` over two corpora that each mean something different by `concept`. The
+/// receipt would be arithmetic over a category nobody declared.
+///
+/// The danger is not that someone argues against that. It is that `across` looks like an
+/// input three sibling tools obviously ought to share, and adding it to `pack` is a one-line
+/// diff that reads as consistency. This makes the omission deliberate in a place a diff has to
+/// touch, and the contract carries the reason.
+#[test]
+fn only_query_spans_the_dependency_set() {
+    let contract = contract();
+    let tools = contract["tools"].as_array().unwrap();
+
+    let spanning: Vec<&str> = tools
+        .iter()
+        .filter(|t| !t["inputSchema"]["properties"]["across"].is_null())
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        spanning,
+        vec!["query"],
+        "`across` belongs to `query` alone. A pack or a quote that spanned would be a receipt \
+         over a category nobody declared — if that changed, it changed in the contract's notes \
+         first, and this test with it"
+    );
+
+    let notes = tools
+        .iter()
+        .find(|t| t["name"] == "query")
+        .and_then(|t| t["response"]["notes"].as_str())
+        .expect("query documents its response");
+    assert!(
+        notes.contains("SPANNING IS `query`-ONLY"),
+        "the contract must say why `pack` and `estimate` have no `across`; an omission nobody \
+         wrote down is indistinguishable from one nobody thought of, which is what #333 found"
+    );
+}

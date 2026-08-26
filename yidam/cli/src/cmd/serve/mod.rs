@@ -98,6 +98,30 @@ pub(crate) struct ServerState {
     /// that would still read null. The contract states it (`parity/mcp/tools.json`, 0.9.1) and
     /// the connect-time staleness banner reports the same fact. Freshness is a restart.
     pub graph: crate::cmd::query::Graph,
+    /// The same corpus plus every installed dependency's, or `None` when none are installed.
+    ///
+    /// **A second `Graph` rather than a flag on the first, deliberately.** Spanning is decided
+    /// by `Graph::across` being non-empty, so a single graph carrying the foreign set would
+    /// make *every* consumer of `state.graph` span — `pack` and `estimate` included, which
+    /// [`crate::cmd::pack::run`] argues at length they must not. The boundary would then rest
+    /// on every call site remembering to opt out, and one that forgot would cross it silently.
+    /// Two graphs make the local one incapable of spanning, which is the same reason
+    /// [`crate::cmd::query::Foreign`] gives for running one execution per corpus rather than
+    /// merging: a boundary that cannot be crossed by forgetting beats one that is merely
+    /// documented. The price is the local corpus parsed twice on a composed repository.
+    ///
+    /// **Loaded at startup, not lazily on the first spanning call.** Contract 0.9.1 states
+    /// that every read comes from the corpus built on disk when the server started, and that
+    /// freshness is a restart. A lazily-built spanning graph would introduce a *second*
+    /// snapshot moment — one corpus as of startup, another as of whenever a caller first
+    /// passed `across` — so a `tonpa install` mid-session would be invisible to one and
+    /// visible to the other. One snapshot is the promise; this keeps it.
+    ///
+    /// **`None` when nothing is installed**, so a repository with no dependencies pays
+    /// nothing. The detection is a directory listing, not a corpus walk. Note that a server
+    /// with dependencies already walks them at startup for `retrieve` (`dep_nodes` above),
+    /// so this is a marginal cost on a path that was never free.
+    pub graph_across: Option<crate::cmd::query::Graph>,
     /// Catalog entries each node cites, keyed by node id.
     ///
     /// Resolved once at startup with the gate's own resolver rather than from
@@ -152,6 +176,16 @@ impl ServerState {
             .collect();
         let citations = load_citations(root, &nodes);
         let graph = crate::cmd::query::Graph::load(root);
+        // A directory listing decides whether the second corpus load happens at all, so a
+        // repository with no dependencies pays for none of this.
+        let foreign = crate::cmd::query::Graph::foreign(root);
+        let graph_across = match foreign.is_empty() {
+            true => None,
+            false => Some(crate::cmd::query::Graph {
+                across: foreign,
+                ..crate::cmd::query::Graph::load(root)
+            }),
+        };
         Ok(ServerState {
             domain: model.provenance.domain,
             commit: model.provenance.commit,
@@ -165,6 +199,7 @@ impl ServerState {
             classes,
             citations,
             graph,
+            graph_across,
         })
     }
 }
@@ -455,6 +490,9 @@ mod tests {
             graph: crate::cmd::query::Graph::load(std::path::Path::new(
                 "/nonexistent/query-fixture",
             )),
+            // No dependencies, which is the state a `across: true` call must be told about
+            // rather than left to read as "nothing matched".
+            graph_across: None,
         }
     }
 
