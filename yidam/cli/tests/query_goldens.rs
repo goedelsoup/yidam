@@ -121,19 +121,30 @@ fn redact_run(out: &str) -> String {
             i += 40;
             continue;
         }
-        // `2026-08-25T22:27:21-04:00`, the shape `%cI` prints.
-        const ISO: &str = "dddd-dd-ddTdd:dd:dd?dd:dd";
-        if fresh
-            && c.len() - i >= ISO.len()
-            && ISO.chars().zip(&c[i..]).all(|(mask, &got)| match mask {
-                'd' => got.is_ascii_digit(),
-                '?' => got == '+' || got == '-' || got == 'Z',
-                other => got == other,
-            })
-        {
-            result.push_str("<DATE>");
-            i += ISO.len();
-            continue;
+        // `%cI` prints `2026-08-25T22:27:21-04:00` — and `2026-08-25T22:27:21Z` where the
+        // offset is zero, which is every CI runner and no developer machine. A mask that
+        // spelled the offset as digits matched locally and matched nothing on the runner, so
+        // the golden went green here and failed there on the one field it exists to redact.
+        const INSTANT: &str = "dddd-dd-ddTdd:dd:dd";
+        let matches = |mask: &str, at: usize| {
+            c.len() - at >= mask.len()
+                && mask.chars().zip(&c[at..]).all(|(m, &got)| match m {
+                    'd' => got.is_ascii_digit(),
+                    other => got == other,
+                })
+        };
+        if fresh && matches(INSTANT, i) {
+            let rest = i + INSTANT.len();
+            let zone = match c.get(rest) {
+                Some('Z') => Some(1),
+                Some('+') | Some('-') if matches("dd:dd", rest + 1) => Some(6),
+                _ => None,
+            };
+            if let Some(zone) = zone {
+                result.push_str("<DATE>");
+                i = rest + zone;
+                continue;
+            }
         }
         result.push(c[i]);
         i += 1;
