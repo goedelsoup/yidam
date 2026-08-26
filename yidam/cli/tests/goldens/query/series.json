@@ -1,0 +1,50 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "kind": "series",
+  "query": "reach",
+  "scope": "local",
+  "range": "HEAD~1..HEAD",
+  "rejected": null,
+  "series": [
+    {
+      "commit": "<SHA>",
+      "date": "<DATE>",
+      "rejected": null,
+      "diagnostics": [],
+      "results": [
+        {
+          "class": "reach",
+          "label": "Lower canyon reach",
+          "node": "reach/lower-canyon.yml",
+          "origin": null
+        },
+        {
+          "class": "reach",
+          "label": "Tailwater reach",
+          "node": "reach/tailwater.yml",
+          "origin": null
+        }
+      ],
+      "matched": 2,
+      "returned": 2,
+      "cost": {
+        "steps": 1,
+        "edges_walked": 0,
+        "nodes_read": 2,
+        "chars": 153,
+        "tokens": 38,
+        "corpus_nodes": 8
+      },
+      "unschematised": false,
+      "changed": false
+    }
+  ]
+}

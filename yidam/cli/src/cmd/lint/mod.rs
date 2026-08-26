@@ -142,8 +142,9 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
 
     let catalog_paths = walk_md_files(&catalog_dir);
     let sources = checks::load_sources(root, &catalog_paths, overlay);
-    let node_texts: Vec<String> = instance_paths.iter().map(|p| overlay.read(p)).collect();
-    let cites = checks::citations(&sources, &nodes, &node_texts);
+    // `Node` carries the text `load_nodes` already read, so nothing here re-reads the corpus
+    // to hand the same bytes to a check a second time.
+    let cites = checks::citations(&sources, &nodes);
 
     // Tables are checked wherever a reader meets one: catalog entries and the READMEs
     // that carry REGEN blocks.
@@ -246,7 +247,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::catalog_unobtained_but_cited(&sources, &cites),
         checks::missing_label(&nodes),
         checks::missing_description(&nodes),
-        checks::claim_tag_malformed(&nodes, &node_texts),
+        checks::claim_tag_malformed(&nodes),
         checks::catalog_used_by_drift(&sources, &cites),
         checks::catalog_location_malformed(&sources),
         checks::malformed_table(&prose),

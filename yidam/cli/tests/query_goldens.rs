@@ -49,12 +49,17 @@ fn stage() -> tempfile::TempDir {
         std::fs::create_dir_all(to.parent().unwrap()).unwrap();
         std::fs::copy(root.join(&tracked), &to).unwrap();
     }
+    // Two commits, not one. A series golden needs a range, and `a..b` over a repository with
+    // a single commit is either empty or not a range at all — so the ontology lands first and
+    // the instances follow, which is also the order a corpus is actually written in.
     for args in [
         vec!["init", "-q"],
         vec!["config", "user.email", "query@yidam.test"],
         vec!["config", "user.name", "Query"],
+        vec!["add", "-A", "--", ".yidam/corpus/*.ont.yml"],
+        vec!["commit", "-qm", "chore: genesis — the ontology"],
         vec!["add", "-A"],
-        vec!["commit", "-qm", "chore: genesis — query"],
+        vec!["commit", "-qm", "feat: the instances"],
     ] {
         assert!(Command::new("git")
             .args(&args)
@@ -99,10 +104,49 @@ fn redact(out: &str, root: &Path) -> String {
     )
 }
 
+/// A commit sha and a commit date belong to the run, not to the corpus.
+///
+/// Only a series golden carries either — `stage()` commits the example fresh, so both are new
+/// on every run. Applied to every case anyway: no other golden holds a 40-character hex string
+/// or an ISO-8601 instant, so a redaction that fired on one would itself be the finding.
+fn redact_run(out: &str) -> String {
+    let c: Vec<char> = out.chars().collect();
+    let mut result = String::new();
+    let mut i = 0;
+    while i < c.len() {
+        let fresh = i == 0 || !c[i - 1].is_ascii_alphanumeric();
+        let hex = c[i..].iter().take_while(|x| x.is_ascii_hexdigit()).count();
+        if fresh && hex == 40 {
+            result.push_str("<SHA>");
+            i += 40;
+            continue;
+        }
+        // `2026-08-25T22:27:21-04:00`, the shape `%cI` prints.
+        const ISO: &str = "dddd-dd-ddTdd:dd:dd?dd:dd";
+        if fresh
+            && c.len() - i >= ISO.len()
+            && ISO.chars().zip(&c[i..]).all(|(mask, &got)| match mask {
+                'd' => got.is_ascii_digit(),
+                '?' => got == '+' || got == '-' || got == 'Z',
+                other => got == other,
+            })
+        {
+            result.push_str("<DATE>");
+            i += ISO.len();
+            continue;
+        }
+        result.push(c[i]);
+        i += 1;
+    }
+    result
+}
+
 struct Case {
     /// Golden filename stem, and what the case is for.
     name: &'static str,
     query: &'static str,
+    /// Everything after the query, before `--format json`.
+    args: &'static [&'static str],
     /// Exit code. 1 only for a rejected query — `query` never gates on the corpus.
     code: i32,
 }
@@ -113,30 +157,35 @@ const CASES: &[Case] = &[
     Case {
         name: "class-only",
         query: "reach",
+        args: &[],
         code: 0,
     },
     // One typed hop, and the traversal `neighbors` could not express.
     Case {
         name: "one-hop",
         query: "reach -measured-by-> gage",
+        args: &[],
         code: 0,
     },
     // Two hops through two different relationships.
     Case {
         name: "two-hops",
         query: "reach -measured-by-> gage -sources-from-> concept",
+        args: &[],
         code: 0,
     },
     // The same edge read from the far end.
     Case {
         name: "backward-hop",
         query: "concept <-exhibits- reach",
+        args: &[],
         code: 0,
     },
     // `*` narrowed by a property predicate, with the skipped classes named.
     Case {
         name: "star-filter",
         query: "*[claim_tag=open]",
+        args: &[],
         code: 0,
     },
     // The row that shipped wrong in RFC-0018's first draft: `regulated` holds prose, so `=`
@@ -150,22 +199,26 @@ const CASES: &[Case] = &[
     Case {
         name: "exact-matches-nothing",
         query: "reach[regulated=yes]",
+        args: &[],
         code: 0,
     },
     Case {
         name: "contains-matches",
         query: "reach[regulated~yes]",
+        args: &[],
         code: 0,
     },
     // #261's acceptance, both halves.
     Case {
         name: "unknown-class",
         query: "gauge",
+        args: &[],
         code: 1,
     },
     Case {
         name: "unlicensed-hop",
         query: "reach -measured-by-> concept",
+        args: &[],
         code: 1,
     },
     // The near miss: `sourced-from` is authored (into the catalog) and `sources-from` is
@@ -175,6 +228,7 @@ const CASES: &[Case] = &[
     Case {
         name: "near-miss-empty",
         query: "gage -sourced-from-> concept",
+        args: &[],
         code: 0,
     },
     // #263's mechanism, end to end: enter by meaning, leave by typed edge. The example ships
@@ -185,6 +239,7 @@ const CASES: &[Case] = &[
     Case {
         name: "anchored-entry",
         query: r#"concept~"hydropeaking below a dam" <-exhibits- reach"#,
+        args: &[],
         code: 0,
     },
     // An anchor enters, and only the first step is entered. Frozen because the tempting fix
@@ -193,13 +248,40 @@ const CASES: &[Case] = &[
     Case {
         name: "anchor-not-entry",
         query: r#"reach -exhibits-> concept~"low flow""#,
+        args: &[],
+        code: 1,
+    },
+    // #262's other report shape, which had no golden at all: a series flattens into the same
+    // RFC-0016 envelope at the same `format_version` as everything above it, and `kind` is
+    // what tells a consumer which one it is holding. The row carries `changed` and
+    // `unschematised` — the two fields a reader of the *count* alone cannot reconstruct.
+    Case {
+        name: "series",
+        query: "reach",
+        args: &["--between", "HEAD~1..HEAD"],
+        code: 0,
+    },
+    // And the refusal that belongs to the series rather than to a row. It is taken once,
+    // before any tree is reconstructed, and it gates — unlike `unknown-class`, which is the
+    // ordinary answer for a class the corpus grew into.
+    Case {
+        name: "series-rejected",
+        query: "reach -->",
+        args: &["--between", "HEAD~1..HEAD"],
         code: 1,
     },
 ];
 
+fn argv<'a>(case: &'a Case, extra: &[&'a str]) -> Vec<&'a str> {
+    let mut argv = vec!["query", case.query];
+    argv.extend_from_slice(case.args);
+    argv.extend_from_slice(extra);
+    argv
+}
+
 fn run_case(dir: &Path, case: &Case) -> (String, i32) {
     let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
-        .args(["query", case.query, "--format", "json"])
+        .args(argv(case, &["--format", "json"]))
         .current_dir(dir)
         .output()
         .unwrap();
@@ -220,7 +302,7 @@ fn every_case_matches_its_golden() {
         let (stdout, code) = run_case(dir.path(), case);
         assert_eq!(code, case.code, "{}: exit code\n{stdout}", case.name);
 
-        let actual = redact(&stdout, dir.path());
+        let actual = redact_run(&redact(&stdout, dir.path()));
         let path = goldens_dir().join(format!("{}.json", case.name));
         if update {
             std::fs::write(&path, &actual).unwrap();
@@ -262,7 +344,7 @@ fn the_text_and_json_paths_agree_on_the_verdict() {
     let dir = stage();
     for case in CASES {
         let text = Command::new(env!("CARGO_BIN_EXE_yidam"))
-            .args(["query", case.query])
+            .args(argv(case, &[]))
             .current_dir(dir.path())
             .output()
             .unwrap();

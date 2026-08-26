@@ -8,6 +8,7 @@
     ]
   },
   "root": "<ROOT>",
+  "kind": "query",
   "query": "gage -sourced-from-> concept",
   "scope": "local",
   "steps": [

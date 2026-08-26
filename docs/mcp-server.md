@@ -148,6 +148,22 @@ agent invents**, and this is the field that stops it. `absence.elsewhere` names 
 packages holding what this corpus does not — a pointer, and whatever it names is that corpus's
 claim rather than this one's.
 
+**Every tool answers from the corpus the server loaded at startup.** `retrieve`, `get_node`,
+`neighbors` and `query` all read the corpus and index built on disk when the process started —
+there are no live git operations and no per-request file reads. `query --select body` is
+included: it returns the node text as it was read then, not as the file reads now. A server
+left running while the corpus is edited keeps answering with the corpus it was started
+against, which is what the staleness banner at connect time is reporting. This is one
+snapshot on purpose: a `body` that reached for the working tree at request time would be the
+one field, on the one tool, answering about a different corpus than every other field beside
+it. Restart to move the snapshot.
+
+**A `query` response says what it is about.** `kind` is `query`, and the CLI's `--between`
+emits a series under the same envelope — a client must not tell the two apart by testing for
+an absent key. `at` is the commit the answer is about, null for the corpus the server holds,
+and present on rejected responses too: a refusal about a tag and a refusal about now are
+different claims.
+
 **`pack` is `query` with a budget and a receipt.** `query` reports `matched` beside
 `returned`, which says how many nodes it dropped; `pack` says *what kind* — `omitted_by_class`
 — and that is the difference between knowing you are missing 28 nodes and knowing they were

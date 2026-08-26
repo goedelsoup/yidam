@@ -41,6 +41,7 @@ pub fn class_schemas_at(root: &std::path::Path) -> Vec<(String, String, serde_js
     cmd::class_schemas(root)
 }
 
+pub use cmd::query::Scope as QueryScope;
 pub use cmd::query::DEFAULT_ANCHOR_K as QUERY_DEFAULT_ANCHOR_K;
 pub use cmd::query::DEFAULT_LIMIT as QUERY_DEFAULT_LIMIT;
 pub use paths::{running_binary_note, warn_if_shadowed};

@@ -40,14 +40,25 @@ struct Change {
 
 /// Whether a repo-relative path is a corpus *instance* — `.yidam/corpus/<class>/<name>.yml`.
 ///
-/// Class definitions sit at depth 1 and end `.ont.yml`; instances sit at depth 2. Anything
-/// else under the corpus (a README, an ACTIONS.md) is not a node and neither points nor is
-/// pointed at.
+/// Class definitions sit at depth 1 and end `.ont.yml`; instances sit **at or below** depth 2.
+/// Anything else under the corpus (a README, an ACTIONS.md) is not a node and neither points
+/// nor is pointed at.
+///
+/// # Why depth 2 is a floor and not an equality
+///
+/// [`crate::walk::walk_corpus_instances`] — the live walk, and the definition every check and
+/// every present-tense query answers from — accepts `e.depth() >= 2`. This required exactly
+/// two, and the two are separate answers to *what is in the corpus*: a node at
+/// `.yidam/corpus/<class>/<sub>/<name>.yml` exists at HEAD, is read by the gate, resolves as
+/// a `links:` target, and disappeared at every revision reconstructed through here. `--at
+/// HEAD` on a clean tree stopped being the identity, and any relative edge into such a node
+/// dangled historically while resolving live — the disagreement RFC-0018 requires the
+/// historical path never to produce silently.
 pub(crate) fn is_instance(path: &str) -> bool {
     let Some(rest) = path.strip_prefix(".yidam/corpus/") else {
         return false;
     };
-    rest.ends_with(".yml") && !rest.ends_with(".ont.yml") && rest.matches('/').count() == 1
+    rest.ends_with(".yml") && !rest.ends_with(".ont.yml") && rest.contains('/')
 }
 
 /// The link targets a node declares, as repo-relative normalized paths.
@@ -465,7 +476,9 @@ mod tests {
         assert!(!is_instance(".yidam/corpus/README.md"));
         assert!(!is_instance(".yidam/corpus/person/ACTIONS.md"));
         // Deeper than the model allows, so not a node.
-        assert!(!is_instance(".yidam/corpus/person/sub/x.yml"));
+        // Deeper than a class directory and still a node: this is what the live walk reads,
+        // and the two definitions must not disagree about what the corpus holds.
+        assert!(is_instance(".yidam/corpus/person/sub/x.yml"));
         assert!(!is_instance("docs/person/x.yml"));
     }
 

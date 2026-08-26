@@ -28,7 +28,7 @@ harness checks that they do.
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.9.0",
+    "contract": "0.9.1",
     "retrieve": { "vector": false, "reason": "no_index" },
     "graph": true, "ontology": true,
     "phases": false, "sangha": false, "resources": true
@@ -40,6 +40,34 @@ harness checks that they do.
 the vector index is loaded, which is the same fact `degraded` reports per call. A server that
 declares `vector: false` is promising every `retrieve` will come back `degraded: true`, with
 the `reason` it names here. `reason` is null exactly when `vector` is true.
+
+## Which corpus, and when (contract 0.9.1)
+
+Two keys on `query`'s response, both always present, both about the same question: *what is
+this answer about?*
+
+`kind` is `query`. The CLI's `--between` emits a **series** — a row per commit in a range —
+under the same RFC-0016 envelope at the same `format_version`, so without a discriminator a
+client tells the two shapes apart by testing for a key that is absent. That is precisely the
+inference `at` exists to forbid one field over.
+
+`at` is the commit the answer is about, and null for the working tree. A server answering from
+its loaded corpus reports null; the CLI's `--at` reports `{rev, commit, date}`. It is on
+**every** response including a rejected one: a refusal about a tag and a refusal about now are
+different claims, and a client must never infer which it holds from a missing key.
+
+### The corpus is the one loaded at startup — `select=body` included
+
+Every read a `serve --mcp` process makes comes from the corpus and index built on disk when it
+started: `retrieve`, `get_node`, `neighbors` and `query` alike. `select=body` returns the node
+text as it was read then, not as the file reads now, so a long-running server answers with the
+corpus it was started against until it is restarted.
+
+This is deliberate rather than incidental. A `body` that reached for the working tree at
+request time would be one field, on one tool, answering about a different corpus than every
+other field beside it — including `at`, which would still say null, meaning *the corpus this
+server holds*. The staleness banner at connect time reports the same snapshot. A server that
+wants freshness restarts; it must not make this one field live.
 
 ## Quote before, account after (contract 0.9.0)
 

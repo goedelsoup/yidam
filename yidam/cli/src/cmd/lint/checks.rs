@@ -1044,12 +1044,12 @@ const TAG_SEPARATORS: &[char] = &['—', '–', '-', ':', ';', ',', '|', '/', '=
 /// what was meant; saying so does not.
 ///
 /// Warn rather than Error: the node is still readable and the fix is the author's to make.
-pub fn claim_tag_malformed(nodes: &[Node], texts: &[String]) -> Check {
+pub fn claim_tag_malformed(nodes: &[Node]) -> Check {
     let mut violations = Vec::new();
-    for (n, text) in nodes.iter().zip(texts) {
+    for n in nodes {
         // Masked, so a node explaining the vocabulary is not reported for naming it — the
         // same reason the counter masks.
-        for (line, found) in near_miss_tags(&crate::markdown::mask_code(text)) {
+        for (line, found) in near_miss_tags(&crate::markdown::mask_code(&n.text)) {
             violations.push(Violation::new(
                 format!("{}:{}", n.rel, line),
                 format!(
@@ -1167,12 +1167,13 @@ pub fn linked_paths(node_path: &Path, rel: &str, text: &str) -> HashSet<PathBuf>
 /// Both edge forms count: a `links:` entry and a markdown link in the prose. The prose scan
 /// is [`prose_links`], the same function `broken-prose-link` uses, so a link shown as an
 /// example in code is not read as a citation here either.
-pub fn citations(sources: &[Source], nodes: &[Node], texts: &[String]) -> Vec<Vec<String>> {
-    // Resolved once per node rather than once per (node, source) pair.
+pub fn citations(sources: &[Source], nodes: &[Node]) -> Vec<Vec<String>> {
+    // Resolved once per node rather than once per (node, source) pair, and from [`Node::text`]
+    // rather than from a parallel `Vec<String>` the caller built by re-reading every instance.
+    // The gate's hot path read the corpus twice and held two copies of it to run one check.
     let linked: Vec<HashSet<PathBuf>> = nodes
         .iter()
-        .zip(texts)
-        .map(|(n, text)| linked_paths(&n.path, &n.rel, text))
+        .map(|n| linked_paths(&n.path, &n.rel, &n.text))
         .collect();
 
     sources
@@ -1627,11 +1628,11 @@ mod tests {
             path: PathBuf::from("/tmp/x.yml"),
             rel: "x.yml".to_string(),
             inst: Default::default(),
-            text: String::new(),
+            text: "description: Never write `[verified — source]`; the counter reads it as \
+                   untagged.\n"
+                .to_string(),
         };
-        let text = "description: Never write `[verified — source]`; the counter reads it as \
-                    untagged.\n";
-        let c = claim_tag_malformed(std::slice::from_ref(&node), &[text.to_string()]);
+        let c = claim_tag_malformed(std::slice::from_ref(&node));
         assert_eq!(c.violations.len(), 0, "{:?}", c.violations);
     }
 
@@ -1642,10 +1643,10 @@ mod tests {
             path: PathBuf::from("/tmp/x.yml"),
             rel: ".yidam/corpus/c/x.yml".to_string(),
             inst: Default::default(),
-            text: String::new(),
+            text: "class: c\nlabel: X\ndescription: |\n  Settled [verified — Pearl 2009].\n"
+                .to_string(),
         };
-        let text = "class: c\nlabel: X\ndescription: |\n  Settled [verified — Pearl 2009].\n";
-        let c = claim_tag_malformed(std::slice::from_ref(&node), &[text.to_string()]);
+        let c = claim_tag_malformed(std::slice::from_ref(&node));
         assert_eq!(c.violations.len(), 1);
         assert!(
             c.violations[0].node.ends_with(":4"),
@@ -1665,16 +1666,13 @@ mod tests {
         }
     }
 
-    fn corpus_node(name: &str, yaml: &str) -> (Node, String) {
-        (
-            Node {
-                path: PathBuf::from(format!("/repo/.yidam/corpus/concept/{name}.yml")),
-                rel: format!(".yidam/corpus/concept/{name}.yml"),
-                inst: serde_yaml::from_str(yaml).unwrap_or_default(),
-                text: yaml.to_string(),
-            },
-            yaml.to_string(),
-        )
+    fn corpus_node(name: &str, yaml: &str) -> Node {
+        Node {
+            path: PathBuf::from(format!("/repo/.yidam/corpus/concept/{name}.yml")),
+            rel: format!(".yidam/corpus/concept/{name}.yml"),
+            inst: serde_yaml::from_str(yaml).unwrap_or_default(),
+            text: yaml.to_string(),
+        }
     }
 
     /// The reported case. A catalog entry whose slug collides with a connector crate — the
@@ -1684,12 +1682,12 @@ mod tests {
     #[test]
     fn naming_a_slug_in_prose_is_not_a_citation() {
         let sources = vec![catalog_source("nwis", false)];
-        let (node, text) = corpus_node(
+        let node = corpus_node(
             "gauge-ingest",
             "class: concept\nlabel: Gauge ingest\ndescription: The `nwis` crate fetches the \
              series; nwis is also the source name.\nlinks:\n  - target: ../concept/other.yml\n",
         );
-        let cites = citations(&sources, &[node], &[text]);
+        let cites = citations(&sources, &[node]);
         assert_eq!(cites, vec![Vec::<String>::new()], "no link resolves to it");
         assert!(catalog_unobtained_but_cited(&sources, &cites).passed());
     }
@@ -1699,12 +1697,12 @@ mod tests {
     #[test]
     fn a_markdown_link_that_resolves_to_the_entry_is_a_citation() {
         let sources = vec![catalog_source("pearl-2009", false)];
-        let (node, text) = corpus_node(
+        let node = corpus_node(
             "confounding",
             "class: concept\nlabel: Confounding\ndescription: Draws on \
              [Pearl 2009](../../catalog/pearl-2009.md).\nlinks:\n  - target: ../concept/o.yml\n",
         );
-        let cites = citations(&sources, &[node], &[text]);
+        let cites = citations(&sources, &[node]);
         assert_eq!(
             cites[0],
             vec![".yidam/corpus/concept/confounding.yml".to_string()]
@@ -1721,12 +1719,12 @@ mod tests {
     #[test]
     fn a_links_entry_pointing_at_the_entry_is_a_citation() {
         let sources = vec![catalog_source("pearl-2009", true)];
-        let (node, text) = corpus_node(
+        let node = corpus_node(
             "confounding",
             "class: concept\nlabel: Confounding\ndescription: Draws on it.\nlinks:\n  \
              - target: ../../catalog/pearl-2009.md\n    relationship: cites\n",
         );
-        let cites = citations(&sources, &[node], &[text]);
+        let cites = citations(&sources, &[node]);
         assert_eq!(cites[0].len(), 1);
         assert!(catalog_uncited(&sources, &cites).passed());
     }
@@ -1735,13 +1733,13 @@ mod tests {
     #[test]
     fn a_citation_shown_in_code_is_not_a_citation() {
         let sources = vec![catalog_source("pearl-2009", false)];
-        let (node, text) = corpus_node(
+        let node = corpus_node(
             "conventions",
             "class: concept\nlabel: How to cite\ndescription: Write \
              `[Pearl 2009](../../catalog/pearl-2009.md)` rather than a full \
              citation.\nlinks:\n  - target: ../concept/o.yml\n",
         );
-        let cites = citations(&sources, &[node], &[text]);
+        let cites = citations(&sources, &[node]);
         assert_eq!(cites, vec![Vec::<String>::new()]);
     }
 
@@ -1749,12 +1747,12 @@ mod tests {
     #[test]
     fn a_citation_is_matched_through_a_normalized_path() {
         let sources = vec![catalog_source("pearl-2009", true)];
-        let (node, text) = corpus_node(
+        let node = corpus_node(
             "confounding",
             "class: concept\nlabel: C\ndescription: See \
              [P](../../corpus/../catalog/pearl-2009.md).\nlinks:\n  - target: ../concept/o.yml\n",
         );
-        assert_eq!(citations(&sources, &[node], &[text])[0].len(), 1);
+        assert_eq!(citations(&sources, &[node])[0].len(), 1);
     }
 
     #[test]

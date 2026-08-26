@@ -8,6 +8,7 @@
     ]
   },
   "root": "<ROOT>",
+  "kind": "query",
   "query": "concept~\"hydropeaking below a dam\" <-exhibits- reach",
   "scope": "local",
   "steps": [

@@ -425,6 +425,7 @@ mod tests {
         let q = super::super::lang::parse(query).unwrap();
         let checked = Checked {
             diagnostics: vec![],
+            unschematised: false,
             narrowed: narrowed
                 .into_iter()
                 .map(|v| v.into_iter().map(String::from).collect())
@@ -534,6 +535,7 @@ mod tests {
         let q = super::super::lang::parse("concept[claim_tag=open]").unwrap();
         let checked = Checked {
             diagnostics: vec![],
+            unschematised: false,
             narrowed: vec![vec!["concept".to_string()]],
         };
         assert_eq!(
@@ -558,6 +560,7 @@ mod tests {
         )];
         let checked = Checked {
             diagnostics: vec![],
+            unschematised: false,
             narrowed: vec![vec!["note".to_string()]],
         };
         for query in ["note[observed_on=2026-08]", "note[observed_on=2026-08-23]"] {

@@ -8,6 +8,7 @@
     ]
   },
   "root": "<ROOT>",
+  "kind": "query",
   "query": "*[claim_tag=open]",
   "scope": "local",
   "steps": [

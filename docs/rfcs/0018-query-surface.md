@@ -65,16 +65,16 @@ at depth 2 and all of it at depth 3.
 ### E1 typed the graph and no traversal reads the types
 
 `.ont.yml` now declares, and lint now enforces: the class an instance belongs to
-([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L382), Error), the properties it may
-and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L624),
-[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L685)), the type of each value
-([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L732)), which relationships a class
-licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L887)), and which class
+([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L425), Error), the properties it may
+and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L677),
+[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L735)), the type of each value
+([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L886)), which relationships a class
+licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L952)), and which class
 each relationship may land on
-([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L952), Error).
+([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1018), Error).
 
 `unlicensed-edge`'s own rationale states the gap in as many words
-([`checks.rs:938`](../../yidam/cli/src/cmd/lint/checks.rs#L938)):
+([`checks.rs:963`](../../yidam/cli/src/cmd/lint/checks.rs#L963)):
 
 > a relationship in no declaration is worth seeing, because **a traversal that walks by
 > relationship will not find it**
@@ -232,7 +232,7 @@ for an anchored entry, whose entry nodes are ordered by score.
 
 An edge is traversable when it is authored on an instance, resolves inside the corpus, and
 lands on **another instance** — the same set `instance_links` reads
-([`checks.rs:596-604`](../../yidam/cli/src/cmd/lint/checks.rs#L596-L604)), and the same rule
+([`checks.rs:615-640`](../../yidam/cli/src/cmd/lint/checks.rs#L615-L640)), and the same rule
 `unlicensed-edge` states: *a link to the class file or into the catalog is a citation, not a
 relationship.*
 
@@ -269,13 +269,13 @@ So a query naming a class the corpus does not declare can only ever match nothin
 **rejected** with the declared class list and the nearest name.
 
 The one exception is the one `unknown_class` itself carves out
-([`checks.rs:383`](../../yidam/cli/src/cmd/lint/checks.rs#L383)): a corpus with no `.ont.yml`
+([`checks.rs:407-411`](../../yidam/cli/src/cmd/lint/checks.rs#L407-L411)): a corpus with no `.ont.yml`
 files at all has no schema layer, which is a different problem from a misspelling. There, class
 names are not checked and the report says the corpus is unschematised.
 
 #### Relationships are closed only as far as `edge_policy` closed them
 
-`EdgePolicy` ([`checks.rs:29`](../../yidam/cli/src/cmd/lint/checks.rs#L29)) is the field E1
+`EdgePolicy` ([`checks.rs:38`](../../yidam/cli/src/cmd/lint/checks.rs#L38)) is the field E1
 added precisely because a non-empty `edges:` does not claim completeness. A hop naming a
 relationship the class does not declare resolves as:
 
@@ -288,7 +288,7 @@ relationship the class does not declare resolves as:
 
 The first row is load-bearing and is easy to omit. `unlicensed_edge` short-circuits on an empty
 edge list **before** it consults the policy
-([`checks.rs:897`](../../yidam/cli/src/cmd/lint/checks.rs#L897)):
+([`checks.rs:922`](../../yidam/cli/src/cmd/lint/checks.rs#L922)):
 
 ```rust
 if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic { continue; }
@@ -342,7 +342,7 @@ If a class declares the relationship but only toward class C, a hop asking for c
 **rejected**, naming the declared targets. `edge-target-class` is Error severity for the same
 reason: an edge to the wrong thing resolves, traverses, and exports, and is simply false. A
 declaration with an empty `target` licenses every class, exactly as the check reads it
-([`checks.rs:971`](../../yidam/cli/src/cmd/lint/checks.rs#L971)), and so does a query hop
+([`checks.rs:996`](../../yidam/cli/src/cmd/lint/checks.rs#L996)), and so does a query hop
 against it. `*` on the target side is the query-side twin of that empty `target:` and licenses
 every class in the same way.
 
@@ -354,7 +354,7 @@ so `seeded_because` and `fy2024_profile` are queryable without being declared on
 classes. An undeclared name is **rejected** with the class's declared list.
 
 Predicate *values* are a separate question from predicate *names*, and the operator decides it.
-`property_type_violation` ([`checks.rs:732`](../../yidam/cli/src/cmd/lint/checks.rs#L732))
+`property_type_violation` ([`checks.rs:757`](../../yidam/cli/src/cmd/lint/checks.rs#L757))
 takes a declared type and a value and no operator — it answers *may the corpus store this*, not
 *may someone ask about this*. Using it operator-blind rejects satisfiable predicates:
 `reach[claim_tag!=maybe]` is satisfied by every reach in `examples/streamflow`, and
@@ -373,7 +373,7 @@ Three further rules the naive version leaves undefined:
   nothing here and makes `!=` mean two things depending on the corpus.
 - **A list value matches if any element matches.** `claim_tag: [open]` is legal YAML that the
   claim counter reads as one claim, and `property_type_violation` accepts it
-  ([`checks.rs:760`](../../yidam/cli/src/cmd/lint/checks.rs#L760)); a predicate must read the
+  ([`checks.rs:785-792`](../../yidam/cli/src/cmd/lint/checks.rs#L785-L792)); a predicate must read the
   same bytes the same way.
 - **`=` on a `date` compares at the precision written**, so `observed_on=2026-08` matches every
   day in that month. Ordering operators do not exist — see the open questions.
@@ -447,9 +447,9 @@ have — `doctor` ([`doctor.rs:601`](../../yidam/cli/src/cmd/doctor.rs#L601)), `
 ([`index_verify.rs:203`](../../yidam/cli/src/cmd/index_verify.rs#L203)) all print, then
 `std::process::exit(1)`.
 
-Exit **2** is not available and must not be borrowed. Its only site is `main.rs:525`, inside the
+Exit **2** is not available and must not be borrowed. Its only site is `main.rs:614`, inside the
 clap pre-dispatch arm for `InvalidSubcommand | ErrorKind::UnknownArgument`
-([`main.rs:517-526`](../../yidam/cli/src/main.rs#L517-L526)) — reached *before*
+([`main.rs:602-615`](../../yidam/cli/src/main.rs#L602-L615)) — reached *before*
 `match cli.command`, so no command body can produce it — and
 `tests/binary_pin.rs:140` pins it as the unrecognized-subcommand code. Returning `Err` from a
 command body exits 1 with `Error: {:?}` prose and no envelope at all, which would make every
@@ -525,16 +525,16 @@ gage would take a different branch of the ladder — decided after retrieval, in
 headline promise is that queries are checked before they run. Requiring the class makes the
 check static, makes property predicates on the anchor well-defined, and maps onto the
 `class_filter` argument `retrieve` already threads through both its vector and keyword paths
-([`tools.rs:153`](../../yidam/cli/src/cmd/serve/tools.rs#L153)). `*~"…"` remains available and
+([`tools.rs:155`](../../yidam/cli/src/cmd/serve/tools.rs#L155)). `*~"…"` remains available and
 takes the `*` rules above.
 
 - `--anchor-k` defaults to **1**. An anchor is a starting point, not an answer; a five-wide
   anchor followed by a two-hop walk is a flood wearing a type. `retrieve`'s own default of 5
-  ([`tools.rs:152`](../../yidam/cli/src/cmd/serve/tools.rs#L152)) is right for retrieval and
+  ([`tools.rs:154`](../../yidam/cli/src/cmd/serve/tools.rs#L154)) is right for retrieval and
   wrong here. The report lists the resolved entry nodes with their scores, so what it anchored
   on is always visible, and `bench` can vary k as part of the budget.
 - **The anchor is local.** `keyword_retrieve` chains `state.dep_nodes` after `state.nodes`
-  ([`tools.rs:222-225`](../../yidam/cli/src/cmd/serve/tools.rs#L222-L225)) — correct for
+  ([`tools.rs:226-229`](../../yidam/cli/src/cmd/serve/tools.rs#L226-L229)) — correct for
   retrieval, where an agent should be told the answer lives in a corpus this repository cites.
   A query labelled `"scope": "local"` must not silently enter through a dependency's node, so
   the query's anchor restricts to local nodes on both paths.
@@ -568,7 +568,7 @@ so `query` and `serve` cannot come to disagree about why retrieval is degraded.
 > [`retrieval/vector.rs`](../../yidam/cli/src/retrieval/vector.rs); `vector::retrieve` became
 > `vector::search` and returns *scores* rather than a response, so both branches of the
 > `degraded` shape are now built in one ungated place
-> ([`tools.rs:189`](../../yidam/cli/src/cmd/serve/tools.rs#L189)) — which is the half of the
+> ([`tools.rs:191`](../../yidam/cli/src/cmd/serve/tools.rs#L191)) — which is the half of the
 > problem this section identified and did not propose fixing.
 
 ### `--at` is not free, and #262 should know it
@@ -579,10 +579,10 @@ matter of plumbing:
 
 | What a query at a commit needs | What `replay` does |
 |---|---|
-| that commit's ontology | `is_instance` excludes `.ont.yml` outright ([`history.rs:45-50`](../../yidam/cli/src/cmd/lint/history.rs#L45-L50)) |
-| declared properties, types, targets, `edge_policy` | `blob_expectation` deserializes **one** field from a class blob — `direction` — into a three-valued `Expectation` ([`history.rs:235-254`](../../yidam/cli/src/cmd/lint/history.rs#L235-L254)) |
-| relationship names on edges | `targets_of` drops them: `.filter_map(\|l\| l.target.as_ref())` ([`history.rs:71`](../../yidam/cli/src/cmd/lint/history.rs#L71)) |
-| a revision to stop at | `change_stream` runs `git log --reverse … -- .yidam/corpus` with no revision argument and no parameter to supply one ([`history.rs:84-97`](../../yidam/cli/src/cmd/lint/history.rs#L84-L97)) — genesis to HEAD, always |
+| that commit's ontology | `is_instance` excludes `.ont.yml` outright ([`history.rs:41-62`](../../yidam/cli/src/cmd/lint/history.rs#L41-L62)) |
+| declared properties, types, targets, `edge_policy` | `blob_expectation` deserializes **one** field from a class blob — `direction` — into a three-valued `Expectation` ([`history.rs:225-262`](../../yidam/cli/src/cmd/lint/history.rs#L225-L262)) |
+| relationship names on edges | `targets_of` drops them: `.filter_map(\|l\| l.target.as_ref())` ([`history.rs:82`](../../yidam/cli/src/cmd/lint/history.rs#L82)) |
+| a revision to stop at | `change_stream` runs `git log --reverse … -- .yidam/corpus` with no revision argument and no parameter to supply one ([`history.rs:95-107`](../../yidam/cli/src/cmd/lint/history.rs#L95-L107)) — genesis to HEAD, always |
 
 `replay` is the right *shape* and the wrong function. `--at` needs its own reconstruction:
 read the tree at a rev and build the same structure `graph_data` builds, from blobs. The
@@ -616,6 +616,37 @@ Two rules for that reconstruction:
 >   `cost`, and a report carrying both shapes leaves one half meaningless — which a consumer
 >   reads as zero. It also does not gate: one rejected row in a range is the ordinary case for
 >   a class the corpus grew into.
+
+> **Corrected in #325**, from a post-merge review reproduced against a built binary. Two
+> failures, each with several faces:
+>
+> - **The reconstruction was not the walk.** `--at HEAD` on a clean tree must be the identity
+>   and was not. A revision reached the git argv unseparated, so `--at=--output=<path>`
+>   truncated an arbitrary file — a read-only command writing to the working tree, which is
+>   the one property this section says survives. `ls-tree` was parsed without `-z`, so a node
+>   whose path git quotes left the corpus silently; filtered on object *type*, so a symlink's
+>   target became a phantom node; and `is_instance` required depth exactly 2 where the live
+>   walk accepts 2 or more, so a node one directory further in existed at HEAD and at no
+>   revision. `git log` was neither topologically ordered — a branchy history produced changes
+>   that never happened — nor `--no-show-signature`, so `log.showSignature=true` made a
+>   revision out of the word `Good`. An unreadable blob became an empty node rather than an
+>   error. And the divergence note compared against `Graph::load` — the *working tree* — while
+>   saying "HEAD", so an untracked `.ont.yml` moved a claim about a commit.
+> - **Rejections escaped the envelope.** `rejected_report` hardcoded `at: null`, so a JSON
+>   consumer read `anchor-at-revision` — a code only `--at` can produce — beside the key that
+>   means *the working tree*, and in text mode a refusal about a tag was byte-identical to a
+>   refusal about now. A revision that is not one returned `Err`, printing `Error: …` with an
+>   empty stdout: no envelope, against the rule stated at the top of this section. `--between`
+>   returned `Ok(())` unconditionally, so a syntax error rendered as an empty range at exit 0
+>   — the query-text rejections are now taken once, before any tree is read, and gate. The
+>   series marker compared the rendered *count*, so the one commit that swapped a node for
+>   another was unmarked, and the per-row diagnostics were computed and never printed.
+>
+> The comparison also gained the case it was quietest on. `check` accepts every class name
+> against a corpus with no `.ont.yml`, so at every commit before the ontology existed both
+> verdicts came back `Ok` with no diagnostics — and a zero-result answer read as *nothing
+> matched* where the truth is *nothing was checked*. `Checked` now carries `unschematised`,
+> and `divergence` reads it and the narrowed class set, not only the diagnostic codes.
 
 ### What is deliberately not expressible, and why
 

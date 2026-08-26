@@ -362,7 +362,7 @@ fn values_seen(graph: &Graph, classes: &[String], step: &super::lang::Step) -> S
 /// did is advice to repeat the query that just came back empty.
 fn elsewhere(ctx: &Context, classes: &[String]) -> Vec<String> {
     let graph = ctx.graph;
-    if classes.is_empty() || ctx.at.is_some() || !graph.across.is_empty() {
+    if classes.is_empty() || ctx.at().is_some() || !graph.across.is_empty() {
         return Vec::new();
     }
     crate::deps::resolved(&graph.root)

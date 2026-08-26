@@ -371,6 +371,14 @@ pub struct Checked {
     pub diagnostics: Vec<Diagnostic>,
     /// Classes each step may match, after `*` narrowing. Index-aligned with the steps.
     pub narrowed: Vec<Vec<String>>,
+    /// True when the corpus declared no classes, so no class name was checked at all.
+    ///
+    /// Carried on the *verdict* rather than read off the graph at each use site, because it
+    /// is the one fact that makes an `Ok` mean two different things: a query that typechecked
+    /// and a query nobody typechecked. `at::divergence` compares two verdicts, and without
+    /// this it read the second as the first — reporting no divergence across the commit where
+    /// the ontology arrived, which is where it moved most.
+    pub unschematised: bool,
 }
 
 pub fn check(query: &Query, schema: &Schema) -> Result<Checked, Rejection> {
@@ -464,6 +472,7 @@ pub fn check(query: &Query, schema: &Schema) -> Result<Checked, Rejection> {
     Ok(Checked {
         diagnostics,
         narrowed,
+        unschematised,
     })
 }
 
