@@ -154,7 +154,24 @@ inherits: the `yidam` CLI and the editor client.
 | Artifact | Manifest | Tag | Registry |
 |---|---|---|---|
 | `yidam` CLI | `yidam/cli/Cargo.toml` | `cli/v{major}.{minor}.{patch}` | crates.io, GitHub releases, `goedelsoup/homebrew-tap` |
-| `goedelsoup.yidam-vscode` extension | `yidam/editors/vscode/package.json` | `editor/v{major}.{minor}.{patch}` | VS Code Marketplace, Open VSX |
+| `goedelsoup.yidam-vscode` extension | `yidam/editors/vscode/package.json` | `editor/v{major}.{minor}.{patch}` | Open VSX, GitHub releases |
+
+**The VS Code Marketplace is not in that row, and its absence is the point.** The `goedelsoup`
+publisher needs an Azure DevOps organisation that has not been created (#314), so `VSCE_PAT`
+does not exist and `editor.yml`'s Marketplace step notices and skips rather than failing a
+release for a channel nothing claims.
+
+This table names registries this project *delivers to*, never ones it intends to. That rule
+was set when Layer 2 stopped naming npm and PyPI, and it holds here for the same reason: a
+registry named in a versioning document is read as a promise, and #232 is what a promise
+nobody can keep costs — `cargo binstall yidam` stood in the README for a release cycle while
+`yidam` did not exist on crates.io.
+
+Restoring the Marketplace means restoring three things together, and a test refuses any
+subset: the row above, the publish path in `editor.yml`, and the channel check in
+`install-channels.yml`. **Open VSX does not serve VS Code proper** — it serves VSCodium,
+Cursor, Windsurf, Gitpod and code-server — so until then a VS Code user installs the `.vsix`
+from the GitHub release, which is why that asset is attached before either registry is tried.
 
 The CLI's four channels are one artifact reached four ways, and only the first is built:
 `.github/workflows/release.yml` cross-compiles the light `reports` build for four targets and

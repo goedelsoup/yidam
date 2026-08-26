@@ -272,31 +272,29 @@ jobs:
   # that failed on a missing secret, a namespace nobody claimed, an ingestion
   # that never finished — and every one of those is visible in the version the
   # registry reports.
-  editor-marketplace:
-    name: VS Code Marketplace
-    needs: editor-released
-    if: needs.editor-released.outputs.version != ''
-    runs-on: ubuntu-latest
-    steps:
-      - name: The version the Marketplace serves
-        run: |
-          set -euo pipefail
-          got=$(curl -sS -X POST \
-            -H 'Content-Type: application/json' \
-            -H 'Accept: application/json;api-version=7.2-preview.1' \
-            -d '{"filters":[{"criteria":[{"filterType":7,"value":"goedelsoup.yidam-vscode"}]}],"flags":914}' \
-            https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery \
-            | jq -r '.results[0].extensions[0].versions[0].version // ""')
-          echo "marketplace: '$got'  expected: '${{ needs.editor-released.outputs.version }}'"
-          if [ -z "$got" ]; then
-            echo "::error::the Marketplace does not know goedelsoup.yidam-vscode. Either the"
-            echo "::error::publish step never ran, or it failed on a missing VSCE_PAT (#314)."
-            exit 1
-          fi
-          [ "$got" = "${{ needs.editor-released.outputs.version }}" ] || {
-            echo "::error::the Marketplace serves $got; the latest editor release is ${{ needs.editor-released.outputs.version }}"
-            exit 1
-          }
+  # ── the VS Code Marketplace is NOT checked here, deliberately ──────────────
+  #
+  # There was a job here. It asked the Marketplace which version it served and
+  # compared it to the latest `editor/v*` tag, exactly as the Open VSX job below
+  # does. It is gone rather than disabled because the Marketplace is not a channel
+  # this project delivers: the publisher needs an Azure DevOps organisation that
+  # has not been created (#314), so `VSCE_PAT` is absent by decision, editor.yml's
+  # Marketplace step notices and skips, and VERSIONING.md's Layer 4 table does not
+  # name it.
+  #
+  # A check for a channel nobody claims is red forever, and this workflow's own
+  # header says a check people learn to shrug at is worse than no check. The claim
+  # and the check belong to each other: `the_registries_layer_4_names_are_delivered_and_checked`
+  # fails if VERSIONING.md names the Marketplace again while this job is missing,
+  # so restoring one forces restoring the other.
+  #
+  # ── what a VS Code user does meanwhile ─────────────────────────────────────
+  #
+  # Open VSX does not serve VS Code proper — it serves VSCodium, Cursor, Windsurf,
+  # Gitpod and code-server. VS Code reads the Microsoft Marketplace and nothing
+  # else. So the .vsix on the GitHub release is not a fallback for VS Code users,
+  # it is the only route, which is why the release asset is attached before either
+  # registry is attempted rather than after.
 
   editor-openvsx:
     name: Open VSX

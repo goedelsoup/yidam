@@ -26,6 +26,23 @@
 # needs no PAT and no publisher account, so the first tag produces something installable
 # whether or not #314 has been done — and it stays the repair path when a registry step
 # fails after the release exists.
+#
+# ── the two registries are not in the same state, and the steps differ ───────
+#
+# Open VSX is delivered: the namespace is claimed and `OVSX_PAT` exists, so a missing token
+# there means something broke and the step fails.
+#
+# The VS Code Marketplace is not. Its publisher needs an Azure DevOps organisation that has
+# not been created (#314), so `VSCE_PAT` is absent by decision rather than by accident — and
+# a step that goes red on every release for a channel nothing claims is a check people learn
+# to shrug at, which install-channels.yml's own header calls worse than no check. So it
+# NOTICES and skips.
+#
+# That skip is only honest because nothing documents the Marketplace. VERSIONING.md's Layer 4
+# table names Open VSX and GitHub releases and not the Marketplace, and
+# `the_registries_layer_4_names_are_delivered_and_checked` fails if that changes without a
+# publish path AND a channel check appearing with it. Re-adding the claim is what re-arms
+# this step; the two cannot drift apart quietly, which is the whole failure #231 is about.
 
 name: Editor
 
@@ -135,6 +152,10 @@ jobs:
       # `--packagePath` on both: they publish the exact bytes the gate above inspected.
       # Letting either tool repackage from source would publish an artifact nothing checked,
       # which is the failure this whole workflow is shaped against.
+      # A notice and exit 0, not an error — see the header. The Marketplace is undelivered by
+      # decision, and nothing documents it. The step stays here rather than being deleted so
+      # that creating the credential is the whole of the work: add VSCE_PAT, restore the row
+      # in VERSIONING.md, restore the job in install-channels.yml, and this publishes.
       - name: VS Code Marketplace
         working-directory: yidam/editors/vscode
         env:
@@ -143,12 +164,15 @@ jobs:
           set -eu
           version="${GITHUB_REF_NAME#editor/v}"
           if [ -z "${VSCE_PAT:-}" ]; then
-            echo "::error::secrets.VSCE_PAT is not set, so the Marketplace was not updated."
-            echo "::error::Create an Azure DevOps PAT with Marketplace: Manage for the"
-            echo "::error::'goedelsoup' publisher and add it as VSCE_PAT (see #314). The"
-            echo "::error::.vsix for $GITHUB_REF_NAME is already on the GitHub release, so"
-            echo "::error::re-running this job publishes it — no re-tag is needed."
-            exit 1
+            echo "::notice::VSCE_PAT is not set, so the VS Code Marketplace was not updated."
+            echo "::notice::This is the expected state: the Azure DevOps organisation the"
+            echo "::notice::'goedelsoup' publisher needs has not been created (#314), and"
+            echo "::notice::VERSIONING.md does not name the Marketplace as a registry this"
+            echo "::notice::project delivers to. VS Code proper cannot read Open VSX, so"
+            echo "::notice::until then a VS Code user installs the .vsix from this release."
+            echo "::notice::Nothing to re-run: the tag is not spent. Add VSCE_PAT and"
+            echo "::notice::re-run this job to publish $GITHUB_REF_NAME with no re-tag."
+            exit 0
           fi
           npx vsce publish --packagePath "$GITHUB_WORKSPACE/dist/yidam-vscode-${version}.vsix"
 
@@ -164,10 +188,12 @@ jobs:
           version="${GITHUB_REF_NAME#editor/v}"
           if [ -z "${OVSX_PAT:-}" ]; then
             echo "::error::secrets.OVSX_PAT is not set, so Open VSX was not updated."
-            echo "::error::Claim the 'goedelsoup' namespace, sign the publisher agreement —"
-            echo "::error::which a person has to do, not CI — and add the token as OVSX_PAT"
-            echo "::error::(see #314). Re-running this job then publishes the .vsix already"
-            echo "::error::attached to the $GITHUB_REF_NAME release."
+            echo "::error::Unlike the Marketplace step above this is a FAILURE, because Open"
+            echo "::error::VSX is delivered: the namespace is claimed, the token existed, and"
+            echo "::error::VERSIONING.md names it. An absent token here means something was"
+            echo "::error::removed or expired, not a channel nobody set up."
+            echo "::error::Re-running this job publishes the .vsix already attached to the"
+            echo "::error::$GITHUB_REF_NAME release — no re-tag needed."
             exit 1
           fi
           npx ovsx publish "$GITHUB_WORKSPACE/dist/yidam-vscode-${version}.vsix" -p "$OVSX_PAT"
