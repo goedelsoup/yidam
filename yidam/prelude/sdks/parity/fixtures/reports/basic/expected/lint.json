@@ -169,7 +169,7 @@
       "id": "catalog-expired",
       "title": "A source record older than the corpus said it may be",
       "severity": "warn",
-      "rationale": "A catalog entry records where something came from; until it could also record how long that record may stand, a source fetched a year ago read exactly like one fetched today. Declare `ttl_days:` on the entry — a gauge record and a statute do not age at the same rate — or a corpus-wide default under `[catalog]` in `.yidam/config.toml`. Absent both, nothing expires. This reports rather than gates because an aged record is a thing to look at, and refreshing it is a knowledge event a person owns. It does not claim the source changed: nothing here reads upstream, and `doctor` does no network. It claims nobody has looked.",
+      "rationale": "A catalog entry records where something came from; until it could also record how long that record may stand, a source fetched a year ago read exactly like one fetched today. Declare `ttl_days:` on the entry — a gauge record and a statute do not age at the same rate — or a corpus-wide default under `[catalog]` in `.yidam/config.toml`. Absent both, nothing expires. This reports rather than gates because an aged record is a thing to look at, and refreshing it is a knowledge event a person owns. It does not claim the source changed: nothing here reads upstream, and `doctor` does no network. It claims nobody has looked. The finding names the nodes resting on the record, because the reader who has to act is the one who wrote them — and naming them here is what keeps the question in one file instead of copied into every node that cites it.",
       "violations": []
     },
     {

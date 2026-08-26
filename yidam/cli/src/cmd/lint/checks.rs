@@ -1364,6 +1364,55 @@ pub fn verified_unsourced(
     )
 }
 
+/// How many corpus nodes rest on a source, and which of them.
+///
+/// #270 asked for the expiry question to reach *"claims citing it"*, and the honest way to do
+/// that is not to write the question into each of them. Measured across the three
+/// instrumented repositories, one entry is cited by a median of 3, 5 and 3 nodes — and by a
+/// maximum of **84**, which is a web service, exactly the kind of record a `ttl_days` is
+/// declared on. `propose` writes one commit per proposal, so propagation would mean 84
+/// commits for one aged file and 84 more to retire them. The finding names them instead.
+///
+/// It is also what E3 already does for the analogous case: `citations::Movement` carries the
+/// **local** node whose claim is affected, *"because this report is about my graph and not
+/// theirs"*.
+///
+/// Three names, then a count. The median entry in all three corpora is listed in full, and
+/// the tail says how much more there is rather than printing it.
+fn resting_clause(nodes: &[String]) -> String {
+    if nodes.is_empty() {
+        // Worth saying, and it changes what the reader does: an aged record nothing rests on
+        // may want deleting rather than refreshing.
+        return " Nothing cites it.".to_string();
+    }
+    let mut named: Vec<&str> = nodes.iter().map(|n| corpus_address(n)).collect();
+    named.sort_unstable();
+    let listed = named
+        .iter()
+        .take(RESTING_NAMED)
+        .copied()
+        .collect::<Vec<_>>()
+        .join(", ");
+    match named.len().saturating_sub(RESTING_NAMED) {
+        0 => format!(" {} node(s) rest on it: {listed}.", named.len()),
+        more => format!(
+            " {} node(s) rest on it: {listed}, and {more} more.",
+            named.len()
+        ),
+    }
+}
+
+/// How many citing nodes a finding names before it starts counting.
+const RESTING_NAMED: usize = 3;
+
+/// `.yidam/corpus/gage/canyon-outlet.yml` → `gage/canyon-outlet.yml`.
+///
+/// The address `rename` and `neighbors` take, rather than [`basename`]: two classes may hold
+/// a node of the same name, and a list of bare stems would not say which one aged.
+fn corpus_address(rel: &str) -> &str {
+    rel.strip_prefix(".yidam/corpus/").unwrap_or(rel)
+}
+
 /// A catalog record that has stood longer than the corpus said it may.
 ///
 /// `docs/domain-computer.md` specified "refreshed on TTL or on demand" and there was no TTL:
@@ -1380,16 +1429,27 @@ pub fn verified_unsourced(
 /// every corpus until someone turns it on. An entry that *does* carry a TTL and has no date
 /// to measure against is reported as **undatable** rather than as expired — a gap in the
 /// bookkeeping, not a stale source, and calling it stale would assert something nobody knows.
-pub fn catalog_expired(ages: &[super::ttl::Age]) -> Check {
+pub fn catalog_expired(
+    ages: &[super::ttl::Age],
+    sources: &[Source],
+    cites: &[Vec<String>],
+) -> Check {
+    let resting: HashMap<&str, &Vec<String>> = sources
+        .iter()
+        .map(|s| s.rel.as_str())
+        .zip(cites.iter())
+        .collect();
+    let empty: Vec<String> = Vec::new();
     let violations = ages
         .iter()
         .filter_map(|a| {
+            let on = resting_clause(resting.get(a.entry.as_str()).copied().unwrap_or(&empty));
             if a.undatable() {
                 return Some(Violation::new(
                     &a.entry,
                     format!(
                         "declares a {}-day TTL and nothing records when it was fetched — add \
-                         `retrieved:`, or commit the entry so its date can be read",
+                         `retrieved:`, or commit the entry so its date can be read.{on}",
                         a.ttl_days.unwrap_or(0)
                     ),
                 ));
@@ -1398,7 +1458,7 @@ pub fn catalog_expired(ages: &[super::ttl::Age]) -> Check {
             Some(Violation::new(
                 &a.entry,
                 format!(
-                    "retrieved {} ({}), {} day(s) ago against a {}-day TTL — {} day(s) past",
+                    "retrieved {} ({}), {} day(s) ago against a {}-day TTL — {} day(s) past.{on}",
                     a.retrieved.as_deref().unwrap_or("?"),
                     a.dated.map(|d| d.as_str()).unwrap_or("?"),
                     a.age_days.unwrap_or(0),
@@ -1419,7 +1479,10 @@ pub fn catalog_expired(ages: &[super::ttl::Age]) -> Check {
          `.yidam/config.toml`. Absent both, nothing expires. This reports rather than gates \
          because an aged record is a thing to look at, and refreshing it is a knowledge event \
          a person owns. It does not claim the source changed: nothing here reads upstream, \
-         and `doctor` does no network. It claims nobody has looked.",
+         and `doctor` does no network. It claims nobody has looked. The finding names the \
+         nodes resting on the record, because the reader who has to act is the one who wrote \
+         them — and naming them here is what keeps the question in one file instead of \
+         copied into every node that cites it.",
         violations,
     )
 }
@@ -1840,16 +1903,44 @@ mod tests {
         }
     }
 
+    /// [`catalog_expired`] against entries nothing cites — the shape most of these tests
+    /// are about, where the citation list is not the thing under test.
+    fn expired(ages: &[super::super::ttl::Age]) -> Check {
+        let none: Vec<Vec<String>> = ages.iter().map(|_| Vec::new()).collect();
+        expired_cited(ages, &none)
+    }
+
+    /// [`catalog_expired`] with a citation list per entry, in the same order.
+    fn expired_cited(ages: &[super::super::ttl::Age], cites: &[Vec<String>]) -> Check {
+        let sources: Vec<Source> = ages
+            .iter()
+            .map(|a| Source {
+                rel: a.entry.clone(),
+                path: std::path::PathBuf::from(&a.entry),
+                obtained: true,
+                used_by: vec![],
+                locations: vec![],
+                retrieved: a.retrieved.clone(),
+                ttl_days: a.ttl_days,
+            })
+            .collect();
+        catalog_expired(ages, &sources, cites)
+    }
+
+    fn resting(nodes: &[&str]) -> Vec<String> {
+        nodes.iter().map(|n| format!(".yidam/corpus/{n}")).collect()
+    }
+
     /// A corpus that declared no TTL asked nothing, and is told nothing.
     #[test]
     fn an_entry_with_no_ttl_is_not_reported() {
-        let c = catalog_expired(&[aged("a.md", Some("1999-01-01"), None, Some(9_000), None)]);
+        let c = expired(&[aged("a.md", Some("1999-01-01"), None, Some(9_000), None)]);
         assert!(c.passed(), "{:?}", c.violations);
     }
 
     #[test]
     fn an_entry_inside_its_ttl_is_not_reported() {
-        let c = catalog_expired(&[aged("a.md", Some("2026-08-01"), None, Some(25), Some(180))]);
+        let c = expired(&[aged("a.md", Some("2026-08-01"), None, Some(25), Some(180))]);
         assert!(c.passed(), "{:?}", c.violations);
     }
 
@@ -1857,7 +1948,7 @@ mod tests {
     /// three things a maintainer needs before deciding whether to re-fetch.
     #[test]
     fn an_expired_entry_says_how_it_was_dated() {
-        let c = catalog_expired(&[aged(
+        let c = expired(&[aged(
             "a.md",
             Some("2024-01-15"),
             Some(super::super::ttl::Dated::Declared),
@@ -1875,7 +1966,7 @@ mod tests {
     /// errs in the flattering direction and a reader is owed the difference.
     #[test]
     fn a_git_dated_entry_says_so() {
-        let c = catalog_expired(&[aged(
+        let c = expired(&[aged(
             "a.md",
             Some("2024-01-15"),
             Some(super::super::ttl::Dated::Committed),
@@ -1893,7 +1984,7 @@ mod tests {
     /// source. Calling it expired would assert something nobody knows.
     #[test]
     fn an_undatable_entry_is_reported_as_undatable_and_not_as_expired() {
-        let c = catalog_expired(&[aged("a.md", None, None, None, Some(30))]);
+        let c = expired(&[aged("a.md", None, None, None, Some(30))]);
         assert_eq!(c.violations.len(), 1);
         let d = &c.violations[0].detail;
         assert!(d.contains("nothing records when it was fetched"), "{d}");
@@ -1904,9 +1995,83 @@ mod tests {
     /// is a knowledge event a person owns.
     #[test]
     fn an_expired_entry_reports_rather_than_gates() {
-        let c = catalog_expired(&[aged("a.md", Some("2024-01-15"), None, Some(954), Some(30))]);
+        let c = expired(&[aged("a.md", Some("2024-01-15"), None, Some(954), Some(30))]);
         assert_eq!(c.severity, Severity::Warn);
         assert!(!c.gates(&c.violations[0]));
+    }
+
+    /// #270's gap, closed the cheap way: the question stays on the source and the nodes
+    /// resting on it are named, rather than a copy of it being written into each of them.
+    #[test]
+    fn an_expired_entry_names_the_nodes_resting_on_it() {
+        let c = expired_cited(
+            &[aged("a.md", Some("2024-01-15"), None, Some(954), Some(30))],
+            &[resting(&["gage/canyon-outlet.yml", "reach/tailwater.yml"])],
+        );
+        let d = &c.violations[0].detail;
+        assert!(d.contains("2 node(s) rest on it"), "{d}");
+        assert!(d.contains("gage/canyon-outlet.yml"), "{d}");
+        assert!(d.contains("reach/tailwater.yml"), "{d}");
+        assert!(!d.contains("more"), "two fits without a tail: {d}");
+    }
+
+    /// The address `rename` takes, not a bare stem: two classes may hold a node of the same
+    /// name, and a list of stems would not say which one aged.
+    #[test]
+    fn a_resting_node_is_named_by_class_and_stem() {
+        let c = expired_cited(
+            &[aged("a.md", Some("2024-01-15"), None, Some(954), Some(30))],
+            &[resting(&["gage/outlet.yml", "reach/outlet.yml"])],
+        );
+        let d = &c.violations[0].detail;
+        assert!(d.contains("gage/outlet.yml, reach/outlet.yml"), "{d}");
+        assert!(
+            !d.contains(".yidam/corpus/"),
+            "the prefix is noise here: {d}"
+        );
+    }
+
+    /// The tail is counted, not printed. Measured: one entry in a real corpus is cited by
+    /// 84 nodes, and a finding that listed them would be unreadable — which is the same
+    /// reason the question is not written into each of them.
+    #[test]
+    fn a_long_citation_list_is_named_three_deep_and_then_counted() {
+        let many: Vec<&str> = vec![
+            "a/1.yml", "a/2.yml", "a/3.yml", "a/4.yml", "a/5.yml", "a/6.yml",
+        ];
+        let c = expired_cited(
+            &[aged("a.md", Some("2024-01-15"), None, Some(954), Some(30))],
+            &[resting(&many)],
+        );
+        let d = &c.violations[0].detail;
+        assert!(d.contains("6 node(s) rest on it"), "{d}");
+        assert!(d.contains("a/1.yml, a/2.yml, a/3.yml, and 3 more"), "{d}");
+        assert!(!d.contains("a/4.yml"), "{d}");
+    }
+
+    /// Worth saying, and it changes what the reader does: an aged record nothing rests on
+    /// may want deleting rather than refreshing.
+    #[test]
+    fn an_expired_entry_nothing_cites_says_so() {
+        let c = expired(&[aged("a.md", Some("2024-01-15"), None, Some(954), Some(30))]);
+        assert!(
+            c.violations[0].detail.contains("Nothing cites it"),
+            "{:?}",
+            c.violations[0]
+        );
+    }
+
+    /// The same stake, whichever silence it is. An entry whose bookkeeping is incomplete is
+    /// one whose citing nodes cannot be told how old their evidence is either.
+    #[test]
+    fn an_undatable_entry_also_names_what_rests_on_it() {
+        let c = expired_cited(
+            &[aged("a.md", None, None, None, Some(30))],
+            &[resting(&["gage/canyon-outlet.yml"])],
+        );
+        let d = &c.violations[0].detail;
+        assert!(d.contains("1 node(s) rest on it"), "{d}");
+        assert!(!d.contains("past"), "still not an expiry: {d}");
     }
 
     #[test]
