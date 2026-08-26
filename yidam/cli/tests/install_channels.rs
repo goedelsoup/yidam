@@ -11,6 +11,7 @@
 //! fourth line to the README is the diff that looks completely fine.
 
 use std::path::PathBuf;
+use walkdir::WalkDir;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -19,6 +20,46 @@ fn repo_root() -> PathBuf {
 fn read(rel: &str) -> String {
     let p = repo_root().join(rel);
     std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{} is unreadable ({e})", p.display()))
+}
+
+/// Every prose file in the repository, as repo-relative paths.
+///
+/// Discovered rather than listed. Both tests below used to read a two-name list —
+/// `README.md` and `docs/quickstart.md` — while `docs/mcp-server.md` had been documenting an
+/// install line *and* a pinned `cli/v*` tag that neither of them could see. A list of
+/// documents is the same hole as a list of channels, one document later, and it closes the
+/// same silent way: the diff that puts an install line in a third file looks completely fine.
+///
+/// Dot-directories are skipped, which is what keeps `.claude/worktrees/*` — checkouts of this
+/// repository at other commits, pinning other releases — from being graded as documentation.
+fn documented_files() -> Vec<String> {
+    let root = repo_root().canonicalize().expect("repo root is readable");
+    let mut docs: Vec<String> = WalkDir::new(&root)
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            e.depth() == 0 || !(name.starts_with('.') || name == "target" || name == "node_modules")
+        })
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+        .filter(|e| {
+            let name = e.file_name().to_string_lossy().to_lowercase();
+            name.ends_with(".md") || name.ends_with(".mdx")
+        })
+        .filter_map(|e| {
+            e.path()
+                .strip_prefix(&root)
+                .ok()
+                .map(|r| r.to_string_lossy().into_owned())
+        })
+        .collect();
+    docs.sort();
+    assert!(
+        docs.contains(&"README.md".to_string()),
+        "the documentation walk did not find README.md; it is scanning the wrong tree and \
+         every assertion built on it is vacuous"
+    );
+    docs
 }
 
 /// A line the README tells someone to run, and the substring the channel check must run to
@@ -34,6 +75,13 @@ const CHANNELS: &[(&str, &str)] = &[
     ("cargo binstall yidam", "cargo binstall"),
     ("cargo install --git", "cargo install --git"),
 ];
+
+/// Lines that build from a checkout the reader already has. There is no registry, tag or
+/// artifact for these to be wrong about and nothing for a clean container to fetch, so they
+/// are not distribution channels — but they open with `cargo install` and would otherwise
+/// read as an unchecked one. Named here rather than filtered by shape, so that calling a
+/// line "not a channel" stays a decision someone wrote down.
+const NOT_A_CHANNEL: &[&str] = &["cargo install --path"];
 
 /// The prefixes that make a line an instruction to install this binary rather than prose
 /// about one.
@@ -62,24 +110,34 @@ fn documented_install_lines(doc: &str) -> Vec<String> {
 fn every_documented_install_line_is_checked_end_to_end() {
     let workflow = read(".github/workflows/install-channels.yml");
 
-    for doc in ["README.md", "docs/quickstart.md"] {
-        for line in documented_install_lines(doc) {
+    let mut checked = 0;
+    for doc in documented_files() {
+        for line in documented_install_lines(&doc) {
+            if NOT_A_CHANNEL.iter().any(|m| line.contains(m)) {
+                continue;
+            }
             let channel = CHANNELS.iter().find(|(marker, _)| line.contains(marker));
             let (_, probe) = channel.unwrap_or_else(|| {
                 panic!(
                     "{doc} documents an install path this test does not know:\n  {line}\n\
-                     Add it to CHANNELS *and* to .github/workflows/install-channels.yml. A \
-                     channel nobody runs is how `cargo binstall yidam` came to be documented \
-                     and impossible."
+                     Add it to CHANNELS *and* to .github/workflows/install-channels.yml — or \
+                     to NOT_A_CHANNEL if it builds from a checkout. A channel nobody runs is \
+                     how `cargo binstall yidam` came to be documented and impossible."
                 )
             });
             assert!(
                 workflow.contains(probe),
                 "{doc} documents `{line}` and install-channels.yml never runs `{probe}` — \
-                 the README is making a promise no job checks"
+                 the docs are making a promise no job checks"
             );
+            checked += 1;
         }
     }
+    assert!(
+        checked > 0,
+        "no documented install line was found anywhere in the repository; either every \
+         channel was removed from the docs or this test is reading nothing"
+    );
 }
 
 /// Each channel must prove it installed the *released* version, not merely something.
@@ -266,7 +324,7 @@ fn the_cross_compile_check_mirrors_the_release_build() {
     );
 }
 
-/// The tag the README tells people to install must be the version this repository is at.
+/// Every tag the docs tell people to install must be the version this repository is at.
 ///
 /// `cargo install --git … --tag cli/vX --locked` is the one documented path that pins a
 /// specific release, which is what makes it reproducible and also what makes it go stale:
@@ -275,8 +333,14 @@ fn the_cross_compile_check_mirrors_the_release_build() {
 ///
 /// The other channels resolve "latest" at install time and cannot drift this way. This one
 /// buys reproducibility with a version in prose, and prose is the thing that rots.
+///
+/// Every document, not just the README. `release.sh` rewrites no prose at all — both pins
+/// this repository carries moved by hand in the release commit, and only one of them had a
+/// test standing behind it. The unguarded one is in `docs/mcp-server.md`, which is the page
+/// someone reads when they are wiring up an MCP server and least able to notice that the
+/// version they were handed is a release old.
 #[test]
-fn the_readme_pins_the_version_this_repository_declares() {
+fn every_pinned_tag_is_the_version_this_repository_declares() {
     let manifest = read("yidam/cli/Cargo.toml");
     let declared = manifest
         .lines()
@@ -284,23 +348,25 @@ fn the_readme_pins_the_version_this_repository_declares() {
         .and_then(|v| v.split('"').next())
         .expect("yidam/cli/Cargo.toml declares a version");
 
-    let readme = read("README.md");
-    let pinned: Vec<&str> = readme
-        .lines()
-        .filter(|l| l.contains("--tag cli/v"))
-        .collect();
-    assert!(
-        !pinned.is_empty(),
-        "README documents no pinned `cargo install --git … --tag cli/v…` line; if that \
-         channel was removed, remove this test with it"
-    );
-    for line in pinned {
-        assert!(
-            line.contains(&format!("--tag cli/v{declared} ")),
-            "README pins a different release than yidam/cli/Cargo.toml declares ({declared}):\
-             \n  {line}\nBumping the version has to move this line; nothing else will."
-        );
+    let mut pinned = 0;
+    for doc in documented_files() {
+        let text = read(&doc);
+        for line in text.lines().filter(|l| l.contains("--tag cli/v")) {
+            assert!(
+                line.contains(&format!("--tag cli/v{declared} ")),
+                "{doc} pins a different release than yidam/cli/Cargo.toml declares \
+                 ({declared}):\n  {}\nBumping the version has to move this line; nothing \
+                 else will.",
+                line.trim()
+            );
+            pinned += 1;
+        }
     }
+    assert!(
+        pinned > 0,
+        "no document pins a `cargo install --git … --tag cli/v…` line; if that channel was \
+         removed, remove this test with it"
+    );
 }
 
 /// A job running in a container must not use bash-only shell options.
