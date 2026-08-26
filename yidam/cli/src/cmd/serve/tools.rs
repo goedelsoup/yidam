@@ -94,6 +94,7 @@ pub(crate) fn call(state: &ServerState, name: &str, args: &Value) -> Value {
         "claim_tags" => Ok(claim_tags()),
         "licensed_edges" => licensed_edges(state, args),
         "query" => query(state, args),
+        "pack" => pack(state, args),
         other => Err(format!("unknown tool: {other}")),
     };
     match outcome {
@@ -303,6 +304,29 @@ fn query(state: &ServerState, args: &Value) -> Result<Value, String> {
     let ctx = crate::cmd::query::Context::now(&state.graph, Some(&state.retrieval));
     let report = crate::cmd::query::run_on(&ctx, text, &opts);
     serde_json::to_value(&report).map_err(|e| e.to_string())
+}
+
+/// A context pack for one goal (#282).
+///
+/// Answers from the same `Graph` and the same `Retrieval` as `query` and `retrieve`, so the
+/// three can never come to disagree about what this corpus holds or about why retrieval is
+/// degraded. That sharing is the whole reason the state is loaded once at startup.
+fn pack(state: &ServerState, args: &Value) -> Result<Value, String> {
+    let text = args["query"]
+        .as_str()
+        .ok_or("missing required argument: query")?;
+    let opts = crate::cmd::pack::Options {
+        // Absent means unbounded, and there is no default. A server that picked one would
+        // truncate the first pack a caller ever asked for, and report it honestly — which is
+        // still a caller getting less than it asked for without having asked for less.
+        budget: args["budget"].as_u64().map(|b| b as usize),
+        anchor_k: args["anchor_k"]
+            .as_u64()
+            .unwrap_or(crate::cmd::query::DEFAULT_ANCHOR_K as u64)
+            .max(1) as usize,
+    };
+    let ctx = crate::cmd::query::Context::now(&state.graph, Some(&state.retrieval));
+    serde_json::to_value(crate::cmd::pack::run_on(&ctx, text, &opts)).map_err(|e| e.to_string())
 }
 
 fn get_node(state: &ServerState, args: &Value) -> Result<Value, String> {

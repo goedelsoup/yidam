@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "contract": "0.6.0",
+  "contract": "0.7.0",
   "description": "The frozen MCP tool contract (RFC-0005). Names are bare — no `yidam_` prefix — because the server is already namespaced by its own name in every client that mounts one. `tier` is `core` (every server MUST back it) or a capability name (backed iff the server declares that capability true). This file is the only place the list lives; a harness that restates it is a second freeze, which is how three servers ended up sharing one name out of five capabilities.",
   "capabilities": {
     "retrieve": {
@@ -269,6 +269,49 @@
           "unschematised"
         ],
         "notes": "TYPED TRAVERSAL, NOT A FLOOD (contract 0.6.0). `neighbors` chains outbound and inbound edges unconditionally and filters on neither relationship nor direction; it carries both out as labels on the result and reads neither as an input. A server offering only that has typed its graph and left no way to walk by the types. `query` is the walk.\n\nTIER. `ontology`, and not `graph`, because the tier names what the DIAGNOSIS needs. Without `.ont.yml` every class name and every relationship is accepted, so a misspelling comes back as zero results — the one failure this tool exists to prevent. A server that backs `ontology` and holds no edges is fine: its hops are licensed and match nothing, which is a true statement about its corpus. Such a server sets `unschematised: false` and answers; a server with no ontology at all declares `ontology: false` and its cases are skipped rather than passed.\n\nREJECTED IS AN ANSWER, NOT AN ERROR. `rejected` is null when the query ran and otherwise carries `{step, code, message}`. It MUST NOT be signalled with MCP's `isError` — the codes are the contract's own (`parse`, `unknown-class`, `unknown-property`, `unlicensed-edge`, `edge-target-class`, `unknown-field`, `anchor-not-entry`, `anchor-unavailable`, `anchor-unresolvable`) and a client branches on them. An empty `results` with `rejected: null` means the query was well-formed and matched nothing; the two MUST be distinguishable, which is the whole reason this tool is not `retrieve` with a filter.\n\nDIAGNOSTICS ARE NOT REJECTIONS. `diagnostics` carries `{level, step, code, message}` for a query that RAN: an undeclared relationship under a non-exhaustive `edge_policy`, a `*` narrowed to the classes declaring a property, a relationship one character from one the class declares. A server that promotes these to rejections refuses legal queries — a non-empty `edges:` says these relationships exist, not and no others may.\n\nANCHORS, AND WHERE `degraded` LIVES. `anchor` is null unless the first step anchored, and otherwise carries `{step, text, k, degraded, degraded_reason, repair, entries}` with the same discipline `retrieve` uses: `degraded_reason` is null exactly when `degraded` is false, and its values come from the same frozen set. There is deliberately NO top-level `degraded` on this response: a query with no anchor performed no retrieval, and a `false` there would read as retrieval having succeeded. An anchor is an ENTRY — only the first step may carry one, and a later one is rejected `anchor-not-entry` rather than reinterpreted as a similarity filter. The anchor is LOCAL: unlike `retrieve`, it MUST NOT enter through an installed dependency's node, because the response says `\"scope\": \"local\"`.\n\nCOST IS PART OF THE ANSWER. `cost` carries `{steps, edges_walked, nodes_read, chars, tokens, corpus_nodes}`. `nodes_read` is the CALLER's cost — nodes whose content was evaluated by a predicate, tested for a hop's class, or projected — not the server's I/O, which always loads the corpus. Class narrowing is a directory listing and is not charged; a degraded keyword anchor IS charged for every candidate it scored, because it read them. `tokens` is `chars / 4` and is an approximation by construction, not a tokenizer."
+      }
+    },
+    {
+      "name": "pack",
+      "tier": "ontology",
+      "description": "A context pack for one goal: the whole answer to a typed query, rendered as prose and filled to a token budget, with an account of what did not fit. `retrieve` returns top-k and says nothing about the rest; `query` says how many it dropped; this says what kind.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "The goal, in `query`'s language — including a similarity anchor, e.g. `concept~\"embedding space\" -relates-to-> concept`."
+          },
+          "budget": {
+            "type": "integer",
+            "description": "Approximate token budget for the pack. Omit for unbounded."
+          },
+          "anchor_k": {
+            "type": "integer",
+            "description": "How many entry nodes a `class~\"…\" ` anchor opens on (default 1)."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "response": {
+        "required": [
+          "query",
+          "scope",
+          "rejected",
+          "anchor",
+          "diagnostics",
+          "cost",
+          "reachable",
+          "written",
+          "elided",
+          "omitted",
+          "omitted_by_class",
+          "budget",
+          "text"
+        ],
+        "notes": "THE RECEIPT IS THE CONTRACT; THE PROSE IS NOT (contract 0.7.0). `text` is a rendering, and no case in this directory pins a byte of it — a server whose sections carry a different heading is conforming, and one that pins `written: 2` on a corpus of four would be freezing yidam's section layout on every other implementation. What is frozen is the accounting: `written + omitted == reachable`, `omitted_by_class` sums to `omitted`, and every one of those keys is present on every response including the unbudgeted one.\n\n`reachable` IS THE COUNT BEFORE THE BUDGET, ALWAYS — the rule `claims.total` follows, one field further out. A server reporting the post-budget count has produced a receipt that says nothing: `12 of 12` is what silent truncation looks like from the inside, and the failure this tool exists to prevent is a caller reporting what it was given rather than what it wrote.\n\n`omitted_by_class` IS THE FIELD THIS TOOL IS FOR. \"I retrieved 12 nodes\" and \"I retrieved 12 of 40, and the 28 I dropped were all `recording` instances\" license completely different next actions, and only the second lets a caller decide between spending more budget and reporting incompleteness. A server may not collapse it to a total it already reports.\n\nBUDGET IS AN ESTIMATE AND SAYS SO. `budget` carries `{tokens, used, chars, basis, over_budget}`. `tokens` is what was asked for and is null on an unbudgeted pack; `used` is what the pack runs to; `basis` names how both were computed and is `chars/4` for a server that does not tokenize. A precise-looking number computed with the wrong tokenizer is worse than a stated approximation, so the approximation is stated rather than hidden.\n\nTHE RECEIPT IS THE FLOOR. A budget too small to hold the account itself cannot be met, and `over_budget` is true exactly then. Dropping the receipt to fit would produce a pack that silently holds nothing — the failure mode, arriving through the door marked compliance. Whenever a single node is written, the pack fits.\n\nREJECTION IS AN ANSWER, AND AN EMPTY PACK IS NOT ONE. `rejected` carries `query`'s own codes and MUST NOT be signalled with `isError`; when it is non-null, `text` is empty and `reachable` is 0. Handing back an empty pack for a misspelled class would give a caller a context window that reads as a corpus with nothing to say.\n\nLOCAL ONLY, like `query` and for the same reason one step further: a pack is context a caller is about to write from. Mixing a dependency's prose into it would put foreign nodes under this corpus's class names, where `omitted_by_class` would then be arithmetic over a category nobody declared."
       }
     },
     {

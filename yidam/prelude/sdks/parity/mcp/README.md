@@ -28,7 +28,7 @@ harness checks that they do.
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.6.0",
+    "contract": "0.7.0",
     "retrieve": { "vector": false, "reason": "no_index" },
     "graph": true, "ontology": true,
     "phases": false, "sangha": false, "resources": true
@@ -40,6 +40,38 @@ harness checks that they do.
 the vector index is loaded, which is the same fact `degraded` reports per call. A server that
 declares `vector: false` is promising every `retrieve` will come back `degraded: true`, with
 the `reason` it names here. `reason` is null exactly when `vector` is true.
+
+## Packing for a goal (contract 0.7.0)
+
+One tool, `pack`, at the `ontology` tier — `query`'s answer rendered as prose, filled to a
+token budget, with **an account of what did not fit**.
+
+The static whole-corpus export already stated the principle and delivered it: *an honest
+account of what it contains, so a caller can report what it wrote rather than what it was
+given.* It is whole-corpus and static. The moment an agent has an actual question there was no
+equivalent, and it fell back to top-k with nothing said about the rest.
+
+| | Says | A caller can |
+|---|---|---|
+| `retrieve` | here are 5 nodes | nothing about the rest |
+| `query` | 12 of 40 matched | know how much it is missing |
+| `pack` | 12 of 40, and the 28 dropped were `recording` | spend more budget, or report the gap |
+
+**The receipt is the contract; the prose is not.** No case pins a byte of `text` — a server
+whose sections carry different headings conforms, and a case pinning `written: 2` on a corpus
+of four would freeze one implementation's layout on every other. What is frozen is the
+accounting: `written + omitted == reachable`, `omitted_by_class` sums to `omitted`, and
+`reachable` is the count **before** the budget. A server reporting the post-budget count
+answers `12 of 12`, which is what silent truncation looks like from the inside.
+
+**The receipt is also the floor.** A budget too small to hold the account itself cannot be met,
+and `budget.over_budget` says so rather than the pack dropping its own receipt to fit — which
+would produce a pack that silently holds nothing, the failure mode arriving through the door
+marked compliance. Whenever one node is written, the pack fits.
+
+`budget.basis` names how the estimate was computed (`chars/4` for a server that does not
+tokenize). An honest approximation, stated, beats a precise-looking number computed with the
+wrong tokenizer.
 
 ## Walking by the types (contract 0.6.0)
 
@@ -97,6 +129,7 @@ capability, because a projected mirror can hold nodes and edges and hold no `.on
 | `claim_tags` | core | the three tags, their meanings, and how each may be written |
 | `licensed_edges` | ontology | what a class declares it may link to |
 | `query` | ontology | a typed path over the graph (added at 0.6.0, above) |
+| `pack` | ontology | that path's answer, budgeted, with what did not fit (added at 0.7.0, above) |
 
 The first exists because the other five tools all return **nodes**, and the unit of assertion
 here is not the node — it is the claim. A node is 2–10 sentences by the model's own rule, so

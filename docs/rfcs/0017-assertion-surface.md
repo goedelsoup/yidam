@@ -200,6 +200,14 @@ told "here are 5 of 41 claims" can take different next actions, and only the sec
 decide to ask for more. This is the `LlmsPack` receipt principle at its cheapest; the full
 per-goal version is #282 and depends on E2.
 
+**#282 landed as `pack`, at contract 0.7.0.** It shares the whole-corpus pack's fill rather
+than re-deriving it, so the two cannot come to spend a budget by different rules, and it adds
+the one field this cheap version cannot carry: `omitted_by_class`. `total` beside `returned`
+says how much was dropped; the per-goal receipt says what kind, which is the half a caller can
+act on. Building it also named a property the whole-corpus pack has always had and never
+stated — **the receipt is the floor**: a budget too small to hold the account itself cannot be
+met, and the pack says `over_budget` rather than dropping its own receipt to fit.
+
 `licensed_edges` distinguishes *"this class licenses these three relationships"* from *"this
 class declares no edges, so it has said nothing"* — the E1 silence rule, surfaced. An agent
 told the second knows it is choosing rather than complying.

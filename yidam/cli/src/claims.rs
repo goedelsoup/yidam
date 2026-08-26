@@ -210,6 +210,29 @@ impl ClaimFields {
         Self(map)
     }
 
+    /// The same declaration, read from an ontology already parsed.
+    ///
+    /// [`Self::load`] walks `.ont.yml` from disk. A caller holding the classes already —
+    /// `query::Graph` does — would otherwise read every one of them a second time, and a
+    /// graph reconstructed at a past commit holds an ontology that is not on disk at all,
+    /// where the second read would answer with today's declaration about another year's
+    /// corpus.
+    ///
+    /// **Key by whatever the caller will look a class up by.** `load` keys by the file's
+    /// `class:` field where it has one; the gate keys by the `.ont.yml` stem, which is also
+    /// the directory an instance must live in. Where the two disagree the stem is the one a
+    /// node's class resolves to, so a caller passing stems gets the answer the gate would.
+    pub fn from_declarations(
+        declarations: impl IntoIterator<Item = (String, Vec<String>)>,
+    ) -> Self {
+        Self(
+            declarations
+                .into_iter()
+                .filter(|(_, fields)| !fields.is_empty())
+                .collect(),
+        )
+    }
+
     pub fn for_class(&self, class: &str) -> &[String] {
         self.0.get(class).map(Vec::as_slice).unwrap_or(&[])
     }

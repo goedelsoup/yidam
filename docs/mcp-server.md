@@ -114,6 +114,8 @@ An absolute path and `exec` — the `exec` so signals reach the server rather th
 | `check_subject` | Whether a commit subject is in the closed vocabulary | Before you write the commit |
 | `claim_tags` | The three tags, their meanings, and how each may be written | Before you tag a claim |
 | `licensed_edges` | What a class declares it may link to | Before you write the link |
+| `query` | A typed path over the graph — `reach -measured-by-> gage` | You know the *shape* of the answer, not the node |
+| `pack` | That path's answer as prose, filled to a token budget, with what did not fit | You are about to write from the corpus and have a budget |
 
 **`claims` returns assertions; every other tool returns documents.** A node is 2–10
 sentences by the model's own rule, so asking `get_node` what a corpus takes as verified means
@@ -122,16 +124,31 @@ paying node-sized tokens for a claim-sized answer and reading the tags out of pr
 its node cites. It serves the tag or serves nothing — an untagged sentence is prose, and
 prose is what `get_node` is for.
 
-**The last three are the practice, callable.** The commit vocabulary, the evidence tags and
-the edges a class licenses are all documented in the prelude, and an agent that has to hold
+**`check_subject`, `claim_tags` and `licensed_edges` are the practice, callable.** The commit
+vocabulary, the evidence tags and the edges a class licenses are all documented in the prelude, and an agent that has to hold
 that prose in context complies by having remembered. These make it cheap to ask instead, at
 the point in the loop where the decision is actually made. The prose stays: it carries the
 reasoning, which is what makes the rules arguable.
 
-`licensed_edges` is the one tool here that a server may not back — it needs the class
-definitions, and a projected mirror can hold nodes and edges and no `.ont.yml`. Such a server
-declares `"ontology": false` in the handshake, which is a statement you can read rather than
-a hole you discover.
+**`query` walks by the types; `neighbors` floods.** `neighbors` chains outbound and inbound
+edges unconditionally and filters on neither relationship nor direction — it carries both out
+as labels on the result and reads neither as an input. `query` takes the relationship and the
+direction as the question. The difference matters most where it is least visible: a
+misspelled relationship comes back from a flood as a plausible neighbourhood and from `query`
+as a rejection naming the near miss.
+
+**`pack` is `query` with a budget and a receipt.** `query` reports `matched` beside
+`returned`, which says how many nodes it dropped; `pack` says *what kind* — `omitted_by_class`
+— and that is the difference between knowing you are missing 28 nodes and knowing they were
+all `recording` instances. Only the second lets you decide between spending more budget and
+reporting that the corpus does not cover this. It is unbudgeted unless you ask for a budget,
+and the token figure is `chars / 4` and says so: an honest approximation beats a
+precise-looking number computed with the wrong tokenizer.
+
+`licensed_edges`, `query` and `pack` are the three a server may not back — all three need the
+class definitions, and a projected mirror can hold nodes and edges and no `.ont.yml`. Such a
+server declares `"ontology": false` in the handshake, which is a statement you can read rather
+than a hole you discover.
 
 **`retrieve` finds; `get_node` reads.** The distinction is worth stating plainly because
 the gap is easy to miss: a `retrieve` result carries `label`, `class`, `path`, `score` and a
