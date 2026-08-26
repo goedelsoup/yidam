@@ -28,7 +28,7 @@ harness checks that they do.
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.9.1",
+    "contract": "0.10.0",
     "retrieve": { "vector": false, "reason": "no_index" },
     "graph": true, "ontology": true,
     "phases": false, "sangha": false, "resources": true
@@ -40,6 +40,57 @@ harness checks that they do.
 the vector index is loaded, which is the same fact `degraded` reports per call. A server that
 declares `vector: false` is promising every `retrieve` will come back `degraded: true`, with
 the `reason` it names here. `reason` is null exactly when `vector` is true.
+
+## Which kind of nothing (contract 0.10.0)
+
+`retrieve` gains `rejected` and `absence`. Both are always present and at most one is non-null.
+
+0.8.0 answered *why is this empty* for `query`, `pack` and `estimate` — the surfaces where the
+ontology derives the reason. It did not touch `retrieve`, which is the tool an agent reaches
+for **before** it knows enough to write a query. There, `results: []` still meant all of: the
+corpus has nothing on this subject, the query's words are not the corpus's words, the class
+filter names a class holding no instances, and the class filter names a class that does not
+exist.
+
+**The last one was not an absence at all.** `retrieve` took a `class` argument and never read
+it, so `retrieve("hydropeaking", class: "gauge")` against a corpus declaring `gage` returned
+zero results and reported nothing wrong — the exact failure `query`'s `unknown-class` rejection
+exists to prevent, one tool over, on the more-used tool. It is now rejected *before* the
+search: a filter that cannot match cannot produce a true negative, and searching with it would
+report a typo as a fact about the corpus.
+
+| Code | Path | Means |
+|---|---|---|
+| `class-unpopulated` | either | the ontology declares the class and no node here or in a dependency belongs to it |
+| `class-undeclared` | either | no node carries the class **and** this corpus declares no ontology, so a misspelling and an empty class cannot be told apart |
+| `class-unindexed` | vector | the index holds no rows for the class though the corpus holds instances — it was built before they were written |
+| `index-empty` | vector | the index holds no rows and there was nothing to search |
+| `query-no-terms` | keyword | the query contains no searchable terms |
+| `no-term-match` | keyword | none of the nodes searched contains any word of the query |
+
+**A smaller shape than `query`'s, deliberately.** `{code, message, instances}` — no `step`,
+because `retrieve` has no steps, and no `elsewhere`, because `retrieve` already searches every
+installed dependency. That field exists on `query` to point at corpora a local walk did not
+read; here it would be empty on every response by construction, which is a field that teaches
+a client nothing and costs it a branch.
+
+**`instances` is the denominator the message is about**: how many nodes the class filter
+admitted to the search. *None of four* and *none of nine hundred* are different facts about a
+corpus, and it is the whole difference between `no-term-match` and `class-unpopulated`.
+
+**The `core` tier is why `class-undeclared` exists.** Unlike `query`'s family this tool cannot
+hide behind the `ontology` tier: a server with no `.ont.yml` backs `retrieve` and can derive
+*neither* class row — it cannot reject an unknown class, because none is declared, and it
+cannot call one unpopulated, because nothing declares it a class at all. A server MUST NOT
+report `class-unpopulated` on an unschematised corpus; that asserts an ontology it does not
+have. It says which case it is in instead.
+
+**The semantic path says more than a threshold would.** There is no score threshold and a
+conforming server must not invent one — that would be a claim about a model rather than about a
+corpus. But nothing is dropped for scoring badly, so an empty vector answer is not a *weak*
+answer: it is proof the filter admitted no rows at all. That is derivable without asserting
+anything about similarity, and it is what makes `class-unindexed` reachable — the one diagnosis
+the keyword path is blind to. A weak-but-non-empty answer stays undiagnosed.
 
 ## Which corpus, and when (contract 0.9.1)
 

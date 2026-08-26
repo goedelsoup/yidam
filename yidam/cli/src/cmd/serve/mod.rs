@@ -17,6 +17,7 @@
 //! byte-identical. The command that makes a corpus reachable by an agent should not be the
 //! one command a collaborator cannot install.
 
+mod absence;
 mod resources;
 pub(crate) mod tools;
 

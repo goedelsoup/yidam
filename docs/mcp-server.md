@@ -105,7 +105,7 @@ An absolute path and `exec` — the `exec` so signals reach the server rather th
 
 | Tool | Answers | Reach for it when |
 |---|---|---|
-| `retrieve` | Top-k nodes for a natural-language query, with `class` and `k` | You do not know which node holds the answer |
+| `retrieve` | Top-k nodes for a natural-language query, with `class` and `k`; an empty answer says which kind of empty | You do not know which node holds the answer |
 | `get_node` | One node's full YAML content and its outgoing links | You know the id and need what it actually says |
 | `neighbors` | Nodes linked to one node, both directions, to `depth` hops | You want the argument around a node, not the node |
 | `list_nodes` | Every node, optionally in one class | You want the shape of the corpus |
@@ -197,6 +197,24 @@ which is exactly what makes the omission quiet. It is still not the node. The ra
 `get_node`'s `content`, and **the links are only there** — an agent that only ever retrieves
 sees the claims and never the edges between them, which on a knowledge graph is most of what
 it came for. Retrieval chooses what to read; `get_node` is the read.
+
+**An empty `retrieve` says which kind of empty it is.** `results: []` used to mean four
+different things at once, and an agent that cannot tell them apart fills the gap from its own
+weights under a claim that will be attributed to having worked in the corpus. Every response
+carries `rejected` and `absence`, both null on an answer that found something:
+
+- A `class` that names no declared class is **rejected** (`unknown-class`, with the near miss)
+  rather than searched. A filter that cannot match cannot produce a true negative.
+- An empty answer carries `absence: {code, message, instances}`. `class-unpopulated` means the
+  class is declared and nothing has been written into it; `no-term-match` means keyword search
+  read every node and none of them uses these words, which is a statement about the words and
+  not about coverage; `class-unindexed` means the corpus has the nodes and the index predates
+  them, so re-embed. On a corpus with no `.ont.yml` the class rows cannot be derived at all,
+  and `class-undeclared` says exactly that instead of guessing.
+
+`instances` is how many nodes the filter admitted to the search. *None of four* and *none of
+nine hundred* are different facts, and it is the difference between "nobody has written this"
+and "your words missed it".
 
 `neighbors` is the other half of that. Half the interesting connections into a node are
 inbound, and reading a node's own YAML shows you only the edges it asserts — the ones

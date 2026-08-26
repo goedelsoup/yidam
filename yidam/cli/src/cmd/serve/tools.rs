@@ -154,12 +154,25 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
     let k = args["k"].as_u64().unwrap_or(5).max(1) as usize;
     let class_filter = args["class"].as_str();
 
+    // Validated BEFORE anything is searched. A filter naming no declared class cannot produce
+    // a true negative, so running the search and reporting the emptiness would be reporting a
+    // typo as a fact about the corpus — the failure `query`'s `unknown-class` exists to
+    // prevent, which this tool committed for as long as it took a `class` and never read it.
+    if let Some(rejection) = super::absence::reject_unknown_class(state, class_filter) {
+        return Ok(body(
+            state.retrieval.degraded_reason(),
+            Vec::new(),
+            Some(rejection.to_json()),
+            None,
+        ));
+    }
+
     #[cfg(feature = "index")]
     if let Retrieval::Vector(index) = &state.retrieval {
         let hits = crate::retrieval::vector::search(index, query, k, |r| {
             class_filter.is_none_or(|c| r.class == c)
         })?;
-        let results = hits
+        let results: Vec<Value> = hits
             .iter()
             .map(|(r, score)| {
                 json!({
@@ -171,7 +184,10 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
                 })
             })
             .collect();
-        return Ok(body(None, results));
+        let absent = results
+            .is_empty()
+            .then(|| super::absence::diagnose(state, query, class_filter, true).to_json());
+        return Ok(body(None, results, None, absent));
     }
     Ok(keyword_retrieve(
         state,
@@ -188,7 +204,12 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
 /// different files, and the present-and-null half lived in the module the degradable build
 /// does not compile — so the shape a light build owed was written where a light build could
 /// not read it.
-fn body(reason: Option<&'static str>, results: Vec<Value>) -> Value {
+fn body(
+    reason: Option<&'static str>,
+    results: Vec<Value>,
+    rejected: Option<Value>,
+    absence: Option<Value>,
+) -> Value {
     json!({
         "degraded": reason.is_some(),
         // *Why* degraded, not just that it is. The bare boolean made two different
@@ -199,6 +220,15 @@ fn body(reason: Option<&'static str>, results: Vec<Value>) -> Value {
         // testing the key must not have to distinguish "not degraded" from "a server too old
         // to say why".
         "degraded_reason": reason,
+        // A REJECTION IS NOT AN ABSENCE. `rejected` says the caller's filter is wrong;
+        // `absence` says the filter is right and the search came back quiet. At most one is
+        // non-null, and both are present always — a client testing a key must not have to
+        // distinguish "nothing to report" from "a server too old to report it", which is the
+        // convention `degraded_reason` and `origin` already follow here.
+        "rejected": rejected,
+        // Null exactly when `results` is non-empty. An answer that returned rows is not
+        // absent and has nothing to explain.
+        "absence": absence,
         "results": results,
     })
 }
@@ -239,29 +269,31 @@ fn keyword_retrieve(
     });
     scored.truncate(k);
 
-    body(
-        reason,
-        scored
-            .iter()
-            .map(|(n, score)| {
-                json!({
-                    "id": n.qualified_id(),
-                    "path": match &n.origin {
-                        Some(pkg) => format!(".yidam/tonpa/{pkg}/corpus/{}.yml", n.id),
-                        None => format!(".yidam/corpus/{}.yml", n.id),
-                    },
-                    // Always present, and null for this repository's own nodes rather than absent:
-                    // a consumer testing for the key must not have to distinguish "local" from "an
-                    // older server that never said".
-                    "origin": n.origin,
-                    "class": n.class,
-                    "label": n.label,
-                    "text": n.description,
-                    "score": score,
-                })
+    let results: Vec<Value> = scored
+        .iter()
+        .map(|(n, score)| {
+            json!({
+                "id": n.qualified_id(),
+                "path": match &n.origin {
+                    Some(pkg) => format!(".yidam/tonpa/{pkg}/corpus/{}.yml", n.id),
+                    None => format!(".yidam/corpus/{}.yml", n.id),
+                },
+                // Always present, and null for this repository's own nodes rather than absent:
+                // a consumer testing for the key must not have to distinguish "local" from "an
+                // older server that never said".
+                "origin": n.origin,
+                "class": n.class,
+                "label": n.label,
+                "text": n.description,
+                "score": score,
             })
-            .collect::<Vec<_>>(),
-    )
+        })
+        .collect();
+
+    let absent = results
+        .is_empty()
+        .then(|| super::absence::diagnose(state, query, class_filter, false).to_json());
+    body(reason, results, None, absent)
 }
 
 /// A typed path over the graph — #263's half of hybrid anchoring that an agent can reach.
@@ -663,6 +695,115 @@ mod tests {
             "tool {name} errored: {result}"
         );
         serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap()
+    }
+
+    /// A class filter naming no declared class is refused before anything is searched.
+    ///
+    /// The bug this closes is not that the answer was empty — it is that the answer was empty
+    /// and said nothing was wrong, which reads to a caller as a true negative. Searching first
+    /// and diagnosing after would have produced `class-unpopulated`, i.e. a sentence about the
+    /// corpus in answer to a typo.
+    #[test]
+    fn an_unknown_class_filter_is_rejected_before_the_search() {
+        let state = test_state();
+        let result = call_ok(
+            &state,
+            "retrieve",
+            json!({"query": "graph", "class": "concpt"}),
+        );
+
+        assert_eq!(result["rejected"]["code"], "unknown-class");
+        assert!(
+            result["rejected"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("did you mean `concept`"),
+            "the near miss is the whole value of the rejection: {}",
+            result["rejected"]["message"]
+        );
+        assert!(result["results"].as_array().unwrap().is_empty());
+        assert!(
+            result["absence"].is_null(),
+            "a rejection is not an absence; carrying both answers two questions with one key"
+        );
+    }
+
+    /// A declared class nobody has written into is a statement about the corpus.
+    #[test]
+    fn a_declared_class_with_no_instances_says_so() {
+        let state = test_state();
+        let result = call_ok(
+            &state,
+            "retrieve",
+            json!({"query": "graph", "class": "silent"}),
+        );
+
+        assert!(result["rejected"].is_null());
+        assert_eq!(result["absence"]["code"], "class-unpopulated");
+        assert_eq!(result["absence"]["instances"], 0);
+    }
+
+    /// Without an ontology, neither class answer is derivable — and saying so is the answer.
+    ///
+    /// `retrieve` is `core`, so unlike `query`'s family it cannot hide behind the `ontology`
+    /// tier. Reporting `class-unpopulated` here would assert a declaration this corpus has not
+    /// made; rejecting would assert the name is wrong on the same missing evidence. The honest
+    /// third answer is that this tool cannot tell, which is still worth more to a caller than
+    /// the silence it used to get.
+    #[test]
+    fn an_unschematised_corpus_says_it_cannot_tell_a_typo_from_an_empty_class() {
+        let mut state = test_state();
+        state.classes.clear();
+        let result = call_ok(
+            &state,
+            "retrieve",
+            json!({"query": "graph", "class": "gauge"}),
+        );
+
+        assert!(
+            result["rejected"].is_null(),
+            "nothing declares a class here, so nothing can call this name wrong"
+        );
+        assert_eq!(result["absence"]["code"], "class-undeclared");
+    }
+
+    /// Keyword search that read everything and matched nothing says which of the two it is.
+    ///
+    /// `instances` is the load-bearing half. *None of four* is a statement about the query's
+    /// words; *none of zero* would be a statement about the corpus, and the codes must not be
+    /// readable as each other.
+    #[test]
+    fn words_the_corpus_does_not_use_are_not_reported_as_missing_coverage() {
+        let state = test_state();
+        let result = call_ok(&state, "retrieve", json!({"query": "hydropeaking ramping"}));
+
+        assert!(result["rejected"].is_null());
+        assert_eq!(result["absence"]["code"], "no-term-match");
+        assert_eq!(
+            result["absence"]["instances"], 4,
+            "two local nodes and two from the dependency were all read"
+        );
+    }
+
+    #[test]
+    fn a_query_with_no_searchable_terms_says_so() {
+        let state = test_state();
+        let result = call_ok(&state, "retrieve", json!({"query": "   "}));
+
+        assert_eq!(result["absence"]["code"], "query-no-terms");
+    }
+
+    /// Null exactly when the answer is non-empty — the half a server gets wrong by being
+    /// helpful. A code meaning `fine` makes the one field a caller consults about silence
+    /// ambiguous, which is the failure it was added to end.
+    #[test]
+    fn an_answer_that_found_something_carries_neither_key() {
+        let state = test_state();
+        let result = call_ok(&state, "retrieve", json!({"query": "knowledge graph"}));
+
+        assert!(!result["results"].as_array().unwrap().is_empty());
+        assert!(result["rejected"].is_null());
+        assert!(result["absence"].is_null());
     }
 
     #[test]
