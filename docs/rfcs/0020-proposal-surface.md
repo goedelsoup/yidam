@@ -231,6 +231,20 @@ prose from authored prose without consulting the log — the principle `authorsh
 argues for regions, applied at the paragraph. And a later run can find its own paragraphs
 again, which is what makes `close:` possible.
 
+**A source record is the second place a question can land.** The paragraph above goes into a
+corpus instance's `description:`, because that finding is about a node. `catalog-expired`
+(#271) is a finding about a *catalog entry*, which is markdown with frontmatter and not an
+instance — so the question is appended to that entry's body, where `catalog-audit` and the
+claim counter already read. The rule is unchanged and so is the marker; only the file shape
+differs, and a proposal that cannot find a closing frontmatter fence is reported rather than
+written.
+
+That case also settles what licenses an `open:`. It is **not** severity:
+`catalog-expired` is Warn and never gates. What licenses it is `ttl_days`, which this corpus
+declared about itself — the same shape as `withdraw_uncited_after` licensing a deletion. A
+finding gates, or a declaration invites the question; either is a licence, and neither is the
+tool deciding on its own.
+
 **`claim_tag` is not touched.** A node carrying `claim_tag: verified` that gains an `[open]`
 paragraph arguably ought to be demoted under the rule that *a derived assertion travels only as
 far as the weakest claim beneath it* (`agent-conduct.md`). That rule is a norm and not a check,
@@ -427,7 +441,9 @@ they landed.
   carrying the question, not a retag. #270 says *"nothing here may ever propose a promotion"*;
   this design says nothing may propose a retag in either direction, which is stronger and
   removes the need for the asymmetry.
-- **#271** — the TTL and its report are independent. An expired entry's proposal is an `open:`,
-  which is what #271 already asks for (*"open a question rather than refreshing silently"*).
+- **#271** — the TTL and its report are independent, and both landed. An expired entry's
+  proposal is an `open:` on the entry itself, which is what #271 asked for (*"open a question
+  rather than refreshing silently"*). It is what added the second `open:` target above, and
+  what established that a declaration licenses a proposal as well as a gate does.
 - **#23** — unaffected. Its findings would be proposal-eligible on the same terms as any other,
   once it produces findings.

@@ -14,6 +14,8 @@ pub struct YidamConfig {
     pub lint: LintConfig,
     #[serde(default)]
     pub propose: ProposeConfig,
+    #[serde(default)]
+    pub catalog: CatalogConfig,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -72,6 +74,33 @@ pub struct ProposeConfig {
     /// most will: failing the build asks a person to look, and deleting the node decides what
     /// they would have concluded.
     pub withdraw_uncited_after: Option<usize>,
+}
+
+/// What this corpus has decided about how its sources age.
+///
+/// Not `.yidam.toml`. That file is the *template provenance pin* — `origin`, `commit`,
+/// `template`, `committed` — and records which yidam governs a corpus. This one records what
+/// the corpus decided about itself, which is where `escalate_after` and
+/// `withdraw_uncited_after` already live.
+#[derive(Debug, Default, Deserialize)]
+pub struct CatalogConfig {
+    /// Days a catalog entry may stand before it is worth looking at again, when the entry
+    /// does not declare its own.
+    ///
+    /// A default rather than the mechanism: the per-entry `ttl_days:` is the primary form,
+    /// because a gauge record and a statute do not age at the same rate. This exists for the
+    /// common case of a corpus whose sources mostly do age alike, so that adopting a TTL is
+    /// one line rather than one line per entry.
+    ///
+    /// Absent means **no entry expires unless it says so itself**, which is every corpus
+    /// until someone turns it on. The reasoning is [`LintConfig::escalate_after`]'s and is
+    /// not repeated.
+    ///
+    /// ```toml
+    /// [catalog]
+    /// ttl_days = 180
+    /// ```
+    pub ttl_days: Option<u32>,
 }
 
 pub fn load_yidam_config(root: &Path) -> Result<YidamConfig> {

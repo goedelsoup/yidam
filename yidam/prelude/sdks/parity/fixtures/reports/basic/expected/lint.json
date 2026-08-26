@@ -166,6 +166,13 @@
       ]
     },
     {
+      "id": "catalog-expired",
+      "title": "A source record older than the corpus said it may be",
+      "severity": "warn",
+      "rationale": "A catalog entry records where something came from; until it could also record how long that record may stand, a source fetched a year ago read exactly like one fetched today. Declare `ttl_days:` on the entry — a gauge record and a statute do not age at the same rate — or a corpus-wide default under `[catalog]` in `.yidam/config.toml`. Absent both, nothing expires. This reports rather than gates because an aged record is a thing to look at, and refreshing it is a knowledge event a person owns. It does not claim the source changed: nothing here reads upstream, and `doctor` does no network. It claims nobody has looked.",
+      "violations": []
+    },
+    {
       "id": "catalog-unobtained-but-cited",
       "title": "Source nobody has fetched, cited anyway",
       "severity": "error",

@@ -12,6 +12,7 @@ mod commits;
 pub(crate) mod history;
 pub mod json;
 pub(crate) mod model;
+pub(crate) mod ttl;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -148,6 +149,17 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     // The `type: claim` properties each class declared, so the structural arm of the claim
     // reader sees anything at all. Loaded once and shared: it walks the ontology.
     let claim_fields = crate::claims::ClaimFields::load(&corpus_dir);
+    // How old each source record is, and whether this corpus asked to be told. `today` is
+    // resolved once here rather than inside the check, so the one wall-clock report in the
+    // tool has a single place its clock enters.
+    let catalog_ages = ttl::ages(
+        &sources,
+        &ttl::committed_dates(root, &catalog_dir),
+        crate::config::load_yidam_config(root)
+            .map(|c| c.catalog.ttl_days)
+            .unwrap_or_default(),
+        &today_iso(),
+    );
 
     // Tables are checked wherever a reader meets one: catalog entries and the READMEs
     // that carry REGEN blocks.
@@ -248,6 +260,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         citations::external_citation_pin_moved(&nodes, &deps),
         citations::external_citation_unpinned(&nodes, &deps),
         checks::verified_unsourced(&nodes, &sources, &claim_fields),
+        checks::catalog_expired(&catalog_ages),
         checks::catalog_unobtained_but_cited(&sources, &cites),
         checks::missing_label(&nodes),
         checks::missing_description(&nodes),
@@ -313,6 +326,16 @@ fn orphan_in_dated(root: &Path, nodes: &[checks::Node], classes: &[checks::Class
         v.age = Some(age.clone());
     }
     check
+}
+
+/// Today as `YYYY-MM-DD`.
+///
+/// The single point at which the wall clock enters this command. Everything downstream takes
+/// the date as an argument, so a report is testable and a golden is stable — the one thing a
+/// wall-clock feature must not do is make its own tests depend on the day they run.
+fn today_iso() -> String {
+    let iso = crate::cmd::export::unix_to_iso(crate::dates::today_days() as u64 * 86_400);
+    iso.split('T').next().unwrap_or_default().to_string()
 }
 
 /// Write the baseline for this run, carrying forward the clock on entries that already
@@ -586,7 +609,7 @@ mod tests {
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 29);
+        assert_eq!(all.len(), 30);
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
@@ -745,7 +768,7 @@ mod tests {
         assert!(crate::authorship::Authorship::load(tmp.path()).is_err());
         // …while the checks themselves keep answering, for the editor's sake.
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 29);
+        assert_eq!(all.len(), 30);
     }
 
     /// The four citation checks are registered, and reach the reporting path a unit test
@@ -991,7 +1014,7 @@ mod tests {
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 29, "every check still ran");
+        assert_eq!(all.len(), 30, "every check still ran");
         assert_eq!(errors(&all), 0);
     }
 

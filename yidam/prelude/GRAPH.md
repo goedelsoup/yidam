@@ -351,12 +351,20 @@ Absent, entries never expire, which is where every baseline starts.
 
 They are named apart because they are different questions:
 
-| Declaration | Where | Asks |
-|---|---|---|
-| `escalate_after` | `.yidam/config.toml` | how long a **finding** may hold before it becomes an error |
-| `expire_after` | `.yidam/lint-baseline.yml` | how long an **accepted entry** may stand before it gates again |
+| Declaration | Where | Counts | Asks |
+|---|---|---|---|
+| `escalate_after` | `.yidam/config.toml` | commits | how long a **finding** may hold before it becomes an error |
+| `expire_after` | `.yidam/lint-baseline.yml` | commits | how long an **accepted entry** may stand before it gates again |
+| `ttl_days` | a catalog entry, or `[catalog]` in `.yidam/config.toml` | **days** | how long a **source record** may stand before it is worth looking at again |
 
-The first is about the corpus; the second is about the file that forgives it. A finding can
+The first is about the corpus; the second is about the file that forgives it.
+
+The third counts days and the other two count commits, which is a deliberate departure rather
+than an oversight. The commits rule is about *corpus state*: how long a node has gone uncited
+is a fact about this repository, so the repository's clock is the honest one. A source's
+staleness is not a fact about this repository — a statute does not become stale because you
+committed, and a gauge record does not stay fresh because you did not. So that one report does
+answer differently tomorrow, and that is what a TTL is for. A finding can
 escalate under the first, be blessed, and later expire under the second — and each step is
 a different thing having happened.
 

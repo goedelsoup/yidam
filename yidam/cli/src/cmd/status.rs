@@ -12,6 +12,8 @@ struct StatusReport {
     nodes: usize,
     open_questions: usize,
     catalog_entries: usize,
+    /// Source records past the TTL the corpus declared. Zero when none is declared.
+    catalog_expired: usize,
     claims_verified: usize,
     claims_inference: usize,
     claims_open: usize,
@@ -58,7 +60,25 @@ pub fn status(format: crate::report::Format) -> Result<()> {
         ));
     }
 
-    let catalog_entries = walk_md_files(&catalog).len();
+    let catalog_paths = walk_md_files(&catalog);
+    let catalog_entries = catalog_paths.len();
+    // Expired source records, shown only when there are any. A corpus that declared no TTL
+    // is asking nothing here, and a permanent `· 0 expired` is a number nobody can act on —
+    // the same rule the phase cell below applies to positions and settled counts.
+    let catalog_expired = crate::cmd::lint::ttl::ages(
+        &crate::cmd::lint::checks::load_sources(&root, &catalog_paths, &Default::default()),
+        &crate::cmd::lint::ttl::committed_dates(&root, &catalog),
+        crate::config::load_yidam_config(&root)
+            .map(|c| c.catalog.ttl_days)
+            .unwrap_or_default(),
+        crate::cmd::export::unix_to_iso(crate::dates::today_days() as u64 * 86_400)
+            .split('T')
+            .next()
+            .unwrap_or_default(),
+    )
+    .iter()
+    .filter(|a| a.overdue_days().is_some())
+    .count();
 
     let index_path = root.join(".yidam").join("index");
     let index_freshness = if index_path.exists() {
@@ -82,8 +102,12 @@ pub fn status(format: crate::report::Format) -> Result<()> {
         phase_cell.push_str(&format!(" · {} position(s)", phases.positions));
     }
 
+    let sources_cell = match catalog_expired {
+        0 => format!("{catalog_entries} sources"),
+        n => format!("{catalog_entries} sources · {n} expired"),
+    };
     let content = format!(
-        "**{node_count} nodes** · {open_count} open · {catalog_entries} sources · \
+        "**{node_count} nodes** · {open_count} open · {sources_cell} · \
          claims {} · index {index_freshness} · {phase_cell} · genesis {genesis}",
         claims.cell()
     );
@@ -95,6 +119,7 @@ pub fn status(format: crate::report::Format) -> Result<()> {
                 nodes: node_count,
                 open_questions: open_count,
                 catalog_entries,
+                catalog_expired,
                 claims_verified: claims.verified,
                 claims_inference: claims.inference,
                 claims_open: claims.open,
