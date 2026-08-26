@@ -2,7 +2,7 @@ class: concept
 label: Hydropeaking
 description: |
   Rapid sub-daily variation in discharge below a hydroelectric facility that is operated to
-  follow electricity demand rather than inflow. [verified] The signature is a diel cycle in
+  follow electricity demand rather than inflow. [inference] The signature is a diel cycle in
   the hydrograph whose period matches the load curve and not any weather event.
 
   Hydropeaking is the clearest case in this corpus of a flow regime that is an artefact of

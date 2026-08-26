@@ -145,6 +145,9 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     // `Node` carries the text `load_nodes` already read, so nothing here re-reads the corpus
     // to hand the same bytes to a check a second time.
     let cites = checks::citations(&sources, &nodes);
+    // The `type: claim` properties each class declared, so the structural arm of the claim
+    // reader sees anything at all. Loaded once and shared: it walks the ontology.
+    let claim_fields = crate::claims::ClaimFields::load(&corpus_dir);
 
     // Tables are checked wherever a reader meets one: catalog entries and the READMEs
     // that carry REGEN blocks.
@@ -244,6 +247,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         citations::external_citation_span_drift(&nodes, &deps),
         citations::external_citation_pin_moved(&nodes, &deps),
         citations::external_citation_unpinned(&nodes, &deps),
+        checks::verified_unsourced(&nodes, &sources, &claim_fields),
         checks::catalog_unobtained_but_cited(&sources, &cites),
         checks::missing_label(&nodes),
         checks::missing_description(&nodes),
@@ -582,7 +586,7 @@ mod tests {
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 28);
+        assert_eq!(all.len(), 29);
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
@@ -741,7 +745,7 @@ mod tests {
         assert!(crate::authorship::Authorship::load(tmp.path()).is_err());
         // …while the checks themselves keep answering, for the editor's sake.
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 28);
+        assert_eq!(all.len(), 29);
     }
 
     /// The four citation checks are registered, and reach the reporting path a unit test
@@ -987,7 +991,7 @@ mod tests {
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 28, "every check still ran");
+        assert_eq!(all.len(), 29, "every check still ran");
         assert_eq!(errors(&all), 0);
     }
 

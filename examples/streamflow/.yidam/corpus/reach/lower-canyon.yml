@@ -2,7 +2,7 @@ class: reach
 label: Lower canyon reach
 description: |
   The confined segment between the tailwater and the valley, with negligible tributary
-  inflow. [verified] Its hydrograph is very nearly the tailwater's, translated and slightly
+  inflow. [inference] Its hydrograph is very nearly the tailwater's, translated and slightly
   attenuated.
 
   That near-identity is what makes it useful: it is the reach where an instream flow right

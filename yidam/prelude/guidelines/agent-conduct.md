@@ -55,6 +55,15 @@ readers and agents can assess the node's reliability without reading sources:
   citation inside matches nothing and the claim is counted as untagged. It looks tagged to a
   reader and reads as bare assertion to every tool. Write `[verified]` and then the citation.
   `yidam lint` reports the near miss as `claim-tag-malformed`.
+- **A `[verified]` claim in a node that links no catalog entry is reported**, as
+  `verified-unsourced`. This rule is the first line of this section and, until that check
+  existed, nothing echoed it back: `catalog/` recorded provenance and three checks verified
+  the catalog's own bookkeeping, while no check asked whether a claim rested on anything.
+  Over-counting evidence is the flattering error and it is the one this vocabulary exists to
+  prevent — a mature corpus measured eight miscounts and every one of them promoted. The fix
+  is a citation or a demotion, and which is yours to decide: nothing proposes a promotion.
+  A `cites:` into a dependency does not discharge it, because a foreign tag is the
+  producer's and does not transfer.
 - **To name a tag rather than make one, say that you are naming it.** A node whose subject
   touches the evidence vocabulary has to write the tokens to talk about them, and a scanner
   reading bytes cannot tell that from an assertion. The signal is **grammar, not

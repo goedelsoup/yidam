@@ -3,7 +3,7 @@ label: Base-flow separation
 description: |
   Partitioning a hydrograph into **base flow** — the slowly varying component sustained
   between events — and **quick flow**, the event response. Methods range from graphical
-  rules to recursive digital filters. [verified]
+  rules to recursive digital filters. [inference]
 
   There is no unique physically correct separation. [open] The components are not separately
   observable, so a method is chosen and its parameters are a modelling decision, not a

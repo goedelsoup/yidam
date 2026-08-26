@@ -1257,6 +1257,107 @@ pub fn citations(sources: &[Source], nodes: &[Node]) -> Vec<Vec<String>> {
         .collect()
 }
 
+/// A `[verified]` claim in a node that draws on no registered source.
+///
+/// The claim vocabulary is the epistemic core of the system and, until this check, its
+/// correctness was unenforced in the one direction that matters. `claims.rs` records which
+/// direction that is — it was measured against a mature corpus and every one of the eight
+/// miscounts *promoted*:
+///
+/// > That is the flattering direction, and it is the one direction this vocabulary exists to
+/// > prevent.
+///
+/// `catalog/` exists to record provenance, and the three checks that read it
+/// (`catalog-uncited`, `catalog-unobtained-but-cited`, `catalog-used-by-drift`) check the
+/// catalog's own bookkeeping — whether entries and citations agree with each other. None of
+/// them asks the question the vocabulary is *for*: whether a claim asserted at the strongest
+/// standing rests on anything at all.
+///
+/// `[verified]` means **supported by a committed primary source**. A node making one while
+/// linking to no catalog entry has asserted a standing it cannot demonstrate from inside the
+/// repository.
+///
+/// # What counts as resting on something
+///
+/// A link that resolves to a file under `.yidam/catalog/`. That is the same resolution
+/// [`citations`] performs, so a node this check calls unsourced is exactly a node absent from
+/// every entry's citation list — the two cannot come to disagree about what a citation is.
+///
+/// **A `cites:` into a dependency does not count**, and that is RFC-0019's rule rather than a
+/// simplification. A foreign tag is the producer's tag: it records what *that* corpus's
+/// electors accepted, travels with none of the apparatus that made it accountable, and is
+/// recorded as an observation rather than folded into a local standing. `agent-conduct.md`
+/// prescribes what to do instead — put what you took into a local node, at this corpus's
+/// standard — and a local `[verified]` still owes a local source.
+///
+/// # Warn, not Error
+///
+/// The corpus is not malformed and traversal is unaffected; what is wrong is a claim about
+/// evidence, and the fix is either a citation or a demotion — both of which are an author's
+/// judgement rather than a mechanical repair. Gating would also make adopting this check a
+/// build break in every corpus that predates it, which is the failure
+/// `docs/post-genesis-measurement.md` recorded for a ratchet nobody could satisfy.
+///
+/// Measured across three instrumented derived repositories before choosing the level; the
+/// figures are in the pull request that added it.
+pub fn verified_unsourced(
+    nodes: &[Node],
+    sources: &[Source],
+    fields: &crate::claims::ClaimFields,
+) -> Check {
+    let registered: HashSet<PathBuf> = sources.iter().map(|s| normalize(&s.path)).collect();
+    let violations = nodes
+        .iter()
+        .filter_map(|n| {
+            // Through the counter rather than by filtering `claims_in_node` on a spelling.
+            // `ServedClaim::standing` is the bare word and `claims::VERIFIED` is the
+            // bracketed marker, so comparing the two compares nothing — which is how the
+            // first draft of this check reported zero findings against a corpus holding 456
+            // verified claims, and looked exactly like a clean bill of health. The counter
+            // is already held to agree with the served list tag for tag.
+            let verified =
+                crate::claims::count_in_node(&n.text, fields.for_class(&class_of(n))).verified;
+            if verified == 0 {
+                return None;
+            }
+            let links = linked_paths(&n.path, &n.rel, &n.text);
+            if links.iter().any(|p| registered.contains(p)) {
+                return None;
+            }
+            // Named separately because the fix differs: a node already citing a dependency
+            // has *some* provenance recorded and needs it localized, and one citing nothing
+            // has none.
+            let external = n.inst.cites.as_deref().is_some_and(|c| !c.is_empty());
+            let detail = match (verified, external) {
+                (1, false) => "1 `[verified]` claim, and this node draws on no source".to_string(),
+                (n, false) => format!("{n} `[verified]` claims, and this node draws on no source"),
+                (1, true) => "1 `[verified]` claim resting only on a `cites:` into a dependency — \
+                              a foreign tag is the producer's, and does not transfer"
+                    .to_string(),
+                (n, true) => format!(
+                    "{n} `[verified]` claims resting only on a `cites:` into a dependency — a \
+                     foreign tag is the producer's, and does not transfer"
+                ),
+            };
+            Some(Violation::new(&n.rel, detail))
+        })
+        .collect();
+    Check::new(
+        "verified-unsourced",
+        "A claim asserted at `[verified]` that rests on nothing",
+        Severity::Warn,
+        "`[verified]` means supported by a committed primary source. A node asserting one \
+         while linking to no catalog entry has claimed a standing it cannot demonstrate. \
+         This is the one direction the claim vocabulary exists to prevent: over-counting \
+         evidence is the flattering error, and a mature corpus measured eight miscounts of \
+         which all eight promoted. The catalog checks beside this one verify the catalog's \
+         own bookkeeping; this is the only one that asks whether a claim rests on anything. \
+         The fix is a citation or a demotion, and which of the two is the author's call — \
+         nothing here proposes a promotion, ever.",
+        violations,
+    )
+}
+
 pub fn catalog_uncited(sources: &[Source], cites: &[Vec<String>]) -> Check {
     let violations = sources
         .iter()
@@ -1516,6 +1617,143 @@ mod tests {
             used_by: used_by.iter().map(|s| s.to_string()).collect(),
             locations: vec![],
         }
+    }
+
+    /// The `type: claim` field a class declared, which is what the structural arm reads.
+    ///
+    /// Keyed on `concept` rather than on the node's `class:` field, because `class_of`
+    /// reads the *directory* — instances live in `corpus/<class>/` and the two agree by
+    /// convention. A fixture keyed on the YAML field silently exercises the prose arm only.
+    fn claim_fields() -> crate::claims::ClaimFields {
+        crate::claims::ClaimFields::from_declarations([(
+            "concept".to_string(),
+            vec!["claim_tag".to_string()],
+        )])
+    }
+
+    /// The finding: a claim at the strongest standing, and nothing registered beneath it.
+    #[test]
+    fn a_verified_claim_with_no_citation_is_reported() {
+        let nodes = vec![corpus_node(
+            "a",
+            "class: c\ndescription: |\n  A statement. [verified]\nlinks:\n  \
+             - target: ../concept.ont.yml\n",
+        )];
+        let c = verified_unsourced(&nodes, &[catalog_source("nwis", true)], &claim_fields());
+        assert_eq!(c.violations.len(), 1);
+        assert_eq!(c.violations[0].node, ".yidam/corpus/concept/a.yml");
+        assert!(
+            c.violations[0].detail.contains("1 `[verified]` claim"),
+            "{:?}",
+            c.violations[0]
+        );
+    }
+
+    /// A link that resolves to a catalog entry is what "rests on something" means, and it is
+    /// the same resolution `citations` performs.
+    #[test]
+    fn a_verified_claim_citing_a_source_is_not_reported() {
+        let nodes = vec![corpus_node(
+            "a",
+            "class: c\ndescription: |\n  A statement. [verified]\nlinks:\n  \
+             - target: ../../catalog/nwis.md\n",
+        )];
+        let c = verified_unsourced(&nodes, &[catalog_source("nwis", true)], &claim_fields());
+        assert!(c.passed(), "{:?}", c.violations);
+    }
+
+    /// The vocabulary's other two standings assert nothing this check is about. A corpus
+    /// that is honest about what it does not know must not be reported for it.
+    #[test]
+    fn an_inference_or_an_open_question_is_not_reported() {
+        let nodes = vec![
+            corpus_node(
+                "a",
+                "class: c\ndescription: |\n  A conclusion. [inference]\nlinks: []\n",
+            ),
+            corpus_node(
+                "b",
+                "class: c\ndescription: |\n  A question. [open]\nlinks: []\n",
+            ),
+        ];
+        let c = verified_unsourced(&nodes, &[catalog_source("nwis", true)], &claim_fields());
+        assert!(c.passed(), "{:?}", c.violations);
+    }
+
+    /// A node-level standing declared in a `type: claim` property is a claim too — the
+    /// structural arm, which a text-only scan misses entirely.
+    #[test]
+    fn a_structural_claim_tag_counts() {
+        let nodes = vec![corpus_node(
+            "a",
+            "class: c\ndescription: |\n  Prose with no marker.\nproperties:\n  \
+             claim_tag: verified\nlinks: []\n",
+        )];
+        let c = verified_unsourced(&nodes, &[catalog_source("nwis", true)], &claim_fields());
+        assert_eq!(c.violations.len(), 1, "the structural arm read nothing");
+    }
+
+    /// A `cites:` into a dependency does not discharge a local `[verified]`. RFC-0019: a
+    /// foreign tag is the producer's, records what *that* corpus's electors accepted, and
+    /// travels without the apparatus that made it accountable.
+    #[test]
+    fn a_citation_into_a_dependency_does_not_count_as_a_source() {
+        let nodes = vec![corpus_node(
+            "a",
+            "class: c\ndescription: |\n  A statement. [verified]\ncites:\n  \
+             - package: upstream\n    node: concept/x.yml\n    tag: verified\nlinks: []\n",
+        )];
+        let c = verified_unsourced(&nodes, &[catalog_source("nwis", true)], &claim_fields());
+        assert_eq!(c.violations.len(), 1);
+        assert!(
+            c.violations[0].detail.contains("does not transfer"),
+            "the finding should say why a foreign tag is not enough: {:?}",
+            c.violations[0]
+        );
+    }
+
+    /// Several claims in one node are one finding. The baseline compares on `(check, node)`,
+    /// so a node cannot carry two entries for the same check — and the count is what a
+    /// reader needs, not five identical lines.
+    #[test]
+    fn several_verified_claims_in_one_node_are_one_finding() {
+        let nodes = vec![corpus_node(
+            "a",
+            "class: c\ndescription: |\n  One. [verified] Two. [verified] Three. \
+             [verified]\nlinks: []\n",
+        )];
+        let c = verified_unsourced(&nodes, &[catalog_source("nwis", true)], &claim_fields());
+        assert_eq!(c.violations.len(), 1);
+        assert!(
+            c.violations[0].detail.starts_with("3 `[verified]` claims"),
+            "{:?}",
+            c.violations[0]
+        );
+    }
+
+    /// A corpus with no catalog at all reports every verified claim, which is correct and is
+    /// the state a corpus is in before it registers its first source.
+    #[test]
+    fn with_no_registered_sources_every_verified_claim_is_reported() {
+        let nodes = vec![corpus_node(
+            "a",
+            "class: c\ndescription: |\n  A statement. [verified]\nlinks: []\n",
+        )];
+        let c = verified_unsourced(&nodes, &[], &claim_fields());
+        assert_eq!(c.violations.len(), 1);
+    }
+
+    /// It reports and does not gate. Adopting it must not break the build of every corpus
+    /// that predates it, and the fix — a citation or a demotion — is an author's judgement.
+    #[test]
+    fn the_check_reports_rather_than_gates() {
+        let nodes = vec![corpus_node(
+            "a",
+            "class: c\ndescription: |\n  A statement. [verified]\nlinks: []\n",
+        )];
+        let c = verified_unsourced(&nodes, &[], &claim_fields());
+        assert_eq!(c.severity, Severity::Warn);
+        assert!(!c.gates(&c.violations[0]));
     }
 
     #[test]

@@ -5,7 +5,7 @@ description: |
   aquatic habitat are all most sensitive to, and the one a mean annual discharge hides.
 
   In United States regulatory practice the canonical summary statistic is **7Q10**: the
-  annual minimum seven-day mean discharge with a ten-year recurrence interval. [verified]
+  annual minimum seven-day mean discharge with a ten-year recurrence interval. [inference]
   Seven days rather than one because a single-day minimum is dominated by measurement noise
   and by sub-daily operations; ten years because it is the interval most state
   water-quality standards were written against. [inference]

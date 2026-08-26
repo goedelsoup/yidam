@@ -149,6 +149,23 @@
       "violations": []
     },
     {
+      "id": "verified-unsourced",
+      "title": "A claim asserted at `[verified]` that rests on nothing",
+      "severity": "warn",
+      "rationale": "`[verified]` means supported by a committed primary source. A node asserting one while linking to no catalog entry has claimed a standing it cannot demonstrate. This is the one direction the claim vocabulary exists to prevent: over-counting evidence is the flattering error, and a mature corpus measured eight miscounts of which all eight promoted. The catalog checks beside this one verify the catalog's own bookkeeping; this is the only one that asks whether a claim rests on anything. The fix is a citation or a demotion, and which of the two is the author's call — nothing here proposes a promotion, ever.",
+      "violations": [
+        {
+          "node": ".yidam/corpus/gauge/riffle-station.yml",
+          "detail": "1 `[verified]` claim, and this node draws on no source",
+          "severity": "warn",
+          "in_baseline": false,
+          "span": {
+            "line": 4
+          }
+        }
+      ]
+    },
+    {
       "id": "catalog-unobtained-but-cited",
       "title": "Source nobody has fetched, cited anyway",
       "severity": "error",
