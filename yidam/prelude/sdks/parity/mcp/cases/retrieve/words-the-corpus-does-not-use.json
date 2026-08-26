@@ -1,0 +1,14 @@
+{
+  "tool": "retrieve",
+  "why": "The keyword arm's honest answer, and the one an agent most needs distinguished from coverage. The fixture has four nodes and discusses none of them in these words, so the search read every one of them and matched nothing — which is a statement about the words rather than about what the corpus knows. `instances` is 4 and not 0: that is the whole difference between this and `class-unpopulated`, and a server reporting either code for the other's situation tells a caller the opposite of what happened. A corpus that covers the subject in different words answers exactly this way, which is why the message must not be read as 'no coverage'.",
+  "call": { "query": "hydropeaking ramping rates" },
+  "expect": {
+    "fields": ["rejected", "absence", "results"],
+    "equalsAt": {
+      "rejected": null,
+      "absence.code": "no-term-match",
+      "absence.instances": 4
+    },
+    "count": { "results": 0 }
+  }
+}

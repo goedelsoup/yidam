@@ -128,10 +128,20 @@ fn edit_distance_1(a: &str, b: &str) -> bool {
 }
 
 fn nearest_class(name: &str, schema: &Schema) -> String {
-    match near_miss(name, schema.names().into_iter()) {
+    nearest(name, &schema.names())
+}
+
+/// The near-miss clause, over any set of declared names.
+///
+/// Shared with `retrieve`'s class filter (#334), which validates against the server's loaded
+/// class stems rather than against a [`Schema`]. Two tools that reject the same misspelling
+/// with two different sentences — or with two different notions of "near" — would be two
+/// answers to one question, and the second copy is the one that stops matching the first.
+pub(crate) fn nearest(name: &str, declared: &[&str]) -> String {
+    match near_miss(name, declared.iter().copied()) {
         Some(near) => format!(" — did you mean `{near}`?"),
         None => {
-            let mut names = schema.names();
+            let mut names = declared.to_vec();
             names.sort_unstable();
             format!(" — declared classes: {}", names.join(", "))
         }
