@@ -163,6 +163,23 @@ pub fn corpus_ontology_schema() -> Value {
                                 reads an unrecognized value as absent rather than gating on \
                                 a typo."
             },
+            "max_lines": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "The longest an instance of this class may be, in lines. \
+                                `node-too-long` reports an instance over it and does not \
+                                gate; a class that omits the field is not checked at all. \
+                                There is no default, and that is measured rather than \
+                                timid: the bootstrap rubric caps a node at 40 lines and 335 \
+                                of 410 nodes across five real corpora exceed it once they \
+                                have grown, while the same corpora at genesis run to a \
+                                median of 35. The length an instance should be is a \
+                                question about the class — a statutory obligation quoting \
+                                the text it arises from is not the length of a person — so \
+                                the class is where the number lives. Declared here so a \
+                                misspelling is underlined as it is typed rather than \
+                                silently read as no ceiling at all."
+            },
             "edges": {
                 "type": "array",
                 "default": [],

@@ -447,7 +447,7 @@ description = "Rename a corpus node, rewriting every edge into it — `mise run 
 run = "yidam rename"
 
 [graph-lint]
-description = "Lint the corpus against the baseline ratchet: 13 checks over nodes, edges, catalog, classes, and tables."
+description = "Lint the corpus against the baseline ratchet: 31 checks over nodes, edges, catalog, classes, and tables."
 run = "yidam lint"
 
 [graph-lint-explain]

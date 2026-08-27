@@ -520,6 +520,8 @@ mod tests {
                 Some("exhaustive") => EdgePolicy::Exhaustive,
                 _ => EdgePolicy::Unstated,
             },
+            // This fixture builds classes for reachability, which no ceiling affects.
+            max_lines: None,
         }
     }
 
