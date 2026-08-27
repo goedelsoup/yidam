@@ -65,7 +65,7 @@
       "id": "missing-property",
       "title": "Declared property the instance omits",
       "severity": "warn",
-      "rationale": "The commonest cause is a class that grew a field its instances never did — invisible to every reader and obvious in a list. Reported rather than gated because the ontology has no `required` field: it cannot say whether every instance carries a property or merely may, and a node that makes no tagged claim is a real state, not a defect. Its four siblings gate; they report the ontology being contradicted, and an omission contradicts nothing.",
+      "rationale": "The commonest cause is a class that grew a field its instances never did — invisible to every reader and obvious in a list. A property declared `required: true` GATES: the class wrote that contract, and an instance omitting it contradicts the ontology, which is what this check's four siblings gate on. Everything else is reported, because a class that said nothing about a property cannot be read as demanding it — a node that makes no tagged claim is a real state, not a defect, and gating on omission would assert a contract nobody wrote.",
       "violations": [
         {
           "node": ".yidam/corpus/concept/low-flow.yml",

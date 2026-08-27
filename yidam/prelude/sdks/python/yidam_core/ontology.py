@@ -38,6 +38,13 @@ class OntologyProperty:
     #: ``string``, ``text``, ``date``, ``ref``, ``claim`` — or a type this corpus coined.
     type: str = ""
     description: str = ""
+    #: Whether every instance of the class must carry this property.
+    #:
+    #: **Absent means false**, and not out of timidity: every corpus written before this
+    #: field existed was written under a schema where the question could not be asked.
+    #: Defaulting to ``True`` would require a declaration nobody made, in every derived
+    #: repository at once. It is what lets ``missing-property`` gate at all.
+    required: bool = False
 
 
 @dataclass
@@ -134,6 +141,7 @@ def parse_class(name: str, content: str) -> OntologyClass:
                 name=_str(p.get("name")),
                 type=_str(p.get("type")),
                 description=_str(p.get("description")),
+                required=p.get("required") is True,
             )
             for p in _mappings(doc.get("properties"))
         ],
@@ -176,9 +184,11 @@ def _property_schema(property_type: str) -> Any:
 def compile_class_schema(cls: OntologyClass) -> dict[str, Any]:
     """Compile a class definition into a JSON Schema for its instances.
 
-    Two things it deliberately does not constrain. **No declared property is required** —
-    ``missing-property`` reports and does not gate, so demanding them would reject
-    instances the gate accepts. **``links[].relationship`` is left open** — the gate
+    Two things about strictness. **A declared property is required only where the class
+    says ``required: true``** — the compiled schema must be no stricter than the gate, and
+    ``missing-property`` gates on exactly those and warns for the rest, so the same
+    declaration decides both and neither can outrun the other. **``links[].relationship``
+    is left open** — the gate
     licenses a relationship only for edges landing on another instance, and JSON Schema
     cannot resolve a path, so a constraint here would reject the ``instance-of`` link every
     instance is required to carry. The declared relationships are published as
@@ -204,12 +214,17 @@ def compile_class_schema(cls: OntologyClass) -> dict[str, Any]:
             if isinstance(body, dict) and p.description:
                 body = {**body, "description": p.description}
             declared[p.name] = body
-        properties["properties"] = {
-            "type": "object",
-            "properties": declared,
-            # Closed, matching `undeclared-property`, which gates.
-            "additionalProperties": False,
-        }
+        bag: dict[str, Any] = {"type": "object", "properties": declared}
+        # Emitted for exactly the properties declared `required: true`, and omitted
+        # entirely when there are none — an empty `required: []` would be a different
+        # document for the same meaning, and these schemas are compared byte for byte
+        # across three languages.
+        required = [p.name for p in cls.properties if p.required]
+        if required:
+            bag["required"] = required
+        # Closed, matching `undeclared-property`, which gates.
+        bag["additionalProperties"] = False
+        properties["properties"] = bag
 
     schema["properties"] = properties
     schema["required"] = ["class"]

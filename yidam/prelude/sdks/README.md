@@ -107,6 +107,7 @@ OntologyProperty
   type        : string             — string | text | date | ref | claim, or a type this
                                      corpus coined, which is carried through unconstrained
   description : string
+  required    : boolean            — must every instance carry it? absent means false
 
 OntologyEdge
   relationship : string
@@ -116,9 +117,10 @@ OntologyEdge
 ```
 
 `compileClassSchema` turns one of these into a JSON Schema for its instances. It is
-deliberately **no stricter than `yidam lint`**: declared properties are typed but never
-`required` (because `missing-property` reports and does not gate), the property bag is
-closed only when the class declared any (matching `undeclared-property`, which does gate),
+deliberately **no stricter than `yidam lint`**: declared properties are typed, and listed as
+`required` for exactly those the class declared `required: true` — the same declaration
+`missing-property` gates on, so the schema and the gate cannot come apart — the property bag
+is closed only when the class declared any (matching `undeclared-property`, which does gate),
 and `links[].relationship` is not constrained at all — the gate licenses a relationship only
 for edges landing on another instance, and JSON Schema cannot resolve a path. The declared
 relationships are published as `x-yidam-edges` for completion instead of as a rule.

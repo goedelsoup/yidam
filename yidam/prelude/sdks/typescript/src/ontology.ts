@@ -18,6 +18,15 @@ export interface OntologyProperty {
   /** `string`, `text`, `date`, `ref`, `claim` — or a type this corpus coined. */
   type: string
   description: string
+  /**
+   * Whether every instance of the class must carry this property.
+   *
+   * **Absent means false**, and not out of timidity: every corpus written before this field
+   * existed was written under a schema where the question could not be asked. Defaulting to
+   * `true` would require a declaration nobody made, in every derived repository at once. It
+   * is what lets `missing-property` gate at all.
+   */
+  required: boolean
 }
 
 export interface OntologyEdge {
@@ -78,6 +87,7 @@ export function parseClass(name: string, content: string): OntologyClass {
       name: str(p.name),
       type: str(p.type),
       description: str(p.description),
+      required: p?.required === true,
     })),
     edges: list(doc.edges).map((e) => ({
       relationship: str(e.relationship),
@@ -158,9 +168,10 @@ function propertySchema(type: string): unknown {
 /**
  * Compile a class definition into a JSON Schema for its instances.
  *
- * Two things it deliberately does not constrain. **No declared property is `required`** —
- * `missing-property` reports and does not gate, so demanding them would reject instances
- * the gate accepts. **`links[].relationship` is left open** — the gate licenses a
+ * Two things about strictness. **A declared property is `required` only where the class says
+ * `required: true`** — the compiled schema must be no stricter than the gate, and
+ * `missing-property` gates on exactly those and warns for the rest, so the same declaration
+ * decides both and neither can outrun the other. **`links[].relationship` is left open** — the gate licenses a
  * relationship only for edges landing on another instance, and JSON Schema cannot resolve a
  * path, so a constraint here would reject the `instance-of` link every instance carries.
  * The declared relationships are published as `x-yidam-edges` for completion instead.
@@ -187,9 +198,14 @@ export function compileClassSchema(cls: OntologyClass): Record<string, unknown> 
           ? { ...body, description: p.description }
           : body
     }
+    // Emitted for exactly the properties declared `required: true`, and omitted entirely
+    // when there are none — an empty `required: []` would be a different document for the
+    // same meaning, and these schemas are compared byte for byte across three languages.
+    const required = cls.properties.filter((p) => p.required).map((p) => p.name)
     properties.properties = {
       type: 'object',
       properties: declared,
+      ...(required.length > 0 ? { required } : {}),
       // Closed, matching `undeclared-property`, which gates.
       additionalProperties: false,
     }

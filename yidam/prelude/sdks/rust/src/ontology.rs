@@ -61,6 +61,18 @@ pub struct OntologyProperty {
     pub property_type: String,
     #[serde(default)]
     pub description: String,
+    /// Whether every instance of the class must carry this property.
+    ///
+    /// **Absent means false**, and not out of timidity: every corpus written before this
+    /// field existed was written under a schema where the question could not be asked.
+    /// Defaulting to `true` would require a declaration nobody made, in every derived
+    /// repository at once — a gate arriving in a corpus that never agreed to it.
+    ///
+    /// It is what lets `missing-property` gate at all. Without it the check cannot tell
+    /// *every instance of this class has this* from *an instance may have this*, and gating
+    /// on the second reading asserts a contract the ontology never wrote.
+    #[serde(default)]
+    pub required: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -198,12 +210,19 @@ fn property_schema(property_type: &str) -> Value {
 
 /// Compile a class definition into a JSON Schema for its instances.
 ///
-/// # What it does not constrain, and why
+/// # What it constrains, and what it does not
 ///
-/// **`required` is never emitted for a declared property.** `missing-property` reports and
-/// does not gate — the declaration has no `required` field, so it cannot say whether every
-/// instance carries a property or merely may. A schema demanding them would reject
-/// instances the gate accepts, which is the drift this compiler exists to prevent.
+/// **`required` is emitted for exactly the properties declared `required: true`** (#301).
+/// The compiled schema must be no stricter than the gate: before the declaration existed
+/// this list was always empty, because `missing-property` could only warn — it could not
+/// tell *every instance carries this* from *an instance may* — and a schema demanding a
+/// declared property would have rejected instances the gate accepts. The declaration now
+/// answers that question once, and `missing-property` gates on the same answer, so the two
+/// move together rather than one outrunning the other.
+///
+/// An empty list is omitted rather than written as `required: []`: that would be a
+/// different document for the same meaning, and these schemas are compared byte for byte
+/// against the Python and TypeScript compilers.
 ///
 /// **`links[].relationship` is left open.** The gate licenses a relationship only for edges
 /// that land on another *instance*: a link to `../<class>.ont.yml` or into the catalog is a
@@ -245,15 +264,27 @@ pub fn compile_class_schema(class: &OntologyClass) -> Value {
             }
             declared.insert(p.name.clone(), schema);
         }
-        properties.insert(
-            "properties".into(),
-            json!({
-                "type": "object",
-                "properties": Value::Object(declared),
-                // Closed, matching `undeclared-property`, which gates.
-                "additionalProperties": false
-            }),
-        );
+        let mut bag = Map::new();
+        bag.insert("type".into(), json!("object"));
+        bag.insert("properties".into(), Value::Object(declared));
+        // **Emitted for exactly the properties declared `required: true`.** The compiled
+        // schema must be no stricter than the gate: before the declaration existed this
+        // list was always empty, because `missing-property` could only warn and a schema
+        // that required a declared property would have underlined, in the editor, an
+        // omission the gate accepts. Now the two move together — the same declaration
+        // decides both, so neither can outrun the other.
+        let required: Vec<Value> = class
+            .properties
+            .iter()
+            .filter(|p| p.required)
+            .map(|p| json!(p.name))
+            .collect();
+        if !required.is_empty() {
+            bag.insert("required".into(), Value::Array(required));
+        }
+        // Closed, matching `undeclared-property`, which gates.
+        bag.insert("additionalProperties".into(), json!(false));
+        properties.insert("properties".into(), Value::Object(bag));
     }
 
     root.insert("properties".into(), Value::Object(properties));

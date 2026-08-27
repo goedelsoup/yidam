@@ -94,6 +94,14 @@ pub struct ClassProperty {
     /// `string`, `text`, `date`, `ref`, `claim` — or anything else, which is unchecked.
     #[serde(default)]
     pub r#type: String,
+    /// Whether every instance of the class must carry this property (#301).
+    ///
+    /// **Absent means false.** Every corpus predating this field was written under a schema
+    /// where the question could not be asked, so defaulting to `true` would gate every class
+    /// in every derived repository on a declaration nobody made — a gate arriving in a
+    /// corpus that never agreed to it, which is #257 from the other direction.
+    #[serde(default)]
+    pub required: bool,
 }
 
 /// One relationship a class declares.
@@ -795,13 +803,28 @@ pub fn missing_property(nodes: &[Node], classes: &[Class]) -> Check {
             if carried.iter().any(|(k, _)| *k == declared.name) {
                 continue;
             }
-            violations.push(Violation::new(
+            // The severity is a function of the DECLARATION, not a blanket judgement about
+            // omissions — the shape `orphan-in` already has, where residence time rather
+            // than the check's level decides. A class that said `required: true` has
+            // written the contract this instance contradicts, and contradiction is what the
+            // other four checks gate on. A class that said nothing has not, and gating
+            // there would assert a contract the ontology never wrote.
+            let violation = Violation::new(
                 &n.rel,
                 format!(
-                    "`{}` is declared by `{}` and this instance does not carry it",
-                    declared.name, class.rel
+                    "`{}` is declared by `{}`{} and this instance does not carry it",
+                    declared.name,
+                    class.rel,
+                    match declared.required {
+                        true => " as `required: true`",
+                        false => "",
+                    }
                 ),
-            ));
+            );
+            violations.push(match declared.required {
+                true => violation.at(Severity::Error),
+                false => violation,
+            });
         }
     }
     Check::new(
@@ -809,11 +832,12 @@ pub fn missing_property(nodes: &[Node], classes: &[Class]) -> Check {
         "Declared property the instance omits",
         Severity::Warn,
         "The commonest cause is a class that grew a field its instances never did — \
-         invisible to every reader and obvious in a list. Reported rather than gated \
-         because the ontology has no `required` field: it cannot say whether every \
-         instance carries a property or merely may, and a node that makes no tagged claim \
-         is a real state, not a defect. Its four siblings gate; they report the ontology \
-         being contradicted, and an omission contradicts nothing.",
+         invisible to every reader and obvious in a list. A property declared \
+         `required: true` GATES: the class wrote that contract, and an instance omitting it \
+         contradicts the ontology, which is what this check's four siblings gate on. \
+         Everything else is reported, because a class that said nothing about a property \
+         cannot be read as demanding it — a node that makes no tagged claim is a real \
+         state, not a defect, and gating on omission would assert a contract nobody wrote.",
         violations,
     )
 }
@@ -2769,6 +2793,70 @@ edges:
             class_from("concept", "properties: []\nedges: []\n"),
         ];
         (nodes, classes)
+    }
+
+    /// The severity is a function of the declaration (#301).
+    ///
+    /// Two omissions, one check, two severities. `parameter` is declared `required: true`,
+    /// so leaving it out contradicts a contract the class wrote and gates like this check's
+    /// four siblings do. `claim_tag` says nothing about being required, so leaving it out
+    /// contradicts nothing and is reported — a node that makes no tagged claim is a real
+    /// state, and the parity fixture depends on it staying one.
+    #[test]
+    fn missing_property_gates_on_required_and_reports_on_the_rest() {
+        let declaring = "properties:\n  - name: parameter\n    type: string\n    required: \
+                         true\n  - name: claim_tag\n    type: claim\nedges: []\n";
+        let nodes = vec![node(
+            ".yidam/corpus/gage/outlet.yml",
+            "class: gage\nlinks: []\n",
+        )];
+        let classes = vec![class_from("gage", declaring)];
+
+        let c = missing_property(&nodes, &classes);
+        assert_eq!(c.violations.len(), 2, "{c:#?}");
+        assert_eq!(
+            c.severity,
+            Severity::Warn,
+            "the check's own level stays Warn; only the declared-required finding rises"
+        );
+
+        let by_name = |want: &str| {
+            c.violations
+                .iter()
+                .find(|v| v.detail.contains(want))
+                .unwrap_or_else(|| panic!("no finding mentions {want}: {c:#?}"))
+        };
+        assert_eq!(c.severity_of(by_name("parameter")), Severity::Error);
+        assert_eq!(c.severity_of(by_name("claim_tag")), Severity::Warn);
+
+        // The block heading must not read WARN above a finding that fails the build.
+        assert_eq!(c.effective_severity(), Severity::Error);
+    }
+
+    /// Absent means false, and it has to be read off the file rather than assumed.
+    ///
+    /// Every corpus predating the field was written where the question could not be asked,
+    /// so a parser defaulting the other way would gate every class in every derived
+    /// repository on a declaration nobody made.
+    #[test]
+    fn a_property_that_says_nothing_about_being_required_does_not_gate() {
+        let nodes = vec![node(
+            ".yidam/corpus/gage/outlet.yml",
+            "class: gage\nlinks: []\n",
+        )];
+        let classes = vec![class_from(
+            "gage",
+            "properties:\n  - name: parameter\n    type: string\nedges: []\n",
+        )];
+
+        let c = missing_property(&nodes, &classes);
+        assert_eq!(c.violations.len(), 1);
+        assert_eq!(c.severity_of(&c.violations[0]), Severity::Warn);
+        assert!(
+            !c.violations[0].detail.contains("required"),
+            "a finding about a property nobody required must not mention requirement: {}",
+            c.violations[0].detail
+        );
     }
 
     /// The instance carries a field the class never named. It reads as data and is

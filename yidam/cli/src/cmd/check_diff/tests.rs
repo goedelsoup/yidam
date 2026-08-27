@@ -13,6 +13,9 @@ fn class(name: &str, properties: &[&str], edges: &[&str]) -> Class {
             .map(|p| ClassProperty {
                 name: p.to_string(),
                 r#type: "string".to_string(),
+                // These fixtures are about which properties a class declares across two
+                // commits, not about whether an instance must carry them.
+                required: false,
             })
             .collect(),
         edges: edges
