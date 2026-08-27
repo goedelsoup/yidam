@@ -72,7 +72,7 @@ tag committed, which is what makes it the same binary the release was built from
 cargo re-resolves every dependency:
 
 ```sh
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.3.0 --locked yidam
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.4.0 --locked yidam
 ```
 
 Either way, `yidam --version` should answer, naming the build and the features it carries.
