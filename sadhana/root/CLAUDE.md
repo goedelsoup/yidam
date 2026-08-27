@@ -26,8 +26,10 @@ that govern conduct here and the gate that CI runs.
 ## Before committing
 
 ```
-mise run graph-check     # orphans, broken links, missing labels
 mise run regen           # refresh REGEN blocks, then commit the result as `regen:`
+mise run ci              # graph-check, graph-lint, regen --check — the whole gate
 ```
 
-Both run in CI. A stale REGEN block is a failing build.
+`mise run ci` is what CI runs, and the two are held together by a test upstream. Run it
+rather than its parts: `graph-check` reads the graph and says nothing about a stale REGEN
+block, which is a failing build all the same.

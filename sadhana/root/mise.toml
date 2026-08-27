@@ -79,15 +79,23 @@ cargo fmt --all --manifest-path crates/Cargo.toml
 """
 
 # ── ci ────────────────────────────────────────────────────────────────────
-# The local equivalent of what .github/workflows/ci.yml runs. `graph-check`
-# comes from mise.yidam.toml and works from the genesis commit onward, before
-# any crate exists.
+# The local equivalent of what .github/workflows/ci.yml runs, and "equivalent"
+# is checked rather than intended: `the_local_gate_runs_what_ci_gates_on` reads
+# both files and holds them together. It ran `graph-check` alone for a while
+# and CI's corpus job ran three gates, so a repository could pass the gate its
+# own README tells it to run first and fail the build on the next push — with
+# `regen --check`, on generated content nobody had written.
+#
+# These come from mise.yidam.toml and work from the genesis commit onward,
+# before any crate exists.
 
 [tasks.ci]
 description = "Full local gate: corpus graph check, then the domain computer."
 run = """
 set -eu
 mise run graph-check
+mise run graph-lint
+mise run regen-check
 if [ ! -f crates/Cargo.toml ]; then
   echo
   echo "no crates/Cargo.toml yet — the domain computer does not exist."

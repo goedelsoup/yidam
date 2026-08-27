@@ -80,9 +80,14 @@ baseline by merge, not rebase: `adopt: the baseline after <evolution>`.
 
 ## The gate
 
-`mise run graph-check` and `mise run graph-lint` are what CI runs. A commit that breaks an
-edge, orphans a node, or leaves a REGEN block stale will fail there. Run them before
-committing rather than after.
+`mise run ci` is what CI runs: `graph-check`, `graph-lint`, and `regen --check`. A commit
+that breaks an edge, orphans a node, or leaves a REGEN block stale fails there. Run it
+before committing rather than after.
+
+Run the composite rather than its parts. Each catches something the others do not —
+`graph-check` reads the graph and is blind to a stale REGEN block; `regen --check` reads
+generated content and is blind to a broken edge — and the set is held to CI's by a test
+upstream, so it stays right when a gate is added.
 
 `yidam lint` gates against `.yidam/lint-baseline.yml`, not against zero. It asks whether
 *this change* made the corpus less clean, because a gate that fails on inherited debt gets
