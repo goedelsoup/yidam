@@ -108,7 +108,7 @@ The protocol version is a `const` in the harness crate:
 
 ```rust
 // yidam/tests/harness/yidam-harness/src/lib.rs
-pub const PROTOCOL_VERSION: &str = "0.3.0";
+pub const PROTOCOL_VERSION: &str = "0.4.0";
 ```
 
 Every result snapshot records the protocol version it was taken under. Regression
@@ -130,6 +130,17 @@ commits the new baseline snapshots.
 | Patch | Rubric clarification; new optional scenario field |
 | Minor | New structural check (S-check) added; existing passing repos still pass |
 | Major | Existing S-check removed or changed; genesis commit requirements changed; snapshot format changed |
+
+**0.3.0 → 0.4.0.** S4 changed meaning: it accepts the verbs step 8's commit-sequence block
+actually names — `establish:` and `implement:` from step 7, `regen:` from step 8.5 — where it
+had accepted only `consume:` and `vendor:` after the root. A major by the table above: an
+existing S-check changed, and it changed so that a history which used to fail now passes.
+A run that followed the bootstrap skill exactly could not pass S4, and had not been able to
+for as long as step 7 has prescribed those commits. It went unseen because the only baseline
+the harness holds produced none of the three — its scenario approved no implied edges, folded
+its stubs into the genesis commit, and predates step 8.5. Reported by a derived repository,
+which hit it on its first bootstrap. The verb list is now pinned to the skill's own block in
+both directions rather than maintained by remembering.
 
 **0.2.0 → 0.3.0.** Q8 added — *edges assert only relationships the domain supports*. Found by
 the harness itself: the first committed baseline passed all seven structural checks and was

@@ -26,7 +26,14 @@ use std::path::{Path, PathBuf};
 /// a clarification because the judge is held to exactly the criteria the rubric states — a
 /// snapshot taken under 0.2.0 carries seven bands where one taken under 0.3.0 carries eight,
 /// and comparing them would report an absence as a result.
-pub const PROTOCOL_VERSION: &str = "0.3.0";
+///
+/// 0.3.0 → 0.4.0 widens what S4 accepts after the root commit to the verbs step 8's
+/// commit-sequence block actually names — `establish:` and `implement:` from step 7, `regen:`
+/// from step 8.5 — where it had accepted only `consume:` and `vendor:`. A major by the table:
+/// an existing check changed meaning, and it changed in the direction that makes a history
+/// which used to fail now pass. A pass→fail comparison across this boundary would say the
+/// check moved rather than that the model got worse, which is exactly what `diff` refuses.
+pub const PROTOCOL_VERSION: &str = "0.4.0";
 
 /// Where the rubric and the judge's guidance live, relative to the template root. Held out
 /// from the worktree; read from the repository the harness itself runs in.

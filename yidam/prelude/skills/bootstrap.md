@@ -593,15 +593,41 @@ instances to produce a meaningful result, run it now and commit the output with 
 
 The stub should describe what it computes, which corpus nodes it reads, and what it returns.
 
-Commit implied edges as a single `establish:` commit — they are understanding the
-ontology entailed and nobody had written down. Commit any remaining connector and
-calculator stubs together as one `implement:` commit; a stub is structure, not a finding.
+**Do not commit anything in this step.** The implied edges are an `establish:` — understanding
+the ontology entailed and nobody had written down — and the remaining stubs are an
+`implement:`, because a stub is structure and not a finding. Both are written in step 8,
+after the genesis commit, for the reason a root commit cannot have a parent. Step 8 states
+the whole sequence in one place; this step's job is to leave the working tree in the state
+those two commits describe.
 
 ### 8. Write the genesis commit and consume transient layers
 
+**The commit sequence.** Everything a bootstrap writes, in order. This block is the whole
+list — no step writes a commit that is not here, and the harness reads these verbs to decide
+whether a history is a bootstrap's:
+
+```
+genesis     the root commit — schema, instances, decision records, .yidam/ structure
+establish   the implied edges wired in step 7 — omit if none were approved
+implement   the connector and calculator stubs from step 7 — omit if none remained
+consume     samudaya
+consume     sadhana
+vendor      the prelude, into .yidam/.vendor/
+regen       the generated blocks, from step 8.5
+```
+
+Two of the seven are conditional and the rest are not. `establish:` and `implement:` are
+skipped when step 5 approved nothing of that kind — that is a corpus with no implied edges
+and no stubs, not a deviation.
+
+`establish:` and `implement:` come *after* `genesis:` and not before, which is the opposite
+of the order their steps appear in. A root commit has no parent; there is nowhere to put
+them. Step 7 does the work and step 8 records it.
+
 **Genesis commit** — stage and commit all class definitions (`.ont.yml`), seed instances,
-decision records, scaffolded skill stubs, and the `.yidam/` directory structure as a single
-genesis commit. Do not include `sadhana/` or `samudaya/` in this commit.
+decision records, and the `.yidam/` directory structure as a single genesis commit. Do not
+include `sadhana/` or `samudaya/` in this commit, and do not include the step 7 stubs — they
+are the `implement:` commit below.
 
 The message should name the domain, summarize the class schema, and describe what seed
 objects were created and how they connect — naming at least one specific relationship, not
@@ -614,7 +640,13 @@ pre-existing commit count: `overlay: <domain> — yidam applied to N-commit repo
 classes; K instances seeded`. This marks the graph's origin without misrepresenting the repo
 history.
 
-**Consume samudaya** — after the genesis commit is written, delete `samudaya/`. Skip if
+**`establish:` and `implement:`** — write them now, in that order, if step 7 produced
+anything for them. The `establish:` message says which edges were wired and why each holds;
+the `implement:` message names each stub and what it is a stub *for*. If an edge approved in
+step 5 was not written because it could not be defended, say so here rather than letting it
+disappear.
+
+**Consume samudaya** — after those commits are written, delete `samudaya/`. Skip if
 `samudaya/` does not exist (typical in existing-repo mode).
 
 First try the tracked path:

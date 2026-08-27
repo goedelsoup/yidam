@@ -13,10 +13,22 @@ A **node** is an instance file — `.yidam/corpus/<class>/<instance>.yml`. A `<c
 at the top of the corpus is a class definition, not a node of itself, and links are the
 entries of an instance's `links:` list resolved against the file that declares them.
 
-The **genesis sequence** is what step 8 of the bootstrap skill writes and step 9 refuses to
-begin without: a `genesis:` root (`overlay:` in existing-repo mode), then a `consume:` commit
-per transient layer, then `vendor:`. S4 asked for exactly one commit until protocol 0.2.0,
-which no correct run has ever produced.
+The **genesis sequence** is the commit-sequence block in step 8 of the bootstrap skill: a
+`genesis:` root (`overlay:` in existing-repo mode), then `establish:`, `implement:`,
+`consume:` twice, `vendor:`, `regen:`. S4 holds its own copy of those verbs and a test pins
+the copy to the block, for the same reason the S descriptions are pinned rather than read —
+two transcriptions are a problem when each is pinned only by itself.
+Two of those are conditional — `establish:` and `implement:` are skipped by a corpus with no
+implied edges and no stubs.
+
+S4 has been wrong about that sequence twice. It asked for exactly one commit until protocol
+0.2.0, which no correct run has ever produced; then it accepted `consume:` and `vendor:` and
+nothing else, until protocol 0.4.0, while step 7 instructed an `establish:` and an
+`implement:` and step 8.5 a `regen:` — so a run following the skill exactly could not pass.
+Both times the error survived because the harness's only baseline happened not to produce the
+missing case. The list is now held to the skill in both directions by
+`the_verbs_s4_accepts_are_the_verbs_bootstrap_writes`, which is the check that was missing;
+widening the list is not.
 
 These rows are the source. `check.rs` reports each check under the sentence written here and
 a test pins the two together, so a check whose description drifts from its row fails the
