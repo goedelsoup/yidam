@@ -365,3 +365,57 @@ fn the_derived_gitignore_names_no_directory_this_repository_lacks() {
         absent.join("\n")
     );
 }
+
+/// `git add -A` after `mise run yidam-build` stages no cargo bookkeeping.
+///
+/// `yidam-build` runs `cargo install --force --root "$PWD/.yidam"`, and
+/// `cargo install --root DIR` writes three things: `DIR/bin/<binary>`, `DIR/.crates.toml`,
+/// and `DIR/.crates2.json`. The inherited `.gitignore` covered one of the three. Both
+/// bootstrap and `PROTOCOL.md` prescribe `git add -A`, so the window between the first build
+/// and the next prescribed commit was one command wide — and nothing in it would look wrong:
+/// two dotfiles under a directory already full of infrastructure.
+///
+/// `.yidam/` is not an ordinary build directory. It is the corpus root. Machine state
+/// committed there is in every clone forever.
+///
+/// Asserted through git rather than by matching strings in the ignore file, because the
+/// question is what git does with the rule and not what the rule says. The second half is
+/// the over-reach check: a rule broad enough to swallow `.yidam/` wholesale would pass the
+/// first assertion and take the corpus with it.
+#[test]
+fn a_prescribed_git_add_stages_no_cargo_install_bookkeeping() {
+    let repo = Derived::bootstrap();
+    let root = repo.path();
+
+    // What `cargo install --root .yidam` leaves behind, plus a corpus node to prove the
+    // rule is not simply ignoring the directory.
+    std::fs::create_dir_all(root.join(".yidam/bin")).unwrap();
+    std::fs::write(root.join(".yidam/.crates.toml"), "[v1]\n").unwrap();
+    std::fs::write(root.join(".yidam/.crates2.json"), "{}\n").unwrap();
+    std::fs::write(root.join(".yidam/bin/yidam"), "").unwrap();
+    std::fs::create_dir_all(root.join(".yidam/corpus/thing")).unwrap();
+    std::fs::write(root.join(".yidam/corpus/thing/one.yml"), "class: thing\n").unwrap();
+
+    git(root, &["add", "-A"]);
+    let staged = Command::new("git")
+        .current_dir(root)
+        .args(["diff", "--cached", "--name-only"])
+        .output()
+        .expect("git diff --cached");
+    let staged = String::from_utf8_lossy(&staged.stdout).to_string();
+    let staged: Vec<&str> = staged.lines().collect();
+
+    let machine: Vec<&&str> = staged
+        .iter()
+        .filter(|p| p.starts_with(".yidam/.crates") || p.starts_with(".yidam/bin/"))
+        .collect();
+    assert!(
+        machine.is_empty(),
+        "the command bootstrap and PROTOCOL.md both prescribe staged cargo's install \
+         bookkeeping into the corpus root: {machine:?}"
+    );
+    assert!(
+        staged.contains(&".yidam/corpus/thing/one.yml"),
+        "the ignore rule is too broad — it took a corpus node with it. Staged: {staged:?}"
+    );
+}

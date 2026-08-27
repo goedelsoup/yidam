@@ -29,6 +29,13 @@
 # machine holding several yidam repositories does not run one repo's pinned build against
 # another's corpus. `mise run yidam-build` writes it here.
 .yidam/bin/
+# …and cargo's own install bookkeeping lands beside it. `cargo install --root DIR` writes
+# DIR/bin plus DIR/.crates.toml and DIR/.crates2.json — a registry of what is installed
+# where, holding paths, versions, and the source commit. Yidam ignores its whole install
+# root (`.local/`); a derived repository cannot, because its install root is also its
+# corpus root. Globbed rather than named twice: cargo is not contracted to write only
+# these two, and the next file it adds would arrive the same silent way.
+.yidam/.crates*
 target/
 # `cargo --target-dir` output under any name. `target/` alone missed `target-pin/`, which
 # a `git add -A` then swept 567 build artifacts out of.
