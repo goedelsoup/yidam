@@ -439,40 +439,77 @@ fn the_tap_can_be_pushed_for_a_release_that_is_already_out() {
     );
 }
 
-/// The tap must refuse a tag that is not the latest release.
+/// The tap must refuse a tag that is not the latest release — of the CLI, specifically.
 ///
 /// The repair path is "dispatch it with a tag", and the tap serves exactly one formula, so a
 /// mistyped older tag is a downgrade that reports success. The same is true of the repair
 /// this file's neighbour describes: re-running an old release's tap job after a newer
 /// release shipped would quietly put the tap behind again — which is the state #246 is.
+///
+/// Which release is "latest" is the part this got wrong. `releases/latest` is
+/// repository-wide, and Layer 4 releases two artifacts onto one list. `cli/v0.4.0` and
+/// `editor/v0.1.0` were pushed nine seconds apart; the editor release became the
+/// repository's latest, and the guard refused the CLI release it exists to admit — a red
+/// tap job on a release whose four binaries, crates.io publish and GitHub release had all
+/// succeeded. The dispatch repair was refused for the same reason, so the one escape hatch
+/// was shut by the same comparison.
+///
+/// This test asserted `releases/latest` by name, so it held the bug in place rather than
+/// catching it. What it should pin is the property: an `editor/v*` release cannot decide
+/// which CLI the tap serves.
 #[test]
-fn the_tap_refuses_a_tag_that_is_not_the_latest_release() {
+fn the_tap_refuses_a_tag_that_is_not_the_latest_cli_release() {
     let text = std::fs::read_to_string(root().join(".github/workflows/tap.yml")).unwrap();
     let workflow: serde_yaml::Value = serde_yaml::from_str(&text).expect("tap.yml parses");
     let steps = workflow["jobs"]["tap"]["steps"]
         .as_sequence()
         .expect("the tap job has steps");
+    let step_with = |needle: &str| {
+        steps
+            .iter()
+            .position(|s| s["run"].as_str().is_some_and(|r| r.contains(needle)))
+    };
+
     let guard = steps
         .iter()
-        .find_map(|s| s["run"].as_str())
-        .filter(|r| r.contains("releases/latest"))
-        .expect("no step compares the requested tag against the latest release");
+        .filter_map(|s| s["run"].as_str())
+        .find(|r| r.contains("latest="))
+        .expect("no step resolves the latest release to compare the requested tag against");
+
+    assert!(
+        !guard.contains("releases/latest"),
+        "the guard asks the repository for its latest release, which an `editor/v*` tag \
+         becomes by being pushed second — it must ask for the latest `cli/v*`: {guard}"
+    );
+    // The narrowing has to be in the query that resolves `latest`, not merely somewhere in
+    // the step. `case "$TAG" in cli/v*)` is three lines above and already matches `cli/v`,
+    // so asserting against the whole step passes while the query considers every release —
+    // which is the bug, with the test green.
+    let lines: Vec<&str> = guard.lines().collect();
+    let start = lines
+        .iter()
+        .position(|l| l.contains("latest="))
+        .expect("the guard assigns `latest`");
+    let mut query = String::new();
+    for line in &lines[start..] {
+        query.push_str(line);
+        query.push('\n');
+        if !line.trim_end().ends_with('\\') {
+            break;
+        }
+    }
+    assert!(
+        query.contains("cli/v"),
+        "the query resolving the latest release does not narrow to CLI releases, so a \
+         release of the other Layer 4 artifact can decide which CLI the tap serves: {query}"
+    );
     assert!(
         guard.contains("exit 1"),
         "the latest-release check must fail the job: {guard}"
     );
+
     // Before the push, or it is a check on something already done.
-    let latest = steps
-        .iter()
-        .position(|s| {
-            s["run"]
-                .as_str()
-                .is_some_and(|r| r.contains("releases/latest"))
-        })
-        .unwrap();
-    let push = steps
-        .iter()
-        .position(|s| s["run"].as_str().is_some_and(|r| r.contains("TAP_TOKEN")))
-        .expect("no step pushes to the tap");
+    let latest = step_with("latest=").unwrap();
+    let push = step_with("TAP_TOKEN").expect("no step pushes to the tap");
     assert!(latest < push, "the tap is pushed before the tag is checked");
 }
