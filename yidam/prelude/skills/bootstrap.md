@@ -409,9 +409,24 @@ user for confirmation:
 
 **Calculators** — domain computations that follow naturally from the class structure:
 
-| Name | Computes | Reads | Returns |
-|------|----------|-------|---------|
-| `name` | what it derives | which classes/edges | what it produces |
+| Name | Computes | Reads | Returns | Prelude domain |
+|------|----------|-------|---------|----------------|
+| `name` | what it derives | which classes/edges | what it produces | `<domain>`, or — |
+
+Before proposing a calculator, list `yidam/prelude/domains/` and see whether one of them
+already computes what it needs. That layer holds small pure functions — means and variances,
+centrality, entropy, geodesic distance — implemented identically in Rust, TypeScript and
+Python and pinned to each other by shared fixtures. The last column names the domain a
+calculator would draw on, or `—` if none fits.
+
+This is the only point in the bootstrap where that layer is visible, and the selection has a
+consequence in step 8: **only the domains named here are vendored.** A repository that names
+none gets no `domains/` directory, which is the right outcome — fourteen of the fifteen are
+wrong for any given corpus, and a library nothing can build is indistinguishable from an
+abandoned one. Naming a domain is cheap and reversible; carrying all fifteen is neither.
+
+Do not name a domain because it sounds adjacent. The question is whether a calculator in this
+table would call a function in it.
 
 This step produces a report only. Do not modify any file. Wait for the user to confirm,
 modify, or discard individual items. Only what the user approves is carried into step 7.
@@ -429,8 +444,10 @@ context: |
   <the full set of proposals presented>
 decision: |
   <what the user approved, modified, or discarded — item by item>
+prelude_domains: []          # domains selected for vendoring in step 8; [] is the common case
 rationale: |
-  <any rationale provided; gaps or domain logic behind approvals>
+  <any rationale provided; gaps or domain logic behind approvals; for each domain named,
+  which calculator would call into it>
 ```
 
 ### 6. Seed corpus objects
@@ -706,6 +723,33 @@ mv yidam/prelude .yidam/.vendor/prelude
 rm -rf yidam/
 ```
 
+**Then drop the domain libraries this corpus did not ask for.** `prelude/domains/` is fifteen
+domain libraries in three languages each — around 320 of the roughly 540 files just moved, and
+the majority of the bytes. Read `prelude_domains` out of `.yidam/decisions/proposals.yml`
+(step 5) and keep only what it names:
+
+```
+cd .yidam/.vendor/prelude/domains
+ls -d */ | grep -vE '^(README.md|parity|<selected>)/' | xargs rm -rf
+cd -
+```
+
+If `prelude_domains` is empty — the common case — remove the whole directory:
+
+```
+rm -rf .yidam/.vendor/prelude/domains
+```
+
+The same argument as the paragraph above, applied one level down. A derived repository has no
+task that builds these, no workspace that includes them, and no CI job that runs them; the
+`domain-parity` gate that keeps them honest is yidam's and does not travel. Fifteen unbuildable
+libraries is the stale-fork outcome arriving through the one directory the vendor step allows.
+`prelude/sdks/` stays whole — the prelude's own README and `agent-conduct.md` link into it, so
+it is read from inside a derived repository even though it is not built there.
+
+Keep `domains/README.md` when any domain is kept: it is the index that says what the layer is
+and how a domain is wired into `crates/Cargo.toml` when the domain computer exists.
+
 **Then delete the template's own top-level files.** These describe yidam, not this repository.
 `README.md`, `AGENTS.md`, `.claude/CLAUDE.md`, `mise.toml`, `.gitattributes`, `.gitignore`,
 `.github/workflows/ci.yml`, and `.github/workflows/release.yml` were already overwritten in
@@ -838,6 +882,11 @@ finding an empty directory and guessing:
 - `.yidam/sangha/` — collective resolution. State the governance mode chosen in step 2. In
   single-elector mode, say that phases run on `phase/<name>` branches and that the sangha
   can be adopted later if a second elector appears.
+- `prelude/domains/` — shared pure-function libraries. Name the domains vendored in step 8,
+  or say that none were and that the layer exists: the fifteen are listed in the yidam
+  repository, and one can be vendored later by re-running `mise run yidam-vendor-update`
+  after adding it to `prelude_domains`. A reader who never hears of the layer will write the
+  calculator by hand.
 
 **Next steps** — three concrete, ordered actions:
 

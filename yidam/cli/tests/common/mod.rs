@@ -30,7 +30,21 @@ pub struct Install {
 /// installs no sangha at all.
 pub const COLLECTIVE: &str = "governance: collective";
 
+/// A step 5 calculator named a `prelude/domains/` library. The default is that none does,
+/// and step 8 then vendors no `domains/` directory at all.
+pub const DOMAIN_SELECTED: &str = "prelude_domains: non-empty";
+
 pub const MAPPING: &[Install] = &[
+    // The domain libraries, before the prelude row so the prefix match reaches them first.
+    // Fifteen libraries in three languages each — about 320 of the ~540 files the vendor
+    // step moves — and step 8 keeps only what a step 5 calculator named. A derived
+    // repository has no task that builds them, no workspace that includes them, and no CI
+    // job that runs them; `domain-parity` is yidam's gate and does not travel.
+    Install {
+        src: "yidam/prelude/domains",
+        dst: Some(".yidam/.vendor/prelude/domains"),
+        when: Some(DOMAIN_SELECTED),
+    },
     // The vendored prelude. One directory, deliberately: everything else under `yidam/`
     // is yidam's own machinery and does not survive the vendor step.
     row("yidam/prelude", Some(".yidam/.vendor/prelude")),
@@ -167,7 +181,10 @@ pub fn materialize(root: &Path, target: &Path, conditions: &BTreeSet<&str>) -> u
         }
         for tracked in tracked_under(root, e.src) {
             let dest = match install_of(&tracked) {
-                Some((_, Some(d))) => d,
+                // The condition of the row that claims this path, not of the row being
+                // walked — see `installed_tree` for what a nested conditional row does when
+                // only the outer one is consulted.
+                Some((owner, Some(d))) if owner.when.is_none_or(|w| conditions.contains(w)) => d,
                 _ => continue,
             };
             let to = target.join(&dest);
