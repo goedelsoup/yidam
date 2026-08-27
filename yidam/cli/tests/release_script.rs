@@ -220,3 +220,96 @@ fn the_documented_release_process_uses_the_script() {
          releaser needs"
     );
 }
+
+/// The tag-exists guard asks about one layer, not about any layer whose tag ends the same way.
+///
+/// `git ls-remote --tags <origin> <pattern>` matches a path **suffix**, not a ref. Four
+/// layers share one tag namespace here, so asking for `v0.1.0` returns `editor/v0.1.0` and
+/// `sdk/rust/v0.1.0` — and the first template release was refused as already existing,
+/// against two tags belonging to other layers. The refusal is the safe direction and it is
+/// still wrong: it blocks a release that should proceed, and no amount of looking at the tag
+/// list explains it.
+///
+/// Behavioural, against a real remote, because the defect is in what git does with the
+/// pattern and not in what the script says. Asserting both halves: the exact form must not
+/// match a sibling layer, and must still find the tag it is actually about — a guard that
+/// only checked the first would pass against a query matching nothing at all.
+#[test]
+fn the_tag_exists_check_does_not_match_another_layers_tag() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let origin = dir.path().join("origin.git");
+
+    let work = dir.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let git = |cwd: &std::path::Path, args: &[&str]| {
+        let ok = Command::new("git")
+            .current_dir(cwd)
+            .args(args)
+            .status()
+            .expect("git")
+            .success();
+        assert!(ok, "git {args:?} failed");
+    };
+    git(
+        dir.path(),
+        &["init", "-q", "--bare", origin.to_str().unwrap()],
+    );
+    git(&work, &["init", "-q", "-b", "main"]);
+    git(&work, &["config", "user.email", "t@yidam.test"]);
+    git(&work, &["config", "user.name", "T"]);
+    git(&work, &["config", "tag.gpgsign", "false"]);
+    git(&work, &["commit", "-q", "--allow-empty", "-m", "x"]);
+    // Two other layers at 0.1.0. The template layer has no tag at all.
+    git(&work, &["tag", "editor/v0.1.0"]);
+    git(&work, &["tag", "sdk/rust/v0.1.0"]);
+    git(
+        &work,
+        &["remote", "add", "origin", origin.to_str().unwrap()],
+    );
+    git(&work, &["push", "-q", "origin", "main", "--tags"]);
+
+    let matches = |pattern: &str| -> Vec<String> {
+        let out = Command::new("git")
+            .current_dir(&work)
+            .args(["ls-remote", "--tags", "origin", pattern])
+            .output()
+            .expect("git ls-remote");
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|l| l.split("refs/tags/").nth(1).map(str::to_string))
+            .collect()
+    };
+
+    // The spelling that shipped, and why it refused.
+    assert!(
+        !matches("v0.1.0").is_empty(),
+        "the bare pattern no longer over-matches, so this fixture no longer reproduces the \
+         defect and must be rebuilt rather than deleted"
+    );
+    // The spelling the script uses now.
+    assert!(
+        matches("refs/tags/v0.1.0").is_empty(),
+        "the tag-exists check still matches another layer's tag: {:?}",
+        matches("refs/tags/v0.1.0")
+    );
+    // …and it must still find the tag it is actually about.
+    assert_eq!(
+        matches("refs/tags/editor/v0.1.0"),
+        vec!["editor/v0.1.0".to_string()],
+        "the exact form must still detect a tag that really exists, or the guard is a \
+         query that matches nothing"
+    );
+
+    // And the script asks it that way.
+    let script = read("release.sh");
+    let asked = script
+        .lines()
+        .find(|l| l.contains("ls-remote") && l.contains("--tags") && l.contains("$TAG"))
+        .expect("release.sh's remote tag-exists check");
+    assert!(
+        asked.contains("refs/tags/$TAG"),
+        "release.sh asks the remote about `$TAG` rather than `refs/tags/$TAG`, which matches \
+         any layer whose tag ends the same way:\n  {}",
+        asked.trim()
+    );
+}

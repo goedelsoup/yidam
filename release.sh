@@ -145,9 +145,16 @@ if git fetch --quiet origin main 2>/dev/null; then
 else
   printf 'note: could not reach origin; skipping the sync check.\n' >&2
 fi
+# `refs/tags/$TAG` and not `$TAG`. `git ls-remote`'s pattern matches a path SUFFIX, not a
+# ref: asked for `v0.1.0` it returns `editor/v0.1.0` and `sdk/rust/v0.1.0`, so the first
+# template release was refused as already existing against two tags belonging to other
+# layers. Four layers share one tag namespace and every place that resolves a tag in this
+# repository has now asked a question meaning "this layer" in a form that answers for any of
+# them — `releases/latest` in three callers, `git describe --exact-match` in the template
+# pin, and this. The full ref path is the only spelling that means one tag.
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
   refuse tag-exists "$TAG already exists locally"
-elif git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
+elif git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
   refuse tag-exists "$TAG already exists on origin"
 fi
 
