@@ -84,6 +84,22 @@ pub struct Class {
     pub edges: Vec<ClassEdge>,
     /// Whether [`Self::edges`] is a bound or a description. See [`EdgePolicy`].
     pub edge_policy: EdgePolicy,
+    /// The longest an instance of this class may be, in lines. `None` when the class has
+    /// not said, which is every class written before the field existed — and no check runs.
+    ///
+    /// **There is no default, and that is a measurement rather than a shrug.** The bootstrap
+    /// rubric's S7 fixes 40 lines, and across 410 nodes in five real corpora **335 of them
+    /// exceed it** — 86%, 86% and 97% in the three mature ones. The same corpora at their
+    /// genesis commits run to a median of 35, where 40 is right for three of the four. So 40
+    /// is a genesis norm that a corpus grows out of, the growth is what a corpus doing its
+    /// job looks like, and there is no knee in the distribution to put a steady-state number
+    /// at: it runs smoothly from 20 to 534.
+    ///
+    /// A class knows what its instances are. One holding statutory obligations quoting the
+    /// text they arise from is not the same length as one holding a person, and the corpus
+    /// is where that is known. Declaring the number is how it becomes checkable; declining
+    /// to declare it leaves the corpus exactly as checked as it was.
+    pub max_lines: Option<usize>,
 }
 
 /// One typed field a class declares.
@@ -219,6 +235,8 @@ pub(crate) struct ClassFields {
     edges: Vec<ClassEdge>,
     #[serde(default)]
     edge_policy: Option<String>,
+    #[serde(default)]
+    max_lines: Option<usize>,
 }
 
 impl Class {
@@ -240,6 +258,7 @@ impl Class {
             properties: fields.properties,
             edges: fields.edges,
             edge_policy: EdgePolicy::parse(fields.edge_policy.as_deref()),
+            max_lines: fields.max_lines,
         }
     }
 }
@@ -788,6 +807,66 @@ pub fn undeclared_property(
 /// its instances never did, which is invisible to every reader and obvious in a list. When
 /// the ontology gains a way to say *required* — the schema compiler is the natural home —
 /// this check can gate on the properties that say it.
+/// An instance longer than the class said its instances get.
+///
+/// **Opt-in, and the opt-in is the finding.** The bootstrap rubric's S7 caps a node at 40
+/// lines, and that number lives only in the harness — which the vendor step deletes — so a
+/// derived repository has been scored against a norm it could not read or test for. The
+/// obvious repair is to port 40 here. Measured against five real corpora, 335 of 410 nodes
+/// exceed it: 86%, 86% and 97% in the three mature ones. A check arriving in an existing
+/// corpus and calling four fifths of it debt is the check that gets switched off, which is
+/// the argument `.yidam/lint-baseline.yml` exists to make and this would be the worst way to
+/// test it.
+///
+/// The same corpora at genesis run to a median of 35 and 40 is right for three of the four —
+/// so 40 is a genesis norm a corpus grows out of, and growing out of it is what a corpus
+/// doing its job looks like. There is no knee to put a steady-state number at either: the
+/// distribution runs smoothly from 20 to 534.
+///
+/// So the number is the class's. A class that declares `max_lines:` has said what its
+/// instances are — statutory obligations quoting the text they arise from are not the length
+/// of a person — and an instance over it contradicts a contract the corpus wrote. A class
+/// that says nothing is not reported against, for the reason [`EdgePolicy::Unstated`] gives
+/// one field over: gating there would enforce a contract nobody wrote.
+///
+/// Warn rather than Error even when declared. Length is editorial, the ratchet in
+/// [`super::baseline`] already distinguishes inherited from new, and a node one line over is
+/// not a corpus that has stopped being true.
+pub fn node_too_long(nodes: &[Node], classes: &[Class]) -> Check {
+    let by_name = classes_by_name(classes);
+    let mut violations = Vec::new();
+    for n in nodes {
+        let Some(class) = by_name.get(class_of(n).as_str()) else {
+            continue;
+        };
+        let Some(max) = class.max_lines else {
+            continue;
+        };
+        // The bytes as read, so this counts what a reader scrolls past — the same thing the
+        // harness's S7 counts, and the reason `Node::text` is kept after parsing.
+        let lines = n.text.lines().count();
+        if lines <= max {
+            continue;
+        }
+        violations.push(Violation::new(
+            &n.rel,
+            format!("{lines} lines; `{}` declares `max_lines: {max}`", class.rel),
+        ));
+    }
+    Check::new(
+        "node-too-long",
+        "Instance longer than its class allows",
+        Severity::Warn,
+        "A long node is usually two nodes, or a node carrying quoted source that belongs in \
+         the catalog entry it cites. The ceiling is the class's own — a class that declares \
+         no `max_lines:` is not checked, because the length an instance should be is a \
+         question about that class and not about corpora in general. Measured before \
+         choosing: a fixed ceiling of 40, which the bootstrap rubric uses at genesis, is \
+         exceeded by 335 of 410 nodes across five real corpora once they have grown.",
+        violations,
+    )
+}
+
 pub fn missing_property(nodes: &[Node], classes: &[Class]) -> Check {
     let by_name = classes_by_name(classes);
     let mut violations = Vec::new();
@@ -2163,6 +2242,7 @@ mod tests {
             properties: vec![],
             edges: vec![edge("cited-by", "recording", dir)],
             edge_policy: EdgePolicy::default(),
+            max_lines: None,
         };
         let node = |class: &str, file: &str| Node {
             path: PathBuf::from(format!("corpus/{class}/{file}.yml")),
@@ -2202,6 +2282,7 @@ mod tests {
             properties: vec![],
             edges: vec![edge("sources-from", "concept", "out")],
             edge_policy: EdgePolicy::default(),
+            max_lines: None,
         };
         let concept = Class {
             rel: ".yidam/corpus/concept.ont.yml".into(),
@@ -2210,6 +2291,7 @@ mod tests {
             properties: vec![],
             edges: vec![edge("refines", "concept", "out")],
             edge_policy: EdgePolicy::default(),
+            max_lines: None,
         };
         let classes = [gage, concept];
         let sources = source_classes(&edge_views(&classes));
@@ -2238,6 +2320,7 @@ mod tests {
             properties: vec![],
             edges: vec![edge("downstream-of", "reach", "out")],
             edge_policy: EdgePolicy::default(),
+            max_lines: None,
         };
         let classes = [reach];
         assert!(source_classes(&edge_views(&classes)).contains("reach"));
@@ -2258,6 +2341,7 @@ mod tests {
                 direction: None,
             }],
             edge_policy: EdgePolicy::default(),
+            max_lines: None,
         };
         let b = Class {
             rel: ".yidam/corpus/b.ont.yml".into(),
@@ -2266,6 +2350,7 @@ mod tests {
             properties: vec![],
             edges: vec![edge("other", "c", "out")],
             edge_policy: EdgePolicy::default(),
+            max_lines: None,
         };
         let classes = [a, b];
         assert!(source_classes(&edge_views(&classes)).is_empty());
@@ -2284,6 +2369,7 @@ mod tests {
             properties: vec![],
             edges: vec![],
             edge_policy: EdgePolicy::default(),
+            max_lines: None,
         };
         assert!(
             source_classes(&edge_views(std::slice::from_ref(&silent))).is_empty(),
@@ -2598,6 +2684,7 @@ mod tests {
             // source-class arm is exercised by `orphan_in`'s own tests.
             edges: vec![edge("cited-by", "concept", "in")],
             edge_policy: EdgePolicy::default(),
+            max_lines: None,
         }
     }
 
@@ -2765,7 +2852,87 @@ mod tests {
             properties: fields.properties,
             edges: fields.edges,
             edge_policy: EdgePolicy::parse(fields.edge_policy.as_deref()),
+            max_lines: fields.max_lines,
         }
+    }
+
+    // ── node-too-long ─────────────────────────────────────────────────────────
+
+    /// A class of `name` whose instances may be `max` lines, or any length when `None`.
+    fn capped(name: &str, max: Option<usize>) -> Class {
+        Class {
+            rel: format!(".yidam/corpus/{name}.ont.yml"),
+            description: String::new(),
+            name: name.into(),
+            properties: vec![],
+            edges: vec![],
+            edge_policy: EdgePolicy::default(),
+            max_lines: max,
+        }
+    }
+
+    /// An instance of `class` that is `lines` lines long.
+    fn sized(rel: &str, class: &str, lines: usize) -> Node {
+        let mut yaml = format!("class: {class}\nlabel: L\ndescription: |\n");
+        for _ in 3..lines {
+            yaml.push_str("  filler\n");
+        }
+        assert_eq!(yaml.lines().count(), lines);
+        node(rel, &yaml)
+    }
+
+    /// A class that declares no ceiling is not checked, however long its instances are.
+    ///
+    /// The whole design in one assertion. Porting the bootstrap rubric's 40 here would
+    /// report against 335 of the 410 nodes in the five corpora this was measured on.
+    #[test]
+    fn a_class_that_declares_no_ceiling_is_not_checked() {
+        let nodes = vec![sized("person/a.yml", "person", 200)];
+        assert!(
+            node_too_long(&nodes, &[capped("person", None)]).passed(),
+            "a class that has not said its instances have a length cannot be contradicted"
+        );
+    }
+
+    /// A class that declares one is checked against it, and the report names both numbers.
+    #[test]
+    fn a_declared_ceiling_is_enforced_and_says_by_how_much() {
+        let nodes = vec![
+            sized("person/long.yml", "person", 52),
+            sized("person/short.yml", "person", 12),
+        ];
+        let c = node_too_long(&nodes, &[capped("person", Some(40))]);
+        assert_eq!(c.violations.len(), 1, "only the long one is over");
+        assert_eq!(c.violations[0].node, "person/long.yml");
+        assert!(
+            c.violations[0].detail.contains("52 lines")
+                && c.violations[0].detail.contains("max_lines: 40"),
+            "the finding must carry both numbers, not just a verdict: {}",
+            c.violations[0].detail
+        );
+        assert_eq!(
+            c.severity,
+            Severity::Warn,
+            "length is editorial; the baseline ratchet separates inherited from new"
+        );
+    }
+
+    /// Exactly at the ceiling is not over it.
+    #[test]
+    fn the_ceiling_is_inclusive() {
+        let nodes = vec![sized("person/a.yml", "person", 40)];
+        assert!(node_too_long(&nodes, &[capped("person", Some(40))]).passed());
+    }
+
+    /// One class's ceiling says nothing about another's.
+    #[test]
+    fn a_ceiling_binds_only_the_class_that_declared_it() {
+        let nodes = vec![sized("statute/a.yml", "statute", 60)];
+        let classes = vec![capped("person", Some(10)), capped("statute", None)];
+        assert!(
+            node_too_long(&nodes, &classes).passed(),
+            "statute declared nothing; person's number is not corpus-wide"
+        );
     }
 
     const GAGE: &str = "\

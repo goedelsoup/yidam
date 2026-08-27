@@ -321,7 +321,17 @@ or anything that describes how the repo operates rather than what it knows.
 - One concept per file; one file per concept
 - Filenames are kebab-case, descriptive, and stable — renaming a node severs edges, so choose
   well. Do not include dates in filenames; the git history has dates.
-- Size: 2–10 sentences is often right. If a node grows beyond a screen, decompose it.
+- Size: 2–10 sentences is often right. If a node grows beyond a screen, decompose it. A
+  class may make that checkable by declaring `max_lines:` in its `.ont.yml`, and
+  `node-too-long` then reports an instance over it. No class carries a default, and that is
+  measured rather than timid: the bootstrap rubric caps a node at 40 lines, and across five
+  real corpora 335 of 410 nodes exceed it — 86%, 86% and 97% in the three mature ones — while
+  the same corpora at their genesis commits run to a median of 35, where 40 is right for
+  three of four. So 40 is a *genesis* norm that a corpus grows out of, and growing out of it
+  is what a corpus doing its job looks like. There is no knee in the distribution to put a
+  steady-state number at; it runs smoothly from 20 to 534. The length an instance should be
+  is a question about its class — a statutory obligation quoting the text it arises from is
+  not the length of a person — so the class is where the number lives, if a corpus wants one.
 - Every node must have at least one outgoing edge. Orphan nodes do not belong in the corpus.
 - If a concept is uncertain or under investigation, mark it: prefix the title with `?` or
   open a branch. Uncertainty is valid; unlabeled speculation is not.

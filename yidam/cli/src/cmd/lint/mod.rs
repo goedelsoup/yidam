@@ -252,6 +252,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::dangling_edge(&nodes),
         checks::undeclared_property(&nodes, &classes, &universal),
         checks::missing_property(&nodes, &classes),
+        checks::node_too_long(&nodes, &classes),
         checks::property_type(&nodes, &classes, &universal),
         checks::unlicensed_edge(&nodes, &classes),
         checks::edge_target_class(&nodes, &classes),
@@ -609,7 +610,7 @@ mod tests {
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 30);
+        assert_eq!(all.len(), 31);
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
@@ -768,7 +769,7 @@ mod tests {
         assert!(crate::authorship::Authorship::load(tmp.path()).is_err());
         // …while the checks themselves keep answering, for the editor's sake.
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 30);
+        assert_eq!(all.len(), 31);
     }
 
     /// The four citation checks are registered, and reach the reporting path a unit test
@@ -1014,7 +1015,7 @@ mod tests {
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 30, "every check still ran");
+        assert_eq!(all.len(), 31, "every check still ran");
         assert_eq!(errors(&all), 0);
     }
 
