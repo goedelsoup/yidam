@@ -20,6 +20,13 @@ use std::path::Path;
 /// Where a derived repository's provenance is recorded, relative to its root.
 pub const MANIFEST: &str = ".yidam.toml";
 
+/// The tag pattern that names the **template** layer, per VERSIONING.md: bare `v<semver>`.
+///
+/// Every other layer prefixes its tag — `cli/v*`, `sdk/rust/v*`, `bootstrap/v*`, `editor/v*` —
+/// so this glob is what distinguishes the one layer `.yidam.toml`'s `template` field is about
+/// from the four it is not.
+pub const TEMPLATE_TAG_GLOB: &str = "v[0-9]*";
+
 /// Git facts about the yidam tree a derived repo is being created from.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Provenance {
@@ -61,8 +68,25 @@ impl Provenance {
             // `--exact-match` so a derived repo is pinned to a release or to nothing.
             // `git describe` without it yields "v0.1.0-14-gabc1234", which reads as a
             // version but is not one.
-            template: git_output(root, &["describe", "--tags", "--exact-match", "HEAD"])
-                .unwrap_or_else(|| "untagged".to_string()),
+            //
+            // `--match` because four layers release from one repository and routinely tag
+            // the same commit. Without it this asks "any tag here?" and answers with
+            // whichever git prefers: at `a7aaa5f`, which carries `cli/v0.4.0`,
+            // `sdk/rust/v0.3.0` and `editor/v0.1.0`, it answers `editor/v0.1.0` — so every
+            // repository cloned there recorded a VS Code extension's version as the version
+            // of its template layer. The field names one layer and must ask about that one.
+            template: git_output(
+                root,
+                &[
+                    "describe",
+                    "--tags",
+                    "--exact-match",
+                    "--match",
+                    TEMPLATE_TAG_GLOB,
+                    "HEAD",
+                ],
+            )
+            .unwrap_or_else(|| "untagged".to_string()),
             committed: git_output(root, &["log", "-1", "--format=%as", "HEAD"])
                 .unwrap_or_else(|| "unknown".to_string()),
         }

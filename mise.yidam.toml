@@ -281,7 +281,7 @@ if [ "$ref" != "HEAD" ]; then
   git -C "$tmp/yidam" checkout --quiet "$ref"
 fi
 commit=$(git -C "$tmp/yidam" rev-parse HEAD)
-template=$(git -C "$tmp/yidam" describe --tags --exact-match HEAD 2>/dev/null || echo untagged)
+template=$(git -C "$tmp/yidam" describe --tags --exact-match --match 'v[0-9]*' HEAD 2>/dev/null || echo untagged)
 committed=$(git -C "$tmp/yidam" log -1 --format=%as HEAD)
 if [ ! -d "$tmp/yidam/yidam/prelude" ]; then
   echo "ERROR: $origin@$commit has no yidam/prelude/ — wrong origin?" >&2
