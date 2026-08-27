@@ -383,14 +383,24 @@ fn check_s3(corpus: &Corpus) -> CheckResult {
     }
 }
 
-/// The verbs a bootstrap run is allowed to write, from step 8 of the skill and the closed
-/// vocabulary in [GRAPH.md](../../../../prelude/GRAPH.md).
+/// The verbs a bootstrap run is allowed to write, from step 8's commit-sequence block and the
+/// closed vocabulary in [GRAPH.md](../../../../prelude/GRAPH.md).
 ///
-/// `genesis` (or `overlay`, in existing-repo mode) is the root. The other two are the
-/// transient-layer commits the protocol requires before step 9: `consume:` for samudaya and
-/// again for sadhana, `vendor:` for the prelude move.
+/// `genesis` (or `overlay`, in existing-repo mode) is the root; the rest follow it.
+///
+/// This list held two verbs and the protocol prescribed five. Step 7 instructs an
+/// `establish:` for the implied edges and an `implement:` for the stubs, and step 8.5 a
+/// `regen:` for the generated blocks — so a run that followed the skill exactly could not
+/// pass S4, and the only baseline the harness holds is one where none of the three appeared:
+/// its scenario approved no implied edges, folded the stubs into genesis, and predates
+/// step 8.5. The contradiction was therefore never exercised. A derived repository ran into
+/// it on its first bootstrap.
+///
+/// The list is no longer maintained by reading the skill and remembering.
+/// `the_verbs_s4_accepts_are_the_verbs_bootstrap_writes` parses step 8's block and holds it
+/// to this one, in both directions — which is the check that was missing, not the two verbs.
 const GENESIS_VERBS: [&str; 2] = ["genesis", "overlay"];
-const TRANSIENT_VERBS: [&str; 2] = ["consume", "vendor"];
+const TRANSIENT_VERBS: [&str; 5] = ["establish", "implement", "consume", "vendor", "regen"];
 
 /// One commit of the captured history: `<sha>\t<subject>`, oldest first.
 fn commits(root: &Path) -> Vec<(String, String)> {
@@ -408,13 +418,15 @@ fn verb_of(subject: &str) -> &str {
 }
 
 /// This asked for exactly one commit until PROTOCOL_VERSION 0.2.0, and a correct run has
-/// never produced one. Step 8 writes the genesis commit and then three more — `consume:`
-/// samudaya, `consume:` sadhana, `vendor:` the prelude — and step 9 refuses to begin until
-/// all four exist. The check could only fail on a correct bootstrap.
+/// never produced one. What it was reaching for is that the history is *the bootstrap's*
+/// history and nothing else, which a count approximates badly. Ask it directly: the run
+/// begins at a genesis commit, and every commit after it is one the protocol prescribes.
 ///
-/// What it was reaching for is that the history is *the bootstrap's* history and nothing
-/// else, which a count approximates badly. Ask it directly: the run begins at a genesis
-/// commit, and every commit after it is one the protocol prescribes.
+/// Asking directly is only as good as the list of what the protocol prescribes, and that
+/// list was wrong in the same way twice — first a count that no correct run could match,
+/// then a set of verbs that omitted three the skill instructs. Both times the error was
+/// invisible because the harness's own baseline happened not to produce the missing case.
+/// See [`TRANSIENT_VERBS`] for what holds the list to the skill now.
 fn check_s4(root: &Path) -> CheckResult {
     const D: &str = "The history is the genesis sequence, and holds nothing else";
     let commits = commits(root);
@@ -502,6 +514,7 @@ fn check_s7(corpus: &Corpus) -> CheckResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
     use std::path::PathBuf;
 
     fn repo_root() -> PathBuf {
@@ -774,6 +787,64 @@ mod tests {
         assert!(
             !check_s5(tmp.path()).passed,
             "a bare subject is not three lines"
+        );
+    }
+
+    /// S4's verb list is the skill's, read rather than remembered.
+    ///
+    /// This is the check that was missing. S4 has now been wrong twice about what a bootstrap
+    /// writes — a count of one, then a set of two verbs against a protocol that prescribes
+    /// five — and both times the harness's only baseline happened not to produce the missing
+    /// case, so the rubric could reject a compliant run indefinitely without anything going
+    /// red. Holding the list to the document is the fix; widening it once is not.
+    ///
+    /// Both directions. A verb the skill adds and S4 does not accept fails a correct run; a
+    /// verb S4 accepts and the skill never writes is a hole in "and holds nothing else".
+    #[test]
+    fn the_verbs_s4_accepts_are_the_verbs_bootstrap_writes() {
+        let skill = std::fs::read_to_string(repo_root().join("yidam/prelude/skills/bootstrap.md"))
+            .expect("the bootstrap skill");
+
+        // Step 8 states the sequence in one fenced block, `<verb>  <what it records>`.
+        let (_, after) = skill
+            .split_once("**The commit sequence.**")
+            .expect("step 8's commit-sequence block — the skill states it in one place");
+        let block = after
+            .split("```")
+            .nth(1)
+            .expect("the fenced block after the heading");
+        let prescribed: BTreeSet<&str> = block
+            .lines()
+            .filter_map(|l| l.split_whitespace().next())
+            .filter(|w| w.chars().all(|c| c.is_ascii_lowercase()))
+            .collect();
+
+        assert!(
+            prescribed.len() >= 4,
+            "parsed {prescribed:?} out of step 8's block — the block moved, not the protocol"
+        );
+
+        let accepted: BTreeSet<&str> = GENESIS_VERBS
+            .iter()
+            .chain(TRANSIENT_VERBS.iter())
+            .copied()
+            .collect();
+
+        // `overlay` is the existing-repo root and step 8 names it in prose, not in the block.
+        let unaccepted: Vec<&&str> = prescribed.difference(&accepted).collect();
+        assert!(
+            unaccepted.is_empty(),
+            "bootstrap.md prescribes {unaccepted:?} and S4 rejects them — a run that follows              the skill exactly fails the rubric that scores it"
+        );
+
+        let unwritten: Vec<&&str> = accepted
+            .difference(&prescribed)
+            .filter(|v| **v != "overlay")
+            .collect();
+        assert!(
+            unwritten.is_empty(),
+            "S4 accepts {unwritten:?} and no step of the skill writes them — the promise \
+             that the history holds nothing else is that much weaker than it reads"
         );
     }
 
