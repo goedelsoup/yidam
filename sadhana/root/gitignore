@@ -1,0 +1,64 @@
+# What a derived repository does not commit.
+#
+# Installs as `.gitignore`, overwriting the template's own. Spelled without the dot for
+# the same reason as `gitattributes` beside it: `ls sadhana/` is a step in the bootstrap
+# skill and a dotfile would not appear in it.
+#
+# Every rule here is one a repository whose protocols prescribe `git add -A` needs before
+# anybody writes a node. That is the organizing principle — this is not a list of build
+# output, it is a list of things that appear in a working tree without anyone putting
+# them there, in a repository that stages indiscriminately by protocol.
+
+# Runtime configuration.
+#
+# Both bootstrap and the sangha protocol prescribe `git add -A`. A derived repository was
+# found carrying an untracked `.env` that any of those would have staged. It had never
+# been committed; the next one may not be so lucky.
+.env
+.env.*
+!.env.example
+
+# Agent worktrees. `.claude/worktrees/<name>` is a git worktree — an embedded repository —
+# and `git add -A` stages it as a gitlink pointing at a commit no clone can resolve. Same
+# family as the `.env` above.
+.claude/worktrees/
+
+# Rust
+#
+# The yidam binary is installed per-repository rather than into ~/.cargo/bin, so that a
+# machine holding several yidam repositories does not run one repo's pinned build against
+# another's corpus. `mise run yidam-build` writes it here.
+.yidam/bin/
+target/
+# `cargo --target-dir` output under any name. `target/` alone missed `target-pin/`, which
+# a `git add -A` then swept 567 build artifacts out of.
+target-*/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+# fastembed downloads its ONNX weights to a cwd-relative directory the first time a model
+# is resolved, so `yidam index-build` run from the repository root leaves 23MB of
+# untracked model blobs in it.
+.fastembed_cache/
+
+# Node / TypeScript
+node_modules/
+.pnpm-store/
+*.tsbuildinfo
+
+# Build output, both ecosystems.
+dist/
+
+# LanceDB — the vector index `yidam index-build` writes.
+*.lance/
+
+# mise
+.mise.local.toml
+
+# macOS
+.DS_Store

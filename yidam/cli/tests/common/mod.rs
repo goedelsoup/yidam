@@ -41,6 +41,7 @@ pub const MAPPING: &[Install] = &[
     row("sadhana/root/CLAUDE.md", Some(".claude/CLAUDE.md")),
     row("sadhana/root/mise.toml", Some("mise.toml")),
     row("sadhana/root/gitattributes", Some(".gitattributes")),
+    row("sadhana/root/gitignore", Some(".gitignore")),
     row(
         "sadhana/github/workflows/ci.yml",
         Some(".github/workflows/ci.yml"),
@@ -83,15 +84,22 @@ const fn row(src: &'static str, dst: Option<&'static str>) -> Install {
 
 /// Files a derived repository keeps from the template root, unchanged.
 ///
-/// The bootstrap skill names these explicitly: "Keep `LICENSE`, `.gitignore`,
-/// `.gitattributes`, and `mise.yidam.toml`". `.gitattributes` arrives through [`MAPPING`];
-/// these three are copied as they stand.
-pub const KEPT_AT_ROOT: &[&str] = &["LICENSE", ".gitignore", "mise.yidam.toml"];
+/// The bootstrap skill names these explicitly: "Keep `LICENSE` and `mise.yidam.toml`".
+/// `.gitattributes` and `.gitignore` are *not* among them — both arrive through [`MAPPING`],
+/// overwritten in step 3 from `sadhana/root/`. `.gitignore` was on this list for as long as
+/// bootstrap called it generic, which shipped yidam's own — including an ignore for a path
+/// under `yidam/tests/` that the vendor step deletes.
+pub const KEPT_AT_ROOT: &[&str] = &["LICENSE", "mise.yidam.toml"];
 
 /// Directories bootstrap creates empty.
 pub const CREATED_EMPTY: &[&str] = &[".yidam/decisions", ".yidam/embeddings", ".yidam/index"];
 
-/// Paths a derived repository has that no template file becomes.
+/// Paths a derived repository holds regardless of what any [`MAPPING`] row produces.
+///
+/// Mostly things no template file becomes — the provenance pin, the directories bootstrap
+/// creates empty. `.gitattributes` and `.gitignore` are the exceptions and are redundant
+/// here: both also arrive through [`MAPPING`], and the tree is a set, so naming them twice
+/// costs nothing and asserts they are present however they got there.
 pub const ALWAYS_PRESENT: &[&str] = &[
     "LICENSE",
     ".gitignore",

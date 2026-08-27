@@ -244,7 +244,8 @@ Then read each template file in `sadhana/`:
 - `sadhana/crates/README.md`
 - `sadhana/skills/README.md`
 - `sadhana/web/README.md`
-- `sadhana/root/README.md`, `sadhana/root/AGENTS.md`, `sadhana/root/CLAUDE.md`, `sadhana/root/mise.toml`
+- `sadhana/root/README.md`, `sadhana/root/AGENTS.md`, `sadhana/root/CLAUDE.md`, `sadhana/root/mise.toml`,
+  `sadhana/root/gitattributes`, `sadhana/root/gitignore`
 - `sadhana/github/workflows/ci.yml`, `sadhana/github/workflows/release.yml`
 - `sadhana/sangha/README.md` (and PROTOCOL.md, electors.md, resolutions/, positions/) —
   **only if `governance: collective`**; skip these five reads entirely in single-elector mode
@@ -295,23 +296,32 @@ sadhana/root/AGENTS.md            → AGENTS.md            (overwrites yidam's)
 sadhana/root/CLAUDE.md            → .claude/CLAUDE.md    (overwrites yidam's)
 sadhana/root/mise.toml            → mise.toml            (overwrites yidam's)
 sadhana/root/gitattributes        → .gitattributes       (overwrites yidam's)
+sadhana/root/gitignore            → .gitignore           (overwrites yidam's)
 sadhana/github/workflows/ci.yml   → .github/workflows/ci.yml  (overwrites yidam's)
 sadhana/github/workflows/release.yml → .github/workflows/release.yml (overwrites yidam's)
 ```
 
-Yidam's copies of these seven files describe yidam — its harness, its CLI workspace, its
+Yidam's copies of these eight files describe yidam — its harness, its CLI workspace, its
 bootstrap-mode entry check. Left in place they are wrong the moment genesis is written, and
 yidam's `ci.yml` is worse than wrong: it builds `yidam/cli` and `yidam/tests/harness`, paths
 that step 8 removes, so it goes green having compiled nothing. Yidam's `release.yml` is
 wrong in a louder way: it publishes the yidam CLI's binaries on a `cli/v*` tag, from a
-repository that has no CLI to publish. Overwrite all seven now. Do not merge yidam's content
+repository that has no CLI to publish. Overwrite all eight now. Do not merge yidam's content
 into them.
 
-`gitattributes` is spelled without its dot for the same reason `root/` and `github/` are:
-`ls sadhana/` is a step in this skill and a dotfile would not appear in it. It installs as
-`.gitattributes` and arrives holding only comments — the rule about connector fixtures and
+`gitattributes` and `gitignore` are spelled without their dots for the same reason `root/`
+and `github/` are: `ls sadhana/` is a step in this skill and a dotfile would not appear in
+it. `.gitattributes` arrives holding only comments — the rule about connector fixtures and
 line endings, which costs nothing until the first connector lands and is unrecoverable
 advice afterwards.
+
+`.gitignore` is the one of the eight most easily mistaken for generic, and it is not.
+Yidam's own ignores `.local/` — where *its* binary installs — and a path under
+`yidam/tests/`, which the vendor step in step 8 deletes; the rule outlives the directory it
+names by the length of the repository's life. What this file needs instead is organized
+around a hazard a derived repository has and yidam does not: both this skill and
+`PROTOCOL.md` prescribe `git add -A`, so anything that appears in the working tree without
+somebody putting it there is one prescribed command away from the corpus.
 
 Each README may contain a `<!-- TEMPLATE -->` comment block marking fields that need
 domain-specific content. Fill every such block now, before proceeding. These are the only
@@ -618,17 +628,19 @@ rm -rf yidam/
 ```
 
 **Then delete the template's own top-level files.** These describe yidam, not this repository.
-`README.md`, `AGENTS.md`, `.claude/CLAUDE.md`, `mise.toml`, `.github/workflows/ci.yml`, and
-`.github/workflows/release.yml` were already overwritten in step 3; what remains is:
+`README.md`, `AGENTS.md`, `.claude/CLAUDE.md`, `mise.toml`, `.gitattributes`, `.gitignore`,
+`.github/workflows/ci.yml`, and `.github/workflows/release.yml` were already overwritten in
+step 3; what remains is:
 
 ```
 rm -f BOOTSTRAP.md VERSIONING.md
 ```
 
 `BOOTSTRAP.md` is the entry prompt for a repo that has not been bootstrapped — this one now
-has. `VERSIONING.md` documents how yidam releases its own three layers. Keep `LICENSE`,
-`.gitignore`, `.gitattributes`, and `mise.yidam.toml`: the first three are generic and the
-last is the inherited task layer that `mise.toml` includes.
+has. `VERSIONING.md` documents how yidam releases its own three layers. Keep `LICENSE` and
+`mise.yidam.toml`: the first is generic and the second is the inherited task layer that
+`mise.toml` includes. `.gitignore` and `.gitattributes` are already this repository's own —
+step 3 overwrote both from `sadhana/root/`.
 
 **Confirm the provenance pin.** `.yidam.toml` records which yidam this repo came from; `yidam
 clone` and `yidam overlay` write it. Check that it exists and carries a real commit:

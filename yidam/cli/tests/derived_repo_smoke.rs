@@ -306,3 +306,62 @@ fn the_default_bootstrap_installs_no_sangha() {
         "GRAPH.md links a directory this repository does not have"
     );
 }
+
+/// Every rooted rule in the derived `.gitignore` names a directory this repository has.
+///
+/// `.gitignore` shipped as yidam's own for as long as bootstrap called it generic, and it is
+/// not. Yidam's ignores `yidam/tests/results/**/transcript.jsonl` — fifteen lines about the
+/// bootstrap test harness — and the vendor step three paragraphs above the sentence calling
+/// the file generic deletes `yidam/` entirely. The rule outlived the directory it named by
+/// the length of the repository's life, and nothing could see it: a pattern matching nothing
+/// ignores nothing and fails no gate, forever.
+///
+/// The check is the first path segment, and only for **rooted** patterns — ones naming a
+/// directory component, like `.yidam/bin/`. A bare `target/` or `node_modules/` matches at
+/// any depth and asserts nothing about layout, so it is not evidence of anything and is
+/// skipped. What remains is exactly the class of rule that can name a directory that does
+/// not exist.
+///
+/// Discovered from the file rather than listed here. A rule added tomorrow is checked
+/// tomorrow; a list would have to be remembered, which is how the last one rotted.
+#[test]
+fn the_derived_gitignore_names_no_directory_this_repository_lacks() {
+    let repo = Derived::bootstrap();
+    let text = std::fs::read_to_string(repo.path().join(".gitignore")).expect("the .gitignore");
+
+    let mut checked = 0;
+    let mut absent = Vec::new();
+    for line in text.lines() {
+        let rule = line.trim();
+        if rule.is_empty() || rule.starts_with('#') {
+            continue;
+        }
+        let rule = rule.strip_prefix('!').unwrap_or(rule);
+        // Rooted: names a directory component. `a/b` and `a/b/` qualify; `a/` does not.
+        let Some((head, _)) = rule.trim_end_matches('/').split_once('/') else {
+            continue;
+        };
+        // A glob in the first segment names no particular directory.
+        if head.contains('*') || head.contains('?') || head.is_empty() {
+            continue;
+        }
+        checked += 1;
+        if !repo.path().join(head).exists() {
+            absent.push(format!("  {rule}  (no `{head}/` in a derived repository)"));
+        }
+    }
+
+    assert!(
+        checked >= 2,
+        "only {checked} rooted rule(s) found — the parse is broken, not the file"
+    );
+    assert!(
+        absent.is_empty(),
+        "the .gitignore a derived repository receives has {} rule(s) for paths it does not \
+         have:\n{}\n\nA rule that matches nothing is not harmless: it is confident prose \
+         about a layout this repository never had, in the file bootstrap hands over as its \
+         own. Fix it in `sadhana/root/gitignore`, not in yidam's.",
+        absent.len(),
+        absent.join("\n")
+    );
+}
