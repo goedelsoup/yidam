@@ -483,10 +483,57 @@ named specimen reads as two corpora, and the edges between the levels carry the 
 rather than resolving it.
 
 **Distribution** — allocate instances across classes to hit `corpus_depth` total, with a
-minimum of 1 per class. Give more instances to hub classes (those with the most edge
-participation) and fewer to peripheral classes. Seed from root nodes down so link targets
-exist when referenced. Prefer depth over breadth: a well-linked instance with real content
-is worth more than several shallow stubs.
+minimum of 1 per class **where the sources support one**. Give more instances to hub classes
+(those with the most edge participation) and fewer to peripheral classes. Seed from root
+nodes down so link targets exist when referenced. Prefer depth over breadth: a well-linked
+instance with real content is worth more than several shallow stubs.
+
+**When the material for a class does not exist, leave the class empty.** It keeps its
+`.ont.yml`, its directory, its README and its ACTIONS file, and it holds no instance nodes.
+Do not invent one to satisfy the minimum, and do not stop and wait — ask for the material
+once, and if it is not forthcoming, seed what the sources support and record the shortfall.
+
+The pressure to fabricate is strongest here and the reason is worth stating, because the
+`corpus_depth` you are short of is a number a user picked and the empty directory looks like
+a failure to meet it. A fabricated instance would not look like a placeholder. It would be
+well-formed, correctly typed, correctly linked, and it would pass every check this repository
+runs — `graph-check` reads structure and `edge-target-class` asks whether an edge landed on
+the right class, and neither asks whether a claim is true. It would sit among the sourced
+nodes and be lent credibility by every one of them.
+
+The asymmetry decides it. An empty class is a gap visible to everyone who opens the
+directory, it costs nothing but the seeding work to close, and it is closed correctly the
+first time someone supplies the real material. A fabricated instance has to be *found* before
+it can be removed, and until it is found the corpus asserts it.
+
+`corpus_depth` was chosen in step 2, before anyone knew what the sources covered. It is a
+target and not a quota, and it is not revised here — leave it as written, and let the record
+below say what was actually seeded and why the two numbers differ.
+
+**Record the shortfall.** If the seeded count is short of `corpus_depth`, or any class is
+empty, write this before moving on:
+
+```
+.yidam/decisions/seed-scope.yml
+```
+
+```yaml
+id: seed-scope
+summary: <one line — N instances seeded against a target of M; which classes are empty>
+context: |
+  <what material was available; what was asked for and not supplied; which classes each
+  source was sufficient to seed>
+decision: |
+  <the seeded count and the classes that hold no instances; that nothing was fabricated to
+  reach the target — name what was not invented, so the record is falsifiable>
+rationale: |
+  <why an empty class was preferred to a plausible one here; what the gap costs downstream —
+  in particular, name any calculator approved in step 5 that now has nothing to read>
+```
+
+The last clause is the one that is easy to leave out and matters most. A calculator whose
+inputs are all in the empty classes is a stub for a reason that has nothing to do with the
+calculator, and step 7 will not be able to tell the difference.
 
 **Existing-repo mode**: instances may represent existing repository artifacts directly. Add
 a `source_path:` property pointing to the relevant existing file or directory, and link to
@@ -730,7 +777,7 @@ commit, and the step 8.5 gate run are all done. If any is unresolved, finish it 
 proceeding. Step 9 opens by stating the gate result — a handoff that says the repository is
 ready is a claim, and this is the one place it can be checked.
 
-Output a structured handoff with five sections:
+Output a structured handoff with seven sections:
 
 **Gate** — one line: the result of the step 8.5 run. Name the commands, say whether each
 passed, and name any finding left open and why. "Green as of `<sha>`" is checkable; "the
@@ -740,6 +787,11 @@ repository is ready" is not.
 
 **Objects seeded** — the instance nodes created. One line each; note which class each
 instantiates.
+
+**Classes seeded and classes empty** — every class in one of two lists, with the instance
+count for the seeded ones. If any class is empty, name `.yidam/decisions/seed-scope.yml` and
+say in one line what material would close it. A scaffold waiting for material and a corpus
+that is finished look identical in the four sections around this one.
 
 **Implied edges, connectors, and calculators** — edges wired, crate stubs and skill stubs scaffolded. One line each.
 
