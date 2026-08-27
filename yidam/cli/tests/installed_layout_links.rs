@@ -41,7 +41,7 @@ use walkdir::WalkDir;
 
 mod common;
 
-use common::{install_of, repo_root, ALWAYS_PRESENT, COLLECTIVE, MAPPING};
+use common::{install_of, repo_root, ALWAYS_PRESENT, COLLECTIVE, DOMAIN_SELECTED, MAPPING};
 
 /// Sections of an otherwise unconditional file that bootstrap deletes unless a condition
 /// holds: `(source file, opening heading, condition)`.
@@ -119,9 +119,17 @@ fn installed_tree(root: &Path, conditions: &BTreeSet<&str>) -> BTreeSet<String> 
             let Ok(rel) = entry.path().strip_prefix(root) else {
                 continue;
             };
-            let Some((_, Some(dest))) = install_of(&rel.to_string_lossy()) else {
+            let Some((owner, Some(dest))) = install_of(&rel.to_string_lossy()) else {
                 continue;
             };
+            // The condition of the row that *claims* this path, which is not always the row
+            // being walked. `yidam/prelude` is unconditional and `yidam/prelude/domains` is
+            // not, so consulting only the outer row installs the domains under the prelude's
+            // answer and the nested condition withholds nothing. The sangha row never showed
+            // this: it is a top-level directory no other row walks over.
+            if owner.when.is_some_and(|w| !conditions.contains(w)) {
+                continue;
+            }
             // Every ancestor is a directory that exists.
             let mut acc = std::path::PathBuf::new();
             for part in Path::new(&dest).components() {
@@ -227,6 +235,20 @@ fn every_template_link_resolves_in_the_installed_layout() {
         "the installed tree is not being built — mapping or walk is wrong"
     );
 
+    // One tree per condition a row can carry, plus the unconditional default. A file is
+    // checked against the repository that has it — see the `tree` binding in the walk.
+    let trees: std::collections::BTreeMap<Option<&str>, BTreeSet<String>> = MAPPING
+        .iter()
+        .map(|e| e.when)
+        .chain(std::iter::once(None))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(|w| {
+            let conds: BTreeSet<&str> = w.into_iter().collect();
+            (w, installed_tree(&root, &conds))
+        })
+        .collect();
+
     let mut bad = Vec::new();
     let mut checked = 0usize;
 
@@ -234,11 +256,6 @@ fn every_template_link_resolves_in_the_installed_layout() {
         if e.dst.is_none() {
             continue; // consumed; its links go nowhere because it goes nowhere
         }
-        let tree = if e.when.is_some() {
-            &collective_tree
-        } else {
-            &default_tree
-        };
         for entry in WalkDir::new(root.join(e.src))
             .into_iter()
             .filter_map(Result::ok)
@@ -257,9 +274,14 @@ fn every_template_link_resolves_in_the_installed_layout() {
             let Ok(rel) = path.strip_prefix(&root) else {
                 continue;
             };
-            let Some((_, Some(dest))) = install_of(&rel.to_string_lossy()) else {
+            let Some((owner, Some(dest))) = install_of(&rel.to_string_lossy()) else {
                 continue;
             };
+            // Resolved against the repository that has this file: one satisfying the
+            // condition of the row that claims it, and no others. Picking the tree from the
+            // walked row assumed there was only ever one condition, which stopped being true
+            // the moment a second row carried one.
+            let tree = trees.get(&owner.when).unwrap_or(&default_tree);
             let dest_dir = Path::new(&dest)
                 .parent()
                 .map(|p| p.to_string_lossy().to_string())
@@ -461,4 +483,57 @@ fn resolve_is_lexical_and_bounded() {
     );
     // Above the root is not a path.
     assert!(resolve("", "../outside.md").is_none());
+}
+
+/// The domain libraries are absent by default and present when a calculator names one.
+///
+/// `prelude/domains/` is fifteen libraries in three languages — about 320 of the ~540 files
+/// the vendor step moves, and the majority of its bytes. Every derived repository received
+/// all fifteen, and none could build any of them: there is no mise task, no workspace
+/// membership, and no CI job, and `domain-parity` — the gate that keeps them honest — is
+/// yidam's and does not travel. That is precisely the stale-fork outcome the vendor step
+/// argues against, arriving through the one directory it allows.
+///
+/// The same shape as the sangha row, and the same guard for the same reason: a condition
+/// that withholds unconditionally is a deletion, and one that withholds nothing is decoration.
+#[test]
+fn the_domain_libraries_are_absent_by_default_and_present_when_named() {
+    let root = repo_root();
+    let default_tree = installed_tree(&root, &BTreeSet::new());
+    let with_domain = installed_tree(&root, &BTreeSet::from([DOMAIN_SELECTED]));
+
+    let index = ".yidam/.vendor/prelude/domains/README.md";
+    assert!(
+        !default_tree.contains(index),
+        "naming no prelude domain is the common case and must vendor none of them"
+    );
+    assert!(
+        with_domain.contains(index),
+        "a condition that withholds unconditionally is just a deletion"
+    );
+
+    // The prelude itself is unaffected — this withholds a subtree, not the layer above it.
+    for kept in [
+        ".yidam/.vendor/prelude/GRAPH.md",
+        ".yidam/.vendor/prelude/guidelines/agent-conduct.md",
+    ] {
+        assert!(
+            default_tree.contains(kept),
+            "{kept} is doctrine and travels regardless"
+        );
+    }
+
+    // And it withholds enough to be worth doing. The number is deliberately far below the
+    // ~320 actually withheld: this asserts the row reaches the subtree, not a file count.
+    let withheld = with_domain.difference(&default_tree).count();
+    assert!(
+        withheld > 100,
+        "the domains row withholds only {withheld} path(s) — it is matching a corner of the \
+         subtree rather than the subtree"
+    );
+    assert_eq!(
+        with_domain.len() - default_tree.len(),
+        withheld,
+        "the two trees differ only by additions"
+    );
 }
