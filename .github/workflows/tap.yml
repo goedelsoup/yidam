@@ -70,6 +70,16 @@ jobs:
       # formula with an older one. It would report success, and the tap would
       # then serve a version behind everything else, which is the state that
       # opened #246 in the first place.
+      #
+      # "Latest" has to mean latest *CLI* release, which is what this step has
+      # always been named for and did not ask. `releases/latest` is repository
+      # -wide, and Layer 4 puts two artifacts on one release list: `cli/v0.4.0`
+      # and `editor/v0.1.0` were pushed nine seconds apart, the editor release
+      # became the repository's latest, and this guard then refused the CLI
+      # release it exists to admit — failing the tap job of an otherwise wholly
+      # successful release, and refusing the dispatch repair for the same
+      # reason. An editor release must not be able to say anything about which
+      # CLI the tap serves.
       - name: The tag must be the latest CLI release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -80,14 +90,22 @@ jobs:
             cli/v*) ;;
             *) echo "::error::'$TAG' is not a CLI release tag (expected cli/v*)"; exit 1 ;;
           esac
-          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          # Newest first is the API's own order; drafts and prereleases are
+          # excluded because the endpoint this replaces excluded them too.
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '[.[] | select(.draft == false and .prerelease == false) | .tag_name | select(startswith("cli/v"))] | first // ""')
+          if [ -z "$latest" ]; then
+            echo "::error::no published cli/v* release exists, so there is no formula to"
+            echo "::error::render — the tap is pushed from a CLI release's own assets."
+            exit 1
+          fi
           if [ "$TAG" != "$latest" ]; then
-            echo "::error::$TAG is not the latest release ($latest), and the tap serves"
+            echo "::error::$TAG is not the latest CLI release ($latest), and the tap serves"
             echo "::error::one formula — pushing this would downgrade it. Dispatch this"
             echo "::error::workflow with $latest instead."
             exit 1
           fi
-          echo "$TAG is the latest release."
+          echo "$TAG is the latest CLI release."
 
       # `--pattern SHA256SUMS`: the combined manifest is one asset covering every
       # target, so a partial download is a missing file rather than a formula
