@@ -126,7 +126,22 @@ pub fn corpus_ontology_schema() -> Value {
                                             seen, and a consumer storing `claim_tag: open` \
                                             had 2 of its 26 open questions found."
                         },
-                        "description": non_empty_string()
+                        "description": non_empty_string(),
+                        "required": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "Whether every instance of this class must \
+                                            carry the property. `missing-property` gates on \
+                                            a property declared `true` and reports the \
+                                            rest, and the compiled class schema lists \
+                                            exactly these as JSON Schema `required` — one \
+                                            declaration deciding both, so the editor and \
+                                            the gate cannot disagree. Absent means false: \
+                                            every corpus predating this field was written \
+                                            where the question could not be asked, and \
+                                            defaulting to true would demand a declaration \
+                                            nobody made."
+                        }
                     },
                     "required": ["name", "type", "description"],
                     "additionalProperties": false
@@ -461,6 +476,11 @@ pub fn class_schemas(root: &Path) -> Vec<(String, String, Value)> {
                         property_type: property_type.to_string(),
                         description: "Declared for every class in .yidam/corpus/universal.yml"
                             .to_string(),
+                        // A universal is never required. `universal.yml` has no `required`
+                        // field to say so with, and a property declared for EVERY class
+                        // that every instance must also carry would gate the whole corpus
+                        // on one line of a file most readers never open.
+                        required: false,
                     });
             }
             let mut schema = yidam_core::ontology::compile_class_schema(&class);
@@ -498,6 +518,10 @@ fn with_pattern_properties(schema: &mut Value, universal: &crate::universal::Uni
                     property_type: property_type.to_string(),
                     description: "Permitted for every class by .yidam/corpus/universal.yml"
                         .to_string(),
+                    // A *pattern* is a permission, not a demand — the name is not even
+                    // known until an instance writes one. Requiring it is not expressible
+                    // and would not mean anything if it were.
+                    required: false,
                 },
             )
             .collect(),

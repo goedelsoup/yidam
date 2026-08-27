@@ -69,7 +69,7 @@ against it:
 | `property-type` | a value contradicting the declared `type` | yes |
 | `unlicensed-edge` | a relationship the class does not declare | only under `edge_policy: exhaustive` |
 | `edge-target-class` | an edge resolving to a node of the wrong class | yes |
-| `missing-property` | a declared property the instance omits | no — reported |
+| `missing-property` | a declared property the instance omits | only where the class says `required: true` |
 
 The fourth is the one no other check could produce. `dangling-edge` catches an edge to
 nothing; an edge to the *wrong* thing resolves, traverses, and exports, and is simply false.
@@ -179,12 +179,32 @@ measured its property vocabulary at 94% declared against its relationships at 68
 the property gate; what it lacked was a way to say that two specific shapes are apparatus
 rather than schema.
 
-`missing-property` reports and does not gate. The property declaration has no `required`
-field, so it cannot distinguish *every instance has this* from *an instance may have this* —
-and a node carrying no `claim_tag` is a real state, not a defect. Its siblings gate on
-something the ontology actually said being contradicted, and an omission contradicts
-nothing. `unlicensed-edge` sits between the two: it gates where the class said `exhaustive`,
-because there the ontology did make the statement being contradicted.
+`missing-property` gates on what the class asked for. A property declares whether instances
+must carry it:
+
+```yaml
+properties:
+  - name: parameter
+    type: string
+    required: true          # absent means false
+    description: The measured quantity, by its publisher's parameter code.
+```
+
+Omitting a `required: true` property is an **error**; omitting any other declared property is
+reported and does not gate. That is the same rule its four siblings follow — they gate on
+something the ontology actually *said* being contradicted — and it is why the check could not
+gate before the field existed: without it, an omission contradicted nothing, and a node
+carrying no `claim_tag` is a real state rather than a defect. `unlicensed-edge` sits in the
+same place, gating only where the class said `exhaustive`.
+
+**Absent means false**, and that default is load-bearing rather than timid. Every corpus
+written before this field existed was written under a schema where the question could not be
+asked, so defaulting to `true` would gate every class in every derived repository on a
+declaration nobody made.
+
+The declaration decides two things at once: the gate above, and the JSON Schema below, which
+lists exactly the required properties as its own `required`. One statement, so the editor and
+the build cannot come to disagree about which fields a node owes.
 
 ### Published, not only enforced
 

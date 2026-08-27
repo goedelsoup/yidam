@@ -102,13 +102,16 @@ fn every_instance_the_gate_accepts_is_accepted_by_its_class_schema() {
 
 /// The agreement that is easiest to break, and silent when broken.
 ///
-/// `missing-property` reports and does not gate, because the ontology has no `required`
-/// field to distinguish *every instance has this* from *an instance may have this*. A
-/// schema that listed declared properties as `required` would reject instances the gate
-/// accepts — and the example corpus would not catch it, because its instances happen to
-/// carry everything.
+/// The compiled schema must be **no stricter than the gate**. Since #301 the ontology can
+/// say `required: true`, and one declaration decides both: `missing-property` gates on
+/// exactly those properties, and the compiled schema lists exactly those as JSON Schema
+/// `required`. This asserts the second half against the first — not that the list is empty,
+/// which was the old claim and stopped being true the moment a class could say otherwise.
+///
+/// Read off the corpus rather than hardcoded, so it keeps holding as the example corpus
+/// grows a required property or loses one.
 #[test]
-fn a_declared_property_is_never_required_by_the_compiled_schema() {
+fn the_compiled_schema_requires_exactly_what_the_ontology_declares_required() {
     let dir = example();
     let mut saw_a_class_with_properties = false;
 
@@ -116,14 +119,45 @@ fn a_declared_property_is_never_required_by_the_compiled_schema() {
         assert_eq!(
             schema["required"],
             serde_json::json!(["class"]),
-            "{file} requires more than the class it is for"
+            "{file} requires more than the class it is for at the top level"
         );
-        if let Some(bag) = schema["properties"].get("properties") {
-            saw_a_class_with_properties = true;
-            assert!(
+        let Some(bag) = schema["properties"].get("properties") else {
+            continue;
+        };
+        saw_a_class_with_properties = true;
+
+        // What the class file itself declares, read back from the corpus this schema was
+        // compiled from. Going through the ontology parser rather than re-reading YAML here
+        // is the point: a second reading of `required:` could disagree with the compiler's,
+        // and then this test would be pinning its own opinion.
+        let class = file
+            .strip_prefix("class/")
+            .and_then(|f| f.strip_suffix(".json"))
+            .expect("compiled schemas are named class/<name>.json");
+        let ont = dir.path().join(format!(".yidam/corpus/{class}.ont.yml"));
+        let text = std::fs::read_to_string(&ont).unwrap_or_default();
+        let parsed = yidam_core::ontology::parse_class(class, &text);
+        let declared: Vec<&str> = parsed
+            .properties
+            .iter()
+            .filter(|p| p.required)
+            .map(|p| p.name.as_str())
+            .collect();
+
+        match declared.is_empty() {
+            // Omitted, not written as an empty list: a schema saying `required: []` is a
+            // different document for the same meaning, and three languages compile these.
+            true => assert!(
                 bag.get("required").is_none(),
-                "{file} makes declared properties required; `missing-property` only warns"
-            );
+                "{file} requires properties the ontology never declared required — a schema \
+                 stricter than the gate underlines, in the editor, an omission the build \
+                 accepts"
+            ),
+            false => assert_eq!(
+                bag["required"],
+                serde_json::json!(declared),
+                "{file} and {class}.ont.yml disagree about which properties are required"
+            ),
         }
     }
     assert!(

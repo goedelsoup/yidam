@@ -1,0 +1,61 @@
+function = "compile_class_schema"
+description = "A property declared `required: true` is emitted in the schema's required list; its siblings are not"
+
+[input]
+name = "gage"
+content = """
+class: gage
+label: Gage
+description: A fixed station on a channel where stage is recorded continuously.
+properties:
+  - name: parameter
+    type: string
+    required: true
+    description: The measured quantity, by its publisher's parameter code.
+  - name: claim_tag
+    type: claim
+    description: The evidence standing of this node.
+  - name: retired
+    type: date
+    required: false
+    description: When the station stopped reporting, if it has.
+"""
+
+[expected]
+schema = """
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "yidam corpus node — gage",
+  "description": "A fixed station on a channel where stage is recorded continuously.",
+  "type": "object",
+  "properties": {
+    "class": { "const": "gage" },
+    "properties": {
+      "type": "object",
+      "properties": {
+        "parameter": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The measured quantity, by its publisher's parameter code."
+        },
+        "claim_tag": {
+          "anyOf": [
+            { "enum": ["verified", "inference", "open", "[verified]", "[inference]", "[open]"] },
+            { "type": "array", "items": { "enum": ["verified", "inference", "open", "[verified]", "[inference]", "[open]"] } }
+          ],
+          "description": "The evidence standing of this node."
+        },
+        "retired": {
+          "type": "string",
+          "pattern": "^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$",
+          "description": "When the station stopped reporting, if it has."
+        }
+      },
+      "required": ["parameter"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["class"],
+  "additionalProperties": true
+}
+"""
