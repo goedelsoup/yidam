@@ -62,8 +62,12 @@ _Run `yidam status` to populate._
 mise install              # provision toolchains
 mise run yidam-build      # install the yidam CLI (once)
 mise run regen            # refresh every REGEN block
-mise run graph-check      # the gate CI runs
+mise run ci               # the gate CI runs
 ```
+
+`mise run ci` is the whole corpus gate — `graph-check`, `graph-lint`, and `regen --check` —
+and it is held to CI's by a test upstream rather than by anyone remembering to keep the two
+in step. Run it, not its parts.
 
 The yidam release this repository was vendored from is recorded in
 [`.yidam.toml`](.yidam.toml). To move to a newer one, run `mise run yidam-vendor-update`.

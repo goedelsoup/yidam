@@ -41,7 +41,21 @@ struct Derived {
 }
 
 impl Derived {
+    /// A repository that has completed the whole protocol, step 8.5 included.
     fn bootstrap() -> Self {
+        Self::build(true)
+    }
+
+    /// A repository stopped at the `vendor:` commit — everything written, nothing checked.
+    ///
+    /// This is what bootstrap produced for as long as it had no step 8.5, and it is the
+    /// fixture [`the_scaffold_is_stale_on_arrival`] needs in order to show that the step is
+    /// load-bearing rather than ceremonial.
+    fn before_the_gate() -> Self {
+        Self::build(false)
+    }
+
+    fn build(run_the_gate: bool) -> Self {
         let root = repo_root();
         let dir = tempfile::tempdir().expect("tempdir");
         let target = dir.path();
@@ -85,6 +99,32 @@ impl Derived {
         git(target, &["config", "user.name", "Bootstrap"]);
         git(target, &["add", "-A"]);
         git(target, &["commit", "-qm", "genesis: smoke"]);
+
+        // Step 8.5. Every REGEN marker the scaffold ships is stale on arrival — generated
+        // from a corpus that did not exist when the template was written — so a repository
+        // that skips this is one whose first push fails on content nobody wrote.
+        if run_the_gate {
+            let out = Command::new(target.join(".yidam/bin/yidam"))
+                .current_dir(target)
+                .arg("regen")
+                .output()
+                .expect("yidam regen");
+            assert!(
+                out.status.success(),
+                "step 8.5's `yidam regen` failed:\n{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            git(target, &["add", "-A"]);
+            git(
+                target,
+                &[
+                    "commit",
+                    "-qm",
+                    "regen: blocks populated on the first run of the gate",
+                ],
+            );
+        }
 
         Self { dir }
     }
@@ -417,5 +457,147 @@ fn a_prescribed_git_add_stages_no_cargo_install_bookkeeping() {
     assert!(
         staged.contains(&".yidam/corpus/thing/one.yml"),
         "the ignore rule is too broad — it took a corpus node with it. Staged: {staged:?}"
+    );
+}
+
+/// Step 8.5 is load-bearing, and the skill still prescribes it.
+///
+/// The bootstrap protocol used to end at the `vendor:` commit. It installed a CI workflow
+/// that runs `yidam regen --check`, a scaffold carrying REGEN markers in seven files, and a
+/// CLI that could refresh them — and ran none of it. The templates' markers are generated
+/// from a corpus that did not exist when the template was written, so they are stale from
+/// the moment they are copied: a repository with no nodes at all reports ten stale blocks.
+/// Every derived repository's first push therefore failed on generated content nobody wrote.
+///
+/// Two halves, and both are needed. That a repository stopped before the gate *fails* it is
+/// what makes the step necessary rather than ceremonial — if this ever passes, the staleness
+/// was fixed somewhere better and step 8.5 can be reconsidered. That `bootstrap.md` still
+/// names the command is what makes it happen. A step that is necessary and absent is the
+/// state this test exists to prevent returning to.
+#[test]
+fn the_scaffold_is_stale_on_arrival_and_bootstrap_says_to_fix_it() {
+    let stopped = Derived::before_the_gate();
+    let out = stopped.yidam(&["regen", "--check"]);
+    assert!(
+        !out.status.success(),
+        "a repository stopped at the `vendor:` commit passes `regen --check`.\n\
+         If the scaffold no longer ships stale blocks, that is a better fix than step 8.5 \
+         and this test should be retired deliberately rather than deleted:\n{}",
+        text(&out)
+    );
+
+    let skill = std::fs::read_to_string(repo_root().join("yidam/prelude/skills/bootstrap.md"))
+        .expect("the bootstrap skill");
+    assert!(
+        skill.contains("yidam regen"),
+        "a repository that stops before the gate fails it, and bootstrap.md no longer tells \
+         the agent to run `yidam regen`. Every derived repository's first push will fail on \
+         generated content nobody wrote."
+    );
+    assert!(
+        skill.contains("mise run yidam-build"),
+        "bootstrap.md prescribes running the gate but never installs the binary that runs it"
+    );
+}
+
+/// The local gate runs every yidam gate CI gates on.
+///
+/// `mise run ci` is what the derived README tells a new repository to run first, and
+/// `.github/workflows/ci.yml`'s corpus job is what decides whether the push is green. They
+/// were not the same set: the local gate ran `graph-check` and CI ran `graph-check`, `lint`
+/// and `regen --check`. A repository could therefore pass its own gate and fail its first
+/// build, on a check it had no local way to run.
+///
+/// Compared by **subcommand**, not by command line. CI runs `lint --commits --range
+/// origin/main..HEAD`, which needs a remote-tracking ref that a repository seven commits old
+/// working locally may not have; requiring the flags to match would force the local gate to
+/// carry an argument that cannot work there. What has to travel is the check itself.
+///
+/// Both sides are read out of the files. A list here would be a third thing to keep in step,
+/// which is the failure this is guarding against in the first place.
+#[test]
+fn the_local_gate_runs_what_ci_gates_on() {
+    let root = repo_root();
+    let workflow = std::fs::read_to_string(root.join("sadhana/github/workflows/ci.yml")).unwrap();
+    let mise_root = std::fs::read_to_string(root.join("sadhana/root/mise.toml")).unwrap();
+    let mise_layer = std::fs::read_to_string(root.join("mise.yidam.toml")).unwrap();
+
+    /// The subcommand of a `yidam <cmd> …` invocation on a line, ignoring comments.
+    fn yidam_subcommand(line: &str) -> Option<String> {
+        let line = line.split('#').next()?.trim();
+        let at = line.find("yidam ")?;
+        // `.yidam/bin/yidam` and `.yidam.toml` are paths, not invocations.
+        if line[..at].ends_with(['/', '.']) {
+            return None;
+        }
+        let word = line[at + "yidam ".len()..]
+            .split_whitespace()
+            .next()?
+            .trim_matches(|c: char| c == '"' || c == '\'');
+        // Flags and paths are not subcommands; `--version` asks what answered, not a gate.
+        if word.is_empty() || word.starts_with('-') || word.contains('/') || word.contains('.') {
+            return None;
+        }
+        Some(word.to_string())
+    }
+
+    let ci_gates: BTreeSet<String> = workflow
+        .lines()
+        .filter(|l| l.trim_start().starts_with("run: ") || l.trim_start().starts_with("- run: "))
+        .filter_map(yidam_subcommand)
+        .collect();
+
+    // What `mise run ci` reaches: its own body, plus the `run` of every task it delegates to.
+    //
+    // Anchored to whole lines. `mise.yidam.toml` explains its own naming in a comment that
+    // contains the literal `[graph-check]`, so a substring search finds the prose 19k
+    // characters before the task and reads a paragraph as a task body — which is how this
+    // first reported the local gate as missing a check it runs.
+    fn task_body<'a>(toml: &'a str, name: &str) -> Option<Vec<&'a str>> {
+        let head = format!("[{name}]");
+        let alt = format!("[tasks.{name}]");
+        let mut lines = toml.lines().skip_while(|l| {
+            let t = l.trim();
+            t != head && t != alt
+        });
+        lines.next()?;
+        Some(
+            lines
+                .take_while(|l| !l.trim_start().starts_with('['))
+                .collect(),
+        )
+    }
+
+    let ci_task = task_body(&mise_root, "ci").expect("sadhana/root/mise.toml [tasks.ci]");
+    let mut local: BTreeSet<String> = ci_task
+        .iter()
+        .copied()
+        .filter_map(yidam_subcommand)
+        .collect();
+    for line in &ci_task {
+        let Some(rest) = line.trim().strip_prefix("mise run ") else {
+            continue;
+        };
+        let name = rest.split_whitespace().next().unwrap_or("");
+        for src in [&mise_layer, &mise_root] {
+            if let Some(body) = task_body(src, name) {
+                local.extend(body.into_iter().filter_map(yidam_subcommand));
+            }
+        }
+    }
+
+    assert!(
+        ci_gates.len() >= 3,
+        "found only {} yidam gate(s) in the derived ci.yml — the parse is broken, not the \
+         workflow: {ci_gates:?}",
+        ci_gates.len()
+    );
+    let missing: Vec<&String> = ci_gates.difference(&local).collect();
+    assert!(
+        missing.is_empty(),
+        "CI's corpus job gates on {missing:?}, and `mise run ci` never runs {}. A repository \
+         that passes the gate its README names and fails its first push learns the \
+         difference from a red build.\n  ci.yml: {ci_gates:?}\n  mise run ci: {local:?}",
+        if missing.len() == 1 { "it" } else { "them" }
     );
 }

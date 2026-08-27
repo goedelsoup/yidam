@@ -672,12 +672,69 @@ git commit -m "vendor: yidam prelude into .yidam/.vendor/; template files remove
 Do not ask the user to run any of this manually — the vendor step is part of the bootstrap
 protocol and must complete before step 9.
 
+### 8.5. Run the gate this repository will be gated by
+
+Everything up to here was written and none of it has been checked. The repository now has a
+CI workflow, a local gate, and a CLI it can install — and no step has run any of them. That
+is not a gap in coverage; it is the difference between a repository that works and one that
+merely exists, and it is answerable in four commands.
+
+**Install the binary this repository pins.** Nothing before this point needed the CLI, so it
+is not there yet:
+
+```
+mise run yidam-build
+```
+
+**Then run the gate, in this order.** Each answers a different question and the order is the
+order a failure is cheapest to fix in:
+
+```
+mise run graph-check          # is the graph well-formed
+yidam regen                   # refresh every generated block
+yidam lint --init-baseline    # record what the corpus starts with
+yidam lint                    # and read what it says
+```
+
+`yidam regen` is the one that is easy to skip and cannot be. The scaffold installed in step 3
+carries `<!-- REGEN: ... -->` markers in seven files, and **every one of them is stale on
+arrival** — they are generated from a corpus that did not exist when the template was
+written. A bare scaffold with no nodes at all reports ten stale blocks. `.github/workflows/ci.yml`
+runs `yidam regen --check`, so until this command has been run and its output committed, the
+repository's first push fails on generated content nobody wrote.
+
+Commit the refreshed blocks and the baseline together:
+
+```
+git add -A
+git commit -m "regen: REGEN blocks populated on the first run of the gate"
+```
+
+`regen:` is the operational verb for exactly this — generated content refreshed, no
+understanding changed. Keep it out of the genesis commit: genesis is testimony about what the
+corpus knows, and a regenerated index table is not testimony.
+
+**If `graph-check` or `lint` reports anything, fix it now.** These are findings about work
+that was written minutes ago by the agent reading this, which is the cheapest they will ever
+be to act on. A `catalog-uncited` or a `missing-property` at this point is a step-4 or step-6
+mistake still warm; the same finding six months from now is archaeology. Fix and amend the
+commit it belongs to, or write a `fix:` commit if the genesis commit has already been pushed.
+
+Do not ask the user to run any of this manually. A bootstrap that hands over a repository
+whose gate it has never run has not finished; it has stopped.
+
 ### 9. Report
 
-Do not begin this step until the genesis commit, both `consume:` commits, and the `vendor:`
-commit are all written. If any is unresolved, finish it before proceeding.
+Do not begin this step until the genesis commit, both `consume:` commits, the `vendor:`
+commit, and the step 8.5 gate run are all done. If any is unresolved, finish it before
+proceeding. Step 9 opens by stating the gate result — a handoff that says the repository is
+ready is a claim, and this is the one place it can be checked.
 
-Output a structured handoff with four sections:
+Output a structured handoff with five sections:
+
+**Gate** — one line: the result of the step 8.5 run. Name the commands, say whether each
+passed, and name any finding left open and why. "Green as of `<sha>`" is checkable; "the
+repository is ready" is not.
 
 **Ontology** — the class definitions written. One line per class; list the outgoing edges.
 
