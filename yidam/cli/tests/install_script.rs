@@ -41,8 +41,31 @@ fn a_missing_checksum_tool_refuses_rather_than_skips() {
 fn the_release_is_resolved_not_hardcoded() {
     let s = script();
     assert!(
-        s.contains("releases/latest"),
-        "the installer must resolve the latest release"
+        s.contains("/releases"),
+        "the installer must resolve the release it downloads"
+    );
+    // And resolve the latest *CLI* release. `releases/latest` is repository-wide, and this
+    // repository releases four layers onto one list; the script then refused anything that
+    // was not `cli/v*`, so `editor/v0.1.0` landing nine seconds after `cli/v0.4.0` made
+    // `curl | sh` fail for everyone. This test asserted `releases/latest` by name, so it
+    // held that in place rather than catching it.
+    //
+    // Commands only — the fix explains the endpoint it avoids, and a test that reads prose
+    // fails on the explanation of its own fix.
+    let code: String = s
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !code.contains("releases/latest"),
+        "the installer resolves the repository's latest release, which any layer's tag \
+         becomes by being pushed last — it must ask for the latest `cli/v*`"
+    );
+    assert!(
+        code.contains("cli\\/v"),
+        "the installer does not filter the release list to CLI releases, so whichever \
+         layer released most recently decides what it downloads: {code}"
     );
     // A literal `cli/v<digits>` outside the pattern-match arms would be a pinned version.
     for line in s.lines() {

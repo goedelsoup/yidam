@@ -421,3 +421,82 @@ fn steps_inside_a_container_avoid_bash_only_shell_options() {
         );
     }
 }
+
+/// Nothing resolves a layer's release through the repository's latest release.
+///
+/// `releases/latest` answers "what did this repository publish most recently", and this
+/// repository publishes four layers onto one release list. Every caller here wants a
+/// different question — which `cli/v*` is newest — and each one asked the repository-wide
+/// one and then rejected the answer if it was not a CLI release.
+///
+/// That was correct for as long as the CLI was the only layer producing GitHub releases. It
+/// broke the first time two trains landed together: `editor/v0.1.0` was pushed nine seconds
+/// after `cli/v0.4.0`, and in those nine seconds it became the answer to all three.
+///
+/// - `tap.yml` refused to push the formula, and refused the dispatch built to repair that.
+/// - `install-channels.yml` would have failed `released`, taking five channel jobs with it.
+/// - `install.sh` — the `curl | sh` line the README documents — failed for every user.
+///
+/// One line each, written months apart, none of them wrong when written. So this is
+/// discovered rather than listed, for the reason `documented_files` gives one test up: a
+/// list of three files is the same hole one file later, and `editor-released` in
+/// install-channels.yml had already been written the right way without the older jobs
+/// learning anything from it.
+#[test]
+fn nothing_resolves_a_layer_release_through_the_repository_latest() {
+    let root = repo_root().canonicalize().expect("repo root is readable");
+    let mut scanned: Vec<String> = Vec::new();
+
+    let mut candidates: Vec<PathBuf> = std::fs::read_dir(root.join(".github/workflows"))
+        .expect(".github/workflows is unreadable")
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| {
+            let n = p.to_string_lossy();
+            n.ends_with(".yml") || n.ends_with(".yaml")
+        })
+        .collect();
+    candidates.push(root.join("install.sh"));
+    candidates.sort();
+
+    for path in &candidates {
+        let text = std::fs::read_to_string(path)
+            .unwrap_or_else(|e| panic!("{} is unreadable ({e})", path.display()));
+        let rel = path
+            .strip_prefix(&root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .into_owned();
+        // Commands only: the fixes explain the endpoint they avoid, and a test that reads
+        // prose fails on the explanation of its own fix.
+        let code: String = text
+            .lines()
+            .filter(|l| !l.trim_start().starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !code.contains("releases/latest"),
+            "{rel} resolves a release through `releases/latest`, which is repository-wide. \
+             Four layers publish onto one list, so the answer is whichever layer was tagged \
+             last — an `editor/v*` tag then decides which CLI is installed, checked, or \
+             served. Filter the release list by the layer's own tag prefix instead."
+        );
+        scanned.push(rel);
+    }
+
+    // The walk must actually have looked at the three files this is about; a scan of
+    // nothing passes every assertion in it.
+    for required in ["install.sh", ".github/workflows/tap.yml"] {
+        assert!(
+            scanned.iter().any(|s| s == required),
+            "the scan did not read {required}, so it is looking at the wrong tree and every \
+             assertion built on it is vacuous (read: {scanned:?})"
+        );
+    }
+    assert!(
+        scanned.len() >= 5,
+        "the scan read only {} files; this repository has more workflows than that, so it \
+         is not reading what it claims to (read: {scanned:?})",
+        scanned.len()
+    );
+}

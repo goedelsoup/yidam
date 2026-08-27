@@ -66,11 +66,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag=$(gh api "repos/${{ github.repository }}/releases/latest" --jq .tag_name)
-          case "$tag" in
-            cli/v*) ;;
-            *) echo "::error::latest release is '$tag', which is not a CLI release (expected cli/v*)"; exit 1 ;;
-          esac
+          # The same list-and-filter `editor-released` does below, and for the
+          # reason its comment already gives: releases are returned newest-first
+          # and the layers interleave. This job asked for the repository's latest
+          # release and then rejected anything that was not `cli/v*` — so an
+          # `editor/v*` tag pushed after a `cli/v*` one failed it outright, and
+          # took the five CLI channel jobs that need it down as a skip. That is
+          # what `editor/v0.1.0` landing nine seconds after `cli/v0.4.0` did.
+          tag=$(gh api "repos/${{ github.repository }}/releases?per_page=100" \
+                  --jq '[.[] | select(.draft == false and .prerelease == false) | select(.tag_name | startswith("cli/v"))][0].tag_name // ""')
+          if [ -z "$tag" ]; then
+            echo "::error::no published cli/v* release exists, so there is no version for"
+            echo "::error::these channels to be checked against."
+            exit 1
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=${tag#cli/v}" >> "$GITHUB_OUTPUT"
           echo "latest CLI release: $tag"

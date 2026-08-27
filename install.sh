@@ -42,15 +42,22 @@ esac
 # Resolved rather than hardcoded. A version baked into this script works on the
 # day it is written and 404s on the next release, which is the failure mode that
 # does not announce itself.
+#
+# The *CLI's* latest release, which `releases/latest` does not answer: it is
+# repository-wide, and this repository releases four layers onto one list. This
+# script asked it and then refused anything that was not `cli/v*`, so publishing
+# any other layer more recently broke `curl | sh` for everyone — `editor/v0.1.0`,
+# nine seconds after `cli/v0.4.0`, did exactly that. The list is returned
+# newest-first, so the first `cli/v*` row in it is the answer.
 tag="${YIDAM_VERSION:-}"
 if [ -z "$tag" ]; then
-  tag=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-        | sed -n 's/.*"tag_name": *"\(.*\)".*/\1/p' | head -1)
+  tag=$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=100" \
+        | sed -n 's/.*"tag_name": *"\(cli\/v[^"]*\)".*/\1/p' | head -1)
 fi
-[ -n "$tag" ] || fail "could not resolve the latest release of $REPO"
+[ -n "$tag" ] || fail "could not resolve the latest CLI release of $REPO"
 case "$tag" in
   cli/v*) ;;
-  *) fail "latest release is '$tag', which is not a CLI release (expected cli/v*)" ;;
+  *) fail "resolved '$tag', which is not a CLI release (expected cli/v*)" ;;
 esac
 version="${tag#cli/v}"
 
