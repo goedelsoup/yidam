@@ -177,40 +177,213 @@ pub fn parse_samudaya_seed(text: &str) -> SamudayaSeed {
     serde_yaml::from_str(&rest[..end]).unwrap_or_default()
 }
 
-pub fn extract_toml_field(text: &str, field: &str) -> Option<String> {
-    let prefix = format!("{field} = ");
-    for line in text.lines() {
-        if let Some(rest) = line.trim().strip_prefix(&prefix) {
-            let value = rest.trim().trim_matches('"').to_string();
-            if !value.is_empty() {
-                return Some(value);
-            }
-        }
-    }
-    None
+/// A crate or package manifest reduced to what an index row carries.
+///
+/// `description` is optional because a manifest may honestly not have one; the index
+/// renders that absence as an em dash. What it must never render as an em dash is a
+/// description the manifest *does* declare — see [`parse_cargo_manifest`].
+pub struct ManifestEntry {
+    pub name: String,
+    pub description: Option<String>,
 }
 
-pub fn extract_json_field(text: &str, field: &str) -> Option<String> {
-    let pattern = format!("\"{field}\":");
-    for line in text.lines() {
-        if let Some(rest) = line.find(&pattern).map(|i| &line[i + pattern.len()..]) {
-            let value = rest
-                .trim()
-                .trim_matches('"')
-                .trim_end_matches(',')
-                .trim()
-                .to_string();
-            if !value.is_empty() && value != "null" {
-                return Some(value);
-            }
-        }
+/// `[workspace.package]` — the defaults a member claims with `<key>.workspace = true`.
+#[derive(Default)]
+pub struct WorkspacePackage {
+    pub description: Option<String>,
+}
+
+/// Reads `[workspace.package]` from a manifest that declares a workspace.
+///
+/// `None` when there is no `[workspace]` table: only a workspace root can be inherited
+/// from, and a member that reads its own `[package]` as the source of the defaults would
+/// resolve every inherited key to itself.
+pub fn parse_workspace_package(text: &str) -> Option<WorkspacePackage> {
+    let value: toml::Value = toml::from_str(text).ok()?;
+    let workspace = value.get("workspace")?;
+    Some(WorkspacePackage {
+        description: workspace
+            .get("package")
+            .and_then(|package| package.get("description"))
+            .and_then(toml::Value::as_str)
+            .map(str::to_string)
+            .filter(|d| !d.is_empty()),
+    })
+}
+
+/// Reads a Cargo manifest's `[package]` table.
+///
+/// `None` when the manifest declares no package. A virtual manifest — `[workspace]` and its
+/// members, no package of its own — is not a crate, and the members it names are found by
+/// the walk on their own; rendering one as a row produced a link whose text and target were
+/// both an em dash.
+///
+/// Parsed as TOML rather than scanned line by line, which is the other half of the same
+/// report. The scan matched the literal prefix `description = `, so an aligned manifest
+/// (`description  = "..."`, two spaces, valid TOML and ordinary formatting) fell through to
+/// the em dash — and it read the first matching line in the file regardless of which table
+/// held it, so a workspace root's `[workspace.package]` description answered for the
+/// package below it. Both failures regenerate cleanly and pass `regen --check`.
+pub fn parse_cargo_manifest(
+    text: &str,
+    workspace: Option<&WorkspacePackage>,
+) -> Option<ManifestEntry> {
+    let value: toml::Value = toml::from_str(text).ok()?;
+    let package = value.get("package")?;
+    let name = non_empty(package.get("name").and_then(toml::Value::as_str))?;
+    let description = inherited_str(
+        package.get("description"),
+        workspace.and_then(|w| w.description.as_deref()),
+    );
+    Some(ManifestEntry { name, description })
+}
+
+/// Reads a `pyproject.toml` — PEP 621 `[project]`, or Poetry's `[tool.poetry]` for a
+/// project that predates it.
+pub fn parse_pyproject_manifest(text: &str) -> Option<ManifestEntry> {
+    let value: toml::Value = toml::from_str(text).ok()?;
+    let project = value
+        .get("project")
+        .or_else(|| value.get("tool").and_then(|tool| tool.get("poetry")))?;
+    let name = non_empty(project.get("name").and_then(toml::Value::as_str))?;
+    Some(ManifestEntry {
+        name,
+        description: non_empty(project.get("description").and_then(toml::Value::as_str)),
+    })
+}
+
+/// Reads a `package.json`.
+///
+/// `None` for a workspace root: a manifest whose job is to declare `workspaces` is the npm
+/// counterpart of a virtual Cargo manifest, and its members are listed on their own.
+pub fn parse_npm_manifest(text: &str) -> Option<ManifestEntry> {
+    let value: serde_json::Value = serde_json::from_str(text).ok()?;
+    if value.get("workspaces").is_some() {
+        return None;
     }
-    None
+    let name = non_empty(value.get("name").and_then(serde_json::Value::as_str))?;
+    Some(ManifestEntry {
+        name,
+        description: non_empty(value.get("description").and_then(serde_json::Value::as_str)),
+    })
+}
+
+fn non_empty(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// A `[package]` field that is either a string or the inheritance marker
+/// `<key>.workspace = true`, resolved against the workspace root's value.
+fn inherited_str(field: Option<&toml::Value>, inherited: Option<&str>) -> Option<String> {
+    match field {
+        Some(toml::Value::String(s)) => non_empty(Some(s)),
+        Some(value) if value.get("workspace").and_then(toml::Value::as_bool) == Some(true) => {
+            non_empty(inherited)
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The reported defect. `description  = "..."` — two spaces, valid TOML, and ordinary
+    /// formatting for an aligned manifest — read as no description at all, and the index
+    /// rendered an em dash. The line scan matched the literal prefix `description = `.
+    #[test]
+    fn an_aligned_manifest_still_has_a_description() {
+        let toml = "[package]\nname         = \"retrieval\"\ndescription  = \"Office retrieval\"\n";
+        let entry = parse_cargo_manifest(toml, None).expect("an aligned [package] is a package");
+        assert_eq!(entry.name, "retrieval");
+        assert_eq!(entry.description.as_deref(), Some("Office retrieval"));
+    }
+
+    /// The other reported defect. A virtual manifest is not a crate, and listing one
+    /// produced a row whose link text and target were both an em dash.
+    #[test]
+    fn a_virtual_workspace_manifest_is_not_a_crate() {
+        let toml = "[workspace]\nmembers = [\"retrieval\"]\nresolver = \"2\"\n";
+        assert!(parse_cargo_manifest(toml, None).is_none());
+    }
+
+    /// A root crate that is also a workspace root is still a crate — and the description
+    /// that answers is its own. The line scan returned the first `description = ` line in
+    /// the file whatever table held it, so `[workspace.package]` answered for the package.
+    #[test]
+    fn a_package_beside_a_workspace_answers_for_itself() {
+        let toml = "[workspace]\nmembers = [\"member\"]\n\n[workspace.package]\ndescription = \"the workspace\"\n\n[package]\nname = \"root-crate\"\ndescription = \"the crate\"\n";
+        let entry = parse_cargo_manifest(toml, None).expect("a package beside a workspace");
+        assert_eq!(entry.description.as_deref(), Some("the crate"));
+    }
+
+    /// Inheritance is the normal arrangement in the workspace the conventions describe, and
+    /// an unresolved `description.workspace = true` is the same silent em dash by a
+    /// different route.
+    #[test]
+    fn an_inherited_description_resolves_against_the_workspace() {
+        let root = "[workspace]\nmembers = [\"retrieval\"]\n\n[workspace.package]\ndescription = \"The workspace description\"\n";
+        let workspace = parse_workspace_package(root).expect("a [workspace] declares one");
+        let member = "[package]\nname = \"retrieval\"\ndescription.workspace = true\nedition.workspace = true\n";
+        let entry = parse_cargo_manifest(member, Some(&workspace)).expect("a member is a crate");
+        assert_eq!(
+            entry.description.as_deref(),
+            Some("The workspace description")
+        );
+    }
+
+    /// A member cannot be its own inheritance source, or every inherited key resolves to
+    /// the package that asked.
+    #[test]
+    fn only_a_workspace_root_supplies_defaults() {
+        assert!(parse_workspace_package("[package]\nname = \"retrieval\"\n").is_none());
+    }
+
+    /// Nothing to inherit from is still an honest absence, not a crash or a `true`.
+    #[test]
+    fn an_inherited_description_with_no_workspace_is_absent() {
+        let member = "[package]\nname = \"retrieval\"\ndescription.workspace = true\n";
+        let entry = parse_cargo_manifest(member, None).expect("still a package");
+        assert_eq!(entry.description, None);
+    }
+
+    #[test]
+    fn an_npm_workspace_root_is_not_a_package() {
+        let json = r#"{"name": "root", "private": true, "workspaces": ["a", "b"]}"#;
+        assert!(parse_npm_manifest(json).is_none());
+    }
+
+    #[test]
+    fn an_npm_package_reads_name_and_description() {
+        let json = r#"{"name": "@corpus/connector", "description": "A connector package"}"#;
+        let entry = parse_npm_manifest(json).expect("a package.json with a name");
+        assert_eq!(entry.name, "@corpus/connector");
+        assert_eq!(entry.description.as_deref(), Some("A connector package"));
+    }
+
+    #[test]
+    fn a_pyproject_reads_pep_621_then_poetry() {
+        let pep = "[project]\nname = \"calculator\"\ndescription = \"A calculator package\"\n";
+        let entry = parse_pyproject_manifest(pep).expect("a [project] table");
+        assert_eq!(entry.name, "calculator");
+        assert_eq!(entry.description.as_deref(), Some("A calculator package"));
+
+        let poetry =
+            "[tool.poetry]\nname = \"calculator\"\ndescription = \"A calculator package\"\n";
+        let entry = parse_pyproject_manifest(poetry).expect("a [tool.poetry] table");
+        assert_eq!(entry.name, "calculator");
+        assert_eq!(entry.description.as_deref(), Some("A calculator package"));
+    }
+
+    /// A manifest that does not parse is not half-read: the old scan would still find a
+    /// `name = ` line in a file cargo itself rejects.
+    #[test]
+    fn a_malformed_manifest_yields_nothing() {
+        assert!(parse_cargo_manifest("[package\nname = \"broken\"\n", None).is_none());
+    }
 
     #[test]
     fn corpus_instance_empty_links_is_orphan() {
