@@ -111,6 +111,11 @@ which is a re-index of what the report said. Deriving it here from the corpus's 
 be a second opinion about what a citation is, and that opinion has already been wrong once:
 matching a bare slug rather than a resolved link failed a build on a node that cited nothing.
 
+**So it needs a `yidam` that emits that field — 0.6.0 or newer.** Against an older binary
+the section is empty rather than broken. Adding a field is not a report-contract break, so
+an older `yidam` still speaks the same contract and there is no version for the extension to
+refuse; a node simply lists no sources until the binary can name them.
+
 Two things the row deliberately does **not** say:
 
 - **An unretrieved source is stated, not reddened.** `not obtained` sits in the row's

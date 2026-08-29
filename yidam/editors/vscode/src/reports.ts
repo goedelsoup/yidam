@@ -175,18 +175,28 @@ export interface SourceRow {
   nodes: number
   /** Class definitions and READMEs linking here. Never added to `nodes`. */
   elsewhere: number
-  /** Repo-relative paths of those instances, sorted. Exactly `nodes` of them. */
-  cited_by: string[]
+  /**
+   * Repo-relative paths of those instances, sorted. Exactly `nodes` of them.
+   *
+   * Optional because a CLI older than 0.6.0 does not emit it, and `format_version` cannot
+   * say so: adding a field is not a contract break, so both CLIs speak `1` and the
+   * handshake passes. The extension auto-updates while a repository builds its binary from
+   * the commit pinned in `.yidam.toml`, so the two genuinely drift apart — the `?` is what
+   * makes the compiler require a guard at every read rather than trusting that they match.
+   */
+  cited_by?: string[]
   /** The entry's declared `used-by`, verbatim. Empty when it declares none. */
-  used_by: string[]
+  used_by?: string[]
   /**
    * How that list disagrees with the citations, or null when none is declared.
    *
    * Null and an empty drift are different answers. **Computed by the CLI**, from the same
    * function `catalog-used-by-drift` gates on — recomputing it here would be the editor
    * forming a second opinion about a verdict.
+   *
+   * Absent is a third answer, and it means the CLI predates the field — see `cited_by`.
    */
-  drift: { claimed_not_citing: string[]; citing_not_claimed: string[] } | null
+  drift?: { claimed_not_citing: string[]; citing_not_claimed: string[] } | null
 }
 
 /**
