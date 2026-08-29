@@ -218,6 +218,64 @@ test('a node with no sources gets no children rather than an empty group', () =>
 })
 
 /**
+ * A CLI that predates the provenance fields.
+ *
+ * There is no version the extension could refuse here. Adding a field is not a contract
+ * break, so such a CLI still reports `format_version` 1 and the handshake passes — the one
+ * check built for exactly this question cannot see the difference. And the pairing is
+ * ordinary rather than exotic: the extension updates itself from Open VSX, while a
+ * repository builds its binary from the commit pinned in `.yidam.toml`.
+ *
+ * So it must degrade to "no sources known", which is true, and never to a broken view.
+ */
+test('a CLI older than the provenance fields yields no sources rather than throwing', () => {
+  const old: CatalogAuditReport = {
+    ...ENVELOPE,
+    sources: [
+      {
+        entry: 'stage-discharge.md',
+        type: 'paper',
+        description: 'A rating-curve derivation',
+        obtained: true,
+        citations: 2,
+        nodes: 2,
+        elsewhere: 0,
+      },
+    ],
+  }
+  assert.equal(sourcesByNode(old, INDEX.nodes).size, 0, 'no citation is resolvable')
+  const tree = corpusTree(INDEX, { ...ENVELOPE, open_questions: [] }, undefined, null, old)
+  assert.deepEqual(find(tree, 'node:concept/tailwater.yml')!.children, [])
+})
+
+/**
+ * `drift` is guarded separately from `cited_by` because it is read on a different path —
+ * the row's tooltip rather than the inversion. Unreachable from any released CLI, which
+ * shipped all three fields together; covered because the type now permits it, and an
+ * untested guard is the one that regresses.
+ */
+test('a source whose drift is absent renders without claiming its used-by disagrees', () => {
+  const partial: CatalogAuditReport = {
+    ...ENVELOPE,
+    sources: [
+      {
+        entry: 'stage-discharge.md',
+        type: 'paper',
+        description: 'A rating-curve derivation',
+        obtained: true,
+        citations: 1,
+        nodes: 1,
+        elsewhere: 0,
+        cited_by: ['.yidam/corpus/concept/tailwater.yml'],
+      },
+    ],
+  }
+  const tree = corpusTree(INDEX, { ...ENVELOPE, open_questions: [] }, undefined, null, partial)
+  const row = find(tree, 'source:concept/tailwater.yml:stage-discharge.md')!
+  assert.ok(!row.tooltip!.includes('disagrees'), 'no list was declared, so nothing drifted')
+})
+
+/**
  * A node citing an unretrieved source is `catalog-unobtained-but-cited`, an Error that
  * reaches the editor as a diagnostic and a Health row. A second red mark here would be the
  * tree rendering a verdict it did not compute.
@@ -973,10 +1031,14 @@ test('every view builds from the real binary’s own JSON', async (t) => {
   // The provenance layer, from the binary's own JSON. `cited_by` is a field only the real
   // report can prove is spelled and rooted the way this inversion assumes.
   const catalog = read<CatalogAuditReport>(['catalog-audit'])
-  const cited = catalog.sources.find((s) => s.cited_by.length > 0)
+  const cited = catalog.sources.find((s) => (s.cited_by?.length ?? 0) > 0)
   assert.ok(cited, 'the fixture has a source some node draws on')
+  // The type permits absence, because a CLI older than 0.6.0 omits the field. This test
+  // runs *this* binary, so here it is a claim about the current contract rather than a
+  // guard: the producing half of what the extension is now written to tolerate missing.
+  assert.ok(cited.cited_by, 'the binary emits `cited_by`')
   assert.equal(cited.cited_by.length, cited.nodes, 'the count is the list’s length')
-  const uncited = catalog.sources.find((s) => s.cited_by.length === 0)
+  const uncited = catalog.sources.find((s) => s.cited_by?.length === 0)
   assert.ok(uncited, 'and one no node draws on, which is the other arm')
   assert.equal(uncited.drift, null, 'an entry declaring no `used-by` list has not drifted')
 

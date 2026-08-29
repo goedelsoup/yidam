@@ -290,7 +290,7 @@ export function sourcesByNode(
   const out = new Map<string, SourceRow[]>()
   if (!catalog) return out
   for (const source of catalog.sources) {
-    for (const cited of source.cited_by) {
+    for (const cited of source.cited_by ?? []) {
       for (const row of rows) {
         if (cited !== row.node && !cited.endsWith(`/${row.node}`)) continue
         const list = out.get(row.node) ?? []
@@ -315,9 +315,13 @@ export function sourcesByNode(
  * rendering a verdict it did not compute.
  */
 function sourceRow(node: string, source: SourceRow, catalogDir: string): TreeNode {
+  // Reached through `?.` rather than a null test, because there are three states and only
+  // two of them are about drift: a declared list that holds, a declared list that does not,
+  // and — against a CLI older than 0.6.0 — no field at all. The first and third both mean
+  // "nothing to report here", so neither arm needs to distinguish them.
   const drifting =
-    source.drift !== null &&
-    (source.drift.claimed_not_citing.length > 0 || source.drift.citing_not_claimed.length > 0)
+    (source.drift?.claimed_not_citing.length ?? 0) > 0 ||
+    (source.drift?.citing_not_claimed.length ?? 0) > 0
   return {
     id: `source:${node}:${source.entry}`,
     label: named(source.description, stem(source.entry)),
