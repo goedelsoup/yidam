@@ -10,44 +10,63 @@ const SITE = 'https://goedelsoup.github.io';
 const BASE = '/yidam';
 
 const sidebar = [
+  // The site's root redirects to `what-yidam-is`, so it leads here: a reader who
+  // typed the bare URL is already on the first page of this group.
   {
     label: 'Start here',
-    items: [{ slug: 'quickstart', label: 'Quickstart' }],
-  },
-  {
-    label: 'yidam',
     items: [
       { slug: 'what-yidam-is', label: 'What yidam is' },
-      { slug: 'vocabulary', label: 'Vocabulary' },
-      { slug: 'aesthetic-direction', label: 'Aesthetic direction' },
+      { slug: 'quickstart', label: 'Quickstart' },
+      { slug: 'installation', label: 'Installation' },
+    ],
+  },
+  // Reference before concept, deliberately. Someone who has installed the binary
+  // has a question about the binary; the model can be read after, and is one
+  // group down.
+  {
+    label: 'Using yidam',
+    items: [
+      { slug: 'cli-reference', label: 'CLI reference' },
+      { slug: 'configuration', label: 'Configuration' },
+      { slug: 'editor-setup', label: 'Editor setup' },
+      { slug: 'mcp-server', label: 'Connecting an agent (MCP)' },
+      { slug: 'sharing-derivations', label: 'Sharing a derivation' },
+      { slug: 'troubleshooting', label: 'Troubleshooting' },
     ],
   },
   {
-    label: 'Architecture',
+    label: 'The model',
     items: [
+      { slug: 'vocabulary', label: 'Vocabulary' },
       { slug: 'information-architecture', label: 'Information architecture' },
       { slug: 'git-branch-model', label: 'Git branch model' },
+      { slug: 'bootstrap-flow', label: 'Bootstrap flow' },
       { slug: 'domain-computer', label: 'Domain computer' },
-      { slug: 'mcp-server', label: 'Connecting an agent (MCP)' },
       { slug: 'web-interface', label: 'Web interface' },
     ],
   },
   {
-    label: 'Processes',
+    label: 'Governance',
     items: [
-      { slug: 'bootstrap-flow', label: 'Bootstrap flow' },
       { slug: 'sangha-resolution-flow', label: 'Sangha resolution' },
       { slug: 'constitutional-governance', label: 'Constitutional governance' },
-      { slug: 'sharing-derivations', label: 'Sharing a derivation' },
+      { slug: 'conduct-norms', label: 'Conduct norms' },
     ],
   },
   {
-    label: 'Quality & conduct',
+    label: 'Quality',
     items: [
       { slug: 'quality-rubric', label: 'Quality rubric' },
-      { slug: 'conduct-norms', label: 'Conduct norms' },
       { slug: 'test-harness', label: 'Test harness' },
       { slug: 'post-genesis-measurement', label: 'Post-genesis measurement' },
+    ],
+  },
+  {
+    label: 'The project',
+    items: [
+      { slug: 'contributing', label: 'Contributing' },
+      { slug: 'versioning', label: 'Versioning and releases' },
+      { slug: 'aesthetic-direction', label: 'Aesthetic direction' },
     ],
   },
   {
