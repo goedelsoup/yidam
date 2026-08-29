@@ -13,19 +13,31 @@ directory layout, prelude documents, REGEN marker format, `mise.toml` shape, the
 
 **Tags:** `v{major}.{minor}.{patch}` on the monorepo root (e.g. `v0.1.0`).
 
-**Pinning in derived repos.** Every derived repo carries a `.yidam.toml` at its root:
+**Pinning in derived repos.** Every derived repo carries a `.yidam.toml` at its root, written
+by `clone`/`overlay` and rewritten by `mise run yidam-vendor-update`. These four fields, and
+no others — `src/provenance.rs::render` is what emits them:
 
 ```toml
 [yidam]
-origin   = "git@github.com:goedelsoup/yidam.git"
-template = "0.1.0"   # template layer — matches a monorepo tag
-bootstrap = "0.1.0"  # bootstrap protocol — matches PROTOCOL_VERSION in the harness
+origin    = "git@github.com:goedelsoup/yidam.git"
+commit    = "88edd17f4c2a1b09e3d5f7a8c6b4e2d1a9f0c3b5"
+template  = "v0.1.0"    # this layer's tag at that commit, or "untagged"
+committed = "2026-08-27"
 ```
 
-`claudesync sync` reads `.yidam.toml` and reports drift against the origin tags.
-`claudesync upgrade --template 0.2.0` fetches the target release and applies forward
-changes to template-owned files (prelude/, BOOTSTRAP.md, mise.toml skeleton), leaving
-domain-owned content (corpus/, agents/, crates/) untouched.
+`commit` is the resolvable pin — it is what the re-vendor procedure and CI check out.
+`template` carries the tag verbatim, `v` prefix included, and is matched against
+`v[0-9]*` so that a commit carrying several layers' tags cannot answer for this one.
+`committed` is the *pinned commit's* author date, not the date the repo last re-vendored.
+
+**There is no `bootstrap` field.** This document described one for several releases; nothing
+wrote it and nothing read it. The protocol version a repo's snapshots are valid for is
+recorded by the harness, not by this file — see Layer 3.
+
+`mise run yidam-vendor-status` reads `.yidam.toml` and reports drift against the origin.
+`mise run yidam-vendor-update` re-vendors `.yidam/.vendor/prelude/` at the origin's current
+commit and re-pins the file, leaving domain-owned content (`corpus/`, `agents/`, `crates/`)
+untouched; `YIDAM_REF=v0.2.0` targets a specific tag or branch.
 
 **Semver meaning for this layer:**
 
@@ -37,9 +49,9 @@ domain-owned content (corpus/, agents/, crates/) untouched.
 
 **Prelude errata propagate by re-vendor, not by freezing.** A typo or vocabulary fix to the
 prelude is a **patch** bump (above). Derived repos adopt it by re-vendoring the prelude at the new
-tag — `claudesync upgrade --template` applies the forward change to the inherited `prelude/` while
-leaving domain content untouched. A derived repo is never frozen at its birth prelude: a correction
-made upstream reaches it on the next template bump it adopts.
+tag — `YIDAM_REF=v0.2.0 mise run yidam-vendor-update` applies the forward change to the inherited
+prelude while leaving domain content untouched. A derived repo is never frozen at its birth prelude:
+a correction made upstream reaches it on the next template bump it adopts.
 
 ---
 
@@ -118,10 +130,11 @@ producing misleading output.
 
 **Tags:** `bootstrap/v{major}.{minor}.{patch}` (e.g. `bootstrap/v0.1.0`).
 
-**Pinning in derived repos.** The `bootstrap` field in `.yidam.toml` (see Layer 1)
-records which protocol version the repo's `tests/results/` snapshots are valid for.
-A `claudesync upgrade --bootstrap 0.2.0` re-runs the harness against all scenarios and
-commits the new baseline snapshots.
+**How a repo records it.** Not in `.yidam.toml` — that file has no `bootstrap` field, and
+this document described one for several releases that nothing wrote and nothing read. The
+protocol version travels with the artifact it qualifies: **every result snapshot records the
+`PROTOCOL_VERSION` it was taken under**, which is what lets the harness refuse a cross-version
+diff. Re-baselining after a bump is a harness run whose new snapshots carry the new version.
 
 **Semver meaning for this layer:**
 
