@@ -1,0 +1,5 @@
+class: gage
+label: Ramping rate
+description: >-
+  The limit on how quickly hydropeaking may change river stage. Named in a licence and
+  measured at the gage.

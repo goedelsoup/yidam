@@ -1,0 +1,5 @@
+class: gage
+label: River stage
+description: >-
+  The water level a gage reads, in feet above datum. Hydropeaking moves it hour to
+  hour, and the ramping rate is how fast it is allowed to move.

@@ -80,9 +80,49 @@ pub(crate) fn list(state: &ServerState) -> Value {
     json!({ "tools": tools })
 }
 
+/// The tier a tool sits at, or `None` for a name the contract does not carry.
+fn tier(name: &str) -> Option<String> {
+    contract()["tools"]
+        .as_array()?
+        .iter()
+        .find(|t| t["name"] == name)
+        .map(|t| t["tier"].as_str().unwrap_or("core").to_string())
+}
+
+/// A tool the contract carries and this server does not back, refused by name (#358).
+///
+/// The capability block exists so a client learns the holes at connect time "rather than
+/// letting a client discover them through tool-not-found errors" — and a server that leaves
+/// an unbacked tool dispatchable has re-opened the hole from the other side. Before this,
+/// `query` on an unschematised corpus was absent from `tools/list` and answered anyway, with
+/// `class-unpopulated` on a corpus that declares nothing: the one diagnosis the contract
+/// names as a MUST NOT, delivered by a tool the same server had just said it does not serve.
+///
+/// It was unreachable to test until `corpus-unschematised/` shipped, because on the corpus
+/// every case ran against this server backs every tier there is a tool for.
+///
+/// `capability-not-supported` and not `unknown tool`: the two are different repairs. One says
+/// the caller mistyped a name, the other says this server declines a name that exists — and a
+/// client told the first when the second is true will go looking for a spelling error in a
+/// tool the contract froze.
+fn refuse_unbacked(state: &ServerState, name: &str) -> Option<String> {
+    let tier = tier(name)?;
+    match backs(&tier, &capabilities(state)) {
+        true => None,
+        false => Some(format!(
+            "capability-not-supported: `{name}` is served only by a server declaring the \
+             `{tier}` capability, and this one declares it false. It is absent from \
+             `tools/list` for the same reason."
+        )),
+    }
+}
+
 /// Dispatch a tools/call. Tool-level failures come back as MCP tool errors
 /// (`isError: true`), not protocol errors — the agent can read and react.
 pub(crate) fn call(state: &ServerState, name: &str, args: &Value) -> Value {
+    if let Some(refusal) = refuse_unbacked(state, name) {
+        return json!({"content": [{"type": "text", "text": refusal}], "isError": true});
+    }
     let outcome = match name {
         "retrieve" => retrieve(state, args),
         "get_node" => get_node(state, args),
