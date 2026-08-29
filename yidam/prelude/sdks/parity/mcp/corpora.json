@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The fixture corpora `cases/` runs against. A case names one with its `corpus` key and defaults to `corpus`, so a corpus is added without touching a single existing case. `capabilities` is the part of the handshake this corpus DECIDES — not the whole block: `retrieve.vector` depends on the build and `phases`/`sangha` on whether the server reads a working git repository, and freezing those here would pin a fact about a binary onto a directory of YAML. What a corpus decides, it decides for every conforming server, and a harness asserts it after `initialize`.",
+  "corpora": {
+    "corpus": {
+      "why": "The tree every case runs against unless it names another — a four-node `concept` graph with an installed dependency, small enough to read in one sitting and shaped so each case has exactly one thing it can fail on. `mcp/README.md` walks its nodes.",
+      "capabilities": {
+        "ontology": true
+      }
+    },
+    "corpus-unschematised": {
+      "why": "Two `gage` instances and no `.ont.yml`. It exists because `class-undeclared` is a frozen `retrieve` code that no case over `corpus/` can force a server to implement: that corpus declares `concept` and `note`, so its class set is never empty and the branch is unreachable from every case in the directory. A conforming server could answer `class-unpopulated` for an unschematised corpus — the one thing the contract says a server MUST NOT do, because it asserts an ontology the server does not have — and pass the whole suite. It is also the only corpus on which the `ontology` tier is unbacked, so it is the only one where a tool a server declines to serve is more than a hypothetical.",
+      "capabilities": {
+        "ontology": false
+      }
+    }
+  }
+}

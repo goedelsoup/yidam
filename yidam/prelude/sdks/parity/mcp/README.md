@@ -20,6 +20,18 @@ Optional is not the same as absent. A server that cannot walk the graph declares
 through a tool-not-found error. The capability flag and the tool list must agree, and the
 harness checks that they do.
 
+**And an unbacked tool must refuse, not merely go unlisted (contract 0.11.1).** Omitting it
+from `tools/list` and dispatching it anyway re-opens that hole from the other side: this
+server did exactly that, answering `query` on a corpus it had just told the caller it has no
+ontology for — with `class-unpopulated`, the one diagnosis the contract names as a MUST NOT,
+from a tool it had said it does not serve. The refusal is an MCP tool error (`isError: true`)
+whose text begins **`capability-not-supported`**, and that token is frozen: `unknown tool` is
+a different repair, and a caller told it goes hunting for a spelling mistake in a name
+`tools.json` froze.
+
+The rule was unenforceable until a corpus existed on which some tier goes unbacked. Against
+`corpus/` this server backs every tier there is a tool for, so the check could not fail.
+
 ## The capability block
 
 `initialize` returns MCP's own `capabilities` object with a `yidam` block inside it:
@@ -28,7 +40,7 @@ harness checks that they do.
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.11.0",
+    "contract": "0.11.1",
     "retrieve": { "vector": false, "reason": "no_index" },
     "graph": true, "ontology": true,
     "phases": false, "sangha": false, "resources": true
@@ -114,6 +126,16 @@ report a typo as a fact about the corpus.
 | `index-empty` | vector | the index holds no rows and there was nothing to search |
 | `query-no-terms` | keyword | the query contains no searchable terms |
 | `no-term-match` | keyword | none of the nodes searched contains any word of the query |
+
+**Four of the six have cases, and the two that do not need a vector index.**
+`class-unpopulated`, `class-undeclared`, `query-no-terms` and `no-term-match` are each forced
+by a case that fails a server not implementing it — `class-undeclared` only since
+`corpus-unschematised/` shipped, and `query-no-terms` only since somebody counted. The
+remaining two, `class-unindexed` and `index-empty`, are reachable only on the vector path, and
+no fixture here has an index: that is the same condition `keyword-degraded.json` pins, so a
+corpus that made them reachable would break every case beside them. They are frozen and
+unforced, like `stale_contract` one section down, and for the same reason — a server that
+reaches the state will otherwise invent a string.
 
 **A smaller shape than `query`'s, deliberately.** `{code, message, instances}` — no `step`,
 because `retrieve` has no steps, and no `elsewhere`, because `retrieve` already searches every
@@ -413,12 +435,13 @@ never re-embeds, so it cannot reach that state. It is frozen anyway, because a s
 does reach it will otherwise invent a string, which is the drift this directory exists to
 stop.
 
-## The corpus
+## The corpora
 
-`corpus/` is the tree every case runs against — a four-node `concept` graph, small enough to
-read in one sitting and shaped so each case has exactly one thing it can fail on. Stage it as
-a repository: copy it to a scratch directory, `git init`, commit once. The Rust harness
-(`yidam/cli/tests/mcp_serve.rs`) does that in ten lines, and so should every other.
+`corpus/` is the tree a case runs against unless it names another — a four-node `concept`
+graph, small enough to read in one sitting and shaped so each case has exactly one thing it
+can fail on. Stage it as a repository: copy it to a scratch directory, `git init`, commit
+once. The Rust harness (`yidam/cli/tests/mcp_serve.rs`) does that in ten lines, and so should
+every other.
 
 It ships here because the counts in `cases/` describe it and nothing else. For a while it did
 not: the corpus was written as heredocs inside that Rust test, so a case asserting
@@ -444,11 +467,60 @@ arm of the open-question predicate reads nothing — which is exactly why the no
 is the arm a server can omit and never notice, because on a corpus that declares no such
 field a two-arm server returns the identical set.
 
+### A corpus with no ontology (contract 0.11.1)
+
+`corpus-unschematised/` holds two `gage` instances and no `.ont.yml`. It exists because
+`class-undeclared` was a frozen `retrieve` code that **no case over `corpus/` could force a
+server to implement.**
+
+That code is derivable only where nothing declares a class at all: a server with no `.ont.yml`
+backs `retrieve` — it is `core` — and can derive *neither* class answer. It cannot reject an
+unknown class, because none is declared, and it cannot call one unpopulated, because nothing
+declares it a class. `corpus/` declares `concept` and `note`, so its class set is never empty
+and that branch is unreachable from every case beside it. A conforming server could report
+`class-unpopulated` for an unschematised corpus — the precise thing this document forbids,
+because it asserts an ontology the server does not have — and pass the whole suite.
+
+The `capability` key could not close it. That gates cases by *server*, and the problem is the
+*corpus*: this repository's server declares `ontology: true` against `corpus/` because that
+fixture has class files, and one fixture meant every case ran against it.
+
+| Case | What only this corpus can express |
+|---|---|
+| `retrieve/an-unschematised-corpus-cannot-tell` | a class filter matching nothing is `class-undeclared`, and **not** `class-unpopulated` |
+| `retrieve/nothing-declares-a-class-so-nothing-calls-it-wrong` | a filter naming a class that *has* instances returns them with `rejected: null` — nothing declares a class, so nothing can call the name wrong |
+
+The second is what keeps the first honest: without it, a server that rejects every `class`
+filter on an unschematised corpus and reports `class-undeclared` on the way past passes.
+
+It is also the only corpus on which a tier goes unbacked, which is what made the refusal rule
+above testable, and it is where the `ontology` tier's own sentence — *its cases are skipped
+rather than passed* — is finally checkable against a server that really does declare false.
+
+**One consequence reads as a gap and is not.** `query`'s `unschematised` is always `false` on
+this surface, and no case asserts the `true` arm because none can: the only corpus that would
+produce it is one where `query` is not served. The field is reachable from a CLI, which has no
+capability gate, and unreachable from a conforming server.
+
+### `corpora.json`
+
+Which corpora ship, why each exists, and the part of the handshake each one **decides**. Not
+the whole block: `retrieve.vector` depends on the build and `phases`/`sangha` on whether the
+server reads a working git repository, and freezing those here would pin a fact about a binary
+onto a directory of YAML. What a corpus decides, it decides for every conforming server — so a
+harness asserts it right after `initialize`, which is where a server pointed at
+`corpus-unschematised/` and still claiming `ontology: true` is caught.
+
+A corpus that ships, one that is registered, and one a case names are one set, and the Rust
+harness discovers all three rather than listing any. A directory no case names is a fixture
+nothing runs; a registry entry with no directory stages nothing.
+
 ## Cases
 
-`cases/<tool>/<name>.json` is a call and the shape its response must have, over `corpus/`.
-They assert invariant fields — `degraded`, the node model, `direction` — and never embedding
-scores, which are a property of a model rather than of a contract.
+`cases/<tool>/<name>.json` is a call and the shape its response must have. `corpus` names the
+tree it runs against and defaults to `corpus`, so a second one was added without touching a
+single existing case. Cases assert invariant fields — `degraded`, the node model, `direction`
+— and never embedding scores, which are a property of a model rather than of a contract.
 
 A server declaring a capability MUST pass its cases. One declaring it absent MUST return a
 capability-not-supported error, and its cases are skipped rather than passed.

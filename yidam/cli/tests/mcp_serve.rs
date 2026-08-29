@@ -12,6 +12,7 @@
 //! PR in the light build, which is also the build most consumers actually have.
 
 use serde_json::{json, Value};
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -40,9 +41,26 @@ fn git(dir: &Path, args: &[&str]) {
 /// `report_goldens.rs` uses, and is what another language's harness re-implements in ten
 /// lines rather than transcribing the corpus out of this file by hand.
 fn make_fixture_repo() -> tempfile::TempDir {
+    stage_corpus("corpus")
+}
+
+/// The same recipe against a corpus the contract ships by name (#358).
+///
+/// `corpus/` is not the only one any more. `class-undeclared` is a frozen `retrieve` code
+/// that no case over `corpus/` can force a server to implement — that corpus declares
+/// `concept` and `note`, so its class set is never empty and the branch is unreachable from
+/// every case in the directory. `corpus-unschematised/` is the corpus on which it is the only
+/// honest answer, and `corpora.json` says what each one decides about the handshake.
+fn stage_corpus(name: &str) -> tempfile::TempDir {
     let tmp = tempfile::TempDir::new().unwrap();
     let root = tmp.path();
-    copy_dir(&contract_dir().join("corpus"), root);
+    let from = contract_dir().join(name);
+    assert!(
+        from.is_dir(),
+        "no fixture corpus at {} — a case or `corpora.json` names one that does not ship",
+        from.display()
+    );
+    copy_dir(&from, root);
 
     git(root, &["init", "-q", "-b", "main"]);
     git(root, &["config", "user.email", "t@t.co"]);
@@ -189,55 +207,11 @@ fn mcp_server_end_to_end() {
         .unwrap()
         .contains("label: Knowledge graph"));
 
-    // Tools list — checked against the frozen contract, not against a list written here.
-    // This assertion used to be `assert_eq!(names, vec![...])`, which made this file a
-    // second freeze: the contract could grow a tool and the only thing that noticed was a
-    // test nobody edits when writing a server in another language.
-    let tools = client.request("tools/list", json!({}));
-    let names: Vec<String> = tools["tools"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|t| t["name"].as_str().unwrap().to_string())
-        .collect();
-    assert_eq!(names, expected_tool_names(&capabilities), "{names:?}");
-
-    // Every tool this server LISTS must answer a call. The two halves are independent:
-    // `tools/list` is derived from the contract and `tools/call` is a hand-written match, so
-    // a tool added to the contract and not to the match is advertised and errors — and the
-    // assertion above still passes, because both sides of it read the same file. That is a
-    // green build for a server that cannot do what it says it can.
-    //
-    // Arguments are deliberately empty. A tool that needs one answers "class is required",
-    // which is a tool doing its job; the failure this catches says "unknown tool".
-    for name in &names {
-        let result = client.request("tools/call", json!({"name": name, "arguments": {}}));
-        // `request` returns the `result` object, not the envelope. Reading `["result"]`
-        // here yielded null, `unwrap_or("")` swallowed it, and the assertion below could
-        // not fail — a check that looked exactly like one doing work. Caught by deleting a
-        // dispatch arm and watching this pass, which is the only way that class of defect
-        // ever announces itself.
-        let text = result["content"][0]["text"].as_str().unwrap_or_default();
-        assert!(
-            !text.contains("unknown tool"),
-            "{name} is listed and not implemented — the contract and the dispatch disagree \
-             about what this server can do, and the list assertion above cannot see it \
-             because both sides of it read the same file"
-        );
-    }
-
-    // Every case in the contract's `cases/` directory, run against this server.
-    for case in contract_cases() {
-        let capability = case["capability"].as_str();
-        if let Some(c) = capability {
-            if !capabilities[c].as_bool().unwrap_or(false) {
-                continue; // declared absent — its cases are skipped, not passed
-            }
-        }
-        let tool = case["tool"].as_str().unwrap();
-        let response = client.tool_json(tool, case["call"].clone());
-        check_case(&case, &response);
-    }
+    // The tool list, the tool dispatch and every case in `cases/` moved to
+    // `every_corpus_the_contract_ships_answers_its_own_cases`, which runs them against each
+    // corpus the contract ships rather than against this one. They were never about the
+    // default corpus in particular, and on it the capability checks are vacuous: this server
+    // backs every tier there is a tool for when pointed at `corpus/`.
 
     // retrieve — no index in the fixture, so keyword-degraded. `no_index` and not
     // `no_vector_support` even when this binary has no vector support: the corpus is
@@ -316,6 +290,182 @@ fn an_index_this_build_cannot_read_is_not_reported_as_a_missing_index() {
 
 // ── conformance ──────────────────────────────────────────────────────────────
 
+/// Every case, against the corpus it names — and every corpus, against the capability block
+/// it decides (#358).
+///
+/// # One fixture could not express the code it froze
+///
+/// MCP contract 0.10.0 froze six `retrieve` absence codes and two of them had cases —
+/// `class-unpopulated` and `no-term-match`. `query-no-terms` turned out to be one line of
+/// JSON away and was written alongside this; `class-unindexed` and `index-empty` need a
+/// vector index no fixture here has, and stay frozen and unforced for the reason
+/// `stale_contract` does. `class-undeclared` was the one that had none and *could not* have
+/// one, because it is derivable only where nothing declares a
+/// class at all: a server with no `.ont.yml` can reject no unknown class, because none is
+/// declared, and can call none unpopulated, because nothing declares it a class. `corpus/`
+/// declares `concept` and `note`, so its class set is never empty and that branch was
+/// unreachable from every case in the directory. A conforming server could answer
+/// `class-unpopulated` for an unschematised corpus — the precise thing the contract states as
+/// a MUST NOT, because it asserts an ontology the server does not have — and pass the whole
+/// suite.
+///
+/// The `capability` key could not close it either: it gates cases by SERVER, and the problem
+/// was the CORPUS. This repository's server declares `ontology: true` against `corpus/`
+/// because that fixture has class files.
+///
+/// # What a corpus decides, and what it does not
+///
+/// `corpora.json` freezes only the part of the handshake the corpus itself settles. Not
+/// `retrieve.vector`, which depends on the build; not `phases`/`sangha`, which depend on
+/// whether the server reads a working git repository. Freezing those would pin a fact about a
+/// binary onto a directory of YAML.
+///
+/// # The tier checks are only non-vacuous here
+///
+/// `tools/list` agreeing with the capability block, and an unbacked tool refusing the call,
+/// both used to run against a corpus where this server backs every tier there is a tool for —
+/// so neither could fail. Pointed at `corpus-unschematised/`, `query`, `pack`, `estimate` and
+/// `licensed_edges` all go unbacked, and the second check caught the server answering `query`
+/// anyway: absent from `tools/list` and dispatched regardless, reporting `class-unpopulated`
+/// on a corpus that declares nothing.
+#[test]
+fn every_corpus_the_contract_ships_answers_its_own_cases() {
+    let mut by_corpus: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+    for case in contract_cases() {
+        by_corpus.entry(case_corpus(&case)).or_default().push(case);
+    }
+
+    for (corpus, cases) in &by_corpus {
+        let repo = stage_corpus(corpus);
+        let mut client = McpClient::spawn(repo.path());
+        let capabilities = client.initialize();
+
+        // What this corpus decides about the handshake, from `corpora.json` rather than from
+        // a list written here — the same reason the tool names are read from `tools.json`.
+        for (name, expected) in declared_capabilities(corpus) {
+            assert_eq!(
+                capabilities[&name], expected,
+                "pointed at `{corpus}/` a server must declare `{name}: {expected}` — \
+                 corpora.json says what this corpus settles, and the handshake disagrees"
+            );
+        }
+
+        // Tools list — checked against the frozen contract, not against a list written here.
+        // This assertion used to be `assert_eq!(names, vec![...])`, which made this file a
+        // second freeze: the contract could grow a tool and the only thing that noticed was a
+        // test nobody edits when writing a server in another language.
+        let tools = client.request("tools/list", json!({}));
+        let names: Vec<String> = tools["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(
+            names,
+            expected_tool_names(&capabilities),
+            "{corpus}: {names:?}"
+        );
+
+        // Every tool this server LISTS must answer a call. The two halves are independent:
+        // `tools/list` is derived from the contract and `tools/call` is a hand-written match,
+        // so a tool added to the contract and not to the match is advertised and errors — and
+        // the assertion above still passes, because both sides of it read the same file. That
+        // is a green build for a server that cannot do what it says it can.
+        //
+        // Arguments are deliberately empty. A tool that needs one answers "class is
+        // required", which is a tool doing its job; the failure this catches says "unknown
+        // tool".
+        for name in &names {
+            let result = client.request("tools/call", json!({"name": name, "arguments": {}}));
+            // `request` returns the `result` object, not the envelope. Reading `["result"]`
+            // here yielded null, `unwrap_or("")` swallowed it, and the assertion below could
+            // not fail — a check that looked exactly like one doing work. Caught by deleting
+            // a dispatch arm and watching this pass, which is the only way that class of
+            // defect ever announces itself.
+            let text = result["content"][0]["text"].as_str().unwrap_or_default();
+            assert!(
+                !text.contains("unknown tool"),
+                "{corpus}: {name} is listed and not implemented — the contract and the \
+                 dispatch disagree about what this server can do, and the list assertion \
+                 above cannot see it because both sides of it read the same file"
+            );
+        }
+
+        // And every tool it does NOT list must refuse by name. The capability block exists so
+        // a client learns the holes at connect time instead of discovering them through a
+        // tool-not-found error; a server that leaves an unbacked tool dispatchable has
+        // re-opened that hole from the other side, and one that answers `unknown tool` sends
+        // the caller hunting for a spelling mistake in a name the contract froze.
+        for tool in contract()["tools"].as_array().unwrap() {
+            let name = tool["name"].as_str().unwrap();
+            if names.iter().any(|listed| listed == name) {
+                continue;
+            }
+            let result = client.request("tools/call", json!({"name": name, "arguments": {}}));
+            let text = result["content"][0]["text"].as_str().unwrap_or_default();
+            assert_eq!(
+                result["isError"],
+                true,
+                "{corpus}: `{name}` sits at the `{}` tier, is absent from tools/list, and \
+                 answered the call anyway — a server declining a capability must decline the \
+                 tool, not merely omit it from the list\n{text}",
+                tool["tier"].as_str().unwrap_or("core")
+            );
+            assert!(
+                text.contains("capability-not-supported"),
+                "{corpus}: `{name}` is unbacked and refused with something other than \
+                 capability-not-supported — a caller cannot tell a capability it does not \
+                 have from a name it mistyped\n{text}"
+            );
+        }
+
+        // Every case that names this corpus, run against this server.
+        for case in cases {
+            if let Some(c) = case["capability"].as_str() {
+                if !capabilities[c].as_bool().unwrap_or(false) {
+                    continue; // declared absent — its cases are skipped, not passed
+                }
+            }
+            let tool = case["tool"].as_str().unwrap();
+            let response = client.tool_json(tool, case["call"].clone());
+            check_case(case, &response);
+        }
+    }
+}
+
+/// A corpus that ships, one that is registered, and one that a case names are one set (#358).
+///
+/// Three registers of the same fact, each of which rots on its own: a directory no case names
+/// is a fixture nothing runs, a `corpora.json` entry with no directory stages nothing, and a
+/// case naming an unregistered corpus asserts against a handshake nobody froze. Discovered
+/// rather than listed — a hardcoded set here would stop covering the third corpus without
+/// ever going red.
+#[test]
+fn every_fixture_corpus_is_registered_and_run() {
+    let on_disk: BTreeSet<String> = std::fs::read_dir(contract_dir())
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|name| name == "corpus" || name.starts_with("corpus-"))
+        .collect();
+    let registered: BTreeSet<String> = corpora().keys().cloned().collect();
+    let named_by_cases: BTreeSet<String> = contract_cases().iter().map(case_corpus).collect();
+
+    assert_eq!(
+        on_disk, registered,
+        "the fixture corpora on disk and the ones `corpora.json` registers differ — an \
+         unregistered corpus has no frozen capability block, and a registered one that does \
+         not ship cannot be staged"
+    );
+    assert_eq!(
+        named_by_cases, registered,
+        "a registered corpus no case names is a fixture nothing runs, and a case naming an \
+         unregistered corpus asserts against a handshake nobody froze"
+    );
+}
+
 /// The MCP `query` tool and `yidam query` must answer the same thing (#263).
 ///
 /// They are two front doors onto one function, and the case files can only ever see one of
@@ -385,6 +535,34 @@ fn expected_tool_names(capabilities: &Value) -> Vec<String> {
             tier == "core" || capabilities[tier].as_bool().unwrap_or(false)
         })
         .map(|t| t["name"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// The corpus a case runs against, defaulting to the one every case ran against before
+/// there was a second (#358) — so adding one touches no existing file.
+fn case_corpus(case: &Value) -> String {
+    case["corpus"].as_str().unwrap_or("corpus").to_string()
+}
+
+/// The fixture corpora and what each settles about the handshake.
+fn corpora() -> serde_json::Map<String, Value> {
+    let registry: Value = serde_json::from_str(
+        &std::fs::read_to_string(contract_dir().join("corpora.json")).unwrap(),
+    )
+    .unwrap();
+    registry["corpora"]
+        .as_object()
+        .expect("corpora.json has a `corpora` object")
+        .clone()
+}
+
+/// The capability values a server pointed at this corpus must declare.
+fn declared_capabilities(corpus: &str) -> Vec<(String, Value)> {
+    corpora()[corpus]["capabilities"]
+        .as_object()
+        .unwrap_or_else(|| panic!("corpora.json entry for `{corpus}` has no `capabilities`"))
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
         .collect()
 }
 

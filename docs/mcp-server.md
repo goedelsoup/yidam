@@ -263,12 +263,21 @@ the commit the index was built at, and keeps serving the stale index rather than
 tool-not-found errors:
 
 ```json
-{"contract": "0.4.0", "retrieve": {"vector": false, "reason": "no_index"},
- "graph": true, "phases": false, "sangha": false, "resources": true}
+{"contract": "0.11.1", "retrieve": {"vector": false, "reason": "no_index"},
+ "graph": true, "ontology": true, "phases": false, "sangha": false, "resources": true}
 ```
 
 `phases` and `sangha` are false and will stay false for this server: both read live `ma/*`
-and `rigpa/*` refs, and this one reads a built model on disk.
+and `rigpa/*` refs, and this one reads a built model on disk. `ontology` follows the corpus:
+a repository with no `.ont.yml` has no class contract to back, and the four tools at that
+tier — `query`, `pack`, `estimate`, `licensed_edges` — are then neither listed nor callable.
+
+**A tool this server does not back refuses by name.** Calling one returns an MCP tool error
+whose text begins `capability-not-supported`, naming the capability that is false, rather
+than `unknown tool`. The two are different repairs: one says you mistyped a name, the other
+says this server declines a name the contract froze. Before contract 0.11.1 an unbacked tool
+was merely absent from `tools/list` and answered anyway, which put the hole back where the
+capability block exists to close it.
 
 **`degraded` and `degraded_reason`, on every `retrieve`.** Both are present on every
 response — there is no third state, and `degraded_reason` is `null` exactly when `degraded`
