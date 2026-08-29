@@ -83,6 +83,49 @@ extension able to write rows and nothing else. Three things came back with them:
   speak the report contract. The status bar said so, and the status bar is not where somebody
   staring at an empty Corpus tree is looking.
 
+## Narrowing a view
+
+Five views were built against a four-node fixture and are correct at that size. A derived
+repository this template has produced carries **90 nodes across 13 classes** — thirteen
+collapsed groups in Corpus and a long scroll inside whichever one you open — and its Open
+questions view is a flat list of sixty-four.
+
+**VS Code already narrows a tree**: focus a view and start typing, and it filters as you go.
+It is discoverable by accident at best, and it matches the rendered label and nothing else,
+so it cannot answer either question a reader at that scale actually has — *which class is
+this in*, and *which of these carry an open claim*.
+
+`yidam: Filter the Corpus and Open questions views` — the funnel in either view's title bar —
+answers both, because it reads the reports rather than the screen:
+
+| Typed | Keeps |
+|---|---|
+| `tailwater` | rows whose label or node path contains it, either case |
+| `low flow` | rows matching **both** words — two terms are one narrower question |
+| `class:gauge` | that class. Several `class:` terms are alternatives to each other |
+| `is:open` | nodes `yidam open-questions` names |
+
+`class:` on the Open questions view is answered by `yidam corpus-index`, which is the
+authority on what class a node is in. Read off the path it would be a guess — the
+`<class>/<name>.yml` layout is a convention — so with no index in hand `class:` matches
+nothing there rather than inventing an answer.
+
+The filter is **in memory and gone with the window**, never a setting. A filter in a
+committed `.vscode/settings.json` is a filter somebody else applied to a window whose reader
+did not narrow anything, and the symptom — a node that is not in the tree — reads as a
+deleted node rather than a hidden one.
+
+Three things follow from that, and each is deliberate:
+
+- **A narrowed view says so.** `filter: class:gauge — 12 of 90` in the view's message, and a
+  class group reads `3 of 12` rather than a bare `3`, which would read as a class of three.
+- **The badges do not move.** Open questions still carries the count for the corpus. A badge
+  is a fact about the repository, and one that fell because somebody narrowed a tree would be
+  the only number on this surface a display choice can shift.
+- **Phases, Health and Sangha are not filtered.** The first two are bounded — five rows by
+  construction, and as many branches as a repository has — and nothing was measured that says
+  they scroll.
+
 ## Acting on a row
 
 Right-click:

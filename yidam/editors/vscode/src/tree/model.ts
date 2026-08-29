@@ -130,31 +130,168 @@ function openSet(open: OpenQuestionsReport, rows: { node: string }[]): Set<strin
   return marked
 }
 
-/** Classes, then their instances. Open questions carry a different icon. */
+// ── narrowing ───────────────────────────────────────────────────────────────
+
+/**
+ * A filter, parsed once and applied to the two views that grow with the corpus.
+ *
+ * **In memory, never a setting.** A `.vscode/settings.json` carrying a filter is a filter
+ * somebody else committed, applied to a window whose reader did not narrow anything — and
+ * the symptom, a node that is not in the tree, reads as a deleted node rather than a hidden
+ * one. A filter that dies with the window cannot mislead a second person.
+ *
+ * Three rules and no more, each of them a field the reports already returned. This narrows
+ * what `corpus-index` and `open-questions` answered; it never decides membership, which is
+ * the line the affordance/verdict rule draws. VS Code's own type-to-filter covers the free
+ * text alone — `class:` and `is:open` are here because that one matches the rendered label
+ * and nothing else, so it cannot answer either of the two questions a reader at scale has.
+ */
+export interface Filter {
+  /** As typed, so a narrowed view can say what it is hiding rows for. */
+  query: string
+  /** Free text. Every term must match the label or the node path. */
+  terms: string[]
+  /** `class:<name>`, substring. Any one may match. */
+  classes: string[]
+  /** `is:open` — the node carries an open question. */
+  openOnly: boolean
+}
+
+/**
+ * `null` for an empty query.
+ *
+ * Which is what keeps "no filter" distinguishable from "a filter that happens to match
+ * everything": the second still narrows, and a view under one still has to say so.
+ */
+export function parseFilter(query: string): Filter | null {
+  const raw = query.trim()
+  if (raw.length === 0) return null
+  const terms: string[] = []
+  const classes: string[] = []
+  let openOnly = false
+  for (const token of raw.toLowerCase().split(/\s+/)) {
+    if (token === 'is:open') openOnly = true
+    else if (token.startsWith('class:') && token.length > 'class:'.length) {
+      classes.push(token.slice('class:'.length))
+    } else terms.push(token)
+  }
+  return { query: raw, terms, classes, openOnly }
+}
+
+/** One row's filterable facts, as the reports gave them. */
+export interface Filterable {
+  /** The label as rendered, so typing what is on the screen matches it. */
+  label: string
+  /** The path, as its own report spells it — matched as free text, so either root works. */
+  node: string
+  /** Absent when no report in hand says. `class:` then matches nothing rather than guessing. */
+  class?: string
+  open: boolean
+}
+
+/** Terms are conjunctive, classes disjunctive: narrowing to two classes is one question. */
+export function matches(filter: Filter | null, row: Filterable): boolean {
+  if (!filter) return true
+  if (filter.openOnly && !row.open) return false
+  if (filter.classes.length > 0) {
+    const cls = (row.class ?? '').toLowerCase()
+    if (cls.length === 0 || !filter.classes.some((c) => cls.includes(c))) return false
+  }
+  if (filter.terms.length === 0) return true
+  const hay = `${row.label}\n${row.node}`.toLowerCase()
+  return filter.terms.every((t) => hay.includes(t))
+}
+
+/** Rows rather than groups — what a reader is counting when they ask how much is left. */
+export function countLeaves(roots: TreeNode[]): number {
+  let n = 0
+  for (const node of roots) {
+    const kids = node.children ?? []
+    n += kids.length === 0 ? 1 : countLeaves(kids)
+  }
+  return n
+}
+
+/**
+ * What a narrowed view says about itself, or nothing when it is not narrowed.
+ *
+ * A view that hides rows without saying it is hiding them is how a reader concludes a node
+ * was deleted. It belongs in the view's `message` rather than in a row: the tree holds
+ * nodes, and "12 of 90" is not one.
+ */
+export function filterMessage(
+  filter: Filter | null,
+  shown: number,
+  total: number,
+): string | undefined {
+  if (!filter) return undefined
+  return shown === 0
+    ? `filter: ${filter.query} — nothing matches, ${total} hidden`
+    : `filter: ${filter.query} — ${shown} of ${total}`
+}
+
+/**
+ * The class `corpus-index` gives this node, under the name the Corpus view renders it by.
+ *
+ * `open-questions` does not carry one, and the `<class>/<name>.yml` layout that would let
+ * one be read off the path is a convention rather than a fact — deriving it here would be
+ * this file forming its own opinion about what class a node is in. So `class:` narrows the
+ * Open questions view only when the index is also in hand, and matches nothing when it is
+ * not, which is the honest answer to a question nothing available can answer.
+ */
+function classOf(index: CorpusIndexReport | null, node: string): string | undefined {
+  if (!index) return undefined
+  for (const row of index.nodes) {
+    if (node === row.node || node.endsWith(`/${row.node}`)) return named(row.class, 'unclassed')
+  }
+  return undefined
+}
+
+/**
+ * Classes, then their instances. Open questions carry a different icon.
+ *
+ * A class whose every instance the filter hid is dropped rather than shown empty: an
+ * expandable row with nothing under it is a worse answer than no row.
+ */
 export function corpusTree(
   index: CorpusIndexReport,
   open: OpenQuestionsReport,
   corpusDir = '.yidam/corpus',
+  filter: Filter | null = null,
 ): TreeNode[] {
   const marked = openSet(open, index.nodes)
-  const byClass = new Map<string, typeof index.nodes>()
+  const byClass = new Map<string, { kept: typeof index.nodes; total: number }>()
   for (const row of index.nodes) {
     const key = named(row.class, 'unclassed')
-    const list = byClass.get(key) ?? []
-    list.push(row)
-    byClass.set(key, list)
+    const group = byClass.get(key) ?? { kept: [], total: 0 }
+    group.total += 1
+    const keep = matches(filter, {
+      label: named(row.label, stem(row.node)),
+      node: row.node,
+      class: key,
+      open: marked.has(row.node),
+    })
+    if (keep) group.kept.push(row)
+    byClass.set(key, group)
   }
 
   return [...byClass.entries()]
+    .filter(([, group]) => group.kept.length > 0)
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([cls, rows]) => ({
+    .map(([cls, group]) => ({
       id: `class:${cls}`,
       label: cls,
-      description: `${rows.length}`,
+      // Narrowed, the count says both numbers. A bare `3` under a class of twelve reads as
+      // a class of three, which is the filter lying about the corpus rather than about
+      // what it is showing of it.
+      description:
+        group.kept.length === group.total
+          ? `${group.total}`
+          : `${group.kept.length} of ${group.total}`,
       icon: 'symbol-class',
       subject: cls,
       context: 'yidam.class',
-      children: rows
+      children: group.kept
         .slice()
         .sort((a, b) => named(a.label, a.node).localeCompare(named(b.label, b.node)))
         .map((row) => ({
@@ -179,19 +316,40 @@ export function corpusTree(
  * The single most-asked question of a research repository, and until now the only answer
  * was a REGEN table in a README — which is to say, correct as of the last time somebody
  * ran the generator.
+ *
+ * Flatness is right for two and awkward for sixty-four, and the filter is the answer to
+ * that rather than grouping: a group is a claim about how the questions divide, and the
+ * one division available here — the class — is a fact about the *node*, not about the
+ * question it carries. So it narrows on request and stays flat.
  */
-export function openQuestionsTree(open: OpenQuestionsReport): TreeNode[] {
+export function openQuestionsTree(
+  open: OpenQuestionsReport,
+  filter: Filter | null = null,
+  index: CorpusIndexReport | null = null,
+): TreeNode[] {
+  // Asked before the filter, so "there are none" and "none of them match" stay separate
+  // answers. A tick reading `No open questions` under an active filter would be the view
+  // congratulating a repository on a state the filter invented.
   if (open.open_questions.length === 0) {
     return [{ id: 'open:none', label: 'No open questions', icon: 'check' }]
   }
-  return open.open_questions.map((q) => ({
-    id: `open:${q.node}`,
-    label: named(q.label, stem(q.node)),
-    description: q.node,
-    icon: 'question',
-    file: q.node,
-    context: 'yidam.openQuestion',
-  }))
+  return open.open_questions
+    .filter((q) =>
+      matches(filter, {
+        label: named(q.label, stem(q.node)),
+        node: q.node,
+        class: classOf(index, q.node),
+        open: true,
+      }),
+    )
+    .map((q) => ({
+      id: `open:${q.node}`,
+      label: named(q.label, stem(q.node)),
+      description: q.node,
+      icon: 'question',
+      file: q.node,
+      context: 'yidam.openQuestion',
+    }))
 }
 
 /** Local or remote-tracking, `ma/auditor` and `origin/ma/auditor` alike. */

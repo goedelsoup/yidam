@@ -59,12 +59,16 @@ import {
 } from './settings.ts'
 import {
   corpusTree,
+  countLeaves,
+  filterMessage,
   healthTree,
   localRef,
   openQuestionsTree,
+  parseFilter,
   phasesTree,
   sanghaTree,
   statusLine,
+  type Filter,
   type TreeNode,
 } from './tree/model.ts'
 import { NodeTree } from './tree/provider.ts'
@@ -101,6 +105,31 @@ let views: Views | null = null
 /** The `TreeView` handles, which are the only route to reveal, badge and message. */
 type Handles = { [K in keyof Views]: vscode.TreeView<TreeNode> }
 let handles: Handles | null = null
+
+/**
+ * The condition currently overriding every view's message, if any.
+ *
+ * Held because two writers share `message` and one of them is not on the report path: a
+ * filter change can arrive long after a binary went missing, and it must not overwrite the
+ * sentence explaining why the rows under it are stale.
+ */
+let viewMessage: string | undefined
+
+/**
+ * How the two views that grow with the corpus are narrowed, or null for all of it.
+ *
+ * In memory and gone with the window — see `Filter` in `tree/model.ts` for why this is not
+ * a setting.
+ */
+let filter: Filter | null = null
+
+/**
+ * The last corpus reports rendered, held so that changing the filter re-renders rather than
+ * re-runs. Narrowing a view is a question about display, and answering it by walking the
+ * corpus again would both cost a subprocess and answer about a *newer* corpus than the one
+ * the reader was looking at.
+ */
+let lastCorpus: CorpusViews | null = null
 
 /**
  * Bumped by every save. The reports read the working tree, not the commit, so an OID
@@ -188,6 +217,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     sangha: vscode.window.createTreeView('yidam.sangha', { treeDataProvider: views.sangha }),
   }
   context.subscriptions.push(...Object.values(handles))
+  // Stated rather than left unset, so the "clear the filter" button's absence is a fact
+  // this extension asserted rather than a key nothing ever wrote.
+  void vscode.commands.executeCommand('setContext', 'yidam.filtered', false)
 
   context.subscriptions.push(
     vscode.commands.registerCommand('yidam.showBinaryStatus', showStatus),
@@ -200,6 +232,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('yidam.vendorStatus', () => task('yidam-vendor-status')),
     vscode.commands.registerCommand('yidam.showHealth', showHealth),
     vscode.commands.registerCommand('yidam.revealNode', revealNode),
+    vscode.commands.registerCommand('yidam.filterViews', editFilter),
+    vscode.commands.registerCommand('yidam.clearFilter', () => applyFilter(null)),
     vscode.commands.registerCommand('yidam.neighborhoodOf', showNeighborhoodOf),
     vscode.commands.registerCommand('yidam.newNodeIn', newNodeIn),
   )
@@ -585,8 +619,12 @@ async function revealNode(): Promise<void> {
   if (!rel) return
   const node = views.corpus.find(rel)
   if (!node) {
+    // Under a filter these are different facts, and stating the first would be wrong: the
+    // node may well be in the index and hidden by a narrowing the reader applied themselves.
     void vscode.window.showInformationMessage(
-      'yidam: this file is not a corpus node in the current index.',
+      filter
+        ? `yidam: no row for this file — the Corpus view is filtered to “${filter.query}”.`
+        : 'yidam: this file is not a corpus node in the current index.',
     )
     return
   }
@@ -601,11 +639,18 @@ async function revealNode(): Promise<void> {
  * someone is actually looking at did not.
  */
 function setViewMessages(message: string | undefined): void {
+  viewMessage = message
   if (!handles) return
   for (const view of Object.values(handles)) view.message = message
 }
 
-/** Counts worth seeing without opening the view. Cleared at zero rather than shown as 0. */
+/**
+ * Counts worth seeing without opening the view. Cleared at zero rather than shown as 0.
+ *
+ * Counted over the corpus, never over the filter. A badge is a fact about the repository —
+ * how much is outstanding — and one that fell to 3 because somebody narrowed a tree would
+ * be the surface's only number that a display choice can move.
+ */
 function setBadges(open: number, newViolations: number): void {
   if (!handles) return
   handles.open.badge =
@@ -614,6 +659,60 @@ function setBadges(open: number, newViolations: number): void {
     newViolations > 0
       ? { value: newViolations, tooltip: `${newViolations} violation(s) not in the baseline` }
       : undefined
+}
+
+/**
+ * Narrow the Corpus and Open questions views.
+ *
+ * A prompt rather than a setting, and transient rather than persisted: see `Filter` in
+ * `tree/model.ts`. The other three views are left alone — Phases and Sangha are bounded by
+ * how many branches a repository has, and Health is five rows by construction.
+ */
+async function editFilter(): Promise<void> {
+  const query = await vscode.window.showInputBox({
+    title: 'Filter the Corpus and Open questions views',
+    prompt:
+      'Text matches a label or a node path. `class:<name>` restricts by class and ' +
+      '`is:open` keeps nodes carrying an open question. An empty box clears the filter.',
+    value: filter?.query ?? '',
+    ignoreFocusOut: true,
+  })
+  // `undefined` is escape and `''` is a box somebody emptied. Treating them alike would
+  // make backing out of the prompt drop a filter nobody asked to drop.
+  if (query === undefined) return
+  applyFilter(parseFilter(query))
+}
+
+function applyFilter(next: Filter | null): void {
+  filter = next
+  void vscode.commands.executeCommand('setContext', 'yidam.filtered', next !== null)
+  renderCorpusViews()
+}
+
+/**
+ * The two views a filter narrows, rendered from the reports already in hand.
+ *
+ * Split out of `report()` because a filter changes neither the corpus nor any verdict, so
+ * nothing here may run the binary. It is also the only writer of these two views' messages;
+ * the paths where no binary resolved return before reaching it, and their message stands.
+ */
+function renderCorpusViews(): void {
+  if (!views || !lastCorpus || !handles) return
+  // A global condition outranks a filter. The rows below it are the last good report's and
+  // the message says why; re-rendering them here would replace that sentence with a count.
+  if (viewMessage !== undefined) return
+  const index = lastCorpus.corpusIndex
+  const open = lastCorpus.openQuestions
+  const corpus = index && open ? corpusTree(index, open, undefined, filter) : []
+  const questions = open ? openQuestionsTree(open, filter, index) : []
+  views.corpus.replace(corpus)
+  views.open.replace(questions)
+  handles.corpus.message = filterMessage(filter, countLeaves(corpus), index?.nodes.length ?? 0)
+  handles.open.message = filterMessage(
+    filter,
+    countLeaves(questions),
+    open?.open_questions.length ?? 0,
+  )
 }
 
 /**
@@ -953,12 +1052,7 @@ async function report(): Promise<void> {
   ])
 
   if (views) {
-    views.corpus.replace(
-      corpus.corpusIndex && corpus.openQuestions
-        ? corpusTree(corpus.corpusIndex, corpus.openQuestions)
-        : [],
-    )
-    views.open.replace(corpus.openQuestions ? openQuestionsTree(corpus.openQuestions) : [])
+    lastCorpus = corpus
     views.phases.replace(refs.phases ? phasesTree(refs.phases) : [])
     graphOf(corpus)
     views.health.replace(
@@ -978,6 +1072,8 @@ async function report(): Promise<void> {
       refs.sangha?.collective ?? false,
     )
     setViewMessages(undefined)
+    // After the blanket clear, so an active filter's line is not the one that gets cleared.
+    renderCorpusViews()
     setBadges(
       corpus.openQuestions?.open_questions.length ?? 0,
       outcome.lint?.gate.new_violations ?? 0,
