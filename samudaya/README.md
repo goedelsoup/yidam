@@ -37,7 +37,7 @@ surface it during discovery but may discard it if the user's answers do not supp
 
 **`augmentation`** — Additional prelude content: guidelines, conduct norms, or constitutional
 extensions that apply to this derived repo. Treated as if part of the prelude during the
-bootstrap run. Constitutional augmentations (extensions to [CONSTITUTION.md](../prelude/CONSTITUTION.md))
+bootstrap run. Constitutional augmentations (extensions to [CONSTITUTION.md](../yidam/prelude/CONSTITUTION.md))
 are committed into the derived repo permanently — they become domain-specific articles that
 govern that repo's sangha resolutions for its lifetime. Non-constitutional augmentations
 (guidelines, conduct norms) do not persist once samudaya is consumed.
