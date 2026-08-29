@@ -8,6 +8,20 @@ use std::path::Path;
 /// depth, so it also dropped `sadhana/docs/`, the scaffold the bootstrap skill is told to
 /// read in step 3. Root-level exclusions are the caller's business now; see
 /// [`copy_dir_excluding_top`].
+/// `.local` is this repository's install prefix, and the reason it is here is not disk
+/// space. `mise.toml` declares `[env] _.path = [".local/bin"]` and `yidam-build` writes
+/// `cargo install --root .local`, so `.local/bin/yidam` is the binary that answers in this
+/// tree — and `mise.toml` is copied into the derived repo verbatim, `_.path` included. A
+/// clone therefore shipped a **binary** together with a PATH entry electing it: every repo
+/// created from a tree last built in August ran `yidam 0.3.0` while its own sources said
+/// `0.5.0`, and `mise run yidam-build` in the derived repo could not displace it — that task
+/// installs to `.yidam/bin`, which the copied `_.path` does not name.
+///
+/// It is a name and not a marker on purpose, and the same purpose as `node_modules` and
+/// `.venv` two lines up: the convention *is* the identity. `.local` also holds
+/// `ext-fixture`, a whole staged repository with its own `.git` and corpus — foreign nodes
+/// deposited at the moment of creation, which is the objection `clone` already raises
+/// against copying `examples/`. Nothing under this directory is authored.
 const EXCLUDE_DIRS: &[&str] = &[
     ".git",
     "target",
@@ -17,6 +31,7 @@ const EXCLUDE_DIRS: &[&str] = &[
     "venv",
     "__pycache__",
     ".pnpm-store",
+    ".local",
 ];
 
 const EXCLUDE_FILES: &[&str] = &[".mise.local.toml", ".DS_Store"];
@@ -177,6 +192,45 @@ mod tests {
         assert!(
             dst.join("corpus/artifact/CACHEDIR.TAG").exists(),
             "a node named after the tag is not a cache directory"
+        );
+    }
+
+    /// The reported case: a derived repo answering `yidam 0.3.0` from a tree whose sources
+    /// said `0.5.0`. Nothing embedded a version — the installed binary was *copied*, and the
+    /// `mise.toml` copied beside it puts `.local/bin` first on PATH, so the stale binary was
+    /// elected in the new repository. `.local` is git-ignored, but this walks the
+    /// filesystem, which is why being ignored spared nothing.
+    #[test]
+    fn the_install_prefix_does_not_ship_its_binary() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let src = tmp.path().join("src");
+        let dst = tmp.path().join("dst");
+        std::fs::create_dir_all(src.join(".local/bin")).unwrap();
+        std::fs::write(src.join(".local/bin/yidam"), "an ELF from August").unwrap();
+        std::fs::write(
+            src.join(".local/.crates.toml"),
+            "[v1]\n\"yidam 0.3.0 (path+file:///…)\" = [\"yidam\"]\n",
+        )
+        .unwrap();
+        // The staged extension fixture: a whole repository, corpus and all, which would
+        // arrive as a foreign domain's nodes in a repo that has no ontology yet.
+        std::fs::create_dir_all(src.join(".local/ext-fixture/.yidam/corpus")).unwrap();
+        std::fs::write(
+            src.join(".local/ext-fixture/.yidam/corpus/gauge.ont.yml"),
+            "class: gauge",
+        )
+        .unwrap();
+        std::fs::write(src.join("mise.toml"), "[env]\n_.path = [\".local/bin\"]\n").unwrap();
+
+        copy_dir(&src, &dst).unwrap();
+
+        assert!(
+            !dst.join(".local").exists(),
+            "the install prefix was copied — the derived repo now runs a binary from this tree"
+        );
+        assert!(
+            dst.join("mise.toml").exists(),
+            "and the template itself still has to ship"
         );
     }
 
