@@ -5,7 +5,9 @@ description: >-
   names the vocabulary rather than using it: no claim here is `[open]`, and nobody has
   written `[verified]` against this node. Both are mentions because the sentences negate and
   report them, not because they are in code — the backticks decide nothing, and the counted
-  claim on [the gauge](../gauge/riffle-station.yml) is backticked too.
+  claim on [the gauge](../gauge/riffle-station.yml) is backticked too. It draws on
+  [the stage–discharge relation](../../catalog/stage-discharge.md), which is a citation
+  that entry's `used-by` list omits.
 links:
   - target: ../concept/low-flow.yml
     relationship: relates-to

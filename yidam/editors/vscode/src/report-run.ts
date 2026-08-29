@@ -2,14 +2,20 @@
  * One pass of the reports over a workspace.
  *
  * Two passes, in fact, and the split is a measurement rather than a taste. Against a real
- * 105-node corpus with 23 settled resolutions, seven of the eight reports finish in under
- * 200ms each and `phases` takes 1.26s — it spawns three git processes per ref, and a
- * repository running a sangha has dozens. Re-running that on every save would make the
- * editor's cheapest event its most expensive.
+ * 105-node corpus with 23 settled resolutions, the corpus reports finished in under 200ms
+ * each and `phases` took 1.26s — it spawns three git processes per ref, and a repository
+ * running a sangha has dozens. Re-running that on every save would make the editor's
+ * cheapest event its most expensive.
  *
  * So: what a *save* can change is one group, and what a *ref* can change is the other.
  * `sangha` sits with the refs because it is mostly a question about branches, and its
  * files change on the order of once a resolution.
+ *
+ * `catalog-audit` and `doctor` joined the save group later and were timed before they did —
+ * 0.02s and 0.04s against `examples/streamflow`, beside 0.13s for `status` on the same
+ * corpus. That corpus is small, so the numbers bound nothing; what they show is the
+ * ordering, and the argument was never about absolute cost. Neither walks refs, which is
+ * the property that put `phases` in the other group.
  *
  * Kept out of `extension.ts` so the ordering rule — lint owns the diagnostics, graph-check
  * fills the gap — is exercised without an editor. It is the one piece of composition in
@@ -19,7 +25,9 @@
 import { fromGraphCheck, fromLint, type Mapped, type Options } from './diagnostics.ts'
 import { readHandshake, type Handshake } from './handshake.ts'
 import type {
+  CatalogAuditReport,
   CorpusIndexReport,
+  DoctorReport,
   GraphCheckReport,
   IndexStatusReport,
   LintReport,
@@ -120,18 +128,44 @@ export interface CorpusViews {
    * a reader would actually notice.
    */
   graph: GraphReport | null
+  /**
+   * The provenance layer. Here rather than on the ref path because a citation is a link in
+   * a node, so it changes exactly when a file does.
+   *
+   * Safe to run on every save for a reason worth stating: `catalog-audit` is a REGEN writer
+   * in text mode, and `--format json` returns before it writes. An extension polling the
+   * text path would rewrite a README in a repository the reader only meant to read.
+   */
+  catalogAudit: CatalogAuditReport | null
+  /**
+   * Whether the setup is sound. Writes nothing and does no network — both properties the
+   * command holds deliberately, and both of them prerequisites for it being here at all.
+   */
+  doctor: DoctorReport | null
 }
 
 export async function runCorpusViews(bin: string, cwd: string, run: Spawn): Promise<CorpusViews> {
-  const [status, corpusIndex, openQuestions, indexStatus, graph, regen] = await Promise.all([
-    fetchReport<StatusReport>(bin, ['status'], cwd, run),
-    fetchReport<CorpusIndexReport>(bin, ['corpus-index'], cwd, run),
-    fetchReport<OpenQuestionsReport>(bin, ['open-questions'], cwd, run),
-    fetchReport<IndexStatusReport>(bin, ['index-status'], cwd, run),
-    fetchReport<GraphReport>(bin, ['graph'], cwd, run),
-    fetchReport<RegenReport>(bin, ['regen', '--check'], cwd, run),
-  ])
-  return { status, corpusIndex, openQuestions, indexStatus, graph, regen }
+  const [status, corpusIndex, openQuestions, indexStatus, graph, regen, catalogAudit, doctor] =
+    await Promise.all([
+      fetchReport<StatusReport>(bin, ['status'], cwd, run),
+      fetchReport<CorpusIndexReport>(bin, ['corpus-index'], cwd, run),
+      fetchReport<OpenQuestionsReport>(bin, ['open-questions'], cwd, run),
+      fetchReport<IndexStatusReport>(bin, ['index-status'], cwd, run),
+      fetchReport<GraphReport>(bin, ['graph'], cwd, run),
+      fetchReport<RegenReport>(bin, ['regen', '--check'], cwd, run),
+      fetchReport<CatalogAuditReport>(bin, ['catalog-audit'], cwd, run),
+      fetchReport<DoctorReport>(bin, ['doctor'], cwd, run),
+    ])
+  return {
+    status,
+    corpusIndex,
+    openQuestions,
+    indexStatus,
+    graph,
+    regen,
+    catalogAudit,
+    doctor,
+  }
 }
 
 /** What a ref can change. */

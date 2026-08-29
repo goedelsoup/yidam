@@ -14,7 +14,9 @@ import { test } from 'node:test'
 
 import { capture, contractBinary, SKIP, stageFixture } from './stage.ts'
 import type {
+  CatalogAuditReport,
   CorpusIndexReport,
+  DoctorReport,
   GraphCheckReport,
   IndexStatusReport,
   LintReport,
@@ -27,6 +29,7 @@ import type {
 import {
   corpusTree,
   countLeaves,
+  countNodes,
   filterMessage,
   findByFile,
   healthTree,
@@ -37,6 +40,7 @@ import {
   parseFilter,
   phasesTree,
   sanghaTree,
+  sourcesByNode,
   statusLine,
   type TreeNode,
 } from '../src/tree/model.ts'
@@ -135,6 +139,111 @@ test('no open questions is a stated answer, not an empty box', () => {
   const tree = openQuestionsTree({ ...ENVELOPE, open_questions: [] })
   assert.equal(tree.length, 1)
   assert.equal(tree[0].icon, 'check')
+})
+
+// ── provenance ──────────────────────────────────────────────────────────────
+
+const CATALOG: CatalogAuditReport = {
+  ...ENVELOPE,
+  sources: [
+    {
+      entry: 'stage-discharge.md',
+      type: 'paper',
+      description: 'A rating-curve derivation',
+      obtained: true,
+      citations: 2,
+      nodes: 2,
+      elsewhere: 0,
+      // Repository-relative, which is how `catalog-audit` spells it — `corpus-index` spells
+      // the same nodes relative to the corpus.
+      cited_by: ['.yidam/corpus/concept/tailwater.yml', '.yidam/corpus/concept/low-flow.yml'],
+      used_by: [],
+      drift: null,
+    },
+    {
+      entry: 'gauge-record.md',
+      type: 'dataset',
+      description: 'A stream gauge series',
+      obtained: false,
+      citations: 1,
+      nodes: 1,
+      elsewhere: 0,
+      cited_by: ['.yidam/corpus/concept/tailwater.yml'],
+      used_by: ['mixing-zone.yml'],
+      drift: { claimed_not_citing: ['mixing-zone.yml'], citing_not_claimed: ['tailwater.yml'] },
+    },
+  ],
+}
+
+/**
+ * The two reports index nodes against different roots, the same mismatch `openSet` closes.
+ * Matched on suffix rather than by prefixing a hardcoded corpus dir, so a repository that
+ * moves its corpus keeps its provenance.
+ */
+test('sources are inverted onto their citing nodes across the two reports’ roots', () => {
+  const by = sourcesByNode(CATALOG, INDEX.nodes)
+  assert.deepEqual(
+    by.get('concept/tailwater.yml')!.map((s) => s.entry),
+    ['gauge-record.md', 'stage-discharge.md'],
+    'sorted, so the rows do not reorder between refreshes',
+  )
+  assert.deepEqual(by.get('concept/low-flow.yml')!.map((s) => s.entry), ['stage-discharge.md'])
+  assert.equal(by.get('gauge/ohio-river.yml'), undefined, 'a node citing nothing has no entry')
+})
+
+test('no catalog report means no sources rather than an empty map of them', () => {
+  assert.equal(sourcesByNode(null, INDEX.nodes).size, 0)
+})
+
+test('a node carries the sources it draws on, and clicking one opens the entry', () => {
+  const tree = corpusTree(INDEX, { ...ENVELOPE, open_questions: [] }, undefined, null, CATALOG)
+  const node = find(tree, 'node:concept/tailwater.yml')!
+  assert.deepEqual(ids(node.children!), [
+    'source:concept/tailwater.yml:gauge-record.md',
+    'source:concept/tailwater.yml:stage-discharge.md',
+  ])
+  assert.equal(
+    find(tree, 'source:concept/tailwater.yml:gauge-record.md')!.file,
+    '.yidam/catalog/gauge-record.md',
+  )
+})
+
+/**
+ * Most nodes cite nothing. An arrow beside every one of them is an arrow that is usually a
+ * lie about there being something behind it.
+ */
+test('a node with no sources gets no children rather than an empty group', () => {
+  const tree = corpusTree(INDEX, { ...ENVELOPE, open_questions: [] }, undefined, null, CATALOG)
+  assert.deepEqual(find(tree, 'node:gauge/ohio-river.yml')!.children, [])
+})
+
+/**
+ * A node citing an unretrieved source is `catalog-unobtained-but-cited`, an Error that
+ * reaches the editor as a diagnostic and a Health row. A second red mark here would be the
+ * tree rendering a verdict it did not compute.
+ */
+test('an unobtained source says so and is not dressed as a failure', () => {
+  const tree = corpusTree(INDEX, { ...ENVELOPE, open_questions: [] }, undefined, null, CATALOG)
+  const row = find(tree, 'source:concept/tailwater.yml:gauge-record.md')!
+  assert.match(row.description!, /not obtained/)
+  assert.notEqual(row.icon, 'error')
+  assert.notEqual(row.icon, 'warning')
+})
+
+test('a source cited by two nodes appears under both', () => {
+  const tree = corpusTree(INDEX, { ...ENVELOPE, open_questions: [] }, undefined, null, CATALOG)
+  assert.ok(find(tree, 'source:concept/tailwater.yml:stage-discharge.md'))
+  assert.ok(find(tree, 'source:concept/low-flow.yml:stage-discharge.md'))
+})
+
+/**
+ * The regression sources introduced: a leaf in the Corpus view is a *source* now, so a
+ * filter counting leaves would report `4 of 3` — more shown than the corpus holds.
+ */
+test('the corpus counts nodes, not the sources hanging off them', () => {
+  const tree = corpusTree(INDEX, { ...ENVELOPE, open_questions: [] }, undefined, null, CATALOG)
+  assert.equal(countNodes(tree), 3, 'three nodes')
+  assert.equal(countLeaves(tree), 4, 'and four leaves, which is why the two are different')
 })
 
 // ── narrowing ───────────────────────────────────────────────────────────────
@@ -417,15 +526,126 @@ const INDEX_STATUS: IndexStatusReport = {
   stale_nodes: 0,
 }
 
-test('health carries all five rows, gates and the one act alike', () => {
-  const tree = healthTree({ lint: lintReport(), graph: GRAPH, index: INDEX_STATUS, regen: REGEN })
+const DOCTOR: DoctorReport = {
+  ...ENVELOPE,
+  passed: true,
+  strict: false,
+  failed: 0,
+  warned: 0,
+  checks: [
+    { id: 'repository', question: 'Am I in a derived repository?', verdict: 'ok', detail: '/r', remedy: null },
+  ],
+}
+
+/** The four gates, the one act, and the precondition that comes before all of them. */
+test('health carries all six rows, gates and the one act alike', () => {
+  const tree = healthTree({
+    lint: lintReport(),
+    graph: GRAPH,
+    index: INDEX_STATUS,
+    regen: REGEN,
+    doctor: DOCTOR,
+  })
   assert.deepEqual(ids(tree), [
+    'health:doctor',
     'health:graph',
     'health:lint',
     'health:index',
     'health:regen',
     'health:vendor',
   ])
+})
+
+/**
+ * Setup is a precondition, not a gate — and the distinction is the icon.
+ *
+ * A light `reports` install legitimately has no vector index, so `doctor` warns on a normal
+ * state. Rendering that red is how a reader learns to ignore the row; only `fail` is wrong
+ * now, which is the same split `doctor`'s own exit code makes.
+ */
+test('a warning setup is not rendered as a failure, and a failing one is', () => {
+  const warned = healthTree({
+    lint: lintReport(),
+    graph: GRAPH,
+    index: INDEX_STATUS,
+    regen: REGEN,
+    doctor: {
+      ...DOCTOR,
+      warned: 1,
+      checks: [
+        ...DOCTOR.checks,
+        { id: 'index', question: 'Is the index built?', verdict: 'warn', detail: 'no index', remedy: 'yidam index-build' },
+      ],
+    },
+  })
+  const row = find(warned, 'health:doctor')!
+  assert.equal(row.icon, 'warning')
+  assert.equal(row.description, '1 warning(s)')
+
+  const failed = healthTree({
+    lint: lintReport(),
+    graph: GRAPH,
+    index: INDEX_STATUS,
+    regen: REGEN,
+    doctor: {
+      ...DOCTOR,
+      passed: false,
+      failed: 1,
+      checks: [
+        ...DOCTOR.checks,
+        { id: 'provenance', question: 'Does this repository record where it came from?', verdict: 'fail', detail: 'no .yidam.toml', remedy: 'mise run yidam-vendor-update' },
+      ],
+    },
+  })
+  const bad = find(failed, 'health:doctor')!
+  assert.equal(bad.icon, 'error')
+  assert.equal(bad.expanded, true, 'a failing precondition opens itself')
+  assert.deepEqual(ids(bad.children!), ['health:doctor:provenance'])
+})
+
+/**
+ * `doctor` asks nine questions and eight of them are usually yes. Listing those is a wall
+ * of ticks that buries the one that is not.
+ */
+test('only the setup checks a reader can act on get rows', () => {
+  const tree = healthTree({
+    lint: lintReport(),
+    graph: GRAPH,
+    index: INDEX_STATUS,
+    regen: REGEN,
+    doctor: {
+      ...DOCTOR,
+      checks: [
+        ...DOCTOR.checks,
+        { id: 'skipped', question: 'Unanswerable', verdict: 'skipped', detail: '—', remedy: null },
+      ],
+    },
+  })
+  assert.deepEqual(find(tree, 'health:doctor')!.children, [])
+})
+
+/**
+ * A remedy is a shell command the report chose. Stating one is rendering; running one is a
+ * capability, and this row does not have it.
+ */
+test('a setup remedy is stated and never offered as a click', () => {
+  const tree = healthTree({
+    lint: lintReport(),
+    graph: GRAPH,
+    index: INDEX_STATUS,
+    regen: REGEN,
+    doctor: {
+      ...DOCTOR,
+      passed: false,
+      failed: 1,
+      checks: [
+        { id: 'provenance', question: 'Where from?', verdict: 'fail', detail: 'no .yidam.toml', remedy: 'mise run yidam-vendor-update' },
+      ],
+    },
+  })
+  const row = find(tree, 'health:doctor:provenance')!
+  assert.match(row.tooltip!, /Remedy: mise run yidam-vendor-update/)
+  assert.equal(row.command, undefined, 'the extension runs only the tasks its own manifest names')
 })
 
 /**
@@ -438,7 +658,7 @@ test('health carries all five rows, gates and the one act alike', () => {
  */
 test('vendor drift is offered as an act, never as a verdict', () => {
   const row = find(
-    healthTree({ lint: lintReport(), graph: GRAPH, index: INDEX_STATUS, regen: REGEN }),
+    healthTree({ lint: lintReport(), graph: GRAPH, index: INDEX_STATUS, regen: REGEN, doctor: DOCTOR }),
     'health:vendor',
   )!
   assert.notEqual(row.icon, 'pass')
@@ -454,7 +674,7 @@ test('a stale REGEN block is a verdict, and names which generator', () => {
     stale: [{ file: '.yidam/corpus/README.md', generator: 'corpus-index' }],
   }
   const row = find(
-    healthTree({ lint: lintReport(), graph: GRAPH, index: INDEX_STATUS, regen: stale }),
+    healthTree({ lint: lintReport(), graph: GRAPH, index: INDEX_STATUS, regen: stale, doctor: DOCTOR }),
     'health:regen',
   )!
   assert.equal(row.icon, 'warning')
@@ -464,7 +684,7 @@ test('a stale REGEN block is a verdict, and names which generator', () => {
   assert.equal(row.children![0].description, 'corpus-index')
 
   const current = find(
-    healthTree({ lint: lintReport(), graph: GRAPH, index: INDEX_STATUS, regen: REGEN }),
+    healthTree({ lint: lintReport(), graph: GRAPH, index: INDEX_STATUS, regen: REGEN, doctor: DOCTOR }),
     'health:regen',
   )!
   assert.equal(current.icon, 'pass')
@@ -481,7 +701,7 @@ test('a failing graph gate expands and lists its offending nodes', () => {
     clean_instances: 2,
     nodes_with_issues: [{ node: '.yidam/corpus/concept/tailwater.yml', issues: ['dangling-edge'] }],
   }
-  const row = find(healthTree({ lint: lintReport(), graph, index: INDEX_STATUS, regen: REGEN }), 'health:graph')!
+  const row = find(healthTree({ lint: lintReport(), graph, index: INDEX_STATUS, regen: REGEN, doctor: DOCTOR }), 'health:graph')!
   assert.equal(row.icon, 'error')
   assert.equal(row.expanded, true)
   assert.equal(row.description, '2/3 clean')
@@ -504,6 +724,7 @@ test('the lint row offers blessing only when the debt is stale and nothing is ne
       graph: GRAPH,
       index: INDEX_STATUS,
       regen: REGEN,
+      doctor: DOCTOR,
     }),
     'health:lint',
   )!
@@ -516,6 +737,7 @@ test('the lint row offers blessing only when the debt is stale and nothing is ne
       graph: GRAPH,
       index: INDEX_STATUS,
       regen: REGEN,
+      doctor: DOCTOR,
     }),
     'health:lint',
   )!
@@ -529,8 +751,8 @@ test('the lint row offers blessing only when the debt is stale and nothing is ne
  * about the corpus that nothing checked.
  */
 test('a missing report renders as unavailable rather than as a failure', () => {
-  const tree = healthTree({ lint: null, graph: null, index: null, regen: null })
-  for (const id of ['health:graph', 'health:lint', 'health:index', 'health:regen']) {
+  const tree = healthTree({ lint: null, graph: null, index: null, regen: null, doctor: null })
+  for (const id of ['health:doctor', 'health:graph', 'health:lint', 'health:index', 'health:regen']) {
     const row = find(tree, id)!
     assert.equal(row.description, 'unavailable')
     assert.notEqual(row.icon, 'error')
@@ -748,6 +970,41 @@ test('every view builds from the real binary’s own JSON', async (t) => {
     markedIds.slice().sort(),
   )
 
+  // The provenance layer, from the binary's own JSON. `cited_by` is a field only the real
+  // report can prove is spelled and rooted the way this inversion assumes.
+  const catalog = read<CatalogAuditReport>(['catalog-audit'])
+  const cited = catalog.sources.find((s) => s.cited_by.length > 0)
+  assert.ok(cited, 'the fixture has a source some node draws on')
+  assert.equal(cited.cited_by.length, cited.nodes, 'the count is the list’s length')
+  const uncited = catalog.sources.find((s) => s.cited_by.length === 0)
+  assert.ok(uncited, 'and one no node draws on, which is the other arm')
+  assert.equal(uncited.drift, null, 'an entry declaring no `used-by` list has not drifted')
+
+  // Both drift arms, from the report rather than from a literal. One arm alone cannot tell
+  // an implementation reading both from one reading either.
+  assert.ok(cited.drift, 'the cited entry declares a `used-by` list')
+  assert.equal(cited.drift.claimed_not_citing.length, 1, 'it claims a node that does not cite it')
+  assert.equal(cited.drift.citing_not_claimed.length, 1, 'and omits one that does')
+
+  const sourced = corpusTree(index, open, undefined, null, catalog)
+  const placed = sourced
+    .flatMap((c) => c.children!)
+    .filter((n) => (n.children ?? []).length > 0)
+  assert.equal(
+    placed.length,
+    cited.nodes,
+    'every node the report names carries the source, and no other node does',
+  )
+  assert.ok(
+    placed.every((n) => n.children!.some((src) => src.file?.endsWith(cited.entry))),
+    'and the row opens the entry it stands for',
+  )
+  assert.equal(
+    countNodes(sourced),
+    index.nodes.length,
+    'the node count is unmoved by the sources hanging off it',
+  )
+
   const oneClass = corpusTree(index, open, undefined, parseFilter(`class:${corpus[0].label}`)!)
   assert.deepEqual(ids(oneClass), [corpus[0].id], 'class: leaves exactly the one group')
   assert.equal(countLeaves(oneClass), corpus[0].children!.length, 'and all of its instances')
@@ -803,8 +1060,10 @@ test('every view builds from the real binary’s own JSON', async (t) => {
     graph: read<GraphCheckReport>(['graph-check']),
     index: read<IndexStatusReport>(['index-status']),
     regen: read<RegenReport>(['regen', '--check']),
+    doctor: read<DoctorReport>(['doctor']),
   })
   assert.deepEqual(ids(health), [
+    'health:doctor',
     'health:graph',
     'health:lint',
     'health:index',

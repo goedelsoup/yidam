@@ -1,6 +1,8 @@
 class: concept
 label: Low flow
-description: A discharge regime. Carries one deliberately broken edge.
+description: A discharge regime. Carries one deliberately broken edge, and draws on
+  [the stage–discharge relation](../../catalog/stage-discharge.md) — a citation the
+  entry's own `used-by` list does record.
 properties:
   claim_tag: open
 links:

@@ -60,6 +60,7 @@ import {
 import {
   corpusTree,
   countLeaves,
+  countNodes,
   filterMessage,
   healthTree,
   localRef,
@@ -703,11 +704,15 @@ function renderCorpusViews(): void {
   if (viewMessage !== undefined) return
   const index = lastCorpus.corpusIndex
   const open = lastCorpus.openQuestions
-  const corpus = index && open ? corpusTree(index, open, undefined, filter) : []
+  const corpus = index && open
+    ? corpusTree(index, open, undefined, filter, lastCorpus.catalogAudit)
+    : []
   const questions = open ? openQuestionsTree(open, filter, index) : []
   views.corpus.replace(corpus)
   views.open.replace(questions)
-  handles.corpus.message = filterMessage(filter, countLeaves(corpus), index?.nodes.length ?? 0)
+  // `countNodes`, not `countLeaves`: a leaf in the Corpus view is a source now, and the
+  // filter narrows nodes.
+  handles.corpus.message = filterMessage(filter, countNodes(corpus), index?.nodes.length ?? 0)
   handles.open.message = filterMessage(
     filter,
     countLeaves(questions),
@@ -1061,6 +1066,7 @@ async function report(): Promise<void> {
         graph: outcome.graph,
         index: corpus.indexStatus,
         regen: corpus.regen,
+        doctor: corpus.doctor,
       }),
     )
     views.sangha.replace(refs.sangha ? sanghaTree(refs.sangha) : [])

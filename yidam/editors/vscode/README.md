@@ -83,6 +83,48 @@ extension able to write rows and nothing else. Three things came back with them:
   speak the report contract. The status bar said so, and the status bar is not where somebody
   staring at an empty Corpus tree is looking.
 
+Health opens with a **Setup** row, from `yidam doctor` — is this the binary the repository
+pins, does it record where it came from, how stale is the vendored prelude. It is first
+because it is a precondition rather than a gate: a repository answering those wrongly is one
+where every row beneath it may be describing something other than what the reader thinks.
+
+Only the checks a reader can act on get rows; `doctor` asks nine questions and eight of them
+are usually yes. A `warn` renders as a warning and not as a failure — a light `reports`
+install legitimately has no vector index, and a row that goes red on the normal state of a
+normal install is one people learn to ignore. Each check's remedy is in its tooltip and
+**is never offered as a click**: a remedy is a shell command the report chose, and running a
+string handed over by a subprocess is a different capability from rendering one.
+
+## What a node rests on
+
+The Corpus view had no surface for the provenance layer: a reader looking at a node could
+not ask what it is sourced from without leaving the view entirely.
+
+Sources now hang under the node that cites them — click one and the catalog entry opens.
+Only nodes that cite something get children, because most nodes cite nothing and an arrow
+beside every row is an arrow that is usually a lie.
+
+**The edge is the CLI's, not this extension's.** `yidam catalog-audit` gained a `cited_by`
+field naming the corpus instances that link to each entry, resolved by the same function
+`catalog-uncited` gates on. This view inverts that — source → nodes becomes node → sources —
+which is a re-index of what the report said. Deriving it here from the corpus's links would
+be a second opinion about what a citation is, and that opinion has already been wrong once:
+matching a bare slug rather than a resolved link failed a build on a node that cited nothing.
+
+Two things the row deliberately does **not** say:
+
+- **An unretrieved source is stated, not reddened.** `not obtained` sits in the row's
+  description. A node citing one is `catalog-unobtained-but-cited`, which is Error severity
+  and already reaches the editor as a diagnostic and a Health row; a second red mark here
+  would be the tree rendering a verdict it did not compute.
+- **`used-by` drift is a tooltip.** The entry's hand-written list disagreeing with the
+  citations is `catalog-used-by-drift`, and the report now carries the disagreement as a
+  `drift` field so the two cannot diverge — but the *verdict* stays where verdicts are.
+
+The filter narrows nodes, and a kept node keeps its sources. A term matching a source name
+keeps nothing: both filtered views are indexed by node, and a filter that sometimes meant
+"source" would be answering a question the reader did not ask.
+
 ## Narrowing a view
 
 Five views were built against a four-node fixture and are correct at that size. A derived

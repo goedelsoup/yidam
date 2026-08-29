@@ -1639,24 +1639,69 @@ pub fn catalog_unobtained_but_cited(sources: &[Source], cites: &[Vec<String>]) -
     )
 }
 
+/// How a declared `used-by` list disagrees with the citations, by basename.
+///
+/// Basenames rather than paths because the list is hand-written and a person writing one
+/// writes `tailwater.yml`, not `.yidam/corpus/concept/tailwater.yml`. Comparing full paths
+/// would report drift on every entry whose author spelled the node the way the convention
+/// asks them to.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct UsedByDrift {
+    /// Names the list claims, that no node citing this entry carries.
+    pub claimed_not_citing: Vec<String>,
+    /// Nodes that cite this entry, that the list omits.
+    pub citing_not_claimed: Vec<String>,
+}
+
+/// The disagreement between a declared `used-by` list and the citations, or `None` when the
+/// entry declares no list — **absent is not drift**, and that distinction is the whole
+/// reason this returns an `Option` rather than an empty struct.
+///
+/// One function because two consumers ask the same question and must not answer it
+/// differently: `catalog-used-by-drift` renders it as a gated violation, and
+/// `catalog-audit` reports it as a field an editor navigates by. A second copy is exactly
+/// how the two counts in this file's own history came to disagree.
+pub fn used_by_drift(used_by: &[String], citing: &[String]) -> Option<UsedByDrift> {
+    if used_by.is_empty() {
+        return None;
+    }
+    let claimed: HashSet<&str> = used_by.iter().map(|u| basename(u)).collect();
+    let found: HashSet<&str> = citing.iter().map(|a| basename(a)).collect();
+    let mut claimed_not_citing: Vec<String> = claimed
+        .difference(&found)
+        .map(|s| (*s).to_string())
+        .collect();
+    let mut citing_not_claimed: Vec<String> = found
+        .difference(&claimed)
+        .map(|s| (*s).to_string())
+        .collect();
+    claimed_not_citing.sort_unstable();
+    citing_not_claimed.sort_unstable();
+    Some(UsedByDrift {
+        claimed_not_citing,
+        citing_not_claimed,
+    })
+}
+
 pub fn catalog_used_by_drift(sources: &[Source], cites: &[Vec<String>]) -> Check {
     let mut violations = Vec::new();
     for (s, actual) in sources.iter().zip(cites) {
-        if s.used_by.is_empty() {
-            continue; // the list is optional; absent is not drift
-        }
-        let claimed: HashSet<&str> = s.used_by.iter().map(|u| basename(u)).collect();
-        let found: HashSet<&str> = actual.iter().map(|a| basename(a)).collect();
+        // `None` is the optional list being absent, which is not drift.
+        let Some(drift) = used_by_drift(&s.used_by, actual) else {
+            continue;
+        };
         let mut detail = Vec::new();
-        let mut missing: Vec<&str> = claimed.difference(&found).copied().collect();
-        let mut extra: Vec<&str> = found.difference(&claimed).copied().collect();
-        missing.sort_unstable();
-        extra.sort_unstable();
-        if !missing.is_empty() {
-            detail.push(format!("claims {} that do not cite it", missing.join(", ")));
+        if !drift.claimed_not_citing.is_empty() {
+            detail.push(format!(
+                "claims {} that do not cite it",
+                drift.claimed_not_citing.join(", ")
+            ));
         }
-        if !extra.is_empty() {
-            detail.push(format!("omits {} that do", extra.join(", ")));
+        if !drift.citing_not_claimed.is_empty() {
+            detail.push(format!(
+                "omits {} that do",
+                drift.citing_not_claimed.join(", ")
+            ));
         }
         if !detail.is_empty() {
             violations.push(Violation::new(&s.rel, detail.join("; ")));
@@ -1839,6 +1884,36 @@ mod tests {
             target: target.into(),
             direction: Some(direction.into()),
         }
+    }
+
+    /// `None` and an empty drift are different answers, and the report emits them as
+    /// different values — `null` for an entry that never claimed anything, an object with two
+    /// empty arrays for one whose claim holds. Collapsing them would make an entry that keeps
+    /// its list current indistinguishable from one that has none.
+    #[test]
+    fn an_absent_used_by_list_is_not_drift_and_an_accurate_one_is_not_either() {
+        assert_eq!(used_by_drift(&[], &["a.yml".into()]), None);
+        assert_eq!(
+            used_by_drift(&["a.yml".into()], &[".yidam/corpus/c/a.yml".into()]),
+            Some(UsedByDrift::default()),
+        );
+    }
+
+    /// Basenames, because the list is hand-written and a person writes `tailwater.yml`.
+    /// Comparing full paths would report drift on every entry spelled the way the
+    /// convention asks for.
+    #[test]
+    fn drift_is_reported_in_both_directions_and_compared_by_basename() {
+        let drift = used_by_drift(
+            &["mixing-zone.yml".into(), "low-flow.yml".into()],
+            &[
+                ".yidam/corpus/concept/low-flow.yml".into(),
+                ".yidam/corpus/concept/tailwater.yml".into(),
+            ],
+        )
+        .expect("a list was declared");
+        assert_eq!(drift.claimed_not_citing, vec!["mixing-zone.yml"]);
+        assert_eq!(drift.citing_not_claimed, vec!["tailwater.yml"]);
     }
 
     fn source(slug: &str, obtained: bool, used_by: &[&str]) -> Source {

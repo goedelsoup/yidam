@@ -134,6 +134,26 @@ If the binary it finds speaks a report contract this build does not understand, 
 are disabled and the status bar says so, rather than the extension guessing at an envelope it
 cannot read. `yidam: Show binary and contract status` reports which binary answered.
 
+### What a node rests on
+
+A reader looking at a node in the Corpus view could not ask what it is sourced from without
+leaving the view. Sources now hang under the node that cites them, and clicking one opens the
+catalog entry. Only nodes that cite something get children.
+
+The edge comes from the CLI: `catalog-audit` gained `cited_by`, naming the corpus instances
+that link to each entry — resolved by the same function `catalog-uncited` gates on — plus the
+entry's declared `used-by` and a `drift` field computed by the same function
+`catalog-used-by-drift` reports. The editor inverts source → nodes into node → sources, which
+is a re-index of what the report said rather than a second opinion about what a citation is.
+
+An unretrieved source says `not obtained` and is not reddened, and drift is a tooltip: both
+are already verdicts elsewhere, in the lint diagnostics and the Health view.
+
+Health also opens with a **Setup** row from `yidam doctor` — the right binary, a recorded
+provenance, a prelude that is not too stale. It is a precondition rather than a gate, so only
+`fail` renders red; a light `reports` install with no vector index warns and is normal. Each
+remedy is stated in a tooltip and never offered as a click.
+
 ### Narrowing a view
 
 The views were built against a four-node fixture. A real derived corpus is 90 nodes across 13

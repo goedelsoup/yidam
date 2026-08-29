@@ -12,5 +12,8 @@ WARN [missing-property] Declared property the instance omits — 5 finding(s)
 WARN [verified-unsourced] A claim asserted at `[verified]` that rests on nothing — 1 finding(s)
   .yidam/corpus/gauge/riffle-station.yml: 1 `[verified]` claim, and this node draws on no source
 
+WARN [catalog-used-by-drift] `used-by` list disagreeing with the citations — 1 finding(s)
+  .yidam/catalog/stage-discharge.md: claims mixing-zone.yml that do not cite it; omits tailwater.yml that do
+
 INFO [orphan-in] Node nothing points to — 1 finding(s)
   .yidam/corpus/concept/tailwater.yml: nothing links to this node — uncited since 2026-01-01, 2 commit(s)

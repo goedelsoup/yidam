@@ -9,6 +9,17 @@ entry that changes which contract this build understands says so explicitly.
 
 ## Unreleased
 
+- **A node's sources, under the node.** The Corpus view had no surface for the provenance
+  layer, so asking what a node rests on meant leaving the view. `yidam catalog-audit` gained
+  a `cited_by` field naming the instances that cite each entry — plus the entry's declared
+  `used-by` and a `drift` field for how the two disagree, computed by the same function
+  `catalog-used-by-drift` gates on. Report contract: still **1**; adding a field is not a
+  break.
+
+- **A Setup row in Health**, from `yidam doctor`: the right binary, a recorded provenance, a
+  prelude that is not too stale. First in the view because it is a precondition rather than a
+  gate — only `fail` renders red, and each remedy is stated in a tooltip and never run.
+
 - **The Corpus and Open questions views can be narrowed.** `yidam: Filter the Corpus and
   Open questions views`, on the funnel in either view's title bar. Free text matches a
   label or a node path; `class:<name>` restricts by class and `is:open` keeps the nodes

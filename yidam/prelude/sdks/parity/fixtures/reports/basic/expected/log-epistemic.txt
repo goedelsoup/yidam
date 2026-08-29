@@ -1,4 +1,4 @@
-6d795ef3  [E]  revise: the corpus carries a claim tag of each kind
-fc0dcbfb  [E]  genesis: reports fixture
+def5c51d  [E]  revise: the corpus carries a claim tag of each kind
+336aa950  [E]  genesis: reports fixture
 
 3 commit(s): 2 epistemic, 1 operational — showing epistemic
