@@ -49,7 +49,7 @@
           "severity": "error",
           "in_baseline": false,
           "span": {
-            "line": 7
+            "line": 9
           }
         }
       ]
@@ -212,7 +212,14 @@
       "title": "`used-by` list disagreeing with the citations",
       "severity": "warn",
       "rationale": "The citations are authoritative — they cannot drift from the corpus, and a hand-maintained list can. Both are kept so the disagreement is visible rather than averaged away. The list is optional; an entry that declares one is asserting it is current.",
-      "violations": []
+      "violations": [
+        {
+          "node": ".yidam/catalog/stage-discharge.md",
+          "detail": "claims mixing-zone.yml that do not cite it; omits tailwater.yml that do",
+          "severity": "warn",
+          "in_baseline": false
+        }
+      ]
     },
     {
       "id": "catalog-location-malformed",

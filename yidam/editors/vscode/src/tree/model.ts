@@ -18,7 +18,9 @@
  */
 
 import type {
+  CatalogAuditReport,
   CorpusIndexReport,
+  DoctorReport,
   GraphCheckReport,
   IndexStatusReport,
   LintReport,
@@ -26,6 +28,7 @@ import type {
   RegenReport,
   PhasesReport,
   SanghaReport,
+  SourceRow,
   StatusReport,
 } from '../reports.ts'
 
@@ -86,8 +89,9 @@ export function parentIndex(roots: TreeNode[]): Map<TreeNode, TreeNode> {
 /**
  * The row standing for a repo-relative path, anywhere in the forest.
  *
- * Depth-first and first-match: a file appears once in a view built from one report, and a
- * caller that wanted all of them would be asking a different question.
+ * Depth-first and first-match. A corpus node appears once; a catalog entry appears under
+ * every node that cites it, and `reveal` on one of those wants *a* row rather than all of
+ * them — a caller that wanted the set would be asking a different question.
  */
 export function findByFile(roots: TreeNode[], file: string): TreeNode | undefined {
   for (const node of roots) {
@@ -202,6 +206,23 @@ export function matches(filter: Filter | null, row: Filterable): boolean {
   return filter.terms.every((t) => hay.includes(t))
 }
 
+/**
+ * Corpus rows that stand for a node.
+ *
+ * Not [`countLeaves`], and the distinction became load-bearing the moment a node could
+ * carry sources: a leaf in the Corpus view is now a *source*, so counting leaves would
+ * report a filter as `17 of 90` because seventeen sources survived under three nodes.
+ * The filter narrows nodes, so the message counts nodes.
+ */
+export function countNodes(roots: TreeNode[]): number {
+  let n = 0
+  for (const node of roots) {
+    if (node.context === 'yidam.node') n += 1
+    n += countNodes(node.children ?? [])
+  }
+  return n
+}
+
 /** Rows rather than groups — what a reader is counting when they ask how much is left. */
 export function countLeaves(roots: TreeNode[]): number {
   let n = 0
@@ -248,18 +269,92 @@ function classOf(index: CorpusIndexReport | null, node: string): string | undefi
 }
 
 /**
- * Classes, then their instances. Open questions carry a different icon.
+ * Node → the sources it draws on, inverted from `catalog-audit`.
+ *
+ * The report is indexed by source because that is the question the audit asks — *who draws
+ * on this*. A reader in a corpus view asks the other one, *what does this rest on*, and the
+ * inversion is a re-index of what the report already said rather than a second opinion
+ * about what a citation is. `cited_by` is the CLI's answer to that, resolved by the same
+ * function the gate reads; deriving it here from links would be the re-implementation the
+ * whole contract exists to prevent.
+ *
+ * Keyed on the node path as `catalog-audit` spells it — repository-relative — while
+ * `corpus-index` spells its rows relative to the corpus. Matched on suffix, the same way
+ * `openSet` reconciles the same two roots, so a repository that moves its corpus keeps its
+ * provenance.
+ */
+export function sourcesByNode(
+  catalog: CatalogAuditReport | null,
+  rows: { node: string }[],
+): Map<string, SourceRow[]> {
+  const out = new Map<string, SourceRow[]>()
+  if (!catalog) return out
+  for (const source of catalog.sources) {
+    for (const cited of source.cited_by) {
+      for (const row of rows) {
+        if (cited !== row.node && !cited.endsWith(`/${row.node}`)) continue
+        const list = out.get(row.node) ?? []
+        list.push(source)
+        out.set(row.node, list)
+      }
+    }
+  }
+  for (const list of out.values()) list.sort((a, b) => a.entry.localeCompare(b.entry))
+  return out
+}
+
+/**
+ * One source, as a row beneath the node that cites it.
+ *
+ * Clicking opens the catalog entry, which is the whole point: the question this answers is
+ * "what is this node sourced from", and until now answering it meant leaving the view.
+ *
+ * `obtained: false` is stated and is **not** dressed as a failure. A node citing an
+ * unretrieved source is `catalog-unobtained-but-cited`, which is Error severity and reaches
+ * the editor as a diagnostic and a Health row. A second red mark here would be this file
+ * rendering a verdict it did not compute.
+ */
+function sourceRow(node: string, source: SourceRow, catalogDir: string): TreeNode {
+  const drifting =
+    source.drift !== null &&
+    (source.drift.claimed_not_citing.length > 0 || source.drift.citing_not_claimed.length > 0)
+  return {
+    id: `source:${node}:${source.entry}`,
+    label: named(source.description, stem(source.entry)),
+    description: [source.type === '—' ? null : source.type, source.obtained ? null : 'not obtained']
+      .filter((p) => p !== null)
+      .join(' · '),
+    tooltip:
+      `${source.entry}\n${source.nodes} node(s) draw on this` +
+      (source.elsewhere > 0 ? `, ${source.elsewhere} other file(s) link to it` : '') +
+      (drifting ? '\n\nIts `used-by` list disagrees with the citations.' : ''),
+    icon: 'book',
+    file: `${catalogDir}/${source.entry}`,
+  }
+}
+
+/**
+ * Classes, then their instances, then what each instance rests on.
  *
  * A class whose every instance the filter hid is dropped rather than shown empty: an
- * expandable row with nothing under it is a worse answer than no row.
+ * expandable row with nothing under it is a worse answer than no row. A node with no
+ * sources gets no children for the same reason — most nodes cite nothing, and making every
+ * one of them expandable would put an arrow beside a row that has nothing behind it.
+ *
+ * The filter narrows *nodes*. A kept node keeps its sources, and a term matching a source
+ * name keeps nothing: the two views this filter was built for are indexed by node, and a
+ * filter that sometimes meant "source" would be answering a question the reader did not ask.
  */
 export function corpusTree(
   index: CorpusIndexReport,
   open: OpenQuestionsReport,
   corpusDir = '.yidam/corpus',
   filter: Filter | null = null,
+  catalog: CatalogAuditReport | null = null,
+  catalogDir = '.yidam/catalog',
 ): TreeNode[] {
   const marked = openSet(open, index.nodes)
+  const sources = sourcesByNode(catalog, index.nodes)
   const byClass = new Map<string, { kept: typeof index.nodes; total: number }>()
   for (const row of index.nodes) {
     const key = named(row.class, 'unclassed')
@@ -306,6 +401,9 @@ export function corpusTree(
           icon: marked.has(row.node) ? 'question' : 'symbol-field',
           file: `${corpusDir}/${row.node}`,
           context: 'yidam.node',
+          children: (sources.get(row.node) ?? []).map((source) =>
+            sourceRow(row.node, source, catalogDir),
+          ),
         })),
     }))
 }
@@ -448,6 +546,49 @@ export interface HealthInput {
   graph: GraphCheckReport | null
   index: IndexStatusReport | null
   regen: RegenReport | null
+  doctor: DoctorReport | null
+}
+
+/**
+ * Whether the setup is sound, which is the question that comes before the corpus's.
+ *
+ * First in the view for that reason: a repository whose binary is not the one it pins, or
+ * whose provenance file is missing, is one where every row beneath this may be answering
+ * about something other than what the reader thinks. It is a precondition, not a gate.
+ *
+ * Only the checks that are not `ok` get rows. `doctor` asks nine questions and eight of them
+ * are usually yes; listing those is a wall of ticks that buries the one that is not.
+ *
+ * **Remedies are stated and never run.** Each is a shell command the report chose, and a
+ * one-click row that executed a string a subprocess handed us is a different capability from
+ * rendering one — the two mise tasks this extension does run are named in its own manifest.
+ */
+function doctorRow(doctor: DoctorReport): TreeNode {
+  const actionable = doctor.checks.filter((c) => c.verdict !== 'ok' && c.verdict !== 'skipped')
+  return {
+    id: 'health:doctor',
+    label: 'Setup',
+    description: doctor.passed
+      ? doctor.warned > 0
+        ? `${doctor.warned} warning(s)`
+        : 'sound'
+      : `${doctor.failed} failing`,
+    tooltip: doctor.passed
+      ? 'Nothing here is wrong now. `yidam doctor` for the full list.'
+      : 'Something about this setup is wrong now, not merely worth knowing.',
+    // A failing check is wrong now; a warning is routinely lived with — a light `reports`
+    // install legitimately has no vector index. Rendering both red would teach a reader to
+    // ignore the row.
+    icon: !doctor.passed ? 'error' : doctor.warned > 0 ? 'warning' : 'pass',
+    expanded: !doctor.passed,
+    children: actionable.map((c) => ({
+      id: `health:doctor:${c.id}`,
+      label: c.question,
+      description: c.detail,
+      tooltip: c.remedy ? `${c.detail}\n\nRemedy: ${c.remedy}` : c.detail,
+      icon: c.verdict === 'fail' ? 'error' : 'warning',
+    })),
+  }
 }
 
 /**
@@ -478,8 +619,11 @@ function unavailable(id: string, label: string): TreeNode {
  * this extension inventing a verdict, which is the failure RFC-0016 exists to close.
  */
 export function healthTree(input: HealthInput): TreeNode[] {
-  const { lint, graph, index, regen } = input
+  const { lint, graph, index, regen, doctor } = input
   const rows: TreeNode[] = []
+
+  if (!doctor) rows.push(unavailable('health:doctor', 'Setup'))
+  else rows.push(doctorRow(doctor))
 
   if (!graph) rows.push(unavailable('health:graph', 'Graph'))
   else rows.push({

@@ -1,5 +1,6 @@
 | Entry | Type | Description | Obtained | Nodes | Elsewhere |
 |---|---|---|---|---|---|
 | [gauge-record.md](gauge-record.md) | dataset | A stream gauge series, registered and unretrieved. | not yet | 0 | 1 |
+| [stage-discharge.md](stage-discharge.md) | paper | A rating-curve derivation, obtained and drawn on by two nodes. | yes | 2 | 0 |
 
 **Nodes** counts corpus instances that link here — the number every gate reads, and what `catalog-uncited` means by *no corpus node draws on this source*. **Elsewhere** counts other files under `.yidam/corpus/` that link here: class definitions and README prose. They are kept apart rather than summed, because a claim resting on a source and a page linking to one are different things.

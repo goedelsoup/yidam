@@ -16,7 +16,35 @@
       "obtained": false,
       "citations": 1,
       "nodes": 0,
-      "elsewhere": 1
+      "elsewhere": 1,
+      "cited_by": [],
+      "used_by": [],
+      "drift": null
+    },
+    {
+      "entry": "stage-discharge.md",
+      "type": "paper",
+      "description": "A rating-curve derivation, obtained and drawn on by two nodes.",
+      "obtained": true,
+      "citations": 2,
+      "nodes": 2,
+      "elsewhere": 0,
+      "cited_by": [
+        ".yidam/corpus/concept/low-flow.yml",
+        ".yidam/corpus/concept/tailwater.yml"
+      ],
+      "used_by": [
+        "mixing-zone.yml",
+        "low-flow.yml"
+      ],
+      "drift": {
+        "claimed_not_citing": [
+          "mixing-zone.yml"
+        ],
+        "citing_not_claimed": [
+          "tailwater.yml"
+        ]
+      }
     }
   ]
 }

@@ -222,7 +222,7 @@
     },
     "sources": {
       "type": "array",
-      "description": "`catalog-audit` only. One row per catalog entry. Each carries THREE citation counts and they mean different things: `nodes` is corpus instances linking to the entry — the number every gate reads, and what `catalog-uncited` means by \"no corpus node draws on this source\"; `elsewhere` is other files under .yidam/corpus/ that link to it, which is class definitions and README prose; `citations` is their sum, retained with exactly the meaning it had before the two were separated. A consumer deciding whether a claim rests on a source MUST read `nodes`, never `citations`.",
+      "description": "`catalog-audit` only. One row per catalog entry. Each carries THREE citation counts and they mean different things: `nodes` is corpus instances linking to the entry — the number every gate reads, and what `catalog-uncited` means by \"no corpus node draws on this source\"; `elsewhere` is other files under .yidam/corpus/ that link to it, which is class definitions and README prose; `citations` is their sum, retained with exactly the meaning it had before the two were separated. A consumer deciding whether a claim rests on a source MUST read `nodes`, never `citations`. Each row also names WHICH nodes cite it (`cited_by`) and how the entry's own hand-written `used-by` list disagrees with them (`drift`), so a consumer navigating from a node to its sources never re-resolves the corpus's links to find out.",
       "items": {
         "type": "object",
         "required": [
@@ -232,7 +232,10 @@
           "obtained",
           "citations",
           "nodes",
-          "elsewhere"
+          "elsewhere",
+          "cited_by",
+          "used_by",
+          "drift"
         ],
         "properties": {
           "entry": {
@@ -261,6 +264,47 @@
           "elsewhere": {
             "type": "integer",
             "description": "Non-instance corpus files linking to this entry — class definitions and READMEs. Never added to `nodes`: a claim resting on a source and a page linking to one are different things."
+          },
+          "cited_by": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Repo-relative paths of the corpus instances linking to this entry, sorted. Exactly `nodes` of them — the count is this list's length, so the two cannot come to disagree. Instances only: a class definition or a README linking here is counted in `elsewhere` and not named, because it is not a node and has no row in a corpus view to sit under."
+          },
+          "used_by": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The entry's declared `used-by` list, verbatim and unresolved. Empty when it declares none. Hand-maintained and therefore able to drift from the citations, which are authoritative."
+          },
+          "drift": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "How `used_by` disagrees with `cited_by`, compared by basename — or null when the entry declares no list, since absent is not drift. An object with two empty arrays is the different answer: a list was declared and it holds. Computed by the same function `catalog-used-by-drift` gates on, so the report and the gate cannot disagree about what drift is. A consumer MUST NOT recompute it.",
+            "required": [
+              "claimed_not_citing",
+              "citing_not_claimed"
+            ],
+            "properties": {
+              "claimed_not_citing": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Basenames the list claims, that no citing node carries."
+              },
+              "citing_not_claimed": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Basenames of nodes that cite this entry, that the list omits."
+              }
+            }
           }
         }
       }

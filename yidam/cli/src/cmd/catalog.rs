@@ -38,15 +38,49 @@ use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir};
 use crate::regen::update_file_regen;
 use crate::walk::{walk_corpus_instances, walk_md_files};
 
-/// Who draws on one catalog entry.
+/// Who draws on one catalog entry, by repo-relative path.
+///
+/// The paths, not only the tally. A count answers *is this source used*; an editor placing
+/// a source under the node that cites it needs to know **which** node, and the walk that
+/// produces the count already knows. Discarding it here only to make a consumer walk the
+/// corpus again is how a client ends up re-implementing the resolver — the failure this
+/// whole report contract exists to close.
+///
+/// Each list is distinct files: [`crate::cmd::lint::checks::linked_paths`] returns a set per
+/// file, so one file linking to the same entry twice is one citation and always was. The
+/// counts are `len()` of these, which is what keeps the two from ever disagreeing.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Cited {
+    /// Corpus instances that link here. **The list every gate's count reads.**
+    nodes: Vec<String>,
+    /// Other files under `.yidam/corpus/` that link here — class definitions and READMEs.
+    ///
+    /// Reported beside [`Self::nodes`] and never added to it. A claim resting on a source and
+    /// a page linking to one are different things, and only the first is evidence.
+    elsewhere: Vec<String>,
+}
+
+impl Cited {
+    fn counts(&self) -> Counts {
+        Counts {
+            nodes: self.nodes.len(),
+            elsewhere: self.elsewhere.len(),
+        }
+    }
+
+    fn sorted(mut self) -> Self {
+        self.nodes.sort();
+        self.elsewhere.sort();
+        self
+    }
+}
+
+/// The two counts, kept exactly as the contract has always emitted them.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
 struct Counts {
     /// Corpus instances that link here. **The number every gate reads.**
     nodes: usize,
     /// Other files under `.yidam/corpus/` that link here — class definitions and READMEs.
-    ///
-    /// Reported beside [`Self::nodes`] and never added to it. A claim resting on a source and
-    /// a page linking to one are different things, and only the first is evidence.
     elsewhere: usize,
 }
 
@@ -71,6 +105,21 @@ struct SourceRow {
     citations: usize,
     #[serde(flatten)]
     counts: Counts,
+    /// The corpus instances linking here, repo-relative and sorted.
+    ///
+    /// Instances only, and deliberately asymmetric with [`Counts::elsewhere`], which stays a
+    /// count. A class definition or a README is not a node, so it has no row in a corpus
+    /// view to sit under — listing those paths would be a field with no reader, and the
+    /// count already tells you they exist.
+    cited_by: Vec<String>,
+    /// The entry's declared `used-by`, verbatim. Empty when it declares none.
+    used_by: Vec<String>,
+    /// How that list disagrees with the citations, or `null` when no list is declared.
+    ///
+    /// Null and an empty drift are different answers — the first is an entry that never
+    /// claimed anything, the second is one whose claim holds — and `catalog-used-by-drift`
+    /// draws the same distinction from the same function.
+    drift: Option<crate::cmd::lint::checks::UsedByDrift>,
 }
 
 #[derive(serde::Serialize)]
@@ -87,7 +136,7 @@ struct CatalogReport {
 ///
 /// Keyed by every link target, not only catalog entries. Filtering to the catalog would mean
 /// deciding here what a catalog path looks like, and the caller already holds the entries.
-fn draws_on(root: &Path, corpus: &Path) -> HashMap<PathBuf, Counts> {
+fn draws_on(root: &Path, corpus: &Path) -> HashMap<PathBuf, Cited> {
     // What counts as a node comes from the one function that answers that, rather than from
     // a filter written again here. The duplicated *walk* is the whole of this defect.
     let instances: HashSet<PathBuf> = walk_corpus_instances(corpus)
@@ -95,7 +144,7 @@ fn draws_on(root: &Path, corpus: &Path) -> HashMap<PathBuf, Counts> {
         .map(|p| crate::cmd::lint::checks::normalize(p))
         .collect();
 
-    let mut out: HashMap<PathBuf, Counts> = HashMap::new();
+    let mut out: HashMap<PathBuf, Cited> = HashMap::new();
     for entry in walkdir::WalkDir::new(corpus)
         .into_iter()
         .filter_map(Result::ok)
@@ -111,13 +160,16 @@ fn draws_on(root: &Path, corpus: &Path) -> HashMap<PathBuf, Counts> {
         for target in crate::cmd::lint::checks::linked_paths(path, &rel, &text) {
             let c = out.entry(target).or_default();
             if is_node {
-                c.nodes += 1;
+                c.nodes.push(rel.to_string());
             } else {
-                c.elsewhere += 1;
+                c.elsewhere.push(rel.to_string());
             }
         }
     }
-    out
+    // Sorted here rather than at each use: the walk order is `walkdir`'s, which is neither
+    // stable across platforms nor meaningful, and a report field whose order moves between
+    // machines is one no golden can pin.
+    out.into_iter().map(|(k, v)| (k, v.sorted())).collect()
 }
 
 /// The legend under the table.
@@ -171,10 +223,17 @@ pub fn catalog_audit(format: crate::report::Format) -> Result<()> {
             // A citation is a link that resolves to this entry, not a sentence containing
             // its slug. `lint` had the same defect in its own copy of this count; both now
             // ask one function. See [`crate::cmd::lint::checks::linked_paths`].
-            let counts = draws
+            let cited = draws
                 .get(&crate::cmd::lint::checks::normalize(path))
-                .copied()
+                .cloned()
                 .unwrap_or_default();
+            let counts = cited.counts();
+            let used_by = fm.used_by.unwrap_or_default();
+            // Against `cited.nodes` and not `cited.total()`: `catalog-used-by-drift` compares
+            // the list to the citations *the gate reads*, and a report disagreeing with the
+            // gate about which entries have drifted is the one defect the shared function
+            // above exists to make impossible.
+            let drift = crate::cmd::lint::checks::used_by_drift(&used_by, &cited.nodes);
             source_rows.push(SourceRow {
                 entry: filename.to_string(),
                 kind: kind.clone(),
@@ -182,6 +241,9 @@ pub fn catalog_audit(format: crate::report::Format) -> Result<()> {
                 obtained: is_obtained,
                 citations: counts.total(),
                 counts,
+                cited_by: cited.nodes,
+                used_by,
+                drift,
             });
             rows.push(format!(
                 "| [{filename}]({filename}) | {kind} | {desc} | {obtained} | {} | {} |",
@@ -222,14 +284,18 @@ mod tests {
         std::fs::write(p, body).unwrap();
     }
 
-    fn counts(root: &Path) -> Counts {
+    fn cited(root: &Path) -> Cited {
         let c = root.join(".yidam/corpus");
         draws_on(root, &c)
             .get(&crate::cmd::lint::checks::normalize(
                 &root.join(".yidam/catalog/source.md"),
             ))
-            .copied()
+            .cloned()
             .unwrap_or_default()
+    }
+
+    fn counts(root: &Path) -> Counts {
+        cited(root).counts()
     }
 
     #[test]
@@ -328,6 +394,51 @@ mod tests {
             "class: concept\ndescription: |\n  Nothing here.\n",
         );
         assert_eq!(counts(tmp.path()), Counts::default());
+    }
+
+    /// The count is the list's length, which is the only arrangement in which they cannot
+    /// come to disagree — the defect this whole module's header describes, in miniature.
+    #[test]
+    fn the_citing_instances_are_named_sorted_and_the_count_is_their_number() {
+        let tmp = tempfile::tempdir().unwrap();
+        corpus(tmp.path());
+        for name in ["tailwater", "low-flow"] {
+            write(
+                tmp.path(),
+                &format!(".yidam/corpus/concept/{name}.yml"),
+                "class: concept\ndescription: |\n  Drawn from [it](../../catalog/source.md).\n",
+            );
+        }
+        let c = cited(tmp.path());
+        assert_eq!(
+            c.nodes,
+            vec![
+                ".yidam/corpus/concept/low-flow.yml",
+                ".yidam/corpus/concept/tailwater.yml",
+            ],
+            "sorted, because walkdir's order is neither stable nor meaningful"
+        );
+        assert_eq!(c.counts().nodes, c.nodes.len());
+    }
+
+    /// A README is not a node, so it has no row to sit under. Counted, never named.
+    #[test]
+    fn a_non_instance_is_counted_and_not_named() {
+        let tmp = tempfile::tempdir().unwrap();
+        corpus(tmp.path());
+        write(
+            tmp.path(),
+            ".yidam/corpus/concept/README.md",
+            "Indexed from [it](../../catalog/source.md).\n",
+        );
+        let c = cited(tmp.path());
+        assert!(c.nodes.is_empty());
+        assert_eq!(c.counts().elsewhere, 1);
+        assert_eq!(
+            c.elsewhere,
+            vec![".yidam/corpus/concept/README.md"],
+            "the walk knows which file it was; only the report withholds it"
+        );
     }
 
     /// One file linking twice is one citation, which is what the count meant before.

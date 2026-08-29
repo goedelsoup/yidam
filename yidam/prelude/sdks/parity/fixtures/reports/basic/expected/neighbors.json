@@ -12,14 +12,14 @@
   "node": "concept/tailwater.yml",
   "class": "concept",
   "label": "Tailwater",
-  "description": "Water downstream of a structure. [inference] The control node — it trips nothing, including when it names the vocabulary rather than using it: no claim here is `[open]`, and nobody has written `[verified]` against this node. Both are mentions because the sentences negate and report them, not because they are in code — the backticks decide nothing, and the counted claim on [the gauge](../gauge/riffle-station.yml) is backticked too.",
+  "description": "Water downstream of a structure. [inference] The control node — it trips nothing, including when it names the vocabulary rather than using it: no claim here is `[open]`, and nobody has written `[verified]` against this node. Both are mentions because the sentences negate and report them, not because they are in code — the backticks decide nothing, and the counted claim on [the gauge](../gauge/riffle-station.yml) is backticked too. It draws on [the stage–discharge relation](../../catalog/stage-discharge.md), which is a citation that entry's `used-by` list omits.",
   "depth": 2,
   "neighbors": [
     {
       "node": "concept/low-flow.yml",
       "class": "concept",
       "label": "Low flow",
-      "description": "A discharge regime. Carries one deliberately broken edge.",
+      "description": "A discharge regime. Carries one deliberately broken edge, and draws on [the stage–discharge relation](../../catalog/stage-discharge.md) — a citation the entry's own `used-by` list does record.",
       "relationship": "relates-to",
       "direction": "out",
       "hops": 1,

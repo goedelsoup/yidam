@@ -150,3 +150,65 @@ export interface RegenReport extends Envelope {
   passed: boolean
   stale: { file: string; generator: string }[]
 }
+
+/**
+ * `catalog-audit`. The provenance layer, and the one report that names both ends of an edge.
+ *
+ * `cited_by` is what makes a source placeable under the node that draws on it. Without it a
+ * client wanting that had to re-resolve every link in the corpus — which is the
+ * re-implementation this whole contract exists to prevent, arrived at from the other side.
+ */
+export interface CatalogAuditReport extends Envelope {
+  sources: SourceRow[]
+}
+
+export interface SourceRow {
+  /** File name within `.yidam/catalog/`. */
+  entry: string
+  type: string
+  description: string
+  /** Absent in the entry means obtained; only an explicit `false` claims otherwise. */
+  obtained: boolean
+  /** `nodes` + `elsewhere`, retained with the meaning it had before the two were split. */
+  citations: number
+  /** Corpus instances linking here. **The number every gate reads.** */
+  nodes: number
+  /** Class definitions and READMEs linking here. Never added to `nodes`. */
+  elsewhere: number
+  /** Repo-relative paths of those instances, sorted. Exactly `nodes` of them. */
+  cited_by: string[]
+  /** The entry's declared `used-by`, verbatim. Empty when it declares none. */
+  used_by: string[]
+  /**
+   * How that list disagrees with the citations, or null when none is declared.
+   *
+   * Null and an empty drift are different answers. **Computed by the CLI**, from the same
+   * function `catalog-used-by-drift` gates on — recomputing it here would be the editor
+   * forming a second opinion about a verdict.
+   */
+  drift: { claimed_not_citing: string[]; citing_not_claimed: string[] } | null
+}
+
+/**
+ * `doctor`. Whether the *setup* is sound, which is a different question from whether the
+ * corpus is — and the one a reader hits first.
+ *
+ * Writes nothing and does no network, which is what makes it safe on the save path.
+ */
+export interface DoctorReport extends Envelope {
+  passed: boolean
+  strict: boolean
+  failed: number
+  warned: number
+  checks: DoctorCheck[]
+}
+
+export interface DoctorCheck {
+  /** Stable identifier. Key on this; the prose is free to change. */
+  id: string
+  question: string
+  verdict: 'ok' | 'warn' | 'fail' | 'skipped'
+  detail: string
+  /** The command or edit that resolves it, stated and never run. Null when nothing to do. */
+  remedy: string | null
+}

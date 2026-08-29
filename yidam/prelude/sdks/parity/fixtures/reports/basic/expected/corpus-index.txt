@@ -1,6 +1,6 @@
 | Instance | Class | Label | Links out | Claims | Lines |
 |---|---|---|---|---|---|
-| [low-flow.yml](concept/low-flow.yml) | concept | Low flow | 1 | — | 8 |
+| [low-flow.yml](concept/low-flow.yml) | concept | Low flow | 1 | — | 10 |
 | [mixing-zone.yml](concept/mixing-zone.yml) | concept | ? Does the mixing zone reach the bridge at design low flow | 1 | — | 9 |
-| [tailwater.yml](concept/tailwater.yml) | concept | Tailwater | 2 | 0v / 1i / 0o | 13 |
+| [tailwater.yml](concept/tailwater.yml) | concept | Tailwater | 2 | 0v / 1i / 0o | 15 |
 | [riffle-station.yml](gauge/riffle-station.yml) | gauge | Riffle station | 1 | 1v / 0i / 1o | 10 |

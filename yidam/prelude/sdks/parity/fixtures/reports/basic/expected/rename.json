@@ -29,7 +29,7 @@
     },
     {
       "file": ".yidam/corpus/concept/tailwater.yml",
-      "line": 10,
+      "line": 12,
       "from": "../concept/low-flow.yml",
       "to": "../concept/base-flow.yml"
     },
@@ -40,7 +40,13 @@
       "to": "../concept/base-flow.yml"
     }
   ],
-  "unhandled": [],
+  "unhandled": [
+    {
+      "file": ".yidam/catalog/stage-discharge.md",
+      "line": 7,
+      "text": "- low-flow.yml"
+    }
+  ],
   "blocked": [],
   "commit_subject": "migrate: concept/low-flow.yml → concept/base-flow.yml (3 inbound link(s) rewritten)"
 }
