@@ -3,9 +3,10 @@
 *Archetype.* The durable infrastructure layer carried by every derived repository.
 
 `yidam/` is the meta-template engine: the prelude an agent reads before acting, the tools
-it invokes to query the corpus, and the tests that verify bootstrap correctness. It is copied
-from this template repository into every derived repo — by `mise run clone` for new repos,
-by `mise run overlay` for existing ones — and updated in place when the template evolves.
+it invokes to query the corpus, and the tests that verify bootstrap correctness. `yidam clone`
+carries it into a new repository and `yidam overlay` onto an existing one; what *survives* in
+the derived repo is the prelude alone, at `.yidam/.vendor/prelude/`, re-vendored by
+`mise run yidam-vendor-update` when the template evolves.
 
 ## Purpose
 
@@ -20,8 +21,16 @@ particular field, corpus, or ontology. The domain lives in `corpus/`, `agents/`,
 | Subdirectory | Contents |
 |---|---|
 | `prelude/` | Foundational texts and behavioral norms the agent reads before acting |
-| `tools/yidam/` | The `yidam` CLI — corpus analysis and index tool |
+| `cli/` | The `yidam` CLI — corpus analysis, linting, indexing, export, MCP and LSP servers |
+| `editors/` | The editor surfaces: `serve --lsp` for any LSP client, and the VS Code extension |
 | `tests/` | Bootstrap test harness and rubric |
+| `design/` | Design system and UI kits for the web surfaces |
+| `web/docs/` | The Astro/Starlight docs site, rendering the template's `docs/` |
+
+Only `prelude/` is vendored. `clone` copies the whole directory, and then the bootstrap's
+vendor step moves `prelude/` to `.yidam/.vendor/prelude/` and deletes the rest — because
+none of the rest is readable, runnable, or updatable from inside a derived repo. Carrying the
+CLI source there would produce a fork that is never rebuilt.
 
 ### prelude/
 
@@ -36,19 +45,31 @@ The prelude is structured as a curriculum. An agent reads it in order before any
 - **[skills/](prelude/skills/)** — capabilities provided by yidam: bootstrap, and domain-specific extensions. The judge is not here: it scores yidam's own harness runs and would otherwise be vendored into every derived repo, so it lives beside the rubric at [tests/judge.md](tests/judge.md)
 - **[sdks/](prelude/sdks/)** — programmable bindings to the prelude model in Rust, TypeScript, and Python; cross-language parity harness; formal specifications
 
-### tools/yidam/
+### cli/
 
 The `yidam` binary is the derived repo's operational tool. It reads `.yidam/corpus/` and
-produces outputs used by `mise run regen`:
+produces:
 
 - Corpus index tables and semantic index status
 - Open-question lists and graph integrity checks (`yidam graph-check`)
-- Skills, agents, crates, and packages index tables
+- Skills, agents, crates, and packages index tables — the outputs `mise run regen` writes
 - Catalog audit reports and web bundle status
 - Decisions log from `.yidam/decisions/`
+- Typed traversals over the resolved graph (`graph`, `query`, `pack`, `neighbors`)
+- MCP and LSP service over stdio (`serve --mcp`, `serve --lsp`)
 - `.yiz` bundles — gzipped tar archives containing the full corpus, rendered indexes, skills, decisions, and a manifest
 
-Build once with `mise run yidam-build`; the binary installs to `~/.cargo/bin/yidam`.
+In *this* repository, `mise run yidam-build` compiles it `--features full` and installs it to
+`.local/bin/yidam`, which `mise.toml` puts first on `PATH` — deliberately per-repository, so
+building here cannot clobber a derived repo's pinned binary. A derived repo builds its own to
+`.yidam/bin`. To just *use* the CLI, install a release instead; see the
+[repository README](../README.md#getting-started).
+
+### editors/
+
+`yidam serve --lsp` for any LSP-capable editor, and the VS Code extension. Both render
+verdicts the CLI computes and neither re-derives them — see
+[editors/README.md](editors/README.md).
 
 ### tests/
 
@@ -58,15 +79,17 @@ against rubric criteria. See [HARNESS.md](tests/HARNESS.md) for authoring scenar
 
 ## Lifecycle
 
-1. `mise run clone <dir>` copies the full template (including `yidam/`) into a new repo and
+1. `yidam clone <dir>` copies the template (minus `docs/` and `examples/`) into a new repo and
    inits a fresh git repo.
-2. `mise run overlay <dir>` copies only `yidam/` infrastructure into an existing git repo,
-   leaving its content untouched.
+2. `yidam overlay <dir>` adds the infrastructure — `yidam/`, `sadhana/`, `BOOTSTRAP.md`,
+   `mise.yidam.toml`, and the `.yidam.toml` pin — to an existing git repo, leaving its own
+   content untouched.
 3. Bootstrap reads `yidam/prelude/` before beginning the ontology dialogue.
-4. `mise run yidam-build` compiles and installs the `yidam` binary from `tools/yidam/`.
+4. After genesis, the bootstrap's vendor step moves `yidam/prelude/` to
+   `.yidam/.vendor/prelude/` and removes the rest of `yidam/`.
 5. `mise run regen` runs all REGEN passes, populating README indexes with live corpus data.
-6. When the yidam template updates, re-run `mise run overlay` to sync `yidam/` without
-   touching domain content.
+6. When the yidam template updates, `mise run yidam-vendor-update` re-vendors the prelude and
+   re-pins `.yidam.toml`, without touching domain content.
 
 ## What yidam is not
 

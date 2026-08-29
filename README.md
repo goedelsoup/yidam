@@ -22,6 +22,23 @@ rather than as code — and the tooling to query, lint, index, and export it.
 **This repository is the template, not an instance of it.** It holds no domain knowledge.
 Bootstrapping it produces a repository that does.
 
+## Read the documentation
+
+**[goedelsoup.github.io/yidam](https://goedelsoup.github.io/yidam/)** — the documentation
+site, and the route to prefer. It renders everything under [`docs/`](docs/README.md) with a
+sidebar, search, and working cross-links, published from `main` on every push.
+
+| Going to | Start at |
+|---|---|
+| Try it in twenty minutes | [Quickstart](https://goedelsoup.github.io/yidam/quickstart/) — install, read a worked corpus, break its gate and repair it |
+| Understand the model first | [What yidam is](https://goedelsoup.github.io/yidam/what-yidam-is/), then [Information architecture](https://goedelsoup.github.io/yidam/information-architecture/) |
+| Bootstrap a repository | [Bootstrap flow](https://goedelsoup.github.io/yidam/bootstrap-flow/) |
+| Point an agent at a corpus | [Connecting an agent (MCP)](https://goedelsoup.github.io/yidam/mcp-server/) |
+| Look up a term | [Vocabulary](https://goedelsoup.github.io/yidam/vocabulary/) |
+
+The rest of this file is the repository's own map: how to install the CLI, where each layer
+lives, and how to work on yidam itself.
+
 ## Two commit kinds, and no others
 
 An **epistemic** commit means what the corpus knows has changed; its message is testimony,
@@ -35,9 +52,10 @@ list and the reasoning behind closing it.
 
 ## Getting started
 
-> **In a hurry?** [docs/quickstart.md](docs/quickstart.md) goes from no toolchain to a
-> bootstrapped repository whose gate you have watched pass, fail, and pass again — by way of
-> a worked corpus in [examples/streamflow/](examples/streamflow/). About twenty minutes.
+> **In a hurry?** The [quickstart](https://goedelsoup.github.io/yidam/quickstart/) goes from
+> no toolchain to a bootstrapped repository whose gate you have watched pass, fail, and pass
+> again — by way of a worked corpus in [examples/streamflow/](examples/streamflow/). About
+> twenty minutes. (Source: [docs/quickstart.md](docs/quickstart.md).)
 
 Get the CLI. No toolchain required — the default build ships as a binary:
 
@@ -101,22 +119,17 @@ arrives (see [samudaya/README.md](samudaya/README.md)).
 
 ### The editor surface
 
-There is a VS Code extension — five views over the corpus, lint and `graph-check` verdicts as
-diagnostics, claim decoration, and the inherited mise tasks as editor tasks. It **renders**
-verdicts and never computes them: `.yidam.toml` records which yidam governs a corpus, so the
-extension resolves the binary that repository pins and bundles none of its own. Install the
-CLI first or it has nothing to show.
+Two of them, and the split is deliberate. `yidam serve --lsp` is the language server —
+diagnostics, definition, references, hover, and rename, computed by the same functions
+`yidam lint` runs, for any LSP-capable editor. It is in the light default build, so the
+binary you just installed already serves it; [yidam/editors/README.md](yidam/editors/README.md)
+has the Neovim and Helix stanzas.
 
-**On VS Code itself, install the `.vsix` from the [latest `editor/v*`
-release](https://github.com/goedelsoup/yidam/releases).** VS Code reads the Microsoft
-Marketplace and nothing else, and this project does not publish there — the publisher needs an
-Azure DevOps organisation that does not exist yet. That is stated rather than papered over: a
-documented install line that cannot succeed is the failure `install-channels.yml` was written
-to catch.
-
-```sh
-code --install-extension yidam-vscode-<version>.vsix
-```
+The other is a VS Code extension — five views over the corpus, lint and `graph-check`
+verdicts as diagnostics, claim decoration, and the inherited mise tasks as editor tasks. It
+**renders** verdicts and never computes them: `.yidam.toml` records which yidam governs a
+corpus, so the extension resolves the binary that repository pins and bundles none of its
+own. Install the CLI first or it has nothing to show.
 
 **On VSCodium, Cursor, Windsurf, Gitpod or code-server**, which read [Open
 VSX](https://open-vsx.org/extension/goedelsoup/yidam-vscode), search for *yidam* in the
@@ -126,8 +139,18 @@ extensions panel, or:
 codium --install-extension goedelsoup.yidam-vscode
 ```
 
-Before the first `editor/v*` tag, neither exists yet and there is nothing to be wrong about.
-Build it from a checkout instead:
+**On VS Code itself, download the `.vsix` from the [latest `editor/v*`
+release](https://github.com/goedelsoup/yidam/releases) and install it by hand.** VS Code reads
+the Microsoft Marketplace and nothing else, and this project does not publish there — the
+publisher needs an Azure DevOps organisation that does not exist yet. That is stated rather
+than papered over: a documented install line that cannot succeed is the failure
+`install-channels.yml` was written to catch.
+
+```sh
+code --install-extension yidam-vscode-<version>.vsix
+```
+
+Or build it from a checkout, which is what a change to the extension needs anyway:
 
 ```sh
 mise run ext-package -- dist/yidam-vscode.vsix   # packages, and checks what is in the package
@@ -162,24 +185,43 @@ and diverges from there; `samudaya/` is consumed and deleted, surviving only in 
 ## The CLI
 
 ```
-yidam doctor              is this setup sound? pin, PATH, prelude age, index, REGEN — read-only
-yidam status              repo overview: nodes, open questions, catalog, index freshness, phases
+# checks and gates — read-only, and exit nonzero on a problem
+yidam doctor              is this setup sound? pin, PATH, prelude age, index, REGEN
 yidam graph-check         orphans, broken links, missing labels — the gate CI runs
 yidam lint --commits      corpus quality checks against a baseline ratchet, plus the commit vocabulary
+
+# README blocks — each rewrites its own <!-- REGEN --> block
+yidam status              repo overview: nodes, open questions, catalog, index freshness, phases
+yidam regen               refresh every REGEN block in one pass
+
+# the corpus and its history
+yidam graph               nodes, resolved edges, and the classes that license them
+yidam query 'a -rel-> b'  a typed path over the resolved graph
+yidam pack 'a -rel-> b'   that query's answer filled to a token budget, and what did not fit
+yidam estimate '…'        what a query would cost before running it
+yidam neighbors <node>    one node's neighbourhood — the traversal `serve --mcp` performs
 yidam diff main..HEAD     node and edge changes between two refs
 yidam check-diff a..b     types a code diff introduces that the ontology does not name
+yidam log                 commit history classified as testimony or pipeline work
+yidam replay              corpus health across the repository's whole history
 yidam phases              active inquiry branches
+yidam rename / migrate    rename a node, or change an ontology and every instance at once
+yidam propose             draft findings as epistemic commits on a `propose/<head>` branch
+
+# index, serving, export, and bundles
 yidam embed               extract embedding text from corpus instances
 yidam index-build         build the LanceDB vector index
 yidam serve --mcp         serve the domain computer to MCP-capable agents over stdio
+yidam serve --lsp         the language server — diagnostics, definition, references, rename
+yidam bench               the committed goal set: anchored traversal against flat retrieval
 yidam export --format …   bundle · web · rdf · graphml · sqlite · llms
 yidam tonpa add …         manage bundle dependencies on other derived repos
 ```
 
-`yidam --help` lists all of them under these same groups, and marks with `*` the ones that
-rewrite files in the repository they are run against — ten of them do, and that was
-previously visible only in each command's long help, where you had to already suspect it to
-go looking.
+That is a sample. `yidam --help` lists every command under these same groups, and marks with
+`*` the ones that rewrite files in the repository they are run against — twenty-three do, and
+that was previously visible only in each command's long help, where you had to already
+suspect it to go looking.
 
 Index subcommands (`corpus-index`, `skills-index`, `catalog-audit`, …) back the
 `<!-- REGEN: yidam <subcommand> -->` markers embedded in README files. `mise run regen`
@@ -261,14 +303,21 @@ The vocabulary is drawn from Tibetan Buddhist epistemology; the register is deli
 | **tonpa** | The bundle dependency manager — how one derived corpus draws on another |
 
 Full definitions, including the `[verified]` / `[inference]` / `[open]` claim markers, are in
-[docs/vocabulary.md](docs/vocabulary.md).
+[Vocabulary](https://goedelsoup.github.io/yidam/vocabulary/) ([docs/vocabulary.md](docs/vocabulary.md)).
 
 ## Documentation
 
-Start with [what-yidam-is.md](docs/what-yidam-is.md), then
-[information-architecture.md](docs/information-architecture.md) and
-[bootstrap-flow.md](docs/bootstrap-flow.md). The full index is in
-[docs/README.md](docs/README.md); designs under review live in [docs/rfcs/](docs/rfcs/README.md).
+**[goedelsoup.github.io/yidam](https://goedelsoup.github.io/yidam/)** — read it there. The
+site is built from [`docs/`](docs/README.md) on every push to `main`, and a page that no
+sidebar entry names fails that build, so nothing in it is published-but-unreachable.
+
+Start with [What yidam is](https://goedelsoup.github.io/yidam/what-yidam-is/), then
+[Information architecture](https://goedelsoup.github.io/yidam/information-architecture/) and
+[Bootstrap flow](https://goedelsoup.github.io/yidam/bootstrap-flow/). Designs under review
+are in [RFCs](https://goedelsoup.github.io/yidam/rfcs/README/).
+
+The markdown sources are [`docs/`](docs/README.md) — read those when you are working offline
+or changing them, and `mise run docs-dev` serves the site locally from the same files.
 
 ## Status
 
