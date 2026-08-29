@@ -2,7 +2,7 @@
   "name": "yidam-vscode",
   "displayName": "yidam",
   "description": "Editor surface for a yidam-derived knowledge repository.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "goedelsoup",
   "license": "MIT",
   "icon": "resources/icon.png",

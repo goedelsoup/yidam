@@ -7,7 +7,7 @@ The extension and the `yidam` CLI version independently (VERSIONING.md, Layer 4)
 they negotiate on is neither version but the report contract, `format_version` — so an
 entry that changes which contract this build understands says so explicitly.
 
-## Unreleased
+## 0.2.0
 
 - **A node's sources, under the node.** The Corpus view had no surface for the provenance
   layer, so asking what a node rests on meant leaving the view. `yidam catalog-audit` gained
@@ -15,6 +15,12 @@ entry that changes which contract this build understands says so explicitly.
   `used-by` and a `drift` field for how the two disagree, computed by the same function
   `catalog-used-by-drift` gates on. Report contract: still **1**; adding a field is not a
   break.
+
+  Which is also why this section is **empty rather than broken** against a `yidam` older
+  than 0.6.0. Adding a field is not a break, so such a binary still reports contract `1` and
+  the handshake has nothing to refuse — and the extension updates itself while a repository
+  builds its binary from the commit pinned in `.yidam.toml`, so the two drift apart in
+  ordinary use. A node simply lists no sources until the binary can name them.
 
 - **A Setup row in Health**, from `yidam doctor`: the right binary, a recorded provenance, a
   prelude that is not too stale. First in the view because it is a precondition rather than a

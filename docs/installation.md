@@ -49,7 +49,7 @@ already on hand and you would rather not add another package manager.
 ## From source
 
 ```sh
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.5.0 --locked yidam
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.6.0 --locked yidam
 ```
 
 The default build needs **only a Rust toolchain**: no protoc, no system C library, no ML
@@ -108,7 +108,7 @@ redirected that is indistinguishable from success.
 To build a heavier set from source:
 
 ```sh
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.5.0 --locked \
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.6.0 --locked \
   --features full yidam
 ```
 
