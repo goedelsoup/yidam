@@ -139,6 +139,16 @@
         "title": "yidam: Reveal this node in the Corpus view"
       },
       {
+        "command": "yidam.filterViews",
+        "title": "yidam: Filter the Corpus and Open questions views",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "yidam.clearFilter",
+        "title": "yidam: Clear the view filter",
+        "icon": "$(clear-all)"
+      },
+      {
         "command": "yidam.neighborhoodOf",
         "title": "Show neighbourhood"
       },
@@ -184,9 +194,19 @@
     "menus": {
       "view/title": [
         {
+          "command": "yidam.filterViews",
+          "when": "view == yidam.corpus || view == yidam.openQuestions",
+          "group": "navigation@1"
+        },
+        {
+          "command": "yidam.clearFilter",
+          "when": "(view == yidam.corpus || view == yidam.openQuestions) && yidam.filtered",
+          "group": "navigation@2"
+        },
+        {
           "command": "yidam.refreshViews",
           "when": "view =~ /^yidam\\./",
-          "group": "navigation"
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [

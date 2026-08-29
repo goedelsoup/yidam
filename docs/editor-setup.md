@@ -134,6 +134,27 @@ If the binary it finds speaks a report contract this build does not understand, 
 are disabled and the status bar says so, rather than the extension guessing at an envelope it
 cannot read. `yidam: Show binary and contract status` reports which binary answered.
 
+### Narrowing a view
+
+The views were built against a four-node fixture. A real derived corpus is 90 nodes across 13
+classes, which is thirteen collapsed groups and a long scroll inside whichever one you open,
+and an Open questions view that is a flat list of sixty-four.
+
+VS Code already narrows a tree — focus one and start typing. It matches the rendered label and
+nothing else, so it cannot ask *which class is this in* or *which of these carry an open claim*.
+`yidam: Filter the Corpus and Open questions views`, on the funnel in either view's title bar,
+asks both by reading `corpus-index` and `open-questions` rather than the screen: free text
+matches a label or a node path, `class:<name>` restricts by class, `is:open` keeps the nodes
+the report names.
+
+The filter lives in memory and is gone with the window — deliberately not a setting, because a
+committed one would hide part of a corpus in a window whose reader did not narrow anything. A
+narrowed view says so in its message and a narrowed class reads `3 of 12`; the badges keep
+counting the repository rather than the view.
+
+Phases, Health and Sangha are not filtered. Health is five rows by construction, Phases and
+Sangha are bounded by how many branches a repository has, and nothing measured says they scroll.
+
 ### Settings
 
 Five of them, with defaults, in

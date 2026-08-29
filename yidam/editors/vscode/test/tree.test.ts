@@ -26,11 +26,15 @@ import type {
 } from '../src/reports.ts'
 import {
   corpusTree,
+  countLeaves,
+  filterMessage,
   findByFile,
   healthTree,
+  matches,
   parentIndex,
   localRef,
   openQuestionsTree,
+  parseFilter,
   phasesTree,
   sanghaTree,
   statusLine,
@@ -131,6 +135,141 @@ test('no open questions is a stated answer, not an empty box', () => {
   const tree = openQuestionsTree({ ...ENVELOPE, open_questions: [] })
   assert.equal(tree.length, 1)
   assert.equal(tree[0].icon, 'check')
+})
+
+// ── narrowing ───────────────────────────────────────────────────────────────
+
+const OPEN_ONE: OpenQuestionsReport = {
+  ...ENVELOPE,
+  open_questions: [
+    { node: '.yidam/corpus/gauge/ohio-river.yml', label: '?Which datum' },
+    { node: '.yidam/corpus/concept/tailwater.yml', label: 'Tailwater' },
+  ],
+}
+
+/** An empty query is no filter at all, which is not the same as one matching everything. */
+test('an empty query parses to no filter, and no filter keeps every row', () => {
+  assert.equal(parseFilter(''), null)
+  assert.equal(parseFilter('   '), null)
+  assert.equal(matches(null, { label: 'x', node: 'y/x.yml', open: false }), true)
+})
+
+test('free text matches the label or the node path, either case', () => {
+  const f = parseFilter('TAIL')!
+  assert.equal(matches(f, { label: 'Tailwater', node: 'concept/other.yml', open: false }), true)
+  assert.equal(matches(f, { label: 'Other', node: 'concept/tailwater.yml', open: false }), true)
+  assert.equal(matches(f, { label: 'Other', node: 'concept/low-flow.yml', open: false }), false)
+})
+
+/** Two words are one narrower question, not two alternatives. */
+test('every free term must match', () => {
+  const f = parseFilter('low flow')!
+  assert.equal(matches(f, { label: 'Low flow', node: 'concept/low-flow.yml', open: false }), true)
+  assert.equal(matches(f, { label: 'Low water', node: 'concept/low.yml', open: false }), false)
+})
+
+/** Two classes are alternatives: narrowing to a pair of them is still one question. */
+test('classes are alternatives to each other and conjunctive with the text', () => {
+  const f = parseFilter('class:gauge class:concept river')!
+  assert.equal(matches(f, { label: 'Ohio river', node: 'a.yml', class: 'gauge', open: false }), true)
+  assert.equal(matches(f, { label: 'Ohio river', node: 'a.yml', class: 'reach', open: false }), false)
+  assert.equal(matches(f, { label: 'Tailwater', node: 'a.yml', class: 'concept', open: false }), false)
+})
+
+/**
+ * `open-questions` does not carry a class, and the `<class>/<name>.yml` layout is a
+ * convention rather than a fact. A row whose class nothing in hand states matches no
+ * `class:` term rather than being guessed at from its path.
+ */
+test('a row with no class stated matches no class term', () => {
+  const f = parseFilter('class:gauge')!
+  assert.equal(matches(f, { label: 'x', node: 'gauge/x.yml', open: false }), false)
+})
+
+test('is:open keeps only the rows a report marked open', () => {
+  const f = parseFilter('is:open')!
+  assert.equal(matches(f, { label: 'x', node: 'a.yml', open: true }), true)
+  assert.equal(matches(f, { label: 'x', node: 'a.yml', open: false }), false)
+})
+
+test('the corpus narrows, and a class the filter emptied is dropped rather than shown empty', () => {
+  const tree = corpusTree(INDEX, OPEN_ONE, undefined, parseFilter('class:concept')!)
+  assert.deepEqual(ids(tree), ['class:concept'])
+  assert.deepEqual(ids(tree[0].children!), [
+    'node:concept/low-flow.yml',
+    'node:concept/tailwater.yml',
+  ])
+})
+
+/**
+ * A bare `1` under a class of two reads as a class of one, which is the filter lying about
+ * the corpus rather than about what it is showing of it.
+ */
+test('a narrowed class states both numbers', () => {
+  const tree = corpusTree(INDEX, OPEN_ONE, undefined, parseFilter('tailwater')!)
+  assert.equal(find(tree, 'class:concept')!.description, '1 of 2')
+  assert.equal(corpusTree(INDEX, OPEN_ONE)[0].description, '2', 'unfiltered says just the count')
+})
+
+/** The two questions VS Code's own type-to-filter cannot ask, both answered from the reports. */
+test('is:open narrows the corpus to the nodes the open-questions report marks', () => {
+  const tree = corpusTree(INDEX, OPEN_ONE, undefined, parseFilter('is:open')!)
+  assert.deepEqual(ids(tree), ['class:concept', 'class:gauge'])
+  assert.deepEqual(ids(tree[0].children!), ['node:concept/tailwater.yml'])
+  assert.equal(countLeaves(tree), 2)
+})
+
+/** The rendered label is what is on the screen, so typing it has to match. */
+test('a node with no label is matched by the filename the view shows for it', () => {
+  const tree = corpusTree(INDEX, OPEN_ONE, undefined, parseFilter('ohio')!)
+  assert.deepEqual(ids(tree), ['class:gauge'])
+})
+
+test('open questions narrow on their own labels and paths', () => {
+  const tree = openQuestionsTree(OPEN_ONE, parseFilter('datum')!)
+  assert.deepEqual(ids(tree), ['open:.yidam/corpus/gauge/ohio-river.yml'])
+})
+
+/**
+ * `class:` on the Open questions view is answered by `corpus-index`, which is the authority
+ * on what class a node is in — not by reading the path, which would be this file forming a
+ * second opinion about it.
+ */
+test('class: narrows open questions only when the index is in hand', () => {
+  const f = parseFilter('class:gauge')!
+  assert.deepEqual(ids(openQuestionsTree(OPEN_ONE, f, INDEX)), [
+    'open:.yidam/corpus/gauge/ohio-river.yml',
+  ])
+  assert.deepEqual(openQuestionsTree(OPEN_ONE, f), [], 'no index, so nothing states a class')
+})
+
+/**
+ * A tick reading `No open questions` under an active filter would be the view
+ * congratulating a repository on a state the filter invented.
+ */
+test('a filter that matches nothing is empty, not a clean bill of health', () => {
+  assert.deepEqual(openQuestionsTree(OPEN_ONE, parseFilter('zzz')!), [])
+  assert.deepEqual(corpusTree(INDEX, OPEN_ONE, undefined, parseFilter('zzz')!), [])
+  assert.deepEqual(ids(openQuestionsTree({ ...ENVELOPE, open_questions: [] })), ['open:none'])
+})
+
+/** Rows, not groups: what a reader counts when asking how much a filter left. */
+test('leaves are counted through the groups', () => {
+  assert.equal(countLeaves(corpusTree(INDEX, OPEN_ONE)), 3)
+  assert.equal(countLeaves([]), 0)
+})
+
+/**
+ * A view that hides rows without saying it is hiding them is how a reader concludes a node
+ * was deleted.
+ */
+test('a narrowed view says so, and says how much it is not showing', () => {
+  assert.equal(filterMessage(null, 3, 3), undefined)
+  assert.equal(filterMessage(parseFilter('gauge')!, 1, 90), 'filter: gauge — 1 of 90')
+  assert.equal(
+    filterMessage(parseFilter('zzz')!, 0, 90),
+    'filter: zzz — nothing matches, 90 hidden',
+  )
 })
 
 // ── phases ──────────────────────────────────────────────────────────────────
@@ -591,6 +730,37 @@ test('every view builds from the real binary’s own JSON', async (t) => {
   assert.ok(
     corpus.flatMap((c) => c.children!).every((c) => c.label !== '—'),
     'no row renders the CLI’s absent-field dash as a label',
+  )
+
+  // The filter against the binary's own JSON, and specifically the two questions VS Code's
+  // built-in type-to-filter cannot ask. `is:open` reads the join between two reports and
+  // `class:` reads a field only one of them carries — both are exactly where a renamed
+  // field would go unnoticed against a hand-written report.
+  const markedIds = corpus
+    .flatMap((c) => c.children!)
+    .filter((n) => n.icon === 'question')
+    .map((n) => n.id)
+  assert.ok(markedIds.length > 0, 'the fixture has open questions to narrow to')
+  assert.ok(markedIds.length < index.nodes.length, 'and a node without one, so this narrows')
+  const openOnly = corpusTree(index, open, undefined, parseFilter('is:open')!)
+  assert.deepEqual(
+    openOnly.flatMap((c) => c.children!).map((n) => n.id).sort(),
+    markedIds.slice().sort(),
+  )
+
+  const oneClass = corpusTree(index, open, undefined, parseFilter(`class:${corpus[0].label}`)!)
+  assert.deepEqual(ids(oneClass), [corpus[0].id], 'class: leaves exactly the one group')
+  assert.equal(countLeaves(oneClass), corpus[0].children!.length, 'and all of its instances')
+  assert.deepEqual(
+    corpusTree(index, open, undefined, parseFilter('zzzz-matches-nothing')!),
+    [],
+    'a filter matching nothing shows nothing, and the view message says so',
+  )
+  assert.deepEqual(
+    openQuestionsTree(open, parseFilter(`class:${corpus[0].label}`)!, index).length +
+      openQuestionsTree(open, parseFilter(`class:${corpus[1].label}`)!, index).length,
+    open.open_questions.length,
+    'every open question is placed by the index into one of the corpus’s classes',
   )
 
   // Both arms of the open-question predicate, from the real report. A corpus using only

@@ -7,6 +7,18 @@ The extension and the `yidam` CLI version independently (VERSIONING.md, Layer 4)
 they negotiate on is neither version but the report contract, `format_version` — so an
 entry that changes which contract this build understands says so explicitly.
 
+## Unreleased
+
+- **The Corpus and Open questions views can be narrowed.** `yidam: Filter the Corpus and
+  Open questions views`, on the funnel in either view's title bar. Free text matches a
+  label or a node path; `class:<name>` restricts by class and `is:open` keeps the nodes
+  `yidam open-questions` names — the two questions VS Code's own type-to-filter cannot ask,
+  because it matches the rendered label and nothing else.
+
+  The filter is held in memory and gone with the window rather than written to settings, a
+  narrowed view says so in its message, and the badges keep counting the repository rather
+  than the view.
+
 ## 0.1.0
 
 First published release. Report contract: **1**.
