@@ -54,7 +54,15 @@ description = "Compile and install the full-feature yidam binary from yidam/cli/
 # does not account for, which is any state the two drift into. The task exists
 # to make the binary match this tree; failing instead is not an option it should
 # have. Same reason as the derived-repo task in mise.yidam.toml.
-run = "cargo install --force --root .local --path yidam/cli --features full"
+#
+# --locked, as in the derived-repo task this mirrors. Without it `cargo install`
+# re-resolves rather than reading Cargo.lock, and this build had been failing
+# since chrono published 0.4.45: it supplies a `Datelike::quarter` that collides
+# with `arrow-arith`'s own `ChronoDateExt::quarter`, so the pinned arrow 52.2.0
+# stops compiling — E0034, in a transitive dependency, from a lock file that
+# says 0.4.39. The task simply failed from then on, and the only sign was that
+# `.local/bin/yidam` kept answering with the version it was last built at.
+run = "cargo install --force --root .local --path yidam/cli --features full --locked"
 
 # ── yidam CLI — REGEN tasks ───────────────────────────────────────────
 # These tasks back the <!-- REGEN: yidam <subcommand> --> markers across
@@ -297,12 +305,23 @@ run = "cargo fmt --all --manifest-path yidam/tests/harness/Cargo.toml"
 # Usage:  mise run clone <target-directory>
 #         mise run overlay <existing-repo-directory>
 
+#
+# Both depend on `yidam-build` because both are run BY the binary they are
+# shipping. `_.path` above elects `.local/bin/yidam`, and nothing else here ever
+# rebuilds it, so `mise run clone` executed whichever binary this tree was last
+# built with — for one report, a four-day-old `0.3.0` scaffolding repositories
+# out of `0.5.0` sources. The version is the visible half; the scaffolder was
+# also missing its own later fixes to the template pin and to manifest parsing,
+# and a clone is not a thing you re-run after noticing.
+
 [tasks.clone]
 description = "Scaffold a new yidam-derived repo at TARGET. Usage: mise run clone <target-dir>"
+depends = ["yidam-build"]
 run = "yidam clone"
 
 [tasks.overlay]
 description = "Overlay yidam infrastructure onto an existing repo. Usage: mise run overlay <repo-dir>"
+depends = ["yidam-build"]
 run = "yidam overlay"
 
 # ── ci ────────────────────────────────────────────────────────────────────
