@@ -28,7 +28,7 @@ Read-only, and they exit nonzero on a problem — which is what makes them usabl
 
 | Command | What it answers |
 |---|---|
-| `doctor` | Is this setup sound? Nine checks, each with a verdict and a remedy. `--strict` makes warnings fail. See [Troubleshooting](troubleshooting.md) |
+| `doctor` | Is this setup sound? Ten checks, each with a verdict and a remedy. `--strict` makes warnings fail. See [Troubleshooting](troubleshooting.md) |
 | `graph-check` | The graph gate: orphans, broken links, missing labels |
 | `lint` | Corpus quality checks against the baseline ratchet |
 | `index-verify` | Does an embedding provider reproduce this index's contract? |

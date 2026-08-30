@@ -177,6 +177,7 @@ fn the_json_report_carries_the_envelope_and_every_check() {
         "index",
         "regen",
         "catalog",
+        "corpora",
         "build",
     ];
     let mut got = ids.clone();

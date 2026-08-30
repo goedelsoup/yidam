@@ -45,7 +45,7 @@ pub async fn run(sub: TonpaCommand) -> Result<()> {
     let root = crate::paths::repo_root()?;
     let dir = tonpa_dir(&root);
     let config_path = tonpa_config_path(&root);
-    let lock_path = dir.join("tonpa.lock");
+    let lock_path = crate::paths::tonpa_lock_path(&root);
 
     match sub {
         TonpaCommand::Add { source, name } => {

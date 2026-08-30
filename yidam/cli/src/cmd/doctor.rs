@@ -98,6 +98,7 @@ impl Check {
     const REGEN: &'static str = "regen";
     const BUILD: &'static str = "build";
     const CATALOG: &'static str = "catalog";
+    const CORPORA: &'static str = "corpora";
 
     fn new(
         id: &'static str,
@@ -531,6 +532,11 @@ pub(crate) fn diagnose(
             Check::skipped(Check::INDEX, "Is the index built, and is it current?", why),
             Check::skipped(Check::REGEN, "Are the REGEN blocks current?", why),
             Check::skipped(Check::CATALOG, "Have any source records aged out?", why),
+            Check::skipped(
+                Check::CORPORA,
+                "Did the corpora this repository depends on arrive?",
+                why,
+            ),
             check_build(),
         ];
     }
@@ -543,8 +549,112 @@ pub(crate) fn diagnose(
         check_index(root),
         check_regen(),
         check_catalog(root, today),
+        check_corpora(root),
         check_build(),
     ]
+}
+
+/// Are the corpora this repository depends on actually unpacked, and are they the ones
+/// `tonpa.lock` pins?
+///
+/// Nothing asked this before. It did not matter much while `yidam tonpa install` was a step
+/// somebody ran deliberately — they saw it succeed or fail. #397 made it a `postinstall`
+/// hook, and mise treats a failing postinstall as a *warning*:
+///
+/// ```text
+/// [tonpa-install] ERROR task failed
+/// mise WARN  Postinstall hook in <dir> failed: … exited with code 1
+/// $ echo $?
+/// 0
+/// ```
+///
+/// So `mise install` goes green, the toolchains are fine, the binary is fine, and every
+/// command that reads a dependency's corpus reads nothing. The one line that said otherwise
+/// scrolled past. This is the check that can still say so afterwards.
+///
+/// **No network, and none is possible from here.** It compares what is on disk against a
+/// lock file, which is the whole correctness story for a fetched corpus. `doctor` is exactly
+/// the command someone runs when they suspect the network, so it must not need it.
+///
+/// **Read-only.** `cmd_install` writes `tonpa.lock` when anything changed; this shares the
+/// *verification* and not the command, the way [`check_regen`] borrows `stale_blocks` rather
+/// than reimplementing the generator list.
+fn check_corpora(root: &Path) -> Check {
+    const Q: &str = "Did the corpora this repository depends on arrive?";
+    const REMEDY: &str = "mise run tonpa-install";
+
+    let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root));
+    if config.dependencies.is_empty() {
+        // Not a warning, and not "0 missing". A repository that depends on nothing is not
+        // half-provisioned, and a line reporting a count here would read as a verdict on a
+        // question nobody put — the same reason check_catalog stays quiet without a TTL.
+        return Check::new(Check::CORPORA, Q, Verdict::Ok, "none declared", None);
+    }
+
+    let tonpa_dir = crate::paths::tonpa_dir(root);
+    let lock = crate::deps::load_lock(&crate::paths::tonpa_lock_path(root)).unwrap_or_default();
+
+    let (mut missing, mut corrupt, mut unlocked, mut ok, mut local) =
+        (Vec::new(), Vec::new(), Vec::new(), 0usize, 0usize);
+
+    for (name, dep) in &config.dependencies {
+        // A path dependency is read where it sits and has nothing to fetch, which is exactly
+        // what `cmd_install` decides about it. Counted, not graded.
+        if dep.path.is_some() {
+            local += 1;
+            continue;
+        }
+        let Some(locked) = lock.packages.iter().find(|p| &p.name == name) else {
+            // Declared and never pinned. The lock is the correctness story for a fetched
+            // corpus, so a dependency outside it is not verifiable — but it is also the
+            // normal state between `tonpa add` and the first install, so it is not a failure.
+            unlocked.push(name.clone());
+            continue;
+        };
+        match crate::deps::verify_installed(name, &tonpa_dir, locked) {
+            Ok(true) => ok += 1,
+            // `verify_installed` answers one question — is the bundle the pinned one — and
+            // returns false for both "absent" and "different". A caller that can re-fetch
+            // does not care which; this one cannot fetch anything, so the remedy it prints
+            // is the same but the sentence it writes is not.
+            Ok(false) if !tonpa_dir.join(name).join("bundle.yiz").exists() => {
+                missing.push(name.clone())
+            }
+            Ok(false) => corrupt.push(name.clone()),
+            // Unreadable is not intact. Reporting it as present would be the one wrong
+            // answer here.
+            Err(_) => corrupt.push(name.clone()),
+        }
+    }
+
+    let mut detail = Vec::new();
+    if ok > 0 {
+        detail.push(format!("{ok} installed"));
+    }
+    if local > 0 {
+        detail.push(format!("{local} path"));
+    }
+    if !missing.is_empty() {
+        detail.push(format!("not installed: {}", missing.join(", ")));
+    }
+    if !corrupt.is_empty() {
+        detail.push(format!("does not match tonpa.lock: {}", corrupt.join(", ")));
+    }
+    if !unlocked.is_empty() {
+        detail.push(format!(
+            "declared but never pinned: {}",
+            unlocked.join(", ")
+        ));
+    }
+    let detail = detail.join("; ");
+
+    if !missing.is_empty() || !corrupt.is_empty() {
+        Check::new(Check::CORPORA, Q, Verdict::Fail, detail, Some(REMEDY))
+    } else if !unlocked.is_empty() {
+        Check::new(Check::CORPORA, Q, Verdict::Warn, detail, Some(REMEDY))
+    } else {
+        Check::new(Check::CORPORA, Q, Verdict::Ok, detail, None)
+    }
 }
 
 /// Have any source records aged past what the corpus said they may?
@@ -726,6 +836,137 @@ mod tests {
 
     fn find<'a>(checks: &'a [Check], id: &str) -> &'a Check {
         checks.iter().find(|c| c.id == id).expect("check present")
+    }
+
+    /// A repository declaring corpora, with control over what is on disk and in the lock.
+    fn repo_with_corpora(deps: &str, lock: &str, bundles: &[(&str, &[u8])]) -> TempDir {
+        let tmp = derived_repo();
+        std::fs::write(crate::paths::tonpa_config_path(tmp.path()), deps).unwrap();
+        let dir = crate::paths::tonpa_dir(tmp.path());
+        std::fs::create_dir_all(&dir).unwrap();
+        if !lock.is_empty() {
+            std::fs::write(crate::paths::tonpa_lock_path(tmp.path()), lock).unwrap();
+        }
+        for (name, bytes) in bundles {
+            std::fs::create_dir_all(dir.join(name)).unwrap();
+            std::fs::write(dir.join(name).join("bundle.yiz"), bytes).unwrap();
+        }
+        tmp
+    }
+
+    fn locked(name: &str, bytes: &[u8]) -> String {
+        format!(
+            "[[package]]\nname = \"{name}\"\nurl = \"https://example.com/{name}.yiz\"\nsha256 = \"{}\"\n",
+            crate::deps::sha256_hex(bytes)
+        )
+    }
+
+    /// A repository that depends on nothing is not half-provisioned.
+    ///
+    /// It must not read as "0 corpora missing" either — a verdict on a question nobody put is
+    /// the failure `check_catalog` avoids by staying quiet where no TTL applies.
+    #[test]
+    fn declaring_no_corpora_is_not_a_finding() {
+        let tmp = derived_repo();
+        let c = check_corpora(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok);
+        assert_eq!(c.detail, "none declared");
+        assert!(c.remedy.is_none(), "nothing to do, so nothing to suggest");
+    }
+
+    /// The state #397's hook can leave behind: mise logged a WARN, `mise install` exited 0,
+    /// and the corpus is not there. Nothing else in this repository reports it.
+    #[test]
+    fn a_declared_corpus_that_never_arrived_fails() {
+        let tmp = repo_with_corpora(
+            "[dependencies.hydrology]\nurl = \"https://example.com/h.yiz\"\n",
+            &locked("hydrology", b"bundle bytes"),
+            &[],
+        );
+        let c = check_corpora(tmp.path());
+        assert_eq!(c.verdict, Verdict::Fail, "detail was: {}", c.detail);
+        assert!(c.detail.contains("not installed") && c.detail.contains("hydrology"));
+        assert_eq!(c.remedy.as_deref(), Some("mise run tonpa-install"));
+    }
+
+    /// Present but not the pinned bytes. Distinct from absent, and said differently — the
+    /// shared `verify_installed` returns false for both, because the caller that can re-fetch
+    /// does not care which.
+    #[test]
+    fn a_corpus_that_does_not_match_the_lock_fails_and_says_so() {
+        let tmp = repo_with_corpora(
+            "[dependencies.hydrology]\nurl = \"https://example.com/h.yiz\"\n",
+            &locked("hydrology", b"what we pinned"),
+            &[("hydrology", b"something else entirely")],
+        );
+        let c = check_corpora(tmp.path());
+        assert_eq!(c.verdict, Verdict::Fail);
+        assert!(
+            c.detail.contains("does not match tonpa.lock"),
+            "a corrupt corpus must not be reported as a missing one: {}",
+            c.detail
+        );
+        assert!(!c.detail.contains("not installed"), "{}", c.detail);
+    }
+
+    /// Unpacked and matching the lock. The whole point is that this is answerable offline.
+    #[test]
+    fn a_corpus_matching_its_lock_entry_passes() {
+        let tmp = repo_with_corpora(
+            "[dependencies.hydrology]\nurl = \"https://example.com/h.yiz\"\n",
+            &locked("hydrology", b"bundle bytes"),
+            &[("hydrology", b"bundle bytes")],
+        );
+        let c = check_corpora(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok, "detail was: {}", c.detail);
+        assert!(c.detail.contains("1 installed"), "{}", c.detail);
+    }
+
+    /// Declared, never pinned. Normal between `tonpa add` and the first install, so a warning
+    /// rather than a failure — but not silence: the lock is the entire correctness story for
+    /// a fetched corpus, and a dependency outside it is not verifiable at all.
+    #[test]
+    fn a_dependency_with_no_lock_entry_warns_rather_than_fails() {
+        let tmp = repo_with_corpora(
+            "[dependencies.hydrology]\nurl = \"https://example.com/h.yiz\"\n",
+            "",
+            &[],
+        );
+        let c = check_corpora(tmp.path());
+        assert_eq!(c.verdict, Verdict::Warn, "detail was: {}", c.detail);
+        assert!(c.detail.contains("never pinned"), "{}", c.detail);
+    }
+
+    /// A path dependency has nothing to fetch, which is exactly what `cmd_install` decides
+    /// about it. Counted, not graded — and specifically not reported as missing, since there
+    /// is no bundle under `.yidam/tonpa/` for one and never will be.
+    #[test]
+    fn a_path_dependency_is_counted_and_not_graded() {
+        let tmp = repo_with_corpora("[dependencies.sibling]\npath = \"../sibling\"\n", "", &[]);
+        let c = check_corpora(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok, "detail was: {}", c.detail);
+        assert!(c.detail.contains("1 path"), "{}", c.detail);
+    }
+
+    /// An unreadable bundle is not an intact one.
+    ///
+    /// `verify_installed` returns `Err` rather than `false` when the file is there and cannot
+    /// be read, and the one wrong answer here is to let that count as installed.
+    #[test]
+    fn an_unreadable_bundle_is_not_reported_as_present() {
+        let tmp = repo_with_corpora(
+            "[dependencies.hydrology]\nurl = \"https://example.com/h.yiz\"\n",
+            &locked("hydrology", b"bundle bytes"),
+            &[("hydrology", b"bundle bytes")],
+        );
+        // A directory where the bundle should be: exists, and cannot be read as a file.
+        let bundle = crate::paths::tonpa_dir(tmp.path())
+            .join("hydrology")
+            .join("bundle.yiz");
+        std::fs::remove_file(&bundle).unwrap();
+        std::fs::create_dir(&bundle).unwrap();
+        let c = check_corpora(tmp.path());
+        assert_eq!(c.verdict, Verdict::Fail, "detail was: {}", c.detail);
     }
 
     fn derived_repo() -> TempDir {
