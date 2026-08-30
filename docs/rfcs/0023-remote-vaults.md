@@ -284,10 +284,16 @@ Hashing streams from disk, so a PUT streams the file with a precomputed header r
 buffering a 500 MB index into memory. Dropping `STREAMING-AWS4-HMAC-SHA256-PAYLOAD` removes
 most of what makes SigV4 implementations wrong.
 
-That argues for hand-rolling over `reqwest`. It does not settle it, and #412 exists so the
-question is answered the way `Cargo.toml`'s own TLS argument was answered — by building it and
-measuring the dependency tree and the aarch64 cross-compile, then writing the result to
-`.yidam/decisions/`.
+That argues for hand-rolling over `reqwest`. It did not settle it, and #412 answered the
+question the way `Cargo.toml`'s own TLS argument was answered — by resolving each candidate
+against the real crate and reading the tree. The measurement is
+[below](#what-the-transport-spike-measured), and it is decisive.
+
+**A note on where that record lives.** This RFC first said the result would go to
+`.yidam/decisions/`. That is a *derived-repository* path and this repository is the template;
+it has no `.yidam/`. The template's mechanism for a decision of this kind is the RFC that
+raised it, and RFC-0021's `What implementation found` is the precedent. Corrected here rather
+than in a directory invented to hold one file.
 
 ### The commands
 
@@ -395,6 +401,85 @@ marked not redistributable"* is a sentence someone can act on and `Permission de
   a corpus node and this changes only the catalog.
 - **`.yidam/publishable` and the release guard.** A bundle's publication path is unchanged.
   The vault is a second channel beside it, not a replacement.
+
+## What the transport spike measured
+
+**#412, resolved. The transport is hand-rolled SigV4 over the `reqwest` already in the default
+feature set, adding one crate: `hmac`.**
+
+Each candidate was added to `yidam/cli` with `cargo add` and the resolved graph compared
+against the default build's 153 packages. Counts are unique `name vX.Y.Z` pairs, so a second
+*version* of a crate already present counts as an addition — which is the number that matters
+here.
+
+| Option | Added | Total | Second HTTP client | C needing a tool the release build lacks |
+|---|---|---|---|---|
+| **A · hand-rolled SigV4 + `hmac`** | **+1** | 154 | no | no |
+| D · `object_store` 0.14 (`aws`) | +36 | 189 | **yes** — `reqwest` 0.13 beside 0.12 | **yes** — `aws-lc-sys` |
+| B · `rust-s3` 0.35 (rustls, no defaults) | +48 | 201 | **yes** — `hyper` 0.14, `rustls` 0.21, `http` 0.2 | no |
+| C · `aws-sdk-s3` + `aws-config` | +93 | 246 | **yes** — same shape as B | — |
+
+### The count is not the argument; the duplication is
+
+Every alternative brings a **second copy of the HTTP and TLS stack** into a binary that
+already has one. `rust-s3` 0.35 resolves `hyper 0.14` beside the existing `hyper 1.10`,
+`rustls 0.21` beside `rustls 0.23`, `http 0.2` beside `http 1.4`. `object_store` looks smaller
+until you check the right name — it does not duplicate `hyper` or `rustls`, it duplicates
+**`reqwest` itself**, resolving 0.13.4 alongside the 0.12.28 `tonpa` already uses.
+
+### `object_store` was rejected for a sharper reason than this RFC first gave
+
+The earlier draft dismissed it as "a large tree, some of it native", lumped in with
+`aws-sdk-s3`. That was imprecise and nearly wrong — at +36 it is the *smallest* of the three
+libraries. The real disqualifier is a single transitive dependency:
+
+```
+aws-lc-sys v0.42.0
+```
+
+AWS-LC is a C cryptography library whose build requires **CMake**. The release workflow
+installs exactly one package for the aarch64 target — `gcc-aarch64-linux-gnu`
+([`release.yml:78`](../../.github/workflows/release.yml)) — so adopting `object_store` means
+adding a build tool to the cross-compile in order to compile a *second* C crypto library
+beside the `ring 0.17.14` already in the tree.
+
+That is precisely the class of change [`Cargo.toml`](../../yidam/cli/Cargo.toml)'s TLS comment
+exists to refuse. It distinguishes vendored C that cc-rs builds with the cross-compiler already
+present, which is fine, from a system dependency the build has to go and find, which is not.
+`aws-lc-sys` is the second kind wearing the first kind's clothes.
+
+### Streaming the upload is free
+
+The RFC's claim that a PUT streams from disk rather than buffering a 500 MB index needed
+checking, because `reqwest`'s `stream` feature is not in the current feature list. Adding it
+resolves **zero** new packages — `tokio` and `tokio-util` are already present via `tonpa`. So
+the +1 above is the complete cost of a streaming, correctly-signed S3 client.
+
+### What would reverse this
+
+- **A need for chunked signing.** The whole argument that hand-rolled SigV4 is small rests on
+  never emitting `STREAMING-AWS4-HMAC-SHA256-PAYLOAD`, which holds only while the payload hash
+  is known before the request — true for a content-addressed store and false the moment
+  something streams an unknown body.
+- **Multipart upload** (deferred; see [Open questions](#open-questions)). Multipart is a second
+  signing surface and a state machine, and it is where a library starts earning its tree.
+- **A second cloud.** One hand-rolled signer for S3 is a few hundred lines; a second for Azure
+  is a second few hundred, and at that point `object_store`'s tree buys something real. GCS
+  does not count — it speaks S3 through an interoperability endpoint.
+- **`aws-lc-sys` gaining a pure-Rust default**, or the release build acquiring CMake for an
+  unrelated reason. Either removes `object_store`'s only disqualifier.
+
+### What was not measured, and why
+
+**The aarch64 cross-compile was not run for option A.** `hmac 0.12.1` has no `build.rs` and no
+non-Rust source file, so there is nothing in it that a cross-build can fail on, and a CI run
+proving that a pure-Rust crate compiles would be theatre. The existing
+`ci (cli · aarch64 cross-compile)` job covers it for real when #413 lands the dependency.
+
+**No bytes moved.** No candidate was run against a live MinIO. The question #412 asks is what
+each option *costs*, not whether S3 clients work, and a round-trip would have distinguished
+none of them. Correctness of the signing implementation is #415's problem and is answered
+there by AWS's published test vectors rather than by a server.
 
 ## Phasing
 
