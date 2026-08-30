@@ -43,20 +43,15 @@
 
 [yidam-build]
 description = "Install the yidam binary from the commit pinned in .yidam.toml."
-# A per-task tool, not a `[tools]` entry — mise provisions it when this task runs
-# and not on `mise install`. Verified: with rust declared only here, `mise install`
-# answers "all tools are installed" and provisions nothing.
+# No `tools` here, deliberately. Everything this task does itself downloads an
+# already-compiled binary; the compiler belongs to [yidam-build-source] below,
+# which step 4 hands off to, so it is provisioned only when compiling actually
+# happens. It used to sit unconditionally in the derived repository's `[tools]`,
+# where every machine paid for it whether or not anything was ever built.
 #
-# It used to sit unconditionally in the derived repository's `[tools]`, so every
-# machine provisioned a Rust toolchain to give this task a chance of compiling —
-# a chance it does not take when the pin is tagged, and a repository with no
-# crates/ workspace has no other use for. Step 4 below is the only step that
-# needs it.
-#
-# Not `[tools]` in this file: mise reads that as a task NAMED tools and fails the
-# whole include to parse. `tools` as a task FIELD is legal, which is the whole
-# reason this works. See task_layer.rs.
-tools = { rust = "1.88.0" }
+# `tools` as a task FIELD is legal in this file; `[tools]` as a table is not —
+# mise reads that as a task NAMED tools and fails the whole include to parse.
+# See task_layer.rs.
 run = """
 set -eu
 if [ ! -f .yidam.toml ]; then
@@ -168,10 +163,50 @@ fi
 #
 # Not a fallback that will one day be removed. A repository is entitled to pin a
 # commit that was never released, and most commits are.
+#
+# Handed to [yidam-build-source] rather than done here, for one reason: that task
+# declares `tools = { rust = ... }` and mise provisions a task's tools when the
+# task runs. Everything above this line downloads a compiled binary and needs no
+# compiler, so a declaration on THIS task would provision a Rust toolchain on
+# every run and then not use it on the path most repositories take.
+#
+# The pin crosses the boundary in the environment. The sub-task refuses to guess
+# either value: a source build that quietly defaulted to origin/HEAD would
+# install a binary that is not this repository's pin, which is the failure
+# `.yidam/bin` exists to prevent.
 if [ -n "$tag" ]; then
   echo "release $tag exists for this pin but could not be used — building from source" >&2
 else
   echo "no release tagged at this pin — building from source" >&2
+fi
+YIDAM_SOURCE_ORIGIN="$origin" YIDAM_SOURCE_COMMIT="$commit" mise run yidam-build-source
+"""
+
+# The compiling half of `yidam-build`, and the only part of provisioning a derived
+# repository that needs a Rust toolchain.
+#
+# Separate from yidam-build so that `tools` below is reached only when a source
+# build actually happens. Verified: with rust declared on a task rather than in
+# `[tools]`, `mise install` answers "all tools are installed" and provisions
+# nothing; the toolchain arrives when the task runs, and a task that is never
+# invoked never installs it.
+#
+# Not meant to be run by hand — `mise run yidam-build` is the entry point, and it
+# is the one that decides whether compiling is necessary. This refuses rather than
+# guesses if invoked without a pin, because the whole point of .yidam/bin is that
+# the binary matches the commit .yidam.toml records.
+[yidam-build-source]
+description = "Compile the yidam binary from a pinned commit. Invoked by yidam-build; provisions Rust only here."
+tools = { rust = "1.88.0" }
+run = """
+set -eu
+origin="${YIDAM_SOURCE_ORIGIN:-}"
+commit="${YIDAM_SOURCE_COMMIT:-}"
+if [ -z "$origin" ] || [ -z "$commit" ]; then
+  echo "ERROR: yidam-build-source needs YIDAM_SOURCE_ORIGIN and YIDAM_SOURCE_COMMIT." >&2
+  echo "       Run 'mise run yidam-build', which reads them from .yidam.toml and" >&2
+  echo "       decides whether a source build is needed at all." >&2
+  exit 1
 fi
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
