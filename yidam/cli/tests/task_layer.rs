@@ -320,19 +320,96 @@ fn the_load_bearing_tasks_survive() {
 #[test]
 fn both_build_tasks_force_the_install() {
     let inherited = parse("mise.yidam.toml");
-    let derived_run = inherited["yidam-build"]["run"].as_str().unwrap();
+    // The compile lives in `yidam-build-source` since #408 — `yidam-build` itself downloads
+    // and never invokes cargo. Read whichever of the two actually runs it, so this test
+    // follows the code instead of naming a task that stopped compiling.
+    let compiling: Vec<&str> = ["yidam-build", "yidam-build-source"]
+        .iter()
+        .filter_map(|t| inherited.get(*t))
+        .filter_map(|t| t["run"].as_str())
+        .filter(|run| run.contains("cargo install"))
+        .collect();
+    assert_eq!(
+        compiling.len(),
+        1,
+        "exactly one inherited task must run `cargo install` — two would be two definitions \
+         of how this repository's binary is built, and zero means the source path is gone"
+    );
+    // Commands only. The comment above the flag explains `--force` BY NAME — three sentences
+    // of it — so `run.contains("--force")` was answered by the prose describing the fix and
+    // stayed green with the flag deleted. Found by mutation, not by reading; it had been
+    // true since the test was written.
+    fn commands_only(run: &str) -> String {
+        run.lines()
+            .filter(|l| !l.trim_start().starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    let derived_run = commands_only(compiling[0]);
     assert!(
-        derived_run.contains("cargo install") && derived_run.contains("--force"),
-        "mise.yidam.toml's yidam-build must pass --force:\n{derived_run}"
+        derived_run.contains("--force"),
+        "mise.yidam.toml's source build must pass --force. A comment naming the flag is not \
+         the flag:\n{derived_run}"
     );
 
     // The same lesson, in this repository's own copy — the destination a port forgets.
     let own = parse("mise.toml");
-    let own_run = own["tasks"]["yidam-build"]["run"].as_str().unwrap();
+    let own_run = commands_only(own["tasks"]["yidam-build"]["run"].as_str().unwrap());
     assert!(
         own_run.contains("--force"),
         "mise.toml's yidam-build must pass --force too:\n{own_run}"
     );
+}
+
+/// The pin must cross into the source build, and the source build must refuse without it.
+///
+/// Splitting the compile into its own task bought a toolchain nobody provisions on the
+/// download path, and cost a boundary. `$origin` and `$commit` are read from `.yidam.toml`
+/// by `yidam-build`; `yidam-build-source` runs in a different process and gets them through
+/// the environment.
+///
+/// A source build that quietly defaulted to origin/HEAD would install a binary that is not
+/// this repository's pin — silently, and looking exactly like success. That is the failure
+/// `.yidam/bin` and the whole per-repository install exist to prevent, so the sub-task
+/// refuses rather than guesses.
+#[test]
+fn the_pin_crosses_into_the_source_build_and_is_not_guessed() {
+    let inherited = parse("mise.yidam.toml");
+    let build = inherited["yidam-build"]["run"].as_str().unwrap();
+    let source = inherited["yidam-build-source"]["run"].as_str().unwrap();
+
+    assert!(
+        build.contains("mise run yidam-build-source"),
+        "yidam-build never hands off to yidam-build-source, so an untagged pin has no \
+         source path at all:\n{build}"
+    );
+    for var in ["YIDAM_SOURCE_ORIGIN", "YIDAM_SOURCE_COMMIT"] {
+        assert!(
+            build.contains(var),
+            "yidam-build invokes yidam-build-source without passing `{var}`; the sub-task \
+             cannot read .yidam.toml's pin from another process"
+        );
+        assert!(
+            source.contains(var),
+            "yidam-build-source never reads `{var}`, so the pin yidam-build passes is \
+             discarded"
+        );
+    }
+    // Refuses rather than defaults. `${VAR:-}` and then a check — not `${VAR:-HEAD}`.
+    assert!(
+        source.contains("exit 1"),
+        "yidam-build-source does not fail when the pin is absent. Defaulting would compile \
+         whatever the origin's HEAD happens to be and install it as this repository's \
+         pinned binary:\n{source}"
+    );
+    for wrong in ["YIDAM_SOURCE_COMMIT:-HEAD", "YIDAM_SOURCE_COMMIT:-main"] {
+        assert!(
+            !source.contains(wrong),
+            "yidam-build-source defaults the commit to `{wrong}` — a source build that \
+             falls back to a branch tip installs a binary that is not the pin"
+        );
+    }
 }
 
 /// `yidam-build`'s tag resolver must match a pin against the *commit*, not the tag object.
@@ -660,19 +737,29 @@ fn the_scaffolded_config_anchors_the_block_and_carries_no_compiler() {
          its pin was released as. yidam-build declares its own."
     );
 
-    let build = &parse("mise.yidam.toml")["yidam-build"];
-    let per_task = build
+    // The compiler is declared on the task that compiles, and on no other. `yidam-build`
+    // downloads a built binary; a `tools` declaration there provisions a Rust toolchain on
+    // the path that never uses one, which is what #408 was.
+    let inherited = parse("mise.yidam.toml");
+    let source = &inherited["yidam-build-source"];
+    let per_task = source
         .get("tools")
         .and_then(|t| t.as_table())
         .unwrap_or_else(|| {
             panic!(
-                "yidam-build declares no `tools`, and the template no longer provides one — \
-                 so an untagged pin has nothing to compile with"
+                "yidam-build-source declares no `tools`, and the template no longer provides \
+                 one — so an untagged pin has nothing to compile with"
             )
         });
     assert!(
         per_task.contains_key("rust"),
-        "yidam-build's per-task tools do not include rust, which step 4 (`cargo install`) \
+        "yidam-build-source's per-task tools do not include rust, which its `cargo install` \
          needs: {per_task:?}"
+    );
+    assert!(
+        inherited["yidam-build"].get("tools").is_none(),
+        "yidam-build declares `tools`. It downloads an already-compiled binary and hands the \
+         compiling to yidam-build-source, so a declaration here provisions a toolchain on \
+         the path that never invokes a compiler — for most repositories, every time."
     );
 }
