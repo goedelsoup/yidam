@@ -59,9 +59,11 @@ _Run `yidam status` to populate._
 ## Working here
 
 ```
-mise install              # provision toolchains, and the yidam CLI itself
-                          #   when this repository's pin was released
+mise install              # provision toolchains, the yidam CLI itself when this
+                          #   repository's pin was released, and the corpora
+                          #   .yidam/tonpa.toml declares
 mise run yidam-build      # install the CLI (only needed when it was not)
+mise run tonpa-install    # fetch the corpora on their own; re-runnable
 mise run regen            # refresh every REGEN block
 mise run ci               # the gate CI runs
 mise run due              # what is owed a look, on whatever cadence you keep
@@ -80,6 +82,12 @@ yidam-vendor-update` is what keeps that entry true, deriving it from the same pi
 it owns in `mise.toml` is marked, and everything outside those markers is yours. Most commits
 are not tagged, and for those `mise run yidam-build` compiles from the pin as it always has,
 provisioning Rust only at that moment.
+
+The corpora this repository depends on come down in the same step, from a `postinstall` hook
+that runs `tonpa-install`. It is safe to re-run: anything already unpacked is verified against
+`tonpa.lock` and left alone. One caveat worth knowing — mise logs a failing postinstall hook as
+a warning and exits 0 regardless, so a green `mise install` is not proof the corpora arrived. If
+something looks absent, run `mise run tonpa-install` on its own and read its exit code.
 
 `mise run ci` is the whole corpus gate — `graph-check`, `graph-lint`, and `regen --check` —
 and it is held to CI's by a test upstream rather than by anyone remembering to keep the two
