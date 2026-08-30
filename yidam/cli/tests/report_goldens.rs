@@ -13,6 +13,7 @@
 //! Run with `UPDATE_GOLDENS=1` to rewrite the expected files after an intended change. The
 //! diff is the review.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -280,6 +281,162 @@ const COMMANDS: &[(&str, &[&str])] = &[
     ),
 ];
 
+/// Reports checked by running them, because they cannot have a golden.
+///
+/// Each of these varies with the day it runs — a pin's age in days, a source's overdue count,
+/// an index's build date — so a committed golden would go red on the calendar rather than on
+/// a change. Their *shape* is checkable all the same, and shape is what the contract is.
+///
+/// **Every invocation here writes nothing**, which is not incidental: this runs against the
+/// same staged fixture the goldens read, and a writer would corrupt it for whatever test ran
+/// next. `regen` and `propose` are named with the flags that make that true — `--check` and
+/// `--dry-run` — and both refuse to write in those modes by design rather than by luck.
+const LIVE: &[(&str, &[&str])] = &[
+    ("doctor", &["doctor"]),
+    ("due", &["due"]),
+    ("regen", &["regen", "--check"]),
+    ("propose", &["propose", "--dry-run"]),
+];
+
+/// Commands carrying a `--format` flag that this file cannot exercise, and why.
+///
+/// **An inverted roster, and that is the point.** A list of what *is* covered stops covering
+/// new commands without ever going red — the failure this repository has now found in a guard
+/// twice. This lists what is not covered, so a command added tomorrow is required by default
+/// and fails [`every_reporting_command_has_its_fields_checked`] until somebody decides which
+/// bucket it belongs in.
+///
+/// The reasons are load-bearing. `export`'s `--format` is not the report contract's at all —
+/// it names the export format — and it is here so that fact is written down rather than
+/// rediscovered.
+const NO_REPORT: &[(&str, &str)] = &[
+    (
+        "export",
+        "its `--format` names the export format (bundle, rdf, …), not the report contract",
+    ),
+    (
+        "bench",
+        "refuses to run without a committed goal set, and inventing one would measure whoever \
+         wrote the fallback",
+    ),
+    (
+        "index-verify",
+        "requires a built index, and the `index` feature to build one",
+    ),
+    ("migrate", "a subcommand group, and every migration writes"),
+    ("query", "requires a query expression"),
+    ("pack", "requires a query expression"),
+    ("estimate", "requires a query expression"),
+];
+
+/// Every subcommand whose own `--help` offers `--format`.
+///
+/// Asked of the built binary rather than of the source, for `cli_reference.rs`'s reason: it
+/// is the same question a consumer asks, answered the same way, and it survives a refactor of
+/// how the clap enum is spelled. The match is on an option line named exactly `--format` —
+/// `bundle` mentions the word in its description and has no such flag.
+fn reporting_commands() -> BTreeSet<String> {
+    let help = |args: &[&str]| -> String {
+        let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+            .args(args)
+            .output()
+            .expect("running --help");
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+
+    let mut names = BTreeSet::new();
+    for line in help(&["--help"]).lines() {
+        let Some(rest) = line.strip_prefix("  ") else {
+            continue;
+        };
+        if rest.starts_with(' ') || rest.starts_with('-') {
+            continue; // a continuation line, or an option
+        }
+        let name = rest.split_whitespace().next().unwrap_or_default();
+        if name.is_empty()
+            || name == "help"
+            || !name.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+        {
+            continue;
+        }
+        names.insert(name.to_string());
+    }
+    assert!(
+        names.len() > 20,
+        "parsed only {} command(s) from --help — the output shape changed and this is no \
+         longer reading it: {names:?}",
+        names.len()
+    );
+
+    let reporting: BTreeSet<String> = names
+        .into_iter()
+        .filter(|name| {
+            help(&[name, "--help"]).lines().any(|l| {
+                let t = l.trim_start();
+                l.starts_with(' ') && (t.starts_with("--format ") || t.contains(", --format "))
+            })
+        })
+        .collect();
+    // The floor that keeps this from passing by finding nothing. A scan that returns an empty
+    // set satisfies every "is it covered?" question asked of it, which is how a guard goes
+    // green while covering none of its subject.
+    assert!(
+        reporting.len() > 15,
+        "only {} command(s) advertise `--format` — the help layout changed and this filter is \
+         no longer matching it: {reporting:?}",
+        reporting.len()
+    );
+    reporting
+}
+
+/// Every command that emits the report contract has its fields checked somewhere.
+///
+/// The guard over the other two checks. `doctor` and `propose` both emitted top-level fields
+/// `report.schema.json` did not declare, for as long as they did, because the schema check
+/// read only the goldens and neither command has one — a consumer reading the contract was
+/// being told nothing about `failed`, `warned`, or the whole of `propose`. Nothing was red.
+#[test]
+fn every_reporting_command_has_its_fields_checked() {
+    let golden: BTreeSet<&str> = COMMANDS.iter().map(|(_, args)| args[0]).collect();
+    let live: BTreeSet<&str> = LIVE.iter().map(|(_, args)| args[0]).collect();
+    let exempt: BTreeSet<&str> = NO_REPORT.iter().map(|(name, _)| *name).collect();
+
+    let mut uncovered = Vec::new();
+    for name in reporting_commands() {
+        let n = name.as_str();
+        if !golden.contains(n) && !live.contains(n) && !exempt.contains(n) {
+            uncovered.push(name);
+        }
+    }
+    assert!(
+        uncovered.is_empty(),
+        "these commands emit `--format json` and nothing checks their fields against \
+         report.schema.json: {uncovered:?}\n\nAdd each to COMMANDS (with a golden), to LIVE \
+         (run live, for a report that varies by day), or to NO_REPORT with the reason it \
+         cannot be exercised."
+    );
+
+    // And the exemptions are not stale: a command that no longer exists, or that lost its
+    // `--format`, must not keep a licence to be unchecked.
+    //
+    // Every name in `NO_REPORT` is in the light default build, which is what makes this
+    // symmetric assertion safe. Exempting a **feature-gated** command would fail here on the
+    // light build for the honest-looking wrong reason — the command is absent, not stale —
+    // and the fix is `help.rs`'s: a companion list licensing the absence, not a weakening of
+    // this check.
+    let real = reporting_commands();
+    let stale: Vec<&str> = NO_REPORT
+        .iter()
+        .map(|(name, _)| *name)
+        .filter(|n| !real.contains(*n))
+        .collect();
+    assert!(
+        stale.is_empty(),
+        "NO_REPORT names {stale:?}, which no longer emit a report. An exemption is a licence \
+         to go unchecked; delete the ones nothing needs."
+    );
+}
+
 #[test]
 fn text_output_is_byte_identical_to_its_golden() {
     let tmp = stage();
@@ -322,29 +479,53 @@ fn exit_codes_are_identical_across_formats() {
     }
 }
 
-/// Every field a golden emits must be declared in the committed schema, and every
-/// required field must be present.
+/// The committed contract, parsed once.
+fn schema() -> serde_json::Value {
+    serde_json::from_str(
+        &std::fs::read_to_string(fixture_dir().parent().unwrap().join("report.schema.json"))
+            .expect("report.schema.json"),
+    )
+    .expect("schema is valid JSON")
+}
+
+/// One envelope against the contract: every required field present, every emitted field
+/// declared.
 ///
 /// Not full JSON-Schema validation — that would want a dependency this crate does not
 /// otherwise need. It is the half that actually rots: a field added to a report and not to
 /// the schema, which leaves a consumer reading a contract that does not describe the data
 /// it is being sent.
+fn contract_problems(
+    schema: &serde_json::Value,
+    name: &str,
+    doc: &serde_json::Value,
+) -> Vec<String> {
+    let declared = schema["properties"].as_object().unwrap();
+    let obj = doc.as_object().expect("an envelope is an object");
+    let mut problems = Vec::new();
+    for key in schema["required"].as_array().unwrap() {
+        let key = key.as_str().unwrap();
+        if !obj.contains_key(key) {
+            problems.push(format!("  {name}: missing required `{key}`"));
+        }
+    }
+    for key in obj.keys() {
+        if !declared.contains_key(key) {
+            problems.push(format!(
+                "  {name}: emits `{key}`, which report.schema.json does not declare"
+            ));
+        }
+    }
+    problems
+}
+
+const CONTRACT_ADVICE: &str = "\n\nAdd the field to report.schema.json, or stop emitting it. \
+     A consumer reading a contract that does not describe the data it is sent is the failure \
+     this contract exists to prevent.";
+
 #[test]
 fn every_golden_field_is_declared_in_the_schema() {
-    let schema: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(fixture_dir().parent().unwrap().join("report.schema.json"))
-            .expect("report.schema.json"),
-    )
-    .expect("schema is valid JSON");
-
-    let required: Vec<&str> = schema["required"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|v| v.as_str().unwrap())
-        .collect();
-    let declared = schema["properties"].as_object().unwrap();
-
+    let schema = schema();
     let mut problems = Vec::new();
     let mut seen = 0;
     for entry in std::fs::read_dir(fixture_dir().join("expected")).unwrap() {
@@ -356,29 +537,88 @@ fn every_golden_field_is_declared_in_the_schema() {
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let doc: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        let obj = doc.as_object().expect("an envelope is an object");
-        for key in &required {
-            if !obj.contains_key(*key) {
-                problems.push(format!("  {name}: missing required `{key}`"));
-            }
-        }
-        for key in obj.keys() {
-            if !declared.contains_key(key) {
-                problems.push(format!(
-                    "  {name}: emits `{key}`, which report.schema.json does not declare"
-                ));
-            }
-        }
+        problems.extend(contract_problems(&schema, &name, &doc));
     }
 
     assert!(seen > 0, "no JSON goldens found — the scan is broken");
     assert!(
         problems.is_empty(),
-        "goldens and schema disagree:\n{}\n\nAdd the field to report.schema.json, or stop \
-         emitting it. A consumer reading a contract that does not describe the data it is \
-         sent is the failure this contract exists to prevent.",
+        "goldens and schema disagree:\n{}{CONTRACT_ADVICE}",
         problems.join("\n")
     );
+}
+
+/// The same check for the reports that have no golden to read.
+///
+/// This is the one that was missing. `doctor` shipped `failed` and `warned`, and `propose`
+/// shipped its entire report — six top-level fields — with none of them in
+/// `report.schema.json`, because the check above reads the `expected/` directory and neither
+/// command has a file in it. The contract was wrong about two commands and nothing could say
+/// so.
+#[test]
+fn every_live_report_field_is_declared_in_the_schema() {
+    let schema = schema();
+    let tmp = stage();
+    let mut problems = Vec::new();
+    for (name, args) in LIVE {
+        let mut a = args.to_vec();
+        a.extend_from_slice(&["--format", "json"]);
+        let r = run(tmp.path(), &a);
+        let doc: serde_json::Value = serde_json::from_str(&r.stdout).unwrap_or_else(|e| {
+            panic!(
+                "`yidam {}` did not emit JSON: {e}\n{}",
+                a.join(" "),
+                r.stdout
+            )
+        });
+        problems.extend(contract_problems(&schema, name, &doc));
+    }
+    assert!(
+        problems.is_empty(),
+        "live reports and schema disagree:\n{}{CONTRACT_ADVICE}",
+        problems.join("\n")
+    );
+}
+
+/// A report run live must still leave the fixture alone.
+///
+/// [`every_live_report_field_is_declared_in_the_schema`] runs four commands against a staged
+/// repository, two of them commands that write in their default mode. If `--check` or
+/// `--dry-run` ever stopped holding, that test would silently start rewriting its own
+/// subject — and the first symptom would be a golden elsewhere drifting for no reason anyone
+/// could trace.
+#[test]
+fn running_the_live_reports_writes_nothing() {
+    let tmp = stage();
+    let before = tree(tmp.path());
+    assert!(!before.is_empty(), "the fixture staged nothing");
+    for (_, args) in LIVE {
+        let mut a = args.to_vec();
+        a.extend_from_slice(&["--format", "json"]);
+        run(tmp.path(), &a);
+    }
+    assert_eq!(
+        tree(tmp.path()),
+        before,
+        "a LIVE invocation wrote to the fixture it was pointed at"
+    );
+}
+
+/// Every file's content, keyed by relative path. `.git/` is excluded — `propose` writes git
+/// objects and a ref by design, and what is asserted here is the working tree.
+fn tree(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+    walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_entry(|e| e.file_name() != ".git")
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+        .map(|e| {
+            (
+                e.path().strip_prefix(root).unwrap().to_path_buf(),
+                std::fs::read(e.path()).unwrap(),
+            )
+        })
+        .collect()
 }
 
 /// The light build reports exactly `reports`, and that is worth asserting once.
