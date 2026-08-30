@@ -164,6 +164,124 @@
       "type": "boolean",
       "description": "`graph-check`, `regen --check` and `index-verify`. The gate verdict. A consumer MUST NOT recompute it. On `due` it is true unless `--strict` was passed and a clock is due — being owed is not a failure, and this field is here so a consumer does not infer one."
     },
+    "failed": {
+      "type": "integer",
+      "description": "`doctor` only. Checks that are wrong now. The only ones that affect the exit code without `--strict`."
+    },
+    "warned": {
+      "type": "integer",
+      "description": "`doctor` only. Checks that are actionable and a normal state to be in — a light build with no vector index, a pin from last season. They gate only under `--strict`, because a doctor that goes red on the normal state of a normal install is one people learn to pass `|| true`."
+    },
+    "branch": {
+      "type": "string",
+      "description": "`propose` only. The `propose/<head>` ref the proposals are written to. Reported whether or not the run wrote — on `--dry-run` it is where they would have gone."
+    },
+    "head": {
+      "type": "string",
+      "description": "`propose` only. The commit the proposals were drafted against and built on."
+    },
+    "proposals": {
+      "type": "array",
+      "description": "`propose` only. Each drafted commit, in the order it is committed. Three verbs only — `open`, `withdraw`, `close` — because nothing merges itself and nothing synthesizes; see RFC-0020.",
+      "items": {
+        "type": "object",
+        "required": [
+          "verb",
+          "subject",
+          "check",
+          "node",
+          "detail",
+          "paths"
+        ],
+        "properties": {
+          "verb": {
+            "enum": [
+              "open",
+              "withdraw",
+              "close"
+            ],
+            "description": "The epistemic verb the commit subject carries."
+          },
+          "subject": {
+            "type": "string",
+            "description": "The commit subject, in the closed vocabulary `lint --commits` checks."
+          },
+          "check": {
+            "type": "string",
+            "description": "The lint check whose finding this proposal answers."
+          },
+          "node": {
+            "type": "string",
+            "description": "Repo-relative path of the node or catalog entry the proposal is about."
+          },
+          "detail": {
+            "type": "string",
+            "description": "The finding's own words, which the commit body quotes. Carried so a consumer can check the carriage rule for itself rather than trusting that it held."
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Repo-relative paths the proposed commit changes."
+          }
+        }
+      }
+    },
+    "skipped": {
+      "type": "array",
+      "description": "`propose` only. Findings this run could not draft a proposal for, with the reason. Reported rather than swallowed: a finding silently not proposed about is the exact failure the command exists to remove.",
+      "items": {
+        "type": "object",
+        "required": [
+          "check",
+          "node",
+          "reason"
+        ],
+        "properties": {
+          "check": {
+            "type": "string"
+          },
+          "node": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why no proposal could be drafted — a `description:` that is not a block scalar, an entry with no closing frontmatter fence, or a message that would not carry its finding."
+          }
+        }
+      }
+    },
+    "written": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "`propose` only. What reached the repository. Null on `--dry-run` and on a run with nothing to propose — the two states a consumer must not read as a write.",
+      "required": [
+        "branch",
+        "commits"
+      ],
+      "properties": {
+        "branch": {
+          "type": "string"
+        },
+        "commits": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Short shas, oldest first — the order `git log --reverse` prints them in."
+        }
+      }
+    },
+    "withdraw_uncited_after": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "`propose` only. What the corpus licensed via `[propose] withdraw_uncited_after`. Null means no withdrawal may ever be drafted there, which is every corpus that has not said otherwise."
+    },
     "clocks": {
       "type": "array",
       "description": "`due` only. The four clocks, each with the interval this corpus declared for it. A clock in state `undeclared` still reports what it measured: nobody has set it, which is not the same as its reading zero.",
