@@ -42,6 +42,49 @@ pub struct Installed {
     /// which is not fetched, not hashed and not locked — hashing a working tree that changes
     /// under you records nothing.
     pub pin: Option<String>,
+    /// Where this dependency's node text is read from — see [`Nodes`].
+    pub nodes: Nodes,
+}
+
+/// Where a dependency's node text comes from, which is a question about *when* it was read.
+///
+/// `lint` reads the file. It runs once against the tree as it is, and a dependency that
+/// changed a second ago is the one it should judge.
+///
+/// The MCP server answers from the corpus it walked at startup — the same snapshot
+/// `retrieve`, `get_node` and `query --across` answer from. Contract 0.9.1 states that every
+/// read comes from the corpus built on disk when the server started, and that freshness is a
+/// restart; #324 is what happens when one field forgets. `query --select body` reached for
+/// the working tree and was, alone among the fields beside it, answering about a different
+/// corpus. A span check that read through would be that defect with worse consequences: it
+/// would report a citation sound against text no other tool on that server can show you.
+pub enum Nodes {
+    /// Read `<corpus_dir>/<node>.yml` when asked.
+    OnDisk,
+    /// `<class>/<name>` → that file's text, as walked at some earlier moment.
+    Snapshot(BTreeMap<String, String>),
+}
+
+impl Installed {
+    /// The cited node's text, or `None` when this corpus holds no such node.
+    ///
+    /// The one reader of a dependency's content. Both the presence test and the span
+    /// comparison go through it, so a snapshot cannot answer one while the disk answers the
+    /// other — which would let a citation resolve and drift at the same time.
+    pub fn text(&self, node: &str) -> Option<String> {
+        match &self.nodes {
+            Nodes::OnDisk => std::fs::read_to_string(node_path(self, node)).ok(),
+            Nodes::Snapshot(nodes) => nodes.get(node).cloned(),
+        }
+    }
+
+    /// Whether this corpus holds the cited node at all.
+    pub fn has(&self, node: &str) -> bool {
+        match &self.nodes {
+            Nodes::OnDisk => node_path(self, node).is_file(),
+            Nodes::Snapshot(nodes) => nodes.contains_key(node),
+        }
+    }
 }
 
 /// Every dependency whose corpus can be read, keyed by the name a citation would use.
@@ -59,6 +102,9 @@ pub fn installed(root: &Path) -> BTreeMap<String, Installed> {
                     corpus_dir: dep.corpus_dir,
                     kind: dep.kind,
                     pin,
+                    // The gate judges the tree as it is. A snapshot here would mean `lint`
+                    // reporting on a dependency the working copy no longer holds.
+                    nodes: Nodes::OnDisk,
                 },
             )
         })
@@ -79,9 +125,222 @@ fn manifest_commit(dir: Option<&Path>) -> Option<String> {
     serde_yaml::from_str::<Manifest>(&text).ok()?.commit
 }
 
-/// Where a cited node's file would be, and whether it is there.
+/// Where a cited node's file would be.
 fn node_path(dep: &Installed, node: &str) -> PathBuf {
     dep.corpus_dir.join(format!("{node}.yml"))
+}
+
+/// The four check ids, named once. A filter keyed on a literal would drift from the id the
+/// baseline records the moment either was reworded.
+pub const UNRESOLVED: &str = "external-citation-unresolved";
+pub const SPAN_DRIFT: &str = "external-citation-span-drift";
+pub const PIN_MOVED: &str = "external-citation-pin-moved";
+pub const UNPINNED: &str = "external-citation-unpinned";
+
+/// One check's verdict on one citation.
+#[derive(Debug, Clone)]
+pub struct Finding {
+    /// The check id that would fire — the same string `lint` prints and a baseline keys on.
+    pub check: &'static str,
+    pub severity: Severity,
+    /// That check's own message, unchanged. It names the repair, and a caller asking
+    /// *before* writing needs the repair more than a caller reading a report afterwards.
+    pub message: String,
+}
+
+/// Everything the four checks would say about one citation, in check order.
+///
+/// # One predicate, four readings
+///
+/// Each check used to walk the corpus itself. That was fine while `lint` was the only caller
+/// and became a trap the moment a second surface wanted the same verdict about a citation
+/// that **is not in the corpus yet** — which is the whole of #357: all four checks run after
+/// the citation has been written into a file and committed to, so an agent about to write one
+/// had no way to ask whether it would hold.
+///
+/// Re-deriving the predicate beside the checks would have been a fifth answer to what a
+/// citation is, and `retrieve`'s history is the argument against that. So the predicate is
+/// here, the checks are filters over it, and the MCP tool calls the same function they do.
+/// A check whose rule changes changes for both surfaces or for neither.
+///
+/// # It takes a citation, not a node
+///
+/// Nothing here reads the citing node. That is what makes the question askable in advance:
+/// the four rules are all about the far side, and the local node contributes only the path a
+/// [`Violation`] is filed under.
+pub fn findings(cite: &ExternalCitation, deps: &BTreeMap<String, Installed>) -> Vec<Finding> {
+    let mut out = Vec::new();
+    let package = cite.package.as_deref();
+    let target = cite.node.as_deref();
+    let mut report = |check, severity, message| {
+        out.push(Finding {
+            check,
+            severity,
+            message,
+        })
+    };
+
+    // ── unresolved: the citation names something that is not there ───────────
+    match (package, target) {
+        (Some(package), Some(target)) => match deps.get(package) {
+            None => report(
+                UNRESOLVED,
+                Severity::Error,
+                format!(
+                    "cites `{package}::{target}` and `{package}` is not installed — \
+                     declare it in `.yidam/tonpa.toml` and run `yidam tonpa install`"
+                ),
+            ),
+            Some(dep) if !dep.has(target) => report(
+                UNRESOLVED,
+                Severity::Error,
+                format!(
+                    "cites `{package}::{target}` and `{package}` has no such node — \
+                     it was removed or renamed on the far side"
+                ),
+            ),
+            Some(_) => {}
+        },
+        _ => report(
+            UNRESOLVED,
+            Severity::Error,
+            format!(
+                "citation with no `package:` or no `node:` — {}",
+                describe(cite)
+            ),
+        ),
+    }
+
+    // ── span drift: it is there and says something else ──────────────────────
+    //
+    // A citation that named neither package nor node is `unresolved`'s finding and not a
+    // second one here: there is no far side to have drifted.
+    if let (Some(package), Some(target)) = (package, target) {
+        match cite
+            .span
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            None => report(
+                SPAN_DRIFT,
+                Severity::Error,
+                format!(
+                    "cites `{package}::{target}` with no `span:` — a node reference alone \
+                     rots invisibly, because the node keeps its name while its content is \
+                     rewritten"
+                ),
+            ),
+            // A package that is not installed, or a node it does not hold, is reported by
+            // `unresolved` and is not drift — there is no text to have moved.
+            Some(span) => match deps.get(package).and_then(|dep| dep.text(target)) {
+                // Whitespace between words is normalized on both sides and nothing else is.
+                // A YAML folded scalar (`>-`) is the natural way to write a span and it
+                // rewraps the text on read, so comparing raw bytes would fail every citation
+                // written the readable way — against a node whose own prose is also wrapped.
+                // What is *not* normalized is case, punctuation, or wording: those are the
+                // changes a span exists to catch.
+                Some(text) if !flatten(&text).contains(&flatten(span)) => report(
+                    SPAN_DRIFT,
+                    Severity::Error,
+                    format!(
+                        "cites `{package}::{target}`{} for a span that is no longer in it — \
+                         the far side revised the text this claim rests on. Read the node and \
+                         decide whether the claim still holds; do not re-quote it to make the \
+                         check pass. Span: {:?}",
+                        // The standing it was recorded at, where one was. A foreign tag never
+                        // transfers and is not computed into anything — it is here because
+                        // the person deciding whether the local claim survives wants to know
+                        // what they thought they were leaning on. Its other consumer is #267.
+                        match cite.tag.as_deref() {
+                            Some(tag) => format!(", recorded at [{tag}],"),
+                            None => String::new(),
+                        },
+                        truncate(span)
+                    ),
+                ),
+                _ => {}
+            },
+        }
+    }
+
+    // ── pin moved: honest about a state that is no longer the installed one ──
+    if let Some((package, cited)) = package.zip(cite.commit.as_deref()) {
+        // A dependency that cannot be pinned is `unpinned`'s finding, not a move.
+        if let Some(pin) = deps.get(package).and_then(|dep| dep.pin.as_deref()) {
+            // Prefix either way. A manifest commit is `git rev-parse --short` in the
+            // producing repository, and git chooses that abbreviation's length from the
+            // repository's object count — so the same commit is legitimately spelled with
+            // more characters in a later bundle from a larger repository. Comparing for
+            // equality would report a move that did not happen.
+            if !pin.starts_with(cited) && !cited.starts_with(pin) {
+                report(
+                    PIN_MOVED,
+                    Severity::Warn,
+                    format!(
+                        "cites `{package}` at {cited} and {package} is installed at {pin} — \
+                         the claim was written against a different state of that corpus"
+                    ),
+                );
+            }
+        }
+    }
+
+    // ── unpinned: it cannot be pinned, and says so rather than implying it was ──
+    if let Some((package, dep)) = package.and_then(|name| deps.get(name).map(|dep| (name, dep))) {
+        if dep.kind == DependencyKind::Path {
+            report(
+                UNPINNED,
+                Severity::Info,
+                format!(
+                    "cites `{package}`, a path dependency, which carries no pin — this \
+                     citation records what was read and not which state it was read from"
+                ),
+            );
+        } else if dep.pin.is_none() {
+            report(
+                UNPINNED,
+                Severity::Info,
+                format!("cites `{package}`, whose `manifest.yml` states no commit"),
+            );
+        }
+    }
+
+    out
+}
+
+/// Every violation one check reports over the corpus, from the shared predicate.
+///
+/// Takes the findings already computed rather than computing them, so the four checks are
+/// four filters over **one** walk. Recomputing per check would read every cited dependency
+/// node four times to answer four questions about the same bytes.
+fn violations(found: &[(&Node, Vec<Finding>)], id: &str) -> Vec<Violation> {
+    found
+        .iter()
+        .flat_map(|(node, findings)| {
+            findings
+                .iter()
+                .filter(|f| f.check == id)
+                .map(move |f| Violation::new(&node.rel, f.message.clone()))
+        })
+        .collect()
+}
+
+/// The four checks, over one walk of the corpus.
+///
+/// Returned together and destructured at the call site rather than exposed as four public
+/// functions, because four functions is what made four walks look free.
+pub fn checks(nodes: &[Node], deps: &BTreeMap<String, Installed>) -> [Check; 4] {
+    let found: Vec<(&Node, Vec<Finding>)> = all(nodes)
+        .into_iter()
+        .map(|(node, cite)| (node, findings(cite, deps)))
+        .collect();
+    [
+        external_citation_unresolved(violations(&found, UNRESOLVED)),
+        external_citation_span_drift(violations(&found, SPAN_DRIFT)),
+        external_citation_pin_moved(violations(&found, PIN_MOVED)),
+        external_citation_unpinned(violations(&found, UNPINNED)),
+    ]
 }
 
 /// Every `(node, citation)` pair in the corpus, in corpus order.
@@ -119,41 +378,9 @@ fn describe(cite: &ExternalCitation) -> String {
 /// dependency does not carry is wasted time. The id is shared because the baseline ratchet
 /// keys on `(check id, node)`, and splitting them would let a repository bless the absence of
 /// a whole dependency and inherit a free pass on every node inside it.
-pub fn external_citation_unresolved(nodes: &[Node], deps: &BTreeMap<String, Installed>) -> Check {
-    let mut violations = Vec::new();
-    for (node, cite) in all(nodes) {
-        let (Some(package), Some(target)) = (cite.package.as_deref(), cite.node.as_deref()) else {
-            violations.push(Violation::new(
-                &node.rel,
-                format!(
-                    "citation with no `package:` or no `node:` — {}",
-                    describe(cite)
-                ),
-            ));
-            continue;
-        };
-        let Some(dep) = deps.get(package) else {
-            violations.push(Violation::new(
-                &node.rel,
-                format!(
-                    "cites `{package}::{target}` and `{package}` is not installed — \
-                     declare it in `.yidam/tonpa.toml` and run `yidam tonpa install`"
-                ),
-            ));
-            continue;
-        };
-        if !node_path(dep, target).is_file() {
-            violations.push(Violation::new(
-                &node.rel,
-                format!(
-                    "cites `{package}::{target}` and `{package}` has no such node — \
-                     it was removed or renamed on the far side"
-                ),
-            ));
-        }
-    }
+fn external_citation_unresolved(violations: Vec<Violation>) -> Check {
     Check::new(
-        "external-citation-unresolved",
+        UNRESOLVED,
         "Citation into a dependency that is not there",
         Severity::Error,
         "A citation that does not resolve asserts a provenance that is not there, which is \
@@ -171,62 +398,9 @@ pub fn external_citation_unresolved(nodes: &[Node], deps: &BTreeMap<String, Inst
 /// The only check of the four that can catch a dependency **revising a node out from under a
 /// claim**, and it catches it without cooperation from the producer, without history, and
 /// without the sangha a bundle does not carry.
-pub fn external_citation_span_drift(nodes: &[Node], deps: &BTreeMap<String, Installed>) -> Check {
-    let mut violations = Vec::new();
-    for (node, cite) in all(nodes) {
-        let (Some(package), Some(target)) = (cite.package.as_deref(), cite.node.as_deref()) else {
-            continue; // reported by `external-citation-unresolved`
-        };
-        let Some(span) = cite
-            .span
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        else {
-            violations.push(Violation::new(
-                &node.rel,
-                format!(
-                    "cites `{package}::{target}` with no `span:` — a node reference alone \
-                     rots invisibly, because the node keeps its name while its content is \
-                     rewritten"
-                ),
-            ));
-            continue;
-        };
-        let Some(dep) = deps.get(package) else {
-            continue; // reported by `external-citation-unresolved`
-        };
-        let Ok(text) = std::fs::read_to_string(node_path(dep, target)) else {
-            continue; // reported by `external-citation-unresolved`
-        };
-        // Whitespace between words is normalized on both sides and nothing else is. A YAML
-        // folded scalar (`>-`) is the natural way to write a span and it rewraps the text on
-        // read, so comparing raw bytes would fail every citation written the readable way —
-        // against a node whose own prose is also wrapped. What is *not* normalized is case,
-        // punctuation, or wording: those are the changes a span exists to catch.
-        if !flatten(&text).contains(&flatten(span)) {
-            violations.push(Violation::new(
-                &node.rel,
-                format!(
-                    "cites `{package}::{target}`{} for a span that is no longer in it — \
-                     the far side revised the text this claim rests on. Read the node and \
-                     decide whether the claim still holds; do not re-quote it to make the \
-                     check pass. Span: {:?}",
-                    // The standing it was recorded at, where one was. A foreign tag never
-                    // transfers and is not computed into anything — it is here because the
-                    // person deciding whether the local claim survives wants to know what
-                    // they thought they were leaning on. Its other consumer is #267.
-                    match cite.tag.as_deref() {
-                        Some(tag) => format!(", recorded at [{tag}],"),
-                        None => String::new(),
-                    },
-                    truncate(span)
-                ),
-            ));
-        }
-    }
+fn external_citation_span_drift(violations: Vec<Violation>) -> Check {
     Check::new(
-        "external-citation-span-drift",
+        SPAN_DRIFT,
         "Cited span no longer appears in the dependency",
         Severity::Error,
         "A node reference alone rots invisibly: the node keeps its name while its content is \
@@ -247,35 +421,9 @@ pub fn external_citation_span_drift(nodes: &[Node], deps: &BTreeMap<String, Inst
 /// escalating this would mean a producer cutting a release could turn a stranger's CI red
 /// without the stranger changing anything, which is the exact failure a pin exists to
 /// prevent.
-pub fn external_citation_pin_moved(nodes: &[Node], deps: &BTreeMap<String, Installed>) -> Check {
-    let mut violations = Vec::new();
-    for (node, cite) in all(nodes) {
-        let (Some(package), Some(cited)) = (cite.package.as_deref(), cite.commit.as_deref()) else {
-            continue;
-        };
-        let Some(dep) = deps.get(package) else {
-            continue;
-        };
-        let Some(pin) = dep.pin.as_deref() else {
-            continue; // unpinnable — reported by `external-citation-unpinned`
-        };
-        // Prefix either way. A manifest commit is `git rev-parse --short` in the producing
-        // repository, and git chooses that abbreviation's length from the repository's object
-        // count — so the same commit is legitimately spelled with more characters in a later
-        // bundle from a larger repository. Comparing for equality would report a move that
-        // did not happen.
-        if !pin.starts_with(cited) && !cited.starts_with(pin) {
-            violations.push(Violation::new(
-                &node.rel,
-                format!(
-                    "cites `{package}` at {cited} and {package} is installed at {pin} — \
-                     the claim was written against a different state of that corpus"
-                ),
-            ));
-        }
-    }
+fn external_citation_pin_moved(violations: Vec<Violation>) -> Check {
     Check::new(
-        "external-citation-pin-moved",
+        PIN_MOVED,
         "Citation written against a pin that has moved",
         Severity::Warn,
         "A stale dependency is a normal state: it is pinned deliberately, and where its \
@@ -289,32 +437,9 @@ pub fn external_citation_pin_moved(nodes: &[Node], deps: &BTreeMap<String, Insta
 }
 
 /// A citation that cannot be pinned, saying so rather than implying it was.
-pub fn external_citation_unpinned(nodes: &[Node], deps: &BTreeMap<String, Installed>) -> Check {
-    let mut violations = Vec::new();
-    for (node, cite) in all(nodes) {
-        let Some(package) = cite.package.as_deref() else {
-            continue;
-        };
-        let Some(dep) = deps.get(package) else {
-            continue;
-        };
-        if dep.kind == DependencyKind::Path {
-            violations.push(Violation::new(
-                &node.rel,
-                format!(
-                    "cites `{package}`, a path dependency, which carries no pin — this \
-                     citation records what was read and not which state it was read from"
-                ),
-            ));
-        } else if dep.pin.is_none() {
-            violations.push(Violation::new(
-                &node.rel,
-                format!("cites `{package}`, whose `manifest.yml` states no commit"),
-            ));
-        }
-    }
+fn external_citation_unpinned(violations: Vec<Violation>) -> Check {
     Check::new(
-        "external-citation-unpinned",
+        UNPINNED,
         "Citation into a dependency that carries no pin",
         Severity::Info,
         "A path dependency is read where it sits and is not fetched, not hashed and not \
@@ -386,13 +511,12 @@ mod tests {
 
     fn run(dir: &tempfile::TempDir) -> BTreeMap<&'static str, Check> {
         let root = dir.path();
-        let nodes = nodes(root);
-        let deps = installed(root);
+        let [unresolved, drift, pin, unpinned] = checks(&nodes(root), &installed(root));
         [
-            ("unresolved", external_citation_unresolved(&nodes, &deps)),
-            ("drift", external_citation_span_drift(&nodes, &deps)),
-            ("pin", external_citation_pin_moved(&nodes, &deps)),
-            ("unpinned", external_citation_unpinned(&nodes, &deps)),
+            ("unresolved", unresolved),
+            ("drift", drift),
+            ("pin", pin),
+            ("unpinned", unpinned),
         ]
         .into_iter()
         .collect()
@@ -511,6 +635,115 @@ mod tests {
         assert!(run(&dir)["pin"].violations.is_empty());
     }
 
+    // ── the predicate, asked directly (#357) ─────────────────────────────────
+
+    /// A citation nothing in the corpus has written yet, judged.
+    ///
+    /// The whole point of lifting the predicate: `findings` takes a citation and a dependency
+    /// set, and nothing else. There is no citing node here and there does not need to be —
+    /// all four rules are about the far side.
+    #[test]
+    fn a_citation_is_judged_without_a_node_to_have_written_it_on() {
+        let dir = fixture("", FOREIGN, Some(MANIFEST));
+        let deps = installed(dir.path());
+        let cite = ExternalCitation {
+            package: Some("upstream".into()),
+            node: Some("concept/base-flow".into()),
+            commit: Some("8d35441".into()),
+            span: Some("the slowly varying component sustained by groundwater discharge".into()),
+            tag: None,
+        };
+        assert!(findings(&cite, &deps).is_empty());
+
+        let drifted = ExternalCitation {
+            span: Some("sustained by a reservoir release".into()),
+            ..cite
+        };
+        let found = findings(&drifted, &deps);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].check, SPAN_DRIFT);
+        assert_eq!(found[0].severity, Severity::Error);
+    }
+
+    /// The four checks and the predicate cannot disagree, because there is one of them.
+    ///
+    /// A citation wrong in two independent ways: the pin has moved *and* the span is gone.
+    /// Both are reported, at their own severities, and the checks report exactly what the
+    /// predicate does — which is the property that lets `check_citation` promise an agent the
+    /// verdict its gate will give.
+    #[test]
+    fn the_checks_report_exactly_what_the_predicate_found() {
+        let dir = fixture(
+            &cites("    commit: 0000000\n    span: \"a reservoir release\"\n"),
+            FOREIGN,
+            Some(MANIFEST),
+        );
+        let deps = installed(dir.path());
+        let cite = ExternalCitation {
+            package: Some("upstream".into()),
+            node: Some("concept/base-flow".into()),
+            commit: Some("0000000".into()),
+            span: Some("a reservoir release".into()),
+            tag: None,
+        };
+
+        let found = findings(&cite, &deps);
+        let ids: Vec<&str> = found.iter().map(|f| f.check).collect();
+        assert_eq!(ids, vec![SPAN_DRIFT, PIN_MOVED]);
+
+        let checks = run(&dir);
+        assert_eq!(checks["drift"].violations.len(), 1);
+        assert_eq!(checks["pin"].violations.len(), 1);
+        assert!(checks["unresolved"].violations.is_empty());
+        assert!(checks["unpinned"].violations.is_empty());
+        for (check, finding) in [(&checks["drift"], &found[0]), (&checks["pin"], &found[1])] {
+            assert_eq!(check.violations[0].detail, finding.message);
+            assert_eq!(check.severity, finding.severity);
+        }
+    }
+
+    /// A snapshot answers, and the disk is never reached.
+    ///
+    /// `corpus_dir` names a path that does not exist, so a read that fell through would
+    /// report the node missing. This is the arm the MCP server runs on: it must judge a span
+    /// against the corpus it walked at startup, which is the one every other tool answers
+    /// from.
+    #[test]
+    fn a_snapshot_answers_a_span_without_reading_the_disk() {
+        let deps: BTreeMap<String, Installed> = [(
+            "upstream".to_string(),
+            Installed {
+                corpus_dir: PathBuf::from("/nonexistent/upstream/corpus"),
+                kind: DependencyKind::Fetched,
+                pin: Some("8d35441".into()),
+                nodes: Nodes::Snapshot(
+                    [("concept/base-flow".to_string(), FOREIGN.to_string())].into(),
+                ),
+            },
+        )]
+        .into();
+
+        let held = ExternalCitation {
+            package: Some("upstream".into()),
+            node: Some("concept/base-flow".into()),
+            commit: Some("8d35441".into()),
+            span: Some("sustained by groundwater discharge".into()),
+            tag: None,
+        };
+        assert!(findings(&held, &deps).is_empty());
+
+        // And the snapshot bounds what exists: a node it does not carry is unresolved, not a
+        // stat against a directory that is not there.
+        let absent = ExternalCitation {
+            node: Some("concept/quickflow".into()),
+            ..held
+        };
+        let found = findings(&absent, &deps);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].check, UNRESOLVED);
+        assert!(found[0].message.contains("no such node"));
+    }
+
     /// A manifest with no commit is unpinned, not moved.
     #[test]
     fn a_manifest_with_no_commit_is_unpinned_rather_than_moved() {
@@ -584,9 +817,7 @@ pub fn survey(root: &Path) -> Vec<Standing> {
             continue;
         };
         let dep = deps.get(package);
-        let text = dep
-            .map(|d| node_path(d, target))
-            .and_then(|p| std::fs::read_to_string(p).ok());
+        let text = dep.and_then(|d| d.text(target));
         let standings = match (
             &text,
             deps.get_key_value(package).and_then(|(k, _)| fields.get(k)),
