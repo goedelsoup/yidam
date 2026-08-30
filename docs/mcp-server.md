@@ -13,8 +13,16 @@ configuration, which tool to reach for, and how to tell what you are actually co
 ## 1. Which binary carries `serve`
 
 **Any of them.** `serve --mcp` is in the light default build — the one the install script,
-the Homebrew tap and `cargo binstall` all give you. No protoc, no ONNX runtime, no C
-toolchain.
+the Homebrew tap, mise and `cargo binstall` all give you. No protoc, no ONNX runtime, no C
+toolchain. Through mise, that is:
+
+```sh
+mise use -g "github:goedelsoup/yidam[version_prefix=cli/v]@latest"
+```
+
+`version_prefix` filters this repository's four tag prefixes down to the CLI's. Without it
+`@latest` resolves the editor release, which ships only a `.vsix` — so it fails rather than
+installing something stale. See [installation](installation.md#mise).
 
 What the `index` feature adds is not the server but the *quality of one tool*. With it,
 `retrieve` is semantic search over a vector index. Without it, `retrieve` falls back to

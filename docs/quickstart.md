@@ -19,8 +19,15 @@ convincing until you have watched it stop you.
 curl -fsSL https://raw.githubusercontent.com/goedelsoup/yidam/main/install.sh | sh
 ```
 
-or `brew install goedelsoup/tap/yidam`, or `cargo binstall yidam`. All three fetch the same
-prebuilt binary; see [the README](../README.md#getting-started) for the source build.
+or `brew install goedelsoup/tap/yidam`, or `cargo binstall yidam`. If you already use mise:
+
+```sh
+mise use -g "github:goedelsoup/yidam[version_prefix=cli/v]@latest"
+```
+
+All four fetch the same prebuilt binary; see [installation](installation.md) for what
+`version_prefix` is doing there, and [the README](../README.md#getting-started) for the
+source build.
 
 ```sh
 yidam --version
