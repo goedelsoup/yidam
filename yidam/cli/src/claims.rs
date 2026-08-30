@@ -183,26 +183,43 @@ struct OntologyProperty {
     r#type: String,
 }
 
+/// What one class definition declares: the name it calls itself, and its claim-typed
+/// properties.
+///
+/// **One parser, two readers.** [`ClaimFields::load`] reads the ontology on disk;
+/// [`crate::cmd::lint::history`] reads it from a blob at a past commit, where there is no
+/// file to walk. A second copy of this parse is how a corpus and its own history come to
+/// disagree about which fields carry a tag — and the disagreement would surface as a
+/// question whose age is measured against an ontology that never applied to it.
+///
+/// The class name is `None` when the file does not declare one; the caller supplies the
+/// file stem, which is the only thing it can fall back to and which the blob reader does not
+/// have a path for.
+pub(crate) fn declared_claim_fields(text: &str) -> (Option<String>, Vec<String>) {
+    let ont: OntologyProperties = serde_yaml::from_str(text).unwrap_or_default();
+    let fields = ont
+        .properties
+        .into_iter()
+        .filter(|p| p.r#type == CLAIM_PROPERTY_TYPE)
+        .map(|p| p.name)
+        .collect();
+    (ont.class, fields)
+}
+
 impl ClaimFields {
     /// Read every class definition in a corpus.
     pub fn load(corpus: &std::path::Path) -> Self {
         let mut map = std::collections::BTreeMap::new();
         for path in crate::walk::walk_ont_files(corpus) {
             let text = std::fs::read_to_string(&path).unwrap_or_default();
-            let ont: OntologyProperties = serde_yaml::from_str(&text).unwrap_or_default();
-            let class = ont.class.unwrap_or_else(|| {
+            let (declared, fields) = declared_claim_fields(&text);
+            let class = declared.unwrap_or_else(|| {
                 path.file_name()
                     .and_then(|n| n.to_str())
                     .and_then(|n| n.strip_suffix(".ont.yml"))
                     .unwrap_or_default()
                     .to_string()
             });
-            let fields: Vec<String> = ont
-                .properties
-                .into_iter()
-                .filter(|p| p.r#type == CLAIM_PROPERTY_TYPE)
-                .map(|p| p.name)
-                .collect();
             if !fields.is_empty() {
                 map.insert(class, fields);
             }

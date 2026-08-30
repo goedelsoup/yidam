@@ -61,6 +61,11 @@ withdraw_uncited_after = 400
 [catalog]
 ttl_days = 180
 
+[due]
+questions_after = 100
+phases_after = 60
+index_after = 25
+
 [index]
 model = "BAAI/bge-small-en-v1.5"
 ```
@@ -97,6 +102,31 @@ statute do not age at the same rate; this key exists for the common case of a co
 sources mostly do age alike, so adopting a TTL is one line rather than one line per entry.
 
 Absent means no entry expires unless it says so itself.
+
+### `[due]`
+
+The intervals [`yidam due`](cli-reference.md#the-practice) reads. Each is an age a subject may
+reach before that clock comes due, and each absent key means the clock reports what it measured
+and never comes due.
+
+| Key | Subject | Unit |
+|---|---|---|
+| `questions_after` | An open question | corpus-touching commits |
+| `phases_after` | A bounded inquiry ref not yet on the baseline | days |
+| `index_after` | Corpus files changed since the index was built | files |
+
+**The fourth clock's interval is not here.** `due` also reads a source record's TTL, and that
+is [`[catalog] ttl_days`](#catalog-ttl_days) and each entry's own `ttl_days:`, where it already
+lived. Restating it under `[due]` would create two places to set one number.
+
+**Two of these count days and one does not.** How long a question has gone unanswered is a fact
+about the repository, and the repository's clock is `HEAD` — a corpus that has not committed
+has not ignored anything. A phase's time in flight is a fact about the world, which is the same
+argument `ttl_days` makes: work does not stop having been open for four months because nobody
+committed to the corpus.
+
+`index_after = 1` means any change at all makes a rebuild due. A larger number is a corpus
+saying it is content for retrieval to lag its own edits by that much.
 
 ### `[index] model`
 

@@ -168,6 +168,29 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// What is due? The four clocks, read together, on a schedule.
+    ///
+    /// Index staleness, a catalog entry's TTL, how long a question has gone unanswered,
+    /// and how long a phase has been in flight. Each had a home and none said it was
+    /// time.
+    ///
+    /// **What is due is not what is wrong.** A corpus with three expired sources is not
+    /// unhealthy, it is owed — so this exits zero however much is due, and `yidam doctor`
+    /// remains the report that answers whether anything is broken. `--strict` exits
+    /// nonzero, for a scheduled job that wants a signal.
+    ///
+    /// Every interval is declared by the corpus, never compiled in: `[catalog] ttl_days`
+    /// for sources, `[due]` for the other three. A clock with no interval reports what it
+    /// measured and never comes due. Read-only and offline.
+    Due {
+        /// Exit nonzero when a clock is due. For a cron or CI job that wants a signal.
+        #[arg(long)]
+        strict: bool,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Refresh every REGEN block in one pass.
     Regen {
         /// Report which blocks are stale and write nothing. Exits nonzero when any is.
@@ -679,6 +702,7 @@ fn main() -> Result<()> {
         Command::PackagesIndex => yidam::packages_index(),
         Command::BundleStatus => yidam::bundle_status(),
         Command::Doctor { strict, format } => yidam::doctor(strict, format),
+        Command::Due { strict, format } => yidam::due(strict, format),
         Command::Regen { check, format } => yidam::regen(check, format),
         Command::Propose {
             dry_run,

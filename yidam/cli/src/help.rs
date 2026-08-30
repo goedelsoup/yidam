@@ -74,6 +74,15 @@ pub const GROUPS: &[Group] = &[
         ],
     },
     Group {
+        // Its own group, and beside the gates rather than in them. `due` reads clocks and
+        // exits zero however much is owed: a corpus with three expired sources is doing
+        // exactly what it is meant to do and is simply owed a look. Filing it under "exit
+        // nonzero on a problem" would teach a reader that being owed is a defect, which is
+        // the one reading this report exists to prevent.
+        title: "The practice — what is owed, which is not what is wrong",
+        commands: &[r("due")],
+    },
+    Group {
         title: "README blocks — each rewrites its <!-- REGEN --> block where it is run",
         commands: &[
             w("regen"),

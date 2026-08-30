@@ -16,6 +16,8 @@ pub struct YidamConfig {
     pub propose: ProposeConfig,
     #[serde(default)]
     pub catalog: CatalogConfig,
+    #[serde(default)]
+    pub due: DueConfig,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -101,6 +103,57 @@ pub struct CatalogConfig {
     /// ttl_days = 180
     /// ```
     pub ttl_days: Option<u32>,
+}
+
+/// When this corpus considers each of its clocks due.
+///
+/// Read by `yidam due`, and by nothing else. The keys here are the intervals the clocks it
+/// reads had none of; the fourth interval it reads is [`CatalogConfig::ttl_days`] and is
+/// deliberately **not** repeated here. A source's TTL is a statement about the source and
+/// belongs where a source is configured — restating it under `[due]` would create two places
+/// to change it and one of them would be wrong.
+///
+/// Every key absent is the default, and it means `yidam due` reports what it measured and
+/// calls nothing due. That is not a degraded mode: a clock with no interval is a number
+/// nobody has yet decided the meaning of, and inventing one in the binary would be the
+/// failure [`LintConfig::escalate_after`] describes at greater length.
+#[derive(Debug, Default, Deserialize)]
+pub struct DueConfig {
+    /// Corpus-touching commits an open question may stand before it is due a look.
+    ///
+    /// Commits, not days, and the reasoning is `history::Age`'s: how long a question has gone
+    /// unanswered is a fact about the repository, and the repository's clock is `HEAD`. A
+    /// corpus that has not committed has not ignored anything.
+    ///
+    /// ```toml
+    /// [due]
+    /// questions_after = 100
+    /// ```
+    pub questions_after: Option<usize>,
+    /// Days a bounded inquiry ref may be in flight before it is due a look.
+    ///
+    /// **Days, and this is the second clock that counts them.** A phase is work somebody is
+    /// doing in the world, and it does not stop having been open for four months because
+    /// nobody committed to the corpus. That is the same argument
+    /// [`crate::cmd::lint::ttl`] makes for a source's TTL, applied to the other quantity
+    /// here that is not a fact about the repository.
+    ///
+    /// ```toml
+    /// [due]
+    /// phases_after = 60
+    /// ```
+    pub phases_after: Option<u32>,
+    /// Corpus files that may change after the index was built before a rebuild is due.
+    ///
+    /// `1` means any change at all makes it due, which is what a repository that keeps
+    /// semantic search sharp will want. A larger number is a corpus saying it is content for
+    /// retrieval to lag its own edits by that much.
+    ///
+    /// ```toml
+    /// [due]
+    /// index_after = 25
+    /// ```
+    pub index_after: Option<usize>,
 }
 
 pub fn load_yidam_config(root: &Path) -> Result<YidamConfig> {

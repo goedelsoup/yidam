@@ -398,6 +398,10 @@ run = "yidam catalog-audit"
 description = "List active inquiry phases (ma/* and rigpa/* branches) with owner, start date, and commit count."
 run = "yidam phases"
 
+[due]
+description = "What is due? Four clocks read together: index staleness, catalog TTL, unanswered questions, phases in flight. Read-only, exits zero — being owed is not being broken."
+run = "yidam due"
+
 [sangha]
 description = "Report the sangha: registered electors, their positions, and settled resolutions."
 run = "yidam sangha"

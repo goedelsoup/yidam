@@ -162,7 +162,74 @@
     },
     "passed": {
       "type": "boolean",
-      "description": "`graph-check`, `regen --check` and `index-verify`. The gate verdict. A consumer MUST NOT recompute it."
+      "description": "`graph-check`, `regen --check` and `index-verify`. The gate verdict. A consumer MUST NOT recompute it. On `due` it is true unless `--strict` was passed and a clock is due — being owed is not a failure, and this field is here so a consumer does not infer one."
+    },
+    "clocks": {
+      "type": "array",
+      "description": "`due` only. The four clocks, each with the interval this corpus declared for it. A clock in state `undeclared` still reports what it measured: nobody has set it, which is not the same as its reading zero.",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "question",
+          "state",
+          "overdue",
+          "detail"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable identifier: `index`, `catalog`, `questions` or `phases`."
+          },
+          "question": {
+            "type": "string",
+            "description": "What the clock measures, in the form a person would ask it."
+          },
+          "state": {
+            "enum": [
+              "due",
+              "ok",
+              "undeclared",
+              "unmeasurable"
+            ],
+            "description": "`due` is not a defect. A corpus with three expired sources is owed, not unhealthy — `doctor` is the report that answers whether anything is wrong. `undeclared` means this corpus set no interval, so the clock can never come due; `unmeasurable` means it set one and there is nothing to measure against, which is a gap in bookkeeping rather than a stale subject."
+          },
+          "interval": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The declaration that sets this clock's interval, as a reader would write it. Null when this corpus has not set one. The catalog clock reads `[catalog] ttl_days` and each entry's own `ttl_days:`; the other three read `[due]` keys."
+          },
+          "overdue": {
+            "type": "integer",
+            "description": "Subjects past the interval. Zero on every state but `due`."
+          },
+          "detail": {
+            "type": "string",
+            "description": "What was measured, whether or not an interval applies."
+          },
+          "remedy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The command or act that discharges it — or, on an `undeclared` clock, the key that would set it. Null when there is nothing to do."
+          }
+        }
+      }
+    },
+    "due": {
+      "type": "integer",
+      "description": "`due` only. Clocks past their interval. A consumer MUST NOT render this as a fault count."
+    },
+    "undeclared": {
+      "type": "integer",
+      "description": "`due` only. Clocks this corpus declared no interval for, which therefore can never come due."
+    },
+    "strict": {
+      "type": "boolean",
+      "description": "`doctor` and `due`. Whether `--strict` was passed. It is the only thing that makes a due clock exit nonzero, and the only thing that makes a doctor warning do so."
     },
     "corpus_empty": {
       "type": "boolean",

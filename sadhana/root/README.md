@@ -63,7 +63,15 @@ mise install              # provision toolchains
 mise run yidam-build      # install the yidam CLI (once)
 mise run regen            # refresh every REGEN block
 mise run ci               # the gate CI runs
+mise run due              # what is owed a look, on whatever cadence you keep
 ```
+
+`mise run due` is the other half of the pair and is not a gate. `ci` answers *is anything
+wrong*; `due` answers *is it time* — reading the four clocks a corpus keeps: how stale the
+index is, whether a source has aged past its TTL, how long a question has gone unanswered, and
+how long a phase has been in flight. It exits zero however much it finds, because being owed is
+not being broken. Every interval is one this repository declares in `.yidam/config.toml`; a
+clock nobody has set reports what it measured and never comes due.
 
 `mise run ci` is the whole corpus gate — `graph-check`, `graph-lint`, and `regen --check` —
 and it is held to CI's by a test upstream rather than by anyone remembering to keep the two

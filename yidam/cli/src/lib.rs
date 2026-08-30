@@ -27,8 +27,8 @@ pub use cmd::index_build;
 pub use cmd::tonpa;
 pub use cmd::{
     agents_index, backfill, bench, bundle, bundle_status, catalog_audit, check_diff, clone,
-    corpus_index, crates_index, decisions_log, diff_corpus, doctor, embed, estimate, export, graph,
-    graph_check, index_status, index_verify, lint, list_formats, log, migrate, neighbors,
+    corpus_index, crates_index, decisions_log, diff_corpus, doctor, due, embed, estimate, export,
+    graph, graph_check, index_status, index_verify, lint, list_formats, log, migrate, neighbors,
     open_questions, overlay, pack, packages_index, parse_bench_goals, phases, propose, query,
     regen, rename, replay, run_export, samudaya_audit, sangha, schema, serve_lsp, serve_mcp,
     skills_index, status, vocabulary, BenchGoal, BenchGoalSet, EmbedOptions, ExportFormat,
