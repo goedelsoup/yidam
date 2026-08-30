@@ -48,6 +48,68 @@ Read-only, and they exit nonzero on a problem — which is what makes them usabl
 The baseline is what makes `lint` answer *did this change make the corpus less clean?* rather
 than *is the corpus clean?* — see [Configuration](configuration.md#yidamlint-baselineyml).
 
+## The practice
+
+One command, and it is not a gate. Read-only, offline, and it exits zero however much is owed.
+
+| Command | What it answers |
+|---|---|
+| `due` | What is due? Four clocks read together — index staleness, catalog TTL, unanswered questions, phases in flight. `--strict` exits nonzero on a due clock |
+
+### `due` is not `doctor`, and the difference is the point
+
+`doctor` answers *is this setup sound now*. It is read under suspicion, and it exits nonzero on
+what is wrong. `due` answers *is it time*, and it is read on a cadence — from a cron job, a
+weekly ritual, or the start of a session.
+
+**A corpus with three expired sources is not unhealthy. It is owed.** Nothing about it is
+broken, no traversal will lie, and the gate is green. Folding that into `doctor`'s warnings
+would tell a reader that a repository doing exactly what it is meant to do has a problem, and
+the reader would learn to skip the line. So the two reports are separate, `due` has its own
+verdicts — `due`, `ok`, `undeclared`, `unmeasurable` — and it exits zero unless you pass
+`--strict` to ask for a signal.
+
+### Every interval is declared, and a clock nobody set never comes due
+
+A clock is an age and an interval. The age is measured; the interval is always something the
+corpus said about itself, never a number in the binary — the reasoning is
+[`escalate_after`](configuration.md#lint-escalate_after)'s.
+
+| Clock | Measures | Interval | Unit |
+|---|---|---|---|
+| `index` | Corpus files changed since the index was built | `[due] index_after` | files |
+| `catalog` | How long since a source record was retrieved | `[catalog] ttl_days`, or an entry's own | days |
+| `questions` | How long a question has gone unanswered | `[due] questions_after` | corpus commits |
+| `phases` | How long a bounded inquiry has been in flight | `[due] phases_after` | days |
+
+The catalog clock reads the interval [where it already lived](configuration.md#catalog-ttl_days)
+rather than restating it under `[due]`: a source's TTL is a statement about the source, and two
+places to set one number means one of them is wrong.
+
+A clock with no interval reports what it measured and is never due — with the key that would
+set it as its remedy. That is the state of every repository that has not opted in, and it is
+the design rather than a degraded mode.
+
+Two of the four count days and two do not, which is deliberate. How long a question has gone
+unanswered is a fact about the repository, so its clock is `HEAD`: a corpus that has not
+committed has not ignored anything. A source's TTL and a phase's time in flight are facts about
+the world, which does not stop moving because nobody committed.
+
+### What discharges a clock
+
+`due` reports; it does not act. Only one of the four clocks is discharged by something
+[`propose`](#propose-is-deliberately-small) can draft:
+
+| Clock | What discharges it |
+|---|---|
+| `index` | `yidam index-build`. A build, not a commit |
+| `catalog` | `yidam propose`, which already drafts an `open:` against each expired source |
+| `questions` | A person. Deciding a question is answered is a resolution event, and Article V confines those to a sangha |
+| `phases` | A person. Settling a phase or abandoning it is not a mechanical consequence of a finding |
+
+Each clock names its own remedy in the report, so the distinction is visible where it matters
+rather than only here.
+
 ## README blocks
 
 Each of these rewrites its own `<!-- REGEN: yidam <name> -->` block in the repository's README.

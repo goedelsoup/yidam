@@ -190,6 +190,9 @@ yidam doctor              is this setup sound? pin, PATH, prelude age, index, RE
 yidam graph-check         orphans, broken links, missing labels — the gate CI runs
 yidam lint --commits      corpus quality checks against a baseline ratchet, plus the commit vocabulary
 
+# the practice — what is owed, which is not what is wrong
+yidam due                 four clocks read together: index, catalog TTL, questions, phases
+
 # README blocks — each rewrites its own <!-- REGEN --> block
 yidam status              repo overview: nodes, open questions, catalog, index freshness, phases
 yidam regen               refresh every REGEN block in one pass
@@ -226,6 +229,15 @@ suspect it to go looking.
 Index subcommands (`corpus-index`, `skills-index`, `catalog-audit`, …) back the
 `<!-- REGEN: yidam <subcommand> -->` markers embedded in README files. `mise run regen`
 refreshes them all in one pass; in derived repos a stale REGEN block is a failing build.
+
+`yidam due` is the other half of that pair, and the distinction is deliberate. `doctor` answers
+*is this sound now* and is read under suspicion; `due` answers *is it time* and is read on a
+cadence. It reads four clocks together — how stale the index is, whether a catalog source has
+aged past its TTL, how long a question has gone unanswered, and how long a phase has been in
+flight — and reports what is owed. **A corpus with three expired sources is not unhealthy, it
+is owed**, so `due` exits zero however much it finds unless you pass `--strict`. Every interval
+is declared by the corpus in `.yidam/config.toml`; a clock nobody has set reports what it
+measured and never comes due.
 
 `yidam doctor` is the one to reach for when something is off and you do not yet know what.
 It answers, in one screen, the questions that were previously spread across a stderr

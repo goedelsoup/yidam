@@ -300,6 +300,21 @@ pub(crate) struct Frame<'a> {
     pub ts: i64,
     /// Every instance node present, and the targets it points at.
     pub out: &'a HashMap<String, HashSet<String>>,
+    /// Every instance node present, and its content at this commit.
+    ///
+    /// Borrowed from the one `cat-file --batch` the walk already ran, so carrying it costs a
+    /// pointer per live node rather than a second read of history. It exists because
+    /// [`open_question_age`] asks a question of the *text* — a `[open]` tag in prose — that
+    /// no reduction of the edges can answer.
+    pub text: &'a HashMap<String, &'a str>,
+    /// Which properties carried an evidence tag **at this commit**, not today.
+    ///
+    /// A class that grew a `type: claim` property last month did not make last year's
+    /// instances open questions retroactively, and reading today's ontology over the whole
+    /// walk would date every such question to the commit that added the property. Built per
+    /// frame from the class blobs, through the same parser
+    /// [`crate::claims::ClaimFields::load`] uses.
+    pub claim_fields: &'a crate::claims::ClaimFields,
     /// Every node something points at.
     pub cited: HashSet<&'a String>,
     /// Classes that declare no inbound edge, whose instances are orphans by design.
@@ -346,9 +361,18 @@ pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
 
     // Live corpus state, rebuilt forward: each node's outbound targets.
     let mut out: HashMap<String, HashSet<String>> = HashMap::new();
+    // The same nodes' content, borrowed from the blobs already read. Kept in step with
+    // `out` — every insert and every removal touches both — so a frame cannot show a node
+    // whose text is a previous revision's.
+    let mut text: HashMap<String, &str> = HashMap::new();
     // The ontology as it stands, class by class. Kept rather than reduced on the way in,
     // because the reduction reads every class at once.
     let mut decls: BTreeMap<String, Vec<super::checks::ClassEdge>> = BTreeMap::new();
+    // What each class calls itself and which of its properties carry a tag. Keyed by the
+    // file stem, and carrying the declared `class:` beside it, because
+    // `ClaimFields::load` keys by the declared name where there is one and an instance
+    // looks itself up by the name it writes in its own `class:` field.
+    let mut claims: BTreeMap<String, (Option<String>, Vec<String>)> = BTreeMap::new();
 
     for c in &commits {
         let mut touched = false;
@@ -358,8 +382,10 @@ pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
                 touched = true;
                 if ch.status == b'D' {
                     out.remove(&ch.path);
+                    text.remove(&ch.path);
                 } else {
                     out.insert(ch.path.clone(), targets_of(&ch.path, content()));
+                    text.insert(ch.path.clone(), content());
                 }
             } else if is_class(&ch.path) {
                 touched = true;
@@ -367,9 +393,11 @@ pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
                 match ch.status {
                     b'D' => {
                         decls.remove(&name);
+                        claims.remove(&name);
                     }
                     _ => {
-                        decls.insert(name, blob_edges(content()));
+                        decls.insert(name.clone(), blob_edges(content()));
+                        claims.insert(name, crate::claims::declared_claim_fields(content()));
                     }
                 }
             }
@@ -386,10 +414,23 @@ pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
             .collect();
         let source_classes = super::checks::source_classes(&view);
         let expectations = expectations_of(&decls);
+        let claim_fields = crate::claims::ClaimFields::from_declarations(
+            claims
+                .iter()
+                .map(|(stem, (declared, fields))| {
+                    (
+                        declared.clone().unwrap_or_else(|| stem.clone()),
+                        fields.clone(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
         frame(Frame {
             sha: &c.sha,
             ts: c.ts,
             out: &out,
+            text: &text,
+            claim_fields: &claim_fields,
             cited,
             source_classes: &source_classes,
             expectations: &expectations,
@@ -482,6 +523,70 @@ pub fn uncited_age(root: &Path) -> HashMap<String, Age> {
                     ts,
                     // HEAD inclusive: a condition that first held at the last frame has
                     // held for one commit, not zero.
+                    commits: frames - first,
+                },
+            )
+        })
+        .collect()
+}
+
+/// Whether a node's content at one commit reads as an open question.
+///
+/// The live predicate, applied to a past revision. `status` and `open-questions` ask
+/// [`crate::claims::is_open_question`] the same way over the working tree; asking it
+/// differently here would produce an age for a condition the present-tense reports do not
+/// agree is holding.
+fn is_open(path: &str, content: &str, fields: &crate::claims::ClaimFields) -> bool {
+    let inst: crate::parse::CorpusInstance = serde_yaml::from_str(content).unwrap_or_default();
+    let label = inst.label.unwrap_or_default();
+    // The declared class, then the directory. `ClaimFields` is keyed by what a class calls
+    // itself, and a node that names no class still lives in one.
+    let class = inst.class.unwrap_or_else(|| class_of(path).to_string());
+    crate::claims::is_open_question(&label, content, fields.for_class(&class))
+}
+
+/// For every node that is an open question at HEAD, how long it has been one.
+///
+/// The third clock `yidam due` reads, and the one that had no machinery. `status` counts
+/// open questions and cannot say whether it is counting a question asked this morning or one
+/// that has stood unanswered through two hundred commits — which is the whole distinction
+/// `docs/post-genesis-measurement.md` draws about residence time.
+///
+/// **Dated from when it became a question, not from when the node was written.** A node
+/// authored a year ago and tagged `[open]` yesterday has been a question for one commit.
+/// That is the same distinction [`uncited_age`] draws, for the same reason, and node age
+/// cannot draw either.
+///
+/// **A question that was closed and reopened dates from the reopening.** The condition is
+/// read per frame and any commit in which it did not hold ends the residence — an answered
+/// question that a later commit reopens is a new question, and carrying the old date would
+/// report a corpus as having ignored something it in fact resolved.
+pub fn open_question_age(root: &Path) -> HashMap<String, Age> {
+    // (sha, ts, index of the frame at which it became a question). Counted at the end, for
+    // the reason [`uncited_age`] gives: the walk does not know how many frames remain.
+    let mut since: HashMap<String, (String, i64, usize)> = HashMap::new();
+    let mut frames = 0usize;
+    replay(root, |f| {
+        for (node, content) in f.text {
+            if is_open(node, content, f.claim_fields) {
+                since
+                    .entry(node.clone())
+                    .or_insert((f.sha.to_string(), f.ts, frames));
+            } else {
+                since.remove(node);
+            }
+        }
+        since.retain(|n, _| f.text.contains_key(n));
+        frames += 1;
+    });
+    since
+        .into_iter()
+        .map(|(node, (sha, ts, first))| {
+            (
+                node,
+                Age {
+                    sha,
+                    ts,
                     commits: frames - first,
                 },
             )
@@ -623,6 +728,127 @@ mod tests {
         assert_eq!(
             since.get(".yidam/corpus/concept/b.yml").map(|a| day(a.ts)),
             Some("2026-01-09".to_string())
+        );
+    }
+
+    // ── open questions ────────────────────────────────────────────────────────
+
+    /// The reason this replays instead of reading the node's age.
+    ///
+    /// `a` is written on the 1st and does not become a question until the 9th. Node age
+    /// would report eight days of unanswered question that nobody had yet asked.
+    #[test]
+    fn a_question_dates_from_when_it_became_one_and_not_from_authorship() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init(root);
+
+        node(root, "concept/a.yml", "class: concept\nlabel: A\n");
+        commit(root, "2026-01-01", "establish: a, answering nothing");
+
+        node(
+            root,
+            "concept/a.yml",
+            "class: concept\nlabel: A\ndescription: whether it holds is `[open]`\n",
+        );
+        commit(root, "2026-01-09", "open: whether a holds");
+
+        let since = open_question_age(root);
+        let age = since
+            .get(".yidam/corpus/concept/a.yml")
+            .expect("a is an open question at HEAD");
+        assert_eq!(day(age.ts), "2026-01-09", "{since:?}");
+        assert_eq!(age.commits, 1, "one corpus commit, HEAD inclusive");
+    }
+
+    /// A question answered and later reopened is a new question.
+    ///
+    /// Carrying the original date would report a corpus as having ignored for months
+    /// something it in fact resolved and then reconsidered — which is the opposite of what
+    /// happened, and in the unflattering direction.
+    #[test]
+    fn a_reopened_question_dates_from_the_reopening() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init(root);
+
+        let asking = "class: concept\nlabel: A\ndescription: it is `[open]`\n";
+        let settled = "class: concept\nlabel: A\ndescription: it is `[verified]`\n";
+
+        node(root, "concept/a.yml", asking);
+        commit(root, "2026-01-01", "open: whether a holds");
+        node(root, "concept/a.yml", settled);
+        commit(root, "2026-02-01", "close: a holds");
+        node(root, "concept/a.yml", asking);
+        commit(root, "2026-03-01", "open: a, reconsidered");
+
+        let since = open_question_age(root);
+        assert_eq!(
+            since.get(".yidam/corpus/concept/a.yml").map(|a| day(a.ts)),
+            Some("2026-03-01".to_string()),
+            "{since:?}"
+        );
+    }
+
+    /// An answered question carries no age at all.
+    #[test]
+    fn an_answered_question_is_not_in_the_map() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init(root);
+
+        node(
+            root,
+            "concept/a.yml",
+            "class: concept\nlabel: A\ndescription: it is `[open]`\n",
+        );
+        commit(root, "2026-01-01", "open: whether a holds");
+        node(
+            root,
+            "concept/a.yml",
+            "class: concept\nlabel: A\ndescription: it is `[verified]`\n",
+        );
+        commit(root, "2026-02-01", "close: a holds");
+
+        assert!(
+            !open_question_age(root).contains_key(".yidam/corpus/concept/a.yml"),
+            "a is answered and must carry no age"
+        );
+    }
+
+    /// The ontology is read at the commit, not at HEAD.
+    ///
+    /// `lead` gains a `type: claim` property in February. The node's `claim_tag: open` was
+    /// sitting in a property that carried no tag until then, so the question begins in
+    /// February — not in January, when a reading through today's ontology would place it.
+    /// Getting this wrong ages every structurally-tagged question to the day its class was
+    /// written, which is the direction that manufactures overdue findings.
+    #[test]
+    fn a_structural_tag_dates_from_when_its_class_declared_the_property() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init(root);
+
+        let untyped = "class: lead\nproperties:\n  - name: claim_tag\n    type: string\n";
+        let typed = "class: lead\nproperties:\n  - name: claim_tag\n    type: claim\n";
+
+        std::fs::create_dir_all(root.join(".yidam/corpus")).unwrap();
+        std::fs::write(root.join(".yidam/corpus/lead.ont.yml"), untyped).unwrap();
+        node(
+            root,
+            "lead/x.yml",
+            "class: lead\nlabel: X\nproperties:\n  claim_tag: open\n",
+        );
+        commit(root, "2026-01-01", "establish: x under an untyped lead");
+
+        std::fs::write(root.join(".yidam/corpus/lead.ont.yml"), typed).unwrap();
+        commit(root, "2026-02-01", "revise: lead's claim_tag carries a tag");
+
+        let since = open_question_age(root);
+        assert_eq!(
+            since.get(".yidam/corpus/lead/x.yml").map(|a| day(a.ts)),
+            Some("2026-02-01".to_string()),
+            "read through today's ontology this would say 2026-01-01: {since:?}"
         );
     }
 
