@@ -114,6 +114,13 @@
       "violations": []
     },
     {
+      "id": "unimplemented-class",
+      "title": "Class naming an implementation the code does not define",
+      "severity": "error",
+      "rationale": "A class declaring `implemented_by:` has stated a fact about `crates/`, and a tree with no type of that name contradicts it — which is what this check's siblings gate on, and an omission is not. A class that declares nothing is not checked, and that silence is measured rather than timid: across twelve derived corpora 129 of 157 declared classes have no type bearing their name, and matching every language in the tree raises it to 88%. Their ontologies model a domain and their code models the pipeline that gathers evidence about it, so a class without a type is the normal case and reporting it would call four fifths of every ontology debt. A rename is invisible: the tree is scanned rather than a diff, so a class implemented under a new name is simply found.",
+      "violations": []
+    },
+    {
       "id": "unlicensed-edge",
       "title": "Relationship the class does not declare",
       "severity": "warn",

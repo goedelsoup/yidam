@@ -100,6 +100,25 @@ pub struct Class {
     /// is where that is known. Declaring the number is how it becomes checkable; declining
     /// to declare it leaves the corpus exactly as checked as it was.
     pub max_lines: Option<usize>,
+    /// The type in `crates/` that implements this class — `Intervention`, as written.
+    ///
+    /// **`None` is the overwhelming default and no check runs, because the ontology is not
+    /// a specification of the code.** Measured over twelve derived corpora: 129 of their
+    /// 157 declared classes have no `struct` or `enum` bearing their name, and widening the
+    /// match to traits, aliases and every language in the tree makes it *worse* — 165 of
+    /// 186, 88%. Five of those corpora match nothing at all. The reason is not that they
+    /// are behind: their ontologies model a research domain and their `crates/` model the
+    /// pipeline that gathers evidence about it, and there is no expectation that the two
+    /// share a name. An unconditional check would call 88% of every ontology debt, which is
+    /// exactly the permanently non-empty report [`super::super::check_diff`] was
+    /// diff-scoped to avoid.
+    ///
+    /// So the class says it, or nothing is said — the shape [`Self::max_lines`] and
+    /// [`ClassProperty::required`] already have. A class that writes this has made a
+    /// statement about the tree, and a tree that contradicts it is the ontology being
+    /// contradicted rather than an omission, which is why [`unimplemented_class`] gates
+    /// where `missing-property` does not.
+    pub implemented_by: Option<String>,
 }
 
 /// One typed field a class declares.
@@ -237,6 +256,8 @@ pub(crate) struct ClassFields {
     edge_policy: Option<String>,
     #[serde(default)]
     max_lines: Option<usize>,
+    #[serde(default)]
+    implemented_by: Option<String>,
 }
 
 impl Class {
@@ -259,6 +280,13 @@ impl Class {
             edges: fields.edges,
             edge_policy: EdgePolicy::parse(fields.edge_policy.as_deref()),
             max_lines: fields.max_lines,
+            // Trimmed, and an empty declaration read as none: `implemented_by: ""` is a
+            // field somebody started and did not finish, and gating a build on it would
+            // report a class against a type name that cannot match anything.
+            implemented_by: fields
+                .implemented_by
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
         }
     }
 }
@@ -917,6 +945,91 @@ pub fn missing_property(nodes: &[Node], classes: &[Class]) -> Check {
          Everything else is reported, because a class that said nothing about a property \
          cannot be read as demanding it — a node that makes no tagged claim is a real \
          state, not a defect, and gating on omission would assert a contract nobody wrote.",
+        violations,
+    )
+}
+
+/// One `struct` or `enum` the tree defines, and where.
+///
+/// Built by [`super::run_checks_with`] from a walk of `crates/`, and taken as an argument
+/// rather than read here so the check stays pure and its logic is testable without a
+/// repository — the same reason every other function in this module takes its facts in.
+pub struct TypeIndex(HashMap<String, String>);
+
+impl TypeIndex {
+    /// Index `(repo-relative path, file text)` pairs by the type names each defines.
+    ///
+    /// **First declaration wins, and nothing here deduplicates across crates.** Five crates
+    /// defining `Error` is five files and one name; the class asked whether the name exists,
+    /// and one location is a better answer than a list nobody reads.
+    pub fn build<'a>(files: impl IntoIterator<Item = (&'a str, &'a str)>) -> Self {
+        let mut by_name = HashMap::new();
+        for (rel, text) in files {
+            for (name, line) in crate::cmd::check_diff::extract::declared_in(text) {
+                by_name
+                    .entry(name)
+                    .or_insert_with(|| format!("{rel}:{line}"));
+            }
+        }
+        Self(by_name)
+    }
+
+    fn locate(&self, name: &str) -> Option<&str> {
+        self.0.get(name).map(String::as_str)
+    }
+}
+
+/// A class naming an implementation the tree does not define.
+///
+/// **Error, where its omission-shaped sibling is a warning, and the difference is the same
+/// one `missing-property` draws.** A class that declares `implemented_by: Intervention` has
+/// stated a fact about the tree. A tree with no such type contradicts it, and contradiction
+/// is what `undeclared-property`, `property-type` and an `exhaustive` `unlicensed-edge`
+/// gate on. The reading that made this an omission — *the ontology declares a class and
+/// nothing implements it* — is the one the measurement killed; see [`Class::implemented_by`]
+/// for the 129-of-157 number and why it could never have shipped unconditionally.
+///
+/// **A rename is invisible here, which is the whole reason the finding moved.** #33 asked
+/// this of a diff, where a rename arrives as a removal plus an addition and correlating the
+/// two is the hard part. This scans a tree: a class implemented under a new name is found
+/// under that name and nothing is reported. What remains reportable is the case worth
+/// gating on — the type is *gone*, or the class was never right about it in the first place.
+///
+/// Matching is exact, on the name as the class wrote it. No kebab round trip, because the
+/// class names the Rust type directly and a round trip would only reintroduce the guess the
+/// field exists to remove: `HTTPServer` and `HttpServer` kebab to the same thing and are
+/// two different types.
+pub fn unimplemented_class(classes: &[Class], types: &TypeIndex) -> Check {
+    let mut violations = Vec::new();
+    for class in classes {
+        let Some(declared) = class.implemented_by.as_deref() else {
+            continue;
+        };
+        if types.locate(declared).is_some() {
+            continue;
+        }
+        violations.push(Violation::new(
+            &class.rel,
+            format!(
+                "`implemented_by: {declared}` names no `struct` or `enum` under `crates/` — \
+                 restore it, point the class at the type that replaced it, or drop the field"
+            ),
+        ));
+    }
+    Check::new(
+        "unimplemented-class",
+        "Class naming an implementation the code does not define",
+        Severity::Error,
+        "A class declaring `implemented_by:` has stated a fact about `crates/`, and a tree \
+         with no type of that name contradicts it — which is what this check's siblings \
+         gate on, and an omission is not. A class that declares nothing is not checked, and \
+         that silence is measured rather than timid: across twelve derived corpora 129 of \
+         157 declared classes have no type bearing their name, and matching every language \
+         in the tree raises it to 88%. Their ontologies model a domain and their code models \
+         the pipeline that gathers evidence about it, so a class without a type is the \
+         normal case and reporting it would call four fifths of every ontology debt. A \
+         rename is invisible: the tree is scanned rather than a diff, so a class implemented \
+         under a new name is simply found.",
         violations,
     )
 }
@@ -2318,6 +2431,7 @@ mod tests {
             edges: vec![edge("cited-by", "recording", dir)],
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            implemented_by: None,
         };
         let node = |class: &str, file: &str| Node {
             path: PathBuf::from(format!("corpus/{class}/{file}.yml")),
@@ -2358,6 +2472,7 @@ mod tests {
             edges: vec![edge("sources-from", "concept", "out")],
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            implemented_by: None,
         };
         let concept = Class {
             rel: ".yidam/corpus/concept.ont.yml".into(),
@@ -2367,6 +2482,7 @@ mod tests {
             edges: vec![edge("refines", "concept", "out")],
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            implemented_by: None,
         };
         let classes = [gage, concept];
         let sources = source_classes(&edge_views(&classes));
@@ -2396,6 +2512,7 @@ mod tests {
             edges: vec![edge("downstream-of", "reach", "out")],
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            implemented_by: None,
         };
         let classes = [reach];
         assert!(source_classes(&edge_views(&classes)).contains("reach"));
@@ -2417,6 +2534,7 @@ mod tests {
             }],
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            implemented_by: None,
         };
         let b = Class {
             rel: ".yidam/corpus/b.ont.yml".into(),
@@ -2426,6 +2544,7 @@ mod tests {
             edges: vec![edge("other", "c", "out")],
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            implemented_by: None,
         };
         let classes = [a, b];
         assert!(source_classes(&edge_views(&classes)).is_empty());
@@ -2445,6 +2564,7 @@ mod tests {
             edges: vec![],
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            implemented_by: None,
         };
         assert!(
             source_classes(&edge_views(std::slice::from_ref(&silent))).is_empty(),
@@ -2760,6 +2880,7 @@ mod tests {
             edges: vec![edge("cited-by", "concept", "in")],
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            implemented_by: None,
         }
     }
 
@@ -2917,18 +3038,16 @@ mod tests {
     // ── the class contract ────────────────────────────────────────────────────
 
     /// A class as the ontology writes it, parsed by the same deserializer `load_classes`
-    /// uses — so a test cannot pass against a shape the YAML could never produce.
+    /// uses and built by the same builder — so a test cannot pass against a shape the YAML
+    /// could never produce, and cannot go on passing against a field the real builder has
+    /// started reading and this one has not. It used to assemble the struct itself, which
+    /// is the third answer to *what a class is* that [`Class::from_fields`] exists to
+    /// prevent; it silently ignored `implemented_by:` the day the field was added.
     fn class_from(name: &str, yaml: &str) -> Class {
-        let fields: ClassFields = serde_yaml::from_str(yaml).unwrap();
-        Class {
-            rel: format!(".yidam/corpus/{name}.ont.yml"),
-            description: fields.description.unwrap_or_default(),
-            name: name.into(),
-            properties: fields.properties,
-            edges: fields.edges,
-            edge_policy: EdgePolicy::parse(fields.edge_policy.as_deref()),
-            max_lines: fields.max_lines,
-        }
+        Class::from_fields(
+            format!(".yidam/corpus/{name}.ont.yml"),
+            serde_yaml::from_str(yaml).unwrap(),
+        )
     }
 
     // ── node-too-long ─────────────────────────────────────────────────────────
@@ -2943,6 +3062,7 @@ mod tests {
             edges: vec![],
             edge_policy: EdgePolicy::default(),
             max_lines: max,
+            implemented_by: None,
         }
     }
 
@@ -3007,6 +3127,131 @@ mod tests {
         assert!(
             node_too_long(&nodes, &classes).passed(),
             "statute declared nothing; person's number is not corpus-wide"
+        );
+    }
+
+    // ── unimplemented-class ───────────────────────────────────────────────────
+
+    /// A class of `name` that says `impl_by` implements it, or says nothing.
+    fn implemented(name: &str, impl_by: Option<&str>) -> Class {
+        Class {
+            rel: format!(".yidam/corpus/{name}.ont.yml"),
+            description: String::new(),
+            name: name.into(),
+            properties: vec![],
+            edges: vec![],
+            edge_policy: EdgePolicy::default(),
+            max_lines: None,
+            implemented_by: impl_by.map(str::to_string),
+        }
+    }
+
+    fn tree(files: &[(&str, &str)]) -> TypeIndex {
+        TypeIndex::build(files.iter().map(|(r, t)| (*r, *t)))
+    }
+
+    /// The measured default, and the one this check lives or dies by. Across twelve derived
+    /// corpora 129 of 157 classes have no type of their name; if silence were a contract,
+    /// every one of them would be a finding on adoption.
+    #[test]
+    fn a_class_that_declares_nothing_is_not_checked() {
+        let types = tree(&[("crates/a/src/lib.rs", "pub struct Unrelated;\n")]);
+        assert!(
+            unimplemented_class(&[implemented("intervention", None)], &types).passed(),
+            "an ontology is not a specification of the code"
+        );
+    }
+
+    #[test]
+    fn a_declared_implementation_the_tree_defines_is_silent() {
+        let types = tree(&[("crates/a/src/model.rs", "pub struct Intervention {\n")]);
+        assert!(
+            unimplemented_class(&[implemented("intervention", Some("Intervention"))], &types)
+                .passed()
+        );
+    }
+
+    #[test]
+    fn a_declared_implementation_the_tree_lacks_gates() {
+        let types = tree(&[("crates/a/src/model.rs", "pub struct Treatment;\n")]);
+        let c = unimplemented_class(&[implemented("intervention", Some("Intervention"))], &types);
+        assert_eq!(c.violations.len(), 1);
+        assert_eq!(
+            c.violations[0].node, ".yidam/corpus/intervention.ont.yml",
+            "the subject is the class, not a file of code — the ontology is what is wrong"
+        );
+        assert!(
+            c.violations[0].detail.contains("Intervention"),
+            "the finding must name the type that is missing: {}",
+            c.violations[0].detail
+        );
+        assert_eq!(
+            c.severity,
+            Severity::Error,
+            "the class stated a fact about the tree and the tree contradicts it, which is \
+             what this check's siblings gate on"
+        );
+    }
+
+    /// The reason the finding moved off `check-diff`. Asked of a diff, a rename is a removal
+    /// plus an addition and correlating them is the hard part; asked of a tree, the class is
+    /// simply found under the name it now declares.
+    #[test]
+    fn a_rename_the_class_followed_is_invisible() {
+        let types = tree(&[("crates/a/src/model.rs", "pub struct Intervention;\n")]);
+        assert!(
+            unimplemented_class(&[implemented("intervention", Some("Intervention"))], &types)
+                .passed(),
+            "the tree defines it under the new name; there is no diff to be confused by"
+        );
+    }
+
+    /// An `enum` implements a class as well as a `struct` does — the same two keywords
+    /// `check-diff` reads, which is the point of sharing the reader.
+    #[test]
+    fn an_enum_implements_a_class() {
+        let types = tree(&[("crates/a/src/lib.rs", "enum Chamber { House, Senate }\n")]);
+        assert!(unimplemented_class(&[implemented("chamber", Some("Chamber"))], &types).passed());
+    }
+
+    /// A trait names a capability and an alias names a spelling, exactly as `check-diff`
+    /// says. A class pointing at one has not been implemented.
+    #[test]
+    fn a_trait_is_not_an_implementation() {
+        let types = tree(&[("crates/a/src/lib.rs", "pub trait Connector {}\n")]);
+        assert!(
+            !unimplemented_class(&[implemented("connector", Some("Connector"))], &types).passed()
+        );
+    }
+
+    /// Exact, on the name the class wrote. `HTTPServer` and `HttpServer` kebab to one name
+    /// and are two types, so a round trip would resolve a class against the wrong one.
+    #[test]
+    fn matching_is_exact_and_not_a_kebab_round_trip() {
+        let types = tree(&[("crates/a/src/lib.rs", "pub struct HttpServer;\n")]);
+        assert!(
+            !unimplemented_class(&[implemented("http-server", Some("HTTPServer"))], &types)
+                .passed()
+        );
+    }
+
+    /// A field somebody started and did not finish must not gate a build against a name
+    /// nothing can match.
+    #[test]
+    fn an_empty_declaration_is_read_as_no_declaration() {
+        let fields: ClassFields = serde_yaml::from_str("implemented_by: '   '").unwrap();
+        let class = Class::from_fields(".yidam/corpus/a.ont.yml", fields);
+        assert_eq!(class.implemented_by, None);
+        assert!(unimplemented_class(&[class], &tree(&[])).passed());
+    }
+
+    #[test]
+    fn a_declaration_is_read_off_the_class_file_and_trimmed() {
+        let fields: ClassFields =
+            serde_yaml::from_str("implemented_by: '  Intervention  '").unwrap();
+        assert_eq!(
+            Class::from_fields(".yidam/corpus/a.ont.yml", fields).implemented_by,
+            Some("Intervention".to_string())
         );
     }
 

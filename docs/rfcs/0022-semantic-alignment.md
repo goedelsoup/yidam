@@ -305,10 +305,17 @@ The harness stays what it is — the bootstrap judge, deliberately outside any g
 - **Where a semantic finding would live if one were ever justified.** Probably not here. Its
   subject would be a claim rather than a diff, which puts it beside E1's class-contract checks
   and RFC-0019's citation survey rather than in a command that reads `git diff`.
-- **Removal signals.** RFC-0021 left `unimplemented-class` open, and decision 2 sharpened the
-  question rather than answering it: that finding *is* decidable without a model, so it is the
-  one candidate in this area that could carry a gate. It belongs with E1's contract checks and
-  should be argued there.
+- ~~**Removal signals.**~~ **Settled** (#33). `unimplemented-class` shipped as a contract
+  check in `lint`, not here, and it does carry a gate — but not on the reading either RFC
+  had. Asked unconditionally, *the ontology declares a class and nothing implements it* is
+  true of **129 of 157 classes across twelve derived corpora**, and widening the match to
+  traits, aliases and every language in the tree raises it to 165 of 186. Five of those
+  corpora match nothing at all. The premise was wrong rather than the mechanism: their
+  ontologies model a domain and their `crates/` model the pipeline that gathers evidence
+  about it, so a class with no type of its name is the ordinary case and an unconditional
+  check would be a report four fifths of every ontology could never empty. The check instead
+  reads a class's own `implemented_by:`, which turns the finding from an omission into a
+  contradiction — and contradiction is what this area's other checks gate on.
 - **Whether the prefix rule's constants survive contact.** Four characters and three trailing
   is what fits A, B and C. It is a string rule with two magic numbers and no corpus has argued
   with it yet.

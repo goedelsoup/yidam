@@ -46,6 +46,25 @@ fn declaration() -> &'static regex::Regex {
     })
 }
 
+/// Every type declaration in a file of Rust, by line.
+///
+/// The tree-side reading of [`declaration`], and it exists so there is exactly one answer
+/// to *what is a type declaration* in this repository. `check-diff` asks the question of a
+/// hunk and `unimplemented-class` asks it of a whole file; if the two ever disagreed, a
+/// corpus could declare an implementation that one of them could see and the other could
+/// not, and the class contract would be enforced against a different tree than the one the
+/// author was asked about.
+///
+/// No `removed` bookkeeping and no deduplication, because a tree has neither: what is here
+/// is here. The caller indexes by name.
+pub fn declared_in(text: &str) -> Vec<(String, usize)> {
+    let re = declaration();
+    text.lines()
+        .enumerate()
+        .filter_map(|(i, l)| re.captures(l).map(|c| (c[1].to_string(), i + 1)))
+        .collect()
+}
+
 /// The `+N` of a `@@ -a,b +c,d @@` header — where the hunk's added lines begin.
 fn hunk_start(line: &str) -> Option<usize> {
     let rest = line.strip_prefix("@@ ")?;
@@ -301,6 +320,33 @@ mod tests {
 -pub struct Chamber;
 ";
         assert!(names(diff).is_empty());
+    }
+
+    /// The two directions must agree about what a declaration is. A hunk of added lines and
+    /// the file it lands in hold the same declarations, and a corpus could otherwise declare
+    /// an implementation that one reader sees and the other does not.
+    #[test]
+    fn a_tree_and_a_diff_read_the_same_declarations() {
+        let file = "\
+pub struct AgendaItem;
+enum Chamber { House, Senate }
+pub trait Connector {}
+pub type Bill = u32;
+pub(crate) struct Canvass {
+";
+        let diff = format!(
+            "+++ b/crates/a/src/lib.rs\n@@ -0,0 +1,5 @@\n{}",
+            file.lines().map(|l| format!("+{l}\n")).collect::<String>()
+        );
+        let from_tree: Vec<String> = declared_in(file).into_iter().map(|(n, _)| n).collect();
+        assert_eq!(from_tree, ["AgendaItem", "Chamber", "Canvass"]);
+        assert_eq!(from_tree, names(&diff));
+    }
+
+    #[test]
+    fn a_tree_declaration_carries_its_one_based_line() {
+        let d = declared_in("// a comment\n\npub struct Amendment;\n");
+        assert_eq!(d, [("Amendment".to_string(), 3)]);
     }
 
     #[test]

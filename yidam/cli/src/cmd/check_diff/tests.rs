@@ -28,6 +28,7 @@ fn class(name: &str, properties: &[&str], edges: &[&str]) -> Class {
             .collect(),
         edge_policy: Default::default(),
         max_lines: None,
+        implemented_by: None,
     }
 }
 

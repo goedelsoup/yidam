@@ -50,7 +50,9 @@ pub(crate) fn commit_verb_severity() -> Severity {
 }
 
 use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir};
-use crate::walk::{walk_corpus_instances, walk_linkable_files, walk_md_files, walk_ont_files};
+use crate::walk::{
+    walk_corpus_instances, walk_linkable_files, walk_md_files, walk_ont_files, walk_rust_files,
+};
 
 /// Unsaved editor buffers, keyed by absolute path.
 ///
@@ -245,6 +247,39 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         .lint
         .escalate_after;
 
+    // The types `crates/` defines, for the one check whose subject is the ontology and whose
+    // evidence is the code. Read through the overlay like everything else, so the editor
+    // resolves a class against the buffer somebody is deleting a struct out of.
+    //
+    // **Only when a class asked.** The walk is skipped entirely where no class declares
+    // `implemented_by:`, which is every corpus measured and every corpus that predates the
+    // field — so a repository that never opted in pays nothing for a check that would report
+    // nothing.
+    //
+    // Authorship regions are deliberately *not* consulted. Elsewhere a region says whose
+    // finding a file's contents are; here the finding's subject is a class in this
+    // repository's own ontology, and a type is evidence that it exists wherever it lives. A
+    // generated implementation is still an implementation.
+    let types = match classes.iter().any(|c| c.implemented_by.is_some()) {
+        false => checks::TypeIndex::build([]),
+        true => {
+            let paths = walk_rust_files(&root.join("crates"));
+            let texts: Vec<(String, String)> = paths
+                .iter()
+                .map(|p| {
+                    (
+                        p.strip_prefix(root)
+                            .unwrap_or(p)
+                            .to_string_lossy()
+                            .to_string(),
+                        overlay.read(p),
+                    )
+                })
+                .collect();
+            checks::TypeIndex::build(texts.iter().map(|(r, t)| (r.as_str(), t.as_str())))
+        }
+    };
+
     let mut all = vec![
         checks::missing_class(&nodes),
         checks::unknown_class(&nodes, &defined),
@@ -254,6 +289,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::missing_property(&nodes, &classes),
         checks::node_too_long(&nodes, &classes),
         checks::property_type(&nodes, &classes, &universal),
+        checks::unimplemented_class(&classes, &types),
         checks::unlicensed_edge(&nodes, &classes),
         checks::edge_target_class(&nodes, &classes),
         citations::external_citation_unresolved(&nodes, &deps),
@@ -610,7 +646,7 @@ mod tests {
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 31);
+        assert_eq!(all.len(), 32);
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
@@ -632,6 +668,10 @@ mod tests {
         assert!(ids.contains("property-type"));
         assert!(ids.contains("unlicensed-edge"));
         assert!(ids.contains("edge-target-class"));
+        // And the sixth, which reports in a repository with no `crates/` at all — the
+        // common case, and the one where a check that vanished when it had nothing to read
+        // could not be told from one that was never wired in.
+        assert!(ids.contains("unimplemented-class"));
     }
 
     fn check<'a>(all: &'a [Check], id: &str) -> &'a Check {
@@ -769,7 +809,86 @@ mod tests {
         assert!(crate::authorship::Authorship::load(tmp.path()).is_err());
         // …while the checks themselves keep answering, for the editor's sake.
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 31);
+        assert_eq!(all.len(), 32);
+    }
+
+    /// A class declaring an implementation, and a `crates/` tree that may or may not hold it.
+    fn with_implementation(root: &Path, declares: &str, defines: Option<&str>) {
+        fs::write(
+            root.join(".yidam/corpus/reach.ont.yml"),
+            format!("class: reach\nimplemented_by: {declares}\n"),
+        )
+        .unwrap();
+        if let Some(ty) = defines {
+            let src = root.join("crates/domain/src");
+            fs::create_dir_all(&src).unwrap();
+            fs::write(src.join("lib.rs"), format!("pub struct {ty};\n")).unwrap();
+        }
+    }
+
+    /// The half a unit test cannot see: `run_checks` must actually walk `crates/`. The check
+    /// itself is pure and takes its index in, so it passes happily against an index nothing
+    /// ever filled — which is what an unwired walk produces and what a green unit suite
+    /// would keep reporting.
+    #[test]
+    fn a_declared_implementation_is_resolved_against_the_tree_on_disk() {
+        let tmp = clean_repo();
+        with_implementation(tmp.path(), "Reach", Some("Reach"));
+        let all = run_checks(tmp.path(), &Options::default());
+        assert!(
+            check(&all, "unimplemented-class").passed(),
+            "the type is on disk; a walk that read nothing would report it missing"
+        );
+        assert_eq!(errors(&all), 0, "{all:#?}");
+    }
+
+    #[test]
+    fn a_declared_implementation_the_tree_lacks_gates_the_run() {
+        let tmp = clean_repo();
+        with_implementation(tmp.path(), "Reach", Some("SomethingElse"));
+        let all = run_checks(tmp.path(), &Options::default());
+        let c = check(&all, "unimplemented-class");
+        assert_eq!(c.violations.len(), 1, "{:#?}", c.violations);
+        assert_eq!(c.violations[0].node, ".yidam/corpus/reach.ont.yml");
+        assert_eq!(errors(&all), 1, "the class contract is contradicted");
+    }
+
+    /// `target/` holds tens of thousands of generated files in a built repository, including
+    /// the sources of every dependency. Resolving a class against one would let a corpus
+    /// claim an implementation it does not have.
+    #[test]
+    fn a_type_in_a_build_directory_is_not_an_implementation() {
+        let tmp = clean_repo();
+        with_implementation(tmp.path(), "Reach", None);
+        let dir = tmp.path().join("crates/target/debug/build/dep/src");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("lib.rs"), "pub struct Reach;\n").unwrap();
+        assert!(
+            !check(
+                &run_checks(tmp.path(), &Options::default()),
+                "unimplemented-class"
+            )
+            .passed(),
+            "a build artifact is not this repository's implementation"
+        );
+    }
+
+    /// The measured default, at the wiring level: no class declares the field, so the walk
+    /// never happens and nothing is reported — which is every corpus that predates it.
+    #[test]
+    fn a_corpus_that_declares_no_implementation_reads_no_code() {
+        let tmp = clean_repo();
+        let src = tmp.path().join("crates/domain/src");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("lib.rs"), "pub struct Unrelated;\n").unwrap();
+        assert!(
+            check(
+                &run_checks(tmp.path(), &Options::default()),
+                "unimplemented-class"
+            )
+            .passed(),
+            "silence is not a contract; 129 of 157 measured classes name no type"
+        );
     }
 
     /// The four citation checks are registered, and reach the reporting path a unit test
@@ -1015,7 +1134,7 @@ mod tests {
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 31, "every check still ran");
+        assert_eq!(all.len(), 32, "every check still ran");
         assert_eq!(errors(&all), 0);
     }
 
