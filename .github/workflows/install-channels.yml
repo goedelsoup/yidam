@@ -232,6 +232,72 @@ jobs:
             *) echo "::error::${{ needs.released.outputs.tag }} builds '$out'; expected version ${{ needs.released.outputs.version }}"; exit 1 ;;
           esac
 
+  # ── mise, which already worked ─────────────────────────────────────────────
+  #
+  # The `github:` backend downloads the same release tarball install.sh does,
+  # verifies the published `.sha256`, and resolves the binary inside the nested
+  # `yidam-<version>-<target>/` directory. Nothing in this repository had to
+  # change for that to work, which is why the channel existed for several
+  # releases before anything here knew about it (#400).
+  #
+  # NOT `ubi:`. mise 2026.7.0 warns that backend is deprecated and removed in
+  # 2027.1.0.
+  #
+  # ── version_prefix is the point of this job ────────────────────────────────
+  #
+  # This is the fifth call site of the question `install.sh`, `[yidam-build]`
+  # and sadhana's ci.yml each answer by hand: four layers publish onto ONE
+  # release list, so which tag answers for the CLI? It is the first call site
+  # that gets it wrong when the answer is left out, and it fails hard rather
+  # than installing something stale — the editor release ships only a `.vsix`,
+  # so there is no asset for mise to fall back to. Verified against 2026.7.0:
+  #
+  #   github:goedelsoup/yidam@latest  → resolves editor/v*, "No matching asset
+  #                                     found for platform"
+  #   github:goedelsoup/yidam@0.6.0   → 404 on releases/tags/goedelsoup/yidam@0.6.0
+  #
+  # So `[version_prefix=cli/v]` is what the check is really checking, and it is
+  # the marker install_channels.rs matches on: a job that dropped it would be
+  # green for a line no reader can use.
+  #
+  # ── why the version is pinned and the documented line is not ───────────────
+  #
+  # The docs say `@latest`, because prose that names a version goes stale and
+  # nothing forces it to move. This job says the released version instead, which
+  # is the same substitution every other job here makes. mise applies
+  # `minimum_release_age` and reported "2 newer releases hidden by
+  # minimum_release_age" during the #394 probes — `cli/v0.6.0` was invisible to
+  # `latest` while the API already served it. A job comparing a `latest`
+  # resolution against `needs.released.outputs.version` would be red on timing,
+  # which is exactly what narrowing the push trigger was meant to stop.
+  #
+  # Pinning still exercises the prefix: without it the pinned form 404s.
+  mise:
+    name: mise use github:goedelsoup/yidam
+    needs: released
+    runs-on: ubuntu-latest
+    env:
+      # Resolving one version costs a `releases?per_page=100` call and the
+      # unauthenticated budget is 60/hour — exhausted while probing for #394.
+      # Without a token this job goes red on traffic rather than on correctness.
+      MISE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Install mise
+        run: |
+          set -euo pipefail
+          curl -fsSL https://mise.run | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: The line the docs document, with the release pinned
+        run: |
+          set -euo pipefail
+          mise use -g "github:goedelsoup/yidam[version_prefix=cli/v]@${{ needs.released.outputs.version }}"
+          out=$(mise exec -- yidam --version)
+          echo "$out"
+          case "$out" in
+            "yidam ${{ needs.released.outputs.version }} "*) ;;
+            *) echo "::error::mise installed '$out'; expected version ${{ needs.released.outputs.version }}"; exit 1 ;;
+          esac
+
   # ── the editor layer ────────────────────────────────────────────────────────
   #
   # Its own resolver rather than the `released` job's. That one reads

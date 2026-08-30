@@ -110,6 +110,16 @@ const CHANNELS: &[Channel] = &[
         marker: "cargo install --git",
         probe: "cargo install --git",
     },
+    // `marker` and `probe` are the same string, and deliberately carry the tool option: a
+    // job that resolved the binary without `version_prefix` would be checking a channel
+    // nobody can use. Four layers publish onto one release list, so without it mise asks
+    // the repository-wide question — `@latest` resolves `editor/v*`, whose release ships
+    // only a `.vsix`, and a bare `@0.6.0` 404s. Both verified against mise 2026.7.0.
+    Channel {
+        opener: "mise use",
+        marker: "github:goedelsoup/yidam[version_prefix=cli/v]",
+        probe: "github:goedelsoup/yidam[version_prefix=cli/v]",
+    },
 ];
 
 /// Lines that build from a checkout the reader already has. There is no registry, tag or

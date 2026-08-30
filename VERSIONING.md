@@ -197,12 +197,18 @@ subset: the row above, the publish path in `editor.yml`, and the channel check i
 Cursor, Windsurf, Gitpod and code-server — so until then a VS Code user installs the `.vsix`
 from the GitHub release, which is why that asset is attached before either registry is tried.
 
-The CLI's four channels are one artifact reached four ways, and only the first is built:
+The CLI's five channels are one artifact reached five ways, and only the first is built:
 `.github/workflows/release.yml` cross-compiles the light `reports` build for four targets and
-publishes them as release assets. `install.sh`, the Homebrew formula, and `cargo binstall` all
-download *those* assets — the tap's formula is rendered from their checksums by the same
-workflow (`render-formula.sh`), never maintained by hand. crates.io carries the source,
-which is what makes `cargo install` and `cargo binstall` both work.
+publishes them as release assets. `install.sh`, the Homebrew formula, mise's `github:` backend
+and `cargo binstall` all download *those* assets — the tap's formula is rendered from their
+checksums by the same workflow (`render-formula.sh`), never maintained by hand. crates.io
+carries the source, which is what makes `cargo install` and `cargo binstall` both work.
+
+**mise is where one release list holding four layers becomes a caller's problem.** Its
+declaration must carry `version_prefix = "cli/v"`, or `latest` resolves whichever layer was
+tagged most recently — and when that is `editor/v*` the install does not degrade, it fails,
+because that release ships only a `.vsix`. That is the same defect `releases/latest` caused in
+`install.sh` and `tap.yml`, arriving through a third party's resolver instead of ours.
 
 A hand-edited formula is the failure this arrangement is shaped against: it is a second place
 the version lives, it goes stale on the first release nobody remembers to follow, and the

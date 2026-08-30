@@ -108,13 +108,18 @@ so a VS Code user installs the `.vsix` from the GitHub release, which is why tha
 attached before either registry is tried. Restoring the Marketplace means restoring three things
 together, and a test refuses any subset: the table row, the publish path, and the channel check.
 
-**The CLI's four channels are one artifact reached four ways**, and only the first is built. The
+**The CLI's five channels are one artifact reached five ways**, and only the first is built. The
 release workflow cross-compiles the light `reports` build for four targets and publishes them as
-release assets; `install.sh`, the Homebrew formula and `cargo binstall` all download *those*
-assets. The tap's formula is rendered from their checksums by the same workflow, never
-maintained by hand — a hand-edited formula is a second place the version lives, it goes stale on
-the first release nobody remembers to follow, and the staleness is invisible from here. It shows
-up as a stranger installing an old binary.
+release assets; `install.sh`, the Homebrew formula, mise's `github:` backend and `cargo binstall`
+all download *those* assets. The tap's formula is rendered from their checksums by the same
+workflow, never maintained by hand — a hand-edited formula is a second place the version lives,
+it goes stale on the first release nobody remembers to follow, and the staleness is invisible
+from here. It shows up as a stranger installing an old binary.
+
+mise is where one release list holding four layers becomes a caller's problem. Its declaration
+must carry `version_prefix = "cli/v"`, or `latest` resolves whichever layer was tagged most
+recently — and an `editor/v*` release ships only a `.vsix`, so the install does not degrade, it
+fails. See [installation](installation.md#mise).
 
 ### The contract between the CLI and the editor is `format_version`
 

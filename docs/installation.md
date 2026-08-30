@@ -4,7 +4,7 @@ The `yidam` binary is the whole toolchain. There is no daemon, no service, and n
 configure before the first run — a derived repository records which yidam governs it in its
 own `.yidam.toml`, and the binary reads that.
 
-Four channels serve the same artifact. Each one is exercised weekly by
+Five channels serve the same artifact. Each one is exercised weekly by
 [`install-channels.yml`](https://github.com/goedelsoup/yidam/blob/main/.github/workflows/install-channels.yml),
 which runs the lines below verbatim in a container holding only the tools the line claims to
 need and asserts that `yidam --version` answers with the latest release. A channel that stops
@@ -36,6 +36,37 @@ brew install goedelsoup/tap/yidam
 macOS and Linux. The formula is rendered from the release's own checksums by the release
 workflow, so the tap cannot lag a published version, and `brew upgrade` carries yidam along
 with everything else.
+
+## mise
+
+```sh
+mise use -g "github:goedelsoup/yidam[version_prefix=cli/v]@latest"
+```
+
+The [`github:` backend](https://mise.jdx.dev/dev-tools/backends/github.html) downloads the
+same release tarball the script does, verifies the published `.sha256`, and resolves the
+binary inside the extracted directory. `-g` installs it globally; drop it to pin yidam in one
+project's `mise.toml`. Either way the line writes:
+
+```toml
+[tools]
+"github:goedelsoup/yidam" = { version = "latest", version_prefix = "cli/v" }
+```
+
+**`version_prefix` is load-bearing**, and leaving it out does not get you a slightly wrong
+version — it fails outright. This repository publishes four layers onto one release list
+(see [versioning](versioning.md)), so a resolver that does not filter by tag prefix asks the
+repository-wide question:
+
+| Without `version_prefix` | What happens |
+|---|---|
+| `github:goedelsoup/yidam@latest` | resolves `editor/v*` — `No matching asset found for platform`, because that release ships only a `.vsix` |
+| `github:goedelsoup/yidam@0.6.0` | 404 on `releases/tags/goedelsoup/yidam@0.6.0` |
+
+Not `ubi:`. mise 2026.7.0 warns that backend is deprecated and removed in 2027.1.0.
+
+`tag_regex` is **not** a `github:` backend option — mise accepts it in silence and then fails
+exactly as the table above does. `version_prefix` is the one that works.
 
 ## cargo-binstall
 

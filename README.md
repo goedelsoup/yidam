@@ -77,6 +77,18 @@ brew install goedelsoup/tap/yidam
 The formula is rendered from the release's own checksums by the release workflow, so the tap
 cannot lag behind a published version.
 
+If you already manage toolchains with [mise](https://mise.jdx.dev), it serves the same
+release assets and keeps yidam in the same place as everything else:
+
+```sh
+mise use -g "github:goedelsoup/yidam[version_prefix=cli/v]@latest"
+```
+
+`version_prefix` is not decoration. This repository publishes four layers onto one release
+list, so without it mise asks the repository-wide question and gets the editor's answer —
+`@latest` resolves `editor/v*`, whose release ships only a `.vsix`. Drop `-g` to pin yidam
+in one project's `mise.toml` instead.
+
 With cargo already on hand, [`cargo-binstall`](https://github.com/cargo-bins/cargo-binstall)
 fetches the same artifact:
 
