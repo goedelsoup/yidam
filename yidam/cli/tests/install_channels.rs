@@ -62,18 +62,54 @@ fn documented_files() -> Vec<String> {
     docs
 }
 
-/// A line the README tells someone to run, and the substring the channel check must run to
-/// prove it works. The two are separate because the workflow resolves the repository and the
-/// released tag rather than hardcoding them — it is the *channel* that must correspond, not
-/// the spelling.
-const CHANNELS: &[(&str, &str)] = &[
-    ("install.sh | sh", "install.sh | sh"),
-    (
-        "brew install goedelsoup/tap/yidam",
-        "brew install goedelsoup/tap/yidam",
-    ),
-    ("cargo binstall yidam", "cargo binstall"),
-    ("cargo install --git", "cargo install --git"),
+/// One way to obtain the binary: how a documented line for it *opens*, what identifies a
+/// collected line as this channel, and what `install-channels.yml` must be running to be
+/// checking it.
+///
+/// The three are separate because the workflow resolves the repository and the released tag
+/// rather than hardcoding them — it is the *channel* that must correspond, not the spelling.
+///
+/// `opener` used to be a second list, `INSTALL_PREFIXES`, sitting beside this one. Nothing
+/// held the two in step, and the gap was not theoretical: `curl`, `brew` and `cargo` were the
+/// only commands it knew, so a `mise` line was never collected, never matched here, and never
+/// required to have a job. Documenting mise would have bought exactly what this file exists
+/// to prevent — an instruction on the front page with nothing asserting it can succeed —
+/// and the diff that added it would have looked completely fine.
+///
+/// So the collector reads its openers from here. Adding a channel cannot leave it behind,
+/// and `every_channel_can_be_seen_by_the_collector` fails if an opener does not match how the
+/// channel is actually written down.
+struct Channel {
+    /// What a documented line for this channel begins with, after trimming. Not necessarily a
+    /// command: a channel declared in a config file opens with whatever key names it.
+    opener: &'static str,
+    /// The substring that says a collected line IS this channel.
+    marker: &'static str,
+    /// The substring `.github/workflows/install-channels.yml` must contain to be running it.
+    probe: &'static str,
+}
+
+const CHANNELS: &[Channel] = &[
+    Channel {
+        opener: "curl -fsSL",
+        marker: "install.sh | sh",
+        probe: "install.sh | sh",
+    },
+    Channel {
+        opener: "brew install",
+        marker: "brew install goedelsoup/tap/yidam",
+        probe: "brew install goedelsoup/tap/yidam",
+    },
+    Channel {
+        opener: "cargo binstall",
+        marker: "cargo binstall yidam",
+        probe: "cargo binstall",
+    },
+    Channel {
+        opener: "cargo install",
+        marker: "cargo install --git",
+        probe: "cargo install --git",
+    },
 ];
 
 /// Lines that build from a checkout the reader already has. There is no registry, tag or
@@ -83,22 +119,64 @@ const CHANNELS: &[(&str, &str)] = &[
 /// line "not a channel" stays a decision someone wrote down.
 const NOT_A_CHANNEL: &[&str] = &["cargo install --path"];
 
-/// The prefixes that make a line an instruction to install this binary rather than prose
-/// about one.
-const INSTALL_PREFIXES: &[&str] = &[
-    "curl -fsSL",
-    "brew install",
-    "cargo binstall",
-    "cargo install",
-];
-
 fn documented_install_lines(doc: &str) -> Vec<String> {
     read(doc)
         .lines()
         .map(|l| l.trim().to_string())
-        .filter(|l| INSTALL_PREFIXES.iter().any(|p| l.starts_with(p)))
+        .filter(|l| CHANNELS.iter().any(|c| l.starts_with(c.opener)))
         .filter(|l| l.contains("yidam"))
         .collect()
+}
+
+/// What `install-channels.yml` actually *runs*, with everything it merely says removed.
+///
+/// A probe matched against the whole file is matched against the job's `name:` too — and
+/// every job here is named after the line it runs. So the check for "does a job run this"
+/// was answerable by the job's title: deleting
+/// `cargo binstall --no-confirm --disable-strategies compile yidam` from the binstall step
+/// and leaving `name: cargo binstall yidam` two lines above it kept this file green.
+/// Verified by doing it. Three of the four channels had that hole; only `install.sh | sh`
+/// happened not to appear in a name or a comment.
+///
+/// This is the same reading two tests below already take for the opposite reason — they skip
+/// comments so a fix is not failed by the prose explaining it. Here the prose is not merely
+/// noise, it is a second copy of the answer.
+fn workflow_commands(text: &str) -> String {
+    let mut commands: Vec<String> = Vec::new();
+    // The indentation of the `run:` key whose block we are inside, if any. A block ends at
+    // the first non-blank line indented no further than its key.
+    let mut block: Option<usize> = None;
+
+    for line in text.lines() {
+        let indent = line.len() - line.trim_start().len();
+        if let Some(base) = block {
+            if line.trim().is_empty() || indent > base {
+                if !line.trim_start().starts_with('#') {
+                    commands.push(line.to_string());
+                }
+                continue;
+            }
+            block = None;
+        }
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        let Some(rest) = trimmed
+            .strip_prefix("- run:")
+            .or_else(|| trimmed.strip_prefix("run:"))
+        else {
+            continue;
+        };
+        let rest = rest.trim();
+        // `run: |` opens a block; `run: <command>` is the whole command.
+        if rest.is_empty() || rest.starts_with('|') || rest.starts_with('>') {
+            block = Some(indent);
+        } else {
+            commands.push(rest.to_string());
+        }
+    }
+    commands.join("\n")
 }
 
 /// Nothing may be documented as an install path without something running it.
@@ -108,7 +186,7 @@ fn documented_install_lines(doc: &str) -> Vec<String> {
 /// was: an instruction that cannot succeed, on the front page, indefinitely.
 #[test]
 fn every_documented_install_line_is_checked_end_to_end() {
-    let workflow = read(".github/workflows/install-channels.yml");
+    let workflow = workflow_commands(&read(".github/workflows/install-channels.yml"));
 
     let mut checked = 0;
     for doc in documented_files() {
@@ -116,8 +194,8 @@ fn every_documented_install_line_is_checked_end_to_end() {
             if NOT_A_CHANNEL.iter().any(|m| line.contains(m)) {
                 continue;
             }
-            let channel = CHANNELS.iter().find(|(marker, _)| line.contains(marker));
-            let (_, probe) = channel.unwrap_or_else(|| {
+            let channel = CHANNELS.iter().find(|c| line.contains(c.marker));
+            let probe = channel.map(|c| c.probe).unwrap_or_else(|| {
                 panic!(
                     "{doc} documents an install path this test does not know:\n  {line}\n\
                      Add it to CHANNELS *and* to .github/workflows/install-channels.yml — or \
@@ -127,8 +205,9 @@ fn every_documented_install_line_is_checked_end_to_end() {
             });
             assert!(
                 workflow.contains(probe),
-                "{doc} documents `{line}` and install-channels.yml never runs `{probe}` — \
-                 the docs are making a promise no job checks"
+                "{doc} documents `{line}` and no `run:` step in install-channels.yml \
+                 contains `{probe}` — the docs are making a promise no job checks. A job \
+                 *named* after the line does not run it."
             );
             checked += 1;
         }
@@ -137,6 +216,58 @@ fn every_documented_install_line_is_checked_end_to_end() {
         checked > 0,
         "no documented install line was found anywhere in the repository; either every \
          channel was removed from the docs or this test is reading nothing"
+    );
+}
+
+/// Every channel must be one the collector can actually find in the documentation.
+///
+/// Deriving the openers from `CHANNELS` closes the gap between two lists, but it does not by
+/// itself make an opener *correct*. A channel declared with an opener that matches nothing —
+/// `mise use` while the docs show a `mise.toml` block, say — is collected from no document,
+/// matched against no line, and required to have no job. That is the same hole one level in:
+/// the list is now single, and still describes a channel nobody checks.
+///
+/// So this asserts the round trip. Each channel must appear in at least one prose file, in a
+/// line the collector picks up. It runs in the direction the test above deliberately does not:
+/// there, a workflow job with no documented line is harmless extra coverage; here, a
+/// `CHANNELS` entry is by construction "a line the README tells someone to run", so one that
+/// no document contains is either an undocumented channel or an opener that cannot see it,
+/// and both are worth a red mark.
+#[test]
+fn every_channel_can_be_seen_by_the_collector() {
+    let docs = documented_files();
+    let mut unseen: Vec<&str> = Vec::new();
+
+    for channel in CHANNELS {
+        let found = docs.iter().any(|doc| {
+            documented_install_lines(doc)
+                .iter()
+                .any(|line| line.contains(channel.marker))
+        });
+        if !found {
+            unseen.push(channel.marker);
+        }
+    }
+
+    assert!(
+        unseen.is_empty(),
+        "no prose file contains a line the collector picks up for: {unseen:?}\n\
+         Either the channel is undocumented — in which case nobody can use it and it should \
+         not be in CHANNELS — or its `opener` does not match how it is written down, so it \
+         is silently exempt from `every_documented_install_line_is_checked_end_to_end`. \
+         That exemption is what let `mise` be a channel this file could not see."
+    );
+
+    // ...and the collector must be reading prose, not returning nothing. `unseen` being empty
+    // is only meaningful if `documented_install_lines` found something at all; a walk over the
+    // wrong tree makes every assertion above vacuous in the passing direction.
+    let collected: usize = docs.iter().map(|d| documented_install_lines(d).len()).sum();
+    assert!(
+        collected >= CHANNELS.len(),
+        "the collector found {collected} install line(s) across {} document(s) for {} \
+         channel(s); it is not reading what it claims to",
+        docs.len(),
+        CHANNELS.len()
     );
 }
 
