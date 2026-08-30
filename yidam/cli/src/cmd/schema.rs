@@ -180,6 +180,23 @@ pub fn corpus_ontology_schema() -> Value {
                                 misspelling is underlined as it is typed rather than \
                                 silently read as no ceiling at all."
             },
+            "implemented_by": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The `struct` or `enum` under `crates/` that implements this \
+                                class, spelled as Rust spells it. `unimplemented-class` \
+                                GATES on a class whose named type the tree does not define: \
+                                the class stated a fact about the code, and a missing type \
+                                contradicts it rather than merely omitting something. A \
+                                class that omits the field is not checked, and that default \
+                                is measured — across twelve derived corpora 129 of 157 \
+                                declared classes have no type of their name, because an \
+                                ontology models a domain while `crates/` models the pipeline \
+                                that gathers evidence about it. Name the type rather than \
+                                writing a flag: `HTTPServer` and `HttpServer` are two types \
+                                and one kebab-case name, so a derived spelling would be a \
+                                guess where this is a statement."
+            },
             "edges": {
                 "type": "array",
                 "default": [],

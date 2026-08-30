@@ -46,6 +46,26 @@ pub fn walk_linkable_files(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
+/// Every `.rs` file under `dir`, at any depth.
+///
+/// `target/` is skipped rather than filtered afterwards: a built repository holds tens of
+/// thousands of generated files there, and `unimplemented-class` would otherwise resolve a
+/// class against a type in a build artifact of a dependency.
+pub fn walk_rust_files(dir: &Path) -> Vec<PathBuf> {
+    if !dir.exists() {
+        return vec![];
+    }
+    let mut files: Vec<PathBuf> = walkdir::WalkDir::new(dir)
+        .into_iter()
+        .filter_entry(|e| e.file_name() != "target")
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file() && e.path().extension().is_some_and(|x| x == "rs"))
+        .map(|e| e.path().to_owned())
+        .collect();
+    files.sort();
+    files
+}
+
 // Instance .yml files live at depth >= 2 inside the corpus dir (inside class subdirs).
 // Depth 1 files ending in .ont.yml are class schema files, not instances.
 pub fn walk_corpus_instances(corpus: &Path) -> Vec<PathBuf> {

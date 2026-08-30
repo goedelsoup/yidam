@@ -157,13 +157,23 @@ caller, and neither is an error.
 Class definitions live at `.yidam/corpus/<class>.ont.yml` and are configuration in the sense
 that matters most: they decide what the gate will and will not accept.
 [Information architecture](information-architecture.md#ontology-class-definitions) has the full
-shape. Two fields are worth calling out here because their defaults are load-bearing.
+shape. Three fields are worth calling out here because their defaults are load-bearing.
 
 **`required:` on a property defaults to false.** It is what lets the `missing-property` check
 gate at all — without it the check cannot distinguish *every instance of this class has this*
 from *an instance may have this*, and gating on the second reading asserts a contract the
 ontology never wrote. Defaulting it to true would demand a declaration nobody made, in every
 derived repository at once.
+
+**`implemented_by:` is absent by default, and nothing is checked without it.** A class may
+name the `struct` or `enum` under `crates/` that implements it, and `unimplemented-class` then
+gates when the tree defines no type of that name — the class stated a fact about the code, and
+a missing type contradicts it. Reading the *absence* of a type as a finding was measured and
+rejected: across twelve derived corpora 129 of 157 declared classes have no type bearing their
+name, and matching traits, aliases and every language in the tree raises it to 165 of 186. An
+ontology models a domain while `crates/` models the pipeline that gathers evidence about it, so
+a class with no type is the ordinary case rather than debt. Name the type as Rust spells it —
+`HTTPServer` and `HttpServer` are two types and one kebab-case name, so nothing is derived.
 
 **A property `type:` the corpus coins is carried through unconstrained.** `string`, `text`,
 `date`, `ref` and `claim` are the types the tooling understands; anything else is accepted and

@@ -332,6 +332,17 @@ or anything that describes how the repo operates rather than what it knows.
   steady-state number at; it runs smoothly from 20 to 534. The length an instance should be
   is a question about its class — a statutory obligation quoting the text it arises from is
   not the length of a person — so the class is where the number lives, if a corpus wants one.
+- A class may name the type that implements it, with `implemented_by:` in its `.ont.yml`.
+  `unimplemented-class` then **gates** when the tree defines no `struct` or `enum` of that
+  name: the class stated a fact about `crates/`, and a missing type contradicts it rather
+  than merely omitting something. A class that omits the field is not checked at all, and
+  that default is measured rather than timid — across twelve derived corpora 129 of 157
+  declared classes have no type bearing their name, and matching traits, aliases and every
+  language in the tree makes it worse, 165 of 186. Five of those corpora match nothing at
+  all, and they are not behind: an ontology models a domain while `crates/` models the
+  pipeline that gathers evidence about it, so a class without a type is the ordinary case.
+  Name the Rust type as Rust spells it rather than expecting the class name to be derived —
+  `HTTPServer` and `HttpServer` are two types and one kebab-case name.
 - Every node must have at least one outgoing edge. Orphan nodes do not belong in the corpus.
 - If a concept is uncertain or under investigation, mark it: prefix the title with `?` or
   open a branch. Uncertainty is valid; unlabeled speculation is not.

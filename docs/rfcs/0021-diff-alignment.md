@@ -261,9 +261,11 @@ instead of deferring it. That section stands as an intent, not as built behaviou
   one finding. It becomes load-bearing the moment a finding's *text* depends on which kind of
   code it is in. Measurable now: A has ~17 connector-ish and ~13 calculator-ish files, C ~32
   and ~49.
-- **Removal signals.** #23 wants an `unimplemented-class` finding when an implementation is
-  deleted. That is the inverse of E1's class-contract checks and probably belongs beside them
-  rather than here, since its subject is the ontology rather than the diff.
+- ~~**Removal signals.**~~ **Settled** (#33), and beside E1's checks as this predicted. It
+  is also where the rename question went: a diff shows a rename as a removal plus an
+  addition and correlating the two is the hard part, while a check that scans the tree finds
+  the class under its new name and says nothing. What did not survive was the unconditional
+  reading — see RFC-0022's note for the measurement that killed it.
 - **What `--from`/`--to` default to.** `yidam diff` takes an explicit range. A check meant for
   CI probably wants the merge-base with the default branch, which is a different default and
   one this RFC has not measured a need for.
