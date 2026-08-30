@@ -114,6 +114,13 @@ pub fn tonpa_config_path(root: &Path) -> PathBuf {
     root.join(".yidam").join("tonpa.toml")
 }
 
+// Third in the same family, ungated for the same reason, and named here rather than spelled
+// `dir.join("tonpa.lock")` at each call site — `doctor` is now a second reader of the lock
+// and a second spelling of where it lives is how the two would drift apart.
+pub fn tonpa_lock_path(root: &Path) -> PathBuf {
+    tonpa_dir(root).join("tonpa.lock")
+}
+
 // ── the binary that is answering ──────────────────────────────────────────────
 //
 // The pin is per repository; an installed binary is per machine. `directories.md` records

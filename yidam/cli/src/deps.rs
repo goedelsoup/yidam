@@ -65,6 +65,78 @@ pub fn load_config(path: &Path) -> TonpaConfig {
         .unwrap_or_default()
 }
 
+// ── tonpa.lock ────────────────────────────────────────────────────────────────
+//
+// Here rather than in `cmd/tonpa/config.rs`, for the reason that module already gives about
+// `Dependency` and `TonpaConfig`: they lived beside the fetching commands while only the
+// fetching commands read them, and moved when a read layer needed them too. `doctor` is now
+// that read layer for the lock — it answers "did the corpora arrive" without being able to
+// fetch anything — and two definitions of "is this bundle the one we pinned" is exactly the
+// drift this repository keeps finding in other people's code.
+//
+// It also has to be reachable from a build without the `tonpa` feature. `cmd::tonpa` is
+// gated on it; `sha2` is not optional, and neither is reading a file, so nothing here needs
+// the gate. A binary that cannot fetch a corpus can still say whether one is missing.
+
+#[derive(Debug, serde::Deserialize, serde::Serialize, Default)]
+pub struct LockFile {
+    // TOML [[package]] array-of-tables
+    #[serde(default, rename = "package")]
+    pub packages: Vec<LockedPackage>,
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
+pub struct LockedPackage {
+    pub name: String,
+    pub url: String,
+    pub sha256: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub genesis: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dims: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nodes: Option<u64>,
+}
+
+pub fn load_lock(path: &Path) -> anyhow::Result<LockFile> {
+    use anyhow::Context;
+    if !path.exists() {
+        return Ok(LockFile::default());
+    }
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
+}
+
+pub fn sha256_hex(data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(data);
+    hex::encode(h.finalize())
+}
+
+/// Is the bundle unpacked at `<tonpa_dir>/<name>/` the one `tonpa.lock` pins?
+///
+/// `false` for both "not there" and "there but different", because the caller that fetches
+/// treats them the same — it re-fetches at the pinned hash either way. A caller that cannot
+/// fetch has to tell them apart itself; the bundle path is where it looks.
+pub fn verify_installed(
+    name: &str,
+    tonpa_dir: &Path,
+    locked: &LockedPackage,
+) -> anyhow::Result<bool> {
+    let bundle_path = tonpa_dir.join(name).join("bundle.yiz");
+    if !bundle_path.exists() {
+        return Ok(false);
+    }
+    let data = std::fs::read(&bundle_path)?;
+    Ok(sha256_hex(&data) == locked.sha256)
+}
+
 // ── where a dependency's corpus is ────────────────────────────────────────────
 
 /// How a dependency arrived, which is what decides whether it can be pinned.

@@ -21,9 +21,11 @@ yidam doctor — /home/you/my-domain
                      → yidam index-build (needs the `index` feature)
   ok    regen        every REGEN block holds what its generator produces
   ok    catalog      no TTL declared — 1 source(s) never expire.
+  fail  corpora      not installed: hydrology
+                     → mise run tonpa-install
   ok    build        0.5.0 (78544f8) with features: reports, index, export-sqlite, ...
 
-1 failing check(s), 2 warning(s).
+2 failing check(s), 2 warning(s).
 ```
 
 Every check names its own remedy. **It exits nonzero on what is wrong now**; warnings — no
@@ -40,6 +42,7 @@ which is the reading a CI job wants.
 | `index` | Is the index built, and is it current? |
 | `regen` | Are the REGEN blocks current? |
 | `catalog` | Have any source records aged out? |
+| `corpora` | Did the corpora this repository depends on arrive? |
 | `build` | Which yidam is this, and what can it do? |
 
 A `skip` is not a pass. Every check after `repository` skips when there is no repository to
@@ -174,6 +177,36 @@ reproducibility contract.
 expires: set `[catalog] ttl_days` in `.yidam/config.toml` for a corpus whose sources age alike,
 or `ttl_days:` on the individual entry, which is the primary form because a gauge record and a
 statute do not age at the same rate. See [Configuration](configuration.md#catalog-ttl_days).
+
+## A corpus a dependency declares is not there
+
+```
+fail  corpora      not installed: hydrology
+                   → mise run tonpa-install
+```
+
+`mise install` fetches the corpora `.yidam/tonpa.toml` declares, through a `postinstall` hook.
+**A green `mise install` is not proof they arrived**: mise logs a failing postinstall hook as a
+warning and exits 0 anyway, so a corpus that could not be fetched leaves one line in a log that
+scrolls past. This check is what still says so afterwards.
+
+Run `mise run tonpa-install` on its own — invoked directly it returns a real exit code — and
+read what it says about the dependency it could not get. A URL that has rotted is the common
+cause; the remedy is a `tonpa.toml` edit, not a re-run.
+
+Three other readings of the same check:
+
+| Line | What it means |
+|---|---|
+| `does not match tonpa.lock: <name>` | The bundle on disk is not the one this repository pinned. Re-run the install: it re-fetches at the locked hash. |
+| `declared but never pinned: <name>` | A `warn`. Normal between `tonpa add` and the first install — the dependency has no lock entry, so nothing can verify it. |
+| `N path` | Path dependencies, read from a sibling checkout. Nothing to fetch, and never graded. |
+
+It answers offline. It compares what is unpacked under `.yidam/tonpa/` against `tonpa.lock`,
+which is the whole correctness story for a fetched corpus — so it works on a plane, and on a
+binary built without the `tonpa` feature, which can read a corpus but not fetch one.
+
+---
 
 ## The pin is old, or the prelude is stale
 

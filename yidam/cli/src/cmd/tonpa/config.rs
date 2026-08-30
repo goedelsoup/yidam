@@ -1,5 +1,4 @@
 use anyhow::{bail, Context, Result};
-use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 // ── tonpa.toml ────────────────────────────────────────────────────────────────
@@ -12,29 +11,11 @@ pub use crate::deps::{Dependency, TonpaConfig};
 
 // ── tonpa.lock ────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize, Serialize, Default)]
-pub struct LockFile {
-    // TOML [[package]] array-of-tables
-    #[serde(default, rename = "package")]
-    pub packages: Vec<LockedPackage>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct LockedPackage {
-    pub name: String,
-    pub url: String,
-    pub sha256: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub commit: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub genesis: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dims: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub nodes: Option<u64>,
-}
+// The same move, one section later, for the same reason. `doctor` reads the lock to say
+// whether the corpora arrived, and it has to do that in a build where `cmd::tonpa` does not
+// exist — the module is gated on the `tonpa` feature, and reading a file and hashing it are
+// not. Writing the lock is still a fetching concern and stays below.
+pub use crate::deps::{load_lock, LockFile, LockedPackage};
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -88,15 +69,6 @@ pub fn save_config(config: &TonpaConfig, path: &Path) -> Result<()> {
     let text = toml::to_string_pretty(config).context("serialising tonpa.toml")?;
     std::fs::write(path, text)?;
     Ok(())
-}
-
-pub fn load_lock(path: &Path) -> Result<LockFile> {
-    if !path.exists() {
-        return Ok(LockFile::default());
-    }
-    let text =
-        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
 }
 
 pub fn save_lock(lock: &LockFile, path: &Path) -> Result<()> {

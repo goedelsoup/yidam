@@ -30,7 +30,7 @@ sidebar is its version of the contents table, so publishing it would ship a seco
 | [editor-setup.md](editor-setup.md) | `serve --lsp` for Neovim and Helix; installing and resolving the VS Code extension |
 | [mcp-server.md](mcp-server.md) | Connecting an agent: which build carries `serve --mcp`, client configuration, which tool to reach for, and what `degraded` and `origin` mean |
 | [sharing-derivations.md](sharing-derivations.md) | Publishing a `.yiz` bundle and consuming one; what a cross-corpus citation is and is not |
-| [troubleshooting.md](troubleshooting.md) | `yidam doctor`'s nine checks, and the failure modes that actually recur |
+| [troubleshooting.md](troubleshooting.md) | `yidam doctor`'s ten checks, and the failure modes that actually recur |
 
 ### The model
 

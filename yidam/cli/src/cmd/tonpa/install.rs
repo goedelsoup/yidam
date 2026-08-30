@@ -1,6 +1,5 @@
 use anyhow::{bail, Context, Result};
 use flate2::read::GzDecoder;
-use sha2::{Digest, Sha256};
 use std::io::{Cursor, Read};
 use std::path::Path;
 use tar::Archive;
@@ -31,11 +30,9 @@ pub async fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
 
 // ── hash ──────────────────────────────────────────────────────────────────────
 
-pub fn sha256_hex(data: &[u8]) -> String {
-    let mut h = Sha256::new();
-    h.update(data);
-    hex::encode(h.finalize())
-}
+// In `crate::deps`, which is not behind the `tonpa` feature, so `doctor` can ask whether an
+// installed bundle matches the lock in a build that cannot fetch one.
+pub use crate::deps::sha256_hex;
 
 // ── extract ───────────────────────────────────────────────────────────────────
 
@@ -155,14 +152,7 @@ pub fn reinstall_from_cache(name: &str, tonpa_dir: &Path) -> Result<()> {
 
 // ── verify ────────────────────────────────────────────────────────────────────
 
-pub fn verify_installed(name: &str, tonpa_dir: &Path, locked: &LockedPackage) -> Result<bool> {
-    let bundle_path = tonpa_dir.join(name).join("bundle.yiz");
-    if !bundle_path.exists() {
-        return Ok(false);
-    }
-    let data = std::fs::read(&bundle_path)?;
-    Ok(sha256_hex(&data) == locked.sha256)
-}
+pub use crate::deps::verify_installed;
 
 // ── private helpers ───────────────────────────────────────────────────────────
 
