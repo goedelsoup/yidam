@@ -59,8 +59,9 @@ _Run `yidam status` to populate._
 ## Working here
 
 ```
-mise install              # provision toolchains
-mise run yidam-build      # install the yidam CLI (once)
+mise install              # provision toolchains, and the yidam CLI itself
+                          #   when this repository's pin was released
+mise run yidam-build      # install the CLI (only needed when it was not)
 mise run regen            # refresh every REGEN block
 mise run ci               # the gate CI runs
 mise run due              # what is owed a look, on whatever cadence you keep
@@ -72,6 +73,13 @@ index is, whether a source has aged past its TTL, how long a question has gone u
 how long a phase has been in flight. It exits zero however much it finds, because being owed is
 not being broken. Every interval is one this repository declares in `.yidam/config.toml`; a
 clock nobody has set reports what it measured and never comes due.
+
+`mise install` gets you the binary outright when the commit this repository pins carries a
+`cli/v*` release — mise fetches that release and no compiler is involved. `mise run
+yidam-vendor-update` is what keeps that entry true, deriving it from the same pin; the region
+it owns in `mise.toml` is marked, and everything outside those markers is yours. Most commits
+are not tagged, and for those `mise run yidam-build` compiles from the pin as it always has,
+provisioning Rust only at that moment.
 
 `mise run ci` is the whole corpus gate — `graph-check`, `graph-lint`, and `regen --check` —
 and it is held to CI's by a test upstream rather than by anyone remembering to keep the two

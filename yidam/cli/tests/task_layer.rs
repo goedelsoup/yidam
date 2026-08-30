@@ -361,3 +361,219 @@ fn the_tag_refspec_globs_so_peeled_refs_are_returned() {
          never find a release again"
     );
 }
+
+/// The `[tools]` entry is derived from the pin, and touches nothing else in the file.
+///
+/// `.yidam.toml` pins a **commit**; a mise `[tools]` entry names a **version**. VERSIONING.md
+/// argues against carrying both as "a third thing to get out of step", and it is right — so
+/// the version is not stored anywhere. `yidam-vendor-update` derives it from the commit it
+/// already writes, and rewrites one marked region of the consumer's `mise.toml`.
+///
+/// That file is the one thing this task must not replace wholesale: everything outside the
+/// markers is domain-owned. And the region has to live *inside* the existing `[tools]` table
+/// rather than appending a second one, because TOML rejects a duplicate table outright —
+/// verified against mise 2026.7.0, which reports `TOML parse error … [tools]` and loads no
+/// settings at all.
+///
+/// The awk is read out of `mise.yidam.toml` rather than copied here, for the reason the tag
+/// resolver above gives: a copy would pass while the file rotted.
+#[test]
+fn the_tools_block_is_written_from_the_pin_and_only_between_its_markers() {
+    let run = parse("mise.yidam.toml")["yidam-vendor-update"]["run"]
+        .as_str()
+        .expect("yidam-vendor-update.run")
+        .to_string();
+
+    let marker = "tools_block='";
+    let start = run
+        .find(marker)
+        .expect("yidam-vendor-update defines tools_block")
+        + marker.len();
+    let program = &run[start..start + run[start..].find('\'').expect("unterminated awk")];
+    assert!(
+        !program.contains('\\'),
+        "the tools_block awk contains a backslash. It is embedded in a TOML multi-line \
+         string, extracted by this test, and run through sh — three escaping layers, and \
+         every one of them a different set of rules. Keep it backslash-free:\n{program}"
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let prog = dir.path().join("tools.awk");
+    std::fs::write(&prog, program).unwrap();
+
+    let rewrite = |input: &str, body: &str| -> String {
+        let src = dir.path().join("in.toml");
+        std::fs::write(&src, input).unwrap();
+        let out = std::process::Command::new("awk")
+            .arg("-v")
+            .arg(format!("body={body}"))
+            .arg("-f")
+            .arg(&prog)
+            .arg(&src)
+            .output()
+            .expect("awk");
+        assert!(
+            out.status.success(),
+            "awk failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+
+    // A derived repository's mise.toml: a `[tools]` table that already has domain content,
+    // and tasks after it that must survive untouched.
+    const DERIVED: &str = "[task_config]\nincludes = [\"mise.yidam.toml\"]\n\n\
+                           [tools]\nrust = { version = \"1.88.0\" }\n\n\
+                           [tasks.build]\nrun = \"echo domain\"\n";
+    let released =
+        "\"github:goedelsoup/yidam\" = { version = \"0.6.0\", version_prefix = \"cli/v\" }";
+    let unreleased = "# no cli/v* release at this pin";
+
+    let first = rewrite(DERIVED, released);
+    assert!(
+        first.contains(released),
+        "a pin with a release must produce a [tools] entry:\n{first}"
+    );
+    // `version_prefix` is asserted against the SHIPPED entry, not against the fixture body
+    // above — that would be this test grading its own input. The entry is built by a printf
+    // in the task, and it is the task that has to carry the option.
+    assert!(
+        run.contains(r#"version_prefix = "cli/v""#),
+        "yidam-vendor-update writes a [tools] entry without `version_prefix = \"cli/v\"`. \
+         Without it mise resolves this repository's four-layer release list repository-wide: \
+         `@latest` picks up `editor/v*`, whose release ships only a .vsix, and a pinned bare \
+         version 404s on releases/tags/goedelsoup/yidam@<v>. It does not degrade — it fails."
+    );
+    assert!(
+        run.contains("github:goedelsoup/yidam"),
+        "yidam-vendor-update names no backend for the [tools] entry"
+    );
+    // The tag lookup must filter by the CLI layer's prefix. Four layers tag onto one
+    // history and they land on the same commit: `cli/v0.6.0`, `editor/v0.2.0` and `v0.1.1`
+    // all point at c29ba9f. An unfiltered `git tag --points-at` returns all three, and the
+    // one it happens to return first would decide which version this entry names.
+    assert!(
+        run.contains("--points-at") && run.contains("'cli/v*'"),
+        "yidam-vendor-update resolves the pin's tag without filtering to `cli/v*`. Three \
+         layers tag the same commit in this repository, so an unfiltered lookup names \
+         whichever ref sorts first — and `editor/v*` is not a version the CLI backend can \
+         resolve to an asset."
+    );
+    // The entry belongs to the table that is already there. A second `[tools]` is not a
+    // cosmetic problem: TOML refuses the file.
+    assert_eq!(
+        first.matches("[tools]").count(),
+        1,
+        "the rewrite produced a second [tools] table; TOML rejects a duplicate table and \
+         mise loads none of the file:\n{first}"
+    );
+    assert!(
+        first.contains("rust = { version = \"1.88.0\" }") && first.contains("echo domain"),
+        "the rewrite dropped domain-owned content outside the markers:\n{first}"
+    );
+
+    // Running it again with the same pin must change nothing at all. A task that rewrites a
+    // file on every invocation puts a diff in front of someone who changed nothing.
+    assert_eq!(
+        rewrite(&first, released),
+        first,
+        "the rewrite is not idempotent"
+    );
+
+    // A bump replaces the entry rather than stacking a second one.
+    let bumped = rewrite(
+        &first,
+        "\"github:goedelsoup/yidam\" = { version = \"0.7.0\", version_prefix = \"cli/v\" }",
+    );
+    assert_eq!(
+        bumped.matches("github:goedelsoup/yidam").count(),
+        1,
+        "re-pinning left two entries; mise would read whichever TOML resolves last:\n{bumped}"
+    );
+    assert!(bumped.contains("0.7.0") && !bumped.contains("0.6.0"));
+
+    // Most commits carry no release. The block is emptied and KEPT: it is the anchor the
+    // next re-vendor edits, and its absence is indistinguishable from a repository that
+    // predates the mechanism.
+    let none = rewrite(&bumped, unreleased);
+    assert!(
+        !none.contains("github:goedelsoup/yidam"),
+        "an untagged pin must not leave a version entry behind — it would name a release \
+         that is not the pin:\n{none}"
+    );
+    assert!(
+        none.contains("# <!-- YIDAM:TOOLS -->") && none.contains("# <!-- /YIDAM:TOOLS -->"),
+        "the markers must survive an untagged pin, or the next re-vendor has nothing to \
+         edit:\n{none}"
+    );
+    // ...and it fills again when a release does exist at the new pin.
+    assert!(rewrite(&none, released).contains(released));
+}
+
+/// The scaffolded `mise.toml` must ship the markers, and must not ship a Rust toolchain.
+///
+/// Two halves of one change. The markers are the anchor `yidam-vendor-update` edits, so a
+/// repository born without them gets the entry only once someone re-vendors — and the whole
+/// point is that a fresh clone runs `mise install` and has its binary.
+///
+/// The toolchain is #396's actual complaint: `[tools]` carried Rust unconditionally so that
+/// `yidam-build` had a chance of compiling the CLI, on every machine, for a binary that in
+/// the common case was released as a tarball. `sadhana/crates/` ships only a README, so a
+/// freshly bootstrapped repository has no `crates/Cargo.toml` and every domain task below
+/// no-ops. `yidam-build` declares Rust as a per-task tool instead, which mise provisions
+/// when that task runs rather than on `mise install` — verified: with rust declared only
+/// there, `mise install` answers "all tools are installed" and provisions nothing.
+#[test]
+fn the_scaffolded_config_anchors_the_block_and_carries_no_compiler() {
+    let text = std::fs::read_to_string(repo_root().join("sadhana/root/mise.toml"))
+        .expect("sadhana/root/mise.toml");
+
+    for m in ["# <!-- YIDAM:TOOLS -->", "# <!-- /YIDAM:TOOLS -->"] {
+        assert!(
+            text.contains(m),
+            "sadhana/root/mise.toml does not ship `{m}`, so yidam-vendor-update has no \
+             region to write the [tools] entry into and a fresh repository never gets one"
+        );
+    }
+    // Inside `[tools]`, not beside it. The rewrite edits in place precisely because a second
+    // `[tools]` table would make the file unparseable.
+    let tools_at = text
+        .find("\n[tools]")
+        .expect("sadhana/root/mise.toml has [tools]");
+    let marker_at = text.find("# <!-- YIDAM:TOOLS -->").unwrap();
+    let next_table = text[tools_at + 1..]
+        .find("\n[")
+        .map(|i| tools_at + 1 + i)
+        .unwrap_or(text.len());
+    assert!(
+        marker_at > tools_at && marker_at < next_table,
+        "the YIDAM:TOOLS markers are not inside the [tools] table; the entry written there \
+         would land in whatever table encloses them"
+    );
+
+    let scaffolded = parse("sadhana/root/mise.toml");
+    let tools = scaffolded["tools"].as_table().expect("[tools] is a table");
+    assert!(
+        !tools.contains_key("rust"),
+        "sadhana/root/mise.toml declares rust in [tools], so every derived repository \
+         provisions a Rust toolchain on every machine at `mise install` — including the \
+         ones with no crates/ workspace, to give yidam-build a chance of compiling a binary \
+         its pin was released as. yidam-build declares its own."
+    );
+
+    let build = &parse("mise.yidam.toml")["yidam-build"];
+    let per_task = build
+        .get("tools")
+        .and_then(|t| t.as_table())
+        .unwrap_or_else(|| {
+            panic!(
+                "yidam-build declares no `tools`, and the template no longer provides one — \
+                 so an untagged pin has nothing to compile with"
+            )
+        });
+    assert!(
+        per_task.contains_key("rust"),
+        "yidam-build's per-task tools do not include rust, which step 4 (`cargo install`) \
+         needs: {per_task:?}"
+    );
+}
