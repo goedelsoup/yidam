@@ -32,11 +32,30 @@ includes = ["mise.yidam.toml"]
 _.path = [".yidam/bin"]
 
 [tools]
-# Rust — the domain computer in crates/.
-rust = { version = "1.88.0", components = "rustfmt,clippy" }
+# <!-- YIDAM:TOOLS --> written by yidam-vendor-update from .yidam.toml — do not edit
+# no cli/v* release at this pin — `mise run yidam-build` compiles instead
+# <!-- /YIDAM:TOOLS -->
+#
+# The block above is the one part of this file yidam owns. `mise run
+# yidam-vendor-update` rewrites it from the commit .yidam.toml pins: when that
+# commit carries a `cli/v*` tag it becomes a `github:goedelsoup/yidam` entry and
+# `mise install` fetches the released binary, no compiler involved. When it does
+# not — most commits are not tagged — the block stays as it is and
+# `mise run yidam-build` compiles. The version is never a third pin to keep in
+# step; it is derived from the one in .yidam.toml, by the one writer.
+#
+# Edit anything you like outside those markers. Nothing reads it.
 # <!-- TEMPLATE
 # Uncomment or add what this domain actually needs. Do not carry toolchains
 # the repository does not use — every one of them is time on every CI run.
+#
+# Rust is deliberately NOT here. It used to be, unconditionally, so that
+# `yidam-build` had a chance of compiling the CLI — but the domain tasks below
+# no-op until crates/Cargo.toml exists, and `yidam-build` now declares Rust as a
+# per-task tool that mise provisions when that task runs. A repository whose pin
+# is released therefore never installs a Rust toolchain at all. Uncomment this
+# the day this repository grows a crates/ workspace of its own.
+# rust = { version = "1.88.0", components = "rustfmt,clippy" }
 # python = "3.12"
 # uv = "latest"
 # node = "lts"
