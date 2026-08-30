@@ -500,3 +500,87 @@ fn nothing_resolves_a_layer_release_through_the_repository_latest() {
         scanned.len()
     );
 }
+
+/// A verification step that verifies nothing must not read as if it succeeded.
+///
+/// mise prints two lines on every install of this binary:
+///
+/// ```text
+/// mise github:goedelsoup/yidam@0.6.0 [2/3] verify GitHub artifact attestations
+/// mise github:goedelsoup/yidam@0.6.0 [2/3] verify SLSA provenance
+/// ```
+///
+/// and `release.yml` declared `contents: write`, had no attest step anywhere, and so gave
+/// both lines nothing to find. They passed over an absence and printed what they would print
+/// for a signed artifact — a third party's verification, phrased as a success, shown to the
+/// user during install.
+///
+/// The two states *are* distinguishable, which is the uncomfortable part. Installing a
+/// repository that does publish attestations adds a line this one never produced —
+/// `[2/3] ✓ GitHub artifact attestations verified` — so the only thing separating "verified"
+/// from "found nothing to verify" was a line that was not there, and nobody reads for those.
+/// Verified against mise 2026.7.0 by installing `github:cli/cli` beside this one.
+///
+/// The permissions are asserted with the step because either alone attests nothing. Missing
+/// permissions fail the step at tag time rather than silently, which is the better failure —
+/// but naming them here is cheaper than reading an OIDC error during a release.
+///
+/// The `.sha256` files are deliberately not subjects. They are checksums *of* the tarballs,
+/// so attesting the tarball covers what they assert; they go on answering integrity for
+/// `install.sh`, the tap and `[yidam-build]`, and this answers origin.
+#[test]
+fn the_release_publishes_build_provenance_for_what_it_ships() {
+    let release = read(".github/workflows/release.yml");
+
+    // The same reading `the_cross_compile_check_mirrors_the_release_build` takes of ci.yml:
+    // job boundaries by name, then assert the slice is the job it claims to be.
+    let publish = release
+        .split("\n  publish:")
+        .nth(1)
+        .expect("release.yml has a publish job")
+        .split("\n  tap:")
+        .next()
+        .unwrap();
+    // Comments stripped, for the reason two tests above give and one below learned the hard
+    // way: the comment explaining why `contents: write` is repeated here *contains*
+    // `contents: write`, so deleting the permission left this test green. Verified by
+    // deleting it. Trailing comments survive — it is whole prose lines that answer for code.
+    let publish: String = publish
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        publish.contains("gh release create"),
+        "the slice taken for release.yml's publish job does not create a release, so it is \
+         not that job and every assertion below it is vacuous"
+    );
+
+    assert!(
+        publish.contains("actions/attest-build-provenance"),
+        "release.yml publishes tarballs and attests nothing. mise announces \"verify GitHub \
+         artifact attestations\" on every install of this binary and finds nothing there, \
+         which reads to a user exactly as verification passing."
+    );
+    assert!(
+        publish.contains("subject-path: 'dist/*.tar.gz'"),
+        "the attestation does not cover `dist/*.tar.gz` — the assets every channel actually \
+         downloads. An attestation over something else is the absence with extra steps."
+    );
+    for permission in ["id-token: write", "attestations: write"] {
+        assert!(
+            publish.contains(permission),
+            "release.yml's publish job attests build provenance without granting \
+             `{permission}`; the step cannot mint or store an attestation without it"
+        );
+    }
+    // `contents: write` is workflow-level, and a job that declares `permissions` REPLACES
+    // the workflow's rather than adding to it — so scoping the two above to this job silently
+    // removed what `gh release create` needs unless it is repeated here.
+    assert!(
+        publish.contains("contents: write"),
+        "release.yml's publish job declares `permissions` but not `contents: write`; a \
+         job-level block replaces the workflow-level one, so `gh release create` would be \
+         publishing without permission to write the release"
+    );
+}

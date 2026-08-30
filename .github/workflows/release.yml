@@ -159,6 +159,14 @@ jobs:
     # Only a tag publishes. workflow_dispatch builds the matrix and stops, which
     # is what makes it usable as a pre-tag check.
     if: startsWith(github.ref, 'refs/tags/cli/v')
+    # Job-level, so `build` and `tap` keep the workflow-level `contents: write`
+    # and nothing more. A job that declares `permissions` replaces the
+    # workflow's rather than adding to it, which is why `contents: write` is
+    # repeated here — `gh release create` below needs it.
+    permissions:
+      contents: write
+      id-token: write      # the OIDC token the attestation is signed with
+      attestations: write  # writing the attestation to this repository
     steps:
       - uses: actions/checkout@v4
 
@@ -191,6 +199,39 @@ jobs:
           cd dist
           cat *.sha256 > SHA256SUMS
           ls -la
+
+      # ── build provenance ──────────────────────────────────────────────────
+      #
+      # mise prints two lines on every install of this binary:
+      #
+      #   [2/3] verify GitHub artifact attestations
+      #   [2/3] verify SLSA provenance
+      #
+      # and until this step existed there was nothing for either to find. They
+      # passed over an absence and read exactly as they read for a signed
+      # artifact — a third party's verification, phrased as if it succeeded,
+      # printed to the user during install. Compare a repository that does
+      # publish attestations, where mise adds a line this one never produced:
+      #
+      #   [2/3] ✓ GitHub artifact attestations verified
+      #
+      # The absence of that line is the only thing that distinguished them, and
+      # nobody reads for a line that is not there. Same shape as a guard that
+      # scans an empty list and reports green.
+      #
+      # BEFORE `gh release create`, so there is no window in which an asset is
+      # downloadable and unattested. Attestations are keyed to the artifact
+      # digest, not to the release, so this ordering costs nothing.
+      #
+      # The `.sha256` files are deliberately not subjects: they are checksums OF
+      # the tarballs, and attesting the tarball covers what they assert. They go
+      # on answering the question they always answered for install.sh, the tap
+      # and `[yidam-build]` — integrity, not origin. This step is the origin
+      # half, and it is the half `gh attestation verify` and mise both want.
+      - name: Attest build provenance for the release tarballs
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: 'dist/*.tar.gz'
 
       - name: Publish the release
         env:
