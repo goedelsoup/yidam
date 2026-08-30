@@ -464,6 +464,39 @@ echo "  git add .yidam/.vendor/prelude .yidam.toml mise.yidam.toml mise.toml .yi
 echo "  git commit -m 'vendor: re-vendor prelude at $commit — <what changed>'"
 """
 
+# ── corpora ───────────────────────────────────────────────────────────
+# `mise install` provisions toolchains. It does not fetch the corpora this
+# repository declares in `.yidam/tonpa.toml`, so a fresh clone ended with the
+# tools present, the binary present, and every command that reads a dependency's
+# corpus reading nothing. The third step existed; nothing ran it.
+#
+# The consumer's mise.toml runs this from `[hooks] postinstall`. That hook CANNOT
+# live in this file: mise reads `[hooks]` in a task-config include as a task
+# NAMED hooks — the same way it reads `[env]` and `[tools]` — and the whole
+# include then fails to parse, orphaning every task in it. `sadhana/root/mise.toml`
+# carries the hook for new repositories. See task_layer.rs.
+#
+# Re-running it is safe, and that is a property of the command rather than a
+# hope: `tonpa install` returns early when nothing is declared, skips path
+# dependencies, and for anything already unpacked verifies its hash against
+# tonpa.lock and continues without fetching. It reaches the network only for a
+# dependency that is missing, unlocked, or corrupt.
+[tonpa-install]
+description = "Fetch the corpora .yidam/tonpa.toml declares. Re-runnable: verifies hashes and writes nothing when already satisfied."
+run = """
+set -eu
+# Not an error, and deliberately not a failed `mise install`. A repository whose
+# pin carries no release has no binary until `mise run yidam-build` compiles one,
+# and provisioning toolchains must not fail because the step after it has not run
+# yet. This swallows only the binary's absence — a rotted dependency URL is
+# `tonpa install`'s own exit code and passes straight through.
+if ! command -v yidam >/dev/null 2>&1; then
+  echo "yidam is not on PATH yet — run 'mise run yidam-build', then 'mise run tonpa-install'." >&2
+  exit 0
+fi
+yidam tonpa install
+"""
+
 # ── yidam CLI — REGEN tasks ───────────────────────────────────────────
 
 [status]

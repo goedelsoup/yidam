@@ -161,17 +161,46 @@ fn tasks_the_derived_config_invokes_are_defined() {
         .map(|t| t.keys().cloned().collect())
         .unwrap_or_default();
 
-    let mut missing = Vec::new();
-    for (name, task) in cfg.get("tasks").and_then(|t| t.as_table()).unwrap() {
-        let run = task.get("run");
-        let lines: Vec<String> = match run {
+    /// Every command string a TOML value can hold: a bare string, or a list of them.
+    fn commands(v: Option<&toml::Value>) -> Vec<String> {
+        match v {
             Some(toml::Value::String(s)) => vec![s.clone()],
             Some(toml::Value::Array(a)) => a
                 .iter()
                 .filter_map(|v| v.as_str().map(str::to_string))
                 .collect(),
             _ => vec![],
-        };
+        }
+    }
+
+    // Every place the derived config can name a task, discovered rather than listed.
+    // `[tasks]` was the only one read here, and then `[hooks] postinstall` became a second —
+    // a call site the walk did not cover, so a hook naming a task that does not exist would
+    // fail at `mise install` in someone's fresh clone rather than here. That is the shape
+    // this file already guards against one level up; it is worth not reintroducing it in the
+    // guard itself.
+    let mut call_sites: Vec<(String, Vec<String>)> = Vec::new();
+    if let Some(tasks) = cfg.get("tasks").and_then(|t| t.as_table()) {
+        for (name, task) in tasks {
+            call_sites.push((format!("task `{name}`"), commands(task.get("run"))));
+        }
+    }
+    let hooks = cfg
+        .get("hooks")
+        .and_then(|h| h.as_table())
+        .unwrap_or_else(|| {
+            panic!(
+                "sadhana/root/mise.toml declares no [hooks]; `postinstall` is what makes \
+                 `mise install` leave a fresh clone with its corpora rather than with an \
+                 empty .yidam/tonpa/"
+            )
+        });
+    for (name, value) in hooks {
+        call_sites.push((format!("hook `{name}`"), commands(Some(value))));
+    }
+
+    let mut missing = Vec::new();
+    for (site, lines) in &call_sites {
         for line in lines {
             let Some(rest) = line.trim().strip_prefix("mise run ") else {
                 continue;
@@ -179,12 +208,82 @@ fn tasks_the_derived_config_invokes_are_defined() {
             let called = rest.split_whitespace().next().unwrap_or_default();
             if !called.is_empty() && !inherited.contains(called) && !own.contains(called) {
                 missing.push(format!(
-                    "`{name}` runs `mise run {called}`, which is defined nowhere"
+                    "{site} runs `mise run {called}`, which is defined nowhere"
                 ));
             }
         }
     }
     assert!(missing.is_empty(), "{}", missing.join("\n"));
+
+    // ...and the walk must have found the call sites it claims to read. A scan that reaches
+    // neither table reports no missing tasks and passes.
+    let checked: usize = call_sites.iter().map(|(_, l)| l.len()).sum();
+    assert!(
+        checked > 0 && call_sites.iter().any(|(s, _)| s.starts_with("hook")),
+        "the walk read {checked} command(s) across {} call site(s) and no hook among them; \
+         it is not reading what it claims to",
+        call_sites.len()
+    );
+}
+
+/// `mise install` must leave a fresh clone with its corpora, not just its toolchains.
+///
+/// Three separate things have to hold together, and each one is silent on its own.
+///
+/// The hook has to be in the **consumer's** `mise.toml`. mise reads `[hooks]` in a
+/// task-config include as a task named `hooks` and fails the entire file to parse — the same
+/// constraint as `[env] _.path` and `[tools]`, and the one that orphaned all 35 inherited
+/// tasks once already. So a well-meaning move of this block into `mise.yidam.toml` does not
+/// degrade, it takes everything with it; `the_task_file_holds_no_config_sections` above is
+/// what catches that direction.
+///
+/// It has to run **after** the tools are installed, or a repository whose pin is released has
+/// no `yidam` yet when the hook fires. Verified against mise 2026.7.0: postinstall runs after
+/// installation and with the newly installed tools on PATH, on a first install and on a
+/// repeat one alike.
+///
+/// And the task it names has to tolerate **no binary at all**. A pin with no release has
+/// nothing on PATH until `yidam-build` compiles one, and failing `mise install` because the
+/// step after it has not run yet would make provisioning depend on its own output.
+#[test]
+fn the_install_hook_fetches_corpora_and_survives_a_repo_with_no_binary() {
+    let cfg = parse("sadhana/root/mise.toml");
+    let hook = cfg["hooks"]["postinstall"]
+        .as_str()
+        .expect("[hooks] postinstall is a string");
+    assert_eq!(
+        hook, "mise run tonpa-install",
+        "the postinstall hook must call the named task rather than inlining a command, so a \
+         contributor has something to run by hand and one definition backs both"
+    );
+
+    let task = &parse("mise.yidam.toml")["tonpa-install"];
+    let run = task["run"].as_str().expect("tonpa-install.run");
+    assert!(
+        run.contains("yidam tonpa install"),
+        "tonpa-install does not run `yidam tonpa install`:\n{run}"
+    );
+    assert!(
+        run.contains("command -v yidam") && run.contains("exit 0"),
+        "tonpa-install must exit 0 when no `yidam` is on PATH. A repository whose pin carries \
+         no release has no binary until `mise run yidam-build` compiles one, and the hook \
+         runs during `mise install` — so without this, provisioning toolchains fails because \
+         the step that comes after it has not happened yet:\n{run}"
+    );
+    // The absence of the binary is the ONLY thing swallowed. A dependency that cannot be
+    // fetched must still return non-zero.
+    //
+    // What the task returns and what `mise install` returns are different questions, and the
+    // issue this came from assumed they were the same. Measured against mise 2026.7.0: a
+    // failing postinstall hook is logged `mise WARN Postinstall hook … failed` and
+    // `mise install` exits 0 regardless. So this assertion is not protecting `mise install`'s
+    // exit code — nothing can — it is protecting the only signal that survives, which is the
+    // task's own error output.
+    assert!(
+        !run.contains("yidam tonpa install || true") && !run.contains("|| exit 0"),
+        "tonpa-install swallows `tonpa install`'s exit code. A dependency that cannot be \
+         fetched is exactly what this hook exists to surface:\n{run}"
+    );
 }
 
 /// The tasks a derived repository cannot function without.

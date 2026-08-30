@@ -61,6 +61,45 @@ _.path = [".yidam/bin"]
 # node = "lts"
 # -->
 
+# ── hooks ─────────────────────────────────────────────────────────────────
+# `mise install` provisions toolchains and stops. It does not fetch the corpora
+# `.yidam/tonpa.toml` declares, so a fresh clone ended with the tools present, the
+# binary present, and every command that reads a dependency's corpus reading
+# nothing. The ask is that one command leaves a contributor ready to work.
+#
+# It has to be HERE, not in mise.yidam.toml. That is a task file, where mise reads
+# `[hooks]` as a task named hooks and fails the whole include to parse — the same
+# constraint as `[env] _.path` above and the `[tools]` entry, and the one that
+# orphaned all 35 inherited tasks once already.
+#
+# It fires on every `mise install`, including when every tool was already present.
+# That is fine: `tonpa-install` verifies hashes against tonpa.lock and writes
+# nothing when they match.
+#
+# What it costs, measured rather than predicted. The obvious worry is that the
+# first `mise install` in a fresh clone now depends on the network for CORPORA as
+# well as tools, so a rotted dependency URL would fail provisioning rather than
+# first use. It does not: mise 2026.7.0 treats a failing postinstall hook as a
+# warning and exits 0 anyway —
+#
+#   [tonpa-install] ERROR task failed
+#   mise WARN  Postinstall hook in <dir> failed: … exited with code 1
+#   $ echo $?
+#   0
+#
+# So `mise install` fails on nothing it did not already fail on. The cost is the
+# other way round: a corpus that could not be fetched is a WARN in a log people
+# scroll past, and the repository is left in exactly the state this hook exists
+# to prevent. `tonpa-install` returns the failure honestly and mise softens it;
+# neither end of that is ours to change, so the thing to know is that a green
+# `mise install` is not proof the corpora arrived. Re-run `mise run tonpa-install`
+# on its own for an exit code that means what it says — measured: 1 against an
+# unreachable dependency. Nothing else reports this today; `yidam doctor` has no
+# check for it.
+
+[hooks]
+postinstall = "mise run tonpa-install"
+
 # ── domain computer (crates/) ─────────────────────────────────────────────
 # These no-op until crates/Cargo.toml exists — the same condition
 # .github/workflows/ci.yml's `detect` job gates its crates jobs on. They said so
