@@ -42,6 +42,19 @@ pub(crate) fn capabilities(state: &ServerState) -> Value {
         // on disk, ontology included. A projected mirror holding nodes and edges and no
         // class definitions declares false — optional is not the same as absent.
         "ontology": !state.classes.is_empty(),
+        // Whether this server can say if a citation into a dependency holds. True iff it
+        // resolved at least one — the same shape as `ontology` above, and a fact about THIS
+        // CORPUS rather than about the build: `deps` is not behind the `tonpa` feature,
+        // because knowing what a repository depends on needs none of the network that feature
+        // buys.
+        //
+        // A server that resolved none could serve `check_citation` and answer
+        // `external-citation-unresolved` to everything, and be literally correct every time.
+        // That is the shape #358 caught one tier over: a diagnosis that asserts a fact about a
+        // corpus the server does not have. A projected mirror carries no `.yidam/tonpa/`, and
+        // telling its caller that `upstream` is not installed would be a statement about the
+        // mirror dressed as one about the repository the mirror came from.
+        "dependencies": !state.dependencies.is_empty(),
         "phases": false,
         "sangha": false,
         "resources": true,
@@ -131,6 +144,7 @@ pub(crate) fn call(state: &ServerState, name: &str, args: &Value) -> Value {
         "open_questions" => Ok(open_questions(state)),
         "claims" => Ok(claims(state, args)),
         "check_subject" => check_subject(args),
+        "check_citation" => check_citation(state, args),
         "claim_tags" => Ok(claim_tags()),
         "licensed_edges" => licensed_edges(state, args),
         "query" => query(state, args),
@@ -710,6 +724,100 @@ fn check_subject(args: &Value) -> Result<Value, String> {
     Ok(out)
 }
 
+/// Whether a `cites:` into a dependency would hold, before it is written (#357).
+///
+/// # The gap this closes
+///
+/// RFC-0019 made `cites:` a field of a node and #266 made a citation into a dependency
+/// verifiable — by four checks that all run at `lint` time, which is to say *after* the
+/// citation has been written into a file and committed to. The surfaces that make a foreign
+/// node reachable are exactly the ones that make a bad citation easy to write: `retrieve`
+/// answers from a dependency, `get_node` reads one out of it, and #333 gave `query` the
+/// dependency set — and none of them says whether leaning on what they returned would stand.
+/// A `span:` in particular is a claim about text that no read-tool checks.
+///
+/// # It calls the checks' own predicate
+///
+/// [`citations::findings`] is the function the four checks are filters over, so this cannot
+/// come to disagree with the gate about what a citation is. That is the same argument `query`
+/// makes for being a call into `cmd::query` rather than a second traversal, and the argument
+/// `retrieve`'s history makes against a second copy of anything.
+///
+/// # Never an error
+///
+/// A citation that will not hold is a verdict in the payload, exactly as `check_subject`
+/// returns an unrecognized verb. `isError` stays for a tool that could not run — and this one
+/// can always run, because a server that could not answer declines the tool by name at the
+/// `dependencies` capability instead of guessing here.
+///
+/// `package` is required and `node` is not, which is a distinction rather than an oversight.
+/// Without a package there is no question — nothing names a corpus to check against. Without
+/// a node there is still a question, and its answer is a finding the gate would also give,
+/// so it comes back as one.
+fn check_citation(state: &ServerState, args: &Value) -> Result<Value, String> {
+    use crate::cmd::lint::citations;
+
+    let field = |name: &str| args[name].as_str().map(str::to_string);
+    let package = field("package").ok_or("package is required")?;
+    let cite = crate::parse::ExternalCitation {
+        package: Some(package),
+        node: field("node"),
+        commit: field("commit"),
+        tag: field("tag"),
+        span: field("span"),
+    };
+
+    let findings = citations::findings(&cite, &state.dependencies);
+    // What the four severities mean for a caller about to act: any finding at all means the
+    // citation is not clean, and an Error-severity one means the gate goes red. A pin that has
+    // moved and an unpinnable path dependency are both worth saying and neither blocks, so a
+    // caller that read only `holds` would over-report and one that read only `gates` would
+    // write a citation it was told about.
+    let gates = findings
+        .iter()
+        .any(|f| f.severity == crate::cmd::lint::model::Severity::Error);
+    let rendered: Vec<Value> = findings
+        .iter()
+        .map(|f| {
+            json!({
+                "check": f.check,
+                "severity": f.severity.as_str(),
+                "message": f.message,
+            })
+        })
+        .collect();
+
+    Ok(json!({
+        "citation": {
+            "package": cite.package,
+            "node": cite.node,
+            "commit": cite.commit,
+            "tag": cite.tag,
+            "span": cite.span,
+        },
+        "holds": findings.is_empty(),
+        "gates": gates,
+        "findings": rendered,
+        // The installed set travels with the verdict, for `check_subject`'s reason: a caller
+        // that got it wrong can correct without a second call. `pin` is the part that cannot
+        // be learned any other way over this surface — it is the value a correct `commit:`
+        // must carry, and an agent that had to guess it would write
+        // `external-citation-pin-moved` into the corpus on its first try.
+        "dependencies": state
+            .dependencies
+            .iter()
+            .map(|(name, dep)| json!({
+                "package": name,
+                "pin": dep.pin,
+                "kind": match dep.kind {
+                    crate::deps::DependencyKind::Fetched => "fetched",
+                    crate::deps::DependencyKind::Path => "path",
+                },
+            }))
+            .collect::<Vec<Value>>(),
+    }))
+}
+
 /// The three evidence tags, what each means, and how each may be written.
 ///
 /// Tens of tokens instead of a prose file held in context every session. The prose stays
@@ -1056,5 +1164,154 @@ mod tests {
         let state = test_state();
         let result = call(&state, "bogus", &json!({}));
         assert_eq!(result["isError"], true);
+    }
+
+    // ── check_citation (#357) ────────────────────────────────────────────────
+
+    /// The verdict is read from the corpus this server walked at startup.
+    ///
+    /// The fixture's `corpus_dir` does not exist, so nothing here can be answered from disk.
+    /// That is the assertion: a span judged against the working tree would report this node
+    /// missing, and a server whose `check_citation` disagreed with its own `get_node` about
+    /// what a node says is worse than one that is merely out of date.
+    #[test]
+    fn a_citation_is_checked_against_the_corpus_this_server_serves() {
+        let state = test_state();
+        let verdict = call_ok(
+            &state,
+            "check_citation",
+            json!({
+                "package": "upstream",
+                "node": "concept/only-upstream",
+                "commit": "abc1234",
+                "span": "Exists in the dependency and nowhere else.",
+            }),
+        );
+        assert_eq!(verdict["holds"], true, "{verdict}");
+        assert_eq!(verdict["gates"], false);
+        assert_eq!(verdict["findings"].as_array().unwrap().len(), 0);
+    }
+
+    /// `holds` and `gates` are two questions, and a moved pin is what separates them.
+    ///
+    /// A caller reading only `gates` writes a citation it was warned about; one reading only
+    /// `holds` treats a warning as a refusal. The span still matches here, so nothing but the
+    /// pin is under test.
+    #[test]
+    fn a_moved_pin_does_not_hold_and_does_not_gate() {
+        let state = test_state();
+        let verdict = call_ok(
+            &state,
+            "check_citation",
+            json!({
+                "package": "upstream",
+                "node": "concept/only-upstream",
+                "commit": "0000000",
+                "span": "Exists in the dependency and nowhere else.",
+            }),
+        );
+        assert_eq!(verdict["holds"], false);
+        assert_eq!(verdict["gates"], false, "{verdict}");
+        assert_eq!(
+            verdict["findings"][0]["check"],
+            "external-citation-pin-moved"
+        );
+        assert_eq!(verdict["findings"][0]["severity"], "warn");
+    }
+
+    /// The pin travels back, because it is reachable no other way on this surface.
+    ///
+    /// It is the value a correct `commit:` must carry. An agent that had to guess it writes
+    /// `external-citation-pin-moved` into the corpus on its first try — which is the failure
+    /// this tool exists to prevent, reintroduced by the tool itself.
+    #[test]
+    fn the_installed_set_travels_with_the_verdict() {
+        let state = test_state();
+        let verdict = call_ok(&state, "check_citation", json!({"package": "nowhere"}));
+        assert_eq!(verdict["dependencies"][0]["package"], "upstream");
+        assert_eq!(verdict["dependencies"][0]["pin"], "abc1234");
+        assert_eq!(verdict["dependencies"][0]["kind"], "fetched");
+    }
+
+    /// A citation that will not hold is a verdict, and only an unaskable question is an error.
+    ///
+    /// `check_subject`'s rule, for `check_subject`'s reason: a tool that failed harder than
+    /// the gate would assert a verdict nobody agreed to. Omitting `node` still leaves a
+    /// question — and its answer is the frozen check id the gate would give — so it comes back
+    /// as a finding. Omitting `package` leaves nothing to check against, and that is the error.
+    #[test]
+    fn only_a_call_naming_no_package_is_an_error() {
+        let state = test_state();
+        let answered = call_ok(&state, "check_citation", json!({"package": "upstream"}));
+        assert_eq!(answered["holds"], false);
+        assert_eq!(
+            answered["findings"][0]["check"],
+            "external-citation-unresolved"
+        );
+
+        let refused = call(&state, "check_citation", &json!({"node": "concept/x"}));
+        assert_eq!(refused["isError"], true);
+    }
+
+    /// A server with nothing installed refuses the tool rather than answering it.
+    ///
+    /// It could answer `external-citation-unresolved` to every citation put to it and be
+    /// correct every time — while asserting a fact about a dependency set it does not have.
+    /// That is the shape #358 caught one tier over, where a server with no `.ont.yml` reported
+    /// `class-unpopulated`; the repair there was to decline the tool, and it is the repair
+    /// here.
+    #[test]
+    fn a_server_with_no_dependencies_declines_rather_than_reporting_them_all_unresolved() {
+        let mut state = test_state();
+        state.dependencies.clear();
+        assert_eq!(capabilities(&state)["dependencies"], false);
+
+        let listed = list(&state);
+        assert!(
+            !listed["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| t["name"] == "check_citation"),
+            "an unbacked tool must not be listed: {listed}"
+        );
+
+        let result = call(&state, "check_citation", &json!({"package": "upstream"}));
+        let text = result["content"][0]["text"].as_str().unwrap_or_default();
+        assert_eq!(result["isError"], true);
+        assert!(text.starts_with("capability-not-supported"), "{text}");
+    }
+
+    /// The check ids the contract freezes are the ones the gate actually reports.
+    ///
+    /// Both halves of this tool's promise are strings — the id in `citations` and the id in
+    /// `tools.json`'s notes — and nothing else compares them. Renaming a check in the gate
+    /// would leave a conforming server answering an id no document names, and a client
+    /// branching on the frozen one would silently stop matching.
+    #[test]
+    fn the_contract_names_the_check_ids_the_gate_reports() {
+        use crate::cmd::lint::citations;
+
+        let contract = contract();
+        let notes = contract["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == "check_citation")
+            .and_then(|t| t["response"]["notes"].as_str())
+            .expect("check_citation documents its response");
+
+        for id in [
+            citations::UNRESOLVED,
+            citations::SPAN_DRIFT,
+            citations::PIN_MOVED,
+            citations::UNPINNED,
+        ] {
+            assert!(
+                notes.contains(id),
+                "the contract does not name `{id}` — a client branching on the id this \
+                 server answers with has nothing frozen to branch on"
+            );
+        }
     }
 }

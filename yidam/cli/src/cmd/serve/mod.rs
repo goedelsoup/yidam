@@ -122,6 +122,20 @@ pub(crate) struct ServerState {
     /// with dependencies already walks them at startup for `retrieve` (`dep_nodes` above),
     /// so this is a marginal cost on a path that was never free.
     pub graph_across: Option<crate::cmd::query::Graph>,
+    /// Every installed dependency, as `check_citation` needs to see it (#357).
+    ///
+    /// Its pins and kinds come from `.yidam/tonpa/` and `.yidam/tonpa.toml`; its node text is
+    /// [`dep_nodes`](Self::dep_nodes) — the corpus this server already walked at startup, so
+    /// there is no second read and no second snapshot moment. A citation checked here is
+    /// checked against the same bytes `get_node` would return for the node it names.
+    ///
+    /// **Empty is a capability, not a hole.** A server that resolved no dependency declares
+    /// `dependencies: false` and refuses the tool by name. It could answer
+    /// `external-citation-unresolved` for every citation put to it and be literally correct,
+    /// and that is exactly the shape #358 caught: a server asserting a fact about a corpus it
+    /// does not have. A projected mirror carries no `.yidam/tonpa/` and would be answering for
+    /// a repository whose dependencies it cannot see.
+    pub dependencies: std::collections::BTreeMap<String, crate::cmd::lint::citations::Installed>,
     /// Catalog entries each node cites, keyed by node id.
     ///
     /// Resolved once at startup with the gate's own resolver rather than from
@@ -186,11 +200,13 @@ impl ServerState {
                 ..crate::cmd::query::Graph::load(root)
             }),
         };
+        let dependencies = dependencies(root, &dep_nodes);
         Ok(ServerState {
             domain: model.provenance.domain,
             commit: model.provenance.commit,
             nodes,
             dep_nodes,
+            dependencies,
             skills,
             decisions,
             retrieval,
@@ -202,6 +218,57 @@ impl ServerState {
             graph_across,
         })
     }
+}
+
+/// The installed dependency set, with its node text taken from the startup walk (#357).
+///
+/// [`crate::cmd::lint::citations::installed`] answers where each dependency's corpus is and
+/// what pin it carries, and leaves its nodes read-through-to-disk, which is what `lint`
+/// wants. This swaps in the snapshot: `dep_nodes` was already walked for `retrieve`, and its
+/// `content` is the same file text the gate would have read.
+///
+/// The two agree on names by construction — both resolve through [`crate::deps::resolved`] —
+/// so a dependency present in one and absent from the other is not a case that can arise. A
+/// dependency that resolved but whose corpus walked to nothing gets an empty snapshot rather
+/// than a read-through: its nodes are absent, which is `external-citation-unresolved`'s
+/// finding, and falling back to disk would let one dependency answer from a different moment
+/// than the rest.
+fn dependencies(
+    root: &Path,
+    dep_nodes: &[Node],
+) -> std::collections::BTreeMap<String, crate::cmd::lint::citations::Installed> {
+    let mut by_package = snapshots(dep_nodes);
+    let mut installed = crate::cmd::lint::citations::installed(root);
+    for (name, dep) in installed.iter_mut() {
+        dep.nodes = crate::cmd::lint::citations::Nodes::Snapshot(
+            by_package.remove(name).unwrap_or_default(),
+        );
+    }
+    installed
+}
+
+/// The startup walk, regrouped as each dependency's `<class>/<name>` → file text.
+///
+/// Split out so the test fixture builds its dependency set from the very `dep_nodes` it
+/// serves, rather than restating their content beside them. A fixture whose snapshot and
+/// whose nodes were written separately can drift into agreeing about a node that neither
+/// surface actually holds.
+fn snapshots(
+    dep_nodes: &[Node],
+) -> std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>> {
+    let mut by_package: std::collections::BTreeMap<
+        String,
+        std::collections::BTreeMap<String, String>,
+    > = Default::default();
+    for node in dep_nodes {
+        if let Some(package) = node.origin.as_deref() {
+            by_package
+                .entry(package.to_string())
+                .or_default()
+                .insert(node.id.clone(), node.content.clone());
+        }
+    }
+    by_package
 }
 
 /// Which catalog entries each node cites.
@@ -411,31 +478,62 @@ fn handle(state: &ServerState, method: &str, params: &Value) -> Result<Value, Rp
 mod tests {
     use super::*;
 
+    /// The upstream corpus this fixture serves. Its `content` is real YAML rather than a
+    /// stub, because `check_citation` compares a `span:` against exactly these bytes — a
+    /// fixture whose foreign nodes said `class: concept` and nothing else could express a
+    /// citation that resolves and none that quotes.
+    pub(crate) fn dep_nodes() -> Vec<Node> {
+        vec![
+            Node {
+                id: "concept/knowledge-graph".into(),
+                class: "concept".into(),
+                label: "Knowledge graph (upstream)".into(),
+                description: "The dependency's account of a knowledge graph.".into(),
+                content: "class: concept\nlabel: Knowledge graph (upstream)\ndescription: \
+                          The dependency's account of a knowledge graph.\n"
+                    .into(),
+                links: vec![("concept/traversal".into(), "enables".into())],
+                origin: Some("upstream".into()),
+            },
+            // An id no local node shares. The colliding node above is rescued by ordering
+            // if the boundary is removed; this one is not, so it is the node that actually
+            // pins the rule.
+            Node {
+                id: "concept/only-upstream".into(),
+                class: "concept".into(),
+                label: "Only upstream".into(),
+                description: "Exists in the dependency and nowhere else.".into(),
+                content: "class: concept\nlabel: Only upstream\ndescription: \
+                          Exists in the dependency and nowhere else.\n"
+                    .into(),
+                links: vec![],
+                origin: Some("upstream".into()),
+            },
+        ]
+    }
+
     pub(crate) fn test_state() -> ServerState {
+        let dep_nodes = dep_nodes();
         ServerState {
-            dep_nodes: vec![
-                Node {
-                    id: "concept/knowledge-graph".into(),
-                    class: "concept".into(),
-                    label: "Knowledge graph (upstream)".into(),
-                    description: "The dependency's account of a knowledge graph.".into(),
-                    content: "class: concept\n".into(),
-                    links: vec![("concept/traversal".into(), "enables".into())],
-                    origin: Some("upstream".into()),
-                },
-                // An id no local node shares. The colliding node above is rescued by ordering
-                // if the boundary is removed; this one is not, so it is the node that actually
-                // pins the rule.
-                Node {
-                    id: "concept/only-upstream".into(),
-                    class: "concept".into(),
-                    label: "Only upstream".into(),
-                    description: "Exists in the dependency and nowhere else.".into(),
-                    content: "class: concept\n".into(),
-                    links: vec![],
-                    origin: Some("upstream".into()),
-                },
-            ],
+            // Built from the nodes above rather than beside them, so the set this server
+            // checks citations against is the set it serves. `corpus_dir` names a path that
+            // does not exist, deliberately: the snapshot is what must answer, and a read that
+            // fell through to disk would fail loudly here instead of quietly passing.
+            dependencies: snapshots(&dep_nodes)
+                .into_iter()
+                .map(|(name, nodes)| {
+                    (
+                        name,
+                        crate::cmd::lint::citations::Installed {
+                            corpus_dir: std::path::PathBuf::from("/nonexistent/upstream/corpus"),
+                            kind: crate::deps::DependencyKind::Fetched,
+                            pin: Some("abc1234".into()),
+                            nodes: crate::cmd::lint::citations::Nodes::Snapshot(nodes),
+                        },
+                    )
+                })
+                .collect(),
+            dep_nodes,
             domain: "test".into(),
             commit: "abc1234".into(),
             nodes: vec![

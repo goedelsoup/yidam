@@ -112,6 +112,7 @@ An absolute path and `exec` — the `exec` so signals reach the server rather th
 | `open_questions` | Nodes flagged as unsettled | You are looking for what is *not* known |
 | `claims` | Assertions with the standing each is made at, filterable by standing | You want what the corpus *holds*, not the documents holding it |
 | `check_subject` | Whether a commit subject is in the closed vocabulary | Before you write the commit |
+| `check_citation` | Whether a `cites:` into a dependency would hold, and which of the four checks would fire | Before you write the citation |
 | `claim_tags` | The three tags, their meanings, and how each may be written | Before you tag a claim |
 | `licensed_edges` | What a class declares it may link to | Before you write the link |
 | `query` | A typed path over the graph — `reach -measured-by-> gage`, optionally `across` the dependency set | You know the *shape* of the answer, not the node |
@@ -124,6 +125,14 @@ paying node-sized tokens for a claim-sized answer and reading the tags out of pr
 `claims` gives you the statement and its standing, and `sources` names the catalog entries
 its node cites. It serves the tag or serves nothing — an untagged sentence is prose, and
 prose is what `get_node` is for.
+
+**`check_citation` is the one that cannot be answered by reading.** `retrieve` reaches a
+dependency, `get_node` reads a node out of one, and `query --across` walks them — and none of
+them says whether leaning on what it returned would stand. The package may be installed at a
+different pin than the one you are about to write, and a `span:` is a claim about text that no
+read-tool checks. It answers with the check ids the gate would report, the installed set, and
+the pin each dependency actually carries — which is the value a correct `commit:` must hold and
+is reachable no other way on this surface.
 
 **`check_subject`, `claim_tags` and `licensed_edges` are the practice, callable.** The commit
 vocabulary, the evidence tags and the edges a class licenses are all documented in the prelude, and an agent that has to hold
@@ -263,14 +272,22 @@ the commit the index was built at, and keeps serving the stale index rather than
 tool-not-found errors:
 
 ```json
-{"contract": "0.11.1", "retrieve": {"vector": false, "reason": "no_index"},
- "graph": true, "ontology": true, "phases": false, "sangha": false, "resources": true}
+{"contract": "0.12.0", "retrieve": {"vector": false, "reason": "no_index"},
+ "graph": true, "ontology": true, "dependencies": true,
+ "phases": false, "sangha": false, "resources": true}
 ```
 
 `phases` and `sangha` are false and will stay false for this server: both read live `ma/*`
 and `rigpa/*` refs, and this one reads a built model on disk. `ontology` follows the corpus:
 a repository with no `.ont.yml` has no class contract to back, and the four tools at that
 tier — `query`, `pack`, `estimate`, `licensed_edges` — are then neither listed nor callable.
+
+`dependencies` follows the corpus the same way: it is true iff this server resolved at least
+one installed dependency, and `check_citation` is neither listed nor callable when it did not.
+A server with nothing installed *could* serve the tool and answer
+`external-citation-unresolved` to every citation put to it — correct every time, and a
+statement about a dependency set it does not have. That is the same thing the contract
+forbids one tier over, where a server with no `.ont.yml` must not call a class unpopulated.
 
 **A tool this server does not back refuses by name.** Calling one returns an MCP tool error
 whose text begins `capability-not-supported`, naming the capability that is false, rather

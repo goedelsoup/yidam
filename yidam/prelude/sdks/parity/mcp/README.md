@@ -40,9 +40,9 @@ The rule was unenforceable until a corpus existed on which some tier goes unback
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.11.1",
+    "contract": "0.12.0",
     "retrieve": { "vector": false, "reason": "no_index" },
-    "graph": true, "ontology": true,
+    "graph": true, "ontology": true, "dependencies": true,
     "phases": false, "sangha": false, "resources": true
   }
 }
@@ -99,6 +99,80 @@ asked to, and `pack` and `estimate` are local by construction.
 declaring `informs` and no local class declaring it). Before that, no case here could tell a
 server that backs `across` from one that accepts the flag and ignores it — and none could
 exercise a non-empty `absence.elsewhere` either, since there was no package to name.
+
+## Checking a citation before writing it (contract 0.12.0)
+
+`check_citation` — one tool, at the new `dependencies` tier.
+
+RFC-0019 made `cites:` a field of a node and #266 made a citation into a dependency
+**verifiable**, by four checks that all run at `lint` time — which is to say after the citation
+has been written into a file and committed to. An agent about to write one had no way to ask
+whether it would hold.
+
+**The surfaces that make a foreign node reachable are the ones that make a bad citation easy to
+write.** `retrieve` answers from a dependency, `get_node` reads a node out of one, and 0.11.0
+gave `query` the dependency set. An agent cites what it has just read, *confidently*, and none
+of those tools says whether the citation will stand: the package may be installed at a
+different pin than the one about to be written, and a `span:` is a claim about text that no
+read-tool checks.
+
+| Check | Severity | Answers |
+|---|---|---|
+| `external-citation-unresolved` | error | the package is not installed, or holds no such node |
+| `external-citation-span-drift` | error | the cited span is not in the node, or there is no span |
+| `external-citation-pin-moved` | warn | the pin cited is not the pin installed |
+| `external-citation-unpinned` | info | a path dependency carries no pin to cite |
+
+**A server MUST answer from the same predicate its gate uses.** The four checks and this tool
+are one rule read two ways; re-deriving them beside each other is how the two come to disagree
+about what a citation is, and the disagreement would be invisible until a corpus passed the tool
+and failed the gate. This is `query`'s argument for being a call into the CLI's own traversal
+rather than a second walk.
+
+**`holds` and `gates` are different questions.** `holds` is false when anything fired; `gates` is
+true only at error severity. A stale pin is a normal state — it is pinned deliberately, and
+escalating it would let a producer cutting a release turn a stranger's CI red without the
+stranger changing anything, the exact failure a pin exists to prevent. So a caller reading only
+`gates` writes a citation it was warned about, and one reading only `holds` treats a warning as
+a refusal.
+
+**`package` is required and `node` is not.** Without a package there is no question — nothing
+names a corpus to check against. Without a node there is still a question, and its answer is
+`external-citation-unresolved`, the same finding the gate gives, so it comes back as one rather
+than as a schema error. A server that made `node` required would have put a frozen check id out
+of reach of the surface that exists to report it.
+
+**The installed set travels with the verdict** — `package`, `pin`, `kind` — so a caller that got
+a name wrong corrects without a second call, which is `check_subject`'s `vocabulary` and the
+whole point of asking before the act. `pin` is reachable no other way here: it is the value a
+correct `commit:` must carry, and an agent left to guess it writes `external-citation-pin-moved`
+into the corpus on its first try.
+
+**Span verification reads the startup snapshot**, settled the way 0.9.1 settled `query --select
+body`: the same corpus `get_node` and `query --across` answer from. A verdict read through to
+the working tree would call a citation sound against text no other tool on that server can show
+you. Freshness is a restart.
+
+**No fixture corpus needs a `cites:` in it, and none has one.** The citation is an *input* to
+this tool, not something read out of a node — which is the whole point, since the citation
+being checked has not been written yet. A `cites:` added to `corpus/` would be a fixture no
+case asserts on, and would change the node text every `retrieve` case scores against.
+
+### Why it is a tier and not `core`
+
+A server that resolved no dependency can serve this tool and answer
+`external-citation-unresolved` to every citation put to it — correct every single time, and a
+statement about a dependency set it does not have. That is the shape 0.11.1 forbids one tier
+over, where a server with no `.ont.yml` must not report `class-unpopulated`.
+
+So `dependencies` is true **iff the server resolved at least one installed dependency**, exactly
+as `ontology` is true iff the corpus has class files. It is a fact about the corpus and not
+about the build: reading what a repository depends on needs none of the network the `tonpa`
+feature buys. A projected mirror carries no `.yidam/tonpa/` and declares false.
+
+`corpus/` has `upstream` installed, so it declares true. `corpus-unschematised/` installs
+nothing, so it is the corpus on which **both** optional tiers go unbacked — and the one where
+this tool's refusal is checkable against a server that really does decline it.
 
 ## Which kind of nothing (contract 0.10.0)
 
@@ -372,6 +446,7 @@ capability, because a projected mirror can hold nodes and edges and hold no `.on
 | `claims` | core | the assertions a corpus makes, with the standing each is made at |
 | `check_subject` | core | is this commit subject in vocabulary, before the commit is written |
 | `claim_tags` | core | the three tags, their meanings, and how each may be written |
+| `check_citation` | dependencies | would this `cites:` into a dependency hold, before it is written (added at 0.12.0, above) |
 | `licensed_edges` | ontology | what a class declares it may link to |
 | `query` | ontology | a typed path over the graph (added at 0.6.0, above) |
 | `pack` | ontology | that path's answer, budgeted, with what did not fit (added at 0.7.0, above) |
@@ -493,9 +568,10 @@ fixture has class files, and one fixture meant every case ran against it.
 The second is what keeps the first honest: without it, a server that rejects every `class`
 filter on an unschematised corpus and reports `class-undeclared` on the way past passes.
 
-It is also the only corpus on which a tier goes unbacked, which is what made the refusal rule
-above testable, and it is where the `ontology` tier's own sentence — *its cases are skipped
-rather than passed* — is finally checkable against a server that really does declare false.
+It is also the only corpus on which a tier goes unbacked — since 0.12.0, both of them, since it
+installs no dependency either — which is what made the refusal rule above testable, and it is
+where the `ontology` tier's own sentence — *its cases are skipped rather than passed* — is
+finally checkable against a server that really does declare false.
 
 **One consequence reads as a gap and is not.** `query`'s `unschematised` is always `false` on
 this surface, and no case asserts the `true` arm because none can: the only corpus that would

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "contract": "0.11.1",
+  "contract": "0.12.0",
   "description": "The frozen MCP tool contract (RFC-0005). Names are bare — no `yidam_` prefix — because the server is already namespaced by its own name in every client that mounts one. `tier` is `core` (every server MUST back it) or a capability name (backed iff the server declares that capability true). This file is the only place the list lives; a harness that restates it is a second freeze, which is how three servers ended up sharing one name out of five capabilities. A TOOL A SERVER DOES NOT BACK MUST REFUSE, NOT MERELY GO UNLISTED (contract 0.11.1). Omitting an unbacked tool from `tools/list` and dispatching it anyway re-opens the hole the capability block exists to close, from the other side: the block is what lets a client learn the holes at connect time rather than through a tool-not-found error, and a server that answers a tool it has just said it does not serve has told a client two things at once. The refusal is an MCP tool error (`isError: true`) whose text begins `capability-not-supported`, and that token is frozen — `unknown tool` is a different repair, and a caller told it will go hunting for a spelling mistake in a name this file froze. It was unenforceable until a fixture corpus existed on which some tier goes unbacked; `corpora.json` ships one.",
   "capabilities": {
     "retrieve": {
@@ -14,7 +14,8 @@
     "phases": "Reads live `ma/*` and `rigpa/*` refs. Backable only by a server with the working git repository.",
     "sangha": "Reads elector positions from those refs. Same constraint as `phases`.",
     "resources": "Serves the `yidam://` URI scheme over MCP `resources/*`. A tools-only server declares false and MUST map each URI to its tool peer without diverging — `read_resource(\"yidam://corpus/<class>/<name>\")` returns the same node as `get_node(\"<class>/<name>\")`.",
-    "ontology": "Backs the class contract: what a class declares it may link to. A server whose corpus is a projected mirror holds nodes and edges and may hold no `.ont.yml` at all — it can back `graph` and not this. Optional is not absent: such a server declares false and its cases are skipped rather than passed. Whether a server declares it is a fact about ITS CORPUS, not about its build: a corpus with no `.ont.yml` has no class contract to back, so a conforming server pointed at one declares false — which is what `corpora.json` freezes for `corpus-unschematised/`. One consequence is worth stating, because it reads as a gap otherwise: `query`'s `unschematised` is therefore always `false` on this surface. The only corpus that would make it true is one where `query` is not served at all, so the `true` arm is reachable from a CLI and not from a conforming server, and no case here can assert it."
+    "ontology": "Backs the class contract: what a class declares it may link to. A server whose corpus is a projected mirror holds nodes and edges and may hold no `.ont.yml` at all — it can back `graph` and not this. Optional is not absent: such a server declares false and its cases are skipped rather than passed. Whether a server declares it is a fact about ITS CORPUS, not about its build: a corpus with no `.ont.yml` has no class contract to back, so a conforming server pointed at one declares false — which is what `corpora.json` freezes for `corpus-unschematised/`. One consequence is worth stating, because it reads as a gap otherwise: `query`'s `unschematised` is therefore always `false` on this surface. The only corpus that would make it true is one where `query` is not served at all, so the `true` arm is reachable from a CLI and not from a conforming server, and no case here can assert it.",
+    "dependencies": "Backs the four `cites:` checks against the dependencies actually installed. True iff the server resolved at least one — a fact about ITS CORPUS, not about its build, in exactly the way `ontology` is. A server that resolved none MUST declare false and refuse `check_citation`, and MUST NOT serve it answering `external-citation-unresolved` to everything: that verdict is literally correct and asserts a fact about a dependency set the server does not have, which is the shape `class-unpopulated` on an unschematised corpus already has a MUST NOT for. A projected mirror carries no `.yidam/tonpa/` and would be reporting about the mirror while its caller reads it as being about the repository the mirror came from. Optional is not absent: such a server declares false and its cases are skipped rather than passed."
   },
   "tools": [
     {
@@ -181,6 +182,49 @@
           "vocabulary"
         ],
         "notes": "TOTAL, AND NEVER AN ERROR. An unrecognized verb is a finding in the payload, not a failed call: the gate reports it at warn severity because history cannot be rewritten to fix a verb, and a tool that failed harder than the gate would assert a verdict nobody agreed to. Each violation carries that severity read from the check rather than restated.\n\n`verb` IS EVERYTHING BEFORE THE FIRST `: `, which is why a conventional-commits `(scope)` suffix costs twice — `vendor(yidam): …` is read as the verb `vendor(yidam)`, which is in no list, and classification then falls through to Epistemic and files an operational commit as a change in understanding. That case is reported as its own violation rather than folded into `unrecognized-verb`, because it has a known cause and a known fix.\n\n`vocabulary` CARRIES THE CLOSED LIST so a caller that got it wrong can correct without a second call, which is the whole point of asking before the act."
+      }
+    },
+    {
+      "name": "check_citation",
+      "tier": "dependencies",
+      "description": "Whether a `cites:` into an installed dependency would hold, asked before it is written. Answers with the check ids that would fire, or that none would.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "package": {
+            "type": "string",
+            "description": "The dependency, as `.yidam/tonpa.toml` names it."
+          },
+          "node": {
+            "type": "string",
+            "description": "`<class>/<name>` inside that corpus. Unqualified — `package` already says whose."
+          },
+          "commit": {
+            "type": "string",
+            "description": "The `manifest.yml` commit the citation will record having read."
+          },
+          "tag": {
+            "type": "string",
+            "description": "The producer's standing as observed at that pin. Recorded, never transferred."
+          },
+          "span": {
+            "type": "string",
+            "description": "Verbatim text from the cited node — the field the design turns on."
+          }
+        },
+        "required": [
+          "package"
+        ]
+      },
+      "response": {
+        "required": [
+          "citation",
+          "holds",
+          "gates",
+          "findings",
+          "dependencies"
+        ],
+        "notes": "TOTAL, AND NEVER AN ERROR, for `check_subject`'s reason: a citation that will not hold is a verdict in the payload, and a tool that failed harder than the gate would assert a verdict nobody agreed to. `isError` stays for a tool that could not run, and this one always can — a server that cannot answer declines it at the `dependencies` capability instead of guessing.\n\n`package` IS REQUIRED AND `node` IS NOT, which is a distinction rather than an oversight. Without a package there is no question — nothing names a corpus to check against. Without a node there is still a question, and its answer is `external-citation-unresolved`, the same finding the gate gives, so it comes back as one rather than as a schema error.\n\n`findings` CARRIES THE CHECK IDS THE GATE WOULD REPORT — `external-citation-unresolved` and `external-citation-span-drift` at error, `external-citation-pin-moved` at warn, `external-citation-unpinned` at info — each with that check's own message, because the message names the repair and a caller asking before the act needs the repair more than a caller reading a report afterwards. A server MUST answer from the same predicate its gate uses; re-deriving the four rules beside them is how the two come to disagree about what a citation is.\n\n`holds` AND `gates` ARE NOT THE SAME QUESTION. `holds` is false when anything at all fired; `gates` is true only when something at error severity did. A moved pin and an unpinnable path dependency are both worth saying and neither blocks, so a caller reading only `holds` over-reports and one reading only `gates` writes a citation it was warned about.\n\n`dependencies` CARRIES THE INSTALLED SET — `package`, `pin`, `kind` — so a caller that got the name wrong can correct without a second call, which is `check_subject`'s `vocabulary` and the whole point of asking before the act. `pin` is the part reachable no other way on this surface: it is the value a correct `commit:` must carry, and an agent left to guess it writes `external-citation-pin-moved` into the corpus on its first try.\n\nSPAN VERIFICATION READS THE STARTUP SNAPSHOT, not the working tree — the same corpus `get_node` and `query --across` answer from, settled the way 0.9.1 settled it for `query --select body`. A verdict read through to disk would call a citation sound against text no other tool on the server can show you. Freshness is a restart."
       }
     },
     {

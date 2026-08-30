@@ -280,6 +280,11 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         }
     };
 
+    // One walk of the citations, four readings of it — the same predicate `check_citation`
+    // answers from over MCP (#357). Destructured here rather than pushed after the vec, so
+    // the four keep their place in the report's order.
+    let [unresolved, span_drift, pin_moved, unpinned] = citations::checks(&nodes, &deps);
+
     let mut all = vec![
         checks::missing_class(&nodes),
         checks::unknown_class(&nodes, &defined),
@@ -292,10 +297,10 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::unimplemented_class(&classes, &types),
         checks::unlicensed_edge(&nodes, &classes),
         checks::edge_target_class(&nodes, &classes),
-        citations::external_citation_unresolved(&nodes, &deps),
-        citations::external_citation_span_drift(&nodes, &deps),
-        citations::external_citation_pin_moved(&nodes, &deps),
-        citations::external_citation_unpinned(&nodes, &deps),
+        unresolved,
+        span_drift,
+        pin_moved,
+        unpinned,
         checks::verified_unsourced(&nodes, &sources, &claim_fields),
         checks::catalog_expired(&catalog_ages, &sources, &cites),
         checks::catalog_unobtained_but_cited(&sources, &cites),
