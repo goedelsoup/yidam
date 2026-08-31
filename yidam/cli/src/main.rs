@@ -596,6 +596,18 @@ enum Command {
         #[command(subcommand)]
         sub: yidam::VaultCommand,
     },
+    /// Compile, ask, and test the rules this repository writes about itself
+    ///
+    /// A gate's refusals are rules, and a rule compiled into this binary is one the corpus it
+    /// governs cannot argue with. A policy is a committed file instead: git stores the rule,
+    /// and this evaluates it.
+    ///
+    /// Not gated on a feature, and not for size. A build that cannot evaluate policy is a
+    /// build that cannot refuse.
+    Policy {
+        #[command(subcommand)]
+        sub: yidam::PolicyCommand,
+    },
 }
 
 /// The ontology migrations, each naming exactly what it changes.
@@ -906,5 +918,6 @@ fn main() -> Result<()> {
         // `Store` trait is synchronous so that the transport can own a runtime without
         // putting one in the signature of the ungated half. See `vault/store.rs`.
         Command::Vault { sub } => yidam::run_vault(sub),
+        Command::Policy { sub } => yidam::run_policy(sub),
     }
 }

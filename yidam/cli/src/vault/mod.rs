@@ -44,6 +44,7 @@ pub use derived::{
     hash_file, load_lock, lock_path, pack_to, save_lock, unpack_from, Derived, DerivedLock, Entry,
     LOCK_FORMAT_VERSION,
 };
+pub(crate) use policy::holds_content;
 pub use policy::{
     derived_may_push, derived_sources, may_push, named_artifacts, read_private_paths, Disposition,
     Named,

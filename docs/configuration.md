@@ -134,6 +134,34 @@ The embedding model `index-build` uses. Read only by `index-build`, which the li
 binary does not carry — but the key is still *parsed* there, so a config naming a model is not
 rejected by a binary that simply cannot act on it. `yidam index-build --model` overrides it.
 
+## `.yidam/policy/`
+
+The rules this repository writes about itself (RFC-0024), as [Rego](https://www.openpolicyagent.org/docs/policy-language).
+**Absent in every corpus until somebody disagrees with a default** — the binary carries a
+complete rule set, and this directory exists only to supersede part of it.
+
+```
+.yidam/policy/
+  record.rego        # package yidam.disclose.record  — supersedes the default
+  record_test.rego   # your cases for it
+```
+
+A file overrides **by package name**. Declaring `package yidam.disclose.record` replaces that
+decision entirely; every other decision stays the one the binary shipped, and `yidam policy
+check` says which is which.
+
+**The local rule decides, including by being more permissive.** That is the model RFC-0024
+settled on, and the cost is that a loosened guard is a rule nobody is stopped from writing. It
+is not, however, a rule anybody can write *quietly*: `policy check` names every override, and
+`policy test` runs the inherited cases against yours and reports what they no longer say.
+
+Two things belong nowhere near this directory:
+
+- **The vendored copy.** `.yidam/.vendor/prelude/policy/` is the default policy as shipped,
+  and it is read-only like the rest of the vendored prelude — an edit there is discarded at the
+  next re-vendor. It is the copy you *read*; this is the one you *write*.
+- **A credential.** Nothing here is secret and everything here is committed.
+
 ## `.yidam/lint-baseline.yml`
 
 The ratchet. It records the findings a corpus already had when the baseline was written, so

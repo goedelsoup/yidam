@@ -436,6 +436,67 @@ and no path to check.
 account can own two buckets — and it is also what a half-finished isolation setup looks like;
 the two are indistinguishable from outside, so it reports the shape and lets the reader decide.
 
+## The rules this repository writes about itself
+
+A gate's refusals are rules, and a rule compiled into this binary is one the corpus it governs
+cannot argue with. RFC-0024 makes the rule a committed file instead: **git stores the rule, and
+`yidam` evaluates it.** The rules are [Rego](https://www.openpolicyagent.org/docs/policy-language),
+evaluated in-process — there is no daemon, no sidecar, and no network.
+
+| Command | What it does |
+|---|---|
+| `policy check` | Compile every rule; report each decision and whether it is inherited or this repository's own. Exits nonzero if a rule names a builtin this build does not carry |
+| `policy eval --decision <name>` | Ask one decision about one situation. Reads the input as JSON from `--input <file>` or stdin; `--explain` names the rule that fired |
+| `policy test` | Run every `test_*` rule in every `*_test.rego` |
+
+None of these needs a repository: the default policy is compiled in, so a person working out
+why a push was refused can ask without a checkout.
+
+### The decisions
+
+The first family is **disclosure** — what this repository may let leave.
+
+| Decision | Asks |
+|---|---|
+| `disclose/at_rest` | May this material sit in this repository, given whether it is public? |
+| `disclose/record` | May these bytes be uploaded, given what their catalog record says? |
+| `disclose/derived` | May this computed artifact — an index, an embedding set, a bundle — be uploaded, given what it was built from? |
+
+`disclose/record` and `disclose/derived` are separate because their evidence is: a record-bearing
+artifact is judged by what its record says, and a computed one has no record, so it is judged by
+what it encodes. Neither consults whether the repository is private, and `at_rest` does —
+*the artifact outlives the access*.
+
+**Routing is not a policy decision.** Which vault an artifact goes to is
+[`vault list`](#artifacts)'s question. Whether it may go at all is this one, and the two are kept
+apart because they fail differently: a route is edited casually by somebody reorganising storage,
+and a licence is not something that edit is allowed to undo.
+
+### Overriding a rule
+
+Write `.yidam/policy/<name>.rego` declaring the same package. **That rule then decides** —
+including by being more permissive than the default. RFC-0024 records the argument for and
+against that.
+
+An override is never silent. `policy check` names it and the file it came from; `policy test`
+runs the *inherited* cases against your rule and reports which expectations it no longer meets:
+
+```
+$ yidam policy test
+  ok       test_no_overlap_permits
+  changed  test_a_private_path_beats_a_licence
+  changed  test_silence_is_not_a_licence
+
+10 passed, 0 failed, 5 changed by an override
+```
+
+Those are not failures — a repository is entitled to decide — but they are the list to read
+before concluding the override says what you meant. `policy check` compares *text*; whether a
+rule is more permissive than the one it replaced is a question about every possible input, and
+nothing here claims to have answered it. The `changed` list is the closest thing to an answer.
+
+A repository's *own* `*_test.rego` failing is a failure, and it exits nonzero.
+
 ## Export
 
 | Command | What it does |

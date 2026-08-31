@@ -552,6 +552,40 @@ next reader from looking. Where a channel matters, examine it and record what yo
 
 ---
 
+## `.yidam/policy/` (optional)
+
+The rules this repository writes about itself, as Rego. Absent in most repositories: the
+`yidam` binary carries a complete default policy, and this directory exists only to supersede
+part of it.
+
+**What belongs here:** `*.rego` files declaring a package the binary already defines — today
+`yidam.disclose.at_rest`, `yidam.disclose.record`, `yidam.disclose.derived` — and `*_test.rego`
+files holding this repository's own cases. `yidam policy check` lists the decisions and where
+each came from.
+
+**Why a file rather than a config field.** The same argument `.yidam/private-paths` makes one
+level down. A rule compiled into the binary is one repository's judgement applied to every
+other, and the four fields in `.yidam/config.toml` are what answering that one case at a time
+looks like. A quorum threshold, a corpus's own reading of what may leave, a domain article this
+constitution permits — none of them can be a field somebody ships.
+
+**The local rule decides.** A file here supersedes the default for its package outright,
+including by permitting what the default refused. That is deliberate: a layer whose purpose is
+to stop the binary imposing its judgement cannot reserve the interesting half of every
+judgement to the binary.
+
+It is also why nothing here is quiet. `yidam policy check` names every override and the file it
+came from, and `yidam policy test` runs the *inherited* cases against your rule and reports
+which expectations it no longer meets. Apply the rule `.yidam/private-paths` states about
+itself: **an assumption about access control that looks enforced and is not is worse than one
+everybody knows is manual.** An override is a decision; record why in `.yidam/decisions/`.
+
+**Not the vendored copy.** The default policy is readable at
+`.yidam/.vendor/prelude/policy/`, which is read-only and re-vendored like the rest of the
+prelude. Read it there; write here.
+
+---
+
 ## `.yidam/bin/`
 
 The `yidam` binary this repository runs, installed by `mise run yidam-build` from the commit
