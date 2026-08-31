@@ -43,6 +43,31 @@ serde_json = "1"
 sha2 = "0.10"
 hex = "0.4"
 toml = "0.8"
+# The Rego interpreter behind `yidam policy` (RFC-0024). **Ungated**, and for the
+# reason `vault/mod.rs` gives about its own module: a feature buys the *network*,
+# and compiling a rule and deciding against it are neither. Under RFC-0024's
+# authoritative model a build that cannot evaluate policy is a build that cannot
+# REFUSE, so gating this would make the light binary the one with no guard.
+#
+# Measured against this repository's real graph, the way #412 measured the
+# transport: 8 marginal packages, and `cargo tree -e build` over its closure is
+# EMPTY. No build script means nothing to run for the target, which is the
+# property the aarch64 cross-compile in release.yml needs.
+#
+# `default-features = false` is load-bearing and is not a size optimisation. The
+# default set is `full-opa`, which enables the `http` and `time` builtins — and a
+# policy that can call `http.send` is a committed file that makes a network call
+# from inside a gate. Leaving those features off is what makes evaluation
+# hermetic and deterministic, and it is enforced by feature resolution rather
+# than by review: `http.send` and `time.now_ns` do not exist in this build.
+#
+# `std` is deliberately absent too. It would pull `rand` and `parking_lot` for 16
+# marginal packages instead of 8, and nothing here needs it — the execution timer
+# that stops a policy hanging CI works without it.
+# `ast` costs zero additional packages (measured) and is what lets `policy check`
+# find a disallowed builtin by walking the parse tree rather than by grepping the
+# source, which a comment mentioning `http.send` would answer just as well.
+regorus = { version = "0.11", default-features = false, features = ["arc", "ast", "regex"] }
 # Parity SDK — reference implementations of classify_commit etc.; the CLI
 # must not re-implement the parity surface (see prelude/sdks/parity/README.md).
 yidam-core = { path = "../prelude/sdks/rust", version = "0.3.0" }

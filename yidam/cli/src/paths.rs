@@ -70,6 +70,15 @@ pub fn yidam_decisions_dir(root: &Path) -> PathBuf {
     root.join(".yidam").join("decisions")
 }
 
+/// The rules this repository writes about itself (RFC-0024).
+///
+/// Absent in every corpus until somebody overrides a decision, which is why nothing here
+/// creates it: the binary carries the default policy, and this directory exists only to
+/// disagree with it.
+pub fn yidam_policy_dir(root: &Path) -> PathBuf {
+    root.join(".yidam").join("policy")
+}
+
 /// The sangha's governance records: `PROTOCOL.md`, `electors.md`, `positions/`,
 /// `resolutions/`. Absent in single-elector repositories, where collective mode is
 /// opt-in — every caller must tolerate it not existing.
