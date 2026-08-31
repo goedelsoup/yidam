@@ -145,9 +145,28 @@ tokio-util = { version = "0.7", default-features = false, features = ["io"], opt
 # documented workflow is impossible". Every other gated feature degrades to a
 # missing capability; this one degraded to a broken instruction.
 default = ["reports", "tonpa", "vault-s3"]
-# Light base: the four reports (graph-check, lint, corpus-index, open-questions)
-# plus every pure-Rust command. Adds no dependencies beyond the base set — no
-# protoc, no system C library, no ML runtime.
+# The name of the base build — and **not a supported feature set on its own.**
+#
+# It gates nothing. `reports = []` enables no dependency, and there is no
+# `#[cfg(feature = "reports")]` anywhere in `src/`; `tests/light_build.rs`
+# asserts both. Naming it changes what compiles by exactly nothing, which is
+# why `report.rs` lists it unconditionally rather than behind a `cfg!`.
+#
+# What it names is the four reports (graph-check, lint, corpus-index,
+# open-questions) plus every pure-Rust command: no protoc, no system C library,
+# no ML runtime. That description is why a reader reaches for
+# `--no-default-features --features reports` — and that build is a mistake. It
+# drops `tonpa` and `vault-s3` and fails seven of its own tests (#482). The
+# first of them is `help.rs`'s coverage test, failing on purpose: an entry on
+# the `FEATURE_GATED` list there is a licence for a command to be missing,
+# `tonpa` was taken off that list when it joined the default set, and
+# "anything that drops it from the build should fail this test."
+#
+# **The light build is the `default` set above.** That is what `cargo install
+# yidam` resolves, what release.yml cross-compiles, and what `install.sh`
+# downloads. It is written there and nowhere else: two prose restatements of it
+# named `reports` and `tonpa` and went stale when `vault-s3` joined, and
+# `light_build.rs` now refuses a third.
 reports = []
 # Semantic index build, and upgrades `serve --mcp`'s `retrieve` from keyword to
 # vector search. `serve` itself is in the light default — gating the whole
