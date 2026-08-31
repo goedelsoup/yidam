@@ -1,0 +1,178 @@
+# Build the vector index and put it in the vault.
+#
+# Installed to `.github/workflows/index.yml` at genesis, alongside `ci.yml` and
+# `release.yml`.
+#
+# ── Why this job exists ──────────────────────────────────────────────────────
+#
+# `.yidam/index/` is built only by a binary compiled `--features index` — protoc
+# plus an ONNX runtime — and nothing keeps it in git. The released `yidam` is the
+# light default, so the machine that can *use* an index is almost never the
+# machine that can *build* one. Without a channel between them, `retrieve`
+# degrades to keyword search everywhere and is correct to.
+#
+# This is that channel's producer: it builds the index on a runner that can, puts
+# it in the vault, and commits `.yidam/index.lock` so every clone knows which
+# bytes and which store. `yidam vault pull --index` is the consumer.
+#
+# ── Why it does not download the binary ──────────────────────────────────────
+#
+# `ci.yml` acquires `yidam` by downloading the release for the pinned commit,
+# which is the right thing for a graph gate: pure Rust reading Markdown, no
+# toolchain. It cannot work here. The release IS the light build, and asking it
+# to build an index is the whole problem this workflow exists to solve. So this
+# one compiles, and pays for protoc to do it.
+#
+# ── This workflow has never been run against a real store ────────────────────
+#
+# It ships as a rehearsal by default: `workflow_dispatch` with `dry_run: true`,
+# which packs and hashes the index and prints what it would send without sending
+# it. Turn `dry_run` off deliberately, the first time, while watching. A
+# publishing workflow nobody has ever run is one that gets debugged on the day it
+# matters.
+
+name: Index
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Pack and hash the index, print what would be sent, send nothing"
+        type: boolean
+        default: true
+
+# Committing the lock is the point: a pushed index nobody can find is a pushed
+# index nobody can use.
+permissions:
+  contents: write
+
+concurrency:
+  group: index-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  index:
+    name: build the index and store it
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fail before spending twenty minutes on a build whose output has nowhere
+      # to go. A repository with no vault has nothing for this workflow to do,
+      # and finding that out at the end is finding it out for no reason.
+      - name: A vault must be configured
+        run: |
+          set -eu
+          if ! grep -q '^\[vault\.' .yidam/config.toml 2>/dev/null; then
+            echo "::error::No vault is declared in .yidam/config.toml."
+            echo "::error::This workflow builds an index in order to store it; with no store"
+            echo "::error::it would build one and throw it away. Declare a vault, or disable"
+            echo "::error::this workflow."
+            exit 1
+          fi
+
+      # The same rule `release.yml` applies to a bundle, applied before an index
+      # is built rather than after. An index re-encodes every node it walks and
+      # carries each one's text verbatim, so declared-private material in the
+      # corpus or the catalog makes the index private too. `yidam vault push`
+      # refuses on exactly this ground; checking here means the refusal arrives
+      # before the expensive part rather than after it.
+      - name: Declared-private material may not enter an index
+        run: |
+          set -eu
+          manifest=.yidam/private-paths
+          [ -f "$manifest" ] || { echo "no $manifest; nothing declared private."; exit 0; }
+          # What `cmd/embed.rs` composes text from. A directory added there and
+          # not added here is one this check does not know it is publishing.
+          derived_from=".yidam/corpus .yidam/catalog"
+          found=""
+          while IFS= read -r line || [ -n "$line" ]; do
+            entry="${line%%#*}"
+            entry="$(printf '%s' "$entry" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            [ -z "$entry" ] && continue
+            entry="${entry%/}"
+            [ -e "$entry" ] || continue
+            content=$(find "$entry" -type f ! -name .gitkeep ! -path "$entry/README.md" | sort)
+            [ -z "$content" ] && continue
+            for dir in $derived_from; do
+              case "$entry/" in "$dir"/*|"$dir"/) found="$found$content"$'\n' ;; esac
+              case "$dir/" in "$entry"/*) found="$found$content"$'\n' ;; esac
+            done
+          done < "$manifest"
+          if [ -n "$found" ]; then
+            echo "::error::Material declared private in $manifest would be encoded in the index."
+            printf '%s' "$found" | sort -u | sed 's/^/  /'
+            echo
+            echo "An index carries the text of every node it encodes, and a vault artifact"
+            echo "outlives the access that produced it. Remove the material, or stop"
+            echo "indexing this corpus. Do not silence this job."
+            exit 1
+          fi
+          echo "no declared-private material reaches the index."
+
+      - name: Read the pinned yidam commit
+        id: pin
+        run: |
+          set -eu
+          if [ ! -f .yidam.toml ]; then
+            echo "::error::.yidam.toml is missing — this repo has no recorded yidam provenance."
+            echo "::error::Recreate it with: mise run yidam-vendor-update"
+            exit 1
+          fi
+          commit=$(sed -n 's/^ *commit *= *"\(.*\)"/\1/p' .yidam.toml)
+          origin=$(sed -n 's/^ *origin *= *"\(.*\)"/\1/p' .yidam.toml)
+          [ -n "$commit" ] || { echo "::error::.yidam.toml records no commit."; exit 1; }
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "origin=${origin:-https://github.com/goedelsoup/yidam}" >> "$GITHUB_OUTPUT"
+
+      # protoc is lancedb's requirement, and lancedb is only needed to *build* an
+      # index — reading one needs neither it nor protoc. That asymmetry is why
+      # this job is heavy and `vault pull --index` is not.
+      - uses: arduino/setup-protoc@v3
+        with:
+          version: "31.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build yidam with the index feature
+        run: |
+          set -eu
+          git clone --filter=blob:none "${{ steps.pin.outputs.origin }}" /tmp/yidam
+          git -C /tmp/yidam checkout --detach "${{ steps.pin.outputs.commit }}"
+          cargo build --release --manifest-path /tmp/yidam/yidam/cli/Cargo.toml --features index
+          echo "/tmp/yidam/yidam/cli/target/release" >> "$GITHUB_PATH"
+
+      - name: Embed and build the index
+        run: |
+          set -eu
+          yidam embed
+          yidam index-build
+
+      # Credentials come from the environment only, per vault. `.yidam/config.toml`
+      # is committed and must never carry one.
+      - name: Store the index
+        env:
+          YIDAM_VAULT_DEFAULT_ACCESS_KEY_ID: ${{ secrets.YIDAM_VAULT_DEFAULT_ACCESS_KEY_ID }}
+          YIDAM_VAULT_DEFAULT_SECRET_ACCESS_KEY: ${{ secrets.YIDAM_VAULT_DEFAULT_SECRET_ACCESS_KEY }}
+        run: |
+          set -eu
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            yidam vault push --index --dry-run
+            echo "Rehearsal only. Re-run with dry_run unchecked to store it."
+            exit 0
+          fi
+          yidam vault push --index
+
+      # The lock is the only part that travels through git, and an index in a
+      # store that no committed file names is an index nothing can find.
+      - name: Commit the lock
+        if: ${{ inputs.dry_run == false }}
+        run: |
+          set -eu
+          git diff --quiet -- .yidam/index.lock && { echo "unchanged."; exit 0; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .yidam/index.lock
+          git commit -m "index: store the index built at ${GITHUB_SHA:0:9}"
+          git push

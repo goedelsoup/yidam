@@ -38,6 +38,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use super::cas::ContentHash;
+use super::derived::Derived;
 
 /// One artifact the working tree names, with what deciding about it requires.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,6 +141,105 @@ pub fn may_push(a: &Named, private: &[String]) -> Disposition {
             a.rel
         )),
     }
+}
+
+/// The directories a derived artifact is computed from.
+///
+/// **This is the list that decides whether pushing it leaks.** An index is not a file that
+/// happens to sit in `.yidam/index/`; it is a re-encoding of everything walked to build it,
+/// and `model::VectorRow` carries the node's `text` verbatim. So the question "may this
+/// artifact leave" is really "may everything it was derived from leave".
+///
+/// `sadhana/github/workflows/release.yml` asks the same question of a bundle and names
+/// `.yidam/corpus`, `.yidam/skills`, `.yidam/decisions`. This adds **`.yidam/catalog`** for the
+/// two embedding-derived kinds, because `cmd/embed.rs` composes text from catalog entries as
+/// well as corpus nodes — an entry's own prose ends up in the index, and the workflow's list
+/// does not cover it.
+pub fn derived_sources(d: Derived) -> &'static [&'static str] {
+    match d {
+        // `cmd/embed.rs` walks the corpus and the catalog; `index-build` consumes the result.
+        Derived::Index | Derived::Embeddings => &[".yidam/corpus", ".yidam/catalog"],
+        // `cmd/bundle.rs` packs corpus classes, skills, decisions — and `index/corpus.arrow`,
+        // which is why the first two entries are here twice over.
+        Derived::Bundle => &[
+            ".yidam/corpus",
+            ".yidam/catalog",
+            ".yidam/skills",
+            ".yidam/decisions",
+        ],
+    }
+}
+
+/// May this computed artifact be uploaded?
+///
+/// A catalog artifact is refused for what its own record says. A derived artifact has no
+/// record — nobody wrote one, because nobody fetched it — so the question is answered from
+/// what it was built out of. A declared-private path that **intersects** the material this
+/// artifact encodes means the artifact carries private text, and no vault should receive it.
+///
+/// Intersection is tested both ways, as the release workflow tests it: a private path inside
+/// a source directory, and a private path that *contains* one. `dossier/` beside the corpus
+/// is the first; a repository declaring `.yidam/` private is the second.
+///
+/// **Only a path that actually holds something counts.** A declared directory holding nothing
+/// but a `README.md` or a `.gitkeep` is a placeholder, and refusing on it would make the
+/// feature unusable for a repository that declared its intent before having anything to
+/// protect — which is the order this file asks people to work in.
+pub fn derived_may_push(root: &Path, d: Derived, private: &[String]) -> Disposition {
+    for p in private {
+        if !holds_content(&root.join(p)) {
+            continue;
+        }
+        for src in derived_sources(d) {
+            let intersects =
+                p == src || p.starts_with(&format!("{src}/")) || src.starts_with(&format!("{p}/"));
+            if intersects {
+                return Disposition::Refused(format!(
+                    "`{p}` is declared private and is part of what the {} is built from \
+                     ({src}). The {} carries the text of every node it encodes, so pushing \
+                     it would publish that material — and the artifact outlives the access",
+                    d.kind(),
+                    d.kind()
+                ));
+            }
+        }
+    }
+    Disposition::Push
+}
+
+/// Whether a declared path holds anything but placeholders.
+///
+/// `.gitkeep` and `README.md` are exactly what the release workflow excludes, and for the
+/// same reason: they are how an empty declared directory is kept in git at all.
+fn holds_content(path: &Path) -> bool {
+    if path.is_file() {
+        return true;
+    }
+    if !path.is_dir() {
+        return false;
+    }
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(at) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&at) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+                continue;
+            }
+            let name = p
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            if name != ".gitkeep" && name != "README.md" {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Every artifact the catalog names, in a stable order.
@@ -283,6 +383,102 @@ mod tests {
             read_private_paths(tmp.path()).unwrap(),
             Vec::<String>::new()
         );
+    }
+
+    fn corpus_with(root: &Path, rel: &str, body: &[u8]) {
+        let p = root.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, body).unwrap();
+    }
+
+    /// **The leak this phase would otherwise open.** An index re-encodes every node it walked,
+    /// text and all, so a private corpus directory means a private index — and the catalog
+    /// record guard cannot see it, because the index has no record.
+    #[test]
+    fn an_index_built_over_a_private_corpus_directory_is_not_pushed() {
+        let tmp = TempDir::new().unwrap();
+        corpus_with(tmp.path(), ".yidam/corpus/dossier/target.md", b"# who");
+        let private = vec![".yidam/corpus/dossier".to_string()];
+        match derived_may_push(tmp.path(), Derived::Index, &private) {
+            Disposition::Refused(why) => {
+                assert!(why.contains("dossier"), "{why}");
+                assert!(why.contains("outlives the access"), "{why}");
+            }
+            _ => panic!("an index over private nodes must not be pushed"),
+        }
+    }
+
+    /// `embed.rs` composes text from catalog entries too, and the release workflow's list does
+    /// not name `.yidam/catalog`. This is where that gap is closed.
+    #[test]
+    fn a_private_catalog_directory_also_stops_an_index() {
+        let tmp = TempDir::new().unwrap();
+        corpus_with(
+            tmp.path(),
+            ".yidam/catalog/embargoed/paper.md",
+            b"---\nname: x\n---\n",
+        );
+        let private = vec![".yidam/catalog/embargoed".to_string()];
+        assert!(!derived_may_push(tmp.path(), Derived::Index, &private).is_push());
+    }
+
+    /// The other direction: a declaration that *contains* a source directory publishes
+    /// everything under it. The release workflow tests both ways and so does this.
+    #[test]
+    fn a_private_path_containing_the_corpus_stops_a_push_too() {
+        let tmp = TempDir::new().unwrap();
+        corpus_with(tmp.path(), ".yidam/corpus/thing.md", b"x");
+        let private = vec![".yidam".to_string()];
+        assert!(!derived_may_push(tmp.path(), Derived::Index, &private).is_push());
+    }
+
+    /// A declared directory holding only placeholders is intent, not material. Refusing on it
+    /// would punish the order this repository asks people to work in — declare first.
+    #[test]
+    fn a_declared_path_holding_only_placeholders_does_not_stop_a_push() {
+        let tmp = TempDir::new().unwrap();
+        corpus_with(
+            tmp.path(),
+            ".yidam/corpus/dossier/README.md",
+            b"what goes here",
+        );
+        corpus_with(tmp.path(), ".yidam/corpus/dossier/.gitkeep", b"");
+        let private = vec![".yidam/corpus/dossier".to_string()];
+        assert!(derived_may_push(tmp.path(), Derived::Index, &private).is_push());
+    }
+
+    /// A private path nowhere near the material is not this artifact's problem.
+    #[test]
+    fn a_private_path_outside_what_the_artifact_encodes_is_irrelevant() {
+        let tmp = TempDir::new().unwrap();
+        corpus_with(tmp.path(), "dossier/notes.md", b"private working notes");
+        let private = vec!["dossier".to_string()];
+        assert!(derived_may_push(tmp.path(), Derived::Index, &private).is_push());
+        // …but it is the bundle's problem only if the bundle carries it, which it does not.
+        assert!(derived_may_push(tmp.path(), Derived::Bundle, &private).is_push());
+    }
+
+    /// A repository declaring nothing private pushes its own output freely. This is the
+    /// common case, and the default for derived material is the opposite of the catalog's.
+    #[test]
+    fn a_repository_with_nothing_declared_private_pushes_its_own_output() {
+        let tmp = TempDir::new().unwrap();
+        for d in Derived::ALL {
+            assert!(derived_may_push(tmp.path(), d, &[]).is_push(), "{d:?}");
+        }
+    }
+
+    /// A bundle carries skills and decisions as well; the index does not.
+    #[test]
+    fn the_sources_of_each_kind_are_what_builds_it_reads() {
+        assert!(derived_sources(Derived::Bundle).contains(&".yidam/skills"));
+        assert!(!derived_sources(Derived::Index).contains(&".yidam/skills"));
+        for d in Derived::ALL {
+            assert!(
+                derived_sources(d).contains(&".yidam/corpus"),
+                "{d:?} encodes the corpus"
+            );
+        }
     }
 
     #[test]

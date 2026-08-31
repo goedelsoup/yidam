@@ -902,3 +902,260 @@ fn doctor_says_when_two_vaults_are_running_on_one_account() {
         "properly isolated, so nothing to say: {separate}"
     );
 }
+
+// ── the artifacts this repository computes (#417) ────────────────────────────
+
+/// A built index in a working tree, as `yidam index-build` would leave it.
+fn index_at(root: &Path, arrow: &[u8]) {
+    write(&root.join(".yidam/index/corpus.arrow"), arrow);
+    write(
+        &root.join(".yidam/index/meta.json"),
+        br#"{"indexed_commit":"abc123","model_name":"BAAI/bge-small-en-v1.5"}"#,
+    );
+}
+
+fn derived_config(vault_dir: &Path) -> String {
+    format!(
+        "[vault.default]\nurl = \"file://{}\"\naudience = \"the test suite\"\n",
+        vault_dir.display()
+    )
+}
+
+/// **The phase's payoff, end to end.** One repository builds an index and pushes it; a second,
+/// which has never seen one, pulls it from the vault and ends up with the same bytes on disk.
+/// The lock file is the only thing that travels through git.
+#[test]
+fn an_index_pushed_from_one_repository_arrives_in_another_that_never_built_one() {
+    let store = tempfile::tempdir().unwrap();
+    let builder = repo(Some(&derived_config(store.path())));
+    let cache_a = builder.path().join("cache");
+    index_at(builder.path(), b"the vectors, such as they are");
+
+    let said = run(builder.path(), &cache_a, &["vault", "push", "--index"])
+        .ok()
+        .said();
+    assert!(said.contains("sent index"), "{said}");
+    assert!(said.contains("index.lock"), "says to commit it: {said}");
+
+    // The lock is what a clone would carry.
+    let lock = std::fs::read_to_string(builder.path().join(".yidam/index.lock")).unwrap();
+    assert!(lock.contains("[index]"), "{lock}");
+    assert!(
+        lock.contains("vault = \"default\""),
+        "names the store: {lock}"
+    );
+
+    // A second repository: same config, same lock, no index, and its own empty cache.
+    let consumer = repo(Some(&derived_config(store.path())));
+    let cache_b = consumer.path().join("cache");
+    write(&consumer.path().join(".yidam/index.lock"), lock.as_bytes());
+    assert!(!consumer.path().join(".yidam/index/corpus.arrow").exists());
+
+    let said = run(consumer.path(), &cache_b, &["vault", "pull", "--index"])
+        .ok()
+        .said();
+    assert!(said.contains(".yidam/index"), "{said}");
+    assert_eq!(
+        std::fs::read(consumer.path().join(".yidam/index/corpus.arrow")).unwrap(),
+        b"the vectors, such as they are"
+    );
+    assert!(consumer.path().join(".yidam/index/meta.json").is_file());
+}
+
+/// **The leak this phase would otherwise open.** An index re-encodes the text of every node it
+/// walked, so a private corpus directory makes the index private — and no catalog record
+/// exists for the guard to read.
+#[test]
+fn an_index_over_a_private_corpus_directory_is_refused_and_nothing_is_uploaded() {
+    let store = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&derived_config(store.path())));
+    let cache = tmp.path().join("cache");
+    index_at(tmp.path(), b"vectors of private nodes");
+    write(
+        &tmp.path().join(".yidam/corpus/dossier/target.md"),
+        b"---\nname: target\n---\n\nWhat we found.\n",
+    );
+    write(
+        &tmp.path().join(".yidam/private-paths"),
+        b"# worked lines of attack\n.yidam/corpus/dossier\n",
+    );
+
+    let said = run(tmp.path(), &cache, &["vault", "push", "--index"])
+        .ok()
+        .said();
+    assert!(said.contains("refused"), "{said}");
+    assert!(said.contains("dossier"), "names the path: {said}");
+    assert!(
+        said.contains("outlives the access"),
+        "gives the reason: {said}"
+    );
+    assert!(
+        !store.path().join("sha256").exists(),
+        "nothing may reach the store"
+    );
+    assert!(
+        !tmp.path().join(".yidam/index.lock").exists(),
+        "and nothing may be recorded"
+    );
+}
+
+/// Pushing an unchanged index a second time uploads nothing and rewrites nothing. This is what
+/// the deterministic archive buys.
+#[test]
+fn pushing_an_unchanged_index_is_a_no_op() {
+    let store = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&derived_config(store.path())));
+    let cache = tmp.path().join("cache");
+    index_at(tmp.path(), b"stable");
+
+    run(tmp.path(), &cache, &["vault", "push", "--index"]).ok();
+    let first = std::fs::read(tmp.path().join(".yidam/index.lock")).unwrap();
+
+    let said = run(tmp.path(), &cache, &["vault", "push", "--index"])
+        .ok()
+        .said();
+    assert!(said.contains("already in `default`"), "{said}");
+    assert_eq!(
+        std::fs::read(tmp.path().join(".yidam/index.lock")).unwrap(),
+        first,
+        "an unchanged index must not churn the lock"
+    );
+}
+
+/// **The lock decides where to look, not the routing.** A `holds` edit made after a push must
+/// send the pull to the store the bytes are actually in.
+///
+/// The two have to *disagree* for this to test anything: the lock says `default`, and the
+/// config now routes an index to `sources`. Following the lock finds the bytes; re-deriving
+/// the destination from `holds` looks in an empty store. An earlier version of this test had
+/// both names agreeing and passed against a deliberately broken implementation.
+#[test]
+fn a_pull_reads_the_store_from_the_lock_rather_than_from_the_routing() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&derived_config(a.path())));
+    let cache = tmp.path().join("cache");
+    index_at(tmp.path(), b"in the first store");
+    run(tmp.path(), &cache, &["vault", "push", "--index"]).ok();
+    assert!(
+        std::fs::read_dir(a.path().join("sha256")).is_ok(),
+        "the bytes went to `default`"
+    );
+
+    // Storage is reorganised. `default` (still store `a`, where the bytes are) now holds the
+    // catalog, and a new `sources` claims the index. Nothing was moved.
+    std::fs::write(
+        tmp.path().join(".yidam/config.toml"),
+        two_vaults(a.path(), "catalog", b.path(), "index"),
+    )
+    .unwrap();
+    std::fs::remove_dir_all(tmp.path().join(".yidam/index")).unwrap();
+    std::fs::remove_dir_all(&cache).unwrap();
+
+    let said = run(tmp.path(), &cache, &["vault", "pull", "--index"])
+        .ok()
+        .said();
+    assert!(said.contains(".yidam/index"), "{said}");
+    assert_eq!(
+        std::fs::read(tmp.path().join(".yidam/index/corpus.arrow")).unwrap(),
+        b"in the first store",
+        "the pull must follow the lock's store, not the new route"
+    );
+}
+
+/// A lock naming a store the config no longer declares is a hard error, not a fallback.
+#[test]
+fn a_lock_naming_an_undeclared_vault_is_refused() {
+    let store = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&derived_config(store.path())));
+    let cache = tmp.path().join("cache");
+    write(
+        &tmp.path().join(".yidam/index.lock"),
+        format!(
+            "format_version = 1\n\n[index]\nsha256 = \"{}\"\nbytes = 4\nvault = \"archive\"\n",
+            "a".repeat(64)
+        )
+        .as_bytes(),
+    );
+    let said = run(tmp.path(), &cache, &["vault", "pull", "--index"])
+        .failed()
+        .said();
+    assert!(said.contains("`archive`"), "{said}");
+    assert!(said.contains("does not declare"), "{said}");
+}
+
+/// Pulling something nobody has pushed says what would record it, and exits nonzero.
+#[test]
+fn pulling_an_index_no_lock_records_says_what_would_record_one() {
+    let store = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&derived_config(store.path())));
+    let cache = tmp.path().join("cache");
+    let said = run(tmp.path(), &cache, &["vault", "pull", "--index"])
+        .failed()
+        .said();
+    assert!(said.contains("vault push --index"), "{said}");
+}
+
+/// Pushing an index nobody built says what builds one.
+#[test]
+fn pushing_an_index_that_was_never_built_says_what_builds_it() {
+    let store = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&derived_config(store.path())));
+    let cache = tmp.path().join("cache");
+    let said = run(tmp.path(), &cache, &["vault", "push", "--index"])
+        .failed()
+        .said();
+    assert!(said.contains("yidam index-build"), "{said}");
+}
+
+/// **Derived flags are an either/or, not an addition.** `--index` must not also upload a
+/// corpus of papers that happened to be cached.
+#[test]
+fn a_derived_flag_pushes_only_what_it_named() {
+    let store = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&derived_config(store.path())));
+    let cache = tmp.path().join("cache");
+    index_at(tmp.path(), b"vectors");
+    let paper = cached(tmp.path(), &cache, b"a licensed paper");
+    entry(tmp.path(), "paper", &paper, "    redistributable: true\n");
+
+    run(tmp.path(), &cache, &["vault", "push", "--index"]).ok();
+    assert!(
+        !holds(store.path(), &paper),
+        "the catalog artifact must stay where it was"
+    );
+    // And the other way round: a bare push does not send the index.
+    let before = walkdir::WalkDir::new(store.path())
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+        .count();
+    run(tmp.path(), &cache, &["vault", "push"]).ok();
+    assert!(holds(store.path(), &paper), "the catalog artifact does go");
+    let after = walkdir::WalkDir::new(store.path())
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+        .count();
+    assert_eq!(after, before + 1, "one artifact, not two");
+}
+
+/// `--dry-run` shows the real digest and sends nothing.
+#[test]
+fn a_dry_run_names_the_digest_it_would_send_and_sends_nothing() {
+    let store = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&derived_config(store.path())));
+    let cache = tmp.path().join("cache");
+    index_at(tmp.path(), b"vectors");
+
+    let said = run(
+        tmp.path(),
+        &cache,
+        &["vault", "push", "--index", "--dry-run"],
+    )
+    .ok()
+    .said();
+    assert!(said.contains("would send index"), "{said}");
+    assert!(!store.path().join("sha256").exists(), "{said}");
+    assert!(!tmp.path().join(".yidam/index.lock").exists(), "{said}");
+}

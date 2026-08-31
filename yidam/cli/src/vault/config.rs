@@ -82,6 +82,10 @@ pub const ARTIFACT_KINDS: &[&str] = &["catalog", "index", "embeddings", "bundle"
 
 /// The kind a catalog record's artifact is.
 pub const CATALOG_KIND: &str = "catalog";
+/// The kinds this repository computes rather than fetches. See [`super::derived`].
+pub const INDEX_KIND: &str = "index";
+pub const EMBEDDINGS_KIND: &str = "embeddings";
+pub const BUNDLE_KIND: &str = "bundle";
 
 /// The route `vault: none` names: this machine's cache and nowhere else.
 pub const LOCAL_ONLY: &str = "none";

@@ -230,8 +230,8 @@ knowledge claim, only the time to re-fetch.
 | `vault get <sha256>` * | From the cache, else from the vault. `--out` also writes a named copy |
 | `vault path <sha256>` | Where the artifact sits locally, or exit nonzero — so `… \|\| fetch` works |
 | `vault verify` | Re-hash every cached artifact; exits nonzero if any is not what it claims |
-| `vault push` * | Upload what the corpus names and the vaults lack. `--dry-run` prints the exact string that would be signed; `--artifact` and `--vault` narrow |
-| `vault pull` * | Fetch what the corpus names and the cache lacks; `--vault` narrows. Exits nonzero if anything named is nowhere |
+| `vault push` * | Upload what the corpus names and the vaults lack. `--dry-run` prints the exact string that would be signed; `--artifact` and `--vault` narrow; `--index`/`--embeddings`/`--bundle` send what this repository *computed* instead |
+| `vault pull` * | Fetch what the corpus names and the cache lacks; `--vault` narrows; `--index`/`--embeddings`/`--bundle` fetch and unpack what `.yidam/index.lock` records |
 | `vault status` | Where each named artifact goes and where it is, grouped by store. `--remote` asks each vault — one HEAD per record, never a bucket listing |
 
 Every artifact is named by the SHA-256 of its bytes, in lowercase hex. The cache is
@@ -323,6 +323,69 @@ happens to be exported is the failure the boundary was drawn to prevent.
 
 A single `PUT` caps at 5 GiB and multipart upload is not built; over the cap the upload is
 refused with a message that says so, rather than failing at the server as `EntityTooLarge`.
+
+### The artifacts this repository computes
+
+`.yidam/index/` is built only by a binary compiled `--features index` — protoc 31 plus an ONNX
+runtime — and nothing keeps it in git. So the index exists on whichever machine could build it
+and nowhere else. The same vault carries it:
+
+```sh
+yidam vault push --index      # on a machine that has one; writes .yidam/index.lock
+git add .yidam/index.lock && git commit
+yidam vault pull --index      # anywhere else; unpacks into .yidam/index/
+```
+
+`--embeddings` and `--bundle` do the same for `.yidam/embeddings/` and `.yidam/bundle.yiz`.
+
+**These flags are an either/or, not an addition.** `vault push` alone sends what the catalog
+names; `vault push --index` sends the index and nothing else. An index is hundreds of megabytes
+and `--index` quietly also uploading a corpus of papers would be a surprise in the direction
+nobody wants.
+
+An index is a directory and a vault stores one object, so a directory is packed into a single
+archive and hashed as a whole — a `corpus.arrow` from one build beside a `meta.json` from
+another is a corrupt index that nothing would notice. The archive is deterministic (sorted
+entries, zeroed mtimes), so pushing an unchanged index does nothing. A `.yiz` is already one
+object and is stored verbatim.
+
+#### `.yidam/index.lock`
+
+Committed, and the only thing that travels through git:
+
+```toml
+format_version = 1
+
+[index]
+sha256 = "9f2c8e…"
+bytes  = 41943040
+vault  = "default"
+```
+
+It names **the store as well as the hash**, and a pull reads the store from *there* rather than
+re-deriving it from `holds`. A `holds` edit made after the push would otherwise send the pull to
+somewhere the bytes are not — which is a mutable ref wearing a lock file's clothes, and the one
+thing this whole design exists to avoid.
+
+#### What `push --index` refuses
+
+**An index is not a file that happens to sit in `.yidam/index/`.** It is a re-encoding of
+everything walked to build it, and each row carries the node's text verbatim. So the question
+is not whether the index may leave but whether *everything it was derived from* may:
+
+| Artifact | Derived from |
+|---|---|
+| `index`, `embeddings` | `.yidam/corpus`, `.yidam/catalog` |
+| `bundle` | those, plus `.yidam/skills`, `.yidam/decisions` |
+
+A path `.yidam/private-paths` declares private that **intersects** one of those — in either
+direction — refuses the push, naming the path. This is the rule
+`sadhana/github/workflows/release.yml` already applies to a bundle, for the reason it gives:
+*the artifact outlives the access.* A declared directory holding only a `README.md` or a
+`.gitkeep` is intent rather than material and does not refuse.
+
+Unlike a catalog artifact, a repository's own output is pushed **by default** — there is no
+`redistributable` to set, because there is no third party whose licence it could be.
 
 ### What `push` refuses
 

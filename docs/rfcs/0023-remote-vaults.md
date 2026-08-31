@@ -572,7 +572,7 @@ there by AWS's published test vectors rather than by a server.
 | P2 | #414 | `artifacts:`, the four checks, the integrity column, `yidam catalog fetch` |
 | P3 | #415 | the S3 transport, `push`/`pull`/`status --remote`, the private-paths guard, `redistributable` |
 | P4 | #416 | named vaults plural: `holds` routing, per-vault credentials, `--vault`, the isolation warnings |
-| P5 | #417 | index, embeddings and bundle into their vault; `.yidam/index.lock` |
+| P5 | #417 | index, embeddings and bundle into their vault; `.yidam/index.lock`; the derived-artifact privacy guard |
 | P6 | #418 | `gc`, materialization, the `vault-status` report, the docs |
 
 Two orderings were considered and one deliberate choice made. **#416 lands before #417**
@@ -582,8 +582,92 @@ that the payoff in #417 — a light build answering `retrieve` non-degraded over
 never built — arrives one phase later than it could. If that payoff is wanted sooner the two
 swap cleanly, and nothing else in this RFC depends on the order.
 
+**That payoff turned out not to be this RFC's to deliver.** #417 found that a light build
+cannot embed a query whatever arrives on disk; see [What #417
+found](#what-417-found). The ordering argument still held — routing was cheap to add before
+there were three artifact kinds, and #417 declared a route rather than migrating to one.
+
 The guard in #415 does **not** move. The first release that can upload is the first release
 that can leak.
+
+## What #417 found
+
+### The payoff this phase was named for cannot be reached by transport
+
+#417's "done when" is: *a light build, given a vault and a committed lock file, answers
+`retrieve` **non-degraded** over an index it never built.* The vault half is built and works.
+The sentence is still false, and no amount of transport makes it true.
+
+`retrieval::load` in a build without `index` returns `NoVectorSupport` whenever an index is on
+disk, and it is right to. Two things are missing, and only one of them is about reading:
+
+1. **Decoding `index/corpus.arrow`** needs `arrow-ipc`.
+2. **Embedding the query** needs `fastembed`. A pulled index carries the *document* vectors;
+   turning `what does this corpus say about X` into a vector to compare them against needs the
+   ONNX model, and there is nowhere to get it from but the model.
+
+The second is the one that settles it. Delivering the index is necessary and not sufficient,
+and the issue's premise — that the missing piece was a channel — was half right.
+
+### But the expensive half is the build, not the read
+
+Measured rather than assumed: **`lancedb` is named in exactly one file**, `cmd/index_build.rs`,
+and `lancedb` is what requires protoc 31. Reading an index and embedding a query need
+`fastembed` and `arrow-*` and neither needs protoc.
+
+So the reachable version of the payoff is a third build, between the two that exist:
+
+| | builds an index | reads one | needs protoc |
+|---|---|---|---|
+| default (`reports`) | no | no | no |
+| a `vector-read` feature | no | **yes** | **no** |
+| `index` | yes | yes | yes |
+
+That is a packaging change — a new feature, `resolve_model` moved out of the gated
+`cmd/index_build.rs` the way `sha256_hex` moved out of `cmd/tonpa/`, and a decision about
+whether it becomes a released artifact. It is not a vault change, and it does not belong in
+this RFC's track. **Filed separately; #417 ships the channel and says plainly that the light
+build still degrades.**
+
+What #417 *does* deliver end to end is the same property one build short of the goal: a machine
+with a full build and no index pulls one it never built and uses it. That is most of the value
+— an index is built once and read on every other machine that can read one — and it is tested.
+
+### An index inherits the privacy of everything it encodes
+
+This is new design, and it is the reason the phase needed a guard at all.
+
+`model::VectorRow` carries the node's **`text`**, verbatim, and `cmd/embed.rs` composes that
+text from `.yidam/corpus/` *and* `.yidam/catalog/`. An index is therefore not a file that
+happens to sit beside the corpus; it is a re-encoding of it. Pushing one to a vault publishes
+every node it walked.
+
+The catalog guard cannot see this. A catalog artifact is refused for what its own record says,
+and an index has no record — nobody wrote one, because nobody fetched it. So `vault push
+--index` answers a different question: **may everything this was derived from leave?** A
+declared-private path intersecting `.yidam/corpus` or `.yidam/catalog`, in either direction,
+refuses the push and names the path.
+
+The rule is deliberately the one `sadhana/github/workflows/release.yml` already applies to a
+bundle, rather than a cleverer one — the two guards answer the same question about the same
+class of artifact, and a repository that enforced two different rules for that would be worse
+than one that enforces a blunt one twice.
+
+> **An adjacent hole, found while mirroring it and not fixed here.** A bundle carries
+> `index/corpus.arrow` (`cmd/bundle.rs:147`), and that index encodes catalog text — but the
+> release workflow's `bundled=` list names only `.yidam/corpus`, `.yidam/skills` and
+> `.yidam/decisions`. `tests/publish_guard.rs` reasons `index/` away as "generated rather than
+> authored", which is true of the file and false of its contents. A private catalog directory
+> can therefore reach a published bundle. Filed separately: it is a defect in the bundle
+> channel, it predates this RFC, and making a derived repository's release guard stricter is a
+> change to ship deliberately rather than inside a vault PR.
+
+### Derived artifacts default the other way
+
+`policy.rs` promised this in #415 and this phase pays it: a catalog artifact is refused unless
+its record licenses redistribution, and a repository's own output is pushed by default. There
+is no `redistributable` to set on an index, because there is no third party whose licence it
+could be. The only thing that stops it is the privacy rule above.
 
 ## Testing
 

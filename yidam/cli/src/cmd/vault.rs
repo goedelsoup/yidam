@@ -77,12 +77,31 @@ pub enum VaultCommand {
         /// store its record did not send it to.
         #[arg(long)]
         vault: Option<String>,
+        /// Send the built index (`.yidam/index/`) instead of the catalog's artifacts, and
+        /// record it in `.yidam/index.lock`
+        #[arg(long)]
+        index: bool,
+        /// Send the embeddings the index was built from
+        #[arg(long)]
+        embeddings: bool,
+        /// Send `.yidam/bundle.yiz`
+        #[arg(long)]
+        bundle: bool,
     },
     /// Fetch what the corpus names and the cache lacks
     Pull {
         /// Restrict to one vault — useful where one store is reachable and another is not
         #[arg(long)]
         vault: Option<String>,
+        /// Fetch the index `.yidam/index.lock` records and unpack it into `.yidam/index/`
+        #[arg(long)]
+        index: bool,
+        /// Fetch the recorded embeddings
+        #[arg(long)]
+        embeddings: bool,
+        /// Fetch the recorded bundle
+        #[arg(long)]
+        bundle: bool,
     },
     /// What the corpus names, where each artifact goes, and where it is
     Status {
@@ -107,8 +126,22 @@ pub fn run(sub: VaultCommand) -> Result<()> {
             dry_run,
             artifact,
             vault,
-        } => push(dry_run, artifact.as_deref(), vault.as_deref()),
-        VaultCommand::Pull { vault } => pull(vault.as_deref()),
+            index,
+            embeddings,
+            bundle,
+        } => match chosen(index, embeddings, bundle) {
+            picked if picked.is_empty() => push(dry_run, artifact.as_deref(), vault.as_deref()),
+            picked => push_derived(&picked, dry_run, vault.as_deref()),
+        },
+        VaultCommand::Pull {
+            vault,
+            index,
+            embeddings,
+            bundle,
+        } => match chosen(index, embeddings, bundle) {
+            picked if picked.is_empty() => pull(vault.as_deref()),
+            picked => pull_derived(&picked, vault.as_deref()),
+        },
         VaultCommand::Status { remote, vault } => status(remote, vault.as_deref()),
     }
 }
@@ -778,10 +811,233 @@ fn verify() -> Result<()> {
 }
 
 fn human_bytes(path: &Path) -> String {
-    let Ok(meta) = std::fs::metadata(path) else {
-        return "unknown size".to_string();
-    };
-    let n = meta.len();
+    match std::fs::metadata(path) {
+        Ok(m) => human_size(m.len()),
+        Err(_) => "unknown size".to_string(),
+    }
+}
+
+// ── the artifacts this repository computes ───────────────────────────────────
+//
+// `push` and `pull` without a derived flag do the catalog and nothing else. With one, they
+// do *only* what was named. An either/or rather than an addition, because an index is
+// hundreds of megabytes and `--index` quietly also uploading a corpus of PDFs would be a
+// surprise in the direction nobody wants.
+
+/// The derived artifacts a pair of flags asked for, in a fixed order.
+fn chosen(index: bool, embeddings: bool, bundle: bool) -> Vec<vault::Derived> {
+    [
+        (index, vault::Derived::Index),
+        (embeddings, vault::Derived::Embeddings),
+        (bundle, vault::Derived::Bundle),
+    ]
+    .into_iter()
+    .filter(|(on, _)| *on)
+    .map(|(_, d)| d)
+    .collect()
+}
+
+fn push_derived(picked: &[vault::Derived], dry_run: bool, only: Option<&str>) -> Result<()> {
+    let root = repo_root()?;
+    require_yidam_repo(&root)?;
+    let vaults = configured(&root)?;
+    if vaults.is_empty() {
+        bail!("this repository declares no vault — `yidam vault list` shows the shape.");
+    }
+    if let Some(name) = only {
+        if vaults.get(name).is_none() {
+            bail!(
+                "`--vault {name}` names no declared vault ({}).",
+                describe_declared(&vaults)
+            );
+        }
+    }
+    let cache = cache()?;
+    let private = vault::read_private_paths(&root)?;
+    let mut lock = vault::load_lock(&root)?;
+    let mut changed = false;
+
+    for &d in picked {
+        let (name, cfg) = match vaults.route(d.kind(), None) {
+            Route::To(n, c) => (n, c),
+            Route::Local => {
+                eprintln!("{}: routed to the local cache; nothing to send", d.kind());
+                continue;
+            }
+            Route::Unroutable(why) => {
+                eprintln!("{}: {why}", d.kind());
+                continue;
+            }
+        };
+        if only.is_some_and(|o| o != name) {
+            continue;
+        }
+
+        // The guard, before anything is packed. A refusal here is about what the artifact
+        // *encodes*, not about where it is going, so it costs nothing to ask first and
+        // avoids compressing a few hundred megabytes that were never going to be sent.
+        if let vault::Disposition::Refused(why) = vault::derived_may_push(&root, d, &private) {
+            println!("refused: {why}");
+            continue;
+        }
+
+        // Packed into the cache, hashed, and pushed from there — the same path a catalog
+        // artifact takes, so `yidam vault verify` covers an index too.
+        let staging = cache
+            .root()
+            .join(format!(".{}.{}.packing", d.kind(), std::process::id()));
+        vault::pack_to(&root, d, &staging)?;
+        let (hash, bytes) = vault::hash_file(&staging)?;
+        cache.put_file(&staging, &hash)?;
+        let _ = std::fs::remove_file(&staging);
+
+        let recorded = lock.get(d).filter(|e| e.sha256 == hash.as_str()).is_some();
+        if dry_run {
+            println!(
+                "would send {} {hash} ({}) to `{name}`{}",
+                d.kind(),
+                human_size(bytes),
+                if recorded {
+                    " — already recorded"
+                } else {
+                    ""
+                }
+            );
+            continue;
+        }
+
+        let store = vault::open(name, cfg)?;
+        if store.has(&hash)? {
+            println!("{} {hash} already in `{name}`", d.kind());
+        } else {
+            store.put(&hash, &cache.path_of(&hash))?;
+            println!(
+                "sent {} {hash} ({}) to `{name}`",
+                d.kind(),
+                human_size(bytes)
+            );
+        }
+        let entry = vault::Entry {
+            sha256: hash.as_str().to_string(),
+            bytes,
+            vault: name.to_string(),
+        };
+        if lock.get(d) != Some(&entry) {
+            lock.set(d, entry);
+            changed = true;
+        }
+    }
+
+    if changed && !dry_run {
+        vault::save_lock(&root, &lock)?;
+        println!();
+        println!(
+            "{} updated — commit it, or nothing else can find these bytes.",
+            vault::lock_path(&root)
+                .strip_prefix(&root)
+                .unwrap_or(&vault::lock_path(&root))
+                .display()
+        );
+    }
+    Ok(())
+}
+
+fn pull_derived(picked: &[vault::Derived], only: Option<&str>) -> Result<()> {
+    let root = repo_root()?;
+    require_yidam_repo(&root)?;
+    let vaults = configured(&root)?;
+    let cache = cache()?;
+    let lock = vault::load_lock(&root)?;
+    let mut missing = 0usize;
+
+    for &d in picked {
+        let Some(entry) = lock.get(d) else {
+            eprintln!(
+                "{} names no {} — `yidam vault push --{}` on a machine that has one \
+                 records it.",
+                vault::lock_path(&root).display(),
+                d.kind(),
+                d.kind()
+            );
+            missing += 1;
+            continue;
+        };
+        // **The lock decides where to look, not the routing.** A `holds` edit made after the
+        // push would otherwise send this to the wrong store, which is a mutable ref wearing a
+        // lock file's clothes.
+        let Some(cfg) = vaults.get(&entry.vault) else {
+            bail!(
+                "{} records the {} in vault `{}`, which `.yidam/config.toml` does not declare \
+                 ({}).\n  \
+                 The lock names the store the bytes were actually put in; re-push if the \
+                 store has genuinely moved.",
+                vault::lock_path(&root).display(),
+                d.kind(),
+                entry.vault,
+                describe_declared(&vaults)
+            );
+        };
+        if only.is_some_and(|o| o != entry.vault) {
+            continue;
+        }
+        let hash = ContentHash::parse(&entry.sha256)?;
+
+        if !cache.contains(&hash) {
+            let store = vault::open(&entry.vault, cfg)?;
+            if !store.has(&hash)? {
+                eprintln!(
+                    "{} {hash} is not in `{}` ({})",
+                    d.kind(),
+                    entry.vault,
+                    store.describe()
+                );
+                missing += 1;
+                continue;
+            }
+            let staged = cache.path_of(&hash).with_extension("incoming");
+            store.get(&hash, &staged)?;
+            let found = ContentHash::of_file(&staged)?;
+            if found != hash {
+                let _ = std::fs::remove_file(&staged);
+                bail!(
+                    "vault `{}` returned bytes that are not {hash} for the {}.\n  \
+                     received {found}\n  Nothing was cached and nothing was unpacked.",
+                    entry.vault,
+                    d.kind()
+                );
+            }
+            cache.put_file(&staged, &hash)?;
+            let _ = std::fs::remove_file(&staged);
+        }
+
+        // Verified before it is allowed anywhere near the working tree. A cached artifact
+        // is re-hashed rather than trusted, because the local copy is the one that can be
+        // wrong in a way nothing else would notice.
+        if !matches!(cache.verify(&hash)?, Verdict::Intact) {
+            bail!(
+                "the cached {} does not hash to {hash}. Delete it and pull again.",
+                d.kind()
+            );
+        }
+        vault::unpack_from(&root, d, &cache.path_of(&hash))?;
+        println!(
+            "{} {hash} → {}",
+            d.kind(),
+            d.path(&root)
+                .strip_prefix(&root)
+                .unwrap_or(&d.path(&root))
+                .display()
+        );
+    }
+
+    if missing > 0 {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+/// A byte count a person can read, from a number rather than a path.
+fn human_size(n: u64) -> String {
     const UNITS: [(u64, &str); 4] = [
         (1 << 30, "GiB"),
         (1 << 20, "MiB"),
