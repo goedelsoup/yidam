@@ -49,15 +49,35 @@ fn the_guard_inspects_every_directory_the_bundle_carries() {
         .find(|l| l.trim_start().starts_with("bundled="))
         .expect("the guard no longer declares which directories a bundle carries");
 
-    // What `render_bundle` actually writes into the archive, per its own layout doc:
-    // corpus/, skills/, decisions/, index/. `index/` is generated rather than authored, so
-    // the authored three are what a private path can sit in.
-    for dir in [".yidam/corpus", ".yidam/skills", ".yidam/decisions"] {
+    // Derived rather than transcribed. `vault::derived_sources` answers the same question for
+    // `yidam vault push --bundle`, and two lists of one fact, each pinned only by itself, is
+    // how one of them silently stops matching. This one did: until #443 it named the three
+    // directories the archive carries as files and reasoned that `index/` was "generated
+    // rather than authored" — true of the file, false of its contents. A bundle carries
+    // `index/corpus.arrow`, that index has a `text` column, and `cmd/embed.rs` fills it from
+    // the catalog as well as the corpus. So a private catalog entry's prose ships inside the
+    // archive while no catalog file does.
+    for dir in yidam::vault::derived_sources(yidam::vault::Derived::Bundle) {
         assert!(
             line.contains(dir),
-            "the bundle carries {dir} and the guard does not inspect it: {line}"
+            "a bundle publishes {dir} and the guard does not inspect it: {line}"
         );
     }
+}
+
+/// The catalog is the entry that was missing, and it is the one a reader is most likely to
+/// remove again — no catalog *file* is in the archive, so the omission looks correct.
+#[test]
+fn the_guard_inspects_the_catalog_even_though_no_catalog_file_is_bundled() {
+    let w = workflow();
+    let line = w
+        .lines()
+        .find(|l| l.trim_start().starts_with("bundled="))
+        .expect("the guard no longer declares which directories a bundle carries");
+    assert!(
+        line.contains(".yidam/catalog"),
+        "a bundle carries the vector index, and that index encodes catalog text: {line}"
+    );
 }
 
 /// Publishing must be gated on a tag, so `workflow_dispatch` is a rehearsal and not a release.

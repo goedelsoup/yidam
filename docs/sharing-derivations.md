@@ -101,14 +101,21 @@ point:
 > material as long as the repository is private. That is the right rule for a checkout and
 > the wrong one for an artifact. **The artifact outlives the access.**
 
-So `.yidam/private-paths` is read again at release time against the three directories that
-actually enter a bundle — `.yidam/corpus`, `.yidam/skills`, `.yidam/decisions` — and a match
-fails the release *whether or not the repository is private*. Private material inside a
-published bundle is one download away from anywhere.
+So `.yidam/private-paths` is read again at release time against the directories that actually
+enter a bundle, and a match fails the release *whether or not the repository is private*.
+Private material inside a published bundle is one download away from anywhere.
 
-That list of bundled directories is duplicated in the workflow, and the workflow says so. A
-directory added to the bundle and not added there is a directory the guard does not know it
-is publishing.
+Three of those directories the archive carries as files: `.yidam/corpus`, `.yidam/skills`,
+`.yidam/decisions`. The fourth is `.yidam/catalog`, and it is not obvious — **no catalog file is
+in a bundle at all.** A bundle carries `index/corpus.arrow`, that index has a `text` column, and
+the embedding step composes that text from the catalog as well as the corpus. So a private
+catalog entry's prose ships inside the archive while no catalog file does. It was missing from
+the guard until issue #443, for exactly that reason: the omission looked correct.
+
+The list is duplicated in the workflow, and a test compares it against
+`vault::derived_sources(Derived::Bundle)` — the same question asked by `yidam vault push
+--bundle`. Two lists of one fact, each pinned only by itself, is how one of them silently stops
+matching; that is what happened here.
 
 ### An index is opt-in, by omission
 

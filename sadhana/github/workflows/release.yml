@@ -80,10 +80,21 @@ jobs:
             exit 0
           fi
 
-          # What render_bundle actually reads. Keep this list in step with
-          # cmd/bundle.rs — a directory added to the bundle and not added here is
-          # a directory this guard does not know it is publishing.
-          bundled=".yidam/corpus .yidam/skills .yidam/decisions"
+          # What a bundle publishes. Three of these it carries directly:
+          # `cmd/bundle.rs` writes corpus/, skills/ and decisions/ into the archive.
+          #
+          # `.yidam/catalog` is the fourth and it is not obvious, which is why it
+          # was missing until #443. A bundle also carries `index/corpus.arrow`, and
+          # that index is not opaque: `model::VectorRow` has a `text` column,
+          # `cmd/embed.rs` composes that text from the corpus AND the catalog, and
+          # `cmd/index_build.rs` walks the whole embeddings directory with no
+          # filter. So a private catalog entry's prose is inside the archive even
+          # though no catalog FILE is.
+          #
+          # Keep this list in step with `vault::derived_sources(Derived::Bundle)`,
+          # which asks the same question for `yidam vault push`. A test compares
+          # the two, so they cannot drift apart silently.
+          bundled=".yidam/corpus .yidam/catalog .yidam/skills .yidam/decisions"
 
           in_bundle=""
           anywhere=""
