@@ -35,7 +35,9 @@ mod store;
 
 pub use cache::{Cache, Verdict};
 pub use cas::ContentHash;
-pub use config::{resolve, VaultConfig, ONLY_VAULT};
+pub use config::{
+    resolve, Route, VaultConfig, Vaults, ARTIFACT_KINDS, CATALOG_KIND, DEFAULT_VAULT, LOCAL_ONLY,
+};
 pub use policy::{may_push, named_artifacts, read_private_paths, Disposition, Named};
 pub use store::{open, Store};
 
@@ -60,5 +62,26 @@ pub fn credentials_available(vault: &str) -> anyhow::Result<()> {
     {
         let _ = vault;
         Ok(())
+    }
+}
+
+/// Which principal a vault's credentials name, or `None` where it has none.
+///
+/// Exists so `doctor` can notice that two vaults resolve to the same account without either
+/// printing a secret or holding one. **The access key id is not the secret** — it travels in
+/// every `Authorization` header in plaintext, and it is what identifies the principal — while
+/// the secret stays inside [`sigv4::Credentials`], which does not implement `Debug` for
+/// exactly this reason.
+pub fn credential_principal(vault: &str) -> Option<String> {
+    #[cfg(feature = "vault-s3")]
+    {
+        creds::resolve(vault, |k| std::env::var(k).ok())
+            .ok()
+            .map(|c| c.access_key_id)
+    }
+    #[cfg(not(feature = "vault-s3"))]
+    {
+        let _ = vault;
+        None
     }
 }

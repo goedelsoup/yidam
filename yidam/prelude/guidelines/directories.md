@@ -251,7 +251,7 @@ artifacts:                     # optional; what was actually obtained
     media_type: application/pdf
     retrieved: 2026-08-22
     from: 0                    # which `location` it came from, or a URL
-    vault: sources             # where these bytes may be kept; `none` = local only
+    vault: sources             # optional; overrides the route its kind takes. `none` = local only
     redistributable: false     # whether they may leave this machine at all
 ---
 ```
@@ -312,11 +312,17 @@ artifacts:                     # optional; what was actually obtained
     hex is case-insensitive and a content-addressed store is not: two spellings would be two
     keys for one artifact. `catalog-artifact-malformed` reports the rest — a digest of the
     wrong length or alphabet, or a `from:` index naming a location the entry does not declare.
-  - `vault` says **where these bytes may be kept**, and must name a store
-    `.yidam/config.toml` declares, or `none`. `none` is a route — the local cache and nowhere
-    else — spelled rather than omitted, so that *nobody has decided* and *decided to keep it
-    here* are different states. `catalog-artifact-unroutable` reports a name nothing declares;
-    it may gate because both sides are committed, so it answers identically in every clone.
+  - `vault` says **where these bytes may be kept**, and is optional. Omitted, the artifact
+    goes wherever the config routes its kind: a lone vault that declares no `holds` takes
+    everything, and where there are several, the one whose `holds` lists `catalog` takes it.
+    Naming a vault here **overrides that route** — the specific assertion outranks the general
+    one — and must name a store `.yidam/config.toml` declares, or `none`. `none` is a route,
+    the local cache and nowhere else, spelled rather than omitted so that *nobody has decided*
+    and *decided to keep it here* are different states. `catalog-artifact-unroutable` reports a
+    name nothing declares; it may gate because both sides are committed, so it answers
+    identically in every clone. An artifact whose *kind* no vault claims is reported by
+    `yidam vault push` and `yidam doctor` rather than by lint, because the defect is in the
+    config and blaming the catalog entry would point at the wrong file.
   - `redistributable` is a **licensing fact about the source**, and it is deliberately not
     folded into `vault`. A route is edited casually — somebody reorganising storage moves a
     dozen entries between stores in an afternoon — and a licence is not something that edit is

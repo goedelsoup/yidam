@@ -5,17 +5,31 @@
 //! The rule is one sentence: **a command that reads the vault configuration needs a
 //! repository; a command that only touches the cache does not.**
 //!
-//! `list` and `get` read `.yidam/config.toml`, so they require one. `put`, `path` and
-//! `verify` work entirely against the machine-wide cache, which belongs to no repository —
-//! demanding one would be friction with nothing behind it, and would make the cache harder to
-//! inspect exactly when something has gone wrong with it.
+//! `list`, `get`, `push`, `pull` and `status` read `.yidam/config.toml`, so they require one.
+//! `put`, `path` and `verify` work entirely against the machine-wide cache, which belongs to
+//! no repository — demanding one would be friction with nothing behind it, and would make the
+//! cache harder to inspect exactly when something has gone wrong with it.
 //!
-//! # No network, in any of them
+//! # Routing happens once, before anything opens a store
 //!
-//! This is the offline half of RFC-0023. `get` reaches a store, and the only store this build
-//! can open is a directory. When the S3 transport lands it arrives behind [`crate::vault::Store`]
-//! and none of these commands changes shape.
+//! Every command that moves bytes builds the same plan first: each artifact the corpus names,
+//! paired with the vault it goes to. That plan is a function of two committed files and
+//! nothing else — no credentials, no network, no cache — so it answers identically in every
+//! clone, and `--dry-run` shows the real one rather than a rehearsal of it.
+//!
+//! **Stores are then opened lazily, one per vault that has work.** This is not an
+//! optimisation. Opening an S3 store resolves that vault's credentials, and a runner that has
+//! keys for `default` and none for `sources` must be able to push to `default` — which is the
+//! whole reason `--vault` exists. Opening every declared store up front would make the flag
+//! useless in the situation it was added for.
+//!
+//! # `--vault` narrows and never re-routes
+//!
+//! An artifact routed to `sources` is not pushed to `default` because somebody typed a flag.
+//! Moving an artifact between stores is an edit to its record, in a commit, like every other
+//! assertion this repository makes.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
@@ -23,11 +37,11 @@ use clap::Subcommand;
 
 use crate::config::load_yidam_config;
 use crate::paths::{repo_root, require_yidam_repo};
-use crate::vault::{self, Cache, ContentHash, Verdict};
+use crate::vault::{self, Cache, ContentHash, Route, Vaults, Verdict};
 
 #[derive(Debug, Subcommand)]
 pub enum VaultCommand {
-    /// List the stores this repository declares, and who each says can read it
+    /// List the stores this repository declares, what each holds, and who can read it
     List,
     /// Hash a file and keep it in the local cache, printing its content address
     Put {
@@ -59,15 +73,26 @@ pub enum VaultCommand {
         /// entry: `--artifact` narrows what is pushed, it never bypasses the guard.
         #[arg(long)]
         artifact: Option<String>,
+        /// Restrict to one vault. Narrows what is sent; never re-routes an artifact into a
+        /// store its record did not send it to.
+        #[arg(long)]
+        vault: Option<String>,
     },
     /// Fetch what the corpus names and the cache lacks
-    Pull,
-    /// What the corpus names, and where each artifact is
+    Pull {
+        /// Restrict to one vault — useful where one store is reachable and another is not
+        #[arg(long)]
+        vault: Option<String>,
+    },
+    /// What the corpus names, where each artifact goes, and where it is
     Status {
-        /// Ask the vault about each artifact. One HEAD per record — bounded by the catalog,
-        /// never by the bucket, because nothing here lists a store.
+        /// Ask each vault about the artifacts routed to it. One HEAD per record — bounded by
+        /// the catalog, never by the bucket, because nothing here lists a store.
         #[arg(long)]
         remote: bool,
+        /// Restrict to one vault
+        #[arg(long)]
+        vault: Option<String>,
     },
 }
 
@@ -78,164 +103,330 @@ pub fn run(sub: VaultCommand) -> Result<()> {
         VaultCommand::Get { sha256, out } => get(&sha256, out.as_deref()),
         VaultCommand::Path { sha256 } => path_of(&sha256),
         VaultCommand::Verify => verify(),
-        VaultCommand::Push { dry_run, artifact } => push(dry_run, artifact.as_deref()),
-        VaultCommand::Pull => pull(),
-        VaultCommand::Status { remote } => status(remote),
+        VaultCommand::Push {
+            dry_run,
+            artifact,
+            vault,
+        } => push(dry_run, artifact.as_deref(), vault.as_deref()),
+        VaultCommand::Pull { vault } => pull(vault.as_deref()),
+        VaultCommand::Status { remote, vault } => status(remote, vault.as_deref()),
     }
 }
 
-/// The artifacts the corpus names, narrowed to one if asked.
+/// Where one artifact goes, resolved.
+enum Dest {
+    /// A declared vault, by name.
+    Vault(String),
+    /// The local cache and nowhere else — `vault: none`.
+    Local,
+    /// Nowhere, and why.
+    Nowhere(String),
+}
+
+/// Artifacts grouped by the vault they go to.
+type ByVault = BTreeMap<String, Vec<vault::Named>>;
+
+/// Artifacts that reach no store, each under a heading saying why not.
+type Aside = Vec<(&'static str, String)>;
+
+/// One artifact with its destination settled.
+struct Routed {
+    a: vault::Named,
+    dest: Dest,
+}
+
+/// The artifacts the corpus names, each paired with where it goes.
 ///
 /// **`--artifact` narrows and never widens.** A digest the catalog does not name is refused
 /// rather than pushed from the cache: an artifact with no record has no `redistributable`, no
 /// path to check against `.yidam/private-paths`, and therefore nothing for the guard to read.
 /// Allowing it would be a hole in the guard that looked like a convenience flag.
-fn selected(root: &Path, artifact: Option<&str>) -> Result<Vec<vault::Named>> {
-    let all = vault::named_artifacts(root);
-    let Some(want) = artifact else {
-        return Ok(all);
-    };
-    let hash = ContentHash::parse(want)?;
-    let picked: Vec<_> = all.into_iter().filter(|a| a.hash == hash).collect();
-    if picked.is_empty() {
-        bail!(
-            "no catalog entry names {hash}.\n  \
-             `--artifact` narrows what is pushed; it does not push something the corpus has \
-             not recorded. An artifact with no record carries no `redistributable` and no \
-             path to check for privacy, so there would be nothing for the guard to read."
-        );
+///
+/// **`--vault` narrows too, and by *destination* rather than by name.** The filter is applied
+/// after routing, so a flag can only ever remove artifacts from the plan. There is no code
+/// path by which typing a vault's name puts something into it.
+fn plan(
+    root: &Path,
+    vaults: &Vaults,
+    artifact: Option<&str>,
+    only: Option<&str>,
+) -> Result<Vec<Routed>> {
+    if let Some(name) = only {
+        if vaults.get(name).is_none() {
+            bail!(
+                "`--vault {name}` names no declared vault ({}).\n  \
+                 The flag narrows what this command touches; it does not create a route.",
+                describe_declared(vaults)
+            );
+        }
     }
-    Ok(picked)
-}
 
-fn push(dry_run: bool, artifact: Option<&str>) -> Result<()> {
-    let root = repo_root()?;
-    require_yidam_repo(&root)?;
-    let Some((name, cfg)) = configured()? else {
-        bail!("this repository declares no vault — `yidam vault list` shows the shape.");
-    };
-    let cache = cache()?;
-    let private = vault::read_private_paths(&root)?;
-    let wanted = selected(&root, artifact)?;
-    if wanted.is_empty() {
-        println!("The corpus names no artifacts.");
-        return Ok(());
+    let mut all = vault::named_artifacts(root);
+    if let Some(want) = artifact {
+        let hash = ContentHash::parse(want)?;
+        all.retain(|a| a.hash == hash);
+        if all.is_empty() {
+            bail!(
+                "no catalog entry names {hash}.\n  \
+                 `--artifact` narrows what is pushed; it does not push something the corpus \
+                 has not recorded. An artifact with no record carries no `redistributable` \
+                 and no path to check for privacy, so there would be nothing for the guard \
+                 to read."
+            );
+        }
     }
-    let store = vault::open(&name, &cfg)?;
 
-    let (mut sent, mut present, mut uncached) = (0usize, 0usize, 0usize);
-    let mut refused: Vec<String> = Vec::new();
-
-    for a in &wanted {
-        match vault::may_push(a, &private) {
-            vault::Disposition::Refused(why) => {
-                refused.push(format!("{} — {why}", a.hash));
+    let mut out = Vec::new();
+    for a in all {
+        let dest = match vaults.route(&a.kind, a.vault.as_deref()) {
+            Route::Local => Dest::Local,
+            Route::To(name, _) => Dest::Vault(name.to_string()),
+            Route::Unroutable(why) => Dest::Nowhere(why),
+        };
+        if let Some(name) = only {
+            if !matches!(&dest, Dest::Vault(v) if v == name) {
                 continue;
             }
-            vault::Disposition::Push => {}
         }
-        if !cache.contains(&a.hash) {
-            // Nothing to send. Not an error: a clone that has never fetched an artifact is a
-            // normal state, and reporting it as a failure would make `push` red on every
-            // fresh checkout.
-            eprintln!("not cached, nothing to send: {} ({})", a.hash, a.rel);
-            uncached += 1;
-            continue;
-        }
-        if dry_run {
-            println!("would send {} ({})", a.hash, a.rel);
-            if let Some(explain) = store.explain_put(&a.hash) {
-                for line in explain.lines() {
-                    println!("    {line}");
-                }
+        out.push(Routed { a, dest });
+    }
+    Ok(out)
+}
+
+fn describe_declared(vaults: &Vaults) -> String {
+    if vaults.is_empty() {
+        return "this repository declares none".to_string();
+    }
+    format!(
+        "declared: {}",
+        vaults
+            .names()
+            .iter()
+            .map(|n| format!("`{n}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+/// Group a plan by the vault each artifact goes to, keeping the refusals aside.
+///
+/// The vault map is a `BTreeMap` so the output is ordered by vault name — which makes a run
+/// over several stores diffable, and means the section a person is looking for is where it
+/// was last time.
+fn group(plan: Vec<Routed>) -> (ByVault, Aside) {
+    let mut by_vault: ByVault = BTreeMap::new();
+    let mut aside: Aside = Vec::new();
+    for r in plan {
+        match r.dest {
+            Dest::Vault(name) => by_vault.entry(name).or_default().push(r.a),
+            // Kept apart from the unroutable ones on purpose. `vault: none` is a decision
+            // somebody made, and listing it under the same heading as a broken route would
+            // report a deliberate choice as a defect.
+            Dest::Local => aside.push((
+                KEPT_LOCAL,
+                format!(
+                    "{} — the local cache and nowhere else ({})",
+                    r.a.hash, r.a.rel
+                ),
+            )),
+            Dest::Nowhere(why) => {
+                aside.push((NO_ROUTE, format!("{} — {why} ({})", r.a.hash, r.a.rel)))
             }
-            println!();
-            sent += 1;
-            continue;
         }
-        if store.has(&a.hash)? {
-            present += 1;
-            continue;
-        }
-        store.put(&a.hash, &cache.path_of(&a.hash))?;
-        println!("sent {} ({})", a.hash, a.rel);
-        sent += 1;
+    }
+    (by_vault, aside)
+}
+
+const KEPT_LOCAL: &str = "kept local (`vault: none`)";
+const NO_ROUTE: &str = "no route";
+
+/// How to describe the set a summary line counted.
+///
+/// A narrowed run has counted a subset, and calling that subset "named by the corpus" would
+/// report a smaller corpus than the one on disk — the kind of number that looks true.
+fn scope(only: Option<&str>) -> String {
+    match only {
+        Some(n) => format!("routed to `{n}`"),
+        None => "named by the corpus".to_string(),
+    }
+}
+
+/// A store and who reads it, on one line. The same shape in `push` and in `status`, because
+/// a person comparing the two outputs is looking for the same store in both.
+fn heading(name: &str, cfg: &vault::VaultConfig) -> String {
+    format!("{name} — {}", cfg.audience())
+}
+
+fn push(dry_run: bool, artifact: Option<&str>, only: Option<&str>) -> Result<()> {
+    let root = repo_root()?;
+    require_yidam_repo(&root)?;
+    let vaults = configured(&root)?;
+    if vaults.is_empty() {
+        bail!("this repository declares no vault — `yidam vault list` shows the shape.");
+    }
+    let cache = cache()?;
+    let private = vault::read_private_paths(&root)?;
+    let planned = plan(&root, &vaults, artifact, only)?;
+    if planned.is_empty() {
+        println!("Nothing to push.");
+        return Ok(());
+    }
+    let total = planned.len();
+    let (by_vault, aside) = group(planned);
+
+    // Refusals are grouped by the store they were headed for, and each heading carries that
+    // store's own audience. A reader learns what they were about to publish *to*, which is
+    // the fact that makes a refusal reassuring rather than merely obstructive — and with
+    // several vaults it is the only way to tell which boundary held.
+    let mut refused: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut refused_count = aside.len();
+    for (heading, line) in aside {
+        refused.entry(heading.to_string()).or_default().push(line);
     }
 
-    println!();
+    let (mut sent, mut present, mut uncached) = (0usize, 0usize, 0usize);
+    for (name, artifacts) in &by_vault {
+        // Only what the licence and the private paths allow is worth opening a store for. A
+        // run in which every artifact is refused must not ask for credentials it will not use.
+        let cfg = vaults.get(name).expect("routed to a declared vault");
+        let heading = heading(name, cfg);
+        let allowed: Vec<&vault::Named> = artifacts
+            .iter()
+            .filter(|a| match vault::may_push(a, &private) {
+                vault::Disposition::Push => true,
+                vault::Disposition::Refused(why) => {
+                    refused_count += 1;
+                    refused
+                        .entry(heading.clone())
+                        .or_default()
+                        .push(format!("{} — {why}", a.hash));
+                    false
+                }
+            })
+            .collect();
+        if allowed.is_empty() {
+            continue;
+        }
+
+        let store = vault::open(name, cfg)?;
+        // The audience first, the destination under it. Somebody about to move bytes should
+        // read who will be able to see them before they read where they are going.
+        println!("{heading}");
+        println!("  → {}", store.describe());
+        for a in allowed {
+            if !cache.contains(&a.hash) {
+                // Nothing to send. Not an error: a clone that has never fetched an artifact
+                // is a normal state, and reporting it as a failure would make `push` red on
+                // every fresh checkout.
+                eprintln!("  not cached, nothing to send: {} ({})", a.hash, a.rel);
+                uncached += 1;
+                continue;
+            }
+            if dry_run {
+                println!("  would send {} ({})", a.hash, a.rel);
+                if let Some(explain) = store.explain_put(&a.hash) {
+                    for line in explain.lines() {
+                        println!("      {line}");
+                    }
+                }
+                println!();
+                sent += 1;
+                continue;
+            }
+            if store.has(&a.hash)? {
+                present += 1;
+                continue;
+            }
+            store.put(&a.hash, &cache.path_of(&a.hash))?;
+            println!("  sent {} ({})", a.hash, a.rel);
+            sent += 1;
+        }
+        println!();
+    }
+
     println!(
-        "{} artifact{} named; {sent} {}; {present} already in `{name}`; {uncached} not cached; \
-         {} refused",
-        wanted.len(),
-        if wanted.len() == 1 { "" } else { "s" },
+        "{total} artifact{} {}; {sent} {}; {present} already stored; {uncached} not cached; \
+         {refused_count} refused",
+        if total == 1 { "" } else { "s" },
+        scope(only),
         if dry_run { "would be sent" } else { "sent" },
-        refused.len()
     );
     if !refused.is_empty() {
         println!();
-        println!("Refused — `{name}` serves: {}", cfg.audience());
-        for r in &refused {
-            println!("  {r}");
+        println!("Refused:");
+        for (heading, lines) in &refused {
+            println!("  {heading}");
+            for l in lines {
+                println!("    {l}");
+            }
         }
     }
     Ok(())
 }
 
-fn pull() -> Result<()> {
+fn pull(only: Option<&str>) -> Result<()> {
     let root = repo_root()?;
     require_yidam_repo(&root)?;
-    let Some((name, cfg)) = configured()? else {
+    let vaults = configured(&root)?;
+    if vaults.is_empty() {
         bail!("this repository declares no vault — `yidam vault list` shows the shape.");
-    };
+    }
     let cache = cache()?;
-    let wanted = vault::named_artifacts(&root);
-    if wanted.is_empty() {
-        println!("The corpus names no artifacts.");
+    let planned = plan(&root, &vaults, None, only)?;
+    if planned.is_empty() {
+        println!("Nothing to pull.");
         return Ok(());
     }
-    let store = vault::open(&name, &cfg)?;
+    let total = planned.len();
+    let (by_vault, aside) = group(planned);
 
-    let (mut fetched, mut held, mut absent) = (0usize, 0usize, 0usize);
-    for a in &wanted {
-        if cache.contains(&a.hash) {
-            held += 1;
+    let (mut fetched, mut held) = (0usize, 0usize);
+    let mut absent = aside.len();
+    for (heading, line) in &aside {
+        eprintln!("{heading}: {line}");
+    }
+    for (name, artifacts) in &by_vault {
+        let outstanding: Vec<&vault::Named> = artifacts
+            .iter()
+            .filter(|a| !cache.contains(&a.hash))
+            .collect();
+        held += artifacts.len() - outstanding.len();
+        if outstanding.is_empty() {
             continue;
         }
-        if a.vault.as_deref() == Some("none") {
-            // Routed to the local cache and nowhere else, so there is nothing to pull from.
-            absent += 1;
-            eprintln!("{} is `vault: none` and is not here ({})", a.hash, a.rel);
-            continue;
-        }
-        if !store.has(&a.hash)? {
-            absent += 1;
-            eprintln!("{} is not in `{name}` ({})", a.hash, a.rel);
-            continue;
-        }
-        let staged = cache.path_of(&a.hash).with_extension("incoming");
-        store.get(&a.hash, &staged)?;
-        // Verified before it may count as present, for the reason `get` gives: a store that
-        // hands back the wrong bytes is what content addressing exists to catch, and catching
-        // it later means a corrupt artifact was already readable.
-        let found = ContentHash::of_file(&staged)?;
-        if found != a.hash {
+        let cfg = vaults.get(name).expect("routed to a declared vault");
+        let store = vault::open(name, cfg)?;
+        for a in outstanding {
+            if !store.has(&a.hash)? {
+                absent += 1;
+                eprintln!("{} is not in `{name}` ({})", a.hash, a.rel);
+                continue;
+            }
+            let staged = cache.path_of(&a.hash).with_extension("incoming");
+            store.get(&a.hash, &staged)?;
+            // Verified before it may count as present, for the reason `get` gives: a store
+            // that hands back the wrong bytes is what content addressing exists to catch, and
+            // catching it later means a corrupt artifact was already readable.
+            let found = ContentHash::of_file(&staged)?;
+            if found != a.hash {
+                let _ = std::fs::remove_file(&staged);
+                bail!(
+                    "vault `{name}` returned bytes that are not {} for {}.\n  \
+                     received {found}\n  Nothing was cached.",
+                    a.hash,
+                    a.rel
+                );
+            }
+            cache.put_file(&staged, &a.hash)?;
             let _ = std::fs::remove_file(&staged);
-            bail!(
-                "vault `{name}` returned bytes that are not {} for {}.\n  \
-                 received {found}\n  Nothing was cached.",
-                a.hash,
-                a.rel
-            );
+            println!("fetched {} from `{name}` ({})", a.hash, a.rel);
+            fetched += 1;
         }
-        cache.put_file(&staged, &a.hash)?;
-        let _ = std::fs::remove_file(&staged);
-        println!("fetched {} ({})", a.hash, a.rel);
-        fetched += 1;
     }
     println!();
     println!(
-        "{} named; {fetched} fetched; {held} already cached; {absent} unavailable",
-        wanted.len()
+        "{total} {}; {fetched} fetched; {held} already cached; {absent} unavailable",
+        scope(only)
     );
     if absent > 0 {
         std::process::exit(1);
@@ -243,55 +434,75 @@ fn pull() -> Result<()> {
     Ok(())
 }
 
-fn status(remote: bool) -> Result<()> {
+fn status(remote: bool, only: Option<&str>) -> Result<()> {
     let root = repo_root()?;
     require_yidam_repo(&root)?;
     let cache = cache()?;
-    let wanted = vault::named_artifacts(&root);
-    if wanted.is_empty() {
+    let vaults = configured(&root)?;
+    if remote && vaults.is_empty() {
+        bail!("`--remote` needs a vault, and this repository declares none.");
+    }
+    let planned = plan(&root, &vaults, None, only)?;
+    if planned.is_empty() {
         println!("The corpus names no artifacts.");
         return Ok(());
     }
-    let configured = configured()?;
-    let store = match (&configured, remote) {
-        (Some((name, cfg)), true) => Some((name.clone(), vault::open(name, cfg)?)),
-        _ => None,
-    };
-    if remote && store.is_none() {
-        bail!("`--remote` needs a vault, and this repository declares none.");
-    }
+    let total = planned.len();
+    let (by_vault, aside) = group(planned);
 
     let mut mismatched = 0usize;
-    for a in &wanted {
-        // Cache first, and re-hashed rather than trusted: the local answer is the one that
-        // can be wrong in a way nothing else would notice.
-        let local = match cache.verify(&a.hash)? {
+    // Cache first, and re-hashed rather than trusted: the local answer is the one that can be
+    // wrong in a way nothing else would notice.
+    let mut local = |a: &vault::Named| -> Result<&'static str> {
+        Ok(match cache.verify(&a.hash)? {
             Verdict::Intact => "cached",
             Verdict::Absent => "-",
             Verdict::Corrupt { .. } => {
                 mismatched += 1;
                 "CORRUPT"
             }
+        })
+    };
+
+    for (name, artifacts) in &by_vault {
+        let cfg = vaults.get(name).expect("routed to a declared vault");
+        println!("{}", heading(name, cfg));
+        let store = match remote {
+            true => Some(vault::open(name, cfg)?),
+            false => None,
         };
-        let remote_state = match &store {
-            None => "".to_string(),
-            Some((_, s)) => {
-                if a.vault.as_deref() == Some("none") {
-                    "  local-only".to_string()
-                } else if s.has(&a.hash)? {
-                    "  stored".to_string()
-                } else {
-                    "  absent".to_string()
-                }
-            }
-        };
-        println!("{:<8}{remote_state:<10}  {}  {}", local, a.hash, a.rel);
+        for a in artifacts {
+            let here = local(a)?;
+            let there = match &store {
+                None => String::new(),
+                Some(s) => match s.has(&a.hash)? {
+                    true => "  stored".to_string(),
+                    false => "  absent".to_string(),
+                },
+            };
+            println!("  {here:<8}{there:<10}  {}  {}", a.hash, a.rel);
+        }
+        println!();
     }
-    println!();
+
+    if !aside.is_empty() {
+        let mut by_heading: BTreeMap<&str, Vec<&String>> = BTreeMap::new();
+        for (heading, line) in &aside {
+            by_heading.entry(heading).or_default().push(line);
+        }
+        for (heading, lines) in by_heading {
+            println!("{heading}");
+            for l in lines {
+                println!("  {l}");
+            }
+            println!();
+        }
+    }
+
     println!(
-        "{} artifact{} named by the corpus",
-        wanted.len(),
-        if wanted.len() == 1 { "" } else { "s" }
+        "{total} artifact{} {}",
+        if total == 1 { "" } else { "s" },
+        scope(only)
     );
     if mismatched > 0 {
         bail!(
@@ -307,60 +518,78 @@ fn cache() -> Result<Cache> {
     Cache::resolve(|k| std::env::var(k).ok())
 }
 
-/// The vault this repository declares, having established there is a repository.
+/// The vaults this repository declares, checked for coherence.
 ///
-/// Returns `None` when no vault is configured, which is every corpus until somebody
-/// configures one and is not an error.
-fn configured() -> Result<Option<(String, vault::VaultConfig)>> {
-    let root = repo_root()?;
-    require_yidam_repo(&root)?;
-    let config = load_yidam_config(&root)?;
-    Ok(vault::resolve(&config.vault)?.map(|(n, c)| (n.to_string(), c.clone())))
+/// Empty is the common case and is not an error: it is every corpus until somebody configures
+/// a store.
+fn configured(root: &Path) -> Result<Vaults> {
+    let config = load_yidam_config(root)?;
+    vault::resolve(&config.vault)
 }
 
 fn list() -> Result<()> {
     let cache = cache()?;
-    match configured()? {
-        None => {
-            println!("No vault configured.");
-            println!();
-            println!(
-                "  Artifacts are kept in the local cache at {} and go nowhere else.",
-                cache.root().display()
-            );
-            println!("  Declare a store in `.yidam/config.toml` to keep them somewhere durable:");
-            println!();
-            println!("    [vault.{}]", vault::ONLY_VAULT);
-            println!("    url      = \"file:///mnt/archive/yidam\"");
-            println!("    audience = \"Who can read this store, and why that is acceptable.\"");
-        }
-        Some((name, cfg)) => {
-            println!("{name}");
-            println!("  url       {}", cfg.url);
-            println!("  audience  {}", cfg.audience());
-            // Whether the store can actually be opened is worth knowing here, because the
-            // alternative is learning it from the first `get` that needed it. The path is
-            // already on the line above, so say only whether it worked — and when it did
-            // not, say why, at the width the rest of the block uses.
-            match vault::open(&name, &cfg) {
-                Ok(_) => println!("  store     ready"),
-                Err(e) => {
-                    let mut lines = e
-                        .to_string()
-                        .lines()
-                        .map(str::to_string)
-                        .collect::<Vec<_>>();
-                    let first = lines.first().cloned().unwrap_or_default();
-                    println!("  store     unusable — {first}");
-                    for rest in lines.drain(1..) {
-                        println!("            {}", rest.trim());
-                    }
+    let root = repo_root()?;
+    require_yidam_repo(&root)?;
+    let vaults = configured(&root)?;
+    if vaults.is_empty() {
+        println!("No vault configured.");
+        println!();
+        println!(
+            "  Artifacts are kept in the local cache at {} and go nowhere else.",
+            cache.root().display()
+        );
+        println!("  Declare a store in `.yidam/config.toml` to keep them somewhere durable:");
+        println!();
+        println!("    [vault.{}]", vault::DEFAULT_VAULT);
+        println!("    url      = \"file:///mnt/archive/yidam\"");
+        println!("    audience = \"Who can read this store, and why that is acceptable.\"");
+        println!();
+        println!(
+            "  A second vault declares `holds` — one of {} — and so does the first.",
+            vault::ARTIFACT_KINDS.join(", ")
+        );
+        return Ok(());
+    }
+
+    // What actually routes where, rather than what each vault claims. The two differ wherever
+    // a record names a vault itself, and the claim alone would not show that.
+    let routed = plan(&root, &vaults, None, None).unwrap_or_default();
+    for (name, cfg) in vaults.iter() {
+        println!("{name}");
+        println!("  url       {}", cfg.url);
+        println!("  audience  {}", cfg.audience());
+        println!("  holds     {}", cfg.holds_display());
+        let n = routed
+            .iter()
+            .filter(|r| matches!(&r.dest, Dest::Vault(v) if v == name))
+            .count();
+        println!(
+            "  routed    {n} artifact{} the corpus names",
+            if n == 1 { "" } else { "s" }
+        );
+        // Whether the store can actually be opened is worth knowing here, because the
+        // alternative is learning it from the first `get` that needed it. The path is already
+        // on the line above, so say only whether it worked — and when it did not, say why, at
+        // the width the rest of the block uses.
+        match vault::open(name, cfg) {
+            Ok(_) => println!("  store     ready"),
+            Err(e) => {
+                let mut lines = e
+                    .to_string()
+                    .lines()
+                    .map(str::to_string)
+                    .collect::<Vec<_>>();
+                let first = lines.first().cloned().unwrap_or_default();
+                println!("  store     unusable — {first}");
+                for rest in lines.drain(1..) {
+                    println!("            {}", rest.trim());
                 }
             }
-            println!();
-            println!("  cache     {}", cache.root().display());
         }
+        println!();
     }
+    println!("  cache     {}", cache.root().display());
     Ok(())
 }
 
@@ -378,38 +607,92 @@ fn put(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Fetch one artifact by content address.
+///
+/// **The record is the authority on where it lives.** If the corpus names this digest, its
+/// route decides which vault is asked, and no other vault is contacted — asking `sources` for
+/// a digest routed to `default` would resolve credentials for a store that was never meant to
+/// have these bytes.
+///
+/// A digest the corpus does not name has no route, and then every declared vault is asked in
+/// name order. That is the honest reading of a bare digest — *fetch this from wherever this
+/// repository can reach* — and it is safe because asking is a `HEAD`: nothing is uploaded, and
+/// a vault that cannot be opened is reported rather than fatal, so one unreachable store does
+/// not hide an artifact sitting in another.
 fn get(sha256: &str, out: Option<&Path>) -> Result<()> {
     let hash = ContentHash::parse(sha256)?;
     let cache = cache()?;
 
     if !cache.contains(&hash) {
-        let Some((name, cfg)) = configured()? else {
+        let root = repo_root()?;
+        require_yidam_repo(&root)?;
+        let vaults = configured(&root)?;
+        if vaults.is_empty() {
             bail!(
                 "{hash} is not in the local cache, and this repository declares no vault to \
                  fetch it from.\n  \
                  Declare one in `.yidam/config.toml` — `yidam vault list` shows the shape."
             );
-        };
-        let store = vault::open(&name, &cfg)?;
-        if !store.has(&hash)? {
-            bail!(
-                "{hash} is in neither the local cache nor vault `{name}` ({}).",
-                store.describe()
-            );
         }
+        let named = vault::named_artifacts(&root)
+            .into_iter()
+            .find(|a| a.hash == hash);
+        let candidates: Vec<String> = match &named {
+            Some(a) => match vaults.route(&a.kind, a.vault.as_deref()) {
+                Route::To(name, _) => vec![name.to_string()],
+                Route::Local => bail!(
+                    "{hash} is recorded as `vault: none` by {} — the local cache and nowhere \
+                     else — and it is not cached here.\n  \
+                     Nothing will fetch it. Whoever has these bytes has to hand them over.",
+                    a.rel
+                ),
+                Route::Unroutable(why) => bail!("{hash} has no route: {why}"),
+            },
+            None => vaults.names().iter().map(|n| n.to_string()).collect(),
+        };
+
+        let mut tried = Vec::new();
+        let mut found = None;
+        for name in &candidates {
+            let cfg = vaults.get(name).expect("candidates come from the map");
+            let store = match vault::open(name, cfg) {
+                Ok(s) => s,
+                Err(e) => {
+                    tried.push(format!("`{name}` could not be opened: {}", first_line(&e)));
+                    continue;
+                }
+            };
+            match store.has(&hash) {
+                Ok(true) => {
+                    found = Some((name.clone(), store));
+                    break;
+                }
+                Ok(false) => {
+                    tried.push(format!("`{name}` ({}) does not hold it", store.describe()))
+                }
+                Err(e) => tried.push(format!("`{name}` could not be asked: {}", first_line(&e))),
+            }
+        }
+        let Some((name, store)) = found else {
+            bail!(
+                "{hash} is in neither the local cache nor any vault that was asked.\n  {}",
+                tried.join("\n  ")
+            );
+        };
+
         // Into the cache through the cache's own atomic write, then verified before it is
         // allowed to count as present. A store that hands back the wrong bytes under a name
         // is exactly what content addressing exists to catch, and catching it after the fact
         // would mean a corrupt artifact had already been readable.
         let staged = cache.path_of(&hash).with_extension("incoming");
         store.get(&hash, &staged)?;
-        let found = ContentHash::of_file(&staged)?;
-        if found != hash {
+        let got = ContentHash::of_file(&staged)?;
+        if got != hash {
             let _ = std::fs::remove_file(&staged);
             bail!(
                 "vault `{name}` returned bytes that are not {hash}.\n  \
                  asked for {hash}\n  \
-                 received {found}\n  \
+                 received {got}\n  \
                  Nothing was cached. The store's copy is wrong, or something rewrote it."
             );
         }
@@ -430,6 +713,11 @@ fn get(sha256: &str, out: Option<&Path>) -> Result<()> {
         println!("{}", at.display());
     }
     Ok(())
+}
+
+/// The first line of an error, for a message that has its own structure.
+fn first_line(e: &anyhow::Error) -> String {
+    e.to_string().lines().next().unwrap_or_default().to_string()
 }
 
 fn path_of(sha256: &str) -> Result<()> {

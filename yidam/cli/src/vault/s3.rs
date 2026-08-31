@@ -341,6 +341,7 @@ mod tests {
         VaultConfig {
             url: url.to_string(),
             audience: Some("tests".into()),
+            holds: None,
             region: Some("us-east-1".into()),
             endpoint: endpoint.map(str::to_string),
             path_style,

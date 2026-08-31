@@ -233,6 +233,42 @@ Three reasons this rather than a central table, in ascending order of how much t
 #416 implements this unless it finds a reason not to, and the reason would have to be stronger
 than tidiness: the shipped section name is now a constraint, not a preference.
 
+#### What #416 found: *refused* was not the whole rule
+
+`holds` shipped as specified. The table above, though, says a kind claimed by no vault is
+**refused** and does not say *when* — and the two readings are not the same design:
+
+- **At resolve.** Every kind in the vocabulary must be claimed, or the config is bad.
+- **At the artifact.** A kind is refused when something of that kind needs a route.
+
+The implementation takes the second, because the first would make the list of artifact kinds a
+**compatibility surface**. `catalog` is the only kind anything produces today; `index`,
+`embeddings` and `bundle` are named ahead of #417 and #418 so a corpus can declare their routes
+before they arrive. Under the eager reading, adding a fifth kind in a later release would turn
+every multi-vault config in the wild red — for a kind those corpora have none of, and with no
+way to write a config that survives both releases.
+
+That is the failure this repository has already recorded once, in the `edge_policy` episode:
+*a list of permitted values never says "and no others" unless somebody checks what the others
+are.* Here nobody could check, because two of the four kinds do not exist yet.
+
+The lazy reading loses nothing that matters. The refusal still happens before any byte moves,
+it names the kind and the remedy, and `yidam doctor` reports a stranded artifact offline. What
+the closed vocabulary is still *for* is the typo: `holds = ["catalouge"]` claims nothing and is
+otherwise indistinguishable from a vault that meant to claim nothing. That is refused at
+resolve, and it costs nothing, because it only ever looks at kinds somebody actually wrote.
+
+Two rules were added that the RFC did not specify, both of them the same argument the plural
+table was chosen for:
+
+- **With two or more vaults, every vault declares `holds`.** The alternative is letting an
+  unclaimed vault be the catch-all for whatever the others did not take — and routing by
+  default is exactly how a licensed document reaches the store meant for public output.
+- **A record's own `vault:` overrides the route, and `--vault` never does.** The flag is
+  applied *after* routing, so it can only remove artifacts from a plan. There is no code path
+  by which typing a store's name puts something into it; moving an artifact between stores is
+  an edit to its record, in a commit.
+
 ### Name the table before you need the second entry
 
 **This is why naming lands in #413 rather than in #416.** `[vault]` and `[vault.default]` are
@@ -535,7 +571,7 @@ there by AWS's published test vectors rather than by a server.
 | P1 | #413 | the store, offline: CAS, cache, `file://`, the plural config with one entry allowed |
 | P2 | #414 | `artifacts:`, the four checks, the integrity column, `yidam catalog fetch` |
 | P3 | #415 | the S3 transport, `push`/`pull`/`status --remote`, the private-paths guard, `redistributable` |
-| P4 | #416 | named vaults plural: routes, per-vault credentials, `--vault`, the isolation warnings |
+| P4 | #416 | named vaults plural: `holds` routing, per-vault credentials, `--vault`, the isolation warnings |
 | P5 | #417 | index, embeddings and bundle into their vault; `.yidam/index.lock` |
 | P6 | #418 | `gc`, materialization, the `vault-status` report, the docs |
 
@@ -562,7 +598,13 @@ CI is hermetic and no test may reach a bucket.
 - A golden pins `vault push --dry-run`'s canonical request.
 - **Mutate the guards before trusting them.** Delete the private-paths guard's body, keep its
   comment, confirm it goes red. A file-scanning test that looks at nothing passes, and prose in
-  a file answers a grep the same way code does.
+  a file answers a grep the same way code does. #416 added four more, each confirmed red:
+  routing that ignores `holds` and sends everything to the first vault; `--vault` re-routing
+  instead of narrowing; a silent second vault becoming a catch-all; and `doctor` no longer
+  noticing two vaults on one account.
+- **Every route gets a test that a licensed artifact does not reach the public store.** The
+  three ways it could — a flag, a route edit, an ambient `AWS_*` — are separate mechanisms and
+  a test of one says nothing about the other two.
 - Goldens carrying `retrieved` dates run under `TZ=UTC`, which is what the runner does.
 - Run the cargo gates sequentially; `ci` and `ci-cli-full` share one target directory.
 

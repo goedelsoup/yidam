@@ -27,7 +27,7 @@ use anyhow::{bail, Result};
 use super::sigv4::Credentials;
 
 /// The vault whose name licenses the `AWS_*` fallback.
-const AMBIENT_VAULT: &str = super::config::ONLY_VAULT;
+const AMBIENT_VAULT: &str = super::config::DEFAULT_VAULT;
 
 /// The environment variable prefix for a vault's own credentials.
 ///

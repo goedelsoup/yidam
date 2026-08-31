@@ -223,6 +223,7 @@ mod tests {
         VaultConfig {
             url: url.to_string(),
             audience: Some("test".into()),
+            holds: None,
             region: None,
             endpoint: None,
             path_style: None,
