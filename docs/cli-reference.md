@@ -215,6 +215,45 @@ argument for why the surface is this small.
 the indexable text against the corpus's 41.9%, and leaving it out had been a scope decision
 nobody made on purpose.
 
+## Artifacts
+
+Bytes a corpus rests on or produces — a fetched source, a built index — are large, derived, or
+licensed, and git is the wrong place for all three. A **vault** holds them; the repository holds
+the record of which bytes. RFC-0023 states the constraint: *a vault stores bytes, git stores the
+record of them*, so every pointer into a vault is a committed file and losing a vault costs no
+knowledge claim, only the time to re-fetch.
+
+| Command | What it does |
+|---|---|
+| `vault list` | The store this repository declares, its `audience`, and where the cache is |
+| `vault put <path>` * | Hash a file into the local cache; prints the content address on stdout |
+| `vault get <sha256>` * | From the cache, else from the vault. `--out` also writes a named copy |
+| `vault path <sha256>` | Where the artifact sits locally, or exit nonzero — so `… \|\| fetch` works |
+| `vault verify` | Re-hash every cached artifact; exits nonzero if any is not what it claims |
+
+Every artifact is named by the SHA-256 of its bytes, in lowercase hex. The cache is
+**machine-wide** — `$XDG_CACHE_HOME/yidam/vault`, or `YIDAM_VAULT_CACHE` — so two repositories
+citing the same source store it once. It is deliberately **not** partitioned by vault: a cache
+hit answers *do I have these bytes*, never *may I send them*.
+
+`list` and `get` read `.yidam/config.toml` and need a repository. `put`, `path` and `verify`
+touch only the cache and work anywhere.
+
+```toml
+[vault.default]
+url      = "file:///mnt/archive/yidam"
+audience = "Who can read this store, and why that is acceptable."
+```
+
+`audience` is required and nothing can check it — it is `.yidam/publishable`'s argument applied
+to a store. What is enforced is that somebody wrote one.
+
+The table is plural (`[vault.<name>]`) before it needs to be, because `[vault]` and
+`[vault.default]` are different config shapes and this file is committed. **Exactly one vault,
+named `default`, is honoured today**; a second is refused by name rather than resolved to the
+first. `s3://` is specified in RFC-0023 and not yet built — a url naming one is reported as
+unbuilt rather than as unknown.
+
 ## Export
 
 | Command | What it does |

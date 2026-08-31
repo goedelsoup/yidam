@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 #[derive(Debug, Default, Deserialize)]
@@ -18,6 +19,19 @@ pub struct YidamConfig {
     pub catalog: CatalogConfig,
     #[serde(default)]
     pub due: DueConfig,
+    /// The stores this corpus keeps artifacts in, by name.
+    ///
+    /// Plural before it needs to be, and the reasoning is
+    /// [`crate::vault::resolve`]'s: `[vault]` and `[vault.default]` are different config
+    /// shapes, this file is committed, and a corpus that wrote the singular form is one a
+    /// later release breaks. Exactly one entry is honoured today and a second is refused
+    /// rather than resolved to the first.
+    ///
+    /// Never a credential. Those come from the environment, because this file is committed
+    /// and a repository has already been found carrying an untracked `.env` that its own
+    /// prescribed `git add -A` would have staged.
+    #[serde(default)]
+    pub vault: BTreeMap<String, crate::vault::VaultConfig>,
 }
 
 #[derive(Debug, Default, Deserialize)]

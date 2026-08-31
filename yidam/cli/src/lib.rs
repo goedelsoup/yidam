@@ -17,6 +17,12 @@ mod regen;
 pub mod report;
 mod retrieval;
 pub mod universal;
+// Ungated, and that is the design rather than an oversight. The vault's addressing, cache
+// and `file://` backend need only `sha2`, `hex` and std — all base dependencies — so the
+// light build every derived repository installs can hash, cache, verify and read a vault
+// on a mounted archive. The transport is what a feature will buy, which is the split
+// `deps.rs` already arrived at for `tonpa`.
+pub mod vault;
 mod walk;
 
 pub mod model;
@@ -30,9 +36,10 @@ pub use cmd::{
     corpus_index, crates_index, decisions_log, diff_corpus, doctor, due, embed, estimate, export,
     graph, graph_check, index_status, index_verify, lint, list_formats, log, migrate, neighbors,
     open_questions, overlay, pack, packages_index, parse_bench_goals, phases, propose, query,
-    regen, rename, replay, run_export, samudaya_audit, sangha, schema, serve_lsp, serve_mcp,
-    skills_index, status, vocabulary, BenchGoal, BenchGoalSet, EmbedOptions, ExportFormat,
-    ExportOptions, LintOptions, LogFilter, MigrateOperation, ProposeOptions, RdfFormat,
+    regen, rename, replay, run_export, run_vault, samudaya_audit, sangha, schema, serve_lsp,
+    serve_mcp, skills_index, status, vocabulary, BenchGoal, BenchGoalSet, EmbedOptions,
+    ExportFormat, ExportOptions, LintOptions, LogFilter, MigrateOperation, ProposeOptions,
+    RdfFormat, VaultCommand,
 };
 /// The per-class schemas compiled from a repository's own ontology.
 ///

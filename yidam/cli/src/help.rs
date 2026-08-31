@@ -135,6 +135,14 @@ pub const GROUPS: &[Group] = &[
         commands: &[w("embed"), w("index-build")],
     },
     Group {
+        // Its own group rather than beside `tonpa`, which is the nearest neighbour and is
+        // still a different thing: `tonpa` installs a corpus somebody else published, and
+        // this keeps the bytes a corpus rests on or produces. Nor with the index commands,
+        // which build an artifact rather than store one.
+        title: "Artifacts — bytes kept outside git, addressed by content",
+        commands: &[w("vault")],
+    },
+    Group {
         title: "Export",
         commands: &[w("export"), w("bundle"), w("schema")],
     },
