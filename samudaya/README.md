@@ -42,6 +42,13 @@ are committed into the derived repo permanently — they become domain-specific 
 govern that repo's sangha resolutions for its lifetime. Non-constitutional augmentations
 (guidelines, conduct norms) do not persist once samudaya is consumed.
 
+## Examples
+
+[`examples/`](examples/README.md) holds one stub per `kind`, showing the format, and complete
+seed sets for three domains — genealogy, museum provenance, language documentation — showing
+what a seed set actually says. Nothing there is a seed of *this* repository: both consumers
+skip `examples/`, so the sets are inert here and a derived repository inherits none of them.
+
 ## Lifecycle
 
 1. Author places `samudaya/` files in the repository before invoking the bootstrap agent.
