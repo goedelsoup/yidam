@@ -236,6 +236,20 @@
       "violations": []
     },
     {
+      "id": "catalog-artifact-malformed",
+      "title": "Obtained-artifact record is missing or mistyped",
+      "severity": "error",
+      "rationale": "An artifact record is what makes `obtained: true` demonstrable rather than asserted — the digest names the bytes the entry claims to have. A record without a well-formed digest names nothing, so it is a claim of retrieval with no more standing than the flag it was added to support. Error, because the failure is in the record itself and is settled entirely by files in this repository.",
+      "violations": []
+    },
+    {
+      "id": "catalog-artifact-unroutable",
+      "title": "Artifact routed to a vault nothing declares",
+      "severity": "error",
+      "rationale": "A record naming a vault that `.yidam/config.toml` does not declare is a route to nowhere: nothing will ever store or fetch those bytes, and the entry reads as though something will. Both sides are committed, so this check answers identically in every clone — it reports a defect in the corpus, never a fact about your credentials. `vault: none` is a route and means the local cache and nowhere else.",
+      "violations": []
+    },
+    {
       "id": "malformed-table",
       "title": "Markdown table whose rows disagree on width",
       "severity": "warn",

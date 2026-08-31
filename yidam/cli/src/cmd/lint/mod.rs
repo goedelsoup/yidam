@@ -242,10 +242,14 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     // Read leniently: a malformed config must not take the checks down. The gate reports
     // the file as its own finding elsewhere; here, degrading to "no escalation" fails in
     // the direction of reporting rather than of failing a build on a number nobody set.
-    let escalate_after = crate::config::load_yidam_config(root)
-        .unwrap_or_default()
-        .lint
-        .escalate_after;
+    let config = crate::config::load_yidam_config(root).unwrap_or_default();
+    let escalate_after = config.lint.escalate_after;
+    // The vault names an artifact record is allowed to route to. Read straight from the
+    // config rather than through `vault::resolve`, deliberately: `resolve` enforces the
+    // one-vault rule, and a corpus that has declared two has a configuration problem rather
+    // than a *catalog* problem. Reporting every artifact as unroutable because a second
+    // vault exists would blame the records for something they did not do.
+    let declared_vaults: Vec<String> = config.vault.keys().cloned().collect();
 
     // The types `crates/` defines, for the one check whose subject is the ontology and whose
     // evidence is the code. Read through the overlay like everything else, so the editor
@@ -309,6 +313,8 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::claim_tag_malformed(&nodes),
         checks::catalog_used_by_drift(&sources, &cites),
         checks::catalog_location_malformed(&sources),
+        checks::catalog_artifact_malformed(&sources),
+        checks::catalog_artifact_unroutable(&sources, &declared_vaults),
         checks::malformed_table(&prose),
         orphan_in_dated(root, &nodes, &classes).escalating_after(escalate_after),
         checks::catalog_uncited(&sources, &cites),
@@ -651,7 +657,7 @@ mod tests {
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 32);
+        assert_eq!(all.len(), 34);
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
@@ -814,7 +820,7 @@ mod tests {
         assert!(crate::authorship::Authorship::load(tmp.path()).is_err());
         // …while the checks themselves keep answering, for the editor's sake.
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 32);
+        assert_eq!(all.len(), 34);
     }
 
     /// A class declaring an implementation, and a `crates/` tree that may or may not hold it.
@@ -1139,7 +1145,7 @@ mod tests {
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 32, "every check still ran");
+        assert_eq!(all.len(), 34, "every check still ran");
         assert_eq!(errors(&all), 0);
     }
 

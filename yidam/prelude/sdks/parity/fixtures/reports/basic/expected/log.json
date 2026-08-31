@@ -15,8 +15,8 @@
   "operational": 1,
   "entries": [
     {
-      "hash": "971bfd170a7a349401eed50996a9eea01cf2a315",
-      "short": "971bfd17",
+      "hash": "1ca03d096e9f49b39c522b16255fa8558cf5b315",
+      "short": "1ca03d09",
       "kind": "operational",
       "verb": "regen",
       "subject": "regen: REGEN blocks refreshed",
@@ -24,8 +24,8 @@
       "date": "2026-01-01T00:00:00Z"
     },
     {
-      "hash": "def5c51d3418ab19a34b50f3a94af4b13fb59a9d",
-      "short": "def5c51d",
+      "hash": "3689a832119779781c59c0b111d32ae34d7ebc65",
+      "short": "3689a832",
       "kind": "epistemic",
       "verb": "revise",
       "subject": "revise: the corpus carries a claim tag of each kind",
@@ -33,8 +33,8 @@
       "date": "2026-01-01T00:00:00Z"
     },
     {
-      "hash": "336aa95017390ec5af8ba1857d786801b65278e1",
-      "short": "336aa950",
+      "hash": "057378f9bbe067cd1588633fd1eb68d736325034",
+      "short": "057378f9",
       "kind": "epistemic",
       "verb": "genesis",
       "subject": "genesis: reports fixture",

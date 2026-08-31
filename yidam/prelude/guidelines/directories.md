@@ -245,6 +245,14 @@ location:
     description: publisher's copy   # required only when there are several locations
 used-by:
   - ../corpus/concept/confounding.yml
+artifacts:                     # optional; what was actually obtained
+  - sha256: 9f2c8e…            # 64 lowercase hex — the content address
+    bytes: 4194304
+    media_type: application/pdf
+    retrieved: 2026-08-22
+    from: 0                    # which `location` it came from, or a URL
+    vault: sources             # where these bytes may be kept; `none` = local only
+    redistributable: false     # whether they may leave this machine at all
 ---
 ```
 
@@ -283,6 +291,43 @@ used-by:
 - **`used-by`** is optional and hand-maintained, so it can drift; the citations cannot.
   Both are kept so the disagreement is visible rather than averaged away
   (`catalog-used-by-drift`). Declaring a list asserts it is current.
+
+- **`artifacts`** is what makes `obtained: true` *demonstrable*. The flag says a source was
+  fetched; until this existed, nothing anywhere held what was fetched, so an entry marked
+  obtained and an entry marked obtained falsely were the same observation and every check
+  passed on both. A digest is the difference.
+
+  The **bytes are not in the repository**. They live in a vault — a content-addressed store,
+  configured under `[vault.…]` in `.yidam/config.toml` — and what is committed here is the
+  record of them. That split is the whole design: a stale vault cannot lie, because the digest
+  is in the commit; and losing a vault costs no knowledge claim, only the time to re-fetch.
+  `yidam vault --help` lists the commands.
+
+  Optional, and absent on every entry written before it existed. **Adopting it is a corpus
+  deciding to record what it holds, not a requirement arriving in a build** — the two checks
+  that read it fire only on entries that declare it, so a corpus that has not adopted the field
+  sees no new findings at all.
+
+  - `sha256` is required per record and is **64 lowercase hex characters**. Lowercase because
+    hex is case-insensitive and a content-addressed store is not: two spellings would be two
+    keys for one artifact. `catalog-artifact-malformed` reports the rest — a digest of the
+    wrong length or alphabet, or a `from:` index naming a location the entry does not declare.
+  - `vault` says **where these bytes may be kept**, and must name a store
+    `.yidam/config.toml` declares, or `none`. `none` is a route — the local cache and nowhere
+    else — spelled rather than omitted, so that *nobody has decided* and *decided to keep it
+    here* are different states. `catalog-artifact-unroutable` reports a name nothing declares;
+    it may gate because both sides are committed, so it answers identically in every clone.
+  - `redistributable` is a **licensing fact about the source**, and it is deliberately not
+    folded into `vault`. A route is edited casually — somebody reorganising storage moves a
+    dozen entries between stores in an afternoon — and a licence is not something that edit is
+    allowed to undo. Keeping it separate means the reorganisation meets a refusal instead of
+    publishing a paper.
+
+  **What no check here can tell you is whether the bytes are present or correct.** That is a
+  fact about the machine asking rather than about `HEAD`, and every check in `yidam lint` reads
+  the working tree and nothing else — a gate whose verdict depended on which machine ran it is
+  one a corpus could not reason about. `yidam vault verify` answers it, per machine, which is
+  the only place the answer means anything.
 
 Run `yidam schema` to emit JSON Schema for this shape (and for corpus nodes and class
 definitions) into `.yidam/schemas/`, then `yidam schema --settings` for the editor mapping
