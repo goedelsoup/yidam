@@ -189,7 +189,51 @@ Three tiers as illustration, not a fixed set — a corpus declares what it needs
 is that every vault declares an audience, and that `none` is a routable answer rather than an
 absence.
 
-#### Name the table before you need the second entry
+#### Routing, and a shape this RFC first got wrong
+
+The draft above published a separate `[vault.routes]` table. **It does not parse**, and #413
+found out by running it rather than by reading it. `vault` is a table of stores keyed by name,
+so `[vault.routes]` is a store *called* `routes`, and the shipped binary says so:
+
+```text
+TOML parse error at line 9, column 1
+  |
+9 | catalog    = "sources"
+  | ^^^^^^^
+unknown field `catalog`, expected one of `url`, `audience`, `region`, `endpoint`, `path_style`
+```
+
+The failure is at least loud — `deny_unknown_fields` on `VaultConfig`, added so a misspelled
+`endpiont` could not silently point a vault somewhere nobody intended, catches this too. But
+the error describes a vault the author never meant to declare, which is a bad way to learn that
+an example in the specification was never run.
+
+**A vault declares what it holds.** `holds` is a list of artifact kinds, on the store that
+takes them:
+
+| | |
+|---|---|
+| one vault, no `holds` | it holds everything — which is #413's behaviour, unchanged |
+| two or more | every kind is claimed by exactly one vault |
+| a kind claimed by none | refused, naming the kind |
+| a kind claimed by two | refused, naming both vaults |
+| a record's own `vault:` | overrides the route |
+
+Three reasons this rather than a central table, in ascending order of how much they settle it:
+
+1. **No collision**, without nesting the stores a level deeper.
+2. **The claim sits beside the audience it has to be consistent with.** *"This store is for the
+   sangha, and it holds the catalog"* is one block a reader checks at once; a central table puts
+   the two halves of that judgement in different places and lets them drift.
+3. **`[vault.default]` has shipped.** The obvious alternative — `[vault.stores.default]`
+   alongside `[vault.routes]` — works, and it moves a section derived repositories may already
+   have written. That is precisely the migration cost the plural table was chosen to avoid, so
+   paying it to fix a typo in an example would be self-defeating. `holds` is purely additive.
+
+#416 implements this unless it finds a reason not to, and the reason would have to be stronger
+than tidiness: the shipped section name is now a constraint, not a preference.
+
+### Name the table before you need the second entry
 
 **This is why naming lands in #413 rather than in #416.** `[vault]` and `[vault.default]` are
 different config shapes, and derived repositories adopt configuration quickly — a corpus that
@@ -244,11 +288,13 @@ region     = "us-east-1"                     # SigV4 scope; MinIO wants one too
 endpoint   = "https://s3.example.net"        # omit for AWS
 path_style = true                            # default true when endpoint is set
 audience   = "Anyone who can read this corpus. Derived output only."
+holds      = ["index", "embeddings", "bundle"]
 
-[vault.routes]                               # default vault per artifact kind
-catalog    = "sources"
-index      = "default"
-bundle     = "default"
+[vault.sources]
+url        = "s3://licensed-sources/yidam"
+region     = "us-east-1"
+audience   = "The sangha. Documents obtained under a licence to read, not to host."
+holds      = ["catalog"]
 ```
 
 Credentials come from the environment only, per vault:
