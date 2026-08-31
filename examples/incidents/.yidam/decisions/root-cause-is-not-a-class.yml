@@ -1,0 +1,28 @@
+id: root-cause-is-not-a-class
+summary: Contributing factors are many-to-many with incidents; a root cause is a narrative convenience the ontology must not assert.
+context: |
+  The genesis dialogue proposed `root-cause` as a class, and then as a distinguished edge from
+  an incident to one of its factors. Review documents have a root-cause section, so the model
+  was following the source material.
+decision: |
+  Neither. There is one class, `contributing-factor`, related many-to-many with incidents in
+  both directions, and no edge marks one of them as the cause.
+rationale: |
+  A root cause is a choice about how to tell the story, made under time pressure, by one
+  reviewer. It is often defensible and it is never a property of the incident. Giving it a
+  class or a privileged edge would make the ontology assert, of every incident carrying one,
+  that the cause has been found — which is exactly the claim a good review is careful not to
+  make.
+
+  The March incident is the case. A cache stampede and unbounded retries were both present, and
+  the stampede is survivable until the retries multiply it. Which one is "the" cause is
+  answerable only by deciding what counter-factual to hold fixed, and the corpus has no
+  business encoding one reviewer's choice of counter-factual as structure.
+
+  Naming the class `contributing-factor` is itself the commitment. The name is doing work that
+  a comment would not: it is what a reader sees at the point of authoring, and it is what makes
+  writing a second factor feel like completing the record rather than hedging.
+
+  The cost is that the corpus cannot answer "what caused incident X" in one hop, and a reader
+  who wants that answer gets a set. That set is the honest answer, and reporting it is cheaper
+  than defending a ranking nobody agreed on.

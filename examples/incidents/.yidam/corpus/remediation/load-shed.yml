@@ -1,0 +1,21 @@
+class: remediation
+label: Shed load at the queue boundary
+description: |
+  Reject work at admission when the queue depth exceeds what the consumer can drain. [open]
+
+  **Nobody checked.** The change is recorded as merged in the incident record and no
+  verification is recorded anywhere — not a failed check, an absent one. That is the state this
+  tier exists to make countable, and it is the one that a folder of post-mortem documents
+  cannot report because no document is about it.
+
+  The action is to confirm the shed threshold fires under load and that the rejected work is
+  retried by a client with a budget — which is the other remediation, and is itself
+  unconfirmed. [open]
+properties:
+  shipped: "2026-06-11"
+  claim_tag: open
+links:
+  - target: ../remediation.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/incident-record.md
+    relationship: sourced-from

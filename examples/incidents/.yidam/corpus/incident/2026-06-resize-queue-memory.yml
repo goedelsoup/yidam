@@ -1,0 +1,25 @@
+class: incident
+label: SEV1 — a tier-3 service took down a tier-1 path
+description: |
+  Media processing accepted work faster than it could drain, exhausted memory on the shared
+  node pool, and took the checkout path with it for 27 minutes. [verified]
+
+  The service tier predicted none of this: `image-resize` is tier 3 because its own degradation
+  is cosmetic, and the blast radius came from a shared resource the tier does not describe.
+  [inference] A tier is a statement about a service and the interesting failures are about
+  what services share.
+properties:
+  severity: SEV1
+  occurred: "2026-06-08"
+  claim_tag: verified
+links:
+  - target: ../incident.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/incident-record.md
+    relationship: sourced-from
+  - target: ../service/image-resize.yml
+    relationship: affected
+  - target: ../contributing-factor/no-backpressure.yml
+    relationship: has-factor
+  - target: ../contributing-factor/unbounded-retry.yml
+    relationship: has-factor

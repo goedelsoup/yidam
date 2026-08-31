@@ -1,0 +1,18 @@
+class: remediation
+label: Coalesce concurrent misses to one origin request
+description: |
+  On a cache miss, the first request fetches and later ones for the same key wait on it rather
+  than issuing their own. Shipped, and confirmed to hold: the following quarter's traffic
+  included two expiry events of comparable size with no origin saturation. [verified]
+
+  This is what the verified tier means for a remediation — not that it merged, but that
+  somebody looked afterwards and the thing it was supposed to prevent did not happen when it
+  had the opportunity to.
+properties:
+  shipped: "2026-04-02"
+  claim_tag: verified
+links:
+  - target: ../remediation.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/incident-record.md
+    relationship: sourced-from

@@ -1,0 +1,73 @@
+# The order this corpus was actually written in.
+#
+# `yidam replay` reconstructs corpus health at every commit that touched the corpus, and a
+# corpus materialised with one genesis commit has nothing for it to reconstruct. The
+# walkthrough's replay section would then be a description of a feature rather than a run of
+# it — which is the failure `docs/walkthroughs/` exists to avoid.
+#
+# So this example ships its history. `yidam/cli/tests/example_corpus.rs` replays these commits
+# in order when materialising it; an example with no `history.toml` gets the single genesis
+# commit it always did, so nothing else here changes.
+#
+# Each commit names path *prefixes*. Every tracked file under one that has not been committed
+# yet is added. The final commit is implicit and sweeps whatever is left, so a file added to
+# this example without a thought about history still lands in the corpus.
+#
+# The verbs are the corpus vocabulary rather than conventional commits — `yidam vocabulary`
+# lists the closed set — because this is a derived corpus and that is what a derived corpus
+# uses. `extract` is the pipeline pulling structure from the incident record; `establish` and
+# `revise` are the review changing what is believed. `yidam log --epistemic` separates them.
+
+[[commit]]
+message = "genesis: incidents — the retrospective corpus"
+date = "2026-03-20T09:00:00+00:00"
+paths = ["README.md", ".yidam/corpus/service.ont.yml", ".yidam/corpus/incident.ont.yml",
+         ".yidam/corpus/contributing-factor.ont.yml", ".yidam/corpus/remediation.ont.yml",
+         ".yidam/corpus/service", ".yidam/catalog"]
+
+[[commit]]
+message = "extract: the March timeline from the incident record"
+date = "2026-03-21T14:30:00+00:00"
+paths = [".yidam/corpus/incident/2026-03-checkout-saturation.yml"]
+
+[[commit]]
+message = "establish: the March review's two carried factors"
+date = "2026-03-24T11:15:00+00:00"
+paths = [".yidam/corpus/contributing-factor/cache-stampede.yml",
+         ".yidam/corpus/contributing-factor/unbounded-retry.yml"]
+
+[[commit]]
+message = "establish: coalescing shipped, and held through two expiry events"
+date = "2026-04-30T16:05:00+00:00"
+paths = [".yidam/corpus/remediation/request-coalescing.yml"]
+
+[[commit]]
+message = "extract: the May timeline — the same retry factor, independently"
+date = "2026-05-06T10:20:00+00:00"
+paths = [".yidam/corpus/incident/2026-05-session-store-eviction.yml"]
+
+[[commit]]
+message = "establish: a retry budget, merged and not yet confirmed"
+date = "2026-05-21T09:40:00+00:00"
+paths = [".yidam/corpus/remediation/retry-budget.yml"]
+
+[[commit]]
+message = "extract: the June timeline — a tier-3 service took a tier-1 path"
+date = "2026-06-12T15:00:00+00:00"
+paths = [".yidam/corpus/incident/2026-06-resize-queue-memory.yml",
+         ".yidam/corpus/contributing-factor/no-backpressure.yml"]
+
+[[commit]]
+message = "establish: load shedding merged; nobody has checked it"
+date = "2026-06-15T13:25:00+00:00"
+paths = [".yidam/corpus/remediation/load-shed.yml"]
+
+[[commit]]
+message = "extract: the July timeline — minor, reviewed, no factor concluded"
+date = "2026-07-22T08:50:00+00:00"
+paths = [".yidam/corpus/incident/2026-07-partial-checkout-degradation.yml"]
+
+[[commit]]
+message = "decide: contributing factors, and what a remediation's tag is about"
+date = "2026-08-01T12:00:00+00:00"
+paths = [".yidam/decisions", ".yidam/skills"]

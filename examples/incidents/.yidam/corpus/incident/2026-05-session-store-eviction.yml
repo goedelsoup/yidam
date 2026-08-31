@@ -1,0 +1,24 @@
+class: incident
+label: SEV2 — session store evicting under sustained load
+description: |
+  The cache began evicting live sessions under load it had previously absorbed, logging users
+  out mid-checkout for 2 hours 10 minutes. [verified]
+
+  The same retry factor as March, arrived at independently by a different reviewer who did not
+  read the March document. That the two reviews converged is evidence the factor is real; that
+  it took two incidents to notice is what this corpus exists to change. [inference]
+properties:
+  severity: SEV2
+  occurred: "2026-05-02"
+  claim_tag: verified
+links:
+  - target: ../incident.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/incident-record.md
+    relationship: sourced-from
+  - target: ../service/session-store.yml
+    relationship: affected
+  - target: ../contributing-factor/cache-stampede.yml
+    relationship: has-factor
+  - target: ../contributing-factor/unbounded-retry.yml
+    relationship: has-factor

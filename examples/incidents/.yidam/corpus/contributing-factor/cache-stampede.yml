@@ -1,0 +1,18 @@
+class: contributing-factor
+label: Simultaneous expiry, then a stampede
+description: |
+  A large set of cache entries written together expires together, and every miss becomes a
+  request to the origin at the same instant. [verified]
+
+  The proximate mechanism in two incidents, and downstream of the retry factor in both — the
+  stampede is survivable until retries multiply it. Which of the two to call the cause is the
+  question `decisions/root-cause-is-not-a-class` exists to refuse. [inference]
+properties:
+  claim_tag: verified
+links:
+  - target: ../contributing-factor.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/incident-record.md
+    relationship: sourced-from
+  - target: ../remediation/request-coalescing.yml
+    relationship: addressed-by

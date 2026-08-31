@@ -1,0 +1,18 @@
+class: contributing-factor
+label: Retries with no budget
+description: |
+  Clients retry a failing dependency without a ceiling on total attempts, so a partial
+  degradation becomes a load multiplier. [verified]
+
+  **This factor appears in three of the four incidents in this corpus**, and that recurrence is
+  the finding — not any one of the incidents. It was not visible from any single review,
+  because each review named it as one factor among four and moved on. [inference]
+properties:
+  claim_tag: verified
+links:
+  - target: ../contributing-factor.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/incident-record.md
+    relationship: sourced-from
+  - target: ../remediation/retry-budget.yml
+    relationship: addressed-by

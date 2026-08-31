@@ -228,6 +228,10 @@ full = ["reports", "index", "export-sqlite", "export-graph", "tonpa", "vault-s3"
 
 [dev-dependencies]
 walkdir = "2"
+# Reads `examples/<name>/history.toml` in `example_corpus.rs`, so an example can ship the
+# order it was written in and `replay` has a history to reconstruct. Costs no package: it is
+# already a dependency above, and naming it here is what lets a test use it.
+toml = "0.8"
 quick-xml = "0.37"
 tempfile = "3"
 jsonschema = { version = "0.51.0", default-features = false }

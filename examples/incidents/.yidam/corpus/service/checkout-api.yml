@@ -1,0 +1,14 @@
+class: service
+label: checkout-api
+description: |
+  The request path that takes payment. Tier 1: when it stops, the product stops. [verified]
+
+  An invented service in an invented organisation, as is everything it is said to have done.
+properties:
+  tier: "1"
+  claim_tag: verified
+links:
+  - target: ../service.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/incident-record.md
+    relationship: sourced-from

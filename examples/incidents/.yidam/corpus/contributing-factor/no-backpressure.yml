@@ -1,0 +1,17 @@
+class: contributing-factor
+label: No backpressure at the queue boundary
+description: |
+  Work is accepted at the rate it arrives regardless of whether it can be drained, so a slow
+  consumer becomes an unbounded queue and then a memory event. [verified]
+
+  Named in one review. It is the factor most obviously worth fixing and the one whose
+  remediation nobody has confirmed — see `remediation/load-shed`. [inference]
+properties:
+  claim_tag: verified
+links:
+  - target: ../contributing-factor.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/incident-record.md
+    relationship: sourced-from
+  - target: ../remediation/load-shed.yml
+    relationship: addressed-by

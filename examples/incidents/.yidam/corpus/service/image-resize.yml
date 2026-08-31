@@ -1,0 +1,15 @@
+class: service
+label: image-resize
+description: |
+  Asynchronous media processing. Tier 3 — degradation is visible and nothing stops. [verified]
+
+  It is in this corpus because a tier-3 service caused a tier-1 outage, which is the case a
+  service tier does not predict and a contributing-factor graph does. [inference]
+properties:
+  tier: "3"
+  claim_tag: verified
+links:
+  - target: ../service.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/incident-record.md
+    relationship: sourced-from

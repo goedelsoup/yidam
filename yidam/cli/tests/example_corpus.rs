@@ -43,6 +43,131 @@ use common::{examples, examples_on_disk, repo_root, tracked_under};
 /// internals of. Named once, so the pinned tests are greppable and the loops are not.
 const STREAMFLOW: &str = "streamflow";
 
+/// The manifest naming the order an example was written in, if it ships one.
+const HISTORY: &str = "history.toml";
+
+/// One commit in that order: what it says, when, and which path prefixes it introduces.
+#[derive(serde::Deserialize)]
+struct HistoryCommit {
+    message: String,
+    date: Option<String>,
+    paths: Vec<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct History {
+    commit: Vec<HistoryCommit>,
+}
+
+/// The order `examples/<name>` was written in, or `None` where it does not say.
+///
+/// `yidam replay` reconstructs corpus health at every commit that touched the corpus, so a
+/// corpus materialised with one genesis commit gives it nothing to reconstruct, and a
+/// walkthrough's replay section would be a description of the feature rather than a run of it
+/// (#452). An example that ships a manifest gets that history; every other example gets the
+/// single genesis commit it always had, which is why this returns an option rather than a
+/// default.
+fn history(root: &Path, name: &str) -> Option<Vec<HistoryCommit>> {
+    let p = root.join(format!("examples/{name}/{HISTORY}"));
+    let text = std::fs::read_to_string(&p).ok()?;
+    let parsed: History = toml::from_str(&text)
+        .unwrap_or_else(|e| panic!("{} is not a usable history manifest: {e}", p.display()));
+    assert!(
+        !parsed.commit.is_empty(),
+        "{} declares no commits; delete it rather than shipping an empty history",
+        p.display()
+    );
+    Some(parsed.commit)
+}
+
+fn git(dir: &Path, args: &[&str], name: &str) {
+    let ok = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok, "git {args:?} failed for {name}");
+}
+
+/// Build the repository one commit at a time, in the order the manifest gives.
+///
+/// Paths are **prefixes**, so a commit names a directory or a file and picks up whatever is
+/// under it. A commit that stages nothing is a stale manifest entry and fails here rather than
+/// producing an empty commit nobody would notice — that is the failure mode this whole file
+/// exists to prevent, one layer down.
+///
+/// Whatever the manifest does not name is swept into a final commit rather than dropped: a
+/// file added to an example without a thought about its history must still reach the corpus,
+/// or the gate would be checking a subset of what ships and saying nothing.
+fn replay_history(dir: &Path, name: &str, commits: &[HistoryCommit], copied: &[String]) {
+    for c in commits {
+        let mut staged = false;
+        for rel in copied {
+            if c.paths
+                .iter()
+                .any(|p| rel == p || rel.starts_with(&format!("{p}/")))
+            {
+                git(dir, &["add", "--", rel], name);
+                staged = true;
+            }
+        }
+        assert!(
+            staged,
+            "{name}: history entry {:?} names no file that exists — the manifest has drifted \
+             from the corpus",
+            c.message
+        );
+        // Already-committed files stage as no-ops, so an entry can still be empty here.
+        let nothing_new = Command::new("git")
+            .args(["diff", "--cached", "--quiet"])
+            .current_dir(dir)
+            .status()
+            .unwrap()
+            .success();
+        assert!(
+            !nothing_new,
+            "{name}: history entry {:?} adds nothing not already committed",
+            c.message
+        );
+
+        let mut cmd = Command::new("git");
+        cmd.args(["commit", "-q", "-m", &c.message])
+            .current_dir(dir);
+        if let Some(date) = &c.date {
+            // Both, because a reader comparing `replay` to this manifest is comparing dates,
+            // and git takes the two from different places.
+            cmd.arg(format!("--date={date}"));
+            cmd.env("GIT_COMMITTER_DATE", date);
+        }
+        assert!(
+            cmd.status().unwrap().success(),
+            "{name}: commit {:?} failed",
+            c.message
+        );
+    }
+
+    git(dir, &["add", "-A"], name);
+    let nothing_left = Command::new("git")
+        .args(["diff", "--cached", "--quiet"])
+        .current_dir(dir)
+        .status()
+        .unwrap()
+        .success();
+    if !nothing_left {
+        git(
+            dir,
+            &[
+                "commit",
+                "-q",
+                "-m",
+                "establish: the remainder of the corpus",
+            ],
+            name,
+        );
+    }
+}
+
 /// How many classes an example declares, counted from the corpus rather than asserted.
 ///
 /// A class is a `<name>.ont.yml` directly under `.yidam/corpus/`. This replaces a literal
@@ -79,23 +204,26 @@ impl Example {
             "no tracked files under {prefix} — `{name}` is missing or unstaged. An example \
              directory that git does not know about is invisible to every check here"
         );
+        let mut copied = Vec::new();
         for tracked in &files {
             let rel = tracked.strip_prefix(&prefix).unwrap();
+            // The manifest describes the repository being built; it is not part of it.
+            if rel == HISTORY {
+                continue;
+            }
             let to = dir.path().join(rel);
             std::fs::create_dir_all(to.parent().unwrap()).unwrap();
             std::fs::copy(root.join(tracked), &to)
                 .unwrap_or_else(|e| panic!("copy {tracked}: {e}"));
+            copied.push(rel.to_string());
         }
 
         // A real repository: `lint` reads history for `orphan-in` dating, and every path in
         // the corpus resolves from the toplevel.
-        let genesis = format!("genesis: the {name} example");
         for args in [
             vec!["init", "-q"],
             vec!["config", "user.email", "example@yidam.test"],
             vec!["config", "user.name", "Example"],
-            vec!["add", "-A"],
-            vec!["commit", "-q", "-m", &genesis],
         ] {
             let ok = Command::new("git")
                 .args(&args)
@@ -104,6 +232,15 @@ impl Example {
                 .unwrap()
                 .success();
             assert!(ok, "git {args:?} failed for {name}");
+        }
+
+        match history(&root, name) {
+            Some(commits) => replay_history(dir.path(), name, &commits, &copied),
+            None => {
+                let genesis = format!("genesis: the {name} example");
+                git(dir.path(), &["add", "-A"], name);
+                git(dir.path(), &["commit", "-q", "-m", &genesis], name);
+            }
         }
         Self { dir }
     }

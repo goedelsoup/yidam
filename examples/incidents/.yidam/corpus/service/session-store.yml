@@ -1,0 +1,16 @@
+class: service
+label: session-store
+description: |
+  The shared cache behind authentication and cart state. Tier 1 by dependency rather than by
+  traffic: little calls it directly and everything calls something that calls it. [inference]
+
+  That dependency shape is why it appears in three of the four incidents here and is named as
+  the affected service in only one of them. [inference]
+properties:
+  tier: "1"
+  claim_tag: inference
+links:
+  - target: ../service.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/incident-record.md
+    relationship: sourced-from
