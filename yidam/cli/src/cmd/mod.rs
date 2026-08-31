@@ -48,6 +48,10 @@ pub(crate) mod serve;
 pub(crate) mod status;
 #[cfg(feature = "tonpa")]
 pub mod tonpa;
+// Ungated. The store, the cache and the `file://` backend need no network, and the light
+// build every derived repository installs is the one that most needs to read a vault it
+// cannot push to.
+mod vault;
 mod vocabulary;
 mod web;
 
@@ -94,6 +98,7 @@ pub use schema::{class_schemas, schema};
 pub use serve::serve_mcp;
 pub(crate) use status::index_status_data;
 pub use status::{index_status, status};
+pub use vault::{run as run_vault, VaultCommand};
 pub use vocabulary::vocabulary;
 pub use web::bundle_status;
 

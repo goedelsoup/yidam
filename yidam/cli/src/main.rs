@@ -577,6 +577,18 @@ enum Command {
         #[command(subcommand)]
         sub: yidam::tonpa::TonpaCommand,
     },
+    /// Keep artifacts by content address, in a local cache and a declared store
+    ///
+    /// The bytes a corpus rests on — a fetched source, a built index — are large, derived,
+    /// or licensed, and git is the wrong place for all three. A vault holds them; the
+    /// repository holds the record of which bytes, so losing a vault costs no claim.
+    ///
+    /// Not gated on a feature. Addressing, the cache and a `file://` store need no network,
+    /// and the light build is the one that most needs to read a vault.
+    Vault {
+        #[command(subcommand)]
+        sub: yidam::VaultCommand,
+    },
 }
 
 /// The ontology migrations, each naming exactly what it changes.
@@ -879,5 +891,9 @@ fn main() -> Result<()> {
         Command::Vocabulary { check, format } => yidam::vocabulary(check, format),
         #[cfg(feature = "tonpa")]
         Command::Tonpa { sub } => block_on(yidam::tonpa::run(sub)),
+        // Not `block_on`: every vault operation this build has is synchronous, and the
+        // `Store` trait is synchronous so that the transport can own a runtime without
+        // putting one in the signature of the ungated half. See `vault/store.rs`.
+        Command::Vault { sub } => yidam::run_vault(sub),
     }
 }
