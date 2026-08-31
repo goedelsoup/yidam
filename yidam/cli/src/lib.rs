@@ -14,6 +14,9 @@ mod git;
 mod markdown;
 mod parse;
 mod paths;
+/// The rules a repository writes about itself (RFC-0024). Public so the equivalence
+/// tests can hold it beside the Rust guards it re-expresses.
+pub mod policy;
 pub mod provenance;
 mod regen;
 pub mod report;

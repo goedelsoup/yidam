@@ -199,12 +199,19 @@ One shared library, `yidam.disclose.lib`, carries the three predicates as **name
 
 ```rego
 under(rel, declared)        # a record's own path — one-directional
-intersects(dir, declared)   # a source directory — both directions
-holds_content(path)         # a placeholder is not material
+intersects(src, declared)   # a source directory — both directions
+with_content(paths)         # a placeholder is not material
+all_paths(paths)            # …and where that distinction does not apply
 ```
 
-Today those are two inline predicates in one Rust file and two more inlined in bash. Naming
-them, so that a reader can ask which one a rule used, is most of the value on offer here.
+Today the first two are inline predicates in one Rust file and two more inlined in bash.
+Naming them, so that a reader can ask which one a rule used, is most of the value on offer.
+
+**`holds_content` is not among them, and #438 is why.** Whether a directory contains a file is
+a filesystem walk, and Rego has no filesystem — so the binary computes it and each declared
+path arrives as `{"path": …, "holds_content": …}`. The *fact* moved to Rust and the *judgement*
+— whether a placeholder counts as material — stayed in `lib.rego`, which is where the split
+this RFC opens with actually falls once something has to run.
 
 ### Two things that are deliberately not decisions
 
@@ -229,7 +236,7 @@ would be asserting it had read a sentence written for a human.
 
 | | Path | Editable | Role |
 |---|---|---|---|
-| Default | `yidam/prelude/policy/disclose.rego` | upstream only | `include_str!`'d into the binary; vendored to `.yidam/.vendor/prelude/policy/` as the readable copy |
+| Default | `yidam/prelude/policy/disclose/*.rego` | upstream only | `include_str!`'d into the binary; vendored to `.yidam/.vendor/prelude/policy/` as the readable copy |
 | Repository | `.yidam/policy/*.rego` | yes | overrides by package name; **authoritative when present** |
 
 One file, not two: the bytes the binary embeds are the bytes the prelude vendors, so the copy a
@@ -424,20 +431,65 @@ Beyond it:
   and a tempting fourth decision. It is out of scope because it is a *runtime* channel and the
   paragraph above governs it.
 
+## What #438 found
+
+Three things the design did not survive contact with, each recorded because each changed code.
+
+### Rego has no filesystem, and that is where the split really falls
+
+Above, in the library list. The RFC named `holds_content` as a policy function; it is a
+filesystem walk, so it became an input field. The line between fact and judgement is not where
+it first looked, and it moved *towards* the design rather than away from it.
+
+### Cross-package function calls must be fully qualified
+
+`import data.yidam.disclose.lib` followed by `lib.under(…)` resolves for a **rule** and not for
+a **function**. regorus 0.11 reports `could not find function lib.under` — at evaluation, which
+is to say when a decision is needed. Measured in every form: bare import, `as` alias, and
+importing the function itself; all three fail, and the fully qualified
+`data.yidam.disclose.lib.under(…)` works.
+
+So the shipped policies are verbose on purpose, and each carries a comment saying so. Tidying
+one into an import is a change that compiles, passes `policy check`, and fails the first time
+somebody pushes.
+
+### The `ast` feature is free, so the builtin scan reads the tree rather than the text
+
+`get_ast_as_json` is behind a feature that resolves **zero** additional packages. That is worth
+having: a text scan for `http.send` is answered just as well by a comment explaining why
+`http.send` is forbidden, and the default policy contains exactly such a comment. The scan walks
+`Call.fcn` — a `Var` for an unqualified builtin, a `RefDot` chain for a namespaced one — and a
+test pins that a comment naming a forbidden builtin is not a call.
+
+The scan denies by **namespace**, resting on a property of Rego worth stating so it can be
+argued with: every builtin that reads the world is namespaced, and the unqualified ones
+(`count`, `sprintf`, `startswith`, `concat`) are pure by construction. If a future Rego grows an
+unqualified impure builtin, this check stops being sufficient — and the feature resolution in
+`Cargo.toml` is still what actually refuses it.
+
+## Decided since drafting
+
+**Open question 1 — `at_rest` and the privacy job: lazy install.** The job keeps its shell
+early-exit, so a repository that has declared nothing pays the runner-second it pays today and
+nothing more. It installs the binary and calls `yidam policy eval` only when
+`.yidam/private-paths` exists. This preserves what the job was built for — *the rule is one file
+away rather than a workflow edit nobody remembers to make* — while putting the decision where
+material actually exists. #440 implements it.
+
+**Open question 4 — where a broken policy is caught: `yidam doctor`.** No new mise task and no
+new CI job in derived repositories. `doctor` compiles every policy, runs the builtin scan, and
+reports which decisions are local; it is already offline and read-only and this reads two
+directories. It lands with #441's doctor line rather than as separate machinery.
+
 ## Open questions
 
-1. **Does `at_rest` belong in this family at all?** `ci.yml`'s privacy job runs `checkout` and
-   nothing else, and costs a runner-second when the manifest is absent — it is wired in from
-   genesis precisely so the rule is one file away rather than a workflow edit nobody remembers to
-   make. Calling `yidam` means installing it first. Taking only `in_bundle`, where the release job
-   already has the binary in hand, is smaller and leaves one of the four copies standing. #440
-   must settle this before writing the workflow, not halfway through it.
-2. **What happens to an override when the default moves?** A repository overrides
+1. **What happens to an override when the default moves?** A repository overrides
    `disclose.derived`; the next re-vendor changes the default it diverged from. Nothing detects
    that, and it is the same shape as the `cli_ref` pin RFC-0004 found enforced by nothing.
-3. **Where does a family declare its composition?** Named in
+2. **Where does a family declare its composition?** Named in
    [Composition](#composition-and-the-one-decision-this-rfc-defers). In the policy, or in the Rust
    that owns the family — undecided, and nothing needs it until the constitutional family exists.
-4. **Should `policy test` gate?** A repository with a broken policy test has a rule nobody has
-   checked. Gating it means a `mise` task and a CI job in every derived repo, which is the cost
-   this template weighs carefully. Not answered here.
+3. **Should a denial carry a severity?** Every disclosure denial refuses. A constitutional or
+   lint-severity family would want `Warn`, and the report contract already distinguishes them.
+   Not answered here, because inventing the field before a family needs it is how the four
+   config knobs happened.
