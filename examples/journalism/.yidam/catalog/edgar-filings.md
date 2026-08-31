@@ -14,8 +14,8 @@ used-by:
   - ../corpus/document/annual-report-item-3.yml
   - ../corpus/finding/undisclosed-consent-order.yml
 artifacts:
-  - sha256: 4135b43f2085935849297878c77b3250dc4c1bc8b19e921bd386610bab112155
-    bytes: 12
+  - sha256: b5f2d0bd4006ce7893b3c11d52291c2fa578e75bc7ce9616de189dcef3744862
+    bytes: 30
     media_type: text/plain
     retrieved: 2026-08-30
     redistributable: true

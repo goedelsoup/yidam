@@ -46,6 +46,7 @@ somebody's property — and this one is meant to be copied.
   decisions/owner-is-not-a-class.yml
   decisions/an-unlocated-instrument-is-a-node.yml
   skills/trace-a-chain-of-title.md
+history.toml              the order this corpus was written in
 ```
 
 ## What each piece is here to demonstrate
@@ -65,6 +66,14 @@ grantor and gives that name; the instrument would have given the rest. The missi
 the finding.
 [`decisions/an-unlocated-instrument-is-a-node.yml`](.yidam/decisions/an-unlocated-instrument-is-a-node.yml)
 is why it is not a footnote in its neighbours.
+
+**A history, so the gap can be shown arriving.**
+[`history.toml`](history.toml) names five commits, and the last one adds the 1961 entry. That
+is what lets the walkthrough ask the chain question at `HEAD` and at `HEAD~1` and get
+different answers: the 1948 deed is in the corpus in both, and is in the *chain* only in the
+one where the unreadable instrument was written down. `yidam/cli/tests/example_corpus.rs`
+replays these commits when it materialises this example; an example with no manifest gets a
+single genesis commit.
 
 **Two different reasons the chain ends.** It stops at Ruth Calloway because an instrument is
 missing, and at Ada Renwick because the search stopped. The first is established; the second

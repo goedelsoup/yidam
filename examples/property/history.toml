@@ -1,0 +1,59 @@
+# The order this corpus was actually written in.
+#
+# A title search runs backwards: you start from the deed you have and work towards the one
+# nobody can produce. This example ships that order because the walkthrough's `--at` section
+# asks the chain question of the corpus *as it stood before the last commit*, and a corpus
+# materialised with one genesis commit has no `HEAD~1` to ask (#493).
+#
+# It is a shorter history than `examples/incidents/history.toml`, and for a different reason:
+# that one exists so `yidam replay` has a slope to reconstruct, and this one exists so `--at`
+# has a range. Neither is a default — an example with no `history.toml` gets the single
+# genesis commit it always had.
+#
+# Each commit names path *prefixes*; every tracked file under one not yet committed is added,
+# and a final implicit commit sweeps whatever is left.
+#
+# The last commit is the load-bearing one. `instrument/1961-indexed-conveyance.yml` is the gap
+# — an instrument the index records and the volume cannot produce — and recording it as a node
+# is what connects the 1948 deed to the rest of the chain. That is the claim
+# `decisions/an-unlocated-instrument-is-a-node` makes, and putting it last is what lets the
+# page show it rather than assert it.
+
+[[commit]]
+message = "genesis: property — a chain of title for Lot 14"
+date = "2026-07-06T09:00:00+00:00"
+paths = [
+  "README.md",
+  ".yidam/corpus/parcel.ont.yml",
+  ".yidam/corpus/instrument.ont.yml",
+  ".yidam/corpus/party.ont.yml",
+  ".yidam/corpus/parcel",
+  ".yidam/catalog",
+  ".yidam/skills",
+  ".yidam/decisions/owner-is-not-a-class.yml",
+]
+
+[[commit]]
+message = "establish: the parties the grantor index names"
+date = "2026-07-08T11:20:00+00:00"
+paths = [".yidam/corpus/party"]
+
+[[commit]]
+message = "establish: the four conveyances read from the recorder's books"
+date = "2026-07-14T15:45:00+00:00"
+paths = [
+  ".yidam/corpus/instrument/2014-warranty-deed.yml",
+  ".yidam/corpus/instrument/1993-warranty-deed.yml",
+  ".yidam/corpus/instrument/1974-quitclaim-deed.yml",
+  ".yidam/corpus/instrument/1948-warranty-deed.yml",
+]
+
+[[commit]]
+message = "decide: an unlocated instrument is a node, not a footnote"
+date = "2026-07-21T10:05:00+00:00"
+paths = [".yidam/decisions/an-unlocated-instrument-is-a-node.yml"]
+
+[[commit]]
+message = "establish: the 1961 entry the index carries and the volume does not"
+date = "2026-07-23T16:30:00+00:00"
+paths = [".yidam/corpus/instrument/1961-indexed-conveyance.yml"]

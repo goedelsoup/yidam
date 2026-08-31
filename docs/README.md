@@ -43,7 +43,7 @@ sidebar is its version of the contents table, so publishing it would ship a seco
 | [domain-computer.md](domain-computer.md) | Connectors, calculators, feature engineering, vector index |
 | [web-interface.md](web-interface.md) | Optional data export, bundle contracts, CLI-generated status fields |
 | [../examples/](../examples/README.md) | Worked corpora, gated by this repository's CI — what a good corpus looks like |
-| [walkthroughs/](walkthroughs/property-research.md) | One domain per page: the ontology dialogue that produced it, and the question a folder cannot answer |
+| [walkthroughs/](walkthroughs/property-research.md) | One domain per page: the ontology dialogue that produced it, and the question a folder cannot answer. Every `$ yidam …` block on a corpus-backed page is re-run and diffed by `yidam/cli/tests/walkthrough_transcripts.rs`, so the output is what the corpus says today rather than what it said when the page was written |
 
 ### Governance and quality
 

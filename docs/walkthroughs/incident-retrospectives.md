@@ -118,6 +118,7 @@ $ yidam query 'contributing-factor~"Retries with no budget" <-has-factor- incide
   SEV1 — checkout saturation during a cache expiry  ()  properties.occurred=2026-03-14
   SEV2 — session store evicting under sustained load  ()  properties.occurred=2026-05-02
   SEV1 — a tier-3 service took down a tier-1 path  ()  properties.occurred=2026-06-08
+  anchored on contributing-factor/unbounded-retry.yml (1.00) — keyword search, not similarity (no_index); run `yidam embed && yidam index-build` to build one
 2 step(s), 3 edge(s) walked, 6 of 13 node(s) read, ~74 token(s)
 ```
 
@@ -136,6 +137,7 @@ $ yidam query 'remediation[claim_tag=open]' --select label,properties.shipped
 $ yidam query 'remediation[claim_tag=inference]' --select label,properties.shipped
 1 result(s)
   A total retry budget per request  ()  properties.shipped=2026-05-20
+1 step(s), 0 edge(s) walked, 3 of 13 node(s) read, ~20 token(s)
 ```
 
 Both shipped. Neither has been confirmed, and they are unconfirmed in two different ways that
@@ -176,9 +178,11 @@ nothing is meant to point at an incident, so counting incidents as orphans would
 correct model as a failing one. A corpus-wide orphan number sums the classes where being
 uncited is a finding with the classes where it is the design.
 
-This section is why this example ships
-[`history.toml`](../../examples/incidents/history.toml) and the others do not. The commits use
-the corpus vocabulary rather than conventional commits, so the split is real:
+This section is why this example ships the *long*
+[`history.toml`](../../examples/incidents/history.toml): a slope needs commits to be a slope
+over. `examples/property` ships a short one so its `--at` section has a range to ask across,
+and `examples/streamflow` and `examples/journalism` ship none. The commits use the corpus
+vocabulary rather than conventional commits, so the split is real:
 
 ```console
 $ yidam log --epistemic
