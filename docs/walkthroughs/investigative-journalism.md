@@ -212,6 +212,90 @@ Nothing about that refusal depends on anybody remembering the terms at the momen
 The terms were recorded when the document arrived, in a committed file, and the refusal is a
 consequence of the record rather than of anybody's attention.
 
+## The research this newsroom does not own
+
+Who owns the land the terminals sit on is a title question, and the newsroom has not traced it.
+The title research exists — it is the [property corpus](property-research.md), produced by a
+different team against a different ontology — and this corpus **reads it without owning it**:
+
+```toml
+# examples/journalism/.yidam/tonpa.toml
+[dependencies.property]
+path = "../property"
+```
+
+A path dependency rather than a fetched bundle, which is what
+[sharing a derivation](../sharing-derivations.md) documents for exactly this case. Nothing is
+fetched, hashed or locked, because hashing a working tree that changes under you records
+nothing:
+
+```console
+$ yidam tonpa status
+  [linked]         property  → ../property  (path, unpinned)
+All 1 package(s) up to date.
+```
+
+### The question, asked twice
+
+Before publication, ask what is still unresolved in the material the story rests on. Locally:
+
+```console
+$ yidam query '*[claim_tag=open]' --select label
+4 result(s)
+  Maintenance was deferred at two terminals  ()
+  Who owns the terminal site is not established here  ()
+  What the regulator found, and what the filing said  ()
+  Conditions at the terminals  ()
+1 step(s), 0 edge(s) walked, 12 of 12 node(s) read, ~55 token(s)
+```
+
+And across what it depends on:
+
+```console
+$ yidam query --across '*[claim_tag=open]' --select label
+5 result(s)
+  Maintenance was deferred at two terminals  ()
+  Who owns the terminal site is not established here  ()
+  What the regulator found, and what the filing said  ()
+  Conditions at the terminals  ()
+  [property] 1961 conveyance — indexed, not located  ()
+1 step(s), 0 edge(s) walked, 24 of 24 node(s) read, ~68 token(s) — across the dependency set
+```
+
+**Read those two lists together.** The newsroom's own open question is *who owns the terminal
+site*. The title research that would answer it has an unresolved gap of its own, at 1961, and
+the chain stops there. A reporter who assumed the title work was settled would have been
+building on a chain with a known break in it — and the break is in a corpus nobody here wrote.
+
+Every foreign row says whose corpus it came from. The local query returns none of them: the
+boundary is not a rendering choice.
+
+### What a cross-corpus citation is not
+
+The [epistemic status section](../sharing-derivations.md) states the rule, and it is a claim
+about the model rather than a note about the mechanism:
+
+> - A foreign node may be **read** and **retrieved**. It is evidence an agent can consult.
+> - A foreign node may **not** be an edge target. A local claim cannot rest on it structurally.
+
+So `finding/terminal-site-ownership` has **no `supported-by` edges at all**, and stays `[open]`.
+That is not a gap in the corpus; it is the boundary being honoured. The newsroom cannot make a
+local claim structurally depend on research it does not own, cannot revise, and cannot stand
+behind — and a claim that did would break silently the day the far side moved.
+
+What closes that finding is a person reading the title research and writing down, *here*, what
+it establishes. The dependency makes the reading cheap. It does not make the writing optional.
+
+Reports stay local, which is the same property from the other direction:
+
+```console
+$ yidam graph-check
+Checked 12 instances across 4 classes — all clean.
+```
+
+Twelve, not twenty-four. A `graph-check` or `lint` that silently counted another repository's
+nodes would make every corpus metric in every derived repository meaningless.
+
 ## What this example does not show
 
 **It does not model a source who is a person.** A confidential human source is the thing a
@@ -227,10 +311,5 @@ the redacted version would be a second artifact with its own digest and its own 
 **It does not show the legal review.** Pre-publication review asks questions this corpus can
 inform and not answer — whether a finding is defensible, whether an inference is fair comment.
 The traversal tells you what rests on one source; it does not tell you whether to run it.
-
-**It does not cross corpus boundaries.** *Who owns the building the shell company operates
-from* is a question for the property corpus, and answering it from here needs
-`query --across` — which is [#456](https://github.com/goedelsoup/yidam/issues/456) and not
-this page.
 
 **Its findings are invented, and the company does not exist.** See the corpus README.

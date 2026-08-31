@@ -1,0 +1,14 @@
+# The property-research corpus, read where it sits.
+#
+# A path dependency rather than a fetched bundle, which is what `docs/sharing-derivations.md`
+# documents for exactly this case: nothing is fetched, hashed or locked, because hashing a
+# working tree that changes under you records nothing. `tonpa status` reports it `[linked]`
+# and unpinned.
+#
+# It is also what makes the walkthrough reproducible. A reader who has this repository has
+# both corpora already; a published bundle would need a release and a network.
+#
+# The path is relative to the repository root, which is what somebody writing `../property`
+# in this file means.
+[dependencies.property]
+path = "../property"

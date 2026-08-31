@@ -1,0 +1,27 @@
+class: finding
+label: Who owns the terminal site is not established here
+description: |
+  The terminals named in the maintenance memo sit on land the newsroom has not traced. [open]
+
+  **This finding has no `supported-by` edges, and that is its state rather than an omission.**
+  It is an allegation with nothing under it yet — which
+  `decisions/allegation-is-not-a-class` says is a finding at `[open]` with an empty list, not a
+  different kind of object.
+
+  The title research exists and this corpus does not own it. It was produced by a different
+  team, against a different ontology, with its own revision history, and it is installed here
+  as a dependency that can be **read and not edited**. `yidam query --across` reaches it; no
+  edge in this corpus may point at it.
+
+  That boundary is why this node stays `[open]` rather than resting on the other corpus's
+  conclusions. A local claim that structurally depended on a foreign node would be asserting
+  something this newsroom cannot stand behind and cannot revise — and it would break silently
+  the day the far side moved. What closes this finding is somebody reading the title research
+  and writing down, here, what it establishes. [open]
+properties:
+  claim_tag: open
+links:
+  - target: ../finding.ont.yml
+    relationship: instance-of
+  - target: ../entity/ostreza-freight.yml
+    relationship: about

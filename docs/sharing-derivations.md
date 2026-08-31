@@ -228,6 +228,13 @@ every corpus metric in every derived repository meaningless.
 > works out of the box and `--features index` trades that reach for semantic ranking.
 > [mcp-server.md](mcp-server.md) says what an agent should do with `origin`.
 
+> **Worked example.** `examples/journalism/` declares `examples/property/` as a path
+> dependency and asks its pre-publication question across both — see
+> [the investigative journalism walkthrough](walkthroughs/investigative-journalism.md#the-research-this-newsroom-does-not-own).
+> The newsroom's open question is *who owns the terminal site*; the title research that would
+> answer it has an unresolved gap of its own, and the finding stays `[open]` because a local
+> claim may not rest on a foreign node. `yidam/cli/tests/example_corpus.rs` gates it.
+
 ## The epistemic status of a cross-corpus citation
 
 The graph model says an **edge is a claim**, and the constitution has articles about who may

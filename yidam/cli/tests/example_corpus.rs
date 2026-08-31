@@ -43,6 +43,35 @@ use common::{examples, examples_on_disk, repo_root, tracked_under};
 /// internals of. Named once, so the pinned tests are greppable and the loops are not.
 const STREAMFLOW: &str = "streamflow";
 
+/// The examples an example declares a path dependency on.
+///
+/// `.yidam/tonpa.toml` is where a path dependency is declared, and its `path` is relative to
+/// the repository root — so `../property` from `examples/journalism` names `examples/property`,
+/// and that is the only form this reads. A fetched dependency needs a published bundle and a
+/// network, which an example gate must not.
+fn path_dependencies(corpus: &Path) -> Vec<String> {
+    #[derive(serde::Deserialize, Default)]
+    struct Dep {
+        path: Option<String>,
+    }
+    #[derive(serde::Deserialize, Default)]
+    struct Config {
+        #[serde(default)]
+        dependencies: std::collections::BTreeMap<String, Dep>,
+    }
+    let text = match std::fs::read_to_string(corpus.join(".yidam/tonpa.toml")) {
+        Ok(t) => t,
+        Err(_) => return Vec::new(),
+    };
+    let cfg: Config = toml::from_str(&text)
+        .unwrap_or_else(|e| panic!("{}/.yidam/tonpa.toml is unusable: {e}", corpus.display()));
+    cfg.dependencies
+        .into_values()
+        .filter_map(|d| d.path)
+        .filter_map(|p| p.strip_prefix("../").map(str::to_string))
+        .collect()
+}
+
 /// The manifest naming the order an example was written in, if it ships one.
 const HISTORY: &str = "history.toml";
 
@@ -184,7 +213,11 @@ fn declared_classes(example: &str) -> usize {
 }
 
 struct Example {
+    /// A **workspace**, not the corpus. The corpus is at `dir/<name>`, and a path dependency
+    /// is materialised beside it at `dir/<dep>` so that `path = "../dep"` resolves the way it
+    /// does in this repository (#456).
     dir: tempfile::TempDir,
+    name: String,
 }
 
 impl Example {
@@ -204,6 +237,7 @@ impl Example {
             "no tracked files under {prefix} — `{name}` is missing or unstaged. An example \
              directory that git does not know about is invisible to every check here"
         );
+        let here = dir.path().join(name);
         let mut copied = Vec::new();
         for tracked in &files {
             let rel = tracked.strip_prefix(&prefix).unwrap();
@@ -211,11 +245,33 @@ impl Example {
             if rel == HISTORY {
                 continue;
             }
-            let to = dir.path().join(rel);
+            let to = here.join(rel);
             std::fs::create_dir_all(to.parent().unwrap()).unwrap();
             std::fs::copy(root.join(tracked), &to)
                 .unwrap_or_else(|e| panic!("copy {tracked}: {e}"));
             copied.push(rel.to_string());
+        }
+
+        // Anything this example declares a path dependency on is materialised beside it. No
+        // git and no history: nothing runs a command inside a dependency, and `deps::resolved`
+        // reads its `.yidam/corpus` off the filesystem.
+        for dep in path_dependencies(&here) {
+            let dep_prefix = format!("examples/{dep}/");
+            let dep_files = tracked_under(&root, &dep_prefix);
+            assert!(
+                !dep_files.is_empty(),
+                "{name} declares a path dependency on `{dep}`, which is not an example in \
+                 this repository — the walkthrough it appears in cannot be reproduced"
+            );
+            for tracked in &dep_files {
+                let rel = tracked.strip_prefix(&dep_prefix).unwrap();
+                if rel == HISTORY {
+                    continue;
+                }
+                let to = dir.path().join(&dep).join(rel);
+                std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+                std::fs::copy(root.join(tracked), &to).unwrap();
+            }
         }
 
         // A real repository: `lint` reads history for `orphan-in` dating, and every path in
@@ -227,7 +283,7 @@ impl Example {
         ] {
             let ok = Command::new("git")
                 .args(&args)
-                .current_dir(dir.path())
+                .current_dir(&here)
                 .status()
                 .unwrap()
                 .success();
@@ -235,18 +291,21 @@ impl Example {
         }
 
         match history(&root, name) {
-            Some(commits) => replay_history(dir.path(), name, &commits, &copied),
+            Some(commits) => replay_history(&here, name, &commits, &copied),
             None => {
                 let genesis = format!("genesis: the {name} example");
-                git(dir.path(), &["add", "-A"], name);
-                git(dir.path(), &["commit", "-q", "-m", &genesis], name);
+                git(&here, &["add", "-A"], name);
+                git(&here, &["commit", "-q", "-m", &genesis], name);
             }
         }
-        Self { dir }
+        Self {
+            dir,
+            name: name.to_string(),
+        }
     }
 
-    fn path(&self) -> &Path {
-        self.dir.path()
+    fn path(&self) -> PathBuf {
+        self.dir.path().join(&self.name)
     }
 
     fn run(&self, args: &[&str]) -> (String, String, i32) {
@@ -452,6 +511,80 @@ fn every_example_is_substantial_enough_to_teach_from() {
              else — a class is declared and unread, or read and undeclared: {stdout}"
         );
     }
+}
+
+/// A declared path dependency is installed, `--across` spans it, and the boundary holds.
+///
+/// `docs/sharing-derivations.md` documents all three and, until #456, nothing exercised any of
+/// them. The three assertions are separate on purpose, because each can fail without the
+/// others:
+///
+/// - **the dependency resolves** — `tonpa status` reports it `[linked]`, so a path that stops
+///   resolving is a failure rather than an empty result;
+/// - **`--across` reaches it** — foreign rows come back carrying the dependency's name, which
+///   is the attribution the flag promises;
+/// - **a local query does not** — the same query without the flag returns no foreign row. A
+///   boundary that leaks is worse than one that does not exist, because the reader believes it.
+///
+/// And `graph-check` still counts the local corpus alone. A report that silently counted a
+/// dependency's nodes would make every corpus metric in every derived repository meaningless,
+/// which `sharing-derivations.md` calls a correctness property rather than a limitation.
+#[test]
+fn a_path_dependency_is_installed_and_the_boundary_holds() {
+    let root = repo_root();
+    let mut checked = 0;
+    for name in examples() {
+        let deps = path_dependencies(&root.join(format!("examples/{name}")));
+        if deps.is_empty() {
+            continue;
+        }
+        let ex = Example::materialize(&name);
+
+        let (status, stderr, code) = ex.run(&["tonpa", "status"]);
+        assert_eq!(code, 0, "tonpa status failed for {name}\n{stderr}");
+        for dep in &deps {
+            assert!(
+                status.contains(dep) && status.contains("[linked]"),
+                "{name} declares a path dependency on `{dep}` and tonpa does not report it \
+                 linked:\n{status}"
+            );
+        }
+
+        let (across, _, _) = ex.run(&["query", "--across", "*", "--select", "label"]);
+        let (local, _, _) = ex.run(&["query", "*", "--select", "label"]);
+        for dep in &deps {
+            let tag = format!("[{dep}]");
+            assert!(
+                across.contains(&tag),
+                "`--across` returned no row from `{dep}` for {name}; the dependency is \
+                 declared and the query does not reach it:\n{across}"
+            );
+            assert!(
+                !local.contains(&tag),
+                "a query without `--across` returned a row from `{dep}` — the corpus \
+                 boundary leaked:\n{local}"
+            );
+        }
+
+        // Reports stay local. The count graph-check gives is the local corpus's own.
+        let local_instances = tracked_under(&root, &format!("examples/{name}/.yidam/corpus/"))
+            .iter()
+            .filter(|p| p.ends_with(".yml") && !p.ends_with(".ont.yml"))
+            .count();
+        let (graph, _, _) = ex.run(&["graph-check"]);
+        assert!(
+            graph.contains(&format!("Checked {local_instances} instances")),
+            "{name} has {local_instances} local instances and graph-check reports something \
+             else — a report is counting the dependency:\n{graph}"
+        );
+
+        checked += 1;
+    }
+    assert!(
+        checked >= 1,
+        "no example declares a path dependency, so this test proved nothing about the \
+         cross-corpus boundary"
+    );
 }
 
 /// `[open]` is the tag the rest of the apparatus is built around, and an example whose
