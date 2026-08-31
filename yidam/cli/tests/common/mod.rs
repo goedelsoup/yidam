@@ -14,6 +14,54 @@ pub fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+// ── the example corpora ───────────────────────────────────────────────────────
+//
+// Here rather than in one suite because two of them gate examples — `example_corpus` runs
+// the corpus checks, `class_schemas` validates every instance against its compiled schema —
+// and both were pinned to `examples/streamflow/` by name (#448). A second copy of the
+// discovery rule is the same hole one file over.
+
+/// Every example corpus, by directory name, from `git ls-files`.
+///
+/// An example is a directory directly under `examples/` that contains a `.yidam/`. Read from
+/// git rather than from a directory walk for the reason [`Example::materialize`] gives about
+/// its own copy: a walk picks up `.DS_Store` and local scratch, and this suite would then be
+/// measuring the maintainer's working directory rather than the repository.
+pub fn examples() -> Vec<String> {
+    let mut names = BTreeSet::new();
+    for path in tracked_under(&repo_root(), "examples/") {
+        let mut parts = path.split('/');
+        if parts.next() != Some("examples") {
+            continue;
+        }
+        let Some(name) = parts.next() else { continue };
+        if parts.next() != Some(".yidam") {
+            continue;
+        }
+        names.insert(name.to_string());
+    }
+    names.into_iter().collect()
+}
+
+/// The same set, read from the filesystem instead of from git.
+///
+/// Only used by [`every_example_on_disk_is_discovered`], and deliberately computed a
+/// different way: two derivations of one set can disagree, and one computation compared
+/// against itself cannot.
+pub fn examples_on_disk() -> Vec<String> {
+    let dir = repo_root().join("examples");
+    let mut names = BTreeSet::new();
+    for entry in std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("{} is unreadable: {e}", dir.display()))
+        .flatten()
+    {
+        if entry.path().join(".yidam").is_dir() {
+            names.insert(entry.file_name().to_string_lossy().into_owned());
+        }
+    }
+    names.into_iter().collect()
+}
+
 /// One template path and where bootstrap puts it.
 pub struct Install {
     /// Path in this repository, a file or a directory prefix.

@@ -17,11 +17,25 @@ third is public and is the **divergence canary** — the corpus upstream reports
 against. A canary is by definition the repository that violates things, which is not what a
 newcomer should be shown as the model.
 
-So the teaching example is purpose-built and lives here, where it can be shaped for teaching
-and where this repository's own gates cover it. `yidam/cli/tests/example_corpus.rs` runs
-`graph-check` and `lint` against it on every CI run and requires **zero findings at every
-severity** — an example that has drifted is worse than no example, because it is read as
-authoritative and copied.
+So the teaching examples are purpose-built and live here, where they can be shaped for
+teaching and where this repository's own gates cover them. An example that has drifted is
+worse than no example, because it is read as authoritative and copied.
+
+## Adding one
+
+Commit a directory under `examples/` containing a `.yidam/`. Nothing else: the gates
+**discover** their subjects from `git ls-files` rather than naming them, so a new corpus is
+covered the moment it is tracked, and one that is present but unstaged fails
+`every_example_on_disk_is_discovered` rather than being quietly skipped.
+
+| Gate | Requires |
+|---|---|
+| `yidam/cli/tests/example_corpus.rs` | `graph-check` clean, `lint` at **zero findings at every severity**, at least one open question, a catalog entry, two decision records, a skill, and at least two classes — with the class count `graph-check` reports matching the `*.ont.yml` files the corpus ships |
+| `yidam/cli/tests/class_schemas.rs` | every instance validates against its own compiled class schema, and each schema requires exactly what its ontology declares required |
+
+Both files keep a few tests pinned to `streamflow` on purpose, and say so where they are
+defined: those are regression tests and compiler-behaviour tests that know one corpus's edge
+shape, not checks an example has to pass.
 
 ## Reading one
 
