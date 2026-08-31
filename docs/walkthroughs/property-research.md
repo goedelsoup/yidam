@@ -167,6 +167,8 @@ grantee. Where the chain holds, you get the previous link:
 $ yidam query 'party~"Harlan Voss" <-grantee- instrument' --select label
 1 result(s)
   1974 quitclaim deed — Calloway to Voss  ()
+  anchored on party/harlan-voss.yml (1.00) — keyword search, not similarity (no_index); run `yidam embed && yidam index-build` to build one
+2 step(s), 1 edge(s) walked, 7 of 12 node(s) read, ~13 token(s)
 ```
 
 Where it breaks, you get this:
@@ -174,9 +176,9 @@ Where it breaks, you get this:
 ```console
 $ yidam query 'party~"Ruth Calloway" <-grantee- instrument' --select label
 0 result(s)
-  [absent] step 2: `grantee` is authored in this corpus, by `instrument`, and none of the
-  1 node(s) that reached the previous step has one pointing at it. The relationship is in
-  use; it is not in use here. (no-edge-from-here)
+  anchored on party/ruth-calloway.yml (1.00) — keyword search, not similarity (no_index); run `yidam embed && yidam index-build` to build one
+  [absent] step 2: `grantee` is authored in this corpus, by `instrument`, and none of the 1 node(s) that reached the previous step has one pointing at it. The relationship is in use; it is not in use here. (no-edge-from-here)
+2 step(s), 0 edge(s) walked, 6 of 12 node(s) read, ~0 token(s)
 ```
 
 **That is the deliverable.** Not "no results" — a reasoned absence. The query says the
@@ -200,41 +202,46 @@ is the argument for why it is a node rather than a footnote:
 > opposite findings: the first says the chain is continuous and the second says it is broken
 > at a known point by a known cause.
 
-### And then you find it
+### What recording the gap bought
 
-The damage register notes that some volumes were filmed before 1979. Suppose Volume 168 was,
-and the film gives the 1961 deed: Thomas Calloway to Ruth Calloway. You add the `grantee` edge
-and commit.
-
-```sh
-yidam query 'instrument -grantor-> party <-grantee- instrument' --select label
-```
-
-That query is the chain itself — every instrument that has a locatable predecessor. After the
-finding:
+The chain itself is one query — every instrument with a locatable predecessor:
 
 ```console
-4 result(s)
+$ yidam query 'instrument -grantor-> party <-grantee- instrument' --select label
+3 result(s)
   1948 warranty deed — Renwick to Calloway  ()
-  1961 conveyance — indexed, not located  ()
   1974 quitclaim deed — Calloway to Voss  ()
   1993 warranty deed — Voss to Brightwater Holdings  ()
+3 step(s), 8 edge(s) walked, 10 of 12 node(s) read, ~43 token(s)
 ```
 
-And the same question, asked of the corpus as it stood before:
+And the same question, asked of the corpus as it stood one commit earlier, before the 1961
+entry was written down:
 
 ```console
 $ yidam query --at HEAD~1 'instrument -grantor-> party <-grantee- instrument' --select label
-3 result(s) at 8ab6be50 (2026-08-31T07:40:21-04:00)
-  1948 warranty deed — Renwick to Calloway  ()
+2 result(s) at 2b0d7733 (2026-07-21T10:05:00Z)
   1974 quitclaim deed — Calloway to Voss  ()
   1993 warranty deed — Voss to Brightwater Holdings  ()
+3 step(s), 6 edge(s) walked, 8 of 11 node(s) read, ~29 token(s)
 ```
 
-The chain got longer, and `--at` says by exactly what. This is the flag's reason to exist: an
-abstract is a claim about what was known at a date, and being able to reproduce the state of
-the chain as of a commit is the difference between a record of an examination and a snapshot
-of the current best guess.
+**The 1948 deed was in the corpus the whole time and was not in the chain.** What put it there
+was recording an instrument nobody can read. The index entry names Thomas Calloway as the
+grantor of *something* in 1961, Thomas Calloway is the 1948 deed's grantee, and that is the
+join — the earliest deed reaches the rest of the chain through a document that cannot be
+produced.
+
+An absence noted in prose would have added no edge. That is the argument in
+`an-unlocated-instrument-is-a-node`, and this is the difference it makes, one commit wide.
+
+And if the film turns up: the `grantee` edge lands on a node that already exists, the chain
+query returns four, and nothing else in the corpus changes. The finding, when it comes, is an
+edit rather than a rewrite — which is the second reason the gap is a node.
+
+`--at` is what makes any of that visible, and it is the flag's reason to exist: an abstract is
+a claim about what was known at a date, and reproducing the state of the chain as of a commit
+is the difference between a record of an examination and a snapshot of the current best guess.
 
 ## What this example does not show
 
