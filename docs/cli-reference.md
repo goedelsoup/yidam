@@ -233,6 +233,9 @@ knowledge claim, only the time to re-fetch.
 | `vault push` * | Upload what the corpus names and the vaults lack. `--dry-run` prints the exact string that would be signed; `--artifact` and `--vault` narrow; `--index`/`--embeddings`/`--bundle` send what this repository *computed* instead |
 | `vault pull` * | Fetch what the corpus names and the cache lacks; `--vault` narrows; `--index`/`--embeddings`/`--bundle` fetch and unpack what `.yidam/index.lock` records |
 | `vault status` | Where each named artifact goes and where it is, grouped by store. `--remote` asks each vault — one HEAD per record, never a bucket listing |
+| `vault gc` | Report cached artifacts no committed file names; `--yes` deletes them |
+| `vault materialize` | Hardlink cached artifacts into `.yidam/vault/<slug>/` under names a person can open; `--entry` narrows |
+| `vault-status` | Writes the `<!-- REGEN: yidam vault-status -->` block. Committed files only — never the cache, never the network |
 
 Every artifact is named by the SHA-256 of its bytes, in lowercase hex. The cache is
 **machine-wide** — `$XDG_CACHE_HOME/yidam/vault`, or `YIDAM_VAULT_CACHE` — so two repositories
@@ -386,6 +389,29 @@ direction — refuses the push, naming the path. This is the rule
 
 Unlike a catalog artifact, a repository's own output is pushed **by default** — there is no
 `redistributable` to set, because there is no third party whose licence it could be.
+
+### Reclaiming space, and opening a file
+
+`yidam vault gc` reports cached artifacts that no committed file names — the live set is
+exactly computable, because every pointer into a vault is a committed file. It deletes nothing
+until `--yes`.
+
+**Read the list before you pass it.** The cache is machine-wide and shared by every yidam
+repository on this machine, so an artifact another one names looks exactly like an orphan from
+here. Usually deleting one costs a re-fetch; the exception is an artifact recorded
+`vault: none`, which is in a cache and nowhere else *by decision*, and for which the cache is
+the only copy.
+
+`yidam vault materialize` hardlinks cached artifacts to `.yidam/vault/<entry slug>/<slug>.<ext>`
+— content addressing is right for storage and useless for opening, and nobody wants to hand a
+colleague `9f2c8e…` with no extension. The extension comes from the record's `media_type`, and
+an unlisted type becomes `.bin` rather than a guess. A hardlink shares the bytes; a copy is the
+fallback when the cache is on another filesystem.
+
+It **refuses to write until `.yidam/vault/` is ignored**, asking `git check-ignore` rather than
+grepping `.gitignore` so a repository ignoring it some other way is not reported as broken. A
+licensed document in a tracked path is the leak `push` refuses, arriving through `git add -A`
+instead.
 
 ### What `push` refuses
 

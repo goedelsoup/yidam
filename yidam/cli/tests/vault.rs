@@ -1159,3 +1159,214 @@ fn a_dry_run_names_the_digest_it_would_send_and_sends_nothing() {
     assert!(!store.path().join("sha256").exists(), "{said}");
     assert!(!tmp.path().join(".yidam/index.lock").exists(), "{said}");
 }
+
+// ── reclaiming, materializing, reporting (#418) ──────────────────────────────
+
+/// `gc` deletes nothing without `--yes`, and says why the list wants reading first.
+#[test]
+fn gc_reports_and_removes_nothing_until_told_to() {
+    let store = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&derived_config(store.path())));
+    let cache = tmp.path().join("cache");
+    let kept = cached(tmp.path(), &cache, b"a paper the catalog names");
+    entry(tmp.path(), "paper", &kept, "");
+    let orphan = cached(tmp.path(), &cache, b"nothing names this");
+
+    let said = run(tmp.path(), &cache, &["vault", "gc"]).ok().said();
+    assert!(said.contains(&orphan), "names the orphan: {said}");
+    assert!(!said.contains(&kept), "must not list what is named: {said}");
+    assert!(said.contains("Nothing was deleted"), "{said}");
+    assert!(
+        said.contains("shared by every yidam repository"),
+        "states the hazard: {said}"
+    );
+    // And nothing moved.
+    assert_eq!(
+        run(tmp.path(), &cache, &["vault", "path", &orphan])
+            .ok()
+            .code,
+        0
+    );
+}
+
+/// **The live set is everything a committed file names** — the catalog's records *and*
+/// `.yidam/index.lock`. An index that `gc` treated as an orphan would be deleted on the machine
+/// that just built it.
+#[test]
+fn gc_keeps_what_the_catalog_and_the_lock_name_and_drops_the_rest() {
+    let store = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&derived_config(store.path())));
+    let cache = tmp.path().join("cache");
+    let paper = cached(tmp.path(), &cache, b"a paper");
+    entry(tmp.path(), "paper", &paper, "");
+    index_at(tmp.path(), b"the vectors");
+    run(tmp.path(), &cache, &["vault", "push", "--index"]).ok();
+    let indexed = std::fs::read_to_string(tmp.path().join(".yidam/index.lock")).unwrap();
+    let orphan = cached(tmp.path(), &cache, b"nothing names this");
+
+    run(tmp.path(), &cache, &["vault", "gc", "--yes"]).ok();
+
+    assert_eq!(
+        run(tmp.path(), &cache, &["vault", "path", &paper])
+            .ok()
+            .code,
+        0,
+        "the catalog's artifact survives"
+    );
+    let digest = indexed
+        .lines()
+        .find_map(|l| l.strip_prefix("sha256 = \""))
+        .map(|l| l.trim_end_matches('"').to_string())
+        .expect("the lock records a digest");
+    assert_eq!(
+        run(tmp.path(), &cache, &["vault", "path", &digest])
+            .ok()
+            .code,
+        0,
+        "the index the lock names survives"
+    );
+    run(tmp.path(), &cache, &["vault", "path", &orphan]).failed();
+}
+
+/// A content address is useless for opening. `materialize` gives it a name and an extension.
+#[test]
+fn materialize_gives_a_cached_artifact_a_name_a_person_can_open() {
+    let store = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&derived_config(store.path())));
+    let cache = tmp.path().join("cache");
+    write(&tmp.path().join(".gitignore"), b".yidam/vault/\n");
+    let digest = cached(tmp.path(), &cache, b"%PDF-1.4 a paper");
+    entry(
+        tmp.path(),
+        "pearl-2009",
+        &digest,
+        "    media_type: application/pdf\n",
+    );
+
+    run(tmp.path(), &cache, &["vault", "materialize"]).ok();
+    let at = tmp.path().join(".yidam/vault/pearl-2009/pearl-2009.pdf");
+    assert!(at.is_file(), "expected {}", at.display());
+    assert_eq!(std::fs::read(&at).unwrap(), b"%PDF-1.4 a paper");
+}
+
+/// **The guard.** Writing a licensed document where `git add -A` would stage it is the leak
+/// `push` refuses, arriving through the back door.
+#[test]
+fn materialize_refuses_when_the_destination_is_not_ignored() {
+    let store = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&derived_config(store.path())));
+    let cache = tmp.path().join("cache");
+    // No .gitignore at all.
+    let digest = cached(tmp.path(), &cache, b"a paper");
+    entry(tmp.path(), "paper", &digest, "");
+
+    let said = run(tmp.path(), &cache, &["vault", "materialize"])
+        .failed()
+        .said();
+    assert!(said.contains("not ignored"), "{said}");
+    assert!(said.contains("git add -A"), "names the route: {said}");
+    assert!(
+        !tmp.path().join(".yidam/vault").exists(),
+        "nothing may be written"
+    );
+}
+
+/// A media type nobody listed becomes `.bin` rather than a guess.
+#[test]
+fn an_unknown_media_type_becomes_bin_rather_than_a_guess() {
+    let store = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&derived_config(store.path())));
+    let cache = tmp.path().join("cache");
+    write(&tmp.path().join(".gitignore"), b".yidam/vault/\n");
+    let digest = cached(tmp.path(), &cache, b"who knows");
+    entry(
+        tmp.path(),
+        "thing",
+        &digest,
+        "    media_type: application/x-nobody-listed-this\n",
+    );
+    run(tmp.path(), &cache, &["vault", "materialize"]).ok();
+    assert!(tmp.path().join(".yidam/vault/thing/thing.bin").is_file());
+}
+
+/// **The REGEN block reads committed files only.** Anything machine-local in it would be drift
+/// on every other machine, and `yidam regen --check` runs in CI.
+#[test]
+fn vault_status_is_the_same_whatever_this_machine_has_cached() {
+    let store = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&derived_config(store.path())));
+    let cache = tmp.path().join("cache");
+    write(
+        &tmp.path().join("README.md"),
+        b"# c\n\n<!-- REGEN: yidam vault-status\n-->\n_x_\n<!-- /REGEN -->\n",
+    );
+    let digest = cached(tmp.path(), &cache, b"a paper");
+    entry(tmp.path(), "paper", &digest, "");
+
+    run(tmp.path(), &cache, &["vault-status"]).ok();
+    let with_cache = std::fs::read_to_string(tmp.path().join("README.md")).unwrap();
+    assert!(with_cache.contains("1 vault"), "{with_cache}");
+    assert!(with_cache.contains("the test suite"), "{with_cache}");
+
+    // An empty cache — a fresh clone — must produce byte-identical output.
+    std::fs::remove_dir_all(&cache).unwrap();
+    run(tmp.path(), &cache, &["vault-status"]).ok();
+    assert_eq!(
+        std::fs::read_to_string(tmp.path().join("README.md")).unwrap(),
+        with_cache,
+        "the block must not vary with what this machine happens to hold"
+    );
+}
+
+/// A corpus with no vault says so, and says it differently once it has started recording
+/// artifacts it has nowhere to put.
+#[test]
+fn vault_status_distinguishes_no_vault_from_no_vault_and_artifacts() {
+    let tmp = repo(None);
+    let cache = tmp.path().join("cache");
+    std::fs::create_dir_all(tmp.path().join(".yidam")).unwrap();
+    write(
+        &tmp.path().join("README.md"),
+        b"# c\n\n<!-- REGEN: yidam vault-status\n-->\n_x_\n<!-- /REGEN -->\n",
+    );
+    run(tmp.path(), &cache, &["vault-status"]).ok();
+    assert!(std::fs::read_to_string(tmp.path().join("README.md"))
+        .unwrap()
+        .contains("No vault configured. Artifacts are kept in the local cache"));
+
+    let digest = cached(tmp.path(), &cache, b"a paper");
+    entry(tmp.path(), "paper", &digest, "");
+    run(tmp.path(), &cache, &["vault-status"]).ok();
+    let said = std::fs::read_to_string(tmp.path().join("README.md")).unwrap();
+    assert!(said.contains("1 artifact recorded"), "{said}");
+    assert!(
+        said.contains("whichever caches happen to hold them"),
+        "{said}"
+    );
+}
+
+/// The block names each store, what it holds, and what routes there.
+#[test]
+fn vault_status_reports_the_arrangement_per_store() {
+    let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let tmp = repo(Some(&two_vaults(a.path(), "index", b.path(), "catalog")));
+    let cache = tmp.path().join("cache");
+    write(
+        &tmp.path().join("README.md"),
+        b"# c\n\n<!-- REGEN: yidam vault-status\n-->\n_x_\n<!-- /REGEN -->\n",
+    );
+    let digest = cached(tmp.path(), &cache, b"a paper");
+    entry(tmp.path(), "paper", &digest, "    redistributable: true\n");
+    index_at(tmp.path(), b"the vectors");
+    run(tmp.path(), &cache, &["vault", "push", "--index"]).ok();
+
+    run(tmp.path(), &cache, &["vault-status"]).ok();
+    let said = std::fs::read_to_string(tmp.path().join("README.md")).unwrap();
+    assert!(said.contains("2 vaults"), "{said}");
+    assert!(said.contains("the sangha only"), "{said}");
+    assert!(
+        said.contains("1 catalog artifact routed here"),
+        "routes the paper to `sources`: {said}"
+    );
+    assert!(said.contains("- index `"), "names the stored index: {said}");
+}

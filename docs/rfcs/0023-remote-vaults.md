@@ -573,7 +573,7 @@ there by AWS's published test vectors rather than by a server.
 | P3 | #415 | the S3 transport, `push`/`pull`/`status --remote`, the private-paths guard, `redistributable` |
 | P4 | #416 | named vaults plural: `holds` routing, per-vault credentials, `--vault`, the isolation warnings |
 | P5 | #417 | index, embeddings and bundle into their vault; `.yidam/index.lock`; the derived-artifact privacy guard |
-| P6 | #418 | `gc`, materialization, the `vault-status` report, the docs |
+| P6 | #418 | `gc`, materialization, the `vault-status` report, the docs page |
 
 Two orderings were considered and one deliberate choice made. **#416 lands before #417**
 because routing is cheap to add while there is one artifact kind and expensive to retrofit
@@ -669,6 +669,54 @@ its record licenses redistribution, and a repository's own output is pushed by d
 is no `redistributable` to set on an index, because there is no third party whose licence it
 could be. The only thing that stops it is the privacy rule above.
 
+## What #418 found
+
+### `gc` is exactly computable and still cannot be trusted with `--yes` by default
+
+This RFC's summary says garbage collection is exactly computable, because the live set is the
+set the working tree names. That is true, and it is not sufficient, because of a decision made
+two phases earlier: **the cache is machine-wide and vault-blind.** Two corpora citing the same
+paper store it once, which is most of why the cache exists.
+
+The consequence is that *no committed file names this* is answerable only about **this** working
+tree. A blob this repository has never heard of may be the one another repository on the same
+machine is relying on, and `gc` cannot tell the two apart.
+
+Usually that costs a re-fetch and nothing worse, because a vault holds a copy. The exception is
+the artifact recorded `vault: none` — the local cache and nowhere else, *by decision* — for
+which the cache is the only copy there will ever be. So `gc` reports by default, deletes only on
+`--yes`, and says which of those two situations the reader might be in. A command that silently
+reclaimed space would eventually destroy the one artifact somebody chose not to store anywhere.
+
+### A generated block cannot describe the machine that generated it
+
+`yidam vault-status` is a REGEN block, which means it is **committed**, and `yidam regen
+--check` runs in CI. Everything a person actually wants to know when they run a vault command —
+what is cached here, whether the store answered, where the cache is — would therefore be drift
+on every machine but the one that last wrote it.
+
+So the block reports the *arrangement* and not the state: which stores are declared, who each
+says can read it, what each holds, how much of the catalog routes to it, and what
+`.yidam/index.lock` records. All of that is identical in every clone. `yidam vault status` — the
+command, not the block — is where the machine-local answer lives, and it is deliberately not
+generated into a file anybody commits.
+
+This is the same split `doctor` already makes and for the same reason, and it is worth stating
+because the two commands differ by a hyphen and answer different questions.
+
+### `git check-ignore` needs to be asked about a file, not a directory
+
+`vault materialize` refuses to write until `.yidam/vault/` is ignored — a licensed document in a
+tracked path is the leak `push` refuses, arriving through the `git add -A` that this
+repository's own bootstrap prescribes.
+
+Asking `git check-ignore` about the directory itself returns *not ignored* whenever the
+directory does not exist, because `.yidam/vault/` is a directory-only pattern and git cannot
+tell that a path it has been handed is a directory when there is nothing there. That is exactly
+the state the first `materialize` runs in, so the guard refused every legitimate first run. The
+probe is a path *inside* the destination instead, which is both robust and the question actually
+at issue: would a file written here be committable?
+
 ## Testing
 
 CI is hermetic and no test may reach a bucket.
@@ -680,6 +728,9 @@ CI is hermetic and no test may reach a bucket.
   string-to-sign, signature — with no server and no network. It is the only part that can be
   silently wrong, and a live MinIO would not have caught it faster.
 - A golden pins `vault push --dry-run`'s canonical request.
+- **Verify the mutation landed before reading the result.** #418 ran a mutation whose patch
+  silently failed to apply and reported the test as passing; `grep -c` for the injected symbol
+  before running is what separates "the guard held" from "nothing was changed".
 - **Mutate the guards before trusting them.** Delete the private-paths guard's body, keep its
   comment, confirm it goes red. A file-scanning test that looks at nothing passes, and prose in
   a file answers a grep the same way code does. #416 added four more, each confirmed red:

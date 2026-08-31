@@ -98,7 +98,7 @@ pub use schema::{class_schemas, schema};
 pub use serve::serve_mcp;
 pub(crate) use status::index_status_data;
 pub use status::{index_status, status};
-pub use vault::{run as run_vault, VaultCommand};
+pub use vault::{run as run_vault, vault_status, VaultCommand};
 pub use vocabulary::vocabulary;
 pub use web::bundle_status;
 

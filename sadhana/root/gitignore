@@ -29,6 +29,13 @@
 # machine holding several yidam repositories does not run one repo's pinned build against
 # another's corpus. `mise run yidam-build` writes it here.
 .yidam/bin/
+
+# Artifacts materialized out of the machine-wide cache by `yidam vault materialize`,
+# so a person or a connector has a real file with a real name. The bytes are already
+# content-addressed in the cache and recorded in the catalog; a copy in the working
+# tree is a convenience, and a licensed document in a tracked path is exactly the leak
+# `yidam vault push` refuses. `materialize` checks this entry exists before writing.
+.yidam/vault/
 # …and cargo's own install bookkeeping lands beside it. `cargo install --root DIR` writes
 # DIR/bin plus DIR/.crates.toml and DIR/.crates2.json — a registry of what is installed
 # where, holding paths, versions, and the source commit. Yidam ignores its whole install

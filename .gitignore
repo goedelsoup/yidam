@@ -22,6 +22,11 @@
 # against another's corpus. `.yidam/bin` in a derived repo, `.local/bin` here.
 .local/
 .yidam/bin/
+
+# Artifacts `yidam vault materialize` hardlinks out of the machine-wide cache so a
+# person or a connector has a real file with a real name. `materialize` refuses to
+# write until this entry exists.
+.yidam/vault/
 target/
 # `cargo --target-dir` output under any name. `target/` alone missed `target-pin/`, which a
 # `git add -A` then swept 567 build artifacts out of.

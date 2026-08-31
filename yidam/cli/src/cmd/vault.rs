@@ -103,6 +103,18 @@ pub enum VaultCommand {
         #[arg(long)]
         bundle: bool,
     },
+    /// Drop cached artifacts no committed file names
+    Gc {
+        /// Actually delete. Without it this reports and removes nothing.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Put cached artifacts in the working tree under names a person can use
+    Materialize {
+        /// Restrict to one catalog entry, by slug
+        #[arg(long)]
+        entry: Option<String>,
+    },
     /// What the corpus names, where each artifact goes, and where it is
     Status {
         /// Ask each vault about the artifacts routed to it. One HEAD per record — bounded by
@@ -142,6 +154,8 @@ pub fn run(sub: VaultCommand) -> Result<()> {
             picked if picked.is_empty() => pull(vault.as_deref()),
             picked => pull_derived(&picked, vault.as_deref()),
         },
+        VaultCommand::Gc { yes } => gc(yes),
+        VaultCommand::Materialize { entry } => materialize(entry.as_deref()),
         VaultCommand::Status { remote, vault } => status(remote, vault.as_deref()),
     }
 }
@@ -814,6 +828,329 @@ fn human_bytes(path: &Path) -> String {
     match std::fs::metadata(path) {
         Ok(m) => human_size(m.len()),
         Err(_) => "unknown size".to_string(),
+    }
+}
+
+// ── the report ───────────────────────────────────────────────────────────────
+
+/// The `<!-- REGEN: yidam vault-status -->` block: where this corpus keeps its bytes.
+///
+/// **A function of committed files and nothing else.** This block is itself committed and
+/// `yidam regen --check` runs in CI, so anything machine-local in it would be drift on every
+/// other machine — the cache path, how many artifacts happen to be cached here, whether a
+/// store answered. Those are `yidam vault status`'s business, which is a command a person runs
+/// and reads, not a file anybody commits.
+///
+/// So this reports the *arrangement*: which stores are declared, who each says can read it,
+/// what each holds, how much of the catalog routes to it, and what `.yidam/index.lock`
+/// records. All of that is the same in every clone, which is the only way a generated block
+/// can be checked.
+pub fn vault_status() -> Result<()> {
+    let root = repo_root()?;
+    let content = render_vault_status(&root)?;
+    crate::regen::emit(&content);
+    crate::regen::update_file_regen(&root.join("README.md"), "yidam vault-status", &content)
+}
+
+fn render_vault_status(root: &Path) -> Result<String> {
+    let config = load_yidam_config(root).unwrap_or_default();
+    // Read leniently. A malformed vault section is reported by `doctor` and by `vault list`;
+    // taking the README block down over it would replace a specific diagnosis with a missing
+    // section.
+    let vaults = vault::resolve(&config.vault).unwrap_or_default();
+    let named = vault::named_artifacts(root);
+    let lock = vault::load_lock(root)?;
+
+    if vaults.is_empty() {
+        return Ok(match named.len() {
+            0 => "_No vault configured. Artifacts are kept in the local cache and go nowhere \
+                  else._"
+                .to_string(),
+            n => format!(
+                "_No vault configured, and {n} artifact{} recorded — the bytes live only in \
+                 whichever caches happen to hold them. `yidam vault list` shows the shape._",
+                if n == 1 { "" } else { "s" }
+            ),
+        });
+    }
+
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{} vault{} · {} artifact{} named by the catalog\n",
+        vaults.len(),
+        if vaults.len() == 1 { "" } else { "s" },
+        named.len(),
+        if named.len() == 1 { "" } else { "s" }
+    ));
+
+    for (name, cfg) in vaults.iter() {
+        let routed = named
+            .iter()
+            .filter(|a| matches!(vaults.route(&a.kind, a.vault.as_deref()), Route::To(n, _) if n == name))
+            .count();
+        out.push_str(&format!("\n`{name}` — {}\n", cfg.audience()));
+        out.push_str(&format!(
+            "- holds {} · {routed} catalog artifact{} routed here\n",
+            cfg.holds_display(),
+            if routed == 1 { "" } else { "s" }
+        ));
+        for d in vault::Derived::ALL {
+            if let Some(e) = lock.get(d).filter(|e| e.vault == name) {
+                out.push_str(&format!(
+                    "- {} `{}` ({})\n",
+                    d.kind(),
+                    &e.sha256[..12.min(e.sha256.len())],
+                    human_size(e.bytes)
+                ));
+            }
+        }
+    }
+
+    let local = named
+        .iter()
+        .filter(|a| matches!(vaults.route(&a.kind, a.vault.as_deref()), Route::Local))
+        .count();
+    if local > 0 {
+        out.push_str(&format!(
+            "\n{local} artifact{} recorded `vault: none` — the local cache and nowhere else.\n",
+            if local == 1 { "" } else { "s" }
+        ));
+    }
+    Ok(out.trim_end().to_string())
+}
+
+// ── reclaiming, and putting artifacts where a person can open them ───────────
+
+/// Every digest a committed file names.
+///
+/// **This is the whole live set, and it is exactly computable** — which is the property the
+/// design bought by keeping every pointer into a vault in git. Two sources: the catalog's
+/// records, and `.yidam/index.lock`.
+fn live_set(root: &Path) -> Result<std::collections::BTreeSet<ContentHash>> {
+    let mut live: std::collections::BTreeSet<ContentHash> = vault::named_artifacts(root)
+        .into_iter()
+        .map(|a| a.hash)
+        .collect();
+    let lock = vault::load_lock(root)?;
+    for d in vault::Derived::ALL {
+        if let Some(e) = lock.get(d) {
+            if let Ok(h) = ContentHash::parse(&e.sha256) {
+                live.insert(h);
+            }
+        }
+    }
+    Ok(live)
+}
+
+/// **The cache is machine-wide, and this command cannot see the other repositories using it.**
+///
+/// `Cache` is deliberately not partitioned by repository or by vault — two corpora citing the
+/// same paper store it once, which is most of why it exists. The consequence is that "no
+/// committed file names this" is answerable only about *this* working tree, and a blob this
+/// repository has never heard of may be the one another one is relying on.
+///
+/// Usually that costs a re-fetch and nothing more, because a vault holds a copy. The exception
+/// is the artifact routed `vault: none` — the local cache and nowhere else, by decision — for
+/// which the cache *is* the only copy. This command cannot distinguish one of those belonging
+/// to another repository from an orphan, so it does not try: it reports, states the hazard, and
+/// deletes only when told to.
+fn gc(yes: bool) -> Result<()> {
+    let root = repo_root()?;
+    require_yidam_repo(&root)?;
+    let cache = cache()?;
+    let live = live_set(&root)?;
+
+    let mut unreferenced = Vec::new();
+    for hash in cache.entries()? {
+        if live.contains(&hash) {
+            continue;
+        }
+        let bytes = std::fs::metadata(cache.path_of(&hash))
+            .map(|m| m.len())
+            .unwrap_or(0);
+        unreferenced.push((hash, bytes));
+    }
+
+    println!("{}", cache.root().display());
+    println!(
+        "  {} artifact{} named by this repository",
+        live.len(),
+        if live.len() == 1 { "" } else { "s" }
+    );
+    if unreferenced.is_empty() {
+        println!("  nothing unreferenced.");
+        return Ok(());
+    }
+    let total: u64 = unreferenced.iter().map(|(_, b)| b).sum();
+    println!(
+        "  {} unreferenced, {}",
+        unreferenced.len(),
+        human_size(total)
+    );
+    println!();
+    for (hash, bytes) in &unreferenced {
+        println!("  {hash}  {}", human_size(*bytes));
+    }
+    println!();
+
+    if !yes {
+        println!("Nothing was deleted. `yidam vault gc --yes` deletes the above.");
+        println!();
+        println!(
+            "  Read the list first. This cache is shared by every yidam repository on this\n  \
+             machine, and an artifact another one names looks exactly like an orphan from\n  \
+             here. Most of the time that costs a re-fetch — but an artifact recorded\n  \
+             `vault: none` is in a cache and nowhere else by decision, and deleting one is\n  \
+             the only copy."
+        );
+        return Ok(());
+    }
+
+    let mut freed = 0u64;
+    let mut failed = 0usize;
+    for (hash, bytes) in &unreferenced {
+        match std::fs::remove_file(cache.path_of(hash)) {
+            Ok(()) => freed += bytes,
+            Err(e) => {
+                eprintln!("could not remove {hash}: {e}");
+                failed += 1;
+            }
+        }
+    }
+    println!(
+        "Removed {} artifact(s), {}.",
+        unreferenced.len() - failed,
+        human_size(freed)
+    );
+    if failed > 0 {
+        bail!("{failed} could not be removed.");
+    }
+    Ok(())
+}
+
+/// The extension a media type implies, for a filename a person can open.
+///
+/// Deliberately short. A type nobody listed becomes `.bin`, which is honest — the alternative
+/// is a lookup table nobody maintains that eventually guesses wrong about something that
+/// mattered.
+fn extension_for(media_type: Option<&str>) -> &'static str {
+    match media_type
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+    {
+        "application/pdf" => "pdf",
+        "text/csv" => "csv",
+        "application/json" => "json",
+        "text/plain" => "txt",
+        "text/html" => "html",
+        "application/zip" => "zip",
+        "application/gzip" | "application/x-gzip" => "gz",
+        "text/markdown" => "md",
+        _ => "bin",
+    }
+}
+
+/// Put cached artifacts in the working tree under names a person can use.
+///
+/// The cache is content-addressed, which is right for storage and useless for opening: nobody
+/// wants to hand a colleague `9f2c8e…` with no extension. This hardlinks each cached artifact
+/// to `.yidam/vault/<entry slug>/<slug>.<ext>`, so a person, a connector or a PDF reader has a
+/// real file with a real name — and the bytes are not duplicated.
+///
+/// **Nothing is written until `.yidam/vault/` is known to be ignored.** A licensed PDF landing
+/// in a tracked path is precisely the leak the push guard exists to prevent, arriving through
+/// the back door of `git add -A` — which this repository's own bootstrap prescribes.
+fn materialize(entry: Option<&str>) -> Result<()> {
+    let root = repo_root()?;
+    require_yidam_repo(&root)?;
+    let cache = cache()?;
+    let dest_root = root.join(".yidam").join("vault");
+    ensure_ignored(&root, &dest_root)?;
+
+    let named = vault::named_artifacts(&root);
+    let mut done = 0usize;
+    let mut uncached = 0usize;
+    for a in &named {
+        let slug = Path::new(&a.rel)
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        if entry.is_some_and(|e| e != slug) {
+            continue;
+        }
+        if !cache.contains(&a.hash) {
+            uncached += 1;
+            continue;
+        }
+        // One entry may name several artifacts, and two files called `pearl-2009.pdf` in one
+        // directory cannot both exist. The digest disambiguates only where it has to, so the
+        // common case keeps the clean name.
+        let siblings = named.iter().filter(|o| o.rel == a.rel).count();
+        let stem = match siblings {
+            1 => slug.clone(),
+            _ => format!("{slug}-{}", &a.hash.as_str()[..8]),
+        };
+        let dir = dest_root.join(&slug);
+        std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+        let dest = dir.join(format!("{stem}.{}", extension_for(a.media_type.as_deref())));
+        if dest.exists() {
+            std::fs::remove_file(&dest).ok();
+        }
+        let src = cache.path_of(&a.hash);
+        // A hardlink costs nothing and shares the bytes. It fails across filesystems, which
+        // is ordinary when the cache is on a different volume from the repository, so a copy
+        // is the fallback rather than the failure.
+        if std::fs::hard_link(&src, &dest).is_err() {
+            std::fs::copy(&src, &dest)
+                .with_context(|| format!("copying {} to {}", src.display(), dest.display()))?;
+        }
+        println!("{}", dest.strip_prefix(&root).unwrap_or(&dest).display());
+        done += 1;
+    }
+
+    eprintln!();
+    eprintln!("{done} materialized; {uncached} not cached (`yidam vault pull` fetches them)");
+    Ok(())
+}
+
+/// Refuse to write artifacts anywhere git would offer to commit them.
+///
+/// `git check-ignore` is the authority rather than a `.gitignore` grep, because ignoring can
+/// come from `.git/info/exclude` or a global file and a grep would report a correctly
+/// configured repository as broken.
+///
+/// **The probe is a file inside the directory, not the directory itself.** `.yidam/vault/` is a
+/// directory-only pattern, and git cannot tell that a path it is asked about is a directory
+/// when the directory does not exist yet — which is exactly the state the first `materialize`
+/// runs in. Asking about a path *under* it is both robust and the question actually at issue:
+/// would a file written here be committable?
+fn ensure_ignored(root: &Path, dest: &Path) -> Result<()> {
+    let probe = dest.join("probe");
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["check-ignore", "-q"])
+        .arg(&probe)
+        .status();
+    match out {
+        Ok(s) if s.success() => Ok(()),
+        // 1 means "not ignored"; anything else means git could not answer, and an unanswered
+        // question about whether these bytes would be committed is not a yes.
+        Ok(_) => bail!(
+            "{} is not ignored by git, and materialized artifacts must never be committable.\n  \
+             Add `.yidam/vault/` to `.gitignore`. A licensed document in a tracked path is the \
+             leak `vault push` refuses, arriving through `git add -A` instead.",
+            dest.strip_prefix(root).unwrap_or(dest).display()
+        ),
+        Err(e) => bail!(
+            "could not ask git whether {} is ignored ({e}).\n  \
+             Refusing to write artifacts into a working tree without knowing that.",
+            dest.display()
+        ),
     }
 }
 
