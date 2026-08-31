@@ -96,50 +96,93 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # **A repository that has declared nothing pays one runner-second.**
+      #
+      # That is what this job was built for and it has not changed: it is wired in
+      # from genesis so that the day a repository grows material it does not want
+      # published, the rule is one file away rather than a workflow edit nobody
+      # remembers to make. Installing a binary unconditionally in order to usually
+      # do nothing would undo that, so every step below that costs anything is
+      # gated on the manifest existing (RFC-0024, decided in #440).
+      - name: Is anything declared private?
+        id: declared
+        run: |
+          set -euo pipefail
+          if [ -f .yidam/private-paths ]; then
+            echo "any=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no .yidam/private-paths; nothing declared private."
+            echo "any=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Read the pinned yidam commit
+        id: pin
+        if: steps.declared.outputs.any == 'true'
+        run: |
+          set -euo pipefail
+          commit=$(sed -n 's/^ *commit *= *"\(.*\)"/\1/p' .yidam.toml)
+          origin=$(sed -n 's/^ *origin *= *"\(.*\)"/\1/p' .yidam.toml)
+          if [ -z "$commit" ] || [ "$commit" = "unknown" ]; then
+            echo "::error::.yidam.toml records no resolvable commit, and this repository has"
+            echo "::error::declared private paths that need checking."
+            exit 1
+          fi
+          origin=$(echo "$origin" | sed 's|^git@github.com:|https://github.com/|')
+          { echo "source=$origin"; echo "commit=$commit"; } >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.declared.outputs.any == 'true'
+
+      # Same cache key the corpus job uses, so at most one job per pinned commit
+      # pays for the build.
+      - name: Cache the pinned yidam binary
+        id: yidam-cache
+        if: steps.declared.outputs.any == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/yidam
+          key: yidam-cli-${{ runner.os }}-${{ steps.pin.outputs.commit }}
+
+      - name: Install the yidam CLI (light build)
+        if: steps.declared.outputs.any == 'true' && steps.yidam-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --filter=blob:none --no-checkout "${{ steps.pin.outputs.source }}" /tmp/yidam
+          git -C /tmp/yidam checkout --quiet "${{ steps.pin.outputs.commit }}"
+          cargo install --path /tmp/yidam/yidam/cli --locked
+
+      # Why this exists at all: a repository took on an advocacy layer holding
+      # worked lines of attack and material its own publication gate computes as
+      # `[open]`, which its governing resolution says goes NOWHERE. That the
+      # repository was private was an assumption — true, load-bearing, and
+      # unenforced. An assumption about access control that looks enforced and is
+      # not is worse than one everybody knows is manual.
+      #
+      # `github.event.repository.private` comes from the event payload the runner
+      # already has. No `gh api`, no network — CI is hermetic and stays so, and so
+      # is the policy: the engine has no `http` builtin compiled in.
+      #
+      # WHAT THIS DOES NOT COVER. This is access control over material AT REST —
+      # can a stranger reach a file committed here. It says nothing about data
+      # LEAVING at runtime: a connector sends what it queries to its source, a
+      # deployed web shell sends every reader request to whoever hosts it, and a
+      # hosted encoder receives the text it is asked to embed. For a research
+      # corpus the queries are the research agenda, and no gate here looks at
+      # them. None can — an egress check would have to know every network call the
+      # domain computer makes, and this job is hermetic precisely so that it makes
+      # none. Named here so the job is not mistaken for complete. See the
+      # directory conventions, `.yidam/private-paths`, "What this does not cover".
       - name: Listed paths may not sit in a public repository
+        if: steps.declared.outputs.any == 'true'
         env:
           IS_PRIVATE: ${{ github.event.repository.private }}
         run: |
           set -euo pipefail
-          manifest=.yidam/private-paths
-          if [ ! -f "$manifest" ]; then
-            echo "no $manifest; nothing declared private."
-            exit 0
-          fi
-          # `find` per entry so a new subdirectory is covered without anyone
-          # remembering to add it.
-          content=""
-          while IFS= read -r line || [ -n "$line" ]; do
-            entry="${line%%#*}"
-            # Trim the ends only. Deleting every space would silently rewrite
-            # `my documents/` into a path that does not exist, and a path that
-            # does not exist is a path this job never looks at.
-            entry="$(printf '%s' "$entry" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-            [ -z "$entry" ] && continue
-            entry="${entry%/}"
-            [ -e "$entry" ] || continue
-            # The README exemption is the declared path's own README and no
-            # other: `-name` alone would excuse a README at any depth, and a
-            # README one directory down is as capable of holding material as
-            # any other file.
-            found=$(find "$entry" -type f ! -name .gitkeep ! -path "$entry/README.md" | sort)
-            [ -n "$found" ] && content="$content$found"$'\n'
-          done < "$manifest"
-          if [ -z "$content" ]; then
-            echo "declared paths hold no material; nothing to protect."
-            exit 0
-          fi
           if [ "$IS_PRIVATE" = "true" ]; then
-            echo "repository is private; declared material is protected."
-            exit 0
+            yidam policy gate disclose/at_rest
+          else
+            yidam policy gate disclose/at_rest --public
           fi
-          echo "::error::This repository is PUBLIC and holds material declared private in $manifest."
-          echo "Files:"
-          printf '%s' "$content" | sed 's/^/  /'
-          echo
-          echo "Either make the repository private again, or remove these files and"
-          echo "the entry in $manifest that covers them. Do not silence this job."
-          exit 1
 
   detect:
     name: detect layers

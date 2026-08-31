@@ -48,6 +48,27 @@ pub enum PolicyCommand {
         #[arg(long, value_enum, default_value_t = Format::Text)]
         format: Format,
     },
+    /// Ask a decision about this repository, and exit nonzero if it refuses
+    ///
+    /// The form a workflow calls. `eval` takes a document somebody built; this builds it from
+    /// the working tree, so the directories a bundle carries are supplied by the binary that
+    /// owns the bundle rather than copied into a shell script.
+    Gate {
+        /// `family/name` — see `yidam policy check` for the set
+        decision: String,
+        /// Which computed artifact, for `disclose/derived`
+        #[arg(long, value_parser = ["index", "embeddings", "bundle"])]
+        kind: Option<String>,
+        /// This repository is publicly readable, for `disclose/at_rest`
+        ///
+        /// Absent means private, which refuses nothing. In CI this is
+        /// `github.event.repository.private`, which the runner already has — no API call, so
+        /// the job stays hermetic.
+        #[arg(long)]
+        public: bool,
+        #[arg(long, value_enum, default_value_t = Format::Text)]
+        format: Format,
+    },
     /// Run every `test_*` rule in every `*_test.rego`
     Test {
         #[arg(long, value_enum, default_value_t = Format::Text)]
@@ -67,8 +88,60 @@ pub fn run(sub: PolicyCommand) -> Result<()> {
             explain,
             format,
         } => eval(&root, &decision, input.as_deref(), explain, format),
+        PolicyCommand::Gate {
+            decision,
+            kind,
+            public,
+            format,
+        } => gate(&root, &decision, kind.as_deref(), public, format),
         PolicyCommand::Test { format } => test(&root, format),
     }
+}
+
+/// Ask a decision about this repository and exit nonzero if it refuses.
+///
+/// Requires a repository, unlike every other subcommand here: there is nothing to build an
+/// input from without one, and answering about an empty directory would be a pass that meant
+/// nothing.
+fn gate(
+    root: &Path,
+    decision: &str,
+    kind: Option<&str>,
+    public: bool,
+    format: Format,
+) -> Result<()> {
+    crate::paths::require_yidam_repo(root)?;
+    let declared = crate::vault::read_private_paths(root)?;
+
+    let doc = match decision {
+        "disclose/at_rest" => crate::policy::input::at_rest(root, &declared, !public),
+        "disclose/record" => anyhow::bail!(
+            "`disclose/record` is about one artifact and this asks about the repository. \
+             `yidam vault push` applies it to every record the catalog names"
+        ),
+        "disclose/derived" => {
+            let kind = kind.context(
+                "`disclose/derived` is about one computed artifact — pass `--kind index`,                  `--kind embeddings` or `--kind bundle`",
+            )?;
+            let d = crate::vault::Derived::ALL
+                .into_iter()
+                .find(|d| d.kind() == kind)
+                .with_context(|| format!("`{kind}` is not an artifact this repository computes"))?;
+            crate::policy::input::derived(root, d, &declared)
+        }
+        other => anyhow::bail!("`{other}` is not a decision this binary asks about"),
+    };
+
+    let mut policies = Policies::load(root)?;
+    let verdict = policies.decide(decision, &doc)?;
+    render(decision, &verdict, true, format)?;
+    if !verdict.allow {
+        anyhow::bail!(
+            "{decision} refused. The rule is `.yidam/policy/` or the default this binary \
+             carries; `yidam policy check` says which"
+        );
+    }
+    Ok(())
 }
 
 /// What the rules are, where each came from, and whether any of them names a builtin this build

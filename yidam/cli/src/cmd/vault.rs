@@ -300,6 +300,14 @@ fn scope(only: Option<&str>) -> String {
 
 /// A store and who reads it, on one line. The same shape in `push` and in `status`, because
 /// a person comparing the two outputs is looking for the same store in both.
+/// Identity of one planned artifact, for looking its verdict back up.
+///
+/// The digest alone is not enough: two catalog entries may name the same bytes with different
+/// records, and it is the record that a disclosure decision is about.
+fn verdict_key(a: &vault::Named) -> String {
+    format!("{}|{}", a.rel, a.hash)
+}
+
 fn heading(name: &str, cfg: &vault::VaultConfig) -> String {
     format!("{name} — {}", cfg.audience())
 }
@@ -317,6 +325,32 @@ fn push(dry_run: bool, artifact: Option<&str>, only: Option<&str>) -> Result<()>
     if planned.is_empty() {
         println!("Nothing to push.");
         return Ok(());
+    }
+
+    // Every verdict up front, because the filter below cannot hold a `&mut` engine and because
+    // asking once per artifact keeps a refusal's reason attached to the artifact it is about.
+    //
+    // The rule moved out of this file in #440 and into `.yidam/policy/` (RFC-0024). What it
+    // says is unchanged — `tests/policy_equivalence.rs` holds the policy to `may_push` over
+    // every combination of licence and path — and a repository may now disagree with it in a
+    // file `yidam policy check` will name.
+    let mut policies = crate::policy::Policies::load(&root)?;
+    let mut verdicts: BTreeMap<String, Option<String>> = BTreeMap::new();
+    for a in &planned {
+        let v = policies.decide(
+            "disclose/record",
+            &crate::policy::input::record(&root, &a.a, &private),
+        )?;
+        verdicts.insert(
+            verdict_key(&a.a),
+            (!v.allow).then(|| {
+                v.deny
+                    .iter()
+                    .map(|d| d.msg.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            }),
+        );
     }
     let total = planned.len();
     let (by_vault, aside) = group(planned);
@@ -339,17 +373,19 @@ fn push(dry_run: bool, artifact: Option<&str>, only: Option<&str>) -> Result<()>
         let heading = heading(name, cfg);
         let allowed: Vec<&vault::Named> = artifacts
             .iter()
-            .filter(|a| match vault::may_push(a, &private) {
-                vault::Disposition::Push => true,
-                vault::Disposition::Refused(why) => {
-                    refused_count += 1;
-                    refused
-                        .entry(heading.clone())
-                        .or_default()
-                        .push(format!("{} — {why}", a.hash));
-                    false
-                }
-            })
+            .filter(
+                |a| match verdicts.get(&verdict_key(a)).and_then(Option::as_deref) {
+                    None => true,
+                    Some(why) => {
+                        refused_count += 1;
+                        refused
+                            .entry(heading.clone())
+                            .or_default()
+                            .push(format!("{} — {why}", a.hash));
+                        false
+                    }
+                },
+            )
             .collect();
         if allowed.is_empty() {
             continue;
@@ -1191,6 +1227,7 @@ fn push_derived(picked: &[vault::Derived], dry_run: bool, only: Option<&str>) ->
     }
     let cache = cache()?;
     let private = vault::read_private_paths(&root)?;
+    let mut policies = crate::policy::Policies::load(&root)?;
     let mut lock = vault::load_lock(&root)?;
     let mut changed = false;
 
@@ -1213,8 +1250,20 @@ fn push_derived(picked: &[vault::Derived], dry_run: bool, only: Option<&str>) ->
         // The guard, before anything is packed. A refusal here is about what the artifact
         // *encodes*, not about where it is going, so it costs nothing to ask first and
         // avoids compressing a few hundred megabytes that were never going to be sent.
-        if let vault::Disposition::Refused(why) = vault::derived_may_push(&root, d, &private) {
-            println!("refused: {why}");
+        //
+        // Asked of the policy rather than computed here (RFC-0024). The rule is the same rule
+        // `release.yml` applies to a bundle, and until #440 the two were separate
+        // implementations kept agreeing by a test — which is how #443 happened.
+        let verdict = policies.decide(
+            "disclose/derived",
+            &crate::policy::input::derived(&root, d, &private),
+        )?;
+        if !verdict.allow {
+            // Every reason, not the first. `derived_may_push` could name only one overlapping
+            // path, and somebody about to fix this wants all of them.
+            for denial in &verdict.deny {
+                println!("refused: {}", denial.msg);
+            }
             continue;
         }
 

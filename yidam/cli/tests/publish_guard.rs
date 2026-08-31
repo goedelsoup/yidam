@@ -35,49 +35,91 @@ fn the_bundle_job_waits_for_the_guard() {
     );
 }
 
-/// Every directory the bundle carries must be one the guard inspects.
+/// The guard **asks** what a bundle carries. It no longer keeps its own copy.
 ///
-/// The guard refuses when declared-private material sits inside a bundled directory. That
-/// rule is only as good as its list: a directory added to the bundle and not added here is
-/// one the guard does not know it is publishing, and the failure is silent — the workflow
-/// goes green and ships the material.
+/// Until #440 this workflow declared `bundled=".yidam/corpus …"` and a test asserted the list
+/// matched `vault::derived_sources(Derived::Bundle)`. That was a mirror, and #443 is what a
+/// mirror costs: the workflow named the three directories the archive carries as *files* and
+/// omitted `.yidam/catalog`, reasoning that `index/` was generated rather than authored — true
+/// of the file, false of its contents, because the bundled `index/corpus.arrow` has a `text`
+/// column that `cmd/embed.rs` fills from the catalog.
+///
+/// The list now reaches the decision from inside the binary that packs the archive, so there is
+/// no second copy to keep in step. What this pins is that nobody reintroduces one.
 #[test]
-fn the_guard_inspects_every_directory_the_bundle_carries() {
+fn the_guard_asks_the_policy_rather_than_keeping_its_own_list() {
     let w = workflow();
-    let line = w
-        .lines()
-        .find(|l| l.trim_start().starts_with("bundled="))
-        .expect("the guard no longer declares which directories a bundle carries");
-
-    // Derived rather than transcribed. `vault::derived_sources` answers the same question for
-    // `yidam vault push --bundle`, and two lists of one fact, each pinned only by itself, is
-    // how one of them silently stops matching. This one did: until #443 it named the three
-    // directories the archive carries as files and reasoned that `index/` was "generated
-    // rather than authored" — true of the file, false of its contents. A bundle carries
-    // `index/corpus.arrow`, that index has a `text` column, and `cmd/embed.rs` fills it from
-    // the catalog as well as the corpus. So a private catalog entry's prose ships inside the
-    // archive while no catalog file does.
-    for dir in yidam::vault::derived_sources(yidam::vault::Derived::Bundle) {
-        assert!(
-            line.contains(dir),
-            "a bundle publishes {dir} and the guard does not inspect it: {line}"
-        );
-    }
+    assert!(
+        w.contains("yidam policy gate disclose/derived --kind bundle"),
+        "the guard must ask the policy what a bundle may carry:\n{w}"
+    );
+    assert!(
+        !w.contains("bundled="),
+        "a directory list is back in the workflow. That is the shape #443 came from — the \
+         list belongs to `vault::derived_sources`, inside the binary that packs the archive"
+    );
 }
 
-/// The catalog is the entry that was missing, and it is the one a reader is most likely to
-/// remove again — no catalog *file* is in the archive, so the omission looks correct.
+/// The public-repository half is still asked, and still reads the event payload.
+///
+/// Two decisions, not one: a bundle may not carry declared material *whatever* the repository's
+/// visibility, and a public repository may not hold it at all. The first is the stricter and is
+/// why this job exists rather than reusing ci.yml's.
 #[test]
-fn the_guard_inspects_the_catalog_even_though_no_catalog_file_is_bundled() {
+fn the_guard_asks_about_the_repository_as_well_as_the_bundle() {
     let w = workflow();
-    let line = w
-        .lines()
-        .find(|l| l.trim_start().starts_with("bundled="))
-        .expect("the guard no longer declares which directories a bundle carries");
     assert!(
-        line.contains(".yidam/catalog"),
-        "a bundle carries the vector index, and that index encodes catalog text: {line}"
+        w.contains("yidam policy gate disclose/at_rest"),
+        "the at-rest half must still be asked:\n{w}"
     );
+    assert!(
+        w.contains("github.event.repository.private"),
+        "visibility must come from the payload the runner already has — a `gh api` call would \
+         make this job non-hermetic"
+    );
+}
+
+/// **A repository that declared nothing pays a runner-second, as it always did.**
+///
+/// The job is wired in from genesis so that the day a repository grows material it does not
+/// want published, the rule is one file away rather than a workflow edit nobody remembers to
+/// make. Installing a binary unconditionally to usually do nothing would undo that, so every
+/// step that costs anything is gated on the manifest existing.
+#[test]
+fn the_guard_installs_nothing_when_no_path_is_declared_private() {
+    let w: serde_yaml::Value = serde_yaml::from_str(&workflow()).expect("release.yml parses");
+    let steps = w["jobs"]["guard"]["steps"]
+        .as_sequence()
+        .expect("the guard job has steps");
+
+    let gate: Vec<&serde_yaml::Value> = steps
+        .iter()
+        .filter(|s| {
+            let name = s["name"].as_str().unwrap_or_default();
+            let uses = s["uses"].as_str().unwrap_or_default();
+            let run = s["run"].as_str().unwrap_or_default();
+            // Everything that costs real time: the toolchain, the cache, the install, and the
+            // gates themselves.
+            uses.contains("rust-toolchain")
+                || uses.contains("actions/cache")
+                || name.contains("Install the yidam CLI")
+                || run.contains("yidam policy gate")
+                || name.contains("Read the pinned yidam commit")
+        })
+        .collect();
+    assert!(
+        gate.len() >= 5,
+        "expected the expensive steps to be discoverable, found {}",
+        gate.len()
+    );
+    for step in gate {
+        let cond = step["if"].as_str().unwrap_or_default();
+        assert!(
+            cond.contains("steps.declared.outputs.any == 'true'"),
+            "this step runs even when nothing is declared private: {:?}",
+            step["name"].as_str().or(step["uses"].as_str())
+        );
+    }
 }
 
 /// Publishing must be gated on a tag, so `workflow_dispatch` is a rehearsal and not a release.

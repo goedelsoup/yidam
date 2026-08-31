@@ -64,78 +64,92 @@ jobs:
           echo "opted in:"
           sed 's/^/  /' .yidam/publishable
 
+      # Does anything need asking about at all?
+      #
+      # The cheap half stays shell, deliberately. A repository that has declared
+      # nothing private pays one runner-second and stops here — which is what this
+      # job was built for: the rule is one file away rather than a workflow edit
+      # nobody remembers to make. Only a repository with something to protect pays
+      # for the binary.
+      - name: Is anything declared private?
+        id: declared
+        run: |
+          set -euo pipefail
+          if [ -f .yidam/private-paths ]; then
+            echo "any=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no .yidam/private-paths; nothing declared private."
+            echo "any=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Read the pinned yidam commit
+        id: pin
+        if: steps.declared.outputs.any == 'true'
+        run: |
+          set -euo pipefail
+          if [ ! -f .yidam.toml ]; then
+            echo "::error::.yidam.toml is missing — this repo has no recorded yidam provenance."
+            exit 1
+          fi
+          commit=$(sed -n 's/^ *commit *= *"\(.*\)"/\1/p' .yidam.toml)
+          origin=$(sed -n 's/^ *origin *= *"\(.*\)"/\1/p' .yidam.toml)
+          if [ -z "$commit" ] || [ "$commit" = "unknown" ]; then
+            echo "::error::.yidam.toml records no resolvable commit."
+            exit 1
+          fi
+          origin=$(echo "$origin" | sed 's|^git@github.com:|https://github.com/|')
+          { echo "source=$origin"; echo "commit=$commit"; } >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.declared.outputs.any == 'true'
+
+      # Same key the bundle job uses, so the two share one cached binary and the
+      # install below runs at most once per pinned commit.
+      - name: Cache the pinned yidam binary
+        id: yidam-cache
+        if: steps.declared.outputs.any == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/yidam
+          key: yidam-cli-${{ runner.os }}-${{ steps.pin.outputs.commit }}
+
+      - name: Install the yidam CLI (light build)
+        if: steps.declared.outputs.any == 'true' && steps.yidam-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --filter=blob:none --no-checkout "${{ steps.pin.outputs.source }}" /tmp/yidam
+          git -C /tmp/yidam checkout --quiet "${{ steps.pin.outputs.commit }}"
+          cargo install --path /tmp/yidam/yidam/cli --locked
+
       # The stricter half, and the reason this job exists rather than reusing
-      # ci.yml's. A bundle carries corpus/, skills/ and decisions/. Anything
-      # declared private that lives in one of them would be published — and
-      # unlike ci.yml, being a private repository does not make that acceptable,
-      # because the artifact outlives the access.
+      # ci.yml's. A bundle carries corpus/, catalog/, skills/ and decisions/ —
+      # and unlike ci.yml, being a private repository does not make publishing
+      # declared material acceptable, because the artifact outlives the access.
+      #
+      # RFC-0024: this asks the rule rather than reimplementing it. What a bundle
+      # is built from comes from `vault::derived_sources`, inside the binary that
+      # packs it, so the list cannot drift out of step with the archive — which is
+      # exactly how #443 happened. A repository may state its own rule in
+      # `.yidam/policy/`; `yidam policy check` names it if it has.
       - name: Declared-private material may not enter a bundle
+        if: steps.declared.outputs.any == 'true'
+        run: yidam policy gate disclose/derived --kind bundle
+
+      # The weaker half, kept because a public repository holding declared
+      # material is worth failing on even when none of it would be bundled.
+      - name: Declared-private material may not sit in a public repository
+        if: steps.declared.outputs.any == 'true'
         env:
           IS_PRIVATE: ${{ github.event.repository.private }}
         run: |
           set -euo pipefail
-          manifest=.yidam/private-paths
-          if [ ! -f "$manifest" ]; then
-            echo "no $manifest; nothing declared private."
-            exit 0
+          # `github.event.repository.private` comes from the payload the runner
+          # already has. No `gh api`, no network: this stays hermetic, and so does
+          # the policy — the engine has no `http` builtin compiled in.
+          if [ "$IS_PRIVATE" = "true" ]; then
+            yidam policy gate disclose/at_rest
+          else
+            yidam policy gate disclose/at_rest --public
           fi
-
-          # What a bundle publishes. Three of these it carries directly:
-          # `cmd/bundle.rs` writes corpus/, skills/ and decisions/ into the archive.
-          #
-          # `.yidam/catalog` is the fourth and it is not obvious, which is why it
-          # was missing until #443. A bundle also carries `index/corpus.arrow`, and
-          # that index is not opaque: `model::VectorRow` has a `text` column,
-          # `cmd/embed.rs` composes that text from the corpus AND the catalog, and
-          # `cmd/index_build.rs` walks the whole embeddings directory with no
-          # filter. So a private catalog entry's prose is inside the archive even
-          # though no catalog FILE is.
-          #
-          # Keep this list in step with `vault::derived_sources(Derived::Bundle)`,
-          # which asks the same question for `yidam vault push`. A test compares
-          # the two, so they cannot drift apart silently.
-          bundled=".yidam/corpus .yidam/catalog .yidam/skills .yidam/decisions"
-
-          in_bundle=""
-          anywhere=""
-          while IFS= read -r line || [ -n "$line" ]; do
-            entry="${line%%#*}"
-            entry="$(printf '%s' "$entry" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-            [ -z "$entry" ] && continue
-            entry="${entry%/}"
-            [ -e "$entry" ] || continue
-            found=$(find "$entry" -type f ! -name .gitkeep ! -path "$entry/README.md" | sort)
-            [ -z "$found" ] && continue
-            anywhere="$anywhere$found"$'\n'
-            for dir in $bundled; do
-              case "$entry/" in
-                "$dir"/*|"$dir"/) in_bundle="$in_bundle$found"$'\n' ;;
-              esac
-              # And the other direction: a declared path that CONTAINS a bundled
-              # directory publishes everything under it.
-              case "$dir/" in
-                "$entry"/*) in_bundle="$in_bundle$found"$'\n' ;;
-              esac
-            done
-          done < "$manifest"
-
-          if [ -n "$in_bundle" ]; then
-            echo "::error::Material declared private in $manifest would be published in the bundle."
-            printf '%s' "$in_bundle" | sort -u | sed 's/^/  /'
-            echo
-            echo "A bundle is downloaded and unpacked elsewhere; this repository being"
-            echo "private does not travel with it. Remove the material from the bundled"
-            echo "directories, or stop publishing this corpus. Do not silence this job."
-            exit 1
-          fi
-
-          if [ -n "$anywhere" ] && [ "$IS_PRIVATE" != "true" ]; then
-            echo "::error::This repository is PUBLIC and holds material declared private in $manifest."
-            printf '%s' "$anywhere" | sort -u | sed 's/^/  /'
-            exit 1
-          fi
-
-          echo "no declared-private material reaches the bundle."
 
   bundle:
     name: bundle

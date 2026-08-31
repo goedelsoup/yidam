@@ -426,6 +426,11 @@ independent checks, and neither implies the other:
   make the first push anybody runs a redistribution nobody chose, and a catalog is full of
   papers.
 
+**Both checks are [policy](#the-rules-this-repository-writes-about-itself)**, not code in this
+binary — `disclose/record` for an artifact the catalog names, `disclose/derived` for one this
+repository computed. What they say is unchanged, and a repository may state its own rule in
+`.yidam/policy/`; `yidam policy check` names it if it has.
+
 Refusals are grouped by the store they were headed for, each under that store's own
 `audience`, so the reader learns what they were about to publish to and — with several vaults —
 which boundary held. `--artifact` and `--vault` narrow what is sent and never bypass either
