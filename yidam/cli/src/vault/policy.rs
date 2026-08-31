@@ -116,6 +116,16 @@ pub fn is_private(rel: &str, private: &[String]) -> bool {
 
 /// May these bytes be uploaded?
 ///
+/// **No longer the guard, and deliberately still here.** Since #440 the decision is
+/// `disclose/record` in `.yidam/policy/` (RFC-0024), and `vault push` asks that. This is the
+/// **reference implementation the policy is held to**: `tests/policy_equivalence.rs` runs both
+/// over every combination of licence and path and fails if they diverge.
+///
+/// Deleting it would leave the policy pinned by nothing but its own cases. Two implementations
+/// kept agreeing by a test is the shape this RFC exists to remove *from workflows*, where the
+/// copy is in another language and nobody can run both — here both are Rust, one test runs
+/// them together, and the second one is the specification rather than a duplicate.
+///
 /// **Whether, not where.** Routing is [`super::config::Vaults::route`]'s question, and the two
 /// are kept apart because they fail differently: a route is edited casually by somebody
 /// reorganising storage, and a licence is not something that edit is allowed to undo. A caller
@@ -175,6 +185,10 @@ pub fn derived_sources(d: Derived) -> &'static [&'static str] {
 }
 
 /// May this computed artifact be uploaded?
+///
+/// **The reference implementation for `disclose/derived`**, on the same footing as
+/// [`may_push`] — see the note there. `vault push`, `release.yml` and `index.yml` all ask the
+/// policy; this is what `tests/policy_equivalence.rs` holds it to.
 ///
 /// A catalog artifact is refused for what its own record says. A derived artifact has no
 /// record — nobody wrote one, because nobody fetched it — so the question is answered from

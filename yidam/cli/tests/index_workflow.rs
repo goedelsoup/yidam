@@ -41,22 +41,27 @@ fn step_index(name_fragment: &str) -> usize {
         .unwrap_or_else(|| panic!("no step whose name contains {name_fragment:?}"))
 }
 
-/// **The anti-drift assertion.** The shell guard names the directories an index is built from;
-/// so does `vault::derived_sources`. If the CLI learns that an index encodes somewhere new and
-/// the workflow does not, the workflow goes green while publishing it.
+/// **The anti-drift assertion, now that there is nothing to drift.**
+///
+/// Until #440 this workflow declared `derived_from=".yidam/corpus .yidam/catalog"` and this
+/// test asserted the list matched `vault::derived_sources(Derived::Index)`. Two lists of one
+/// fact, each pinned only by the other — the shape #443 came out of.
+///
+/// The list now reaches the decision from inside the binary that builds the index, so a
+/// directory `cmd/embed.rs` learns to read is one this guard inspects without anybody editing
+/// a workflow. What is pinned here is that nobody puts a second copy back.
 #[test]
-fn the_workflow_guards_every_directory_the_index_is_built_from() {
+fn the_workflow_asks_the_policy_what_an_index_is_built_from() {
     let w = workflow();
-    let line = w
-        .lines()
-        .find(|l| l.trim_start().starts_with("derived_from="))
-        .expect("the guard no longer declares what an index is derived from");
-    for dir in yidam::vault::derived_sources(yidam::vault::Derived::Index) {
-        assert!(
-            line.contains(dir),
-            "an index encodes {dir} and the workflow's guard does not inspect it: {line}"
-        );
-    }
+    assert!(
+        w.contains("yidam policy gate disclose/derived --kind index"),
+        "the guard must ask the policy what an index encodes:\n{w}"
+    );
+    assert!(
+        !w.contains("derived_from="),
+        "a directory list is back in the workflow. It belongs to `vault::derived_sources`, \
+         inside the binary that walks those directories"
+    );
 }
 
 /// The privacy guard must come before the build, not after it.

@@ -71,45 +71,6 @@ jobs:
             exit 1
           fi
 
-      # The same rule `release.yml` applies to a bundle, applied before an index
-      # is built rather than after. An index re-encodes every node it walks and
-      # carries each one's text verbatim, so declared-private material in the
-      # corpus or the catalog makes the index private too. `yidam vault push`
-      # refuses on exactly this ground; checking here means the refusal arrives
-      # before the expensive part rather than after it.
-      - name: Declared-private material may not enter an index
-        run: |
-          set -eu
-          manifest=.yidam/private-paths
-          [ -f "$manifest" ] || { echo "no $manifest; nothing declared private."; exit 0; }
-          # What `cmd/embed.rs` composes text from. A directory added there and
-          # not added here is one this check does not know it is publishing.
-          derived_from=".yidam/corpus .yidam/catalog"
-          found=""
-          while IFS= read -r line || [ -n "$line" ]; do
-            entry="${line%%#*}"
-            entry="$(printf '%s' "$entry" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-            [ -z "$entry" ] && continue
-            entry="${entry%/}"
-            [ -e "$entry" ] || continue
-            content=$(find "$entry" -type f ! -name .gitkeep ! -path "$entry/README.md" | sort)
-            [ -z "$content" ] && continue
-            for dir in $derived_from; do
-              case "$entry/" in "$dir"/*|"$dir"/) found="$found$content"$'\n' ;; esac
-              case "$dir/" in "$entry"/*) found="$found$content"$'\n' ;; esac
-            done
-          done < "$manifest"
-          if [ -n "$found" ]; then
-            echo "::error::Material declared private in $manifest would be encoded in the index."
-            printf '%s' "$found" | sort -u | sed 's/^/  /'
-            echo
-            echo "An index carries the text of every node it encodes, and a vault artifact"
-            echo "outlives the access that produced it. Remove the material, or stop"
-            echo "indexing this corpus. Do not silence this job."
-            exit 1
-          fi
-          echo "no declared-private material reaches the index."
-
       - name: Read the pinned yidam commit
         id: pin
         run: |
@@ -142,6 +103,19 @@ jobs:
           git -C /tmp/yidam checkout --detach "${{ steps.pin.outputs.commit }}"
           cargo build --release --manifest-path /tmp/yidam/yidam/cli/Cargo.toml --features index
           echo "/tmp/yidam/yidam/cli/target/release" >> "$GITHUB_PATH"
+
+      # The same rule `release.yml` applies to a bundle, asked about an index.
+      # An index re-encodes every node it walks and carries each one's text
+      # verbatim, so declared-private material in the corpus or the catalog makes
+      # the index private too.
+      #
+      # Asked after the toolchain is up but before the twenty-minute build, so a
+      # refusal still arrives before the expensive part. RFC-0024: what an index
+      # is derived from comes from `vault::derived_sources(Derived::Index)`
+      # inside the binary that builds it, so this cannot fall out of step with
+      # `cmd/embed.rs` the way a copied list would.
+      - name: Declared-private material may not enter an index
+        run: yidam policy gate disclose/derived --kind index
 
       - name: Embed and build the index
         run: |
