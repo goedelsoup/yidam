@@ -81,7 +81,7 @@ nothing about its effect; and unrecorded interests leave no trace to find.
 
 ```sh
 cp -R examples/property /tmp/property
-cd /tmp/property && git init -q && git add -A && git commit -qm "chore: genesis — property"
+cd /tmp/property && git init -q && git add -A && git commit -qm "genesis: property"
 yidam graph-check     # 12 instances across 3 classes — all clean
 yidam lint            # 0 finding(s), no errors
 yidam open-questions  # seven live questions

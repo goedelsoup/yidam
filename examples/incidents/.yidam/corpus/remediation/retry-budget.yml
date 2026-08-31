@@ -1,0 +1,18 @@
+class: remediation
+label: A total retry budget per request
+description: |
+  A ceiling on total attempts across the whole call tree, rather than per hop. Merged, and
+  assumed to have worked. [inference]
+
+  Nobody has confirmed it. There has been no incident since, which is consistent with the
+  budget holding and equally consistent with nothing having tested it — those are different
+  states and the absence of an incident does not distinguish them. The tier is `inference`
+  rather than `verified` for that reason and not because the change is doubted.
+properties:
+  shipped: "2026-05-20"
+  claim_tag: inference
+links:
+  - target: ../remediation.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/incident-record.md
+    relationship: sourced-from

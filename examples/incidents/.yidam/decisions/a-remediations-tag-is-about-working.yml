@@ -1,0 +1,25 @@
+id: a-remediations-tag-is-about-working
+summary: A remediation's claim tag records whether it worked, never whether it merged.
+context: |
+  The obvious reading of a remediation's claim tag is about the change existing — merged and
+  therefore verified. Every remediation here merged, so under that reading all three would be
+  verified and the field would carry no information.
+decision: |
+  The tag is about the remediation having worked. `[verified]` requires that somebody looked
+  afterwards, under conditions that could have shown it failing. `[inference]` is merged and
+  assumed. `[open]` is nobody checked. `shipped` is a separate property and is about merging.
+rationale: |
+  The interesting failure of a post-mortem process is not that remediations are not written or
+  not merged. It is that nobody goes back. Under the merged reading that failure is invisible,
+  because the field every remediation would carry is the one nobody has to earn.
+
+  Separating the two also stops the absence of a recurrence being read as confirmation.
+  `remediation/retry-budget` has had no incident since it merged, which is consistent with the
+  budget holding and equally consistent with nothing having tested it. Those are different
+  states, and only a tag about *working* can distinguish them.
+
+  The cost is that the corpus asserts something the incident record does not contain. The
+  record has action items and change logs; whether a remediation held is usually nowhere at
+  all, so the tag has to be authored rather than imported, and it goes stale unless somebody
+  revisits it. That staleness is visible — an `[open]` remediation that has been open for two
+  quarters is a finding — which is better than the alternative, where it is not.

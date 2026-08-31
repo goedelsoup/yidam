@@ -1,0 +1,27 @@
+class: incident
+label: Incident
+description: |
+  One declared event: when it started, what it affected, and what the review concluded.
+
+  The incident is not the review. It is the event, and the review's conclusions hang off it as
+  contributing factors — which is what lets two reviews of two incidents arrive at the same
+  factor and say so.
+properties:
+  - name: severity
+    type: string
+    description: The declared severity, on the ladder this organisation uses.
+  - name: occurred
+    type: string
+    description: The date the incident was declared.
+  - name: claim_tag
+    type: claim
+    description: The evidence standing of this node, as a tag rather than as prose.
+edges:
+  - relationship: affected
+    target: service
+    direction: out
+    description: A service that was degraded or unavailable.
+  - relationship: has-factor
+    target: contributing-factor
+    direction: out
+    description: Something the review concluded contributed to the incident.

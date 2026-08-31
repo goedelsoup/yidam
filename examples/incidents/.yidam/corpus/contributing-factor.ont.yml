@@ -1,0 +1,18 @@
+class: contributing-factor
+label: Contributing factor
+description: |
+  Something a review concluded contributed to an incident. Many-to-many with incidents in both
+  directions: one incident has several, and one factor recurs across several incidents.
+
+  **Not a root cause.** See `decisions/root-cause-is-not-a-class`. The name is the epistemic
+  commitment: calling it a contributing factor is what stops the ontology asserting, of every
+  incident that carries one, that the cause has been found.
+properties:
+  - name: claim_tag
+    type: claim
+    description: The evidence standing of this node, as a tag rather than as prose.
+edges:
+  - relationship: addressed-by
+    target: remediation
+    direction: out
+    description: A change intended to remove or reduce this factor.

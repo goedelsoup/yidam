@@ -1,0 +1,24 @@
+class: incident
+label: SEV1 — checkout saturation during a cache expiry
+description: |
+  Payment requests timed out for 41 minutes after a large set of session entries expired
+  together and client retries multiplied the resulting origin load. [verified]
+
+  The review named four factors. Two are in this corpus; the other two were specific to a
+  deployment that no longer exists and were not carried forward, which is a decision worth
+  recording rather than a gap. [inference]
+properties:
+  severity: SEV1
+  occurred: "2026-03-14"
+  claim_tag: verified
+links:
+  - target: ../incident.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/incident-record.md
+    relationship: sourced-from
+  - target: ../service/checkout-api.yml
+    relationship: affected
+  - target: ../contributing-factor/cache-stampede.yml
+    relationship: has-factor
+  - target: ../contributing-factor/unbounded-retry.yml
+    relationship: has-factor

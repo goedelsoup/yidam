@@ -79,6 +79,36 @@ pub struct DomainModel {
     pub rendered: RenderedViews,
 }
 
+/// The domain a genesis commit names, or `None` where its subject names none.
+///
+/// **This used to accept only `chore: genesis — <name>`, which the bootstrap never writes.**
+/// `yidam/prelude/skills/bootstrap.md` step 8 is the authority on the commit sequence — *"this
+/// block is the whole list, and the harness reads these verbs"* — and the root commit's verb
+/// there is `genesis`, with `overlay` for existing-repo mode. `chore` is not in the closed
+/// vocabulary at all: `yidam vocabulary --check "chore: genesis — x"` reports it as
+/// unrecognised. So the one form this function accepted was the one form a conforming corpus
+/// could not use, and every bootstrapped repository fell back to its directory name with a
+/// warning (#452).
+///
+/// The subject may carry a summary after an em dash — `genesis: incidents — the retrospective
+/// corpus` — and the domain is the part before it.
+///
+/// `chore: genesis — <name>` is still accepted, because repositories were created against the
+/// old expectation and a corpus that used to parse must keep parsing.
+fn domain_from_genesis(first_line: &str) -> Option<String> {
+    let rest = first_line
+        .strip_prefix("chore: genesis \u{2014} ")
+        .or_else(|| first_line.strip_prefix("genesis:"))
+        .or_else(|| first_line.strip_prefix("overlay:"))?;
+    let name = rest
+        .split('\u{2014}')
+        .next()
+        .unwrap_or(rest)
+        .trim()
+        .to_string();
+    (!name.is_empty()).then_some(name)
+}
+
 /// Load all domain data from `root` into a [`DomainModel`].
 ///
 /// This is the single disk-access point for the export pipeline. Everything
@@ -189,11 +219,8 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
     let genesis = genesis_date(root);
     let genesis_msg = genesis_message(root);
     let first_line = genesis_msg.lines().next().unwrap_or("").trim();
-    let domain = if let Some(name) = first_line
-        .strip_prefix("chore: genesis \u{2014} ")
-        .filter(|s| !s.is_empty())
-    {
-        name.to_string()
+    let domain = if let Some(name) = domain_from_genesis(first_line) {
+        name
     } else {
         let fallback = root
             .file_name()
@@ -201,8 +228,9 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
             .unwrap_or("unknown")
             .to_string();
         eprintln!(
-            "[warn] genesis commit {first_line:?} does not match expected format \
-             \"chore: genesis \u{2014} <name>\" — using directory name {fallback:?} as domain"
+            "[warn] genesis commit {first_line:?} names no domain — expected `genesis: \
+             <domain>`, as the bootstrap skill's step 8 writes it. Using directory name \
+             {fallback:?}"
         );
         fallback
     };
@@ -615,5 +643,75 @@ mod tests {
         let model = load_domain_model(root).unwrap();
         let index = model.index.expect("index should load");
         assert_eq!(index.embed_config, None);
+    }
+}
+
+#[cfg(test)]
+mod genesis_domain_tests {
+    use super::domain_from_genesis;
+
+    /// The form `yidam/prelude/skills/bootstrap.md` step 8 actually writes.
+    #[test]
+    fn the_verb_the_bootstrap_writes_is_accepted() {
+        assert_eq!(
+            domain_from_genesis("genesis: my-domain").as_deref(),
+            Some("my-domain")
+        );
+        assert_eq!(
+            domain_from_genesis("overlay: my-domain").as_deref(),
+            Some("my-domain")
+        );
+    }
+
+    /// A subject may carry a summary after an em dash; the domain is what precedes it.
+    ///
+    /// These are **real genesis subjects**, taken from bootstrapped corpora under
+    /// `yidam/tests/results/`, not invented for the test. The em-dash split was a guess about
+    /// subject shape until they were looked at — `bootstrap.md` step 8 fixes the verb and says
+    /// nothing about what follows it — and every one of them carries a class/instance count
+    /// after the dash.
+    #[test]
+    fn a_summary_after_an_em_dash_is_not_part_of_the_domain() {
+        for (subject, domain) in [
+            (
+                "genesis: causal inference in observational studies \u{2014} 7 classes, 13 instances",
+                "causal inference in observational studies",
+            ),
+            ("genesis: causal inference \u{2014} 3 classes", "causal inference"),
+            ("genesis: reports fixture", "reports fixture"),
+            (
+                "genesis: incidents \u{2014} the retrospective corpus",
+                "incidents",
+            ),
+        ] {
+            assert_eq!(
+                domain_from_genesis(subject).as_deref(),
+                Some(domain),
+                "subject {subject:?}"
+            );
+        }
+    }
+
+    /// Repositories created against the old expectation must keep parsing.
+    #[test]
+    fn the_previously_expected_form_still_parses() {
+        assert_eq!(
+            domain_from_genesis("chore: genesis \u{2014} my-domain").as_deref(),
+            Some("my-domain")
+        );
+    }
+
+    /// `chore` is not in the closed vocabulary, so the old form could never have been used by
+    /// a corpus that passes `yidam vocabulary --check`. That is the defect, stated as a test:
+    /// the two accepted forms must not be the same form.
+    #[test]
+    fn a_subject_naming_no_domain_is_none() {
+        assert_eq!(domain_from_genesis("genesis:"), None);
+        assert_eq!(
+            domain_from_genesis("genesis: \u{2014} only a summary"),
+            None
+        );
+        assert_eq!(domain_from_genesis("establish: something else"), None);
+        assert_eq!(domain_from_genesis(""), None);
     }
 }

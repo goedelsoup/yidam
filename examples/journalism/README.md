@@ -81,7 +81,7 @@ memo *by name*, under the audience of the store it was headed for.
 
 ```sh
 cp -R examples/journalism /tmp/journalism
-cd /tmp/journalism && git init -q && git add -A && git commit -qm "chore: genesis — journalism"
+cd /tmp/journalism && git init -q && git add -A && git commit -qm "genesis: journalism"
 yidam graph-check     # 11 instances across 4 classes — all clean
 yidam lint            # 0 finding(s), no errors
 yidam open-questions  # four live questions

@@ -1,0 +1,26 @@
+class: incident
+label: SEV3 — brief checkout degradation, no customer impact recorded
+description: |
+  Elevated latency on the payment path for 9 minutes, self-resolving. Declared SEV3 and
+  reviewed briefly. [verified]
+
+  It is in the corpus **because it was minor**. A retrospective process that only records the
+  incidents worth writing about produces a corpus whose factor counts are a statement about
+  what got written up, and the recurrence question then measures attention rather than the
+  system. [inference] No factor was concluded here; the review said so, and that is recorded
+  as an absence of `has-factor` edges rather than as a factor named "unknown".
+
+  Whether incidents this size are declared consistently is unestablished, and it matters more
+  than it looks: every recurrence count in this corpus is a count across *reviewed* incidents,
+  so a drift in what gets declared moves every number without anything here saying so. [open]
+properties:
+  severity: SEV3
+  occurred: "2026-07-19"
+  claim_tag: verified
+links:
+  - target: ../incident.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/incident-record.md
+    relationship: sourced-from
+  - target: ../service/checkout-api.yml
+    relationship: affected

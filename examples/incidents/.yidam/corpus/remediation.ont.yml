@@ -1,0 +1,18 @@
+class: remediation
+label: Remediation
+description: |
+  A change made in response to a contributing factor, and what is known about whether it
+  worked.
+
+  Its claim tag is about **the remediation working**, not about it being merged. `[verified]`
+  means somebody confirmed the change shipped and held. `[inference]` means it merged and is
+  assumed to have worked. `[open]` means nobody checked. A post-mortem process decaying looks
+  exactly like a corpus whose remediations are drifting from the first tier to the third.
+properties:
+  - name: shipped
+    type: string
+    description: When the change was merged, which is not when it was confirmed to work.
+  - name: claim_tag
+    type: claim
+    description: The evidence standing of this node, as a tag rather than as prose.
+edges: []

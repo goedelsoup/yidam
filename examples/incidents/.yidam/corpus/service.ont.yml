@@ -1,0 +1,12 @@
+class: service
+label: Service
+description: |
+  A system with an owner and a pager. The unit an incident is declared against.
+properties:
+  - name: tier
+    type: string
+    description: How much of the product stops when this stops.
+  - name: claim_tag
+    type: claim
+    description: The evidence standing of this node, as a tag rather than as prose.
+edges: []
