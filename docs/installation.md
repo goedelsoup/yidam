@@ -80,7 +80,7 @@ already on hand and you would rather not add another package manager.
 ## From source
 
 ```sh
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.6.0 --locked yidam
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.7.0 --locked yidam
 ```
 
 The default build needs **only a Rust toolchain**: no protoc, no system C library, no ML
@@ -154,11 +154,11 @@ To build a heavier set from source:
 
 ```sh
 # Semantic retrieval over an index somebody else built. No protoc.
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.6.0 --locked \
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.7.0 --locked \
   --features vector-read yidam
 
 # Everything, including the ability to build an index.
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.6.0 --locked \
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.7.0 --locked \
   --features full yidam
 ```
 
