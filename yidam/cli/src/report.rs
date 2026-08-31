@@ -38,13 +38,18 @@ pub struct YidamBlock {
     pub version: String,
     /// Short commit of the build, or `unknown` — see `build.rs`. Never guessed.
     pub commit: String,
-    /// Cargo features compiled in. `reports` is the light default; the rest gate whole
-    /// subcommands, so a consumer can tell "this binary cannot do that" from "that failed".
+    /// Cargo features compiled in. `reports` names the base and is always present; the rest
+    /// gate whole subcommands, so a consumer can tell "this binary cannot do that" from
+    /// "that failed".
     pub features: Vec<String>,
 }
 
 impl YidamBlock {
     pub fn current() -> Self {
+        // Unconditional, and not an oversight: `reports` gates no code, so every build has
+        // the capability it names whether or not the feature was spelled. A `cfg!` here
+        // would report a *flag* where the rest of the list reports a capability. See the
+        // note on the feature in Cargo.toml.
         let mut features = vec!["reports".to_string()];
         // Two entries, not one, and `index` implies the other. A client needs to tell three
         // builds apart: one that cannot read an index, one that can read but not build, and

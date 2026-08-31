@@ -3,7 +3,7 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/goedelsoup/yidam/main/install.sh | sh
 #
-# Downloads the light default build (`reports` + `tonpa`) for this platform from
+# Downloads the light default build for this platform from
 # the latest `cli/v*` release, verifies its checksum, and installs it. No Rust
 # toolchain, no protoc, no ML runtime — those belong to `--features full`, which
 # is a source build.

@@ -359,8 +359,8 @@ run = [
 
 # Full-feature CLI build (index/sqlite/rdf) — pulls fastembed/lancedb and needs
 # protoc. Heavy: CI runs this only on main + a weekly schedule (see
-# .github/workflows/ci.yml), not on every PR. `ci-cli` above builds the light
-# default (`reports` + `tonpa`), which is also what the release publishes.
+# .github/workflows/ci.yml), not on every PR. `ci-cli` above builds the default
+# set, which is also what the release publishes.
 [tasks.ci-cli-full]
 description = "Full-feature CI for the yidam CLI (all optional features, and the read-only vector build)."
 # `--all-features` implies `vector-read` through `index`, so it proves that combination and
@@ -372,6 +372,8 @@ description = "Full-feature CI for the yidam CLI (all optional features, and the
 # vector-read` does not disable them. Testing `--no-default-features --features
 # reports,vector-read` would be testing a configuration nobody installs, and it fails for
 # reasons that have nothing to do with this feature — `help.rs` groups `tonpa` unconditionally.
+# That argument now lives where a reader meets the flag, on the `reports` feature in
+# yidam/cli/Cargo.toml; #482 was it being recorded only here, against an unrelated task.
 #
 # It runs first because it is the cheaper of the two and fails faster.
 run = [

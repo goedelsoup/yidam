@@ -323,7 +323,10 @@ mod tests {
             .collect();
         assert!(
             phantom.is_empty(),
-            "grouped but not a subcommand of this build: {phantom:?}"
+            "grouped but not a subcommand of this build: {phantom:?}\n\
+             If the build is `--no-default-features`, the build is what is wrong and not the \
+             grouping: the light build is the `default` set, and the note on the `reports` \
+             feature in Cargo.toml says why naming that feature alone does not produce one."
         );
     }
 

@@ -621,20 +621,22 @@ fn tree(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
         .collect()
 }
 
-/// The light build reports exactly `reports`, and that is worth asserting once.
+/// A real report carries a feature array, and the redaction the goldens rely on finds it.
 ///
-/// It used to be asserted eighteen times, once per golden, as a side effect of the feature
-/// array being compared literally — which is why `--all-features` failed all eighteen and
-/// said nothing about features. Stated here, it holds for the build it is about and leaves
-/// the goldens to be about report shape.
+/// This replaces `the_light_build_reports_exactly_reports`, which asserted that the light
+/// build names exactly one feature. That was true when `default = ["reports"]`, and it was
+/// kept true afterwards by *retreating*: `tonpa` joined the default set and was added to a
+/// `cfg(not(any(…)))` so the test would stop running, rather than to the expectation. When
+/// `vault-s3` joined, nobody added it — so the test survived by only ever running in builds
+/// no CI compiles, under a name claiming it was about the light one. #482.
+///
+/// What it was for now lives in `light_build.rs`, which holds `report.rs`'s list against the
+/// features Cargo.toml declares and does not retreat when the set grows. What is left here
+/// is the part that belongs beside the goldens: that `redact_features` fires on the real
+/// thing, and not only on the string literal `the_feature_set_is_redacted_whatever_it_holds`
+/// hands it.
 #[test]
-#[cfg(not(any(
-    feature = "index",
-    feature = "export-sqlite",
-    feature = "export-graph",
-    feature = "tonpa"
-)))]
-fn the_light_build_reports_exactly_reports() {
+fn the_feature_array_is_redacted_out_of_a_real_report() {
     let tmp = stage();
     let r = run(tmp.path(), &["status", "--format", "json"]);
     // Read from the unredacted process output — `redact` is what this test exists beside.
@@ -644,13 +646,13 @@ fn the_light_build_reports_exactly_reports() {
         .output()
         .unwrap();
     let doc: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(
-        doc["yidam"]["features"].as_array().unwrap(),
-        &vec![serde_json::json!("reports")],
-        "the light default must report exactly one feature, so a consumer can tell \
-         `this binary cannot do that` from `that failed`"
+    let named = doc["yidam"]["features"]
+        .as_array()
+        .expect("a report must carry a feature array");
+    assert!(
+        named.iter().any(|f| f == "reports"),
+        "every build carries the base, whatever else it has: {named:?}"
     );
-    // And the redaction the goldens rely on actually fires.
     assert!(r.stdout.contains("<FEATURES>"), "{}", r.stdout);
 }
 
