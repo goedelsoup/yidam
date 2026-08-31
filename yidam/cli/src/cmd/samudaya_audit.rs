@@ -4,7 +4,14 @@ use std::collections::HashMap;
 use crate::parse::parse_samudaya_seed;
 use crate::paths::{repo_root, samudaya_dir};
 
-const VALID_KINDS: &[&str] = &["axiom", "hint", "constraint", "augmentation"];
+/// The `kind` values a seed file may declare.
+///
+/// `pub` so `tests/samudaya_examples.rs` can hold the domain seed sets under
+/// `samudaya/examples/` to this list. That directory is skipped by the walk below — which is
+/// what keeps those sets from being live seeds of this repository — so nothing else would
+/// check them, and a second copy of these four names is how the check and the command would
+/// come to disagree.
+pub const VALID_KINDS: &[&str] = &["axiom", "hint", "constraint", "augmentation"];
 
 fn extract_body(text: &str) -> &str {
     let body = text.trim_start();

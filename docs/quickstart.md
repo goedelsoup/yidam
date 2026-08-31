@@ -173,8 +173,15 @@ you get is only as good as those answers, so this is the part to spend time on.
 
 If you already know some of it, write it into `samudaya/` before you start — axioms the
 corpus must contain, hints about relationships, constraints on scope. See
-[`samudaya/README.md`](../samudaya/README.md). The bootstrap folds those into the dialogue
-and then deletes the directory as an explicit consumption event.
+[`samudaya/README.md`](../samudaya/README.md) for what each kind means, and
+[`samudaya/examples/`](../samudaya/examples/README.md) for complete seed sets to read or copy
+— genealogy, museum provenance and language documentation, one file per commitment. The
+bootstrap folds those into the dialogue and then deletes the directory as an explicit
+consumption event.
+
+A seed set seeds the dialogue; it does not stand in for it. Copy the seeds that are true of
+your work and delete the rest — one you did not mean is worse than one you did not write,
+because the dialogue will argue for it and you will have to argue back.
 
 The sequence ends in a **genesis commit**. From that point the repository has a history, and
 `CLAUDE.md` stops routing to bootstrap.

@@ -36,6 +36,8 @@ pub mod model;
 pub use cmd::index_build;
 #[cfg(feature = "tonpa")]
 pub use cmd::tonpa;
+/// The seed kinds `yidam samudaya-audit` accepts. See [`samudaya_seed_kind`].
+pub use cmd::SAMUDAYA_KINDS;
 pub use cmd::{
     agents_index, backfill, bench, bundle, bundle_status, catalog_audit, check_diff, clone,
     corpus_index, crates_index, decisions_log, diff_corpus, doctor, due, embed, estimate, export,
@@ -46,6 +48,19 @@ pub use cmd::{
     EmbedOptions, ExportFormat, ExportOptions, LintOptions, LogFilter, MigrateOperation,
     PolicyCommand, ProposeOptions, RdfFormat, VaultCommand,
 };
+
+/// The `kind` a samudaya seed file declares, or `None` where it declares none.
+///
+/// Exposed for `tests/samudaya_examples.rs`, which validates the domain seed sets under
+/// `samudaya/examples/`. `samudaya-audit` deliberately does not read them — it skips
+/// `examples/`, and that skip is the whole reason those sets are inert rather than live
+/// seeds of this repository — so the test is the only thing that can hold them to the
+/// vocabulary. It goes through the same parse the command uses; a second reading of the
+/// frontmatter would be a second opinion about what a seed file is.
+pub fn samudaya_seed_kind(text: &str) -> Option<String> {
+    parse::parse_samudaya_seed(text).kind
+}
+
 /// The per-class schemas compiled from a repository's own ontology.
 ///
 /// Exposed for the test suite that holds the compiler and the gate to the same corpus. It

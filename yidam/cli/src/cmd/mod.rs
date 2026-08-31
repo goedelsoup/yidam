@@ -94,7 +94,7 @@ pub(crate) use regen::stale_blocks;
 pub use registry::{agents_index, skills_index};
 pub use rename::rename;
 pub use replay::replay;
-pub use samudaya_audit::samudaya_audit;
+pub use samudaya_audit::{samudaya_audit, VALID_KINDS as SAMUDAYA_KINDS};
 pub use sangha::sangha;
 pub use schema::{class_schemas, schema};
 pub use serve::serve_mcp;
