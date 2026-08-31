@@ -58,6 +58,10 @@ pub struct Named {
     /// said* — and both refuse a push, but only one of them is a decision.
     pub redistributable: Option<bool>,
     pub bytes: Option<u64>,
+    /// What the record says these bytes are. Only `vault materialize` reads it — a content
+    /// address is right for storage and useless for opening, and this is what supplies the
+    /// extension a person's PDF reader needs.
+    pub media_type: Option<String>,
 }
 
 /// Whether an artifact may be uploaded, and if not, why.
@@ -268,6 +272,7 @@ pub fn named_artifacts(root: &Path) -> Vec<Named> {
                 vault: a.vault.clone(),
                 redistributable: a.redistributable,
                 bytes: a.bytes,
+                media_type: a.media_type.clone(),
             });
         }
     }
@@ -288,6 +293,7 @@ mod tests {
             vault: vault.map(str::to_string),
             redistributable,
             bytes: None,
+            media_type: None,
         }
     }
 

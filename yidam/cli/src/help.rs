@@ -96,6 +96,7 @@ pub const GROUPS: &[Group] = &[
             w("crates-index"),
             w("packages-index"),
             w("bundle-status"),
+            w("vault-status"),
         ],
     },
     Group {
@@ -328,15 +329,15 @@ mod tests {
         assert_eq!(seen.len(), names.len(), "a command is grouped twice");
     }
 
-    /// The ten REGEN generators are the reason the write marker exists: they are the
-    /// commands that look like reads. `regen` runs all ten, so it writes too.
+    /// The eleven REGEN generators are the reason the write marker exists: they are the
+    /// commands that look like reads. `regen` runs all eleven, so it writes too.
     #[test]
     fn every_regen_generator_is_marked_as_writing() {
         let readme = GROUPS
             .iter()
             .find(|g| g.title.starts_with("README blocks"))
             .expect("the README-block group");
-        assert_eq!(readme.commands.len(), 11, "ten generators plus `regen`");
+        assert_eq!(readme.commands.len(), 12, "eleven generators plus `regen`");
         for entry in readme.commands {
             assert!(entry.writes, "{} must be marked as writing", entry.name);
         }

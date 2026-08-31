@@ -155,6 +155,13 @@ enum Command {
     /// Writes the `<!-- REGEN: yidam bundle-status -->` block in the repository's README.
     #[command(name = "bundle-status")]
     BundleStatus,
+    /// Report where this corpus keeps its artifacts, and which store holds each.
+    ///
+    /// Writes the `<!-- REGEN: yidam vault-status -->` block in the repository's README.
+    /// Reads committed files only — never the local cache, and never the network — because a
+    /// generated block that varied by machine could not be checked.
+    #[command(name = "vault-status")]
+    VaultStatus,
     /// Is this setup sound? One screen of checks, each with a verdict and a remedy.
     ///
     /// Read-only and offline. Exits nonzero when something is wrong now; warnings — no
@@ -713,6 +720,7 @@ fn main() -> Result<()> {
         Command::CratesIndex => yidam::crates_index(),
         Command::PackagesIndex => yidam::packages_index(),
         Command::BundleStatus => yidam::bundle_status(),
+        Command::VaultStatus => yidam::vault_status(),
         Command::Doctor { strict, format } => yidam::doctor(strict, format),
         Command::Due { strict, format } => yidam::due(strict, format),
         Command::Regen { check, format } => yidam::regen(check, format),
