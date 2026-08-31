@@ -54,6 +54,7 @@ re-deriving it.
 | [0021](0021-diff-alignment.md) | I16 | Code that names what the ontology has not (`yidam check-diff`) | Draft |
 | [0022](0022-semantic-alignment.md) | I17 | What a tool may say about code it cannot read (`check-diff`, Phase B) | Draft |
 | [0023](0023-remote-vaults.md) | I18 | Bytes the catalog fetched and never kept — remote vaults | Draft |
+| [0024](0024-policy-as-code.md) | I19 | The rule a repository writes about itself — policy as code | Draft |
 
 ## Reading order
 
