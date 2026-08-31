@@ -318,6 +318,12 @@ pub struct Source {
     pub retrieved: Option<String>,
     /// The entry's own TTL, which beats the corpus default.
     pub ttl_days: Option<u32>,
+    /// What this entry says it has obtained, by content address.
+    ///
+    /// Empty on every entry written before RFC-0023, and the checks that read it are written
+    /// so that an empty list is silent. A corpus adopting the field opts into the checks; a
+    /// corpus that has not adopted it sees no new findings at all.
+    pub artifacts: Vec<crate::parse::CatalogArtifact>,
 }
 
 fn rel_of(root: &Path, path: &Path) -> String {
@@ -357,6 +363,7 @@ pub fn load_sources(root: &Path, paths: &[PathBuf], overlay: &super::Overlay) ->
                 locations: fm.location.unwrap_or_default(),
                 retrieved: fm.retrieved,
                 ttl_days: fm.ttl_days,
+                artifacts: fm.artifacts.unwrap_or_default(),
             }
         })
         .collect()
@@ -1836,6 +1843,135 @@ fn basename(p: &str) -> &str {
     p.rsplit('/').next().unwrap_or(p)
 }
 
+/// An artifact record that cannot be read as one.
+///
+/// # Why this and not a parse failure
+///
+/// [`crate::parse::CatalogArtifact`] takes every field as `Option` so that one bad line does
+/// not make the whole entry unreadable — an entry that fails to load takes its citations, its
+/// TTL and its `used-by` down with it, which is a large penalty for a mistyped digest. The
+/// cost of that choice is that malformedness has to be *reported*, and this is the report.
+///
+/// # What it does not check
+///
+/// **Whether the bytes exist, and whether they hash correctly.** Both are facts about the
+/// machine running the check rather than about `HEAD`, and no check in this file has ever read
+/// machine-local state — `lint` reads the working tree and nothing else. A gate whose verdict
+/// depends on which machine ran it is one a corpus cannot reason about, so the cache lives
+/// behind `yidam vault verify` where a per-machine answer is the point.
+///
+/// So this reports only what the repository can settle from its own files, and it fires only
+/// on entries that declare `artifacts:` at all. A corpus that has not adopted the field gets
+/// no findings from it.
+pub fn catalog_artifact_malformed(sources: &[Source]) -> Check {
+    let mut violations = Vec::new();
+    for s in sources {
+        for (i, a) in s.artifacts.iter().enumerate() {
+            let mut problems = Vec::new();
+            match a.sha256.as_deref().map(str::trim) {
+                None | Some("") => problems.push("no `sha256`".to_string()),
+                Some(h) if h.len() != 64 => {
+                    problems.push(format!("`sha256` is {} characters, not 64: {h:?}", h.len()))
+                }
+                Some(h) if !h.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')) => {
+                    // Uppercase named separately: hex is case-insensitive and a store is not,
+                    // so the two spellings would be two keys for one artifact.
+                    if h.chars().any(|c| c.is_ascii_uppercase()) {
+                        problems.push(format!(
+                            "`sha256` is uppercase; vault keys are lowercase hex — use {}",
+                            h.to_ascii_lowercase()
+                        ));
+                    } else {
+                        problems.push(format!("`sha256` is not hex: {h:?}"));
+                    }
+                }
+                Some(_) => {}
+            }
+            // A `from:` index naming no location is the one cross-field error worth having:
+            // it means the record cites a provenance the entry does not carry.
+            if let Some(crate::parse::ArtifactOrigin::Location(n)) = &a.from {
+                if *n >= s.locations.len() {
+                    problems.push(format!(
+                        "`from: {n}` names location {n} and this entry declares {}",
+                        s.locations.len()
+                    ));
+                }
+            }
+            if !problems.is_empty() {
+                violations.push(Violation::new(
+                    &s.rel,
+                    format!("artifacts[{i}]: {}", problems.join("; ")),
+                ));
+            }
+        }
+    }
+    Check::new(
+        "catalog-artifact-malformed",
+        "Obtained-artifact record is missing or mistyped",
+        Severity::Error,
+        "An artifact record is what makes `obtained: true` demonstrable rather than asserted \
+         — the digest names the bytes the entry claims to have. A record without a well-formed \
+         digest names nothing, so it is a claim of retrieval with no more standing than the \
+         flag it was added to support. Error, because the failure is in the record itself and \
+         is settled entirely by files in this repository.",
+        violations,
+    )
+}
+
+/// An artifact routed to a vault this repository does not declare.
+///
+/// # Why this may gate
+///
+/// **Both sides are committed.** The record is in `.yidam/catalog/`, the vault is in
+/// `.yidam/config.toml`, and the check compares one against the other — so it answers
+/// identically in every clone, and a finding is a defect in the corpus rather than a fact
+/// about your credentials or your network. Whether a *declared* vault can actually be reached
+/// is a different question and belongs to `yidam vault status`.
+///
+/// `vault: none` is a route, not an absence: it says these bytes stay in the local cache. It
+/// is spelled rather than omitted so that "nobody has decided" and "decided to keep it here"
+/// are different states.
+pub fn catalog_artifact_unroutable(sources: &[Source], declared: &[String]) -> Check {
+    let mut violations = Vec::new();
+    for s in sources {
+        for (i, a) in s.artifacts.iter().enumerate() {
+            let Some(name) = a.vault.as_deref().map(str::trim).filter(|v| !v.is_empty()) else {
+                continue;
+            };
+            if name == "none" || declared.iter().any(|d| d == name) {
+                continue;
+            }
+            let known = if declared.is_empty() {
+                "this repository declares no vault".to_string()
+            } else {
+                format!(
+                    "declared: {}",
+                    declared
+                        .iter()
+                        .map(|d| format!("`{d}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            };
+            violations.push(Violation::new(
+                &s.rel,
+                format!("artifacts[{i}]: `vault: {name}` names no declared vault ({known})"),
+            ));
+        }
+    }
+    Check::new(
+        "catalog-artifact-unroutable",
+        "Artifact routed to a vault nothing declares",
+        Severity::Error,
+        "A record naming a vault that `.yidam/config.toml` does not declare is a route to \
+         nowhere: nothing will ever store or fetch those bytes, and the entry reads as though \
+         something will. Both sides are committed, so this check answers identically in every \
+         clone — it reports a defect in the corpus, never a fact about your credentials. \
+         `vault: none` is a route and means the local cache and nowhere else.",
+        violations,
+    )
+}
+
 pub fn catalog_location_malformed(sources: &[Source]) -> Check {
     let mut violations = Vec::new();
     for s in sources {
@@ -2038,6 +2174,7 @@ mod tests {
             locations: vec![],
             retrieved: None,
             ttl_days: None,
+            artifacts: Vec::new(),
         }
     }
 
@@ -2213,6 +2350,7 @@ mod tests {
                 locations: vec![],
                 retrieved: a.retrieved.clone(),
                 ttl_days: a.ttl_days,
+                artifacts: Vec::new(),
             })
             .collect();
         catalog_expired(ages, &sources, cites)
@@ -2681,7 +2819,187 @@ mod tests {
             locations: vec![],
             retrieved: None,
             ttl_days: None,
+            artifacts: Vec::new(),
         }
+    }
+
+    // ── obtained-artifact records ────────────────────────────────────────────
+
+    const GOOD: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+
+    fn with_artifacts(slug: &str, yaml: &str) -> Source {
+        let mut s = catalog_source(slug, true);
+        s.artifacts = serde_yaml::from_str(yaml).expect("test fixture parses");
+        s
+    }
+
+    /// The upgrade story, and the reason both checks are written the way they are: a corpus
+    /// that has not adopted `artifacts:` must see nothing new. Every entry in every existing
+    /// corpus is this case on the day the field ships.
+    #[test]
+    fn an_entry_declaring_no_artifacts_produces_no_findings() {
+        let sources = vec![catalog_source("pearl-2009", true)];
+        assert!(catalog_artifact_malformed(&sources).violations.is_empty());
+        assert!(catalog_artifact_unroutable(&sources, &[])
+            .violations
+            .is_empty());
+    }
+
+    #[test]
+    fn a_well_formed_record_is_silent() {
+        let sources = vec![with_artifacts(
+            "pearl-2009",
+            &format!("- sha256: {GOOD}\n  bytes: 4194304\n  media_type: application/pdf\n"),
+        )];
+        assert!(catalog_artifact_malformed(&sources).violations.is_empty());
+    }
+
+    #[test]
+    fn a_record_without_a_digest_names_nothing_and_is_reported() {
+        let sources = vec![with_artifacts("pearl-2009", "- bytes: 10\n")];
+        let v = &catalog_artifact_malformed(&sources).violations;
+        assert_eq!(v.len(), 1);
+        assert!(v[0].detail.contains("no `sha256`"), "{:?}", v[0].detail);
+    }
+
+    /// Hex is case-insensitive and a content-addressed store is not, so an uppercase digest
+    /// is a second name for one artifact. The message carries the fix.
+    #[test]
+    fn an_uppercase_digest_is_reported_with_the_lowercase_form() {
+        let sources = vec![with_artifacts(
+            "pearl-2009",
+            &format!("- sha256: {}\n", GOOD.to_ascii_uppercase()),
+        )];
+        let v = &catalog_artifact_malformed(&sources).violations;
+        assert_eq!(v.len(), 1);
+        assert!(
+            v[0].detail.contains(GOOD),
+            "carries the fix: {:?}",
+            v[0].detail
+        );
+    }
+
+    #[test]
+    fn a_digest_of_the_wrong_length_or_alphabet_is_reported() {
+        let sources = vec![
+            with_artifacts("short", "- sha256: abc123\n"),
+            with_artifacts("nonhex", &format!("- sha256: {}\n", "z".repeat(64))),
+        ];
+        let v = &catalog_artifact_malformed(&sources).violations;
+        assert_eq!(v.len(), 2);
+        assert!(v[0].detail.contains("not 64"), "{:?}", v[0].detail);
+        assert!(v[1].detail.contains("not hex"), "{:?}", v[1].detail);
+    }
+
+    /// A `from:` index naming no location means the record cites a provenance the entry does
+    /// not carry — the one cross-field error worth having here.
+    #[test]
+    fn a_from_index_naming_no_location_is_reported() {
+        let mut s = with_artifacts("pearl-2009", &format!("- sha256: {GOOD}\n  from: 2\n"));
+        s.locations = vec![crate::parse::CatalogLocation {
+            kind: Some("url".into()),
+            value: Some("https://example.org".into()),
+            description: None,
+        }];
+        let v = &catalog_artifact_malformed(&[s]).violations;
+        assert_eq!(v.len(), 1);
+        assert!(v[0].detail.contains("from: 2"), "{:?}", v[0].detail);
+        assert!(v[0].detail.contains("declares 1"), "{:?}", v[0].detail);
+    }
+
+    #[test]
+    fn a_from_url_is_not_an_index_and_is_never_out_of_range() {
+        let s = with_artifacts(
+            "pearl-2009",
+            &format!("- sha256: {GOOD}\n  from: https://example.org/paper.pdf\n"),
+        );
+        assert!(catalog_artifact_malformed(&[s]).violations.is_empty());
+    }
+
+    /// Each malformed record is reported once, indexed, so an entry with several says which.
+    #[test]
+    fn several_problems_in_one_record_are_reported_as_one_violation() {
+        let sources = vec![with_artifacts(
+            "pearl-2009",
+            "- sha256: abc\n  from: 5\n- bytes: 1\n",
+        )];
+        let v = &catalog_artifact_malformed(&sources).violations;
+        assert_eq!(v.len(), 2, "one per record, not one per problem");
+        assert!(v[0].detail.starts_with("artifacts[0]"), "{:?}", v[0].detail);
+        assert!(v[1].detail.starts_with("artifacts[1]"), "{:?}", v[1].detail);
+        assert!(
+            v[0].detail.contains(';'),
+            "both problems: {:?}",
+            v[0].detail
+        );
+    }
+
+    // ── routing ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn an_artifact_routed_to_a_declared_vault_is_silent() {
+        let s = with_artifacts(
+            "pearl-2009",
+            &format!("- sha256: {GOOD}\n  vault: sources\n"),
+        );
+        let declared = vec!["default".to_string(), "sources".to_string()];
+        assert!(catalog_artifact_unroutable(&[s], &declared)
+            .violations
+            .is_empty());
+    }
+
+    /// `none` is a route — the local cache and nowhere else — rather than an absence, so it
+    /// resolves without any vault being declared at all.
+    #[test]
+    fn vault_none_is_a_route_and_needs_nothing_declared() {
+        let s = with_artifacts("pearl-2009", &format!("- sha256: {GOOD}\n  vault: none\n"));
+        assert!(catalog_artifact_unroutable(&[s], &[]).violations.is_empty());
+    }
+
+    #[test]
+    fn an_artifact_naming_no_declared_vault_is_reported_with_what_is_declared() {
+        let s = with_artifacts(
+            "pearl-2009",
+            &format!("- sha256: {GOOD}\n  vault: archive\n"),
+        );
+        let declared = vec!["default".to_string()];
+        let v = &catalog_artifact_unroutable(&[s], &declared).violations;
+        assert_eq!(v.len(), 1);
+        assert!(
+            v[0].detail.contains("`vault: archive`"),
+            "{:?}",
+            v[0].detail
+        );
+        assert!(
+            v[0].detail.contains("`default`"),
+            "names what is declared: {:?}",
+            v[0].detail
+        );
+    }
+
+    /// A corpus with records and no vault at all is a common half-configured state, and the
+    /// message has to say that rather than listing an empty set.
+    #[test]
+    fn with_no_vault_declared_the_message_says_so_rather_than_listing_nothing() {
+        let s = with_artifacts(
+            "pearl-2009",
+            &format!("- sha256: {GOOD}\n  vault: default\n"),
+        );
+        let v = &catalog_artifact_unroutable(&[s], &[]).violations;
+        assert_eq!(v.len(), 1);
+        assert!(
+            v[0].detail.contains("declares no vault"),
+            "{:?}",
+            v[0].detail
+        );
+    }
+
+    /// A record that does not name a vault has not been routed yet, which is not an error —
+    /// the route falls back to what the vault itself declares it holds.
+    #[test]
+    fn a_record_naming_no_vault_is_not_unroutable() {
+        let s = with_artifacts("pearl-2009", &format!("- sha256: {GOOD}\n"));
+        assert!(catalog_artifact_unroutable(&[s], &[]).violations.is_empty());
     }
 
     fn corpus_node(name: &str, yaml: &str) -> Node {

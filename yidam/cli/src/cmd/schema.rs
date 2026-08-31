@@ -321,6 +321,60 @@ pub fn catalog_entry_schema() -> Value {
                 "description": "Optional. Corpus nodes known to draw on this source. Declaring \
                                 one asserts it is current; the citations are authoritative.",
                 "items": non_empty_string()
+            },
+            "artifacts": {
+                "type": "array",
+                "description": "Optional. What this entry has actually obtained, by content \
+                                address. This is what makes `obtained: true` demonstrable \
+                                rather than asserted — the digest names the bytes. The bytes \
+                                themselves live in a vault; the repository keeps the record.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "sha256": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$",
+                            "description": "64 lowercase hex characters. Lowercase because hex \
+                                            is case-insensitive and a content-addressed store \
+                                            is not — two spellings would be two keys for one \
+                                            artifact."
+                        },
+                        "bytes": { "type": "integer", "minimum": 0 },
+                        "media_type": non_empty_string(),
+                        "retrieved": {
+                            "type": "string",
+                            "description": "YYYY-MM-DD. When these bytes were obtained — \
+                                            distinct from the entry's own `retrieved:`, which \
+                                            is about the record."
+                        },
+                        "from": {
+                            "description": "An index into this entry's `location` list, or a \
+                                            literal URL for bytes obtained from somewhere it \
+                                            does not list.",
+                            "oneOf": [
+                                { "type": "integer", "minimum": 0 },
+                                non_empty_string()
+                            ]
+                        },
+                        "vault": {
+                            "type": "string",
+                            "description": "Which store these bytes may be kept in. `none` \
+                                            means the local cache and nowhere else, and is \
+                                            spelled rather than omitted so that \"nobody has \
+                                            decided\" and \"decided to keep it here\" are \
+                                            different states."
+                        },
+                        "redistributable": {
+                            "type": "boolean",
+                            "description": "Whether these bytes may leave this machine at all. \
+                                            A licensing fact about the source, which overrides \
+                                            `vault` — a route is edited casually and a licence \
+                                            is not something that edit may undo."
+                        }
+                    },
+                    "required": ["sha256"],
+                    "additionalProperties": false
+                }
             }
         },
         "required": ["name", "description"],

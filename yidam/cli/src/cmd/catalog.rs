@@ -120,6 +120,18 @@ struct SourceRow {
     /// claimed anything, the second is one whose claim holds — and `catalog-used-by-drift`
     /// draws the same distinction from the same function.
     drift: Option<crate::cmd::lint::checks::UsedByDrift>,
+    /// What the entry says it has obtained, verbatim. Empty when it says nothing.
+    ///
+    /// The records rather than a count, for the reason [`Cited`] gives about paths: a count
+    /// answers *has this been obtained*, and a client placing an artifact under the source
+    /// that names it needs the digest, which this walk already has. Discarding it here only
+    /// to make a consumer re-parse the entry is how a client ends up re-implementing the
+    /// resolver.
+    ///
+    /// **Nothing here reports whether the bytes exist.** That is a fact about the machine
+    /// asking, and this report — like every check in `lint` — reads the working tree and
+    /// nothing else. `yidam vault verify` is where a per-machine answer belongs.
+    artifacts: Vec<crate::parse::CatalogArtifact>,
 }
 
 #[derive(serde::Serialize)]
@@ -172,6 +184,36 @@ fn draws_on(root: &Path, corpus: &Path) -> HashMap<PathBuf, Cited> {
     out.into_iter().map(|(k, v)| (k, v.sorted())).collect()
 }
 
+/// How many obtained artifacts an entry records, and how many of those name bytes.
+///
+/// **This is the column the template README has specified since it was written** — "integrity
+/// status (hash present/absent)" — and it went unemitted for the whole life of the report
+/// because there was nothing to hash. It is deliberately the weaker half of that phrase.
+///
+/// It reports *hash present or absent*, and not integrity. Integrity would mean the bytes are
+/// what the digest says, and no report reading only the working tree can know that: the bytes
+/// sit in a machine-local cache or a remote store, and neither is a function of `HEAD`.
+/// `yidam vault verify` answers the stronger question, per machine, which is the only place
+/// that answer means anything.
+///
+/// `1 of 2` is a real state rather than a rounding: an entry can record two artifacts and give
+/// a digest for only one. `catalog-artifact-malformed` reports that as an error; this says how
+/// much of the entry it affects.
+fn artifact_cell(artifacts: &[crate::parse::CatalogArtifact]) -> String {
+    if artifacts.is_empty() {
+        return "—".to_string();
+    }
+    let named = artifacts
+        .iter()
+        .filter(|a| a.sha256.as_deref().is_some_and(|h| !h.trim().is_empty()))
+        .count();
+    if named == artifacts.len() {
+        named.to_string()
+    } else {
+        format!("{named} of {}", artifacts.len())
+    }
+}
+
 /// The legend under the table.
 ///
 /// Generated with the block rather than written once into the README, because a REGEN block
@@ -180,7 +222,11 @@ const LEGEND: &str = "\n\n**Nodes** counts corpus instances that link here — t
      every gate reads, and what `catalog-uncited` means by *no corpus node draws on this \
      source*. **Elsewhere** counts other files under `.yidam/corpus/` that link here: class \
      definitions and README prose. They are kept apart rather than summed, because a claim \
-     resting on a source and a page linking to one are different things.";
+     resting on a source and a page linking to one are different things. **Artifacts** counts what an \
+     entry records having obtained, by content address, and how many of those records name \
+     bytes — `1 of 2` is an entry that recorded two and gave a digest for one. It says \
+     nothing about whether the bytes are present or correct: that is a fact about the machine \
+     asking, and `yidam vault verify` is where it is answered.";
 
 pub fn catalog_audit(format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
@@ -204,8 +250,8 @@ pub fn catalog_audit(format: crate::report::Format) -> Result<()> {
         // The REGEN marker in catalog/README.md promises source type and retrieval status
         // alongside the citation count; both were specified and neither was emitted.
         let mut rows = vec![
-            "| Entry | Type | Description | Obtained | Nodes | Elsewhere |".to_string(),
-            "|---|---|---|---|---|---|".to_string(),
+            "| Entry | Type | Description | Obtained | Artifacts | Nodes | Elsewhere |".to_string(),
+            "|---|---|---|---|---|---|---|".to_string(),
         ];
         for path in &entries {
             let text = std::fs::read_to_string(path).unwrap_or_default();
@@ -228,6 +274,8 @@ pub fn catalog_audit(format: crate::report::Format) -> Result<()> {
                 .cloned()
                 .unwrap_or_default();
             let counts = cited.counts();
+            let artifacts = fm.artifacts.unwrap_or_default();
+            let artifacts_cell = artifact_cell(&artifacts);
             let used_by = fm.used_by.unwrap_or_default();
             // Against `cited.nodes` and not `cited.total()`: `catalog-used-by-drift` compares
             // the list to the citations *the gate reads*, and a report disagreeing with the
@@ -244,9 +292,11 @@ pub fn catalog_audit(format: crate::report::Format) -> Result<()> {
                 cited_by: cited.nodes,
                 used_by,
                 drift,
+                artifacts,
             });
             rows.push(format!(
-                "| [{filename}]({filename}) | {kind} | {desc} | {obtained} | {} | {} |",
+                "| [{filename}]({filename}) | {kind} | {desc} | {obtained} | \
+                 {artifacts_cell} | {} | {} |",
                 counts.nodes, counts.elsewhere
             ));
         }
@@ -264,6 +314,50 @@ pub fn catalog_audit(format: crate::report::Format) -> Result<()> {
 
     crate::regen::emit(&content);
     update_file_regen(&catalog.join("README.md"), "yidam catalog-audit", &content)
+}
+
+#[cfg(test)]
+mod artifact_cell_tests {
+    use super::artifact_cell;
+    use crate::parse::CatalogArtifact;
+
+    fn with(digests: &[Option<&str>]) -> Vec<CatalogArtifact> {
+        digests
+            .iter()
+            .map(|d| CatalogArtifact {
+                sha256: d.map(str::to_string),
+                ..Default::default()
+            })
+            .collect()
+    }
+
+    /// An entry that records nothing is the common case and must read as absence, not zero.
+    #[test]
+    fn no_records_is_an_em_dash_rather_than_a_count() {
+        assert_eq!(artifact_cell(&[]), "—");
+    }
+
+    #[test]
+    fn every_record_naming_bytes_is_just_the_count() {
+        assert_eq!(artifact_cell(&with(&[Some("a")])), "1");
+        assert_eq!(artifact_cell(&with(&[Some("a"), Some("b")])), "2");
+    }
+
+    /// The state the column exists to make visible: an entry that recorded two artifacts and
+    /// gave a digest for one. `catalog-artifact-malformed` reports it as an error; this says
+    /// how much of the entry it affects.
+    #[test]
+    fn a_record_without_a_digest_is_counted_apart() {
+        assert_eq!(artifact_cell(&with(&[Some("a"), None])), "1 of 2");
+        assert_eq!(artifact_cell(&with(&[None, None])), "0 of 2");
+    }
+
+    /// A blank digest is no digest. Whitespace here would otherwise report a record as naming
+    /// bytes when it names nothing.
+    #[test]
+    fn a_blank_digest_does_not_count_as_naming_bytes() {
+        assert_eq!(artifact_cell(&with(&[Some("   ")])), "0 of 1");
+    }
 }
 
 #[cfg(test)]

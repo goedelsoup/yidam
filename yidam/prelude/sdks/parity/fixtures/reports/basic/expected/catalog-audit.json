@@ -19,7 +19,8 @@
       "elsewhere": 1,
       "cited_by": [],
       "used_by": [],
-      "drift": null
+      "drift": null,
+      "artifacts": []
     },
     {
       "entry": "stage-discharge.md",
@@ -44,7 +45,18 @@
         "citing_not_claimed": [
           "tailwater.yml"
         ]
-      }
+      },
+      "artifacts": [
+        {
+          "sha256": "419d61a7674cb5452c1bc6ba3f2f77cb45efb05bd2fc9ae0167c84ed586020a0",
+          "bytes": 182391,
+          "media_type": "application/pdf",
+          "retrieved": "2026-08-22",
+          "from": null,
+          "vault": "none",
+          "redistributable": null
+        }
+      ]
     }
   ]
 }

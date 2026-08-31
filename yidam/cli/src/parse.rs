@@ -48,6 +48,70 @@ pub struct Frontmatter {
     /// away; see `catalog-used-by-drift`.
     #[serde(default, rename = "used-by")]
     pub used_by: Option<Vec<String>>,
+    /// Catalog entries only. What this entry has actually obtained, by content address.
+    ///
+    /// See [`CatalogArtifact`]. Absent on every entry written before RFC-0023, and adding it
+    /// is a corpus deciding to record what it holds rather than a requirement arriving in a
+    /// build — which is why the checks that read it fire only on entries that declare it.
+    #[serde(default)]
+    pub artifacts: Option<Vec<CatalogArtifact>>,
+}
+
+/// One artifact a catalog entry has actually obtained.
+///
+/// The record, not the bytes. RFC-0023's constraint is that *a vault stores bytes and git
+/// stores the record of them*, and this is that record: the digest names the artifact, and
+/// everything else here is what a reader needs in order to know what was named.
+///
+/// **This is what makes `obtained: true` demonstrable.** The flag means fetched, and until
+/// now nothing anywhere held what was fetched — so an entry marked obtained and an entry
+/// marked obtained falsely were the same observation. A digest is the difference.
+///
+/// Optional, and absent on every entry written before this existed. Adding it is a corpus
+/// deciding to record what it has, not a requirement arriving in a build.
+#[derive(serde::Deserialize, serde::Serialize, Default, Clone, Debug)]
+pub struct CatalogArtifact {
+    /// The content address — 64 lowercase hex characters.
+    ///
+    /// `Option` so that a malformed record parses and is *reported* rather than making the
+    /// whole entry unreadable. A catalog entry that fails to load takes its citations, its
+    /// TTL and its `used-by` down with it, which is a large penalty for one bad field.
+    pub sha256: Option<String>,
+    /// Size in bytes, as fetched.
+    pub bytes: Option<u64>,
+    /// The media type, so a reader knows what the artifact is without fetching it.
+    pub media_type: Option<String>,
+    /// When these bytes were obtained. Distinct from the entry's own `retrieved:`, which is
+    /// about the *record* — an entry can be revised without re-fetching anything.
+    pub retrieved: Option<String>,
+    /// Where it came from: an index into this entry's `location` list, or a literal URL.
+    pub from: Option<ArtifactOrigin>,
+    /// Which vault these bytes may be stored in. `none` means the local cache and nowhere
+    /// else.
+    ///
+    /// **Routing, and not permission.** [`Self::redistributable`] is the other question and
+    /// overrides this one; see its note.
+    pub vault: Option<String>,
+    /// Whether these bytes may leave this machine at all.
+    ///
+    /// A licensing fact about the *source*, which is why it is not folded into
+    /// [`Self::vault`]. A route is edited casually — somebody reorganising storage moves a
+    /// dozen entries between stores in an afternoon — and a licence is not something that
+    /// edit is allowed to undo. Enforced where uploads happen, not here.
+    pub redistributable: Option<bool>,
+}
+
+/// Where an obtained artifact came from.
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum ArtifactOrigin {
+    /// An index into the entry's own `location` list — `from: 0` is the first location.
+    ///
+    /// Preferred over repeating the URL, because a location that moves is then corrected in
+    /// one place. `catalog-artifact-malformed` reports an index naming no location.
+    Location(usize),
+    /// A literal URL, for bytes obtained from somewhere this entry does not list.
+    Url(String),
 }
 
 /// One typed place a catalog source can be reached.

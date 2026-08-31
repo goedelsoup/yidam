@@ -193,6 +193,7 @@ mod tests {
             locations: vec![],
             retrieved: retrieved.map(str::to_string),
             ttl_days: ttl,
+            artifacts: Vec::new(),
         }
     }
 
