@@ -89,7 +89,29 @@ reqwest = { version = "0.12", default-features = false, features = [
   "rustls-tls-native-roots",
   "charset",
   "http2",
+  # `stream` is what lets a vault PUT send a file without reading it into memory. A vector
+  # index runs to hundreds of megabytes and buffering one to upload it would make the memory
+  # cost of storing an artifact proportional to its size. Measured in #412: it resolves
+  # **zero** new packages — tokio-util is already here through tokio.
+  "stream",
 ], optional = true }
+
+# ── `vault-s3` — SigV4 signing for the S3 transport. ──────────────────────────
+#
+# One crate, and that is the whole marginal cost of S3 support in the light build. #412
+# measured the alternatives against this repository's real dependency graph: `rust-s3` adds
+# 48 packages including a second HTTP and TLS stack (hyper 0.14 beside 1.10, rustls 0.21
+# beside 0.23), `object_store` adds 36 including a second `reqwest` and `aws-lc-sys`, whose
+# build needs CMake that release.yml does not install. reqwest and tokio are already here
+# through `tonpa`, so what is left is HMAC.
+#
+# RustCrypto, pure Rust, no build script, no C — so it cannot affect the aarch64
+# cross-compile, which is the constraint the TLS note above exists to protect.
+hmac = { version = "0.12", optional = true }
+# Wraps a `tokio::fs::File` as a stream for a `PUT` body. Already in the graph through
+# reqwest's `stream` feature — naming it as a dependency adds no package, and using it
+# without naming it is not allowed.
+tokio-util = { version = "0.7", default-features = false, features = ["io"], optional = true }
 
 [features]
 # `tonpa` is in the default set, and it is the one feature that had to be:
@@ -97,7 +119,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 # `unrecognized subcommand`, which is not "this feature is unavailable" but "a
 # documented workflow is impossible". Every other gated feature degrades to a
 # missing capability; this one degraded to a broken instruction.
-default = ["reports", "tonpa"]
+default = ["reports", "tonpa", "vault-s3"]
 # Light base: the four reports (graph-check, lint, corpus-index, open-questions)
 # plus every pure-Rust command. Adds no dependencies beyond the base set — no
 # protoc, no system C library, no ML runtime.
@@ -130,8 +152,18 @@ export-graph = ["dep:oxrdf", "dep:oxttl"]
 # `tonpa` bundle dependency manager — async network fetch via reqwest. In the
 # default set; see the note there and on the reqwest dependency above.
 tonpa = ["dep:reqwest", "dep:tokio"]
+# The S3 transport for `yidam vault`. **In the default set, deliberately.**
+#
+# Not because it is small — though it is, see the `hmac` note — but because PR CI never
+# compiles `--features index`, so gated code ships that no pull request has built. Anything
+# in `default` is compiled and tested by every pull request, including the aarch64
+# cross-compile job, which is the one that would catch a dependency the release cannot link.
+#
+# The rest of the vault — addressing, the cache, the `file://` backend — is ungated and stays
+# that way. This feature buys the network and nothing else.
+vault-s3 = ["dep:hmac", "dep:reqwest", "dep:tokio", "dep:tokio-util"]
 # Everything — reproduces the pre-partition monolith (`cargo install --features full`).
-full = ["reports", "index", "export-sqlite", "export-graph", "tonpa"]
+full = ["reports", "index", "export-sqlite", "export-graph", "tonpa", "vault-s3"]
 
 [dev-dependencies]
 walkdir = "2"

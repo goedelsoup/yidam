@@ -24,9 +24,41 @@
 mod cache;
 mod cas;
 mod config;
+#[cfg(feature = "vault-s3")]
+mod creds;
+mod policy;
+#[cfg(feature = "vault-s3")]
+mod s3;
+#[cfg(feature = "vault-s3")]
+mod sigv4;
 mod store;
 
 pub use cache::{Cache, Verdict};
 pub use cas::ContentHash;
 pub use config::{resolve, VaultConfig, ONLY_VAULT};
+pub use policy::{may_push, named_artifacts, read_private_paths, Disposition, Named};
 pub use store::{open, Store};
+
+#[cfg(feature = "vault-s3")]
+pub use s3::{S3Store, SignedRequest, MAX_SINGLE_PUT};
+
+/// Whether a vault's credentials are in the environment, without building a store.
+///
+/// `doctor` needs to ask this and must not construct a client to do it: building one resolves
+/// credentials *and* a runtime, and reporting "cannot build a runtime" where the answer is
+/// "you have not exported a key" would be a diagnosis about the wrong thing.
+///
+/// In a build without the transport there are no credentials to want, so the question is
+/// vacuously answered — the same shape `paths.rs` uses for reading a tonpa lock in a binary
+/// that cannot fetch one.
+pub fn credentials_available(vault: &str) -> anyhow::Result<()> {
+    #[cfg(feature = "vault-s3")]
+    {
+        creds::resolve(vault, |k| std::env::var(k).ok()).map(|_| ())
+    }
+    #[cfg(not(feature = "vault-s3"))]
+    {
+        let _ = vault;
+        Ok(())
+    }
+}

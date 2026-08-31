@@ -48,20 +48,37 @@ pub trait Store {
     ///
     /// Idempotent: putting bytes the store already holds is a no-op rather than a rewrite.
     fn put(&self, hash: &ContentHash, src: &Path) -> Result<()>;
+
+    /// What a `PUT` of this artifact would send, for `push --dry-run`.
+    ///
+    /// `None` where there is nothing to explain — a `file://` store copies a file and has no
+    /// request to show. For S3 this is the canonical request, which is the *only* artifact of
+    /// a signing bug a person can actually inspect: a server reports a mismatch as a bad
+    /// signature and never says which byte it disagreed about.
+    fn explain_put(&self, _hash: &ContentHash) -> Option<String> {
+        None
+    }
 }
 
 /// Open the store a vault declares.
-pub fn open(cfg: &VaultConfig) -> Result<Box<dyn Store>> {
+///
+/// Takes the vault's *name* as well as its config, because credentials are resolved per
+/// vault — `YIDAM_VAULT_<NAME>_ACCESS_KEY_ID`, with the ambient `AWS_*` honoured only for
+/// `default`. See [`super::creds`] for why that asymmetry is deliberate.
+pub fn open(vault: &str, cfg: &VaultConfig) -> Result<Box<dyn Store>> {
     let url = cfg.url.trim();
     if let Some(rest) = url.strip_prefix("file://") {
         return Ok(Box::new(FileStore::new(file_url_path(rest, url)?)));
     }
     if url.starts_with("s3://") {
+        #[cfg(feature = "vault-s3")]
+        return Ok(Box::new(super::s3::S3Store::new(vault, cfg)?));
+        #[cfg(not(feature = "vault-s3"))]
         bail!(
             "vault url {url:?} names an S3 store, and this build has no S3 transport.\n  \
-             The store, the cache and the `file://` backend are built; the transport is \
-             specified in RFC-0023 and is the next thing to land. A `file:///…` url works \
-             today."
+             `vault-s3` is in the default feature set, so this is a build compiled without \
+             it — `yidam --version` lists what is compiled in. A `file:///…` url works in \
+             every build."
         );
     }
     bail!(
@@ -213,7 +230,7 @@ mod tests {
     }
 
     fn open_err(url: &str) -> String {
-        open(&cfg(url))
+        open("default", &cfg(url))
             .map(|_| ())
             .expect_err("expected this url to be refused")
             .to_string()
@@ -232,7 +249,7 @@ mod tests {
             ("file://localhost/mnt/archive", "/mnt/archive"),
             ("file:///mnt/My%20Archive", "/mnt/My Archive"),
         ] {
-            let store = open(&cfg(url)).unwrap();
+            let store = open("default", &cfg(url)).unwrap();
             assert_eq!(store.describe(), format!("file://{want}"), "for {url}");
         }
     }
@@ -252,16 +269,27 @@ mod tests {
         assert!(open_err("file:///mnt/bad%zz").contains("percent-escape"));
     }
 
-    /// The S3 refusal has to be distinguishable from "that scheme is nonsense", because the
-    /// two need different things from the reader.
+    /// An `s3://` url now resolves to a real store in a build carrying `vault-s3`, so what is
+    /// left to distinguish is a *scheme nobody implements* — which must not be reported as
+    /// though a feature were missing.
     #[test]
-    fn an_s3_url_is_refused_as_unbuilt_rather_than_as_unknown() {
-        let err = open_err("s3://bucket/prefix");
-        assert!(err.contains("no S3 transport"), "{err}");
-        assert!(err.contains("file://"), "offers what does work: {err}");
-
+    fn an_unknown_scheme_is_refused_as_unknown() {
         let err = open_err("gopher://nope");
         assert!(err.contains("no scheme this build understands"), "{err}");
+        assert!(err.contains("file:///"), "offers what does work: {err}");
+    }
+
+    /// An `s3://` url gets past scheme resolution. It may still fail on credentials, which is
+    /// a different diagnosis and belongs to `creds`; what matters here is that it is no
+    /// longer refused for the scheme.
+    #[test]
+    fn an_s3_url_is_no_longer_refused_for_its_scheme() {
+        let err = open_err("s3://bucket/prefix");
+        assert!(
+            !err.contains("no scheme this build understands"),
+            "resolved by scheme, not refused: {err}"
+        );
+        assert!(err.contains("credentials"), "{err}");
     }
 
     #[test]
