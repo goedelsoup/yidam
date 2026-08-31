@@ -9,6 +9,9 @@ description: |
 
   A thread that produced nothing usable is still a thread, and recording why it stopped is what
   keeps the next person from spending the same three weeks. [inference]
+
+  It also carries the question of who owns the land the terminals sit on, which is answerable
+  from a corpus this newsroom reads and does not own. [open]
 properties:
   status: parked
   claim_tag: open
@@ -16,4 +19,6 @@ links:
   - target: ../thread.ont.yml
     relationship: instance-of
   - target: ../finding/deferred-maintenance.yml
+    relationship: pursues
+  - target: ../finding/terminal-site-ownership.yml
     relationship: pursues

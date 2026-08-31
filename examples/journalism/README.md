@@ -73,6 +73,12 @@ treated something as confidential commercial information, which is a fact about 
 that survives its contents being unavailable — and it is why `finding/deferred-maintenance` is
 `[open]` rather than unsupported: there is a known place where the answer probably is.
 
+**A corpus it reads and does not own.** [`.yidam/tonpa.toml`](.yidam/tonpa.toml) declares
+the [property corpus](../property/README.md) as a path dependency, and
+`finding/terminal-site-ownership` is `[open]` with **no** `supported-by` edges — the boundary
+being honoured rather than a gap. `yidam query --across` reaches the title research; no edge
+here may point at it.
+
 **Two audiences, two stores.** [`config.toml`](.yidam/config.toml) declares a public store for
 derived output and a newsroom store for source documents. `vault push --dry-run` refuses the
 memo *by name*, under the audience of the store it was headed for.
