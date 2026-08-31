@@ -51,19 +51,19 @@ use serde_json::Value as Json;
 const DEFAULT_POLICIES: &[(&str, &str)] = &[
     (
         "disclose/lib.rego",
-        include_str!("../../../prelude/policy/disclose/lib.rego"),
+        include_str!("../../policy/disclose/lib.rego"),
     ),
     (
         "disclose/at_rest.rego",
-        include_str!("../../../prelude/policy/disclose/at_rest.rego"),
+        include_str!("../../policy/disclose/at_rest.rego"),
     ),
     (
         "disclose/record.rego",
-        include_str!("../../../prelude/policy/disclose/record.rego"),
+        include_str!("../../policy/disclose/record.rego"),
     ),
     (
         "disclose/derived.rego",
-        include_str!("../../../prelude/policy/disclose/derived.rego"),
+        include_str!("../../policy/disclose/derived.rego"),
     ),
     // The default policy's own cases travel with it, and that is not only so upstream can test
     // itself. Under the authoritative model a repository may override a decision, and running
@@ -72,15 +72,15 @@ const DEFAULT_POLICIES: &[(&str, &str)] = &[
     // answer, because comparing text cannot.
     (
         "disclose/at_rest_test.rego",
-        include_str!("../../../prelude/policy/disclose/at_rest_test.rego"),
+        include_str!("../../policy/disclose/at_rest_test.rego"),
     ),
     (
         "disclose/derived_test.rego",
-        include_str!("../../../prelude/policy/disclose/derived_test.rego"),
+        include_str!("../../policy/disclose/derived_test.rego"),
     ),
     (
         "disclose/record_test.rego",
-        include_str!("../../../prelude/policy/disclose/record_test.rego"),
+        include_str!("../../policy/disclose/record_test.rego"),
     ),
 ];
 
