@@ -43,9 +43,15 @@ use super::cas::ContentHash;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Named {
     pub hash: ContentHash,
+    /// What kind of artifact this is, in the vocabulary `holds` routes on.
+    ///
+    /// Carried rather than assumed, even though every artifact today is a `catalog` one: the
+    /// routing function takes a kind, and writing it against a constant would mean #417's
+    /// index and embeddings arrive by editing the router rather than by declaring a kind.
+    pub kind: String,
     /// The catalog entry that names it, repo-relative.
     pub rel: String,
-    /// Which vault the record routes it to, if it says.
+    /// Which vault the record routes it to, if it says. `None` means route by kind.
     pub vault: Option<String>,
     /// Whether the record licenses redistribution. `None` is not `false` — it is *nobody has
     /// said* — and both refuse a push, but only one of them is a decision.
@@ -105,17 +111,16 @@ pub fn is_private(rel: &str, private: &[String]) -> bool {
 
 /// May these bytes be uploaded?
 ///
-/// Both refusals are checked and the **private-paths one is reported first**, because it is a
-/// statement about this repository that the person running the command can act on, while
+/// **Whether, not where.** Routing is [`super::config::Vaults::route`]'s question, and the two
+/// are kept apart because they fail differently: a route is edited casually by somebody
+/// reorganising storage, and a licence is not something that edit is allowed to undo. A caller
+/// asks both, and an artifact needs a route *and* a permission.
+///
+/// Both refusals here are checked and the **private-paths one is reported first**, because it
+/// is a statement about this repository that the person running the command can act on, while
 /// `redistributable` is a fact about a third party's licence that they may not be able to
 /// change at all.
 pub fn may_push(a: &Named, private: &[String]) -> Disposition {
-    if let Some("none") = a.vault.as_deref() {
-        return Disposition::Refused(format!(
-            "{} routes it to `vault: none` — the local cache and nowhere else",
-            a.rel
-        ));
-    }
     if is_private(&a.rel, private) {
         return Disposition::Refused(format!(
             "{} is under a path `.yidam/private-paths` declares private. \
@@ -158,6 +163,7 @@ pub fn named_artifacts(root: &Path) -> Vec<Named> {
             };
             out.push(Named {
                 hash,
+                kind: super::config::CATALOG_KIND.to_string(),
                 rel: rel.clone(),
                 vault: a.vault.clone(),
                 redistributable: a.redistributable,
@@ -177,6 +183,7 @@ mod tests {
     fn named(rel: &str, vault: Option<&str>, redistributable: Option<bool>) -> Named {
         Named {
             hash: ContentHash::of_bytes(rel.as_bytes()),
+            kind: crate::vault::CATALOG_KIND.to_string(),
             rel: rel.to_string(),
             vault: vault.map(str::to_string),
             redistributable,
@@ -211,14 +218,19 @@ mod tests {
         }
     }
 
-    /// `vault: none` is a route, and it is checked before anything else — an artifact kept
-    /// deliberately local should not be reported as a licensing problem.
+    /// This answers *whether*, never *where*. A record naming a vault — including the local
+    /// one — is a licensed record either way, and folding routing in here would let somebody
+    /// reorganising storage edit a licence by accident.
     #[test]
-    fn vault_none_is_refused_as_a_route_rather_than_as_a_licence() {
-        match may_push(&named(".yidam/catalog/x.md", Some("none"), Some(true)), &[]) {
-            Disposition::Refused(why) => assert!(why.contains("local cache"), "{why}"),
-            _ => panic!("must refuse"),
-        }
+    fn routing_is_not_this_functions_question() {
+        assert!(may_push(&named(".yidam/catalog/x.md", Some("none"), Some(true)), &[]).is_push());
+        assert!(may_push(
+            &named(".yidam/catalog/x.md", Some("sources"), Some(true)),
+            &[]
+        )
+        .is_push());
+        // And a route does not confer one.
+        assert!(!may_push(&named(".yidam/catalog/x.md", Some("sources"), None), &[]).is_push());
     }
 
     /// **The load-bearing guard.** A declared-private path refuses a push even when the record

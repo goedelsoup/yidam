@@ -58,6 +58,12 @@ impl YidamBlock {
         if cfg!(feature = "tonpa") {
             features.push("tonpa".to_string());
         }
+        // Not a subcommand gate like the others: `yidam vault` exists in every build, and
+        // this says whether it can reach an `s3://` store. `store.rs` refuses such a url by
+        // telling the reader that this list is where to look, so the list has to carry it.
+        if cfg!(feature = "vault-s3") {
+            features.push("vault-s3".to_string());
+        }
         Self {
             version: env!("CARGO_PKG_VERSION").to_string(),
             commit: env!("YIDAM_BUILD_COMMIT").to_string(),

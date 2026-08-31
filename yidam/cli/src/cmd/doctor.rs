@@ -31,6 +31,7 @@
 //! `--strict` collapses the distinction for a CI job that wants it.
 
 use anyhow::Result;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::paths::{pinned_binary, repo_root, yidam_bin_path, yidam_index_dir, Pinned};
@@ -557,50 +558,54 @@ pub(crate) fn diagnose(
     ]
 }
 
-/// Is a vault configured, and is everything it needs in place — **without asking it**.
+/// Are the vaults configured, and is everything they need in place — **without asking them**.
 ///
 /// `doctor` is documented read-only and offline, and this does not change that. Whether a
 /// store is *reachable* is `yidam vault status --remote`'s question, and answering it here
 /// would put a network call in the one command a person runs when the network is what they
 /// suspect.
 ///
-/// So what is checked is everything that can be settled locally: that a declared vault
-/// resolves, that it says who can read it, that its credentials are in the environment, and
-/// that the artifacts the corpus names are cached. Each of those fails in a way that produces
-/// an unhelpful error much later — a `403` names no variable, and a missing artifact surfaces
-/// as a broken citation.
+/// So what is checked is everything that can be settled locally: that the declared vaults
+/// resolve, that each says who can read it, that each has its credentials in the environment,
+/// that no artifact the corpus names has been left without a route, and that the artifacts are
+/// cached. Each of those fails in a way that produces an unhelpful error much later — a `403`
+/// names no variable, and a missing artifact surfaces as a broken citation.
+///
+/// # The one warning that is not about a failure
+///
+/// Two vaults resolving to the same credentials is **legal** — a corpus may genuinely use one
+/// account and two buckets, and this repository is not in a position to say otherwise. It is
+/// also exactly what a half-finished isolation setup looks like: somebody declared `sources`,
+/// exported nothing for it, and it is quietly running on the account meant for public output.
+/// The two are indistinguishable from here, so this reports the shape and lets the reader
+/// decide, which is the only honest thing available.
 fn check_vault(root: &Path) -> Check {
+    const Q: &str = "Can this repository reach its vaults?";
     let config = crate::config::load_yidam_config(root).unwrap_or_default();
-    let resolved =
+    let vaults =
         match crate::vault::resolve(&config.vault) {
             Err(e) => return Check::new(
                 Check::VAULT,
-                "Can this repository reach its vault?",
+                Q,
                 Verdict::Fail,
                 first_line(&e.to_string()),
                 Some(
                     "Fix `[vault.…]` in `.yidam/config.toml`; `yidam vault list` shows the shape.",
                 ),
             ),
-            Ok(r) => r,
+            Ok(v) => v,
         };
 
     let named = crate::vault::named_artifacts(root);
-    let Some((name, cfg)) = resolved else {
+    if vaults.is_empty() {
         // No vault is the common case and is not a defect — unless the corpus has already
         // started recording artifacts, which means it is relying on somewhere to keep them.
         return if named.is_empty() {
-            Check::new(
-                Check::VAULT,
-                "Can this repository reach its vault?",
-                Verdict::Ok,
-                "none declared",
-                None,
-            )
+            Check::new(Check::VAULT, Q, Verdict::Ok, "none declared", None)
         } else {
             Check::new(
                 Check::VAULT,
-                "Can this repository reach its vault?",
+                Q,
                 Verdict::Warn,
                 format!("{} artifact(s) recorded and no vault declared", named.len()),
                 Some(
@@ -609,15 +614,48 @@ fn check_vault(root: &Path) -> Check {
                 ),
             )
         };
-    };
+    }
 
-    // Credentials, for a store that needs them. A `file://` vault needs none, and demanding
+    // A record the config cannot place. Reported here rather than by `lint`, because the
+    // defect is in `.yidam/config.toml` and lint's subject is the corpus — blaming a catalog
+    // entry for a store nobody declared would point at the wrong file.
+    let stranded: Vec<&crate::vault::Named> = named
+        .iter()
+        .filter(|a| {
+            matches!(
+                vaults.route(&a.kind, a.vault.as_deref()),
+                crate::vault::Route::Unroutable(_)
+            )
+        })
+        .collect();
+    if let Some(first) = stranded.first() {
+        let why = match vaults.route(&first.kind, first.vault.as_deref()) {
+            crate::vault::Route::Unroutable(w) => first_line(&w),
+            _ => unreachable!("filtered to unroutable"),
+        };
+        return Check::new(
+            Check::VAULT,
+            Q,
+            Verdict::Warn,
+            format!("{} artifact(s) have no route — {why}", stranded.len()),
+            Some(
+                "Add the kind to a vault's `holds` in `.yidam/config.toml`, or route the \
+                  record itself with `vault:`.",
+            ),
+        );
+    }
+
+    // Credentials, for the stores that need them. A `file://` vault needs none, and demanding
     // them would report a healthy setup as broken.
-    if cfg.url.trim().starts_with("s3://") {
+    let mut principals: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+    for (name, cfg) in vaults.iter() {
+        if !cfg.url.trim().starts_with("s3://") {
+            continue;
+        }
         if let Err(e) = crate::vault::credentials_available(name) {
             return Check::new(
                 Check::VAULT,
-                "Can this repository reach its vault?",
+                Q,
                 Verdict::Warn,
                 first_line(&e.to_string()),
                 Some(
@@ -626,6 +664,31 @@ fn check_vault(root: &Path) -> Check {
                 ),
             );
         }
+        if let Some(id) = crate::vault::credential_principal(name) {
+            principals.entry(id).or_default().push(name);
+        }
+    }
+    // The access key id is compared and never printed: it identifies the account, and naming
+    // it in a report that gets pasted into an issue helps nobody.
+    if let Some((_, shared)) = principals.iter().find(|(_, v)| v.len() > 1) {
+        return Check::new(
+            Check::VAULT,
+            Q,
+            Verdict::Warn,
+            format!(
+                "{} resolve to the same credentials",
+                shared
+                    .iter()
+                    .map(|n| format!("`{n}`"))
+                    .collect::<Vec<_>>()
+                    .join(" and ")
+            ),
+            Some(
+                "Legal — one account can own two buckets. It is also what an unfinished \
+                  isolation setup looks like; export YIDAM_VAULT_<NAME>_ACCESS_KEY_ID per \
+                  vault if they were meant to differ.",
+            ),
+        );
     }
 
     let cache = match crate::vault::Cache::resolve(|k| std::env::var(k).ok()) {
@@ -633,21 +696,26 @@ fn check_vault(root: &Path) -> Check {
         Err(e) => {
             return Check::new(
                 Check::VAULT,
-                "Can this repository reach its vault?",
+                Q,
                 Verdict::Warn,
                 first_line(&e.to_string()),
                 Some("Set YIDAM_VAULT_CACHE to say where artifacts should live."),
             )
         }
     };
+    let configured = format!(
+        "{} vault{} configured",
+        vaults.len(),
+        if vaults.len() == 1 { "" } else { "s" }
+    );
     let uncached = named.iter().filter(|a| !cache.contains(&a.hash)).count();
     if uncached > 0 {
         return Check::new(
             Check::VAULT,
-            "Can this repository reach its vault?",
+            Q,
             Verdict::Warn,
             format!(
-                "`{name}` configured; {uncached} of {} recorded artifact(s) not cached",
+                "{configured}; {uncached} of {} recorded artifact(s) not cached",
                 named.len()
             ),
             Some(
@@ -658,9 +726,9 @@ fn check_vault(root: &Path) -> Check {
     }
     Check::new(
         Check::VAULT,
-        "Can this repository reach its vault?",
+        Q,
         Verdict::Ok,
-        format!("`{name}` configured; {} artifact(s) cached", named.len()),
+        format!("{configured}; {} artifact(s) cached", named.len()),
         None,
     )
 }

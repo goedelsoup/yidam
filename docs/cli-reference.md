@@ -225,22 +225,22 @@ knowledge claim, only the time to re-fetch.
 
 | Command | What it does |
 |---|---|
-| `vault list` | The store this repository declares, its `audience`, and where the cache is |
+| `vault list` | Every store this repository declares — its `audience`, what it `holds`, how many artifacts route to it |
 | `vault put <path>` * | Hash a file into the local cache; prints the content address on stdout |
 | `vault get <sha256>` * | From the cache, else from the vault. `--out` also writes a named copy |
 | `vault path <sha256>` | Where the artifact sits locally, or exit nonzero — so `… \|\| fetch` works |
 | `vault verify` | Re-hash every cached artifact; exits nonzero if any is not what it claims |
-| `vault push` * | Upload what the corpus names and the vault lacks. `--dry-run` prints the exact string that would be signed; `--artifact` narrows to one |
-| `vault pull` * | Fetch what the corpus names and the cache lacks; exits nonzero if anything named is nowhere |
-| `vault status` | Where each named artifact is. `--remote` asks the vault — one HEAD per record, never a bucket listing |
+| `vault push` * | Upload what the corpus names and the vaults lack. `--dry-run` prints the exact string that would be signed; `--artifact` and `--vault` narrow |
+| `vault pull` * | Fetch what the corpus names and the cache lacks; `--vault` narrows. Exits nonzero if anything named is nowhere |
+| `vault status` | Where each named artifact goes and where it is, grouped by store. `--remote` asks each vault — one HEAD per record, never a bucket listing |
 
 Every artifact is named by the SHA-256 of its bytes, in lowercase hex. The cache is
 **machine-wide** — `$XDG_CACHE_HOME/yidam/vault`, or `YIDAM_VAULT_CACHE` — so two repositories
 citing the same source store it once. It is deliberately **not** partitioned by vault: a cache
 hit answers *do I have these bytes*, never *may I send them*.
 
-`list` and `get` read `.yidam/config.toml` and need a repository. `put`, `path` and `verify`
-touch only the cache and work anywhere.
+`list`, `get`, `push`, `pull` and `status` read `.yidam/config.toml` and need a repository.
+`put`, `path` and `verify` touch only the cache and work anywhere.
 
 ```toml
 [vault.default]
@@ -251,10 +251,49 @@ audience = "Who can read this store, and why that is acceptable."
 `audience` is required and nothing can check it — it is `.yidam/publishable`'s argument applied
 to a store. What is enforced is that somebody wrote one.
 
-The table is plural (`[vault.<name>]`) before it needs to be, because `[vault]` and
-`[vault.default]` are different config shapes and this file is committed. **Exactly one vault,
-named `default`, is honoured today**; a second is refused by name rather than resolved to the
-first.
+A lone vault may be called anything and, if it declares no `holds`, takes everything. What a
+name other than `default` gives up is the ambient `AWS_*` fallback below.
+
+### Naming vaults, and routing between them
+
+A repository's own index and a licensed PDF it obtained have different readerships, and one
+store cannot express both. Each vault declares what it `holds`:
+
+```toml
+[vault.default]
+url      = "s3://corpus-artifacts/yidam"
+audience = "Anyone who can read this corpus. Derived output only."
+holds    = ["index", "embeddings", "bundle"]
+
+[vault.sources]
+url      = "s3://licensed-sources/yidam"
+audience = "The sangha. Documents obtained under a licence to read, not to host."
+holds    = ["catalog"]
+```
+
+The kinds are `catalog`, `index`, `embeddings` and `bundle`. Only `catalog` artifacts exist
+today; the others are named so a corpus can declare their routes before #417 and #418 start
+writing them, rather than reorganising storage on the release that does.
+
+| | |
+|---|---|
+| one vault, no `holds` | it holds everything |
+| two or more | **every** one declares `holds` — a vault claiming nothing would be a catch-all, and routing by default is how a licensed document reaches the public store |
+| a kind claimed by two | refused, naming both |
+| a kind claimed by none | refused when something of that kind needs a route, naming the kind |
+| a `holds` entry that is not a kind | refused — a typo claims nothing |
+| a record's own `vault:` | overrides the route its kind would take |
+
+A kind nobody claims is refused **at the artifact** rather than when the config is read. The
+alternative would make the list of kinds a compatibility surface: adding one in a later release
+would turn every multi-vault config red for a kind those corpora have none of.
+
+`--vault <name>` on `push`, `pull` and `status` is a **narrowing** flag — useful where one store
+is reachable from a runner and another is not. It never re-routes. An artifact routed to
+`sources` is not pushed to `default` because somebody typed a flag; moving an artifact between
+stores is an edit to its record, in a commit, like every other assertion the repository makes.
+Stores are opened lazily, one per vault that has work, so a vault whose credentials are absent
+does not block a push to one whose are present.
 
 ### S3-compatible stores
 
@@ -298,10 +337,15 @@ independent checks, and neither implies the other:
   make the first push anybody runs a redistribution nobody chose, and a catalog is full of
   papers.
 
-A refusal quotes the destination's own `audience` back, so the reader learns what they were
-about to publish to. `--artifact` narrows what is sent and never bypasses either check: a
-digest the corpus does not record is refused, because it carries no `redistributable` and no
-path to check.
+Refusals are grouped by the store they were headed for, each under that store's own
+`audience`, so the reader learns what they were about to publish to and — with several vaults —
+which boundary held. `--artifact` and `--vault` narrow what is sent and never bypass either
+check: a digest the corpus does not record is refused, because it carries no `redistributable`
+and no path to check.
+
+`yidam doctor` warns when two vaults resolve to the same credentials. That is legal — one
+account can own two buckets — and it is also what a half-finished isolation setup looks like;
+the two are indistinguishable from outside, so it reports the shape and lets the reader decide.
 
 ## Export
 
