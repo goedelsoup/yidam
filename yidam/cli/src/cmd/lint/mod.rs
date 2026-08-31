@@ -120,6 +120,29 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     let catalog_dir = yidam_catalog_dir(root);
 
     let instance_paths = walk_corpus_instances(&corpus_dir);
+    // Which disclosure decisions this repository decided for itself. Read here rather than in
+    // the check, which stays pure — the same split every other check in this module keeps.
+    //
+    // A policy that does not compile is not reported as an override: it is a failure, and
+    // `yidam policy check` and `yidam doctor` are where it is reported as one. Swallowing it
+    // into an empty list here would turn a broken rule into a clean gate.
+    let policy_overrides: Vec<(String, String)> = crate::policy::Policies::load(root)
+        .map(|p| {
+            p.origins()
+                .filter_map(|(d, o)| match o {
+                    crate::policy::Origin::Local(path) => Some((
+                        d.to_string(),
+                        path.strip_prefix(root)
+                            .unwrap_or(path)
+                            .to_string_lossy()
+                            .to_string(),
+                    )),
+                    crate::policy::Origin::Inherited => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     let nodes = checks::load_nodes(root, &instance_paths, overlay);
 
     let ont_paths = walk_ont_files(&corpus_dir);
@@ -324,6 +347,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::broken_prose_link(&prose_links),
         checks::unauthored_prose_link(&unauthored),
         checks::authorship_region_stale(&stale_regions),
+        checks::policy_override(&policy_overrides),
     ];
 
     if opts.commits {
@@ -635,6 +659,72 @@ mod tests {
         tmp
     }
 
+    /// A repository that has overridden nothing reports the check and no findings.
+    #[test]
+    fn a_corpus_with_no_policy_of_its_own_reports_no_override() {
+        let tmp = clean_repo();
+        let all = run_checks(tmp.path(), &Options::default());
+        let c = all
+            .iter()
+            .find(|c| c.id == "policy-override")
+            .expect("the check must report even when it passes");
+        assert!(c.violations.is_empty(), "{:?}", c.violations);
+    }
+
+    /// **An override is visible and does not gate.** RFC-0024 settled that a local rule
+    /// decides; this exists so that deciding cannot be done quietly, which is the remedy
+    /// `.yidam/private-paths` applied to itself.
+    #[test]
+    fn an_overridden_decision_is_reported_at_info_and_gates_nothing() {
+        let tmp = clean_repo();
+        let dir = tmp.path().join(".yidam/policy");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("record.rego"),
+            r#"package yidam.disclose.record
+
+decision := {"allow": true, "deny": []}
+"#,
+        )
+        .unwrap();
+
+        let all = run_checks(tmp.path(), &Options::default());
+        let c = all.iter().find(|c| c.id == "policy-override").unwrap();
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        assert!(c.violations[0].detail.contains("disclose/record"));
+        assert!(c.violations[0].node.contains("record.rego"));
+        assert_eq!(c.severity, Severity::Info);
+        assert_eq!(c.violations[0].severity, Some(Severity::Info));
+        // The whole point: it does not gate.
+        assert_eq!(errors(&all), 0, "an override must not fail the build");
+    }
+
+    /// A policy that does not compile is **not** an empty override list.
+    ///
+    /// Swallowing the error here would turn a rule nobody can evaluate into a clean gate.
+    /// `doctor` is where that failure is reported, and it reports it as a failure.
+    #[test]
+    fn a_policy_that_does_not_compile_is_not_reported_as_having_no_overrides() {
+        let tmp = clean_repo();
+        let dir = tmp.path().join(".yidam/policy");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("broken.rego"),
+            "package yidam.disclose.record
+{{{
+",
+        )
+        .unwrap();
+
+        // The gate still runs and still reports every check — lint's subject is the corpus,
+        // and a broken policy is not a corpus defect. What must NOT happen is the broken rule
+        // being reported as "no overrides", which reads as a clean repository.
+        let all = run_checks(tmp.path(), &Options::default());
+        let c = all.iter().find(|c| c.id == "policy-override").unwrap();
+        assert!(c.violations.is_empty());
+        // `doctor` is the surface that calls it a failure; see `tests/doctor.rs`.
+    }
+
     /// Findings that gate — per violation, because residence time can escalate one
     /// finding of an Info check without escalating the check. Counting by `c.severity`
     /// here reported zero errors on a corpus the gate was failing.
@@ -657,11 +747,15 @@ mod tests {
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 34);
+        assert_eq!(all.len(), 35);
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
         assert!(ids.contains("class-asserts-purpose"));
+        // Reported in a repository that has overridden nothing, which is every corpus until
+        // somebody writes a rule — the same reason every other check here reports when it
+        // passes: a check that vanishes cannot be told from one that did not run.
+        assert!(ids.contains("policy-override"));
         // Reported in a repository with no sangha at all, which is the common case: a
         // check that disappears when there is nothing to check cannot be told from one
         // that was never wired in.
@@ -820,7 +914,7 @@ mod tests {
         assert!(crate::authorship::Authorship::load(tmp.path()).is_err());
         // …while the checks themselves keep answering, for the editor's sake.
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 34);
+        assert_eq!(all.len(), 35);
     }
 
     /// A class declaring an implementation, and a `crates/` tree that may or may not hold it.
@@ -1145,7 +1239,7 @@ mod tests {
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 34, "every check still ran");
+        assert_eq!(all.len(), 35, "every check still ran");
         assert_eq!(errors(&all), 0);
     }
 

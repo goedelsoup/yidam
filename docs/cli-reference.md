@@ -502,6 +502,11 @@ nothing here claims to have answered it. The `changed` list is the closest thing
 
 A repository's *own* `*_test.rego` failing is a failure, and it exits nonzero.
 
+An override is also reported by `yidam lint` as `policy-override` at `Info` — so it reaches the
+JSON report and the editor — and by `yidam doctor`, which is additionally where a policy that
+does not compile is caught, as a `fail`. Neither gates: the repository decided. What neither
+permits is deciding *quietly*.
+
 ## Export
 
 | Command | What it does |

@@ -420,6 +420,58 @@ const PURPOSE_PHRASES: &[&str] = &[
 /// negations defuse a purpose claim is a judgement this check should not make, so it makes
 /// the judgement cheap for the reader instead: the clause is printed with the finding, and
 /// a case like that resolves at a glance without opening the file.
+/// A decision this repository decided for itself.
+///
+/// **Not a defect, and reported anyway.** RFC-0024 settled that a repository's policy is
+/// authoritative — a local rule decides, including by permitting what the default refused.
+/// That is a decision the repository is entitled to make, so this never gates and is `Info`:
+/// reporting it as probably-wrong would train people to ignore the check, which is the failure
+/// mode `Severity` already argues about one file over.
+///
+/// What it exists to prevent is the *silent* version. `.yidam/private-paths` was built because
+/// a repository's privacy was an assumption — true, load-bearing, and unenforced — and the
+/// guideline states the rule this inherits:
+///
+/// > An assumption about access control that looks enforced and is not is worse than one
+/// > everybody knows is manual, because nobody checks the second kind by hand.
+///
+/// The remedy there was not prohibition; it was making the declaration explicit. So an
+/// override appears in `lint --format json`, in `serve --lsp`, and therefore in the editor —
+/// where somebody reviewing a diff will actually meet it.
+///
+/// **It reports that the rule is local, and does not claim to know which way it moved.** That
+/// is a question about every possible input; `yidam policy test` answers the part of it that
+/// can be answered, by running the inherited cases against the local rule.
+pub fn policy_override(overrides: &[(String, String)]) -> Check {
+    let violations = overrides
+        .iter()
+        .map(|(decision, source)| {
+            Violation::new(
+                source,
+                format!(
+                    "`{decision}` is decided by this repository's own rule rather than the \
+                     one `yidam` ships. Run `yidam policy test` to see which inherited \
+                     expectations it no longer meets"
+                ),
+            )
+            .at(Severity::Info)
+        })
+        .collect();
+    Check::new(
+        "policy-override",
+        "A disclosure decision is this repository's own rule",
+        Severity::Info,
+        "A policy in `.yidam/policy/` supersedes the default `yidam` carries, and may permit \
+         what the default refused — that is the authoritative model RFC-0024 settled on, and a \
+         repository is entitled to use it. This check does not object to that. It exists so \
+         that the choice cannot be made quietly: a guard loosened in a file nobody reads is the \
+         shape `.yidam/private-paths` was built to end, where access control looked enforced \
+         and was not. Record why in `.yidam/decisions/`, and use `yidam policy test` to see \
+         exactly which inherited expectations your rule changed.",
+        violations,
+    )
+}
+
 pub fn class_asserts_purpose(classes: &[Class]) -> Check {
     let violations = classes
         .iter()

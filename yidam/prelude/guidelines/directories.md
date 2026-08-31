@@ -575,8 +575,10 @@ to stop the binary imposing its judgement cannot reserve the interesting half of
 judgement to the binary.
 
 It is also why nothing here is quiet. `yidam policy check` names every override and the file it
-came from, and `yidam policy test` runs the *inherited* cases against your rule and reports
-which expectations it no longer meets. Apply the rule `.yidam/private-paths` states about
+came from; `yidam policy test` runs the *inherited* cases against your rule and reports which
+expectations it no longer meets; `yidam lint` reports each override as `policy-override` at
+info severity, so it reaches the editor; and `yidam doctor` counts them and fails outright on a
+rule that does not compile. None of those gates — the repository decided. Apply the rule `.yidam/private-paths` states about
 itself: **an assumption about access control that looks enforced and is not is worse than one
 everybody knows is manual.** An override is a decision; record why in `.yidam/decisions/`.
 

@@ -101,6 +101,7 @@ impl Check {
     const CATALOG: &'static str = "catalog";
     const CORPORA: &'static str = "corpora";
     const VAULT: &'static str = "vault";
+    const POLICY: &'static str = "policy";
 
     fn new(
         id: &'static str,
@@ -554,8 +555,100 @@ pub(crate) fn diagnose(
         check_catalog(root, today),
         check_corpora(root),
         check_vault(root),
+        check_policy(root),
         check_build(),
     ]
+}
+
+/// Do this repository's rules compile, and which of them are its own?
+///
+/// **Where a broken policy is caught**, decided on RFC-0024's fourth open question. Not a new
+/// mise task and not a new CI job in every derived repository: `doctor` is already offline and
+/// read-only, this reads two directories, and derived CI already runs it. Machinery nobody
+/// invokes is how a check comes to cover nothing.
+///
+/// Three verdicts, and the middle one is the point:
+///
+/// - a policy that does not compile, or that names a builtin this build does not carry, is a
+///   **Fail** — the rule cannot answer, and a rule that cannot answer is not a permit;
+/// - a repository whose rules are all inherited is **Ok** and says so in one line;
+/// - a repository with local rules is **Ok** as well, and they are *named*. An override is a
+///   decision the repository is entitled to make, and this is not the place that objects to
+///   it — `lint`'s `policy-override` reports each one at `Info` and gates on nothing.
+fn check_policy(root: &Path) -> Check {
+    const Q: &str = "Do this repository's own rules compile, and which are its own?";
+
+    let policies = match crate::policy::Policies::load(root) {
+        Err(e) => return Check::new(
+            Check::POLICY,
+            Q,
+            Verdict::Fail,
+            first_line(&e.to_string()),
+            Some("`yidam policy check` names the file; a rule that cannot answer refuses nothing."),
+        ),
+        Ok(p) => p,
+    };
+
+    match policies.disallowed_builtins() {
+        Err(e) => {
+            return Check::new(
+                Check::POLICY,
+                Q,
+                Verdict::Fail,
+                first_line(&e.to_string()),
+                Some("`yidam policy check` reports the same thing with the file and the call."),
+            )
+        }
+        Ok(found) if !found.is_empty() => {
+            return Check::new(
+                Check::POLICY,
+                Q,
+                Verdict::Fail,
+                format!(
+                    "{} call(s) to a builtin this build does not carry, first: {} in {}",
+                    found.len(),
+                    found[0].1,
+                    found[0].0
+                ),
+                Some(
+                    "These parse and fail at the moment a decision is needed. Remove the call; \
+                     this binary compiles no network or clock builtins by design.",
+                ),
+            )
+        }
+        Ok(_) => {}
+    }
+
+    let local: Vec<&str> = policies
+        .origins()
+        .filter(|(_, o)| o.is_local())
+        .map(|(d, _)| d)
+        .collect();
+    let total = policies.origins().count();
+
+    if local.is_empty() {
+        return Check::new(
+            Check::POLICY,
+            Q,
+            Verdict::Ok,
+            format!("{total} decision(s), all inherited"),
+            None,
+        );
+    }
+    Check::new(
+        Check::POLICY,
+        Q,
+        Verdict::Ok,
+        format!(
+            "{} of {total} decided by this repository: {}",
+            local.len(),
+            local.join(", ")
+        ),
+        Some(
+            "`yidam policy test` runs the inherited cases against your rules and reports which \
+             expectations they no longer meet.",
+        ),
+    )
 }
 
 /// Are the vaults configured, and is everything they need in place — **without asking them**.
