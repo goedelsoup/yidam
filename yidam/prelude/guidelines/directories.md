@@ -18,6 +18,8 @@ After bootstrap, a derived repository has two tiers:
 - `.yidam/skills/` — domain-specific skills
 - `.yidam/.vendor/` — inherited yidam prelude; not modified in derived repos
 - `.yidam/bin/` — the `yidam` binary built from this repo's pin; git-ignored, see below
+- `.yidam/index.lock` — which computed artifacts are in which vault, and which store holds
+  each; committed, and written by `yidam vault push --index`
 - `.yidam/sangha/` — collective resolution protocol *(collective governance only)*
 
 **Created on first use.** Bootstrap does not scaffold `agents/`, `docs/`, or `packages/`.
@@ -499,6 +501,21 @@ has that fact written in a decision record and nowhere else, which makes it an a
 true, relied upon, and unenforced. An assumption about access control that looks enforced
 and is not is worse than one everybody knows is manual, because nobody checks the second
 kind by hand. Declaring the paths is what turns the assumption into a gate.
+
+### Derived artifacts inherit the privacy of what they were derived from
+
+`.yidam/index/` and `.yidam/embeddings/` are not files that happen to sit next to the corpus.
+They are a re-encoding of it: each indexed row carries the node's own text, composed from
+`.yidam/corpus/` **and** `.yidam/catalog/`. A bundle carries the index inside it.
+
+So a path declared private that overlaps either directory makes the index private too, and
+`yidam vault push --index` refuses on exactly that ground, naming the path. The refusal is the
+same rule `sadhana/github/workflows/release.yml` applies to a bundle and for the same reason —
+*the artifact outlives the access* — extended to the channel a vault opens.
+
+A declared directory holding only a `README.md` or a `.gitkeep` is a statement of intent rather
+than material, and does not refuse. Declaring the path before there is anything in it is the
+order this file asks you to work in, and it should not cost you a push.
 
 ### What this does not cover
 

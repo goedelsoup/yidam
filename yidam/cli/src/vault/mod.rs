@@ -26,6 +26,7 @@ mod cas;
 mod config;
 #[cfg(feature = "vault-s3")]
 mod creds;
+mod derived;
 mod policy;
 #[cfg(feature = "vault-s3")]
 mod s3;
@@ -36,9 +37,17 @@ mod store;
 pub use cache::{Cache, Verdict};
 pub use cas::ContentHash;
 pub use config::{
-    resolve, Route, VaultConfig, Vaults, ARTIFACT_KINDS, CATALOG_KIND, DEFAULT_VAULT, LOCAL_ONLY,
+    resolve, Route, VaultConfig, Vaults, ARTIFACT_KINDS, BUNDLE_KIND, CATALOG_KIND, DEFAULT_VAULT,
+    EMBEDDINGS_KIND, INDEX_KIND, LOCAL_ONLY,
 };
-pub use policy::{may_push, named_artifacts, read_private_paths, Disposition, Named};
+pub use derived::{
+    hash_file, load_lock, lock_path, pack_to, save_lock, unpack_from, Derived, DerivedLock, Entry,
+    LOCK_FORMAT_VERSION,
+};
+pub use policy::{
+    derived_may_push, derived_sources, may_push, named_artifacts, read_private_paths, Disposition,
+    Named,
+};
 pub use store::{open, Store};
 
 #[cfg(feature = "vault-s3")]
