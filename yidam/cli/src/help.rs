@@ -144,6 +144,13 @@ pub const GROUPS: &[Group] = &[
         commands: &[w("vault")],
     },
     Group {
+        // Its own group rather than beside the gates. Every command there answers *is this
+        // corpus in the state it claims*; this one answers *what did this repository decide
+        // the rule was*, which is a question about the gate rather than a use of it.
+        title: "The rules this repository writes about itself",
+        commands: &[w("policy")],
+    },
+    Group {
         title: "Export",
         commands: &[w("export"), w("bundle"), w("schema")],
     },

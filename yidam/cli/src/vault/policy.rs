@@ -215,7 +215,7 @@ pub fn derived_may_push(root: &Path, d: Derived, private: &[String]) -> Disposit
 ///
 /// `.gitkeep` and `README.md` are exactly what the release workflow excludes, and for the
 /// same reason: they are how an empty declared directory is kept in git at all.
-fn holds_content(path: &Path) -> bool {
+pub(crate) fn holds_content(path: &Path) -> bool {
     if path.is_file() {
         return true;
     }

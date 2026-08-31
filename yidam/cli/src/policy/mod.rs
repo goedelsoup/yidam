@@ -32,6 +32,8 @@
 //! [`Policies::disallowed_builtins`] exists for — it is not the mechanism, it is *when you
 //! find out*.
 
+pub mod input;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -62,6 +64,23 @@ const DEFAULT_POLICIES: &[(&str, &str)] = &[
     (
         "disclose/derived.rego",
         include_str!("../../../prelude/policy/disclose/derived.rego"),
+    ),
+    // The default policy's own cases travel with it, and that is not only so upstream can test
+    // itself. Under the authoritative model a repository may override a decision, and running
+    // the *inherited* cases against that override is the nearest thing this design has to
+    // answering which way the rule moved — a question RFC-0024 says `policy check` cannot
+    // answer, because comparing text cannot.
+    (
+        "disclose/at_rest_test.rego",
+        include_str!("../../../prelude/policy/disclose/at_rest_test.rego"),
+    ),
+    (
+        "disclose/derived_test.rego",
+        include_str!("../../../prelude/policy/disclose/derived_test.rego"),
+    ),
+    (
+        "disclose/record_test.rego",
+        include_str!("../../../prelude/policy/disclose/record_test.rego"),
     ),
 ];
 
@@ -321,6 +340,161 @@ impl Policies {
     pub fn sources(&self) -> &[(String, String)] {
         &self.sources
     }
+
+    /// Run every `test_*` rule in every `*_test.rego`.
+    ///
+    /// Returns `(rule path, passed, why not)`. The format is Rego's own, so a case written here
+    /// is one an `opa test` reader recognises.
+    ///
+    /// **Undefined is a failure, not a skip.** A test rule whose body did not hold asserted
+    /// nothing, and counting that as a pass is exactly how a suite comes to cover less than it
+    /// claims — the same reading `Policies::decide` refuses one level up.
+    ///
+    /// Rule names are read out of the parse tree rather than matched against the source, because
+    /// a test that is not discovered is a test that silently does not run, and that is the
+    /// direction this must not be wrong in.
+    pub fn run_tests(&mut self) -> Result<Vec<TestOutcome>> {
+        let ast: Json = serde_json::from_str(
+            &self
+                .engine
+                .get_ast_as_json()
+                .context("reading the policy parse tree")?,
+        )
+        .context("the policy parse tree is not valid JSON")?;
+
+        let mut wanted = Vec::new();
+        for module in ast.as_array().into_iter().flatten() {
+            let file = module
+                .get("source")
+                .and_then(|s| s.get("file"))
+                .and_then(Json::as_str)
+                .unwrap_or_default();
+            if !file.ends_with("_test.rego") {
+                continue;
+            }
+            let contents = module
+                .get("source")
+                .and_then(|s| s.get("contents"))
+                .and_then(Json::as_str)
+                .unwrap_or_default();
+            let Some(package) = package_of(contents) else {
+                continue;
+            };
+            for name in rule_names(module.get("ast")) {
+                if name.starts_with("test_") {
+                    wanted.push(format!("{package}.{name}"));
+                }
+            }
+        }
+        wanted.sort();
+        wanted.dedup();
+
+        // An empty input, so a test reading `input.x` gets undefined rather than an error about
+        // there being no input at all.
+        self.engine.set_input(regorus::Value::new_object());
+
+        let mut out = Vec::new();
+        for rule in wanted {
+            let (verdict, why) = match self.engine.eval_rule(rule.clone()) {
+                Ok(regorus::Value::Bool(true)) => (true, None),
+                Ok(regorus::Value::Bool(false)) => (false, Some("evaluated false".to_string())),
+                Ok(regorus::Value::Undefined) => (
+                    false,
+                    Some("undefined — the body did not hold, so it asserted nothing".to_string()),
+                ),
+                Ok(other) => (false, Some(format!("returned {other}, not a boolean"))),
+                Err(e) => (
+                    false,
+                    Some(
+                        e.to_string()
+                            .lines()
+                            .filter(|l| !l.trim().is_empty())
+                            .next_back()
+                            .unwrap_or("evaluation failed")
+                            .trim()
+                            .to_string(),
+                    ),
+                ),
+            };
+            let covers = decision_under_test(&rule);
+            let overridden = covers
+                .as_deref()
+                .and_then(|d| self.origins.get(d))
+                .is_some_and(Origin::is_local);
+            out.push(TestOutcome {
+                rule,
+                passed: verdict,
+                detail: why,
+                covers,
+                overridden,
+            });
+        }
+        Ok(out)
+    }
+}
+
+/// One policy test, and whether its result is a failure or a consequence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestOutcome {
+    /// Fully qualified rule path, e.g. `data.yidam.disclose.record_test.test_silence…`.
+    pub rule: String,
+    pub passed: bool,
+    /// Why not, in the engine's words where it had any.
+    pub detail: Option<String>,
+    /// The decision this case is about, where the name says so.
+    pub covers: Option<String>,
+    /// Whether that decision is this repository's own rule rather than the inherited one.
+    ///
+    /// **This is what separates a failure from a consequence.** An inherited case failing
+    /// against a local override is the override being visible, which is the point of running
+    /// them; the same case failing with nothing overridden means this binary is wrong.
+    pub overridden: bool,
+}
+
+impl TestOutcome {
+    /// Whether this result should fail the command.
+    pub fn is_failure(&self) -> bool {
+        !self.passed && !self.overridden
+    }
+}
+
+/// The decision a test package is about: `data.yidam.disclose.record_test.…` → `disclose/record`.
+///
+/// By convention rather than by declaration, and `None` when the convention does not hold — a
+/// repository may write tests named anything, and guessing wrong would silently excuse a real
+/// failure.
+fn decision_under_test(rule: &str) -> Option<String> {
+    let rest = rule.strip_prefix("data.yidam.")?;
+    let mut parts = rest.split('.');
+    let family = parts.next()?;
+    let package = parts.next()?;
+    let name = package.strip_suffix("_test")?;
+    let decision = format!("{family}/{name}");
+    DECISIONS.contains(&decision.as_str()).then_some(decision)
+}
+
+/// The name each rule in a module defines.
+///
+/// A rule is `{"Spec": {"head": {<kind>: {"refr": …}}}}`, where the kind varies with how the rule
+/// was written. Reaching through whatever kind it is keeps this working for a form nobody has
+/// used here yet.
+fn rule_names(module: Option<&Json>) -> Vec<String> {
+    let mut out = Vec::new();
+    let Some(rules) = module.and_then(|m| m.get("rules")).and_then(Json::as_array) else {
+        return out;
+    };
+    for rule in rules {
+        let Some(head) = rule.get("Spec").and_then(|s| s.get("head")) else {
+            continue;
+        };
+        let Some(kind) = head.as_object().and_then(|o| o.values().next()) else {
+            continue;
+        };
+        if let Some(name) = kind.get("refr").and_then(flatten_ref) {
+            out.push(name);
+        }
+    }
+    out
 }
 
 /// `.yidam/policy/**/*.rego`, sorted, so a load is reproducible across machines.

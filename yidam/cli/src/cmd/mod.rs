@@ -35,6 +35,7 @@ mod migrate;
 mod overlay;
 pub(crate) mod pack;
 pub(crate) mod phases;
+pub(crate) mod policy;
 pub(crate) mod propose;
 pub(crate) mod query;
 mod regen;
@@ -88,6 +89,7 @@ pub use query::query;
 pub use regen::regen;
 // `doctor` asks the same question `regen --check` asks, through the same generator list.
 pub use migrate::{migrate, Operation as MigrateOperation};
+pub use policy::{run as run_policy, PolicyCommand};
 pub(crate) use regen::stale_blocks;
 pub use registry::{agents_index, skills_index};
 pub use rename::rename;
