@@ -179,12 +179,71 @@ fn the_json_report_carries_the_envelope_and_every_check() {
         "catalog",
         "corpora",
         "vault",
+        "policy",
         "build",
     ];
     let mut got = ids.clone();
     got.sort_unstable();
     want.sort_unstable();
     assert_eq!(got, want, "the set of questions changed: {ids:?}");
+}
+
+/// **Where a broken policy is caught**, decided on RFC-0024's fourth open question.
+///
+/// Not a new mise task and not a new CI job in every derived repository: `doctor` is already
+/// offline and read-only, and derived CI already runs it. A rule that cannot be evaluated
+/// refuses nothing, so this fails rather than warns.
+#[test]
+fn a_policy_that_does_not_compile_fails_the_doctor() {
+    let tmp = stage();
+    let dir = tmp.path().join(".yidam/policy");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("record.rego"),
+        "package yidam.disclose.record\n{{{\n",
+    )
+    .unwrap();
+
+    let r = run(tmp.path(), &["doctor", "--format", "json"]);
+    let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("doctor emits JSON");
+    let policy = v["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == "policy")
+        .expect("doctor asks about policy");
+    assert_eq!(policy["verdict"], "fail", "{policy:#?}");
+}
+
+/// An override is reported and is **not** a failure. The repository decided; `lint`'s
+/// `policy-override` is what makes the decision visible, at `Info`, gating nothing.
+#[test]
+fn an_overridden_decision_is_named_and_does_not_fail_the_doctor() {
+    let tmp = stage();
+    let dir = tmp.path().join(".yidam/policy");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("record.rego"),
+        "package yidam.disclose.record\n\ndecision := {\"allow\": true, \"deny\": []}\n",
+    )
+    .unwrap();
+
+    let r = run(tmp.path(), &["doctor", "--format", "json"]);
+    let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("doctor emits JSON");
+    let policy = v["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == "policy")
+        .unwrap();
+    assert_eq!(policy["verdict"], "ok", "{policy:#?}");
+    assert!(
+        policy["detail"]
+            .as_str()
+            .unwrap()
+            .contains("disclose/record"),
+        "the overridden decision must be named: {policy:#?}"
+    );
 }
 
 /// A warning is not a failure, and `--strict` is how a CI job says it wants it to be.

@@ -323,6 +323,13 @@
       "severity": "warn",
       "rationale": "A manifest permitted to be wrong drifts, exactly as a lint baseline does, and the entry that outlives the directory it describes is the one that quietly excuses a path somebody later creates under the same name. `generated` regions are exempt: they are written by a build and are frequently git-ignored, so absence on a fresh clone carries no information. Warn rather than Error, unlike the baseline's own staleness rule, and for the reason this check exists — an imported region is re-synced by somebody upstream on their schedule, and gating on it would make the build's colour depend on that.",
       "violations": []
+    },
+    {
+      "id": "policy-override",
+      "title": "A disclosure decision is this repository's own rule",
+      "severity": "info",
+      "rationale": "A policy in `.yidam/policy/` supersedes the default `yidam` carries, and may permit what the default refused — that is the authoritative model RFC-0024 settled on, and a repository is entitled to use it. This check does not object to that. It exists so that the choice cannot be made quietly: a guard loosened in a file nobody reads is the shape `.yidam/private-paths` was built to end, where access control looked enforced and was not. Record why in `.yidam/decisions/`, and use `yidam policy test` to see exactly which inherited expectations your rule changed.",
+      "violations": []
     }
   ]
 }

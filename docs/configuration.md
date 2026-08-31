@@ -155,6 +155,19 @@ settled on, and the cost is that a loosened guard is a rule nobody is stopped fr
 is not, however, a rule anybody can write *quietly*: `policy check` names every override, and
 `policy test` runs the inherited cases against yours and reports what they no longer say.
 
+**An override shows up in three places**, none of which fails a build:
+
+| Where | What it says |
+|---|---|
+| `yidam policy check` | the decision is local, and the file it came from |
+| `yidam lint` — `policy-override`, `Info` | one finding per overridden decision, in the JSON report and therefore in the editor |
+| `yidam doctor` — `policy` | how many decisions are this repository's, and whether every rule compiles |
+
+`doctor` is also where a **broken** policy is caught: a rule that does not compile, or that
+names a builtin this build does not carry, is a `fail` — a rule that cannot answer refuses
+nothing. That is deliberately not a new CI job. `doctor` is already offline and read-only and
+derived CI already runs it, and machinery nobody invokes is how a check comes to cover nothing.
+
 Two things belong nowhere near this directory:
 
 - **The vendored copy.** `.yidam/.vendor/prelude/policy/` is the default policy as shipped,
