@@ -1,0 +1,23 @@
+id: an-unlocated-instrument-is-a-node
+summary: An instrument the index shows and the search could not read is a node, tagged open.
+context: |
+  The 1961 entry in the grantor index points into a volume that is damaged. The obvious
+  handling is to note the gap in the description of the instruments on either side of it and
+  move on, since there is no document to describe.
+decision: |
+  It gets a node. `instrument/1961-indexed-conveyance` carries what the index establishes,
+  carries a `grantor` edge and no `grantee` edge, and is tagged `[open]`.
+rationale: |
+  A gap written only as prose inside its neighbours is invisible to every mechanism this
+  corpus has. It cannot be listed by `open-questions`, it cannot be traversed to, and it
+  cannot be counted. The absence would be real and would leave no trace that anybody had
+  established it.
+
+  And there are two different absences here, which a note cannot distinguish and a node can.
+  *No instrument was recorded* and *an instrument was recorded and cannot be read* are
+  opposite findings: the first says the chain is continuous and the second says it is broken
+  at a known point by a known cause. The index entry is positive evidence for the second.
+
+  The missing `grantee` edge is the same discipline one level down. It would be easy to
+  infer — the next instrument's grantor shares a surname — and inferring it is what would
+  close the gap by assertion. The edge is absent because the evidence for it is.

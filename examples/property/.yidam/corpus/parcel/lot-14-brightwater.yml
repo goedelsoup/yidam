@@ -1,0 +1,24 @@
+class: parcel
+label: Lot 14, Brightwater Addition
+description: |
+  The parcel this corpus traces: a residential lot in the Brightwater Addition, Vantry
+  County, described in the current deed by lot and block reference to the recorded plat.
+  [verified]
+
+  Lot-and-block is the easier of the two description regimes to trace, because the plat fixes
+  the boundary once and every later instrument can refer to it. A metes-and-bounds parcel
+  would put a second question under every conveyance — whether the land described is the same
+  land — and that question is out of scope here. [inference]
+
+  This is an **illustrative parcel** in an invented county. Its identifiers follow the form a
+  recorder's office uses so the shape of a real record is legible; it describes no real land
+  and no real transaction.
+properties:
+  parcel_id: "14-208-031"
+  acreage: "0.31"
+  claim_tag: verified
+links:
+  - target: ../parcel.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/vantry-county-recorder.md
+    relationship: sourced-from

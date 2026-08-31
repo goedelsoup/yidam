@@ -1,0 +1,17 @@
+class: party
+label: Brightwater Holdings LLC
+description: |
+  Grantee of the 1993 warranty deed and grantor of the 2014 warranty deed. [verified]
+
+  An entity rather than a natural person, which changes what the chain has to account for.
+  An entity does not die, so no probate interrupts its tenure; it does dissolve, merge and
+  change name, and any of those between 1993 and 2014 would need a filing outside the
+  recorder's office to connect. Nothing in the deed record would show it. [open]
+properties:
+  party_type: entity
+  claim_tag: verified
+links:
+  - target: ../party.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/vantry-county-recorder.md
+    relationship: sourced-from

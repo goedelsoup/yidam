@@ -1,0 +1,26 @@
+class: instrument
+label: 2014 warranty deed — Brightwater Holdings to Osei
+description: |
+  General warranty deed, Brightwater Holdings LLC to Petra Osei, recorded in Book 733 at
+  page 88. The most recent instrument affecting the lot that this examination located.
+  [verified]
+
+  "Most recent located" is not "most recent". The search covered the deed records through the
+  date of examination, and an instrument recorded after that date, or one never recorded at
+  all, would not appear — see the catalog entry on what the index does not cover. [open]
+properties:
+  instrument_type: warranty deed
+  recorded: Book 733, page 88
+  dated: "2014-05-19"
+  claim_tag: verified
+links:
+  - target: ../instrument.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/vantry-county-recorder.md
+    relationship: sourced-from
+  - target: ../parcel/lot-14-brightwater.yml
+    relationship: conveys
+  - target: ../party/brightwater-holdings.yml
+    relationship: grantor
+  - target: ../party/petra-osei.yml
+    relationship: grantee

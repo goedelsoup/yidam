@@ -1,0 +1,37 @@
+class: instrument
+label: 1961 conveyance — indexed, not located
+description: |
+  **The gap.** An instrument the grantor–grantee index says exists and which could not be
+  read. [open]
+
+  The index carries a 1961 entry under Calloway, Thomas, with a book and page reference into
+  Volume 168. That volume is recorded in the office's own damage register as water-damaged in
+  1979; the pages covering this entry are among those it lists as illegible. So the corpus
+  can say an instrument was recorded, and cannot say what it conveyed, to whom, or on what
+  authority. [verified] for its existence; [open] for its content.
+
+  It is a node rather than a footnote deliberately — see
+  `decisions/an-unlocated-instrument-is-a-node`. A gap recorded only as an absence is
+  indistinguishable from a gap nobody looked for, and the index entry is positive evidence
+  that something is missing rather than that nothing happened.
+
+  It carries a `grantor` edge and no `grantee` edge, because that is exactly the state of the
+  evidence: the index is organised by grantor and gives the name; the instrument would give
+  the rest. [verified]
+
+  No microfilm copy has been checked, and the office's own damage register notes that some
+  volumes were filmed before 1979. Whether Volume 168 was is the next thing to ask. [open]
+properties:
+  instrument_type: unknown — indexed as a conveyance
+  recorded: Volume 168, page illegible (grantor index entry, 1961)
+  dated: "1961"
+  claim_tag: open
+links:
+  - target: ../instrument.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/vantry-county-recorder.md
+    relationship: sourced-from
+  - target: ../parcel/lot-14-brightwater.yml
+    relationship: conveys
+  - target: ../party/thomas-calloway.yml
+    relationship: grantor

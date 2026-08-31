@@ -1,0 +1,26 @@
+class: instrument
+label: 1993 warranty deed — Voss to Brightwater Holdings
+description: |
+  General warranty deed, Harlan Voss to Brightwater Holdings LLC, recorded in Book 501 at
+  page 202. [verified]
+
+  Continuous with the instrument before it: this deed's grantor is the 1974 deed's grantee,
+  which is the join the chain is made of. Where that join holds, the two instruments are
+  links; where it fails, as it does at 1961, there is no link and the chain has ended.
+  [inference]
+properties:
+  instrument_type: warranty deed
+  recorded: Book 501, page 202
+  dated: "1993-09-30"
+  claim_tag: verified
+links:
+  - target: ../instrument.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/vantry-county-recorder.md
+    relationship: sourced-from
+  - target: ../parcel/lot-14-brightwater.yml
+    relationship: conveys
+  - target: ../party/harlan-voss.yml
+    relationship: grantor
+  - target: ../party/brightwater-holdings.yml
+    relationship: grantee

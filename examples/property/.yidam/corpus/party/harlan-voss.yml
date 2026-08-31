@@ -1,0 +1,16 @@
+class: party
+label: Harlan Voss
+description: |
+  Grantee of the 1974 quitclaim deed and grantor of the 1993 warranty deed. [verified]
+
+  The 1993 deed is a general warranty, which means Voss covenanted against defects arising at
+  any time — including before he acquired the lot. That covenant is a promise, not evidence:
+  it tells you what a grantor accepted liability for, not what the record shows. [inference]
+properties:
+  party_type: natural person
+  claim_tag: verified
+links:
+  - target: ../party.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/vantry-county-recorder.md
+    relationship: sourced-from

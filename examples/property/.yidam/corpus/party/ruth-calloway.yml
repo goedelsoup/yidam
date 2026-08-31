@@ -1,0 +1,19 @@
+class: party
+label: Ruth Calloway
+description: |
+  Grantor of the 1974 quitclaim deed, which is the first instrument after the gap. [verified]
+
+  Whether this party is the same person the 1961 index entry names, and by what right she
+  conveyed, are the two questions the missing volume would answer. [open] The quitclaim form
+  is itself weak evidence on the point: a quitclaim conveys whatever interest the grantor
+  has, including none, and choosing that form is consistent with a grantor who could not
+  warrant title — but it is also what a cautious drafter uses routinely, so it supports very
+  little on its own. [inference]
+properties:
+  party_type: natural person
+  claim_tag: verified
+links:
+  - target: ../party.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/vantry-county-recorder.md
+    relationship: sourced-from

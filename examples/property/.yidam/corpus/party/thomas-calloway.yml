@@ -1,0 +1,17 @@
+class: party
+label: Thomas Calloway
+description: |
+  Grantee of the 1948 warranty deed. [verified]
+
+  Title passed out of Thomas Calloway's name at some point before 1974, and how it did is the
+  gap this corpus is built around — see `instrument/1961-indexed-conveyance`. The
+  grantor–grantee index shows an entry under this name in 1961; the volume it points into
+  could not be read. [open]
+properties:
+  party_type: natural person
+  claim_tag: verified
+links:
+  - target: ../party.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/vantry-county-recorder.md
+    relationship: sourced-from

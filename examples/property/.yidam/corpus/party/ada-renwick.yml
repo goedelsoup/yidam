@@ -1,0 +1,18 @@
+class: party
+label: Ada Renwick
+description: |
+  Grantor of the 1948 warranty deed, and the earliest party this examination reaches.
+  [verified]
+
+  The chain does not stop here because Renwick was the original owner — it stops here because
+  this is as far back as the search went. Those are different statements, and a title
+  abstract that does not distinguish them is asserting a root of title it did not establish.
+  [open] What conveyed the lot *to* Renwick is unexamined.
+properties:
+  party_type: natural person
+  claim_tag: verified
+links:
+  - target: ../party.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/vantry-county-recorder.md
+    relationship: sourced-from

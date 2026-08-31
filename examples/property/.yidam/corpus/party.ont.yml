@@ -1,0 +1,16 @@
+class: party
+label: Party
+description: |
+  A person or entity named in an instrument, as that instrument names them.
+
+  Identity here is a claim rather than a given: "R. Calloway" in one index and "Ruth A.
+  Calloway" in another may be one party or two, and deciding that they are one is title work
+  that has to be written down. A party node is the place that decision lives.
+properties:
+  - name: party_type
+    type: string
+    description: Natural person, or an entity — the two behave differently on death.
+  - name: claim_tag
+    type: claim
+    description: The evidence standing of this node, as a tag rather than as prose.
+edges: []
