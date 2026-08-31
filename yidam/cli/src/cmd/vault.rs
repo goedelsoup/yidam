@@ -49,6 +49,26 @@ pub enum VaultCommand {
     },
     /// Re-hash every cached artifact and report anything that is not what it claims
     Verify,
+    /// Upload what the corpus names and the vault lacks
+    Push {
+        /// Show what would be sent — including the exact string that would be signed — and
+        /// send nothing
+        #[arg(long)]
+        dry_run: bool,
+        /// Restrict to one artifact, by content address. It must still be named by a catalog
+        /// entry: `--artifact` narrows what is pushed, it never bypasses the guard.
+        #[arg(long)]
+        artifact: Option<String>,
+    },
+    /// Fetch what the corpus names and the cache lacks
+    Pull,
+    /// What the corpus names, and where each artifact is
+    Status {
+        /// Ask the vault about each artifact. One HEAD per record — bounded by the catalog,
+        /// never by the bucket, because nothing here lists a store.
+        #[arg(long)]
+        remote: bool,
+    },
 }
 
 pub fn run(sub: VaultCommand) -> Result<()> {
@@ -58,7 +78,228 @@ pub fn run(sub: VaultCommand) -> Result<()> {
         VaultCommand::Get { sha256, out } => get(&sha256, out.as_deref()),
         VaultCommand::Path { sha256 } => path_of(&sha256),
         VaultCommand::Verify => verify(),
+        VaultCommand::Push { dry_run, artifact } => push(dry_run, artifact.as_deref()),
+        VaultCommand::Pull => pull(),
+        VaultCommand::Status { remote } => status(remote),
     }
+}
+
+/// The artifacts the corpus names, narrowed to one if asked.
+///
+/// **`--artifact` narrows and never widens.** A digest the catalog does not name is refused
+/// rather than pushed from the cache: an artifact with no record has no `redistributable`, no
+/// path to check against `.yidam/private-paths`, and therefore nothing for the guard to read.
+/// Allowing it would be a hole in the guard that looked like a convenience flag.
+fn selected(root: &Path, artifact: Option<&str>) -> Result<Vec<vault::Named>> {
+    let all = vault::named_artifacts(root);
+    let Some(want) = artifact else {
+        return Ok(all);
+    };
+    let hash = ContentHash::parse(want)?;
+    let picked: Vec<_> = all.into_iter().filter(|a| a.hash == hash).collect();
+    if picked.is_empty() {
+        bail!(
+            "no catalog entry names {hash}.\n  \
+             `--artifact` narrows what is pushed; it does not push something the corpus has \
+             not recorded. An artifact with no record carries no `redistributable` and no \
+             path to check for privacy, so there would be nothing for the guard to read."
+        );
+    }
+    Ok(picked)
+}
+
+fn push(dry_run: bool, artifact: Option<&str>) -> Result<()> {
+    let root = repo_root()?;
+    require_yidam_repo(&root)?;
+    let Some((name, cfg)) = configured()? else {
+        bail!("this repository declares no vault — `yidam vault list` shows the shape.");
+    };
+    let cache = cache()?;
+    let private = vault::read_private_paths(&root)?;
+    let wanted = selected(&root, artifact)?;
+    if wanted.is_empty() {
+        println!("The corpus names no artifacts.");
+        return Ok(());
+    }
+    let store = vault::open(&name, &cfg)?;
+
+    let (mut sent, mut present, mut uncached) = (0usize, 0usize, 0usize);
+    let mut refused: Vec<String> = Vec::new();
+
+    for a in &wanted {
+        match vault::may_push(a, &private) {
+            vault::Disposition::Refused(why) => {
+                refused.push(format!("{} — {why}", a.hash));
+                continue;
+            }
+            vault::Disposition::Push => {}
+        }
+        if !cache.contains(&a.hash) {
+            // Nothing to send. Not an error: a clone that has never fetched an artifact is a
+            // normal state, and reporting it as a failure would make `push` red on every
+            // fresh checkout.
+            eprintln!("not cached, nothing to send: {} ({})", a.hash, a.rel);
+            uncached += 1;
+            continue;
+        }
+        if dry_run {
+            println!("would send {} ({})", a.hash, a.rel);
+            if let Some(explain) = store.explain_put(&a.hash) {
+                for line in explain.lines() {
+                    println!("    {line}");
+                }
+            }
+            println!();
+            sent += 1;
+            continue;
+        }
+        if store.has(&a.hash)? {
+            present += 1;
+            continue;
+        }
+        store.put(&a.hash, &cache.path_of(&a.hash))?;
+        println!("sent {} ({})", a.hash, a.rel);
+        sent += 1;
+    }
+
+    println!();
+    println!(
+        "{} artifact{} named; {sent} {}; {present} already in `{name}`; {uncached} not cached; \
+         {} refused",
+        wanted.len(),
+        if wanted.len() == 1 { "" } else { "s" },
+        if dry_run { "would be sent" } else { "sent" },
+        refused.len()
+    );
+    if !refused.is_empty() {
+        println!();
+        println!("Refused — `{name}` serves: {}", cfg.audience());
+        for r in &refused {
+            println!("  {r}");
+        }
+    }
+    Ok(())
+}
+
+fn pull() -> Result<()> {
+    let root = repo_root()?;
+    require_yidam_repo(&root)?;
+    let Some((name, cfg)) = configured()? else {
+        bail!("this repository declares no vault — `yidam vault list` shows the shape.");
+    };
+    let cache = cache()?;
+    let wanted = vault::named_artifacts(&root);
+    if wanted.is_empty() {
+        println!("The corpus names no artifacts.");
+        return Ok(());
+    }
+    let store = vault::open(&name, &cfg)?;
+
+    let (mut fetched, mut held, mut absent) = (0usize, 0usize, 0usize);
+    for a in &wanted {
+        if cache.contains(&a.hash) {
+            held += 1;
+            continue;
+        }
+        if a.vault.as_deref() == Some("none") {
+            // Routed to the local cache and nowhere else, so there is nothing to pull from.
+            absent += 1;
+            eprintln!("{} is `vault: none` and is not here ({})", a.hash, a.rel);
+            continue;
+        }
+        if !store.has(&a.hash)? {
+            absent += 1;
+            eprintln!("{} is not in `{name}` ({})", a.hash, a.rel);
+            continue;
+        }
+        let staged = cache.path_of(&a.hash).with_extension("incoming");
+        store.get(&a.hash, &staged)?;
+        // Verified before it may count as present, for the reason `get` gives: a store that
+        // hands back the wrong bytes is what content addressing exists to catch, and catching
+        // it later means a corrupt artifact was already readable.
+        let found = ContentHash::of_file(&staged)?;
+        if found != a.hash {
+            let _ = std::fs::remove_file(&staged);
+            bail!(
+                "vault `{name}` returned bytes that are not {} for {}.\n  \
+                 received {found}\n  Nothing was cached.",
+                a.hash,
+                a.rel
+            );
+        }
+        cache.put_file(&staged, &a.hash)?;
+        let _ = std::fs::remove_file(&staged);
+        println!("fetched {} ({})", a.hash, a.rel);
+        fetched += 1;
+    }
+    println!();
+    println!(
+        "{} named; {fetched} fetched; {held} already cached; {absent} unavailable",
+        wanted.len()
+    );
+    if absent > 0 {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+fn status(remote: bool) -> Result<()> {
+    let root = repo_root()?;
+    require_yidam_repo(&root)?;
+    let cache = cache()?;
+    let wanted = vault::named_artifacts(&root);
+    if wanted.is_empty() {
+        println!("The corpus names no artifacts.");
+        return Ok(());
+    }
+    let configured = configured()?;
+    let store = match (&configured, remote) {
+        (Some((name, cfg)), true) => Some((name.clone(), vault::open(name, cfg)?)),
+        _ => None,
+    };
+    if remote && store.is_none() {
+        bail!("`--remote` needs a vault, and this repository declares none.");
+    }
+
+    let mut mismatched = 0usize;
+    for a in &wanted {
+        // Cache first, and re-hashed rather than trusted: the local answer is the one that
+        // can be wrong in a way nothing else would notice.
+        let local = match cache.verify(&a.hash)? {
+            Verdict::Intact => "cached",
+            Verdict::Absent => "-",
+            Verdict::Corrupt { .. } => {
+                mismatched += 1;
+                "CORRUPT"
+            }
+        };
+        let remote_state = match &store {
+            None => "".to_string(),
+            Some((_, s)) => {
+                if a.vault.as_deref() == Some("none") {
+                    "  local-only".to_string()
+                } else if s.has(&a.hash)? {
+                    "  stored".to_string()
+                } else {
+                    "  absent".to_string()
+                }
+            }
+        };
+        println!("{:<8}{remote_state:<10}  {}  {}", local, a.hash, a.rel);
+    }
+    println!();
+    println!(
+        "{} artifact{} named by the corpus",
+        wanted.len(),
+        if wanted.len() == 1 { "" } else { "s" }
+    );
+    if mismatched > 0 {
+        bail!(
+            "{mismatched} cached artifact{} do not match the digest the corpus records.",
+            if mismatched == 1 { "" } else { "s" }
+        );
+    }
+    Ok(())
 }
 
 /// The cache this machine uses.
@@ -101,7 +342,7 @@ fn list() -> Result<()> {
             // alternative is learning it from the first `get` that needed it. The path is
             // already on the line above, so say only whether it worked — and when it did
             // not, say why, at the width the rest of the block uses.
-            match vault::open(&cfg) {
+            match vault::open(&name, &cfg) {
                 Ok(_) => println!("  store     ready"),
                 Err(e) => {
                     let mut lines = e
@@ -149,7 +390,7 @@ fn get(sha256: &str, out: Option<&Path>) -> Result<()> {
                  Declare one in `.yidam/config.toml` — `yidam vault list` shows the shape."
             );
         };
-        let store = vault::open(&cfg)?;
+        let store = vault::open(&name, &cfg)?;
         if !store.has(&hash)? {
             bail!(
                 "{hash} is in neither the local cache nor vault `{name}` ({}).",

@@ -230,6 +230,9 @@ knowledge claim, only the time to re-fetch.
 | `vault get <sha256>` * | From the cache, else from the vault. `--out` also writes a named copy |
 | `vault path <sha256>` | Where the artifact sits locally, or exit nonzero — so `… \|\| fetch` works |
 | `vault verify` | Re-hash every cached artifact; exits nonzero if any is not what it claims |
+| `vault push` * | Upload what the corpus names and the vault lacks. `--dry-run` prints the exact string that would be signed; `--artifact` narrows to one |
+| `vault pull` * | Fetch what the corpus names and the cache lacks; exits nonzero if anything named is nowhere |
+| `vault status` | Where each named artifact is. `--remote` asks the vault — one HEAD per record, never a bucket listing |
 
 Every artifact is named by the SHA-256 of its bytes, in lowercase hex. The cache is
 **machine-wide** — `$XDG_CACHE_HOME/yidam/vault`, or `YIDAM_VAULT_CACHE` — so two repositories
@@ -251,8 +254,54 @@ to a store. What is enforced is that somebody wrote one.
 The table is plural (`[vault.<name>]`) before it needs to be, because `[vault]` and
 `[vault.default]` are different config shapes and this file is committed. **Exactly one vault,
 named `default`, is honoured today**; a second is refused by name rather than resolved to the
-first. `s3://` is specified in RFC-0023 and not yet built — a url naming one is reported as
-unbuilt rather than as unknown.
+first.
+
+### S3-compatible stores
+
+```toml
+[vault.default]
+url        = "s3://corpus-artifacts/yidam"
+region     = "us-east-1"                    # signing scope; MinIO wants one too
+endpoint   = "https://s3.example.net"       # omit for AWS
+path_style = true                           # defaults true when an endpoint is set
+audience   = "Anyone who can read this corpus."
+```
+
+Credentials come from the **environment only** — `.yidam/config.toml` is committed and must
+never carry one:
+
+| Variable | For |
+|---|---|
+| `YIDAM_VAULT_<NAME>_ACCESS_KEY_ID` | that vault, always |
+| `YIDAM_VAULT_<NAME>_SECRET_ACCESS_KEY` | that vault, always |
+| `YIDAM_VAULT_<NAME>_SESSION_TOKEN` | temporary credentials |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | **the vault named `default`, and no other** |
+
+That last asymmetry is deliberate. An ordinary AWS environment is plausibly already configured
+for the store a repository publishes its own output to. A *second* vault exists because its
+readership differs — that is the only reason to declare one — so letting it inherit whatever
+happens to be exported is the failure the boundary was drawn to prevent.
+
+A single `PUT` caps at 5 GiB and multipart upload is not built; over the cap the upload is
+refused with a message that says so, rather than failing at the server as `EntityTooLarge`.
+
+### What `push` refuses
+
+**`vault push` is the first egress channel `yidam` itself opens.** An artifact must clear two
+independent checks, and neither implies the other:
+
+- **`.yidam/private-paths`** — about *this repository*. An artifact whose record sits under a
+  declared path is never uploaded, whatever its licence says. Same rule the release workflow
+  applies to a bundle, for the reason it gives: *the artifact outlives the access.*
+- **`redistributable`** — about *the source*. A catalog artifact is **not pushed unless its
+  record says `redistributable: true`.** A default of "upload unless told otherwise" would
+  make the first push anybody runs a redistribution nobody chose, and a catalog is full of
+  papers.
+
+A refusal quotes the destination's own `audience` back, so the reader learns what they were
+about to publish to. `--artifact` narrows what is sent and never bypasses either check: a
+digest the corpus does not record is refused, because it carries no `redistributable` and no
+path to check.
 
 ## Export
 

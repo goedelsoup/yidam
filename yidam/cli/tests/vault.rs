@@ -364,18 +364,232 @@ fn a_vault_that_does_not_say_who_can_read_it_is_refused() {
     assert!(said.contains("audience"), "{said}");
 }
 
-/// An `s3://` url must be refused as *not built yet*, not as gibberish — the two send the
-/// reader to different places.
+/// An `s3://` vault with no credentials in the environment is a *configuration* state, not a
+/// broken build. `list` reports it and still succeeds — the declaration is legitimate and it
+/// is the environment that is incomplete — and the message names the variables to set.
 #[test]
-fn an_s3_vault_is_reported_as_unbuilt_rather_than_unknown() {
+fn an_s3_vault_without_credentials_is_reported_and_names_what_to_set() {
     let config = "[vault.default]\nurl = \"s3://bucket/prefix\"\naudience = \"the sangha\"\n";
     let tmp = repo(Some(config));
     let cache = tmp.path().join("cache");
-    // `list` reports it rather than failing: the declaration is legitimate and it is this
-    // build that cannot act on it.
     let said = run(tmp.path(), &cache, &["vault", "list"]).ok().said();
-    assert!(said.contains("no S3 transport"), "{said}");
+    assert!(said.contains("no credentials"), "{said}");
+    assert!(
+        said.contains("YIDAM_VAULT_DEFAULT_ACCESS_KEY_ID"),
+        "names what to set: {said}"
+    );
 
-    // A command that actually needs the store does fail.
+    // A command that actually needs the store fails rather than reporting.
     run(tmp.path(), &cache, &["vault", "get", &"3".repeat(64)]).failed();
+}
+
+// ── push, and the guard that comes with it ───────────────────────────────────
+
+/// A catalog entry naming one artifact, with whatever the test needs to say about it.
+fn entry(tmp: &Path, name: &str, digest: &str, extra: &str) {
+    let dir = tmp.join(".yidam/catalog");
+    std::fs::create_dir_all(&dir).unwrap();
+    write(
+        &dir.join(format!("{name}.md")),
+        format!(
+            "---\nname: {name}\ndescription: A source.\ntype: paper\n\
+             artifacts:\n  - sha256: {digest}\n{extra}---\n\nBody.\n"
+        )
+        .as_bytes(),
+    );
+}
+
+fn cached(tmp: &Path, cache: &Path, body: &[u8]) -> String {
+    let src = write(&tmp.join(format!("src-{}", body.len())), body);
+    let (o, e, c) = {
+        let r = run(tmp, cache, &["vault", "put", src.to_str().unwrap()]);
+        (r.stdout.clone(), r.stderr.clone(), r.code)
+    };
+    assert_eq!(c, 0, "{o}{e}");
+    o.trim().to_string()
+}
+
+/// **The default is refusal.** A record that says nothing about redistribution is not a
+/// licence, and the first push anybody runs must not become one.
+#[test]
+fn a_record_that_does_not_license_redistribution_is_not_pushed() {
+    let vault = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&vault_config(vault.path())));
+    let cache = tmp.path().join("cache");
+    let digest = cached(tmp.path(), &cache, b"a licensed paper");
+    entry(tmp.path(), "paper", &digest, "");
+
+    let said = run(tmp.path(), &cache, &["vault", "push"]).ok().said();
+    assert!(said.contains("1 refused"), "{said}");
+    assert!(said.contains("does not say"), "{said}");
+    // Nothing reached the store.
+    assert!(!vault.path().join("sha256").exists(), "nothing may be sent");
+}
+
+#[test]
+fn an_explicit_licence_is_what_sends_it() {
+    let vault = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&vault_config(vault.path())));
+    let cache = tmp.path().join("cache");
+    let digest = cached(tmp.path(), &cache, b"an open-access paper");
+    entry(tmp.path(), "paper", &digest, "    redistributable: true\n");
+
+    let said = run(tmp.path(), &cache, &["vault", "push"]).ok().said();
+    assert!(said.contains("1 sent"), "{said}");
+    let at = vault.path().join("sha256").join(&digest[..2]).join(&digest);
+    assert_eq!(std::fs::read(&at).unwrap(), b"an open-access paper");
+}
+
+/// **The load-bearing guard.** A declared-private path refuses a push the licence would
+/// otherwise have allowed. The two questions are independent and an artifact clears both.
+#[test]
+fn a_private_path_refuses_a_push_the_licence_would_have_allowed() {
+    let vault = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&vault_config(vault.path())));
+    let cache = tmp.path().join("cache");
+    let digest = cached(tmp.path(), &cache, b"embargoed material");
+    entry(tmp.path(), "secret", &digest, "    redistributable: true\n");
+    write(
+        &tmp.path().join(".yidam/private-paths"),
+        b"# nothing here may be published\n.yidam/catalog\n",
+    );
+
+    let said = run(tmp.path(), &cache, &["vault", "push"]).ok().said();
+    assert!(said.contains("1 refused"), "{said}");
+    assert!(said.contains("private-paths"), "{said}");
+    assert!(said.contains("outlives the access"), "says why: {said}");
+    assert!(!vault.path().join("sha256").exists(), "nothing may be sent");
+}
+
+/// `--artifact` narrows what is pushed. A digest with no record has no `redistributable` and
+/// no path to check, so allowing it would be a hole in the guard shaped like a flag.
+#[test]
+fn artifact_cannot_push_something_the_corpus_does_not_record() {
+    let vault = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&vault_config(vault.path())));
+    let cache = tmp.path().join("cache");
+    let digest = cached(tmp.path(), &cache, b"unrecorded bytes");
+
+    let said = run(
+        tmp.path(),
+        &cache,
+        &["vault", "push", "--artifact", &digest],
+    )
+    .failed()
+    .said();
+    assert!(said.contains("no catalog entry names"), "{said}");
+    assert!(!vault.path().join("sha256").exists(), "nothing may be sent");
+}
+
+/// `vault: none` is a route to the local cache. It is refused as a route rather than as a
+/// licensing problem, because those need different things from the reader.
+#[test]
+fn vault_none_is_refused_as_a_route() {
+    let vault = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&vault_config(vault.path())));
+    let cache = tmp.path().join("cache");
+    let digest = cached(tmp.path(), &cache, b"local only");
+    entry(
+        tmp.path(),
+        "local",
+        &digest,
+        "    vault: none\n    redistributable: true\n",
+    );
+    let said = run(tmp.path(), &cache, &["vault", "push"]).ok().said();
+    assert!(said.contains("local cache"), "{said}");
+    assert!(!vault.path().join("sha256").exists());
+}
+
+/// A push refusal quotes the destination's own audience, so the reader learns what they were
+/// about to publish to rather than only that something was blocked.
+#[test]
+fn a_refusal_names_the_audience_of_the_store_it_declined_to_send_to() {
+    let vault = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&vault_config(vault.path())));
+    let cache = tmp.path().join("cache");
+    let digest = cached(tmp.path(), &cache, b"x");
+    entry(tmp.path(), "paper", &digest, "");
+    let said = run(tmp.path(), &cache, &["vault", "push"]).ok().said();
+    assert!(said.contains("the test suite"), "{said}");
+}
+
+/// A fresh clone has recorded artifacts and none of the bytes. That is normal, not a failure,
+/// and `push` must not go red on it.
+#[test]
+fn a_push_from_a_clone_that_has_fetched_nothing_is_not_a_failure() {
+    let vault = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&vault_config(vault.path())));
+    let cache = tmp.path().join("cache");
+    let digest = "9".repeat(64);
+    entry(tmp.path(), "paper", &digest, "    redistributable: true\n");
+    let said = run(tmp.path(), &cache, &["vault", "push"]).ok().said();
+    assert!(said.contains("1 not cached"), "{said}");
+}
+
+// ── pull and status ──────────────────────────────────────────────────────────
+
+#[test]
+fn pull_fetches_what_the_corpus_names_and_the_cache_lacks() {
+    let vault = tempfile::tempdir().unwrap();
+    let digest = seed_vault(vault.path(), b"a paper the vault has");
+    let tmp = repo(Some(&vault_config(vault.path())));
+    let cache = tmp.path().join("cache");
+    entry(tmp.path(), "paper", &digest, "");
+
+    run(tmp.path(), &cache, &["vault", "pull"]).ok();
+    run(tmp.path(), &cache, &["vault", "path", &digest]).ok();
+}
+
+/// An artifact the corpus names and nowhere holds is a real problem — a reader following a
+/// citation cannot get the document — so `pull` exits nonzero rather than reporting quietly.
+#[test]
+fn pull_exits_nonzero_when_something_named_is_nowhere() {
+    let vault = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&vault_config(vault.path())));
+    let cache = tmp.path().join("cache");
+    entry(tmp.path(), "paper", &"4".repeat(64), "");
+    let said = run(tmp.path(), &cache, &["vault", "pull"]).failed().said();
+    assert!(said.contains("1 unavailable"), "{said}");
+}
+
+#[test]
+fn status_says_where_each_named_artifact_is() {
+    let vault = tempfile::tempdir().unwrap();
+    let digest = seed_vault(vault.path(), b"in the vault only");
+    let tmp = repo(Some(&vault_config(vault.path())));
+    let cache = tmp.path().join("cache");
+    entry(tmp.path(), "paper", &digest, "");
+
+    let said = run(tmp.path(), &cache, &["vault", "status"]).ok().said();
+    assert!(said.contains(&digest), "{said}");
+    assert!(said.contains('-'), "not cached: {said}");
+
+    let said = run(tmp.path(), &cache, &["vault", "status", "--remote"])
+        .ok()
+        .said();
+    assert!(said.contains("stored"), "the vault has it: {said}");
+}
+
+/// `status` is the one command that re-hashes rather than trusting the cache, so a rotted
+/// artifact is reported — and it exits nonzero, because a wrong local copy is a real defect.
+#[test]
+fn status_exits_nonzero_when_a_cached_artifact_is_not_what_the_corpus_records() {
+    let vault = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&vault_config(vault.path())));
+    let cache = tmp.path().join("cache");
+    let digest = cached(tmp.path(), &cache, b"original");
+    entry(tmp.path(), "paper", &digest, "");
+
+    let at = PathBuf::from(
+        run(tmp.path(), &cache, &["vault", "path", &digest])
+            .ok()
+            .stdout
+            .trim(),
+    );
+    std::fs::write(&at, b"rotted").unwrap();
+
+    let said = run(tmp.path(), &cache, &["vault", "status"])
+        .failed()
+        .said();
+    assert!(said.contains("CORRUPT"), "{said}");
 }

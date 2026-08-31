@@ -99,6 +99,7 @@ impl Check {
     const BUILD: &'static str = "build";
     const CATALOG: &'static str = "catalog";
     const CORPORA: &'static str = "corpora";
+    const VAULT: &'static str = "vault";
 
     fn new(
         id: &'static str,
@@ -537,6 +538,7 @@ pub(crate) fn diagnose(
                 "Did the corpora this repository depends on arrive?",
                 why,
             ),
+            Check::skipped(Check::VAULT, "Can this repository reach its vault?", why),
             check_build(),
         ];
     }
@@ -550,8 +552,122 @@ pub(crate) fn diagnose(
         check_regen(),
         check_catalog(root, today),
         check_corpora(root),
+        check_vault(root),
         check_build(),
     ]
+}
+
+/// Is a vault configured, and is everything it needs in place — **without asking it**.
+///
+/// `doctor` is documented read-only and offline, and this does not change that. Whether a
+/// store is *reachable* is `yidam vault status --remote`'s question, and answering it here
+/// would put a network call in the one command a person runs when the network is what they
+/// suspect.
+///
+/// So what is checked is everything that can be settled locally: that a declared vault
+/// resolves, that it says who can read it, that its credentials are in the environment, and
+/// that the artifacts the corpus names are cached. Each of those fails in a way that produces
+/// an unhelpful error much later — a `403` names no variable, and a missing artifact surfaces
+/// as a broken citation.
+fn check_vault(root: &Path) -> Check {
+    let config = crate::config::load_yidam_config(root).unwrap_or_default();
+    let resolved =
+        match crate::vault::resolve(&config.vault) {
+            Err(e) => return Check::new(
+                Check::VAULT,
+                "Can this repository reach its vault?",
+                Verdict::Fail,
+                first_line(&e.to_string()),
+                Some(
+                    "Fix `[vault.…]` in `.yidam/config.toml`; `yidam vault list` shows the shape.",
+                ),
+            ),
+            Ok(r) => r,
+        };
+
+    let named = crate::vault::named_artifacts(root);
+    let Some((name, cfg)) = resolved else {
+        // No vault is the common case and is not a defect — unless the corpus has already
+        // started recording artifacts, which means it is relying on somewhere to keep them.
+        return if named.is_empty() {
+            Check::new(
+                Check::VAULT,
+                "Can this repository reach its vault?",
+                Verdict::Ok,
+                "none declared",
+                None,
+            )
+        } else {
+            Check::new(
+                Check::VAULT,
+                "Can this repository reach its vault?",
+                Verdict::Warn,
+                format!("{} artifact(s) recorded and no vault declared", named.len()),
+                Some(
+                    "Declare `[vault.default]` in `.yidam/config.toml`, or the bytes live \
+                      only in whichever caches happen to hold them.",
+                ),
+            )
+        };
+    };
+
+    // Credentials, for a store that needs them. A `file://` vault needs none, and demanding
+    // them would report a healthy setup as broken.
+    if cfg.url.trim().starts_with("s3://") {
+        if let Err(e) = crate::vault::credentials_available(name) {
+            return Check::new(
+                Check::VAULT,
+                "Can this repository reach its vault?",
+                Verdict::Warn,
+                first_line(&e.to_string()),
+                Some(
+                    "Credentials come from the environment only — `.yidam/config.toml` is \
+                      committed and must never carry one.",
+                ),
+            );
+        }
+    }
+
+    let cache = match crate::vault::Cache::resolve(|k| std::env::var(k).ok()) {
+        Ok(c) => c,
+        Err(e) => {
+            return Check::new(
+                Check::VAULT,
+                "Can this repository reach its vault?",
+                Verdict::Warn,
+                first_line(&e.to_string()),
+                Some("Set YIDAM_VAULT_CACHE to say where artifacts should live."),
+            )
+        }
+    };
+    let uncached = named.iter().filter(|a| !cache.contains(&a.hash)).count();
+    if uncached > 0 {
+        return Check::new(
+            Check::VAULT,
+            "Can this repository reach its vault?",
+            Verdict::Warn,
+            format!(
+                "`{name}` configured; {uncached} of {} recorded artifact(s) not cached",
+                named.len()
+            ),
+            Some(
+                "`yidam vault pull` fetches them. Reachability is `yidam vault status \
+                  --remote`; this check makes no network call.",
+            ),
+        );
+    }
+    Check::new(
+        Check::VAULT,
+        "Can this repository reach its vault?",
+        Verdict::Ok,
+        format!("`{name}` configured; {} artifact(s) cached", named.len()),
+        None,
+    )
+}
+
+/// The first line of an error, for a one-line verdict.
+fn first_line(s: &str) -> String {
+    s.lines().next().unwrap_or_default().trim().to_string()
 }
 
 /// Are the corpora this repository depends on actually unpacked, and are they the ones
