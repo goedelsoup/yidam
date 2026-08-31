@@ -333,7 +333,7 @@ pub fn serve_mcp() -> Result<()> {
         state.decisions.len(),
     );
     match &state.retrieval {
-        #[cfg(feature = "index")]
+        #[cfg(feature = "vector-read")]
         Retrieval::Vector(idx) => eprintln!(
             "vector index: {} row(s), model {} — `retrieve` uses semantic search",
             idx.rows.len(),
@@ -343,10 +343,10 @@ pub fn serve_mcp() -> Result<()> {
             "vector index: absent (no_index) — `retrieve` degrades to keyword search; \
              run `yidam embed && yidam index-build` to build one"
         ),
-        #[cfg(not(feature = "index"))]
+        #[cfg(not(feature = "vector-read"))]
         Retrieval::NoVectorSupport => eprintln!(
             "vector index: present but unreadable by this build (no_vector_support) — \
-             `retrieve` degrades to keyword search; reinstall with `--features index` for \
+             `retrieve` degrades to keyword search; reinstall with `--features vector-read` for \
              semantic search"
         ),
     }
@@ -595,7 +595,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(feature = "index"))]
+    #[cfg(not(feature = "vector-read"))]
     fn a_light_build_says_why_it_cannot_use_an_index_that_exists() {
         // The whole point of the third state. Before this, a binary that could not read an
         // index and a corpus that had none both answered `degraded: true` and nothing else,
@@ -611,9 +611,9 @@ mod tests {
     fn the_capability_block_and_the_call_report_the_same_reason() {
         // They are one fact stated at two moments, and a client is entitled to assume they
         // agree — the contract says the handshake *promises* what every call will say.
-        #[cfg(not(feature = "index"))]
+        #[cfg(not(feature = "vector-read"))]
         let states = [Retrieval::NoIndex, Retrieval::NoVectorSupport];
-        #[cfg(feature = "index")]
+        #[cfg(feature = "vector-read")]
         let states = [Retrieval::NoIndex];
         for retrieval in states {
             let mut state = test_state();

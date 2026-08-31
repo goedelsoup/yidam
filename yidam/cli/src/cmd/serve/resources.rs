@@ -149,11 +149,11 @@ fn graph_summary(state: &ServerState) -> String {
         state.skills.len(),
         state.decisions.len(),
         match &state.retrieval {
-            #[cfg(feature = "index")]
+            #[cfg(feature = "vector-read")]
             super::Retrieval::Vector(idx) =>
                 format!("{} row(s), model {}", idx.rows.len(), idx.model_id),
             super::Retrieval::NoIndex => "absent (no_index)".to_string(),
-            #[cfg(not(feature = "index"))]
+            #[cfg(not(feature = "vector-read"))]
             super::Retrieval::NoVectorSupport =>
                 "present, unreadable by this build (no_vector_support)".to_string(),
         },

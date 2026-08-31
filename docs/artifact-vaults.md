@@ -128,11 +128,14 @@ deterministic archive and hashed as a whole. A `corpus.arrow` from one build bes
 `meta.json` from another is a corrupt index nothing would notice; making partial arrival
 inexpressible is better than checking for it.
 
-> **A light build still degrades.** Pulling an index does not make `retrieve` non-degraded in a
-> binary without the `index` feature: reading the index needs `arrow-ipc`, and embedding the
-> *query* needs the ONNX model. The channel is necessary and not sufficient. A read-only vector
-> build — which needs no protoc, because that is `lancedb`'s requirement and `lancedb` only
-> builds indexes — is specified in issue #442.
+> **The default build still degrades, and there is a build that does not.** Pulling an index
+> does not make `retrieve` non-degraded in the light binary: reading the index needs
+> `arrow-ipc`, and embedding the *query* needs the ONNX model. The channel is necessary and not
+> sufficient.
+>
+> `--features vector-read` is the build that completes it. It reads an index and answers over
+> it, and it needs **no protoc** — that is `lancedb`'s requirement, and `lancedb` is only ever
+> used to *write* an index. See [Installation](installation.md#which-build-you-have).
 
 ## Opening a file, and reclaiming the space
 

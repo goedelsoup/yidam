@@ -129,14 +129,30 @@ reports = []
 # command on this put the one surface that makes a corpus reachable by an agent
 # in the build almost nobody installs. fastembed (ONNX) + lancedb (requires
 # protoc 31) + arrow.
-index = [
+# Reading an index and answering a query over it. **No protoc, no lancedb.**
+#
+# The split exists because those two costs belong to *building* an index and not
+# to using one: `lancedb` is named in exactly one file, `cmd/index_build.rs`, and
+# it is what requires protoc 31. Everything the read path needs — decoding
+# `corpus.arrow` and embedding the query — is fastembed and arrow.
+#
+# That matters because the released binary is the light default, so the machine
+# that can use an index is almost never the machine that can build one. RFC-0023
+# gave the index a way to travel; this is the build that can receive it.
+#
+# Still not the light default: fastembed carries an ONNX runtime, which is a
+# native dependency the `reports` build deliberately has none of.
+vector-read = [
   "dep:fastembed",
-  "dep:lancedb",
-  "dep:futures",
-  "dep:tokio",
   "dep:arrow-array",
   "dep:arrow-schema",
   "dep:arrow-ipc",
+]
+index = [
+  "vector-read",
+  "dep:lancedb",
+  "dep:futures",
+  "dep:tokio",
 ]
 # `export --format sqlite` — bundled (from-source) SQLite + sqlite-vec; reads
 # the arrow vector index via model::index_rows.
@@ -164,6 +180,7 @@ tonpa = ["dep:reqwest", "dep:tokio"]
 vault-s3 = ["dep:hmac", "dep:reqwest", "dep:tokio", "dep:tokio-util"]
 # Everything — reproduces the pre-partition monolith (`cargo install --features full`).
 full = ["reports", "index", "export-sqlite", "export-graph", "tonpa", "vault-s3"]
+# `index` implies `vector-read`, so `full` carries it without naming it.
 
 [dev-dependencies]
 walkdir = "2"

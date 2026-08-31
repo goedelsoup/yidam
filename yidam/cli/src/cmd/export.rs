@@ -71,10 +71,10 @@ pub fn list_formats() {
     } else {
         "  needs --features export-sqlite"
     };
-    let mcp = if cfg!(feature = "index") {
+    let mcp = if cfg!(feature = "vector-read") {
         "  run `yidam serve --mcp`"
     } else {
-        "  needs --features index"
+        "  needs --features vector-read"
     };
     let formats: &[(&str, &str)] = &[
         ("bundle", "✓ implemented"),

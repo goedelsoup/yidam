@@ -68,7 +68,8 @@ Introduce a `[features]` table in `yidam/cli/Cargo.toml` and move the heavy depe
 | Feature | Default | Commands it enables | Dependencies it adds |
 |---|---|---|---|
 | `reports` | **yes** | `graph-check`, `lint`, `corpus-index`, `open-questions`, `status`, `index-status`, `diff`, `phases`, `backfill`, `decisions-log`, `catalog-audit`, `{agents,skills,crates,packages}-index`, `bundle-status`, `samudaya-audit`, `clone`, `overlay`, `embed`, `export --format {bundle,web,graphml,llms}` | none beyond the light base: `walkdir`, `pulldown-cmark`, `serde`/`serde_yaml`/`serde_json`, `flate2`+`tar`, `toml`, `sha2`, `yidam-core` |
-| `index` | no | `index-build`, `serve --mcp`, semantic `retrieve` | `fastembed 4`, `lancedb 0.13`, `arrow-* 52`, `tokio`, `futures` → **requires `protoc 31` at build** |
+| `vector-read` | no | semantic `retrieve` and an anchored `query`, over an index built elsewhere | `fastembed 4`, `arrow-* 52` → ONNX runtime, **no `protoc`** |
+| `index` | no | `vector-read`, plus `index-build` | `+ lancedb 0.13`, `tokio`, `futures` → **requires `protoc 31` at build** |
 | `export-sqlite` | no | `export --format sqlite` | `rusqlite 0.32 {bundled}` (**from-source SQLite**), `sqlite-vec` |
 | `export-graph` | no | `export --format rdf` | `oxrdf`, `oxttl` (pure Rust; no `protoc`, no C) |
 
@@ -83,6 +84,25 @@ Three placements are load-bearing and worth stating explicitly:
   the `rdf` arm — GraphML export is dep-free and ships by default.
 - **`index-status` and `status` stay in `reports`.** They only `read_to_string` the index's
   `meta.json` (`cmd/status.rs:58-59`); reporting on an index needs no embedding runtime.
+- **Reading an index and building one are different features** (added by #442, after RFC-0023
+  gave an index a way to travel between machines). `lancedb` is named in exactly one file,
+  `cmd/index_build.rs`, and it is what requires protoc; decoding `corpus.arrow` and embedding a
+  query need only `fastembed` and `arrow-*`. Measured on this repository's lockfile: 197
+  packages for the default build, 387 with `vector-read`, 715 with `index`.
+
+  The split matters because the *released* binary is the light default, so the machine that can
+  use an index is almost never the machine that can build one. `resolve_model` moved out of the
+  gated `cmd/index_build.rs` into `src/embedding.rs` to make it possible — the same move
+  `sha256_hex` made out of `cmd/tonpa/`, and for the same reason: **the feature buys the build,
+  and naming a model is not building one.**
+
+  **`vector-read` is not a released artifact, and that is a decision.** It carries an ONNX
+  runtime — a native dependency this release matrix has never cross-compiled for aarch64 — and
+  publishing it would double the artifacts per platform, which every install channel then has
+  to choose between on a `releases/latest` that already answers for four versioning layers. The
+  channel is `cargo install --features vector-read`: a Rust toolchain and nothing else, which
+  is a long way from the protoc-and-CMake it replaces. What would reverse it is somebody
+  wanting semantic retrieval on a machine with no toolchain.
 
 `cargo build --no-default-features --features reports` then produces a binary with no
 `protoc` requirement, no C compiler for SQLite, and no `fastembed`/`lancedb`/`arrow` in the

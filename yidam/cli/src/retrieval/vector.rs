@@ -37,7 +37,7 @@ pub(crate) fn search<'a>(
 ) -> Result<Vec<(&'a VectorRow, f32)>, String> {
     let mut embedder = index.embedder.borrow_mut();
     if embedder.is_none() {
-        let (model, _, _) = crate::cmd::index_build::resolve_model(&index.model_id)
+        let (model, _, _) = crate::embedding::resolve_model(&index.model_id)
             .map_err(|e| format!("resolving embedding model: {e}"))?;
         let loaded = fastembed::TextEmbedding::try_new(fastembed::InitOptions::new(model))
             .map_err(|e| format!("loading embedding model {}: {e}", index.model_id))?;

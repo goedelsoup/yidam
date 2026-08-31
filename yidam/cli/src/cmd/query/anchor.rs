@@ -93,7 +93,7 @@ pub fn resolve(
 ) -> Result<Resolved, String> {
     let reason = retrieval.degraded_reason();
     let (entries, read) = match retrieval {
-        #[cfg(feature = "index")]
+        #[cfg(feature = "vector-read")]
         Retrieval::Vector(index) => vector_entries(index, text, classes, k, nodes, corpus_dir)?,
         _ => keyword_entries(text, classes, k, nodes, corpus_dir),
     };
@@ -118,7 +118,7 @@ pub fn resolve(
 /// `strip_prefix(root)` of the same walk, so they agree on separator and case on any one
 /// platform. A row that resolves to no node here is a catalog source or an index built before
 /// a file moved, and either way it is not a node this query may enter through.
-#[cfg(feature = "index")]
+#[cfg(feature = "vector-read")]
 fn candidates<'a>(
     nodes: &'a [Node],
     classes: &[String],
@@ -130,7 +130,7 @@ fn candidates<'a>(
         .collect()
 }
 
-#[cfg(feature = "index")]
+#[cfg(feature = "vector-read")]
 fn vector_entries(
     index: &crate::retrieval::vector::IndexState,
     text: &str,

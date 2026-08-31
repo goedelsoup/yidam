@@ -3,7 +3,7 @@
 use serde_json::{json, Value};
 
 use super::resources::is_open_question;
-#[cfg(feature = "index")]
+#[cfg(feature = "vector-read")]
 use super::Retrieval;
 use super::ServerState;
 
@@ -221,7 +221,7 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
         ));
     }
 
-    #[cfg(feature = "index")]
+    #[cfg(feature = "vector-read")]
     if let Retrieval::Vector(index) = &state.retrieval {
         let hits = crate::retrieval::vector::search(index, query, k, |r| {
             class_filter.is_none_or(|c| r.class == c)

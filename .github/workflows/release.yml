@@ -19,7 +19,22 @@
 #
 # `--features full` is deliberately NOT built here. It needs protoc 31 and the
 # ONNX/LanceDB stack, and the common case must not wait on it. Someone who wants
-# `index-build` or `serve --mcp` still builds from source, as they do today.
+# `index-build` still builds from source, as they do today. (`serve --mcp` used
+# to be in that sentence and no longer belongs: it moved into the light set, and
+# a default binary serves MCP — what it does not serve is *semantic* retrieval.)
+#
+# `--features vector-read` is NOT built here either, and that is a decision
+# rather than an omission — #442 asked it directly. It is much cheaper than
+# `full`: no protoc, no LanceDB. It still carries an ONNX runtime, which is a
+# native dependency this matrix has never had to cross-compile for aarch64, and
+# publishing it would double the artifacts per platform — which every consumer
+# then has to choose between, on a `releases/latest` that already answers for
+# four versioning layers.
+#
+# So the channel is `cargo install --features vector-read`: a Rust toolchain,
+# and nothing else. What would reverse this is somebody wanting semantic
+# retrieval on a machine that has no toolchain — at which point the cost above
+# is worth paying, and it is one workflow matrix entry.
 
 name: Release
 

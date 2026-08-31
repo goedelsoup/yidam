@@ -8,6 +8,8 @@ mod config;
 pub mod dates;
 pub mod deps;
 pub mod embed_config;
+#[cfg(feature = "vector-read")]
+pub mod embedding;
 mod git;
 mod markdown;
 mod parse;
