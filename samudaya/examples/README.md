@@ -22,7 +22,7 @@ one:
 ```sh
 yidam clone ../my-genealogy
 cp -R samudaya/examples/genealogy/*.md ../my-genealogy/samudaya/
-cd ../my-genealogy && yidam samudaya-audit    # 5 seeds, across 4 kind(s)
+cd ../my-genealogy && yidam samudaya-audit    # what the bootstrap will read
 ```
 
 Then run the bootstrap. It reads `samudaya/`, folds the axioms and hints into the
