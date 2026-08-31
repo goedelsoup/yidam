@@ -1,0 +1,16 @@
+class: party
+label: Petra Osei
+description: |
+  Grantee of the 2014 warranty deed, and the record owner as this examination stands.
+  [inference]
+
+  "Record owner" is an entailment of the instruments in this corpus, not a fact any of them
+  states — no deed says who owns the lot now, only what each grantor conveyed to each
+  grantee. The tag is `inference` for that reason, and it is the whole argument of
+  `decisions/owner-is-not-a-class` in one node.
+properties:
+  party_type: natural person
+  claim_tag: inference
+links:
+  - target: ../party.ont.yml
+    relationship: instance-of

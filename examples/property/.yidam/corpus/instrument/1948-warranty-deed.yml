@@ -1,0 +1,27 @@
+class: instrument
+label: 1948 warranty deed — Renwick to Calloway
+description: |
+  General warranty deed, Renwick to Calloway, recorded in Book 112 at page 340. [verified]
+
+  The earliest instrument this examination located. It conveys the lot by reference to the
+  recorded plat, in the same lot-and-block form every later instrument in the chain uses,
+  which is what makes the parcel identity across the chain unproblematic here. [inference]
+
+  What it does not establish is a root of title. It is the oldest deed *found*, and the
+  search was not extended behind it — see `party/ada-renwick`. [open]
+properties:
+  instrument_type: warranty deed
+  recorded: Book 112, page 340
+  dated: "1948-06-11"
+  claim_tag: verified
+links:
+  - target: ../instrument.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/vantry-county-recorder.md
+    relationship: sourced-from
+  - target: ../parcel/lot-14-brightwater.yml
+    relationship: conveys
+  - target: ../party/ada-renwick.yml
+    relationship: grantor
+  - target: ../party/thomas-calloway.yml
+    relationship: grantee

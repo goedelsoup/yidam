@@ -1,0 +1,25 @@
+id: owner-is-not-a-class
+summary: Ownership is what the instruments entail at a moment, never a class or a parcel property.
+context: |
+  The genesis dialogue proposed an `owner` class, and when that was set aside, an `owner`
+  property on the parcel. Both are the obvious modelling of the question a client actually
+  asks, which is who owns this.
+decision: |
+  Neither. There is no owner class and no owner property. Ownership is an entailment of the
+  set of instruments conveying a parcel, evaluated at a moment, and it is computed by walking
+  them rather than stored.
+rationale: |
+  An owner node is a place to assert a conclusion without the instrument that supports it.
+  It would be written once, at the time of the examination, and it would then look exactly
+  the same on the day a later deed is recorded, on the day the 1961 volume is found, and on
+  the day somebody notices the grantor of the 1974 quitclaim is not the grantee of the 1948
+  warranty. The chain would be wrong and the node would still be there, tagged and confident.
+
+  Stored ownership also collapses the distinction this domain runs on. "Osei is the record
+  owner" is an inference from five instruments and the absence of any other; "the 2014 deed
+  names Osei as grantee" is what a document says. A property named `owner` cannot hold both,
+  so it holds the first while looking like the second.
+
+  The cost is real: the question a client asks has no field to read, and answering it means
+  running a traversal and reading the tags that come back. That was judged the cheaper
+  failure, because the traversal can fail visibly and a stale field cannot.

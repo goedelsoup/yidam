@@ -20,6 +20,16 @@ const sidebar = [
       { slug: 'installation', label: 'Installation' },
     ],
   },
+  // Before the reference, and after the install: a reader who has not decided yet
+  // is answering "what would mine look like", and until #447 the only corpus this
+  // repository shipped was hydrology. The sidebar ran model → reference → model
+  // with no tier for somebody still deciding.
+  {
+    label: 'Walkthroughs',
+    items: [
+      { slug: 'walkthroughs/property-research', label: 'Property research' },
+    ],
+  },
   // Reference before concept, deliberately. Someone who has installed the binary
   // has a question about the binary; the model can be read after, and is one
   // group down.

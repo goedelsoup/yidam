@@ -1,0 +1,29 @@
+class: instrument
+label: 1974 quitclaim deed — Calloway to Voss
+description: |
+  Quitclaim deed, Ruth Calloway to Harlan Voss, recorded in Book 288 at page 51. [verified]
+
+  The first instrument after the gap, and the one that makes the gap matter. Its grantor is
+  not the 1948 grantee, and nothing located in this examination connects them. [verified]
+
+  A quitclaim conveys whatever interest the grantor holds and warrants nothing about what
+  that is. So this deed is consistent with a grantor who held full title, and equally
+  consistent with one who held none — the instrument itself does not distinguish those, and
+  neither does the fact that it was recorded. Recording establishes that a document was
+  presented; it establishes nothing about its effect. [inference]
+properties:
+  instrument_type: quitclaim deed
+  recorded: Book 288, page 51
+  dated: "1974-03-02"
+  claim_tag: verified
+links:
+  - target: ../instrument.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/vantry-county-recorder.md
+    relationship: sourced-from
+  - target: ../parcel/lot-14-brightwater.yml
+    relationship: conveys
+  - target: ../party/ruth-calloway.yml
+    relationship: grantor
+  - target: ../party/harlan-voss.yml
+    relationship: grantee

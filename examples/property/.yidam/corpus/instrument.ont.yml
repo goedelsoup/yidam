@@ -1,0 +1,36 @@
+class: instrument
+label: Instrument
+description: |
+  A single recorded document affecting an interest in land — a warranty deed, a quitclaim
+  deed, a mortgage, a probate decree — identified by where it was recorded rather than by
+  what it is believed to have done.
+
+  The instrument is the unit of evidence in this domain. Everything a title examiner
+  concludes is an entailment of a set of these, and a conclusion with no instrument under it
+  is the failure this corpus is arranged to make visible.
+properties:
+  - name: instrument_type
+    type: string
+    description: The document's own denomination — warranty deed, quitclaim deed, decree.
+  - name: recorded
+    type: string
+    description: Book and page in the recorder's series, or how it is indexed if not located.
+  - name: dated
+    type: string
+    description: The date the instrument bears, which is not always the date it was recorded.
+  - name: claim_tag
+    type: claim
+    description: The evidence standing of this node, as a tag rather than as prose.
+edges:
+  - relationship: conveys
+    target: parcel
+    direction: out
+    description: The parcel this instrument affects.
+  - relationship: grantor
+    target: party
+    direction: out
+    description: The party conveying — the one who must have held what is being conveyed.
+  - relationship: grantee
+    target: party
+    direction: out
+    description: The party receiving.

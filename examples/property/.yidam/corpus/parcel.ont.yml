@@ -1,0 +1,20 @@
+class: parcel
+label: Parcel
+description: |
+  A defined piece of land, identified as the recording jurisdiction identifies it: by its
+  legal description, and secondarily by whatever number the assessor assigns for taxation.
+
+  A parcel persists across every conveyance of it. It is the thing the chain of title is a
+  chain *about*, and it is deliberately not the place ownership is recorded — see
+  `decisions/owner-is-not-a-class`.
+properties:
+  - name: parcel_id
+    type: string
+    description: The assessor's parcel number, as the taxing authority writes it.
+  - name: acreage
+    type: string
+    description: Approximate area, as the most recent instrument describes it.
+  - name: claim_tag
+    type: claim
+    description: The evidence standing of this node, as a tag rather than as prose.
+edges: []

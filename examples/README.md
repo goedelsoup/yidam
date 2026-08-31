@@ -9,6 +9,7 @@ ontology rather than someone else's eight nodes.
 | Example | Domain | Shows |
 |---|---|---|
 | [streamflow/](streamflow/) | Streamflow on regulated rivers | A three-class ontology, claim tags at all three tiers, a catalog source and what it does not answer, two decision records, and one domain skill |
+| [property/](property/) | Title research on a parcel | A chain of title as a typed path, a rejected `owner` class, and a gap the graph reports as a reasoned absence rather than as silence |
 
 ## Why these exist rather than a link to a real repository
 
