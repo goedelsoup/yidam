@@ -1,0 +1,19 @@
+class: thread
+label: Conditions at the terminals
+description: |
+  The question: what is the state of the physical plant, and does the regulator know?
+
+  Parked, and the reason is written down rather than left to be inferred from silence: the only
+  document supporting its one finding cannot be republished, and no second source has been
+  found. The appeal of the (b)(4) withholding is the action that would unpark it. [open]
+
+  A thread that produced nothing usable is still a thread, and recording why it stopped is what
+  keeps the next person from spending the same three weeks. [inference]
+properties:
+  status: parked
+  claim_tag: open
+links:
+  - target: ../thread.ont.yml
+    relationship: instance-of
+  - target: ../finding/deferred-maintenance.yml
+    relationship: pursues

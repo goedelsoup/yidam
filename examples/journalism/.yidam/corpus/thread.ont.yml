@@ -1,0 +1,20 @@
+class: thread
+label: Thread
+description: |
+  A line of inquiry: a question being chased, and the findings it has produced so far.
+
+  A thread is not a folder of findings. It is the question, which outlives any particular
+  finding and is the thing an editor allocates time to — including the ones that produced
+  nothing and should say so.
+properties:
+  - name: status
+    type: string
+    description: Whether the thread is being actively pursued, parked, or closed.
+  - name: claim_tag
+    type: claim
+    description: The evidence standing of this node, as a tag rather than as prose.
+edges:
+  - relationship: pursues
+    target: finding
+    direction: out
+    description: A finding this thread has produced or is chasing.

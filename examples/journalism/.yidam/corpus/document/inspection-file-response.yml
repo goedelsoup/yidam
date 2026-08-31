@@ -1,0 +1,29 @@
+class: document
+label: Inspection file — records-request response
+description: |
+  The State Transport Board's response to a request for inspection records covering Ostreza's
+  terminals. Released in part. [verified]
+
+  Two categories were withheld, and the response cites its exemptions: commercial information
+  obtained from a person and privileged or confidential, at 5 U.S.C. § 552(b)(4), and personnel
+  information whose release would be a clearly unwarranted invasion of personal privacy, at
+  § 552(b)(6). [verified]
+
+  **What is withheld is evidence too.** A (b)(4) withholding on an inspection record says the
+  agency treated something in it as confidential commercial information, which is a fact about
+  the record even when its contents are unavailable. The corpus holds the response as a
+  document and the withholding as the reason a finding stays `[open]`, rather than treating
+  the gap as nothing. [inference]
+
+  Redistributable: a records-request response is a public record once released.
+properties:
+  document_type: records-request response
+  hosting: redistributable — released public record
+  claim_tag: verified
+links:
+  - target: ../document.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/transport-board-records.md
+    relationship: sourced-from
+  - target: ../entity/state-transport-board.yml
+    relationship: obtained-from

@@ -1,0 +1,18 @@
+class: entity
+label: Ostreza Freight Holdings
+description: |
+  The company this reporting is about: a regional freight operator, publicly traded, with a
+  filed annual report. [verified]
+
+  **Ostreza Freight Holdings does not exist.** It is invented for this example, as are its
+  officers and every finding here about it. The filing structure it is described through is
+  real; the company is not. See the corpus README on why that line is drawn hard in this
+  domain and nowhere else in yidam's examples.
+properties:
+  entity_type: company
+  claim_tag: verified
+links:
+  - target: ../entity.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/edgar-filings.md
+    relationship: sourced-from

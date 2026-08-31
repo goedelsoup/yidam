@@ -1,0 +1,23 @@
+class: finding
+label: The officer's tenure overlaps the order
+description: |
+  Lorne Vasquez held an operating role across the period the consent order covers. [inference]
+
+  It follows from two verified facts — the governance section gives the tenure, the inspection
+  file gives the order's period — and no document says it. That is exactly what the inference tier
+  is for, and promoting it because both inputs are verified is the most common way a corpus
+  like this degrades: an inference from verified facts is still an inference.
+
+  It is deliberately *not* a finding about conduct. An overlap in dates is an overlap in dates.
+  [inference]
+properties:
+  claim_tag: inference
+links:
+  - target: ../finding.ont.yml
+    relationship: instance-of
+  - target: ../document/annual-report-item-3.yml
+    relationship: supported-by
+  - target: ../document/inspection-file-response.yml
+    relationship: supported-by
+  - target: ../entity/lorne-vasquez.yml
+    relationship: about

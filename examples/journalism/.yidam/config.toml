@@ -1,0 +1,20 @@
+# Two audiences, two stores.
+#
+# A newsroom's own derived output and the documents its reporting rests on have different
+# readerships, and one store cannot express both. With more than one vault, every vault
+# declares what it `holds` — a vault claiming nothing would become the catch-all for whatever
+# the others did not take, and routing by default is how a licensed document ends up in the
+# store meant for public output.
+#
+# Neither store exists. The urls are here so the routing is real and the walkthrough's
+# transcripts are real; nothing in this example ever reaches a network.
+
+[vault.default]
+url      = "s3://ostreza-newsroom-public/yidam"
+audience = "Anyone who can read this corpus. Derived output only — index, embeddings, bundles."
+holds    = ["index", "embeddings", "bundle"]
+
+[vault.sources]
+url      = "s3://ostreza-newsroom-sources/yidam"
+audience = "The newsroom. Documents obtained under terms permitting reporting, not hosting."
+holds    = ["catalog"]

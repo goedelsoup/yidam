@@ -1,0 +1,22 @@
+class: finding
+label: Finding
+description: |
+  Something the reporting asserts, with the documents it rests on attached.
+
+  The tiers map onto newsroom standards without translation: `[verified]` means two independent
+  documents support it, `[inference]` means it follows from verified facts but nobody said it,
+  `[open]` is what is still being chased. There is no separate class for an allegation — see
+  `decisions/allegation-is-not-a-class`.
+properties:
+  - name: claim_tag
+    type: claim
+    description: The evidence standing of this node, as a tag rather than as prose.
+edges:
+  - relationship: supported-by
+    target: document
+    direction: out
+    description: A document this finding rests on.
+  - relationship: about
+    target: entity
+    direction: out
+    description: The entity this finding concerns.
