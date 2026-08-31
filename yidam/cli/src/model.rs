@@ -242,7 +242,7 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
 }
 
 /// One row of the vector index, decoded from `index/corpus.arrow`.
-#[cfg(any(feature = "index", feature = "export-sqlite"))]
+#[cfg(any(feature = "vector-read", feature = "export-sqlite"))]
 pub struct VectorRow {
     pub path: String,
     pub class: String,
@@ -253,7 +253,7 @@ pub struct VectorRow {
 
 /// Decode the Arrow IPC index into rows — shared by the MCP server's
 /// `retrieve` and the sqlite export, so vectors are read one way everywhere.
-#[cfg(any(feature = "index", feature = "export-sqlite"))]
+#[cfg(any(feature = "vector-read", feature = "export-sqlite"))]
 pub fn index_rows(index: &IndexData) -> Result<Vec<VectorRow>> {
     use anyhow::Context;
     use arrow_array::cast::AsArray;

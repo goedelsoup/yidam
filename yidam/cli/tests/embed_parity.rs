@@ -6,11 +6,13 @@
 //! TypeScript and Python runners for the same fixtures live in
 //! `prelude/sdks/{typescript,python}/tests/`.
 
-// The fixture-agreement test below needs no model weights and no `index` feature; only the
-// reference runner does.
-#![cfg_attr(not(feature = "index"), allow(unused_imports))]
+// The fixture-agreement test below needs no model weights and no vector feature; only the
+// reference runner does — and what it needs is `fastembed`, which is `vector-read`. It was
+// gated on `index` until #442 split the two, which meant the parity runner sat behind protoc
+// for no reason: it embeds text, it never builds an index.
+#![cfg_attr(not(feature = "vector-read"), allow(unused_imports))]
 
-#[cfg(feature = "index")]
+#[cfg(feature = "vector-read")]
 use fastembed::{InitOptions, TextEmbedding};
 use std::path::PathBuf;
 
@@ -19,7 +21,7 @@ fn fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../prelude/sdks/parity/fixtures/embed_config")
 }
 
-#[cfg(feature = "index")]
+#[cfg(feature = "vector-read")]
 #[test]
 fn embed_config_parity() {
     if std::env::var("YIDAM_EMBED_PARITY").as_deref() != Ok("1") {

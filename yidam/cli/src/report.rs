@@ -46,6 +46,14 @@ pub struct YidamBlock {
 impl YidamBlock {
     pub fn current() -> Self {
         let mut features = vec!["reports".to_string()];
+        // Two entries, not one, and `index` implies the other. A client needs to tell three
+        // builds apart: one that cannot read an index, one that can read but not build, and
+        // one that can do both. The middle build is the point of the split — it needs no
+        // protoc — and collapsing it into `index` would make it indistinguishable from the
+        // build that carries lancedb.
+        if cfg!(feature = "vector-read") {
+            features.push("vector-read".to_string());
+        }
         if cfg!(feature = "index") {
             features.push("index".to_string());
         }

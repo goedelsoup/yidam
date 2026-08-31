@@ -362,9 +362,22 @@ run = [
 # .github/workflows/ci.yml), not on every PR. `ci-cli` above builds the light
 # default (`reports` + `tonpa`), which is also what the release publishes.
 [tasks.ci-cli-full]
-description = "Full-feature CI for the yidam CLI (all optional features)."
+description = "Full-feature CI for the yidam CLI (all optional features, and the read-only vector build)."
+# `--all-features` implies `vector-read` through `index`, so it proves that combination and
+# not the one #442 created: a build with fastembed and arrow and NO lancedb. That build is the
+# whole point of the split — it needs no protoc — and it would otherwise be the build nobody
+# ever compiles, which is exactly the position the index path was in before RFC-0023.
+#
+# Defaults stay ON, because that is what the build actually is: `cargo install yidam --features
+# vector-read` does not disable them. Testing `--no-default-features --features
+# reports,vector-read` would be testing a configuration nobody installs, and it fails for
+# reasons that have nothing to do with this feature — `help.rs` groups `tonpa` unconditionally.
+#
+# It runs first because it is the cheaper of the two and fails faster.
 run = [
   "cargo fmt --all --manifest-path yidam/cli/Cargo.toml -- --check",
+  "cargo clippy --manifest-path yidam/cli/Cargo.toml --features vector-read --locked -- -D warnings",
+  "cargo test --manifest-path yidam/cli/Cargo.toml --features vector-read --locked",
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --all-features --locked -- -D warnings",
   "cargo test --manifest-path yidam/cli/Cargo.toml --all-features --locked",
 ]

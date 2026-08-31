@@ -255,11 +255,15 @@ fn mcp_server_end_to_end() {
 /// build most people run, and it must not tell them to build an index they already built.
 ///
 /// Light-only by necessity rather than by preference. The staged `corpus.arrow` is not real
-/// Arrow — under `--features index` the server would try to decode it and refuse to start,
-/// which is the correct behaviour there and a different test. What matters is that the
-/// light build reads `meta.json`, notices the artefact, and says `no_vector_support`.
+/// Arrow — a build that *can* decode would try, and refuse to start, which is the correct
+/// behaviour there and a different test. What matters is that a build without vector support
+/// reads `meta.json`, notices the artefact, and says `no_vector_support`.
+///
+/// The gate is `vector-read`, not `index`. It was `index` until #442 split reading an index
+/// from building one, and the two stopped being the same question: a `vector-read` build has
+/// no lancedb and no protoc and decodes this stub perfectly well enough to reject it.
 #[test]
-#[cfg(not(feature = "index"))]
+#[cfg(not(feature = "vector-read"))]
 fn an_index_this_build_cannot_read_is_not_reported_as_a_missing_index() {
     let tmp = make_fixture_repo();
     let index_dir = tmp.path().join(".yidam/index");

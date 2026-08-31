@@ -283,6 +283,11 @@ mod tests {
     /// An `s3://` url gets past scheme resolution. It may still fail on credentials, which is
     /// a different diagnosis and belongs to `creds`; what matters here is that it is no
     /// longer refused for the scheme.
+    ///
+    /// Gated, because it asserts what the *transport* does. `vault-s3` is a default feature, so
+    /// this passed in every build anything compiled — until `vector-read` (#442) created a
+    /// configuration without it and the assumption became visible.
+    #[cfg(feature = "vault-s3")]
     #[test]
     fn an_s3_url_is_no_longer_refused_for_its_scheme() {
         let err = open_err("s3://bucket/prefix");
@@ -291,6 +296,22 @@ mod tests {
             "resolved by scheme, not refused: {err}"
         );
         assert!(err.contains("credentials"), "{err}");
+    }
+
+    /// The other half of the same `cfg`. A build without the transport must say *this build
+    /// has no S3 transport* rather than *unknown scheme* — the first is a missing feature and
+    /// the second is a typo, and telling someone to check their url when the url is fine costs
+    /// an afternoon.
+    #[cfg(not(feature = "vault-s3"))]
+    #[test]
+    fn without_the_transport_an_s3_url_is_refused_as_a_missing_feature() {
+        let err = open_err("s3://bucket/prefix");
+        assert!(err.contains("no S3 transport"), "{err}");
+        assert!(err.contains("vault-s3"), "names the feature: {err}");
+        assert!(
+            !err.contains("no scheme this build understands"),
+            "not a typo diagnosis: {err}"
+        );
     }
 
     #[test]

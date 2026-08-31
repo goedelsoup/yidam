@@ -625,9 +625,14 @@ So the reachable version of the payoff is a third build, between the two that ex
 
 That is a packaging change — a new feature, `resolve_model` moved out of the gated
 `cmd/index_build.rs` the way `sha256_hex` moved out of `cmd/tonpa/`, and a decision about
-whether it becomes a released artifact. It is not a vault change, and it does not belong in
-this RFC's track. **Filed separately; #417 ships the channel and says plainly that the light
-build still degrades.**
+whether it becomes a released artifact. It is not a vault change, and it did not belong in this
+RFC's track.
+
+**Filed as #442 and since built.** `vector-read` ships the read half: 387 resolved packages
+against the default build's 197 and the full build's 715, and no protoc. So the sentence #417
+could not make true is now true of a build one step up from the default — `yidam vault pull
+--index`, then `serve --mcp`, answering over an index this machine never built. The light
+default still degrades, and still says so.
 
 What #417 *does* deliver end to end is the same property one build short of the goal: a machine
 with a full build and no index pulls one it never built and uses it. That is most of the value

@@ -13,7 +13,7 @@
 //! `fastembed`; everything here compiles in the default build. Without it both `retrieve`
 //! and an anchored query fall through to [`keyword_score`] and say so.
 
-#[cfg(feature = "index")]
+#[cfg(feature = "vector-read")]
 pub(crate) mod vector;
 
 use anyhow::Result;
@@ -25,7 +25,8 @@ use crate::model::DomainModel;
 /// Three states rather than a bare `Option`, because "this corpus has no index" and "this
 /// binary cannot read the index this corpus has" are different diagnoses with different
 /// repairs, and a lone `degraded: true` collapses them into one. The first is fixed by
-/// `yidam embed && yidam index-build`; the second by reinstalling with `--features index`.
+/// `yidam embed && yidam index-build`; the second by reinstalling with `--features vector-read`,
+/// which reads an index and needs no protoc — building one is a separate, heavier feature.
 /// A client told only that retrieval was degraded cannot tell which it is looking at.
 pub(crate) enum Retrieval {
     /// Semantic search, over a loaded index.
@@ -33,7 +34,7 @@ pub(crate) enum Retrieval {
     /// Boxed: it carries the decoded rows and a lazily-loaded embedder, and an unboxed
     /// variant would make every `Retrieval` — including the two empty ones the light build
     /// uses exclusively — as large as the heaviest.
-    #[cfg(feature = "index")]
+    #[cfg(feature = "vector-read")]
     Vector(Box<vector::IndexState>),
     /// Keyword search: the corpus has no vector index.
     NoIndex,
@@ -43,7 +44,7 @@ pub(crate) enum Retrieval {
     /// `index` reads any index it finds or fails to start, so the variant would be
     /// unreachable there — and an unreachable state that still appears in a match is one a
     /// reader has to rule out by hand every time.
-    #[cfg(not(feature = "index"))]
+    #[cfg(not(feature = "vector-read"))]
     NoVectorSupport,
 }
 
@@ -55,10 +56,10 @@ impl Retrieval {
     /// from this one source so they cannot disagree.
     pub(crate) fn degraded_reason(&self) -> Option<&'static str> {
         match self {
-            #[cfg(feature = "index")]
+            #[cfg(feature = "vector-read")]
             Retrieval::Vector(_) => None,
             Retrieval::NoIndex => Some("no_index"),
-            #[cfg(not(feature = "index"))]
+            #[cfg(not(feature = "vector-read"))]
             Retrieval::NoVectorSupport => Some("no_vector_support"),
         }
     }
@@ -67,12 +68,12 @@ impl Retrieval {
     /// splice it into a sentence of their own.
     pub(crate) fn repair(&self) -> Option<&'static str> {
         match self {
-            #[cfg(feature = "index")]
+            #[cfg(feature = "vector-read")]
             Retrieval::Vector(_) => None,
             Retrieval::NoIndex => Some("run `yidam embed && yidam index-build` to build one"),
-            #[cfg(not(feature = "index"))]
+            #[cfg(not(feature = "vector-read"))]
             Retrieval::NoVectorSupport => {
-                Some("reinstall with `--features index` to read the index this corpus has")
+                Some("reinstall with `--features vector-read` to read the index this corpus has")
             }
         }
     }
@@ -85,7 +86,7 @@ impl Retrieval {
 /// neither is in the default dependency set. What *is* in it is the raw `index/meta.json`
 /// that `load_domain_model` already read — enough to know an index exists and which commit
 /// it was built at, which is exactly the two facts a degraded caller should still report.
-#[cfg(feature = "index")]
+#[cfg(feature = "vector-read")]
 pub(crate) fn load(model: &DomainModel) -> Result<(Retrieval, Option<String>)> {
     use crate::embed_config::EmbedConfig;
     use crate::model::index_rows;
@@ -114,7 +115,7 @@ pub(crate) fn load(model: &DomainModel) -> Result<(Retrieval, Option<String>)> {
     }
 }
 
-#[cfg(not(feature = "index"))]
+#[cfg(not(feature = "vector-read"))]
 pub(crate) fn load(model: &DomainModel) -> Result<(Retrieval, Option<String>)> {
     match &model.index {
         // An index is on disk and this build cannot read it. Not `NoIndex`: the repair is
@@ -170,7 +171,7 @@ mod tests {
     /// a client branches on them. Pinning them here means a rename has to be a deliberate
     /// act that also touches the freeze.
     #[test]
-    #[cfg(not(feature = "index"))]
+    #[cfg(not(feature = "vector-read"))]
     fn the_two_degraded_reasons_are_distinct_and_stable() {
         assert_eq!(Retrieval::NoIndex.degraded_reason(), Some("no_index"));
         assert_eq!(
@@ -183,9 +184,9 @@ mod tests {
     /// treatment — and the two states exist precisely because their treatments differ.
     #[test]
     fn a_reason_and_a_repair_are_present_together_or_not_at_all() {
-        #[cfg(not(feature = "index"))]
+        #[cfg(not(feature = "vector-read"))]
         let states = [Retrieval::NoIndex, Retrieval::NoVectorSupport];
-        #[cfg(feature = "index")]
+        #[cfg(feature = "vector-read")]
         let states = [Retrieval::NoIndex];
         for state in states {
             assert_eq!(state.degraded_reason().is_some(), state.repair().is_some());
@@ -201,6 +202,93 @@ mod tests {
         );
         assert_eq!(keyword_score(&t, "a graph of typed nodes"), Some(0.5));
         assert_eq!(keyword_score(&t, "nothing in common"), None);
+    }
+
+    /// **What `vector-read` exists to make true.** A build with no `lancedb` and no protoc
+    /// decodes a real index and reports itself *not* degraded.
+    ///
+    /// The arrow buffer is written here rather than fetched from a fixture, against the same
+    /// schema `cmd/index_build.rs` writes — which is the point, since that module does not
+    /// compile in this build. If the two schemas ever diverge this test decodes something the
+    /// real writer would not have produced, so it is pinned field-for-field.
+    ///
+    /// It stops at decoding. Embedding a *query* loads ONNX weights over the network, so the
+    /// last step of the round trip is not something a hermetic suite can run; `yidam vault
+    /// pull --index` followed by `serve --mcp` is where a person sees it.
+    #[cfg(feature = "vector-read")]
+    #[test]
+    fn a_build_that_can_read_but_not_build_an_index_is_not_degraded() {
+        use crate::model::IndexData;
+        use std::sync::Arc;
+
+        let dim = 3i32;
+        let schema = Arc::new(arrow_schema::Schema::new(vec![
+            arrow_schema::Field::new("path", arrow_schema::DataType::Utf8, false),
+            arrow_schema::Field::new("class", arrow_schema::DataType::Utf8, false),
+            arrow_schema::Field::new("label", arrow_schema::DataType::Utf8, false),
+            arrow_schema::Field::new("text", arrow_schema::DataType::Utf8, false),
+            arrow_schema::Field::new(
+                "vector",
+                arrow_schema::DataType::FixedSizeList(
+                    Arc::new(arrow_schema::Field::new(
+                        "item",
+                        arrow_schema::DataType::Float32,
+                        true,
+                    )),
+                    dim,
+                ),
+                false,
+            ),
+        ]));
+        let item = Arc::new(arrow_schema::Field::new(
+            "item",
+            arrow_schema::DataType::Float32,
+            true,
+        ));
+        let batch = arrow_array::RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(arrow_array::StringArray::from(vec!["corpus/gauge/a.md"])),
+                Arc::new(arrow_array::StringArray::from(vec!["gauge"])),
+                Arc::new(arrow_array::StringArray::from(vec!["Gauge A"])),
+                Arc::new(arrow_array::StringArray::from(vec!["a gauge on a river"])),
+                Arc::new(arrow_array::FixedSizeListArray::new(
+                    item,
+                    dim,
+                    Arc::new(arrow_array::Float32Array::from(vec![1.0f32, 0.0, 0.0])),
+                    None,
+                )),
+            ],
+        )
+        .unwrap();
+
+        let mut ipc: Vec<u8> = Vec::new();
+        {
+            let mut w = arrow_ipc::writer::FileWriter::try_new(&mut ipc, &schema).unwrap();
+            w.write(&batch).unwrap();
+            w.finish().unwrap();
+        }
+
+        let index = IndexData {
+            arrow_ipc: ipc,
+            meta_raw: br#"{"indexed_commit":"abc123"}"#.to_vec(),
+            meta: serde_json::json!({"indexed_commit": "abc123", "model_name": "m"}),
+            embed_config: None,
+        };
+        let rows = crate::model::index_rows(&index).expect("a vector-read build decodes an index");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].text, "a gauge on a river");
+        assert_eq!(rows[0].vector, vec![1.0, 0.0, 0.0]);
+
+        // And the state built from it reports no degradation — which is the sentence #417
+        // could not make true and this build can.
+        let state = Retrieval::Vector(Box::new(vector::IndexState {
+            rows,
+            model_id: "m".to_string(),
+            embedder: std::cell::RefCell::new(None),
+        }));
+        assert_eq!(state.degraded_reason(), None);
+        assert_eq!(state.repair(), None);
     }
 
     /// An empty query matches nothing rather than everything. `retrieve` relied on this

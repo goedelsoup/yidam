@@ -826,7 +826,10 @@ fn main() -> Result<()> {
                 let _ = model;
                 anyhow::bail!(
                     "`index-build` needs the `index` feature — reinstall with \
-                     `cargo install yidam --features index` (pulls fastembed/lancedb; requires protoc)"
+                     `cargo install yidam --features index` (pulls fastembed/lancedb; \
+                     requires protoc).\n  \
+                     To *read* an index built elsewhere, `--features vector-read` is enough \
+                     and needs no protoc — see `yidam vault pull --index`."
                 )
             }
         }

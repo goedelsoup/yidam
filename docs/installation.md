@@ -119,7 +119,8 @@ artifacts — the script, the tap, binstall — carry the **default** set.
 |---|---|---|
 | `reports` *(default)* | Every pure-Rust command: reports, gates, queries, `clone`, `overlay`, `serve --mcp`, `serve --lsp`, export to graphml/llms | None |
 | `tonpa` *(default)* | Bundle dependency manager — `tonpa add`, `verify`, `update` | reqwest (rustls) + tokio; vendored C, no system library |
-| `index` | `index-build`, and upgrades `serve --mcp`'s `retrieve` from keyword to semantic | fastembed (ONNX) + LanceDB; **needs protoc 31 at build time** |
+| `vector-read` | Upgrades `serve --mcp`'s `retrieve` from keyword to semantic, over an index built elsewhere | fastembed (ONNX); **no protoc** |
+| `index` | `vector-read`, plus `index-build` — the ability to *make* one | + LanceDB; **needs protoc 31 at build time** |
 | `export-sqlite` | `export --format sqlite` | Bundled SQLite + sqlite-vec, compiled from C |
 | `export-graph` | `export --format rdf` | Pure Rust |
 | `full` | All of the above | |
@@ -131,6 +132,19 @@ transports, every report and every gate are in the light set. A default binary s
 it does not serve is *semantic* retrieval, and it says so on every call rather than silently
 returning keyword results as though they were embeddings.
 
+**Reading an index is much cheaper than building one, and they are separate features.**
+`lancedb` is what requires protoc, and it is needed only to *write* an index. So a machine that
+will never build one can still answer semantic queries over an index built elsewhere and
+delivered through a vault — `yidam vault pull --index`, then `serve --mcp`. Measured against
+this repository's lockfile: the default build resolves 197 packages, `vector-read` 387, and
+`index` 715. `vector-read` is roughly a third of the way to the full build, and needs no
+protoc.
+
+It is still not a *default*, because fastembed carries an ONNX runtime and the light set
+deliberately has no native dependency at all. Which of the three you have is on
+`yidam --version` and in `yidam doctor`, so a client can tell "cannot read an index" from
+"can read but not build one".
+
 **`tonpa` is a default even though it costs an HTTP stack**, because it is the only feature
 whose absence broke an instruction rather than removing a capability. Without it
 `yidam tonpa add …` answered `unrecognized subcommand`, and inside a script with output
@@ -139,6 +153,11 @@ redirected that is indistinguishable from success.
 To build a heavier set from source:
 
 ```sh
+# Semantic retrieval over an index somebody else built. No protoc.
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.6.0 --locked \
+  --features vector-read yidam
+
+# Everything, including the ability to build an index.
 cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.6.0 --locked \
   --features full yidam
 ```

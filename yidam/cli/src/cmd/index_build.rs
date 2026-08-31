@@ -1,10 +1,11 @@
+use crate::embedding::{resolve_model, DEFAULT_MODEL};
 use anyhow::{Context, Result};
 use arrow_array::{
     FixedSizeListArray, Float32Array, RecordBatch, RecordBatchIterator, StringArray,
 };
 use arrow_ipc::writer::FileWriter;
 use arrow_schema::{DataType, Field, Schema};
-use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+use fastembed::{InitOptions, TextEmbedding};
 use futures::TryStreamExt;
 use lancedb::connect;
 use lancedb::query::ExecutableQuery;
@@ -15,7 +16,6 @@ use crate::embed_config::{EmbedConfig, EMBED_CONFIG_FILENAME};
 use crate::git::head_commit_short;
 use crate::paths::{repo_root, yidam_embeddings_dir, yidam_index_dir};
 
-const DEFAULT_MODEL: &str = "Xenova/all-MiniLM-L6-v2";
 const TABLE_NAME: &str = "corpus";
 
 #[derive(serde::Deserialize)]
@@ -24,21 +24,6 @@ struct EmbedRecord {
     class: String,
     label: String,
     text: String,
-}
-
-pub(crate) fn resolve_model(name: &str) -> Result<(EmbeddingModel, i32, String)> {
-    TextEmbedding::list_supported_models()
-        .into_iter()
-        .find(|m| m.model_code == name)
-        .map(|m| (m.model, m.dim as i32, m.model_file))
-        .ok_or_else(|| {
-            let list = TextEmbedding::list_supported_models()
-                .into_iter()
-                .map(|m| format!("  {}", m.model_code))
-                .collect::<Vec<_>>()
-                .join("\n");
-            anyhow::anyhow!("unknown model {name:?}\n\nSupported models:\n{list}")
-        })
 }
 
 pub async fn index_build(model_arg: Option<String>) -> Result<()> {
