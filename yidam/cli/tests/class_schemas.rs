@@ -14,20 +14,23 @@ use std::process::Command;
 
 mod common;
 
-use common::{repo_root, tracked_under};
+use common::{examples, repo_root, tracked_under};
 
-/// Materialize `examples/streamflow` as a standalone repository.
+/// The example whose `gage` class the compiler-behaviour tests below are written against.
+const STREAMFLOW: &str = "streamflow";
+
+/// Materialize `examples/<name>` as a standalone repository.
 ///
 /// From `git ls-files`, matching how every other suite here builds a tree: a directory walk
 /// would pick up local scratch and this test would be measuring the working directory.
-fn example() -> tempfile::TempDir {
+fn example(name: &str) -> tempfile::TempDir {
     let root = repo_root();
     let dir = tempfile::tempdir().unwrap();
-    let prefix = "examples/streamflow/";
-    let files = tracked_under(&root, prefix);
+    let prefix = format!("examples/{name}/");
+    let files = tracked_under(&root, &prefix);
     assert!(!files.is_empty(), "no tracked files under {prefix}");
     for tracked in &files {
-        let to = dir.path().join(tracked.strip_prefix(prefix).unwrap());
+        let to = dir.path().join(tracked.strip_prefix(&prefix).unwrap());
         std::fs::create_dir_all(to.parent().unwrap()).unwrap();
         std::fs::copy(root.join(tracked), &to).unwrap();
     }
@@ -55,14 +58,23 @@ fn compiled(root: &Path) -> Vec<(String, serde_json::Value)> {
         .collect()
 }
 
-/// Every instance in the example corpus validates against its own class's schema.
+/// Every instance in every example corpus validates against its own class's schema.
 ///
-/// `examples/streamflow` is gated elsewhere as `graph-check` clean and `lint` empty at
+/// Each example is gated in `example_corpus.rs` as `graph-check` clean and `lint` empty at
 /// every severity. So every node here is one the gate accepts, and any rejection below is
 /// the compiler being stricter than the checks it publishes.
+///
+/// Over [`examples`] rather than one name (#448): this is a *gate*, and a second corpus
+/// added beside streamflow would otherwise have its instances validated by nothing.
 #[test]
 fn every_instance_the_gate_accepts_is_accepted_by_its_class_schema() {
-    let dir = example();
+    for name in examples() {
+        every_instance_matches_its_schema(&name);
+    }
+}
+
+fn every_instance_matches_its_schema(name: &str) {
+    let dir = example(name);
     let root = dir.path();
 
     let mut checked = 0;
@@ -97,7 +109,10 @@ fn every_instance_the_gate_accepts_is_accepted_by_its_class_schema() {
             checked += 1;
         }
     }
-    assert!(checked >= 3, "only {checked} instances checked");
+    assert!(
+        checked >= 1,
+        "no instances checked for {name} — this scan is looking at nothing"
+    );
 }
 
 /// The agreement that is easiest to break, and silent when broken.
@@ -108,11 +123,18 @@ fn every_instance_the_gate_accepts_is_accepted_by_its_class_schema() {
 /// `required`. This asserts the second half against the first — not that the list is empty,
 /// which was the old claim and stopped being true the moment a class could say otherwise.
 ///
-/// Read off the corpus rather than hardcoded, so it keeps holding as the example corpus
-/// grows a required property or loses one.
+/// Read off the corpus rather than hardcoded, so it keeps holding as an example corpus
+/// grows a required property or loses one — and over [`examples`] rather than one name
+/// (#448), because it is the other half of the gate above.
 #[test]
 fn the_compiled_schema_requires_exactly_what_the_ontology_declares_required() {
-    let dir = example();
+    for name in examples() {
+        the_schema_matches_the_ontology(&name);
+    }
+}
+
+fn the_schema_matches_the_ontology(name: &str) {
+    let dir = example(name);
     let mut saw_a_class_with_properties = false;
 
     for (file, schema) in compiled(dir.path()) {
@@ -162,15 +184,22 @@ fn the_compiled_schema_requires_exactly_what_the_ontology_declares_required() {
     }
     assert!(
         saw_a_class_with_properties,
-        "the example corpus declares properties — this test proved nothing"
+        "no class in {name} declares a property, so this test proved nothing about it"
     );
 }
 
 /// An instance omitting every declared property still validates, stated directly rather
 /// than inferred from the absence of a `required` key.
+///
+/// **Pinned to streamflow, and not generalised over [`examples`] (#448).** The three tests
+/// from here down are about what the schema *compiler* does, demonstrated against a class
+/// whose shape they state inline — `gage`, its declared properties, and the catalog file it
+/// cites. Run against a corpus that has no `gage` they would not fail, they would panic on
+/// the lookup, which reads as a broken test rather than as a question that corpus cannot
+/// answer. The two gates above are the ones every example must pass.
 #[test]
 fn an_instance_carrying_no_properties_at_all_validates() {
-    let dir = example();
+    let dir = example(STREAMFLOW);
     let (file, schema) = compiled(dir.path())
         .into_iter()
         .find(|(f, _)| f == "class/gage.json")
@@ -196,7 +225,7 @@ fn an_instance_carrying_no_properties_at_all_validates() {
 /// editor shows green on a file CI will fail.
 #[test]
 fn a_property_the_class_never_declared_is_rejected() {
-    let dir = example();
+    let dir = example(STREAMFLOW);
     let (_, schema) = compiled(dir.path())
         .into_iter()
         .find(|(f, _)| f == "class/gage.json")
@@ -221,7 +250,7 @@ fn a_property_the_class_never_declared_is_rejected() {
 /// `instance-of` link every instance is required to carry.
 #[test]
 fn the_structural_links_every_instance_carries_are_not_rejected() {
-    let dir = example();
+    let dir = example(STREAMFLOW);
     let (_, schema) = compiled(dir.path())
         .into_iter()
         .find(|(f, _)| f == "class/gage.json")
