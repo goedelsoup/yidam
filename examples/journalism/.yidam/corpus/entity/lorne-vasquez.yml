@@ -1,0 +1,17 @@
+class: entity
+label: Lorne Vasquez
+description: |
+  An officer of Ostreza named in the annual report's governance section. [verified]
+
+  An invented person at an invented company. The corpus holds officers as entities rather than
+  as a property of the company because the interesting questions are about a person across
+  organisations — where else they have served, and whether two records naming similar people
+  name the same one. A name inside a company node cannot be asked those questions. [inference]
+properties:
+  entity_type: person
+  claim_tag: verified
+links:
+  - target: ../entity.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/edgar-filings.md
+    relationship: sourced-from

@@ -1,0 +1,24 @@
+class: document
+label: Document
+description: |
+  One document the reporting rests on, and the terms it was obtained under.
+
+  A document node is not the document. The bytes live in a vault if they are allowed to, and
+  the node records what it is, where it came from, and what may be done with it. That
+  separation is the whole reason this corpus can publish a finding about a document it may not
+  host.
+properties:
+  - name: document_type
+    type: string
+    description: Filing, records-request response, correspondence, testimony.
+  - name: hosting
+    type: string
+    description: Whether this corpus may redistribute the bytes, and under what.
+  - name: claim_tag
+    type: claim
+    description: The evidence standing of this node, as a tag rather than as prose.
+edges:
+  - relationship: obtained-from
+    target: entity
+    direction: out
+    description: The entity that produced or released this document.

@@ -1,0 +1,27 @@
+id: hosting-and-standing-are-separate
+summary: Whether a document may be republished says nothing about how well it supports a finding.
+context: |
+  Both facts are properties of the same document, and both were initially carried in the claim
+  tag: a finding resting on unpublishable material was drafted as `[open]` on the grounds that
+  the reader cannot check it.
+decision: |
+  They are separate and are recorded separately. The claim tag records evidentiary standing
+  only. Redistribution lives in the artifact record's `redistributable` field and in the
+  document node's `hosting` property, and never moves the tag.
+rationale: |
+  Conflating them is wrong in both directions and each has a cost.
+
+  Downgrading a well-supported finding because its document cannot be published makes the
+  corpus understate what it knows, and the understatement is invisible — a reader sees `[open]`
+  and cannot tell whether the evidence is thin or merely unhostable. A finding may be
+  `[verified]` and rest entirely on material this corpus may never publish; that is the ordinary
+  condition of the work rather than an edge case.
+
+  Upgrading in the other direction is worse. A finding that rests on one publishable document
+  is not better supported than one resting on one unpublishable document, and treating
+  publishability as corroboration would let the reporting's confidence be set by what is
+  convenient to host.
+
+  `finding/deferred-maintenance` is the node where both apply at once: it is `[open]` because
+  it has one source, and unhostable for an unrelated reason. The two sentences in its body say
+  so separately and deliberately.

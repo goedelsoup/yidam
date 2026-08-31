@@ -1,0 +1,18 @@
+class: entity
+label: State Transport Board
+description: |
+  The regulator that inspects operators of Ostreza's class, and the agency a records request
+  was filed with. [verified]
+
+  It is in this corpus as both a subject and a source, which is the case the single `entity`
+  class exists to hold: the board's own conduct is a live question here *and* it is where a
+  third of the documentary record came from. Splitting sources from subjects would have put
+  this node in neither. [inference]
+properties:
+  entity_type: agency
+  claim_tag: verified
+links:
+  - target: ../entity.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/transport-board-records.md
+    relationship: sourced-from

@@ -1,0 +1,18 @@
+class: thread
+label: What the regulator found, and what the filing said
+description: |
+  The question: does Ostreza's public account of its regulatory history match the regulator's?
+
+  Active. It has produced one verified finding and one inference, and its next step is the
+  parts of the inspection file that were released and have not been read — an entry marked
+  obtained is a statement about retrieval, not about reading. [open]
+properties:
+  status: active
+  claim_tag: open
+links:
+  - target: ../thread.ont.yml
+    relationship: instance-of
+  - target: ../finding/undisclosed-consent-order.yml
+    relationship: pursues
+  - target: ../finding/officer-tenure-overlap.yml
+    relationship: pursues

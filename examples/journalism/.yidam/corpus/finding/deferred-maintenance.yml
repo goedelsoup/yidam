@@ -1,0 +1,29 @@
+class: finding
+label: Maintenance was deferred at two terminals
+description: |
+  Ostreza deferred scheduled maintenance at two terminals over at least two quarters. [open]
+
+  **This finding rests on one document, and that document is the one that cannot be
+  republished.** Both halves of that sentence are problems, and they are different problems.
+
+  Resting on one document means there is no independent confirmation: if the memo is wrong,
+  incomplete, or not what it appears to be, the finding goes with it. That is what `[open]`
+  records here — not doubt about the memo's authenticity, but the absence of a second
+  document.
+
+  That the document is unhostable is a *separate* constraint, and it does not lower the
+  finding's standing at all. A finding may stand at the verified tier and rest entirely on material this corpus may never
+  publish. Conflating the two is the mistake this example is arranged to make
+  visible: `yidam query` answers the first, and the vault answers the second.
+
+  The thread pursuing it is chasing a second source — the inspection file's withheld (b)(4)
+  material would likely settle it, and an appeal of that withholding is the open action. [open]
+properties:
+  claim_tag: open
+links:
+  - target: ../finding.ont.yml
+    relationship: instance-of
+  - target: ../document/maintenance-memo.yml
+    relationship: supported-by
+  - target: ../entity/ostreza-freight.yml
+    relationship: about

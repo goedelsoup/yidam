@@ -28,6 +28,7 @@ const sidebar = [
     label: 'Walkthroughs',
     items: [
       { slug: 'walkthroughs/property-research', label: 'Property research' },
+      { slug: 'walkthroughs/investigative-journalism', label: 'Investigative journalism' },
     ],
   },
   // Reference before concept, deliberately. Someone who has installed the binary

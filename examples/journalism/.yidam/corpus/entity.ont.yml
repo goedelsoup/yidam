@@ -1,0 +1,17 @@
+class: entity
+label: Entity
+description: |
+  A company, agency or person the reporting is about or the material came from.
+
+  One class for both, deliberately. The agency that answered a records request and the company
+  the request was about are the same kind of thing to this corpus — something a document can be
+  obtained *from* and a finding can be *about* — and separating them would put the interesting
+  case, an entity that is both, in neither class.
+properties:
+  - name: entity_type
+    type: string
+    description: Company, agency, or person.
+  - name: claim_tag
+    type: claim
+    description: The evidence standing of this node, as a tag rather than as prose.
+edges: []

@@ -1,0 +1,23 @@
+class: document
+label: Annual report, Item 3 — Legal Proceedings
+description: |
+  Ostreza's most recent annual report, read for Item 3. [verified]
+
+  Item 3 is where a registrant describes material pending legal proceedings, and it is the
+  cheapest place to start on any company: it is public, it is indexed, and what a company
+  chooses to call material is itself informative. [inference]
+
+  Freely redistributable — a public filing, hosted by the regulator that receives it. This is
+  the ordinary case, and it is worth naming as such because the other two documents here are
+  not it.
+properties:
+  document_type: filing
+  hosting: redistributable — public filing
+  claim_tag: verified
+links:
+  - target: ../document.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/edgar-filings.md
+    relationship: sourced-from
+  - target: ../entity/ostreza-freight.yml
+    relationship: obtained-from

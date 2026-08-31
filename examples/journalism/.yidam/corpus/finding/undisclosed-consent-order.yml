@@ -1,0 +1,31 @@
+class: finding
+label: A consent order was not described in Item 3
+description: |
+  Ostreza entered a consent order with the State Transport Board that its annual report's
+  Item 3 does not describe. [verified]
+
+  Two independent documents support it, which is what the verified tier means here: the
+  inspection file records the order, and the filing's Item 3 does not mention it. Neither document alone
+  establishes the finding — the filing is only evidence of an absence once you know what was
+  supposed to be there. [inference]
+
+  What the finding does **not** assert is that the omission was improper. Materiality is a
+  judgement the registrant makes, and this corpus records that the order exists and the filing
+  is silent. Whether that silence breached anything is a question for somebody with standing
+  to answer it, and putting it here would be the corpus asserting a legal conclusion it has no
+  document for.
+properties:
+  claim_tag: verified
+links:
+  - target: ../finding.ont.yml
+    relationship: instance-of
+  - target: ../document/annual-report-item-3.yml
+    relationship: supported-by
+  - target: ../document/inspection-file-response.yml
+    relationship: supported-by
+  - target: ../entity/ostreza-freight.yml
+    relationship: about
+  - target: ../../catalog/edgar-filings.md
+    relationship: sourced-from
+  - target: ../../catalog/transport-board-records.md
+    relationship: sourced-from

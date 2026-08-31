@@ -1,0 +1,27 @@
+class: document
+label: Internal maintenance memo
+description: |
+  An internal Ostreza memo describing deferred maintenance at two terminals, provided to the
+  newsroom on terms permitting reporting and not republication. [verified] that the document
+  exists and was read; the terms are recorded in the catalog entry.
+
+  **This is the document the vault design is for.** The newsroom may publish what it
+  establishes and may not host the bytes. Those are different permissions, and a corpus that
+  could only express "we have it" or "we do not" would force a choice between losing the
+  provenance and breaking the terms.
+
+  So the memo is a node here, with a digest and an artifact record marked
+  `redistributable: false`. `yidam vault push` refuses it, and it refuses it *by name*, under
+  the audience of the store it was headed for — see the walkthrough. Nothing about that
+  refusal depends on anybody remembering the terms at the moment of the push.
+properties:
+  document_type: correspondence
+  hosting: not redistributable — licensed to read, not to host
+  claim_tag: verified
+links:
+  - target: ../document.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/confidential-material.md
+    relationship: sourced-from
+  - target: ../entity/ostreza-freight.yml
+    relationship: obtained-from

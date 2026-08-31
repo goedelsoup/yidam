@@ -1,0 +1,24 @@
+id: allegation-is-not-a-class
+summary: An allegation with a document is a finding; without one it is a finding at open. There is no third thing.
+context: |
+  The genesis dialogue proposed an `allegation` class, to hold what a source has said but no
+  document yet supports. It is the natural shape: the newsroom knows things it cannot print,
+  and they feel like a different kind of object from a finding.
+decision: |
+  No allegation class. An allegation supported by a document is a `finding`. An allegation with
+  nothing under it is a `finding` tagged `[open]`, whose `supported-by` list is short or empty.
+rationale: |
+  An allegation class is a place to put assertions with no provenance, and having such a place
+  is the failure this corpus exists to prevent. The nodes in it would be exactly the ones most
+  in need of the discipline the rest of the graph is under — and they would be outside it, in a
+  class whose whole definition is that the usual requirements do not apply.
+
+  It would also break the one question the corpus is arranged to answer. `finding -supported-by->
+  document` reports what the reporting rests on; a second class holding unsupported assertions
+  makes that traversal answer for part of the material and stay silent about the rest, which is
+  worse than not asking.
+
+  The cost is that `[open]` now carries two distinguishable states — a finding with two
+  documents and a live question, and a finding with none. That is visible in the node and in
+  the count of its `supported-by` edges, and it was judged cheaper than a class that models
+  the absence of evidence as a kind of thing.
