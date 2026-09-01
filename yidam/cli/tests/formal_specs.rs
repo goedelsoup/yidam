@@ -19,8 +19,11 @@
 //! is a declared root or is imported, transitively, from one. A `.lean` that is neither still
 //! compiles for whoever opens it in an editor and is checked by no build.
 //!
-//! What this does not check is that the specs say anything true. Two of the six claims their
-//! headers carry are an axiom or a `True`, which is #499's subject, not this file's.
+//! What the tests above do not check is that the specs say anything true. Two of the six
+//! claims their headers carried were an axiom or a `True` — a green check standing for a
+//! claim nobody had made. #499 discharged both, and the census at the bottom of this file is
+//! what keeps them discharged: it counts the constructs that assume rather than prove, over
+//! text with the comments and string literals stripped out, and the count is zero.
 
 use std::collections::{BTreeSet, VecDeque};
 use std::path::PathBuf;
@@ -313,13 +316,297 @@ fn a_workflow_runs_the_verification_task() {
 /// `prelude/sdks/README.md` carries a copy of `[tasks.verify]` as an example. It carried the
 /// broken one — same missing `dir`, same three-of-four file list — which is how a reader
 /// checked the documentation against the config and found them in agreement, both wrong.
+///
+/// Both extensions, and case-sensitively. The Lean half was added after the README's file
+/// tree was found naming `core.lean` for a file that has been `Core.lean` since it was
+/// written: on a case-insensitive filesystem nothing notices, and on CI's nothing looked.
 #[test]
 fn the_documented_verify_task_names_the_specs_the_real_one_does() {
     let readme = read("yidam/prelude/sdks/README.md");
-    for spec in spec_files("dfy") {
-        assert!(
-            readme.contains(&spec),
-            "prelude/sdks/README.md shows a `verify` task that does not mention {spec}"
-        );
+    for ext in ["dfy", "lean"] {
+        for spec in spec_files(ext) {
+            assert!(
+                readme.contains(&spec),
+                "prelude/sdks/README.md never mentions {spec}, which {SPEC_DIR} holds"
+            );
+        }
     }
+}
+
+// ── The census (#499) ────────────────────────────────────────────────────────
+//
+// `mise run verify` running is one thing; what a green run stands for is another. Two of the
+// six claims the specs are headed with used to be a `{:axiom}` or a conclusion of `True`, and
+// `dafny verify` counted an axiom toward "13 verified" exactly as it counts a proof. #499
+// discharged both. This is what keeps them discharged.
+//
+// A budget, not a roster. The count is asserted to be zero and the failure message says what
+// to do if an assumption is ever genuinely wanted — state it in the file's header claim table
+// and change the number here on purpose. A list of *which* axioms are permitted is the thing
+// that rots: it stops covering new declarations without ever going red, which is the same
+// fault one level up that made this test's neighbours discover both of their sides.
+
+/// The line-comment token and block-comment delimiters of a spec language.
+struct Syntax {
+    line: &'static str,
+    block_open: &'static str,
+    block_close: &'static str,
+}
+
+fn syntax(ext: &str) -> Syntax {
+    match ext {
+        "dfy" => Syntax {
+            line: "//",
+            block_open: "/*",
+            block_close: "*/",
+        },
+        "lean" => Syntax {
+            line: "--",
+            block_open: "/-",
+            block_close: "-/",
+        },
+        other => panic!("no comment syntax recorded for *.{other} — the census cannot read it"),
+    }
+}
+
+/// Comment bodies and string contents blanked, everything else left where it was.
+///
+/// Both halves are load-bearing, and both are the reason the self-test below exists.
+///
+/// Comments, because `graph.dfy`'s own header names `{:axiom}` twice while explaining that
+/// the axioms are gone: a census that reads prose reports the file that was written to clear
+/// it. `Core.lean` says `True` four times for the same reason.
+///
+/// Strings, because the same file holds `"https://"`, `"-->"` and `"<!-- /REGEN -->"`.
+/// Blanking from a `//` or a `--` without tracking string state deletes real code, and a
+/// census over a file with holes in it is a census that finds nothing.
+fn spec_code_only(text: &str, syn: &Syntax) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let starts = |i: usize, pat: &str| {
+        pat.chars()
+            .enumerate()
+            .all(|(k, c)| chars.get(i + k) == Some(&c))
+    };
+    let mut out: Vec<char> = Vec::with_capacity(chars.len());
+    let blank = |out: &mut Vec<char>, c: char| out.push(if c == '\n' { '\n' } else { ' ' });
+
+    let mut i = 0;
+    while i < chars.len() {
+        if starts(i, syn.block_open) {
+            let opener = syn.block_open.chars().count();
+            let mut j = i + opener;
+            while j < chars.len() && !starts(j, syn.block_close) {
+                j += 1;
+            }
+            let end = (j + syn.block_close.chars().count()).min(chars.len());
+            for c in chars.iter().take(end).skip(i) {
+                blank(&mut out, *c);
+            }
+            i = end;
+        } else if starts(i, syn.line) {
+            while i < chars.len() && chars[i] != '\n' {
+                blank(&mut out, chars[i]);
+                i += 1;
+            }
+        } else if chars[i] == '"' {
+            blank(&mut out, chars[i]);
+            i += 1;
+            // A string literal ends at its closing quote or, if it is unterminated, at the end
+            // of the line — running to the end of the file would blank everything after a
+            // stray quote and leave the census reading nothing.
+            while i < chars.len() && chars[i] != '"' && chars[i] != '\n' {
+                let escape = chars[i] == '\\';
+                blank(&mut out, chars[i]);
+                i += 1;
+                if escape && i < chars.len() {
+                    blank(&mut out, chars[i]);
+                    i += 1;
+                }
+            }
+            if i < chars.len() && chars[i] == '"' {
+                blank(&mut out, chars[i]);
+                i += 1;
+            }
+        } else {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+    out.into_iter().collect()
+}
+
+/// Whether a character can sit inside an identifier in either language. Lean's `huv'` and
+/// Dafny's `nodes'` both carry a prime, which is why `'` is here and why neither language's
+/// char literals are treated as strings above: `'` is far more often part of a name.
+fn ident_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_' || c == '\'' || c == '?' || c == '!'
+}
+
+/// Occurrences of `needle`, ignoring ones glued to a longer identifier.
+///
+/// Without the boundary check `True` matches `TrueName` and `axiom` matches `axiomatised`,
+/// and a census that fires on a word inside another word gets switched off.
+fn occurrences(haystack: &str, needle: &str) -> usize {
+    let hay: Vec<char> = haystack.chars().collect();
+    let pat: Vec<char> = needle.chars().collect();
+    let lead = pat.first().copied().is_some_and(ident_char);
+    let trail = pat.last().copied().is_some_and(ident_char);
+    let mut n = 0;
+    let mut i = 0;
+    while i + pat.len() <= hay.len() {
+        if hay[i..i + pat.len()] == pat[..]
+            && !(lead && i > 0 && ident_char(hay[i - 1]))
+            && !(trail && hay.get(i + pat.len()).copied().is_some_and(ident_char))
+        {
+            n += 1;
+        }
+        i += 1;
+    }
+    n
+}
+
+/// Everything a spec can say instead of proving something, and why each one is that.
+///
+/// This roster is inverted on purpose: it names the *constructs*, not the declarations that
+/// are allowed to use them. It grows only when a language grows a new way to skip work, which
+/// is rare — an exemption list would need an entry every time a spec did.
+fn assumption_markers(ext: &str) -> &'static [(&'static str, &'static str)] {
+    match ext {
+        "dfy" => &[
+            (
+                "{:axiom}",
+                "Dafny assumes the declaration and counts it toward `n verified` as if it \
+                 had proved it — the #499 fault exactly",
+            ),
+            (
+                "{:verify false}",
+                "verification switched off for this declaration",
+            ),
+            ("{:extern}", "the body is elsewhere and Dafny cannot see it"),
+            ("assume", "an assumed statement inside a proof"),
+        ],
+        "lean" => &[
+            ("sorry", "an unfinished proof that still elaborates"),
+            ("axiom", "an assumed declaration"),
+            (
+                "native_decide",
+                "the kernel is asked to trust a compiled evaluation it did not perform",
+            ),
+            (
+                "True",
+                "a conclusion, hypothesis or field of `True` discharges nothing; \
+                 `additive_augmentations_do_not_contradict` was `True` for as long as it existed",
+            ),
+        ],
+        _ => &[],
+    }
+}
+
+/// Nothing in the specs is assumed, and nothing concludes `True`.
+#[test]
+fn no_spec_claims_more_than_it_proves() {
+    let mut checked = 0usize;
+    let mut findings: Vec<String> = Vec::new();
+
+    for ext in ["dfy", "lean"] {
+        let syn = syntax(ext);
+        for name in spec_files(ext) {
+            let raw = read(&format!("{SPEC_DIR}/{name}"));
+            let code = spec_code_only(&raw, &syn);
+
+            // A stripper that blanked the file would make every count zero and every
+            // assertion below vacuous. The specs all declare something.
+            assert!(
+                code.contains("lemma") || code.contains("theorem") || code.contains("lean_lib"),
+                "{name}: after stripping comments and strings there is no declaration left, \
+                 so the census below is reading an empty file"
+            );
+            checked += 1;
+
+            for (marker, why) in assumption_markers(ext) {
+                let n = occurrences(&code, marker);
+                if n > 0 {
+                    findings.push(format!("  {name}: {n}× `{marker}` — {why}"));
+                }
+            }
+        }
+    }
+
+    assert!(
+        checked >= 3,
+        "the census read {checked} spec file(s); {SPEC_DIR} has more"
+    );
+    assert!(
+        findings.is_empty(),
+        "{SPEC_DIR} carries {} assumed or vacuous construct(s):\n{}\n\n\
+         Every claim these files are headed with is supposed to be one `mise run verify` \
+         establishes. If an assumption is genuinely wanted, say so in the file's header claim \
+         table — the way graph.dfy and Core.lean now say what they prove — and change this \
+         test deliberately rather than around it.",
+        findings.len(),
+        findings.join("\n")
+    );
+}
+
+/// The census reads code, and not the prose about it.
+///
+/// The whole test above is its stripper, and a stripper is exactly the kind of thing that
+/// passes by doing nothing. Both directions are checked here: a marker in a comment is not
+/// counted, a marker in code is, and the code around a string holding `//` or `-->` survives.
+#[test]
+fn the_census_reads_code_and_not_the_prose_about_it() {
+    let dfy = syntax("dfy");
+    let lean = syntax("lean");
+
+    // Comments are not code — the case the real files depend on.
+    let commented = "// This file used to carry {:axiom} and no longer does.\nlemma L() {}\n";
+    let code = spec_code_only(commented, &dfy);
+    assert_eq!(
+        occurrences(&code, "{:axiom}"),
+        0,
+        "a marker in a comment was counted"
+    );
+    assert!(
+        code.contains("lemma L"),
+        "the code beside the comment was blanked: {code:?}"
+    );
+
+    // …and code is.
+    let real = "lemma {:axiom} L()\n  ensures true\n";
+    assert_eq!(
+        occurrences(&spec_code_only(real, &dfy), "{:axiom}"),
+        1,
+        "a marker in code was not counted — the census cannot fail"
+    );
+
+    // A `//` inside a string does not open a comment.
+    let url = "predicate P(t: string) { HasPrefix(t, \"https://\") || Q(t) }\n";
+    let stripped = spec_code_only(url, &dfy);
+    assert!(
+        stripped.contains("|| Q(t) }"),
+        "a `//` inside a string blanked the rest of the line: {stripped:?}"
+    );
+
+    // A `--` inside a string does not open a Lean comment, and `/-- … -/` is a comment.
+    let arrow = "def a := \"-->\"\ndef b := 1\n";
+    assert!(
+        spec_code_only(arrow, &lean).contains("def b := 1"),
+        "a `--` inside a string blanked the rest of the file"
+    );
+    let doc = "/-- A doc comment mentioning sorry. -/\ntheorem T : 1 = 1 := rfl\n";
+    let stripped = spec_code_only(doc, &lean);
+    assert_eq!(
+        occurrences(&stripped, "sorry"),
+        0,
+        "a doc comment was read as code"
+    );
+    assert!(
+        stripped.contains("theorem T"),
+        "the declaration after a doc comment was blanked"
+    );
+
+    // Word boundaries: a marker inside a longer name is not a marker.
+    assert_eq!(occurrences("theorem TrueName : P", "True"), 0);
+    assert_eq!(occurrences("theorem T : True := trivial", "True"), 1);
+    assert_eq!(occurrences("lemma Assumed()", "assume"), 0);
 }
