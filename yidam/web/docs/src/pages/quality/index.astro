@@ -3,10 +3,18 @@
 import { StatusMeter } from '../../../../../design/index.js';
 import Quality from '../../layouts/Quality.astro';
 import NoReport from '../../components/NoReport.astro';
-import { loadReport, overall, plural } from '../../quality/report';
+import { loadReport, overall, plural, unsuccessfulJobs, gateOutcome } from '../../quality/report';
 
 const { report, problem } = loadReport();
 const total = report ? overall(report) : null;
+
+// #516. Every number on this page comes from JUnit, and JUnit describes test cases: a job
+// that fails outside its tests — a lint, a coverage render, a packaging check — moves none
+// of them. This page said "0 failed" for a run whose `ci (cli · full features)` was red, so
+// the run's own verdict is stated first, above the bars it does not affect.
+const trouble = report ? unsuccessfulJobs(report) : [];
+const pending = report?.quality.run?.pending ?? [];
+const askedAboutJobs = Boolean(report?.quality.run);
 ---
 
 <Quality title="Quality" commit={report?.yidam.commit} version={report?.yidam.version}>
@@ -14,6 +22,35 @@ const total = report ? overall(report) : null;
   {
     report && total && (
       <>
+        {trouble.length > 0 && (
+          <div class="card alarm">
+            <h2>
+              {plural(trouble.length, 'job')} did not succeed
+            </h2>
+            <ul class="plain">
+              {trouble.map((job) => (
+                <li>
+                  <strong>{job.name}</strong> — {job.conclusion}
+                </li>
+              ))}
+            </ul>
+            <p class="note">
+              The counts below are test cases, and a job can fail without one of them
+              failing — a lint, a coverage step, a packaging check. Where they disagree with
+              this, this is the run's verdict.
+            </p>
+          </div>
+        )}
+        {!askedAboutJobs && (
+          <div class="card">
+            <h2>No job outcomes</h2>
+            <p class="note">
+              This report was merged without the run's job list, so nothing here can say
+              whether the jobs themselves passed — only what their tests did. That is not the
+              same claim.
+            </p>
+          </div>
+        )}
         <div class="card">
           <h2>Every gate</h2>
           <StatusMeter
@@ -32,7 +69,7 @@ const total = report ? overall(report) : null;
 
         <div class="rows">
           {report.quality.gates.map((gate) => (
-            <div class="card">
+            <div class={gateOutcome(gate) === 'bad' ? 'card alarm' : 'card'}>
               <h2>{gate.gate}</h2>
               <StatusMeter
                 asserted={gate.totals.asserted}
@@ -52,10 +89,25 @@ const total = report ? overall(report) : null;
                 </span>
                 <span>{gate.suites.length} suites</span>
                 <span>{gate.coverage ? 'coverage measured' : 'no coverage'}</span>
+                <span>
+                  {gateOutcome(gate) === 'unknown'
+                    ? 'job outcome unknown'
+                    : `job ${gate.conclusion}`}
+                </span>
               </div>
             </div>
           ))}
         </div>
+
+        {pending.length > 0 && (
+          <div class="card">
+            <h2>Still running when this was written</h2>
+            <p class="note">
+              {pending.join(', ')} — the report is assembled by a job of the run it describes,
+              so that job and everything after it can only be named, not judged.
+            </p>
+          </div>
+        )}
 
         <div class="card">
           <h2>Not measured here</h2>

@@ -15,7 +15,25 @@ export interface QualityReport {
   format_version: string;
   yidam: { version: string; commit: string; features: string[] };
   root: string;
-  quality: { gates: Gate[]; sections: Record<string, Section> };
+  quality: {
+    gates: Gate[];
+    sections: Record<string, Section>;
+    /** What the run's jobs concluded (#516). Absent in reports written before it existed. */
+    run?: RunJobs | null;
+  };
+}
+
+/** The jobs of one CI run, as they stood when the report was assembled. */
+export interface RunJobs {
+  jobs: Job[];
+  /** Jobs that had not finished — the reporting job itself, and anything after it. */
+  pending: string[];
+}
+
+export interface Job {
+  name: string;
+  /** GitHub's own word: `success`, `failure`, `cancelled`, `skipped`, … */
+  conclusion: string;
 }
 
 export interface Gate {
@@ -25,6 +43,15 @@ export interface Gate {
   suites: Suite[];
   skipped: SkipRecord[];
   coverage: Coverage | null;
+  /** The job this gate ran in, when it is not the gate's own name. */
+  job?: string | null;
+  /**
+   * What that job concluded. `undefined`/`null` means nobody could say — a report merged
+   * without a job list, or one written before #516 — and that is drawn as its own state.
+   * It is never drawn as a pass: a gate whose tests all passed and whose job failed is the
+   * case this field exists for.
+   */
+  conclusion?: string | null;
 }
 
 export interface Totals {
@@ -71,6 +98,29 @@ export interface Coverage {
 export interface Section {
   measured: boolean;
   why: string;
+}
+
+/**
+ * Conclusions that mean "nothing to tell the reader".
+ *
+ * An allow-list, matching `RunJobs::unsuccessful` in the reporter. GitHub has added
+ * conclusions before — `timed_out`, `stale`, `action_required` — and a deny-list of
+ * `failure` would quietly call each new one fine, which is the shape of defect this whole
+ * surface exists to remove.
+ */
+const BENIGN = new Set(['success', 'skipped', 'neutral']);
+
+/** Every job of the run that did not succeed, and an empty list when nobody could say. */
+export function unsuccessfulJobs(report: QualityReport): Job[] {
+  return (report.quality.run?.jobs ?? []).filter((j) => !BENIGN.has(j.conclusion));
+}
+
+/** How a gate's own job ended, in the three states a page must tell apart. */
+export type GateOutcome = 'ok' | 'bad' | 'unknown';
+
+export function gateOutcome(gate: Gate): GateOutcome {
+  if (gate.conclusion === undefined || gate.conclusion === null) return 'unknown';
+  return BENIGN.has(gate.conclusion) ? 'ok' : 'bad';
 }
 
 /** The contract version this site knows how to read. */
@@ -205,6 +255,12 @@ export interface SeriesRecord {
     full_scan_tokens: number;
     focused_precision: number;
   } | null;
+  /**
+   * Jobs of that run which did not succeed (#516). `undefined`/`null` for every record
+   * written before the field existed, and for a run whose merge could not reach the API —
+   * which is not the same as an empty list, and is not drawn as one.
+   */
+  unsuccessful_jobs?: string[] | null;
 }
 
 export interface SeriesLoad {

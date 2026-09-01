@@ -198,6 +198,77 @@ console.log('a section nothing measured says so, and one that is measured does n
 // one field — a change that touched no Rust under the measured source root, which is what the
 // first real CI run of this phase produced, its own diff being tests and workflows.
 
+console.log('a job that failed is not hidden by its tests passing');
+{
+  // The golden's `ci (harness)` gate passed every test it ran and its job concluded
+  // `failure` — a lint, a coverage step, a packaging check, any of the things a job does
+  // that JUnit never sees. Before #516 this page said "0 failed" about that run, and the
+  // reader was shown a clean bill of health for a red main.
+  const overview = text(page('dist-quality-test', 'quality'));
+  check(
+    'the overview names the jobs that did not succeed',
+    overview.includes('ci (cli · full features)') && overview.includes('did not succeed'),
+    overview.slice(0, 400),
+  );
+  check(
+    'including a job that produced no gate at all',
+    overview.includes('ci (cli · full features)'),
+    'a job that failed before writing a fragment is absent from `gates`, and absent reads ' +
+      'exactly like never configured',
+  );
+  check(
+    'a job still running is named rather than judged',
+    overview.includes('ci (quality report)') && overview.includes('Still running'),
+    overview.slice(0, 600),
+  );
+
+  const tests = page('dist-quality-test', 'quality/tests');
+  const harness = text(section(tests, 'ci (harness)'));
+  check(
+    'a gate whose tests all passed says so when its job did not',
+    harness.includes('failure'),
+    `the tests page renders ci (harness) without its job's verdict:\n      ${harness.slice(0, 300)}`,
+  );
+  check(
+    'and it is not drawn as a clean bill of health',
+    !/Every suite here failed nothing and asserted something/.test(harness) ||
+      harness.includes('failure'),
+    'the gate reads "every suite passed" with nothing to say the job did not',
+  );
+}
+
+console.log('a report with no job list says so, rather than showing green…');
+{
+  // The pre-#516 shape, and the shape of any report merged without the run's job list.
+  // `undefined` must render as its own state: treating "nobody asked" as "nothing failed"
+  // is the defect, and it is one `?.` away from coming back.
+  const report = JSON.parse(readFileSync(golden, 'utf8'));
+  delete report.quality.run;
+  for (const gate of report.quality.gates) delete gate.conclusion;
+  const path = join(site, 'quality.no-jobs.json');
+  writeFileSync(path, JSON.stringify(report));
+
+  build('dist-quality-nojobs', { YIDAM_QUALITY_REPORT: path });
+  const t = text(page('dist-quality-nojobs', 'quality'));
+  check(
+    'a report from before the conclusions existed still renders',
+    t.includes('Every gate'),
+    t.slice(0, 300),
+  );
+  check(
+    'and it states that it cannot speak for the jobs',
+    t.includes('No job outcomes'),
+    'an absent job list rendered silently, which is indistinguishable from all-green',
+  );
+  check(
+    'no gate claims an outcome nobody reported',
+    t.includes('job outcome unknown'),
+    t.slice(0, 600),
+  );
+  rmSync(path, { force: true });
+  rmSync(join(site, 'dist-quality-nojobs'), { recursive: true, force: true });
+}
+
 console.log('a change with no measured lines says so, rather than claiming coverage…');
 {
   const report = JSON.parse(readFileSync(golden, 'utf8'));
@@ -230,7 +301,7 @@ console.log('a change with no measured lines says so, rather than claiming cover
 
 console.log('the series draws its shapes, and a bad line does not take the good ones…');
 {
-  const record = (commit, asserted, seconds, tokens) =>
+  const record = (commit, asserted, seconds, tokens, unsuccessful_jobs) =>
     JSON.stringify({
       commit,
       recorded_at: 1788000000,
@@ -239,11 +310,18 @@ console.log('the series draws its shapes, and a bad line does not take the good 
       test_seconds: seconds,
       coverage: { added: 0, uncovered: 0, features: ['reports'] },
       bench: { nodes: 4096, focused_tokens: tokens, full_scan_tokens: 6041600, focused_precision: 0.013 },
+      ...(unsuccessful_jobs ? { unsuccessful_jobs } : {}),
     });
   const path = join(site, 'series.test.jsonl');
   writeFileSync(
     path,
-    [record('aaa1111', 1640, 68.2, 392000), '{ truncated', record('bbb2222', 1699, 74.9, 378521), ''].join('\n'),
+    [
+      record('aaa1111', 1640, 68.2, 392000),
+      '{ truncated',
+      // Zero failed tests and a red run — the shape #516 is about, in the series.
+      record('bbb2222', 1699, 74.9, 378521, ['ci (cli · full features)']),
+      '',
+    ].join('\n'),
   );
   build('dist-quality-series', { YIDAM_QUALITY_REPORT: golden, YIDAM_QUALITY_SERIES: path });
   const html = page('dist-quality-series', 'quality/trends');
@@ -265,6 +343,16 @@ console.log('the series draws its shapes, and a bad line does not take the good 
     'a falling cost is not',
     html.includes('--run-passed-fill'),
     'bench tokens went down across the series and it was drawn as a regression',
+  );
+  check(
+    'a commit whose run failed is named, though no test failed',
+    t.includes('bbb2222') && t.includes('did not pass CI'),
+    `every record has failed: 0 and one of them was red:\n      ${t.slice(0, 500)}`,
+  );
+  check(
+    'and the job that failed is named with it',
+    t.includes('ci (cli · full features)'),
+    'the series says a run failed and not which part of it did',
   );
   rmSync(path, { force: true });
   rmSync(join(site, 'dist-quality-series'), { recursive: true, force: true });

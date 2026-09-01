@@ -236,6 +236,19 @@ fn the_merged_report_matches_its_golden() {
         "harness.junit.xml",
         "yidam/tests/harness/target/nextest/ci/junit.xml",
     );
+    // The run's job list (#516). Deliberately not all-green, and deliberately not a
+    // one-to-one match with the fragments — it carries the two shapes that a report of test
+    // outcomes alone cannot express:
+    //
+    //   `ci (harness)`             every test passed and the job failed anyway, which is what
+    //                              a step outside the tests does — `clippy -D warnings`, a
+    //                              coverage render, a packaging check.
+    //   `ci (cli · full features)` failed without writing a fragment at all, so no gate in
+    //                              this document is about it. Before #516 it was absent, and
+    //                              absent read exactly like "not configured".
+    //
+    // and two jobs still running, one of them the reporting job itself.
+    stage.place("jobs.json", "jobs.json");
 
     // Relative, as the workflow passes them. `--src` is also the prefix `diff_coverage`
     // filters on, so an absolute path here would match no diff entry and the coverage block
@@ -268,6 +281,8 @@ fn the_merged_report_matches_its_golden() {
     ]);
     stage.run(&[
         "merge",
+        "--jobs",
+        "jobs.json",
         "--from",
         "fragments",
         "--out",

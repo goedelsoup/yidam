@@ -52,6 +52,11 @@ const LINES = [
 ];
 
 const drawable = LINES.filter((l) => l.points.length > 0);
+
+// #516. Every line above is drawn from test counts, and a run can fail without a test
+// failing. A series of green points across a month of red builds is a chart that lies using
+// numbers that are each individually true, so the runs that did not pass are named.
+const redRuns = series.records.filter((r) => (r.unsuccessful_jobs ?? []).length > 0);
 ---
 
 <Quality title="Trends" commit={report?.yidam.commit} version={report?.yidam.version}>
@@ -78,6 +83,18 @@ const drawable = LINES.filter((l) => l.points.length > 0);
             ))}
           </div>
         </>
+      )
+    }
+    {
+      redRuns.length > 0 && (
+        <p class="damaged">
+          {`${redRuns.length} of these ${redRuns.length === 1 ? 'commits' : 'commits'} did not pass CI: `}
+          {redRuns
+            .map((r) => `${r.commit} (${(r.unsuccessful_jobs ?? []).join(', ')})`)
+            .join('; ')}
+          . The lines above count test cases, which is a different question from whether the
+          run passed.
+        </p>
       )
     }
     {

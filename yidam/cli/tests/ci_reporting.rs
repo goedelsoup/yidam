@@ -577,3 +577,185 @@ fn a_job_needing_an_always_job_says_always_itself() {
         silent.join("\n")
     );
 }
+
+/// Every gate's numbers can be attributed to a job that exists (#516).
+///
+/// The quality report stamps each gate with the conclusion of the job it ran in, matched by
+/// the name the run displays. A gate whose name matches no job is not a loud failure — it is
+/// a conclusion that stays `None` for ever, which the pages draw as "unknown". One unknown
+/// among fourteen greens is exactly the kind of thing nobody notices.
+///
+/// It had already happened before the field existed. `ci (parity)` runs the Rust, TypeScript
+/// and Python parity arms and summarises only the Rust one, so its gate reads
+/// `ci (parity · rust sdk)` — a heading truer than the job name, and one no job will ever be
+/// called. The composite action's `job:` input is how such a gate says where it ran, and this
+/// is what makes it say so.
+///
+/// Both sides come from `ci.yml`: the gates from the `gate:`/`job:` inputs, the job names
+/// from the `name:` of each job, with the one matrix expanded from its own `include:`.
+#[test]
+fn the_gate_names_name_real_jobs() {
+    let yml = read(".github/workflows/ci.yml");
+
+    // Job display names. `name: ci (…)` at job level — two indents under `jobs:` — including
+    // the matrix template, which is expanded below from the values it interpolates.
+    let mut jobs: Vec<String> = Vec::new();
+    for line in yml.lines() {
+        let Some(rest) = line.strip_prefix("    name: ") else {
+            continue;
+        };
+        jobs.push(rest.trim().to_string());
+    }
+    assert!(
+        jobs.len() > 5,
+        "found {} job names in ci.yml, which is too few to be the whole workflow — the shape \
+         this scan keys on has changed and every assertion below is now vacuous",
+        jobs.len()
+    );
+
+    // The matrix. `name: ci (${{ matrix.<key> }})` becomes one job per value of that key,
+    // read from the `include:` block rather than assumed to be `cli` and `harness`.
+    let expanded: Vec<String> = jobs
+        .iter()
+        .flat_map(|name| match name.split_once("${{ matrix.") {
+            None => vec![name.clone()],
+            Some((before, rest)) => {
+                let key = rest.split_once(" }}").map(|(k, _)| k.trim()).unwrap_or("");
+                let after = rest.split_once(" }}").map(|(_, a)| a).unwrap_or("");
+                let values: Vec<String> = yml
+                    .lines()
+                    .filter_map(|l| l.trim().strip_prefix(&format!("- {key}: ")))
+                    .map(|v| v.trim().to_string())
+                    .collect();
+                assert!(
+                    !values.is_empty(),
+                    "{name} interpolates `matrix.{key}` and no `- {key}:` entry defines a \
+                     value for it, so this test cannot know what the job is called"
+                );
+                values
+                    .into_iter()
+                    .map(|v| format!("{before}{v}{after}"))
+                    .collect()
+            }
+        })
+        .collect();
+
+    // What each summary claims, and where it says it ran. The `job:` input overrides `gate:`
+    // for matching; a gate that supplies neither is matched by its own name.
+    let mut claims: Vec<(String, String)> = Vec::new();
+    let mut current_gate: Option<String> = None;
+    for line in yml.lines() {
+        let trimmed = line.trim();
+        if let Some(g) = trimmed.strip_prefix("gate: ") {
+            if let Some(prev) = current_gate.take() {
+                claims.push((prev.clone(), prev));
+            }
+            current_gate = Some(g.trim().to_string());
+        } else if let Some(j) = trimmed.strip_prefix("job: ") {
+            let gate = current_gate
+                .take()
+                .expect("a `job:` input with no `gate:` above it");
+            claims.push((gate, j.trim().to_string()));
+        }
+    }
+    if let Some(prev) = current_gate {
+        claims.push((prev.clone(), prev));
+    }
+    assert!(
+        !claims.is_empty(),
+        "no `gate:` input was found in ci.yml — the summaries are gone, or this scan is"
+    );
+
+    let mut orphans = Vec::new();
+    for (gate, job) in &claims {
+        // The matrix gate is itself a template and expands the same way its job name does.
+        let candidates: Vec<String> = match job.split_once("${{ matrix.") {
+            None => vec![job.clone()],
+            Some(_) => expanded.clone(),
+        };
+        if !candidates.iter().any(|c| expanded.contains(c)) {
+            orphans.push(format!(
+                "  gate `{gate}` reports from job `{job}`, and no job in ci.yml is called that"
+            ));
+        }
+    }
+    assert!(
+        orphans.is_empty(),
+        "a gate's conclusion is matched against the run's job list by name, so each of these \
+         would be stamped `unknown` on every run — silently, for ever:\n{}\n\nJobs in this \
+         workflow: {:?}\n\nIf the heading is deliberately not the job name, say where it ran \
+         with the composite action's `job:` input.",
+        orphans.join("\n"),
+        expanded
+    );
+}
+
+/// The run's job conclusions are fetched, and they reach the merge (#516).
+///
+/// Two halves, each silent on its own. A merge that is never given `--jobs` writes a report
+/// in which every gate's outcome is unknown; a fetch whose output nothing reads is a step
+/// that costs an API call and changes nothing. Neither fails a build. The report still
+/// merges, the pages still render, and the one thing they cannot say is whether the run
+/// passed — which is the state this whole issue was filed about.
+///
+/// It is the shape `YIDAM_QUALITY_SERIES` was in for a whole phase: written by one job, read
+/// by nobody, with a comment saying otherwise.
+#[test]
+fn the_runs_job_conclusions_are_fetched_and_reach_the_merge() {
+    let yml = code_only(&read(".github/workflows/ci.yml"), "#");
+
+    // The reporter has to accept them, or passing them is a crash rather than a feature.
+    let reporter = read("yidam/tests/harness/ci-report/src/main.rs");
+    assert!(
+        reporter.contains("\"--jobs\""),
+        "`ci-report merge` no longer parses `--jobs`, so the workflow below is passing a flag \
+         it will reject"
+    );
+
+    // The `quality` job's own lines: from its header to the next job header, which is a line
+    // indented by exactly two spaces. Splitting on `"\n  "` would also split on every line
+    // inside the job, since those start with more.
+    let mut quality = String::new();
+    let mut inside = false;
+    for line in yml.lines() {
+        let header = line.starts_with("  ") && !line.starts_with("   ") && line.ends_with(':');
+        if header {
+            if inside {
+                break;
+            }
+            inside = line.trim() == "quality:";
+            continue;
+        }
+        if inside {
+            quality.push_str(line);
+            quality.push('\n');
+        }
+    }
+    assert!(
+        !quality.trim().is_empty(),
+        "ci.yml declares no `quality` job, or its shape is no longer one this scan can find"
+    );
+
+    assert!(
+        quality.contains("actions/runs/") && quality.contains("/jobs"),
+        "the quality job never asks what the run's jobs concluded, so every gate's outcome \
+         is `unknown` on every run:\n{quality}"
+    );
+    assert!(
+        quality.contains("--jobs"),
+        "the run's job list is fetched and never handed to the merge — an API call whose \
+         result is discarded, and a report that still cannot say whether the run passed"
+    );
+    assert!(
+        quality.contains("per_page=100"),
+        "the jobs endpoint paginates at 30 and this workflow has more jobs than that is safe \
+         for. `parse_jobs` refuses a truncated list, so this would be a red quality job \
+         rather than a wrong report — but the fix is to ask for them all"
+    );
+    assert!(
+        quality.contains("actions: read"),
+        "the jobs API needs `actions: read`. The repository's default is read-all today, \
+         which grants it by accident; a settings change would take it away and this step \
+         would start failing for a reason nobody would connect to it"
+    );
+}

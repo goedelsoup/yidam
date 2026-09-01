@@ -173,6 +173,10 @@ jobs:
         if: always()
         with:
           gate: ci (parity · rust sdk)
+          # The heading is the Rust arm; the job runs all three. Without this the merge has
+          # no job named `ci (parity · rust sdk)` to match and the gate's conclusion stays
+          # unknown for ever — which is how the mismatch was found (#516).
+          job: ci (parity)
           junit: yidam/prelude/sdks/rust/target/nextest/ci/junit.xml
           manifest: yidam/prelude/sdks/rust/Cargo.toml
           artifact: test-results-parity
@@ -423,6 +427,14 @@ jobs:
     name: ci (quality report)
     if: always()
     needs: [ci, vscode, parity, cli-full]
+    # Declared rather than inherited. The repository's default is read-all today, which grants
+    # the jobs API by accident; a settings change to "restricted" would take it away and the
+    # step that reads conclusions would fail with a report that still merges — quietly losing
+    # the field again. `contents` is here because declaring any permission replaces the whole
+    # default set, and this job checks out.
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -444,11 +456,48 @@ jobs:
           pattern: quality-test-results-*
           path: ${{ runner.temp }}/fragments
           merge-multiple: true
+      # What each job of this run concluded (#516).
+      #
+      # A gate's numbers come from JUnit, and JUnit describes test cases. A job that fails
+      # outside its tests is invisible to every number in the report: on run 33527632095 this
+      # document said `failed: 0` while `ci (cli · full features)` was red, because its tests
+      # had all passed and it died afterwards on a coverage flag. A page saying nothing failed
+      # about a run that failed is the thing #459 exists to remove.
+      #
+      # The API rather than `needs.<job>.result`, for two reasons. A matrix job has ONE result
+      # for every leg, so `ci (cli)` and `ci (harness)` could not be told apart. And `needs`
+      # only carries the four jobs this one waits on, while the run has fourteen — a failure
+      # in `ci (supply chain)` would be as absent as it is today.
+      #
+      # `per_page=100` because the endpoint paginates at 30 and a short page hides jobs;
+      # `parse_jobs` refuses a list whose length disagrees with `total_count` rather than
+      # under-reporting. `continue-on-error` because a report without conclusions is worse
+      # than one with them and better than no report at all — the merge below says which it
+      # got, and the pages draw an unknown as an unknown rather than as a pass.
+      - name: What each job of this run concluded
+        id: jobs
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100" \
+            > "${RUNNER_TEMP}/jobs.json"
+
       - name: Merge
         run: |
+          set -euo pipefail
+          args=()
+          if [ -s "${RUNNER_TEMP}/jobs.json" ]; then
+            args+=(--jobs "${RUNNER_TEMP}/jobs.json")
+          else
+            echo "::warning::the run's job conclusions were not fetched; the report will say \
+              every gate's outcome is unknown rather than assume it passed"
+          fi
           yidam/tests/harness/target/debug/ci-report merge \
             --from "${RUNNER_TEMP}/fragments" \
-            --out quality-report.json
+            --out quality-report.json \
+            "${args[@]}"
       # Retained on every run, not only on main. `docs.yml` reads the most recent one from
       # main; a pull request's own copy is what makes the artifact downloadable by whoever is
       # reviewing the change that moved a number.
