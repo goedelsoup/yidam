@@ -84,11 +84,25 @@ const WHY: Record<string, string> = {
             </section>
           )}
 
-          {withGaps.length === 0 && cov.unmeasured.length === 0 && (
+          {cov.added === 0 && cov.unmeasured.length === 0 ? (
+            /* Not "everything was covered". A change that touched no Rust under the measured
+               source root has nothing to say about coverage, and saying "100%" or "every line
+               was executed" about zero lines is the same invention as reporting a gated file
+               at zero. `summary::render_coverage` has had this branch since #464; the page
+               did not, and it took a real run — one whose whole diff was tests, workflows and
+               .astro — to produce the report that shows it. */
             <p class="note">
-              Every Rust line this change added, in a file this build compiled, was executed
-              by a test.
+              This change added no Rust lines in a file this build compiled, so there is no
+              diff coverage to report.
             </p>
+          ) : (
+            withGaps.length === 0 &&
+            cov.unmeasured.length === 0 && (
+              <p class="note">
+                Every Rust line this change added, in a file this build compiled, was executed
+                by a test.
+              </p>
+            )
           )}
         </div>
       );
