@@ -18,7 +18,7 @@
 // second fixture would be a second opinion about the contract, and the first thing to drift.
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, rmSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
@@ -167,6 +167,37 @@ console.log('a section nothing measured says so');
   check('the bench section declares itself unmeasured', t.includes('not measured'));
   check('and says why', t.includes('#468'));
   check('no chart was drawn from nothing', !trends.includes('<svg'));
+}
+
+// ── with a report that measured nothing ──────────────────────────────────────
+//
+// Derived from the golden rather than written beside it: a second hand-authored report would
+// be a second opinion about the contract and the first thing to drift. What it changes is the
+// one field — a change that touched no Rust under the measured source root, which is what the
+// first real CI run of this phase produced, its own diff being tests and workflows.
+
+console.log('a change with no measured lines says so, rather than claiming coverage…');
+{
+  const report = JSON.parse(readFileSync(golden, 'utf8'));
+  for (const gate of report.quality.gates) {
+    if (!gate.coverage) continue;
+    gate.coverage.added = 0;
+    gate.coverage.uncovered = 0;
+    gate.coverage.files = [];
+    gate.coverage.unmeasured = [];
+  }
+  const path = join(site, 'quality-report.nothing-measured.json');
+  writeFileSync(path, JSON.stringify(report));
+  build('dist-quality-none', { YIDAM_QUALITY_REPORT: path });
+  const t = text(page('dist-quality-none', 'quality/coverage'));
+  check('it says no lines were added', t.includes('added no Rust lines'), t.slice(0, 400));
+  check(
+    'it does not claim every line was executed',
+    !t.includes('was executed by a test'),
+    'zero lines covered out of zero is not a hundred percent, and it is not a pass',
+  );
+  rmSync(path, { force: true });
+  rmSync(join(site, 'dist-quality-none'), { recursive: true, force: true });
 }
 
 // ── with no report ───────────────────────────────────────────────────────────
