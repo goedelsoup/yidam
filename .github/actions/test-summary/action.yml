@@ -32,18 +32,16 @@ runs:
   steps:
     # `always()` on every step below: a summary that renders only when the gate passed is a
     # summary for the case that needed no explaining.
-    # No `--locked`, unlike every other cargo line in this repository, and the exception is
-    # not an oversight: **the harness workspace has no committed `Cargo.lock`.** Neither does
-    # the Rust SDK's. Only yidam/cli's is tracked, and the two that are not were hidden the
-    # same way `.config/` nearly was — by a `Cargo.lock` entry in a global gitignore. Passing
-    # the flag here fails the step outright. `ci_reporting.rs` asserts the pairing so the flag
-    # comes back on its own the moment the lock is committed, and committing it belongs to
-    # #463, which is where lockfiles and supply chain are the subject.
+    # `--locked`, like every other cargo line here. It could not be passed when this action
+    # was written — the harness workspace had no committed `Cargo.lock`, hidden by a global
+    # gitignore entry — and #463 committing it is what let the flag come back. It came back
+    # because `ci_reporting.rs` asserts the pairing and went red, not because anyone
+    # remembered.
     - name: Build the reporter
       if: always()
       shell: bash
       run: |
-        mise exec -- cargo build \
+        mise exec -- cargo build --locked \
           --manifest-path yidam/tests/harness/Cargo.toml \
           --package ci-report
 

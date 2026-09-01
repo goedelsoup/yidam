@@ -39,7 +39,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # `@stable` is installed but NOT left as the default — the pin below comes second and
+      # wins. It is here only so `cargo +stable` resolves for the semver check further down,
+      # which needs rustc >= 1.93 to read rustdoc JSON. Order is the whole of the mechanism:
+      # reverse these two lines and this job publishes a crate built by whatever stable
+      # shipped that week.
       - uses: dtolnay/rust-toolchain@stable
+      # The pinned toolchain, not `@stable`. An artifact built by whatever stable shipped
+      # that week is not the build any gate here tested, and this one is published — to a
+      # registry where a version cannot be replaced. The three `@stable` steps left in
+      # install-channels.yml are the deliberate opposite: they simulate a user, who has
+      # whatever stable is, and pinning them would test a channel nobody uses.
+      # `toolchain_pins.rs` asserts every one of these choices carries its reason.
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: jdx/mise-action@v2
 
       - name: Which crate does this tag name?
         id: which
@@ -79,6 +92,19 @@ jobs:
       # Says exactly what would be uploaded, and fails the same way a real publish
       # would — including on the ordering above, which is the failure most likely
       # to be met by someone releasing for the first time.
+      # What this release would break, asked at the last moment it is still a question.
+      # The header above says why that matters more here than anywhere else: a published
+      # version cannot be replaced, only yanked, and a yanked version is still downloadable
+      # by anything that already resolved it. `ci (semver · yidam-core)` asks the same
+      # question on every pull request; this is the copy that stands between an answer and
+      # crates.io.
+      #
+      # Only for `yidam-core`. `cargo semver-checks` needs a baseline on the registry and the
+      # CLI is a binary crate whose library half nobody depends on.
+      - name: What would this release break?
+        if: steps.which.outputs.crate == 'yidam-core'
+        run: mise run semver-check
+
       - name: Dry run
         if: steps.which.outputs.crate != ''
         run: cargo publish --dry-run --locked --manifest-path "${{ steps.which.outputs.manifest }}"

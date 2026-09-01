@@ -1,0 +1,65 @@
+# Dependency updates, proposed rather than discovered after they break.
+#
+# The weekly schedule in ci.yml exists to catch arrow/lancedb version-lock rot — *after* it
+# rots. Nothing proposed an update across three cargo manifests, two npm projects and every
+# pinned action, so every bump in this repository has been a reaction (#463).
+#
+# **Grouped on purpose.** Ungrouped, this opens five or more pull requests a week across six
+# ecosystems, each needing its own CI run and its own review, and the reliable outcome is
+# that people stop reading them. One batch per ecosystem per week is a thing somebody can
+# actually look at.
+version: 2
+updates:
+  # ── cargo ×3 ───────────────────────────────────────────────────────────────
+  # Three separate workspaces with three separate lockfiles. Named individually because
+  # dependabot resolves per-manifest; a single entry would update one and leave the others
+  # to drift, which is how yidam/cli's lock came to be the only one anybody maintained.
+  - package-ecosystem: cargo
+    directory: /yidam/cli
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 3
+    groups:
+      cargo-cli:
+        patterns: ["*"]
+  - package-ecosystem: cargo
+    directory: /yidam/prelude/sdks/rust
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 2
+    groups:
+      cargo-sdk:
+        patterns: ["*"]
+  - package-ecosystem: cargo
+    directory: /yidam/tests/harness
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 2
+    groups:
+      cargo-harness:
+        patterns: ["*"]
+
+  # ── npm ×2 ─────────────────────────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: /yidam/editors/vscode
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 2
+    groups:
+      npm-extension:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: /yidam/web/docs
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 2
+    groups:
+      npm-docs:
+        patterns: ["*"]
+
+  # ── actions ────────────────────────────────────────────────────────────────
+  # Every workflow pins its actions by major tag. An action is code this repository runs
+  # with a token, and it is the one ecosystem here where nothing else — not cargo-deny, not
+  # a lockfile — is watching at all.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 2
+    groups:
+      actions:
+        patterns: ["*"]

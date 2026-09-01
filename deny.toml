@@ -1,0 +1,74 @@
+# cargo-deny — what this repository is willing to ship.
+#
+# Nothing checked a single advisory before #463. The light binary carries rustls (and so
+# `ring`), reqwest and an S3 client; the full build adds an ONNX runtime and LanceDB. Six
+# install channels deliver it, `install-channels.yml` verifies that they *work*, and nothing
+# asked whether what they deliver has a known vulnerability or a license this repository can
+# ship.
+#
+# Run over all three workspaces: `mise run deny`.
+
+# ── advisories ───────────────────────────────────────────────────────────────
+#
+# **Every ignore carries a reason and an expiry.** An advisories file of undated ignores is a
+# check that has stopped checking — the same shape as the `verify` task #461 found, arrived
+# at by a different road, and it is the specific way this file rots. `deny_policy.rs` asserts
+# the rule rather than trusting it to review.
+[advisories]
+yanked = "deny"
+ignore = []
+
+# ── licenses ─────────────────────────────────────────────────────────────────
+#
+# Written down rather than inferred. The list is what this repository can ship under MIT:
+# permissive licences with no copyleft obligation and no advertising clause.
+#
+# Absent on purpose: every GPL and LGPL variant, every "source-available" licence, and
+# **MPL-2.0** — file-level copyleft is still copyleft, and pre-authorising it here would
+# contradict the sentence above. A dependency arriving under any of them is a decision for a
+# person, and this file is how it reaches one instead of being settled by a transitive bump.
+#
+# This is a policy rather than an inventory, so it names licences nothing currently uses.
+# `unused-allowed-license` is set accordingly: the alternative is either a warning on every
+# run, or a gate that goes red because a transitive dependency arrived under BSD-2-Clause —
+# which nobody here would refuse, and which would teach people to edit this file to get
+# green rather than to read it.
+[licenses]
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Zlib",
+]
+unused-allowed-license = "allow"
+confidence-threshold = 0.9
+
+# ── bans ─────────────────────────────────────────────────────────────────────
+#
+# `multiple-versions` is a warning, not a denial. Three workspaces and an ML stack make
+# duplicate transitive versions ordinary; denying them would produce a gate that is red for
+# reasons nobody in this repository can act on, and a gate people learn to ignore is worse
+# than no gate. It is still surfaced, because a duplicate is how a patched crate ends up
+# shipping beside its unpatched twin.
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# ...except on a path dependency, where a version requirement would mean nothing: cargo
+# resolves those from the directory, not the registry. `yidam` dev-depends on `ci-report`
+# this way, and `cargo publish` drops a path-only dev-dependency entirely. A wildcard on a
+# *registry* dependency is still denied, which is the case that matters — it is a build
+# whose input can change without anything in this repository changing.
+allow-wildcard-paths = true
+
+# ── sources ──────────────────────────────────────────────────────────────────
+#
+# crates.io and nothing else. A git dependency is a build whose input can change without a
+# version changing, which is the property `--locked` exists to prevent one level down.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

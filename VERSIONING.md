@@ -242,6 +242,18 @@ than mis-parsing.
 
 There is no minor or patch: it answers one question, and the answer is yes or no.
 
+**Raising the minimum Rust version is a minor bump, at least.**
+
+`rust-version` is a promise to anyone building from source, and `yidam-core` is on crates.io
+where the promise is load-bearing: a consumer on an older toolchain stops being able to
+resolve the crate at all. Cargo enforces it, so raising it does not break a compile — it
+makes the version invisible to that consumer, which is the same outcome arriving quietly.
+
+Both crates moved 1.85 → 1.88.0 in #463. They read 1.85 while every gate built 1.88.0 and
+nothing compiled the floor, so it was an unverified claim rather than a lower one; the pin is
+now the floor and every build verifies it. The next raise is a decision with a cost, and this
+is where the cost is written down.
+
 **Semver meaning for the CLI and the extension:**
 
 | Bump | What changed |

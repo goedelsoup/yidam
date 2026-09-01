@@ -176,6 +176,15 @@ jobs:
     needs: released
     runs-on: ubuntu-latest
     steps:
+      # `@stable`, deliberately, and it is the opposite of the pin release.yml carries.
+      # This job exists to be a *user*, and a user has whatever stable is on the day they
+      # install. Pinning it to 1.88.0 would make this channel pass against a toolchain
+      # nobody installing yidam actually has — a green check for a build nobody runs, which
+      # is the failure `ci.yml` names about its own cross-compile.
+      #
+      # It also means this job can go red for a reason that is not this repository's fault:
+      # a new stable breaking a dependency. That is information, and it arrives here rather
+      # than in somebody's terminal.
       - uses: dtolnay/rust-toolchain@stable
       - name: Install cargo-binstall
         run: curl -fsSL https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
@@ -199,6 +208,15 @@ jobs:
     needs: released
     runs-on: ubuntu-latest
     steps:
+      # `@stable`, deliberately, and it is the opposite of the pin release.yml carries.
+      # This job exists to be a *user*, and a user has whatever stable is on the day they
+      # install. Pinning it to 1.88.0 would make this channel pass against a toolchain
+      # nobody installing yidam actually has — a green check for a build nobody runs, which
+      # is the failure `ci.yml` names about its own cross-compile.
+      #
+      # It also means this job can go red for a reason that is not this repository's fault:
+      # a new stable breaking a dependency. That is information, and it arrives here rather
+      # than in somebody's terminal.
       - uses: dtolnay/rust-toolchain@stable
       - name: From the registry, source build
         run: |
@@ -219,6 +237,15 @@ jobs:
     needs: released
     runs-on: ubuntu-latest
     steps:
+      # `@stable`, deliberately, and it is the opposite of the pin release.yml carries.
+      # This job exists to be a *user*, and a user has whatever stable is on the day they
+      # install. Pinning it to 1.88.0 would make this channel pass against a toolchain
+      # nobody installing yidam actually has — a green check for a build nobody runs, which
+      # is the failure `ci.yml` names about its own cross-compile.
+      #
+      # It also means this job can go red for a reason that is not this repository's fault:
+      # a new stable breaking a dependency. That is information, and it arrives here rather
+      # than in somebody's terminal.
       - uses: dtolnay/rust-toolchain@stable
       - name: The line the README documents
         run: |
