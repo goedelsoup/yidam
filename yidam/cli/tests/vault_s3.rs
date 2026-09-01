@@ -34,7 +34,9 @@ const BUCKET: &str = "yidam-vault-test";
 
 fn enabled() -> bool {
     if std::env::var("YIDAM_S3_TEST").is_err() {
-        eprintln!("skipping: set YIDAM_S3_TEST=1 and run a MinIO on {ENDPOINT}");
+        ci_report::skipped(&format!(
+            "set YIDAM_S3_TEST=1 and run a MinIO on {ENDPOINT}"
+        ));
         return false;
     }
     true

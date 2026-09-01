@@ -261,7 +261,7 @@
     "compile": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
     "watch": "tsc -p . --watch",
     "lint": "eslint src test scripts --ext .ts",
-    "test:unit": "node --test --experimental-strip-types test/*.test.ts",
+    "test:unit": "node --test --experimental-strip-types --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=junit.xml test/*.test.ts",
     "vscode:prepublish": "npm run compile",
     "package": "node --experimental-strip-types scripts/check-package.ts"
   },

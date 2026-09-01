@@ -637,7 +637,7 @@ fn a_signature_verifying_configuration_does_not_become_a_revision() {
     // A machine without `ssh-keygen`, or a git too old to sign with SSH, cannot exercise this.
     // Skipping is honest; asserting on the unsigned path would pass against the bug.
     if !keygen.map(|o| o.status.success()).unwrap_or(false) {
-        eprintln!("skipped: ssh-keygen unavailable");
+        ci_report::skipped("ssh-keygen is unavailable, so no signed commit can be made");
         return;
     }
     git(dir, &["config", "gpg.format", "ssh"]);
@@ -661,7 +661,7 @@ fn a_signature_verifying_configuration_does_not_become_a_revision() {
         .unwrap()
         .success()
     {
-        eprintln!("skipped: this git cannot sign with SSH");
+        ci_report::skipped("this git cannot sign with SSH");
         return;
     }
     write(

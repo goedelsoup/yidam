@@ -1,3 +1,6 @@
 out/
 node_modules/
 *.vsix
+
+# The JUnit the test runner writes for the job summary (#462). A result, not a source.
+junit.xml

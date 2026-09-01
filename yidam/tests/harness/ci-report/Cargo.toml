@@ -1,0 +1,35 @@
+[package]
+name = "ci-report"
+version = "0.1.0"
+edition = "2021"
+description = "Renders a nextest run into a job summary, and counts what did not run."
+publish = false
+
+# ── Why this is a crate of its own ────────────────────────────────────────────
+#
+# It began as a second `[[bin]]` in yidam/cli, which is where the code it reports on lives.
+# Three things were wrong with that, and each is worth recording because each is a rule this
+# repository already holds:
+#
+# 1. `cargo install` installs every bin in a package. `cargo install --locked yidam` is a
+#    documented, tested channel (`install-channels.yml`), so a second bin would have put a
+#    generically-named `ci-report` into the PATH of everyone who used it.
+# 2. Gating it behind a Cargo feature to avoid that fails `light_build.rs`, which requires
+#    every declared feature to be one the report can name. That guard is right — a feature is
+#    a capability a consumer can act on — and a build-tooling feature is not one. Bending the
+#    guard to fit the tool would cost more than the tool is worth.
+# 3. A bin in yidam/cli drags the whole CLI library into any job that wants a summary. The
+#    harness gate would have paid a second light build for a table of numbers.
+#
+# As a member of this workspace it is linted, formatted and tested by `mise run ci-harness`
+# with no new gate, and as a **dev-dependency** of yidam/cli it is built where the tests that
+# use its marker are built, and installed by nothing.
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The input carries test *output* — failure messages with `<`, `&` and quotes in them — so a
+# reader that mis-decodes an entity turns diagnosing a red test into a second puzzle. Two
+# marginal packages, no build script, no C.
+quick-xml = "0.37"
