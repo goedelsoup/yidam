@@ -51,10 +51,10 @@ jobs:
     steps:
       # Full history: the summary's diff-coverage step needs the merge base, and a shallow
       # clone has no commit to diff against.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
       # When the mise cache hits, `mise install` is a no-op and the rust
       # toolchain gets auto-installed by rustup at the first cargo call —
       # with the runner's default minimal profile, which lacks rustfmt and
@@ -104,8 +104,8 @@ jobs:
     name: ci (vscode)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -152,8 +152,8 @@ jobs:
     name: ci (parity)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -199,8 +199,8 @@ jobs:
     name: ci (verify · formal specs)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
       # elan only. Every `build`/`test`/`lint` input is off because `mise run verify` does
       # the building, and lean-action is here for one thing mise cannot do: `elan` ships as
       # `elan-init`, a bootstrapper, so there is no mise pin for `lake`.
@@ -228,8 +228,8 @@ jobs:
     name: ci (design system)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
       - run: mise run design-lint
 
   supply-chain:
@@ -244,8 +244,8 @@ jobs:
     name: ci (supply chain)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
       - run: mise run supply-chain
 
   semver:
@@ -260,7 +260,7 @@ jobs:
     name: ci (semver · yidam-core)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       # `@stable`, not the pin, and this is the documented exception rather than an
@@ -269,7 +269,7 @@ jobs:
       # it — so the reason release.yml was pinned does not reach it. `toolchain_pins.rs`
       # requires every `@stable` to carry a reason, and this is that reason.
       - uses: dtolnay/rust-toolchain@stable
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: yidam/prelude/sdks/rust
@@ -302,13 +302,13 @@ jobs:
     name: ci (cli · aarch64 cross-compile)
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The pinned toolchain, not `@stable`. An artifact built by whatever stable shipped
       # that week is not the build any gate here tested, and this one is published. The
       # three `@stable` steps left in install-channels.yml are the deliberate opposite:
       # they simulate a user, who has whatever stable is, and pinning them would test a
       # channel nobody uses. `toolchain_pins.rs` asserts both halves.
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@1.100.0
         with:
           targets: aarch64-unknown-linux-gnu
       # The cross C compiler, not only the linker. Both halves are used: the
@@ -357,8 +357,8 @@ jobs:
     name: ci (bench · scaling)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: yidam/cli
@@ -374,8 +374,8 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
       - name: Ensure rustfmt and clippy for the pinned toolchain
         run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
       - uses: Swatinem/rust-cache@v2
@@ -401,7 +401,7 @@ jobs:
       # The number that covers the gated paths. Retained rather than only summarised: P7's
       # series is a sequence of these, and a series cannot start later than its first point.
       - run: mise run coverage-full
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: coverage-full-lcov
@@ -437,8 +437,8 @@ jobs:
       actions: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: yidam/tests/harness
@@ -451,7 +451,7 @@ jobs:
       # Every gate's fragment, flattened into one directory. `merge-multiple` is why the
       # composite action names each file after its gate: two files called `fragment.json`
       # would leave a report describing half a run.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: quality-test-results-*
           path: ${{ runner.temp }}/fragments
@@ -501,7 +501,7 @@ jobs:
       # Retained on every run, not only on main. `docs.yml` reads the most recent one from
       # main; a pull request's own copy is what makes the artifact downloadable by whoever is
       # reviewing the change that moved a number.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: quality-report
           path: quality-report.json
@@ -555,8 +555,8 @@ jobs:
       group: quality-series
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: yidam/tests/harness
@@ -566,7 +566,7 @@ jobs:
           mise exec -- cargo build --locked \
             --manifest-path yidam/tests/harness/Cargo.toml \
             --package ci-report
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: quality-report
           path: ${{ runner.temp }}
@@ -646,8 +646,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: yidam/cli
@@ -718,7 +718,7 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: mutants

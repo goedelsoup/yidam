@@ -38,7 +38,7 @@ jobs:
     name: publish
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # `@stable` is installed but NOT left as the default — the pin below comes second and
       # wins. It is here only so `cargo +stable` resolves for the semver check further down,
       # which needs rustc >= 1.93 to read rustdoc JSON. Order is the whole of the mechanism:
@@ -51,8 +51,8 @@ jobs:
       # install-channels.yml are the deliberate opposite: they simulate a user, who has
       # whatever stable is, and pinning them would test a channel nobody uses.
       # `toolchain_pins.rs` asserts every one of these choices carries its reason.
-      - uses: dtolnay/rust-toolchain@1.88.0
-      - uses: jdx/mise-action@v2
+      - uses: dtolnay/rust-toolchain@1.100.0
+      - uses: jdx/mise-action@v4
 
       - name: Which crate does this tag name?
         id: which
