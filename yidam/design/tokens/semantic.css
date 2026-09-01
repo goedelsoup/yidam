@@ -64,6 +64,30 @@
      `unmeasured` is neutral rather than a status colour on purpose. A file the
      build did not compile is a statement about the build, not about the tests,
      and drawing it in the failure family is the number #464 exists to prevent. */
+  /* ── danger ── a destructive action, or a field that is not valid ─────
+     Declared at :root and deliberately absent from every [data-theme] block
+     below. Each theme restyles `--action-*`, so a danger button drawn from the
+     action family changes hue with the theme and, under kal, becomes the same
+     swatch as the primary button beside it. "This cannot be undone" is not a
+     thing a theme should restyle.
+
+     Distinct from `--run-failed-*` on purpose, and the two are not
+     interchangeable. That family says a test run reported a failure — a
+     measurement, in the past tense, drawn in the crimson the report pages use.
+     This one is an affordance: a control that will destroy something if
+     pressed, and an input that will be rejected if submitted.
+
+     `--danger-text` carries the same primitive as `--danger-bg` because the
+     colour is used both as a fill and as ink; the roles differ even where the
+     value does not, and a component asking for the right one is what lets
+     either move later. */
+  --danger-bg:        var(--vermilion-500);
+  --danger-bg-hover:  var(--vermilion-400);
+  --danger-bg-active: var(--vermilion-600);
+  --danger-fg:        #ffffff;
+  --danger-accent:    var(--vermilion-200);
+  --danger-text:      var(--vermilion-500);
+
   --run-passed-bg:     var(--jade-50);
   --run-passed-fg:     var(--jade-800);
   --run-passed-border: var(--jade-200);

@@ -198,23 +198,36 @@ fn references(text: &str) -> impl Iterator<Item = String> + '_ {
     })
 }
 
-/// No surface outside the design system spells a colour.
+/// No surface spells a colour, inside the design system or outside it.
 ///
 /// This is the copy-prevention, and it is deliberately about *hex* rather than about every
 /// literal: a stylesheet may reasonably say `3px` or `50%`, and may not reasonably decide
 /// what colour gold is. Every copy this phase collapsed was a colour copy.
+///
+/// It covered only the consumers until #512, and the system's own components held twenty
+/// hand-spelled colours — eleven copies of one red. The exclusion that let them through was
+/// right for `tokens/`, which legitimately holds values, and wrong for everything else in
+/// the directory; `system_surfaces()` already draws that line for the dangling check, so
+/// this uses the same set rather than a second opinion about where the palette lives.
+///
+/// The comment stripping is load-bearing here in a way it was not before. `#464` and `#467`
+/// are issue numbers, this repository's prose is full of them, and one sits in a
+/// `CoverageBar.jsx` comment. A scan that read them would report four false colours in the
+/// files it was newly pointed at, and a check whose first run is mostly noise is a check
+/// somebody turns off.
 #[test]
-fn no_consumer_declares_a_raw_colour() {
-    let consumers = consumer_stylesheets();
+fn no_surface_declares_a_raw_colour() {
+    let mut surfaces = consumer_stylesheets();
     assert!(
-        !consumers.is_empty(),
+        !surfaces.is_empty(),
         "no stylesheet outside yidam/design references the palette. Either both consumers \
          stopped using the design system, or this test is looking at the wrong tree — and \
          either way it is now asserting nothing."
     );
+    surfaces.extend(system_surfaces());
 
     let mut offenders = Vec::new();
-    for (rel, text) in &consumers {
+    for (rel, text) in &surfaces {
         // Comments may name a colour — this file's own header does. Declarations may not.
         let stripped = css_code_only(text);
         for (i, code) in stripped.lines().enumerate() {
@@ -238,8 +251,11 @@ fn no_consumer_declares_a_raw_colour() {
     assert!(
         offenders.is_empty(),
         "these declare a colour instead of referencing one. That is how the palette came to \
-         have three copies and how two evidence-tag colour families ended up transposed \
-         between them:\n{}",
+         have three copies, how two evidence-tag colour families ended up transposed between \
+         them, and how the design system's own danger red came to be spelled eleven times by \
+         hand:\n{}\n\nIf the value is genuinely new, it belongs in `tokens/colors.css` as a \
+         family and in `tokens/semantic.css` as a role — which is what a component then asks \
+         for by name.",
         offenders.join("\n")
     );
 }
@@ -436,5 +452,94 @@ fn one_change_at_the_source_reaches_every_surface() {
         referenced > 0,
         "no consumer references a declared token outside a comment, so every assertion here \
          is about files that no longer read the design system"
+    );
+}
+
+/// Every token a theme declares, the default also declares.
+///
+/// `semantic.css` is a `:root` block and four `[data-theme="…"]` blocks. A token that appears
+/// only in a theme resolves to nothing for every reader who has not chosen that theme — the
+/// component renders unstyled, CSS says nothing about it, and the build is green. That is the
+/// dangling-reference failure with the reference intact and the *declaration* conditional.
+///
+/// The near-miss that prompted it is one step sideways: #512 replaced a hand-spelled `#fff`
+/// in `Toast` with `var(--action-fg)`, on the reasoning that it is the token for text on a
+/// saturated surface. It is not — it is the text on the action *button*, and under the
+/// default `sid` theme that button is light gold, so `--action-fg` is near-black ink. The
+/// substitution would have put black text on a dark green toast in the default theme and
+/// white text in two of the other three. No guard can catch a token whose value is wrong for
+/// a use; this catches the neighbouring case, where the value is absent entirely.
+#[test]
+fn every_themed_token_is_also_declared_by_the_default_theme() {
+    let css = css_code_only(&read(&format!("{DESIGN}/tokens/semantic.css")));
+
+    // Blocks, by their selector. A brace-depth scan rather than a regex: the values contain
+    // parentheses and commas, and a line-based split would lose a nested `oklch(…)`.
+    let mut blocks: Vec<(String, String)> = Vec::new();
+    let mut rest = css.as_str();
+    while let Some(open) = rest.find('{') {
+        let selector = rest[..open].trim().rsplit('}').next().unwrap_or("").trim();
+        let mut depth = 0usize;
+        let mut end = None;
+        for (i, c) in rest[open..].char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(open + i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Some(close) = end else { break };
+        blocks.push((selector.to_string(), rest[open + 1..close].to_string()));
+        rest = &rest[close + 1..];
+    }
+
+    let names = |body: &str| -> BTreeSet<String> {
+        body.lines()
+            .filter_map(|l| l.trim().split_once(':'))
+            .map(|(n, _)| n.trim().to_string())
+            .filter(|n| n.starts_with("--"))
+            .collect()
+    };
+
+    let root: BTreeSet<String> = blocks
+        .iter()
+        .filter(|(sel, _)| sel == ":root")
+        .flat_map(|(_, body)| names(body))
+        .collect();
+    assert!(
+        root.len() > 40,
+        "only {} tokens parsed from the :root block; the scan has lost the file's shape and \
+         everything below is vacuous",
+        root.len()
+    );
+
+    let themes: Vec<&(String, String)> = blocks
+        .iter()
+        .filter(|(sel, _)| sel.starts_with("[data-theme"))
+        .collect();
+    assert!(
+        themes.len() >= 3,
+        "found {} [data-theme] blocks; semantic.css declares four themes",
+        themes.len()
+    );
+
+    let mut orphans = Vec::new();
+    for (sel, body) in themes {
+        for name in names(body).difference(&root) {
+            orphans.push(format!("  {sel} declares {name}, and :root does not"));
+        }
+    }
+    assert!(
+        orphans.is_empty(),
+        "a token only a theme declares is undefined for every reader who has not chosen that \
+         theme. The component referencing it renders unstyled and nothing goes red:\n{}\n\n\
+         Declare it at :root with the default's value, then override it per theme.",
+        orphans.join("\n")
     );
 }
