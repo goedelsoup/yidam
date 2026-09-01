@@ -1,0 +1,28 @@
+/* The design system, as one importable thing.
+ *
+ * `_ds_manifest.json` has listed these files in this order since the system was synced, and
+ * nothing read the list (#465). Its two consumers did not import the system; they retyped
+ * it — the docs site into Starlight's variable slots, the CLI's web agent into a `:root`
+ * block whose own first line admitted it was a subset. Ten of that subset's twenty-four
+ * values had drifted, and `--inference-*` and `--open-*` had swapped colour families
+ * outright: an exported corpus showed inference in blue and open questions in amber while
+ * the system said the reverse.
+ *
+ * Order matters and is not this file's to choose. `semantic.css` resolves `var(--ink-…)`
+ * and `var(--verified-…)` from the files above it, so the sequence is the manifest's, and
+ * `design_tokens.rs` asserts the two agree rather than trusting this comment.
+ *
+ * Consumers:
+ *   - yidam/web/docs/src/styles/custom.css   @import, resolved by Vite
+ *   - yidam/cli/assets/web/main.css          concatenated by build.rs, because
+ *                                            `export --format web` must be self-contained
+ */
+@import "./tokens/fonts.css";
+@import "./tokens/colors.css";
+@import "./tokens/typography.css";
+@import "./tokens/spacing.css";
+@import "./tokens/borders.css";
+@import "./tokens/shadows.css";
+@import "./tokens/motion.css";
+@import "./tokens/semantic.css";
+@import "./styles.css";

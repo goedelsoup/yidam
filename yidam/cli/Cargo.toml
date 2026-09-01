@@ -255,6 +255,12 @@ vault-s3 = ["dep:hmac", "dep:reqwest", "dep:tokio", "dep:tokio-util"]
 full = ["reports", "index", "export-sqlite", "export-graph", "tonpa", "vault-s3"]
 # `index` implies `vector-read`, so `full` carries it without naming it.
 
+# `build.rs` reads `_ds_manifest.json` to concatenate the design tokens the web exporter
+# embeds — the manifest is the one declaration of what the system is and in what order, and
+# a build script cannot see `[dependencies]`.
+[build-dependencies]
+serde_json = "1"
+
 [dev-dependencies]
 walkdir = "2"
 # The skip marker, and the tool that counts it. A dev-dependency so that `cargo install

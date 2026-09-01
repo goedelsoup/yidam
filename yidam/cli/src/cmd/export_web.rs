@@ -12,6 +12,13 @@ const FALLBACK_WEBLLM_MODEL: &str = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
 const INDEX_HTML: &str = include_str!("../../assets/web/index.html");
 const MAIN_JS: &str = include_str!("../../assets/web/main.js");
 const MAIN_CSS: &str = include_str!("../../assets/web/main.css");
+/// The design system, concatenated by `build.rs` from the manifest's `globalCssPaths`.
+///
+/// Emitted ahead of `MAIN_CSS`, which defines no tokens of its own. An exported page is
+/// opened over `file://` and cannot fetch anything, so the system travels with it — which
+/// is the constraint that produced a hand-copied subset before #465, and ten drifted values
+/// with it.
+const DESIGN_TOKENS: &str = include_str!(concat!(env!("OUT_DIR"), "/design-tokens.css"));
 
 /// Render the static web agent site: relative paths and their contents.
 ///
@@ -67,7 +74,13 @@ pub(crate) fn render_web(
         ("web.config.json".to_string(), config_json.into_bytes()),
         ("bundle.yiz".to_string(), bundle),
         ("assets/main.js".to_string(), MAIN_JS.as_bytes().to_vec()),
-        ("assets/main.css".to_string(), MAIN_CSS.as_bytes().to_vec()),
+        // Tokens first, component styles after — the order the cascade needs, and the
+        // order `_ds_manifest.json` declares within the bundle itself. One file rather than
+        // two, because a second `<link>` is a second thing an offline page can fail to find.
+        (
+            "assets/main.css".to_string(),
+            format!("{DESIGN_TOKENS}\n{MAIN_CSS}").into_bytes(),
+        ),
     ])
 }
 

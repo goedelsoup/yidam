@@ -210,6 +210,21 @@ jobs:
           lint: false
       - run: mise run verify
 
+  design:
+    # The adherence lint, which nothing invoked and which would not have loaded if anything
+    # had — it carried a key oxlint rejects outright (#465). It reads JS and JSX; the two
+    # CSS consumers that had actually drifted are guarded from the Rust side, by
+    # `design_tokens.rs` in the `ci (cli)` gate.
+    #
+    # Its own job rather than a step in `ci (vscode)`: no shared toolchain, and a design
+    # change should not need the extension's npm install to report.
+    name: ci (design system)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - run: mise run design-lint
+
   supply-chain:
     # Advisories, licences, bans, sources, and unused dependencies. On pull requests: the
     # whole point is to hear about a vulnerability before it ships, and this repository
