@@ -135,7 +135,7 @@ module YidamSangha {
     forall i :: 0 <= i < |positions| ==> positions[i].tip_hash in evo.source_hashes
   }
 
-  predicate ArticleIII_OpenQuestions(positions: seq<SanghaPosition>, evo: SanghaEvolution) {
+  ghost predicate ArticleIII_OpenQuestions(positions: seq<SanghaPosition>, evo: SanghaEvolution) {
     forall c :: Tension(positions, c) && c !in evo.claims ==> c in evo.open_questions
   }
 

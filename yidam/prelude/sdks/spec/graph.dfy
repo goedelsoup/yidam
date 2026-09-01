@@ -1,11 +1,17 @@
 // Dafny specification: corpus graph invariants and parity function correctness.
 //
-// Three key theorems:
-//   (1) update_regen — content preservation and idempotency
-//   (2) classify_commit — totality; Epistemic is the default
-//   (3) parse_markers — soundness (no phantom markers)
+// Three key claims — and `{:axiom}` marks which of them Dafny proves and which it is told:
+//   (1) update_regen — content preservation and idempotency   ASSUMED (UpdateRegenSpec)
+//   (2) classify_commit — totality; Epistemic is the default  PROVED
+//   (3) parse_markers — soundness (no phantom markers)        ASSUMED (ParseMarkersSound)
 //
-// Run: dafny verify prelude/sdks/spec/graph.dfy
+// (1) and (3) are obligations *on the implementation*, which Dafny cannot see: they name what
+// `update_regen` and `parse_markers` must satisfy, and an axiom is how that is written down.
+// They are not results this file establishes, and reading a green `dafny verify` as if they
+// were is the specific mistake this header now refuses to let a reader make. Discharging them
+// means an executable Dafny model checked against the Rust, which is #499.
+//
+// Run: mise run verify   (or `dafny verify graph.dfy` from this directory)
 
 module YidamGraph {
 
@@ -19,7 +25,9 @@ module YidamGraph {
 
   datatype Claim = Claim(text: string, tag: EvidenceTag)
 
-  datatype Link = Link(label: string, target: string)
+  // `label` is a Dafny keyword, so the field the other three models spell `label` is
+  // `linkLabel` here. Renaming it is what lets this file parse at all — it never has.
+  datatype Link = Link(linkLabel: string, target: string)
 
   datatype CorpusNode = CorpusNode(
     path: string,
@@ -55,7 +63,7 @@ module YidamGraph {
   // A text has a well-formed REGEN block for `command` when it contains, in order:
   //   "<!-- REGEN: command"  …  "-->"  …  "<!-- /REGEN -->"
 
-  predicate HasRegenFor(text: string, command: string) {
+  ghost predicate HasRegenFor(text: string, command: string) {
     var open_tag  := "<!-- REGEN: " + command;
     var arrow     := "-->";
     var close_tag := "<!-- /REGEN -->";
@@ -79,20 +87,26 @@ module YidamGraph {
 
   lemma {:axiom} RegenDecomposition(text: string, command: string)
     requires HasRegenFor(text, command)
-    ensures exists old: string ::
-      text == RegenPrefix(text, command) + "\n" + old + "\n" + RegenSuffix(text, command)
+    // `old` is a Dafny keyword (the pre-state expression), so the bound variable naming the
+    // content being replaced is `old_content` — the name line 74 already uses for it.
+    ensures exists old_content: string ::
+      text == RegenPrefix(text, command) + "\n" + old_content + "\n" + RegenSuffix(text, command)
 
   // Content preservation theorem.
   // Every implementation of update_regen must satisfy all four postconditions.
   lemma {:axiom} UpdateRegenSpec(text: string, command: string, new_content: string)
     requires HasRegenFor(text, command)
+    // The conjunction is ordered, not merely listed: `&&` short-circuits left to right, and
+    // (1) and (4) apply RegenPrefix/RegenSuffix to `result`, which requires `result` to have
+    // a REGEN block. That is (2). Stated after them the postcondition is not well-formed and
+    // Dafny rejects it — which is how this file has stood, unparsed and so never rejected.
     ensures
       var result := RegenPrefix(text, command) + "\n" + new_content + "\n" + RegenSuffix(text, command);
+      // (2) The target section holds exactly new_content.
+      && HasRegenFor(result, command)
       // (1) Frame: text outside the REGEN section is byte-for-byte identical.
       && RegenPrefix(result, command)  == RegenPrefix(text, command)
       && RegenSuffix(result, command)  == RegenSuffix(text, command)
-      // (2) The target section holds exactly new_content.
-      && HasRegenFor(result, command)
       // (3) No REGEN blocks created or destroyed.
       && RegenBlockCount(result) == RegenBlockCount(text)
       // (4) Idempotency: a second application with the same content is a no-op.
@@ -157,7 +171,7 @@ module YidamGraph {
   // ── parse_markers — soundness ─────────────────────────────────────────────────
 
   // A marker is grounded when its claimed command/instruction appears in the source.
-  predicate MarkerGrounded(text: string, m: Marker) {
+  ghost predicate MarkerGrounded(text: string, m: Marker) {
     match m {
       case TemplateMarker(instruction) =>
         |instruction| > 0 &&
@@ -173,7 +187,7 @@ module YidamGraph {
     ensures forall i :: 0 <= i < |markers| ==> MarkerGrounded(text, markers[i])
 
   // Completeness: every REGEN block in the text produces a marker in the output.
-  predicate ParseMarkersComplete(text: string, markers: seq<Marker>) {
+  ghost predicate ParseMarkersComplete(text: string, markers: seq<Marker>) {
     forall cmd: string ::
       (|cmd| > 0 && (exists i :: SubstringAt(text, "<!-- REGEN: " + cmd, i))) ==>
         (exists j :: 0 <= j < |markers| &&
