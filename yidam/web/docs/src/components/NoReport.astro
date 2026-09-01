@@ -1,0 +1,35 @@
+---
+// What a page says when it has no measurement.
+//
+// Not a zero, not an empty table, and not a stale fixture. Each of those renders as a claim
+// the build cannot support — and "a coverage integration that reports gated files at zero
+// instead of as unmeasured" is the assertion RFC-0025 says a naive integration will miss.
+// Applied one level up: a *page* with no report must not look like a page whose report was
+// all zeroes.
+interface Props {
+  problem: string;
+}
+const { problem } = Astro.props;
+---
+
+<div class="absent">
+  <p><strong>Not measured.</strong> {problem}</p>
+  <p class="note">
+    The measurements are produced by the <code>CI</code> workflow and this site is built by
+    <code>Docs</code>. They are separate workflows, so a report reaches a page one run later
+    than the commit that produced it — and on a pull request, not at all. Every gate posts its
+    own numbers to its job summary in the meantime.
+  </p>
+</div>
+
+<style>
+  code {
+    font-family: var(--font-mono);
+  }
+  p {
+    margin: 0 0 var(--space-2);
+  }
+  p:last-child {
+    margin-bottom: 0;
+  }
+</style>

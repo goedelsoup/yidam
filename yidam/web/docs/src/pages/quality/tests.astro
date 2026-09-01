@@ -1,0 +1,115 @@
+---
+// Suites and their tests, per gate — and the skips, with their reasons.
+//
+// Suites that failed and suites that asserted nothing are expanded; the rest are a meter and
+// a line. Listing 1,369 green rows is a page nobody reads, and scrolling past them is how
+// four suites that exercised nothing stayed invisible in the first place.
+import { StatusMeter } from '../../../../../design/index.js';
+import Quality from '../../layouts/Quality.astro';
+import NoReport from '../../components/NoReport.astro';
+import { loadReport, notable } from '../../quality/report';
+
+const { report, problem } = loadReport();
+---
+
+<Quality title="Tests" commit={report?.yidam.commit} version={report?.yidam.version}>
+  {problem && <NoReport problem={problem} />}
+  {
+    report &&
+      report.quality.gates.map((gate) => (
+        <div class="card">
+          <h2>{gate.gate}</h2>
+          <StatusMeter
+            asserted={gate.totals.asserted}
+            failed={gate.totals.failed}
+            skipped={gate.totals.skipped}
+            size="sm"
+          />
+
+          {notable(gate).length === 0 ? (
+            <p class="note">
+              Every suite here failed nothing and asserted something. {gate.suites.length}{' '}
+              suites, {gate.totals.asserted} assertions.
+            </p>
+          ) : (
+            <>
+              <p class="note">
+                {notable(gate).length} of {gate.suites.length} suites either failed or ran
+                without asserting. The rest are green and are not listed.
+              </p>
+              {notable(gate).map((suite) => (
+                <section class="suite">
+                  <h3>{suite.suite}</h3>
+                  <StatusMeter
+                    asserted={suite.totals.asserted}
+                    failed={suite.totals.failed}
+                    skipped={suite.totals.skipped}
+                    size="sm"
+                  />
+                  <ul class="plain">
+                    {suite.tests
+                      .filter((t) => t.status !== 'passed')
+                      .map((test) => (
+                        <li>
+                          <code class="mono">{test.name}</code>{' '}
+                          <span class={test.status === 'failed' ? 'failed' : 'skipped'}>
+                            {test.status}
+                          </span>
+                          {test.skip_reason && (
+                            <div class="skip-reason">{test.skip_reason}</div>
+                          )}
+                          {test.failure && <pre class="fail-output">{test.failure}</pre>}
+                        </li>
+                      ))}
+                  </ul>
+                </section>
+              ))}
+            </>
+          )}
+
+          {gate.skipped.length > 0 && (
+            <section class="suite">
+              <h3>Skipped ({gate.skipped.length})</h3>
+              <ul class="plain">
+                {gate.skipped.map((skip) => (
+                  <li>
+                    <code class="mono">
+                      {skip.suite} {skip.test}
+                    </code>{' '}
+                    <span class="skipped">{skip.kind}</span>
+                    <div class="skip-reason">{skip.reason}</div>
+                  </li>
+                ))}
+              </ul>
+              <p class="note">
+                <code class="mono">ignored</code> tests are absent from the runner's JUnit
+                entirely — a binary whose every test is ignored writes no cases at all. They
+                are counted from <code class="mono">nextest list</code>, which is the half of
+                the census the XML cannot supply.
+              </p>
+            </section>
+          )}
+        </div>
+      ))
+  }
+</Quality>
+
+<style>
+  .suite {
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: var(--border-thin) solid var(--border-ui-subtle);
+  }
+
+  .failed {
+    color: var(--run-failed-fg);
+  }
+
+  .skipped {
+    color: var(--run-skipped-fg);
+  }
+
+  code {
+    font-family: var(--font-mono);
+  }
+</style>

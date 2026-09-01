@@ -1,0 +1,126 @@
+---
+// Diff coverage first, then the files, then what the build could not see.
+//
+// The last section is the one that decides whether the number is honest. A file the measured
+// build did not compile is unmeasured, not uncovered — and only `unexplained` among the
+// reasons is a finding.
+import { CoverageBar } from '../../../../../design/index.js';
+import Quality from '../../layouts/Quality.astro';
+import NoReport from '../../components/NoReport.astro';
+import { loadReport, joinRanges } from '../../quality/report';
+
+const { report, problem } = loadReport();
+const measured = report?.quality.gates.filter((g) => g.coverage) ?? [];
+
+const WHY: Record<string, string> = {
+  gated: 'behind a cargo feature this build did not enable',
+  'test-only': 'test code, which is not this measurement’s subject',
+  'no-coverable-code': 'nothing for an instrumenter to record',
+  unexplained: 'not compiled, and nothing in the tree says why',
+};
+---
+
+<Quality title="Coverage" commit={report?.yidam.commit} version={report?.yidam.version}>
+  {problem && <NoReport problem={problem} />}
+  {
+    report && measured.length === 0 && (
+      <div class="absent">
+        <p>
+          <strong>No gate in this report measured coverage.</strong> Three of the five produce
+          no LCOV at all, and a run that produced none is not a run whose coverage was zero.
+        </p>
+      </div>
+    )
+  }
+  {
+    measured.map((gate) => {
+      const cov = gate.coverage!;
+      const covered = cov.added - cov.uncovered;
+      const unmeasuredLines = cov.unmeasured.reduce((n, f) => n + f.added, 0);
+      const withGaps = cov.files.filter((f) => f.uncovered.length > 0);
+      return (
+        <div class="card">
+          <h2>{gate.gate}</h2>
+          <CoverageBar
+            label="Lines this change added"
+            covered={covered}
+            uncovered={cov.uncovered}
+            unmeasured={unmeasuredLines}
+            features={cov.features}
+          />
+
+          {withGaps.length > 0 && (
+            <section class="block">
+              <h3>Added and not executed</h3>
+              <ul class="plain">
+                {withGaps.map((f) => (
+                  <li>
+                    <code class="mono">{f.path}</code>{' '}
+                    <span class="lines">{joinRanges(f.uncovered)}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {cov.unmeasured.length > 0 && (
+            <section class="block">
+              <h3>Not measured under these features</h3>
+              <p class="note">
+                These were not compiled into the build this ran against. Nothing here is a
+                claim that they are untested.
+              </p>
+              <ul class="plain">
+                {cov.unmeasured.map((f) => (
+                  <li>
+                    <code class="mono">{f.path}</code>{' '}
+                    <span class={f.reason === 'unexplained' ? 'alarming' : 'benign'}>
+                      {f.feature ? `gated behind ${f.feature}` : WHY[f.reason] ?? f.reason}
+                    </span>{' '}
+                    <span class="lines">{f.added} lines added</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {withGaps.length === 0 && cov.unmeasured.length === 0 && (
+            <p class="note">
+              Every Rust line this change added, in a file this build compiled, was executed
+              by a test.
+            </p>
+          )}
+        </div>
+      );
+    })
+  }
+</Quality>
+
+<style>
+  .block {
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: var(--border-thin) solid var(--border-ui-subtle);
+  }
+
+  .lines {
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+  }
+
+  /* An unexplained absence is the only one that is a finding, and it must not read like the
+     legitimate ones. */
+  .alarming {
+    color: var(--run-failed-fg);
+    font-size: var(--text-xs);
+  }
+
+  .benign {
+    color: var(--run-unmeasured-fg);
+    font-size: var(--text-xs);
+  }
+
+  code {
+    font-family: var(--font-mono);
+  }
+</style>

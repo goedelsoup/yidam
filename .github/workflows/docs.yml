@@ -44,6 +44,9 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  # For the quality report (#467). The measurements are produced by ci.yml, and reading an
+  # artifact another workflow uploaded is the only permission that needs.
+  actions: read
 
 jobs:
   build:
@@ -96,9 +99,46 @@ jobs:
         with:
           enablement: true
 
+      # ── the quality report (#467) ───────────────────────────────────────────
+      #
+      # The measurements live in ci.yml and this site is built here. The two workflows fire
+      # on the same push and run in parallel, so the newest report a build can see is the one
+      # the *previous* CI run on main left behind. That is why the envelope carries
+      # `yidam.commit` and why every quality page prints it: a page one commit behind and
+      # saying so is honest; a page one commit behind and silent is not.
+      #
+      # Failure here is not failure of the docs build. `continue-on-error` plus the guard
+      # below means an absent report renders the "not measured" state — which is a real state
+      # the pages are tested against, not a fallback that hides a problem. What must never
+      # happen is a stale or fixture report deploying as if it were this commit's, and the
+      # only thing that could produce one is a file that is there; so the download either
+      # produces this run's answer or produces nothing.
+      - name: Fetch the most recent quality report from main
+        id: quality
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_id=$(gh run list --workflow ci.yml --branch main --status success \
+            --limit 1 --json databaseId --jq '.[0].databaseId')
+          [ -n "$run_id" ] || { echo "::notice::no successful CI run on main yet"; exit 1; }
+          gh run download "$run_id" --name quality-report --dir "${RUNNER_TEMP}/quality"
+          echo "path=${RUNNER_TEMP}/quality/quality-report.json" >> "$GITHUB_OUTPUT"
+
+      # The render assertions, and the reason they are a step here rather than a job
+      # elsewhere: they need a built site, and this is the only place one is built. They run
+      # against `ci-report`'s committed golden — never against the report fetched above — so
+      # the check is the same on every run whatever CI happened to publish.
+      - name: The quality pages render a skipped suite as a skipped suite
+        run: npm test
+        working-directory: yidam/web/docs
+
       # On a pull request this is the whole job: a build that fails on an unlisted
       # page, a dead relative link, or a broken sidebar slug, and publishes nothing.
       - name: Build
+        env:
+          YIDAM_QUALITY_REPORT: ${{ steps.quality.outputs.path }}
         run: npm run build
         working-directory: yidam/web/docs
 

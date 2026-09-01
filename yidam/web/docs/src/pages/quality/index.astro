@@ -1,0 +1,73 @@
+---
+// The overview: every gate, and what each one actually exercised.
+import { StatusMeter } from '../../../../../design/index.js';
+import Quality from '../../layouts/Quality.astro';
+import NoReport from '../../components/NoReport.astro';
+import { loadReport, overall, plural } from '../../quality/report';
+
+const { report, problem } = loadReport();
+const total = report ? overall(report) : null;
+---
+
+<Quality title="Quality" commit={report?.yidam.commit} version={report?.yidam.version}>
+  {problem && <NoReport problem={problem} />}
+  {
+    report && total && (
+      <>
+        <div class="card">
+          <h2>Every gate</h2>
+          <StatusMeter
+            asserted={total.asserted}
+            failed={total.failed}
+            skipped={total.skipped}
+          />
+          <p class="note">
+            {`${plural(total.cases, 'case')} across ${plural(report.quality.gates.length, 'gate')}.`}{' '}
+            The bar is drawn from <code class="mono">asserted</code>, not{' '}
+            <code class="mono">passed</code>: a runner records a skipped test as a pass, so{' '}
+            {`${plural(total.gated, 'gated skip')} and ${plural(total.ignored, 'ignored test')}`}{' '}
+            would otherwise be counted as work that happened.
+          </p>
+        </div>
+
+        <div class="rows">
+          {report.quality.gates.map((gate) => (
+            <div class="card">
+              <h2>{gate.gate}</h2>
+              <StatusMeter
+                asserted={gate.totals.asserted}
+                failed={gate.totals.failed}
+                skipped={gate.totals.skipped}
+                size="sm"
+              />
+              <div class="kv">
+                <span>
+                  {gate.features.length > 0 ? (
+                    <>
+                      features <code class="mono">{gate.features.join(', ')}</code>
+                    </>
+                  ) : (
+                    'not a cargo build'
+                  )}
+                </span>
+                <span>{gate.suites.length} suites</span>
+                <span>{gate.coverage ? 'coverage measured' : 'no coverage'}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div class="card">
+          <h2>Not measured here</h2>
+          <ul class="plain">
+            {Object.entries(report.quality.sections).map(([name, section]) => (
+              <li>
+                <strong>{name}</strong> — {section.measured ? 'measured' : section.why}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </>
+    )
+  }
+</Quality>

@@ -184,7 +184,9 @@ No emoji used anywhere in the system.
 ## File Structure
 
 ```
+index.js                ← the entry point importers use — every component, re-exported
 styles.css              ← global entry point (imports only)
+tokens.css              ← the token bundle a consumer imports (see _ds_manifest.json)
 tokens/                 ← design tokens
   colors.css
   typography.css
@@ -205,6 +207,7 @@ components/
   navigation/           ← Tabs, Breadcrumb, Tooltip
   feedback/             ← Dialog, Toast
   knowledge/            ← ClaimMarker, NodeCard, PhaseTag, BranchRef
+  measurement/          ← StatusMeter, CoverageBar
 ui_kits/
   corpus/               ← Corpus Browser interactive prototype
 ```
@@ -235,6 +238,33 @@ ui_kits/
 | NodeCard | knowledge | Corpus node summary card |
 | PhaseTag | knowledge | Phase type indicator |
 | BranchRef | knowledge | ma/* and rigpa/* branch reference |
+| StatusMeter | measurement | A test run as a bar — asserted / failed / skipped |
+| CoverageBar | measurement | Line coverage with a third state: unmeasured |
+
+**`measurement/` has no card preview yet.** The `.card.html` specimens render out of
+`_ds_bundle.js`, which is design-tool output carrying source hashes; only the tool can rewrite
+it, so a component added by hand has no preview until the next sync. `design_system.rs`
+asserts the gap rather than leaving it to be found by opening a blank card, and the live
+surface at `/yidam/quality/` renders both components against real data in the meantime.
+
+---
+
+## Importing
+
+```js
+import { StatusMeter, CoverageBar } from '../path/to/yidam/design/index.js';
+```
+
+`index.js` is the door, and `_adherence.oxlintrc.json` forbids reaching past it into
+`components/<group>/`. Both halves are recent: the rule had been in the config since it was
+written and there was no `index.js` to point at, and the rule was disabled everywhere by an
+`overrides` block besides. The quality pages (#467) are the system's first consumer.
+
+Tokens come separately and are plain CSS:
+
+```css
+@import "../path/to/yidam/design/tokens.css";
+```
 
 ---
 

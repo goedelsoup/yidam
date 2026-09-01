@@ -1,0 +1,262 @@
+---
+// The quality surface's chrome.
+//
+// A segment of this Pages deployment rather than a second site: a second site is a second
+// base, a second deploy, and another "which tag?" call site — the question that already
+// spans four layers here and broke `curl | sh` once by being answered in one of them.
+//
+// It is not a Starlight route, though. Starlight's page chrome is built for prose with a
+// sidebar and a table of contents, and none of these pages are prose. What they want is the
+// design system, which is what this imports: the tokens, and the components themselves.
+import '../../../../design/tokens.css';
+
+interface Props {
+  title: string;
+  /** Which commit the numbers describe, when there are numbers. */
+  commit?: string | null;
+  version?: string | null;
+}
+
+const { title, commit = null, version = null } = Astro.props;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+const NAV = [
+  { href: `${base}/quality/`, label: 'Overview' },
+  { href: `${base}/quality/tests/`, label: 'Tests' },
+  { href: `${base}/quality/coverage/`, label: 'Coverage' },
+  { href: `${base}/quality/trends/`, label: 'Trends' },
+
+];
+const here = Astro.url.pathname.replace(/\/?$/, '/');
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} · yidam quality</title>
+    <meta
+      name="description"
+      content="What this repository's own build measures about itself: tests, skips, and coverage."
+    />
+    <link rel="canonical" href={Astro.url.href} />
+  </head>
+  <body>
+    <header class="masthead">
+      <div class="masthead-row">
+        <a class="home" href={`${base}/what-yidam-is/`}>yidam</a>
+        <span class="sep">·</span>
+        <span class="section">quality</span>
+        {
+          commit && (
+            <span class="provenance">
+              measured at <code>{commit}</code>
+              {version && <> · yidam {version}</>}
+            </span>
+          )
+        }
+      </div>
+      <nav aria-label="Quality">
+        {
+          NAV.map((item) => (
+            <a href={item.href} aria-current={item.href === here ? 'page' : undefined}>
+              {item.label}
+            </a>
+          ))
+        }
+      </nav>
+    </header>
+    <main>
+      <h1>{title}</h1>
+      <slot />
+    </main>
+    <footer>
+      <p>
+        Unversioned, deliberately: this describes commits on <code>main</code>. The docs are
+        versioned; a measurement of an old tree recomputed from new code would answer a
+        question nobody asked.
+      </p>
+    </footer>
+  </body>
+</html>
+
+<style>
+  /* Every value here is a token reference. `design_tokens.rs` reads this file — it is a
+     consumer the moment it names one — and `quality_surface.rs` refuses a raw colour in it
+     for the same reason: the palette had three copies and two of them had drifted. */
+  body {
+    margin: 0;
+    background: var(--surface-base);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: var(--text-sm);
+    line-height: var(--leading-normal);
+  }
+
+  .masthead {
+    border-bottom: var(--border-thin) solid var(--border-ui);
+    padding: var(--space-4) var(--space-6) 0;
+  }
+
+  .masthead-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .home {
+    font-family: var(--font-display);
+    font-size: var(--text-xl);
+    color: var(--text-primary);
+    text-decoration: none;
+  }
+
+  .sep,
+  .section {
+    color: var(--text-tertiary);
+  }
+
+  .section {
+    font-family: var(--font-display);
+    font-size: var(--text-xl);
+  }
+
+  .provenance {
+    margin-left: auto;
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+  }
+
+  nav {
+    display: flex;
+    gap: var(--space-4);
+    margin-top: var(--space-3);
+  }
+
+  nav a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    padding-bottom: var(--space-2);
+    border-bottom: var(--border-base) solid transparent;
+  }
+
+  nav a[aria-current='page'] {
+    color: var(--text-primary);
+    border-bottom-color: var(--border-accent);
+  }
+
+  main {
+    /* A length, not a colour. The rule the palette guards is that no surface decides what
+       gold is; a content column is a layout choice this page is entitled to make, and the
+       token set declares no measure wider than 12rem. */
+    max-width: 72rem;
+    padding: var(--space-6);
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-size: var(--text-3xl);
+    font-weight: var(--weight-regular);
+    margin: 0 0 var(--space-5);
+  }
+
+  footer {
+    border-top: var(--border-thin) solid var(--border-ui-subtle);
+    margin-top: var(--space-10);
+    padding: var(--space-4) var(--space-6);
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+  }
+
+  code {
+    font-family: var(--font-mono);
+  }
+</style>
+
+<style is:global>
+  /* Shared by the pages, which are siblings of this file rather than children of it —
+     Astro scopes a component's styles to that component, and a page's markup is not in
+     this one's scope. */
+  .card {
+    border: var(--border-thin) solid var(--border-ui);
+    border-radius: var(--radius-md);
+    background: var(--surface-raised);
+    padding: var(--space-4);
+    margin-bottom: var(--space-4);
+  }
+
+  .card h2 {
+    font-family: var(--font-display);
+    font-size: var(--text-xl);
+    font-weight: var(--weight-regular);
+    margin: 0 0 var(--space-3);
+  }
+
+  .card h3 {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    margin: 0 0 var(--space-2);
+  }
+
+  .note {
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    margin: var(--space-2) 0 0;
+  }
+
+  .absent {
+    border: var(--border-thin) dashed var(--run-unmeasured-border);
+    background: var(--run-unmeasured-bg);
+    color: var(--run-unmeasured-fg);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    margin-bottom: var(--space-4);
+  }
+
+  .rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .kv {
+    display: flex;
+    gap: var(--space-3);
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+  }
+
+  .mono {
+    font-family: var(--font-mono);
+  }
+
+  .fail-output {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    white-space: pre-wrap;
+    overflow-x: auto;
+    background: var(--run-failed-bg);
+    color: var(--run-failed-fg);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2);
+    margin: var(--space-2) 0 0;
+  }
+
+  .skip-reason {
+    color: var(--run-skipped-fg);
+    font-size: var(--text-xs);
+  }
+
+  ul.plain {
+    list-style: none;
+    padding: 0;
+    margin: var(--space-2) 0 0;
+  }
+
+  ul.plain li {
+    padding: var(--space-1) 0;
+    border-bottom: var(--border-thin) solid var(--border-ui-subtle);
+  }
+</style>

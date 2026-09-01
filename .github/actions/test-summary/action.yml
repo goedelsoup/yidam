@@ -33,6 +33,14 @@ inputs:
     description: Source root the coverage is about, for classifying what was not compiled.
     required: false
     default: ""
+  json:
+    description: >
+      Set to `true` to also write this gate's `quality-report.json` fragment and upload it.
+      The fragment is one gate's whole envelope; `ci.yml`'s `quality` job merges every gate's
+      into the document #467's pages read. Off by default so a gate that adds a summary does
+      not silently start contributing to a published report.
+    required: false
+    default: ""
   manifest:
     description: >
       Cargo manifest of the workspace that ran, when there is one. Supplying it adds the
@@ -90,6 +98,10 @@ runs:
       # summary of nothing, and this step does not swallow that: a blank summary under a
       # green check is indistinguishable from "everything passed", which is the whole
       # subject of this phase.
+      #
+      # One invocation writes both the markdown and the fragment, deliberately. The page and
+      # the job summary describe one measurement, and two runs of the reporter over the same
+      # inputs is how they would come to disagree about a number nobody could reconcile.
       run: |
         args=(--gate "${{ inputs.gate }}" --junit "${{ inputs.junit }}")
         if [ -n "${{ inputs.manifest }}" ]; then
@@ -99,7 +111,25 @@ runs:
           args+=(--lcov "${{ inputs.lcov }}" --diff "${RUNNER_TEMP}/change.diff")
           args+=(--src "${{ inputs.src }}" --features "${{ inputs.features }}")
         fi
+        if [ -n "${{ inputs.json }}" ]; then
+          mkdir -p "${RUNNER_TEMP}/quality"
+          args+=(--json "${RUNNER_TEMP}/quality/${{ inputs.artifact }}.json")
+        fi
         yidam/tests/harness/target/debug/ci-report "${args[@]}" >> "$GITHUB_STEP_SUMMARY"
+
+    # `always()`, unlike the artifact below it, and that is the whole point: a gate that
+    # failed is a gate whose numbers the report most needs, and one uploaded only on success
+    # would give the pages a document in which nothing ever fails.
+    #
+    # Named per gate. The merge downloads them into one directory, so two gates writing
+    # `fragment.json` would leave one report describing half a run.
+    - name: Keep this gate's numbers
+      if: always() && inputs.json != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: quality-${{ inputs.artifact }}
+        path: ${{ runner.temp }}/quality/${{ inputs.artifact }}.json
+        if-no-files-found: error
 
     # Only on failure, and it is the whole of the evidence: the JUnit carries each failing
     # test's captured output, so a fix can start from the diff rather than from a local
