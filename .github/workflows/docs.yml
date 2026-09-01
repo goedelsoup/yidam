@@ -49,16 +49,92 @@ permissions:
   actions: read
 
 jobs:
-  build:
-    name: build
+  # ── which versions exist (#466) ────────────────────────────────────────────
+  #
+  # Four layers release independently and this site documents Layer 4, the tooling, because
+  # that is what a reader has installed. The list comes from `cli/v*` tags and nothing else.
+  #
+  # It is resolved in one job and handed to the rest, rather than recomputed per job, so that
+  # every build of one deploy agrees about what the version list is — including the switcher
+  # each page carries, which names versions this build is not.
+  versions:
+    name: versions
     runs-on: ubuntu-latest
-    # Superseded PR builds are cancelled; main is never cancelled, so what deploys
-    # is always the newest commit that finished.
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      list: ${{ steps.resolve.outputs.list }}
+    steps:
+      # `fetch-tags` and full depth: the default checkout has no tags, and a version list
+      # built from no tags would publish `main` alone and report success.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: yidam/web/docs/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: yidam/web/docs
+
+      # The render assertions, and now the version and assembly ones. They run here rather
+      # than in the matrix because they grade *this* tree: a released tag has its own copy of
+      # this site and would be running whatever tests it shipped with, against a version list
+      # it has never heard of.
+      - name: The site's own tests
+        run: npm test
+        working-directory: yidam/web/docs
+
+      # On a pull request this resolves to a single build of the change itself. The released
+      # versions are tags and cannot have changed; building them would spend five jobs to
+      # re-prove that four immutable refs still compile.
+      - name: Resolve the version list
+        id: resolve
+        run: |
+          set -euo pipefail
+          pr=""
+          if [ "${{ github.event_name }}" = "pull_request" ]; then pr="--pull-request"; fi
+          node yidam/web/docs/scripts/versions.mjs --matrix $pr > matrix.json
+          node yidam/web/docs/scripts/versions.mjs $pr > versions.json
+          echo "matrix=$(cat matrix.json)" >> "$GITHUB_OUTPUT"
+          {
+            echo "list<<YIDAM_EOF"
+            cat versions.json
+            echo "YIDAM_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  # One build per version, each a checkout of its own ref reading its own `docs/`.
+  #
+  # That is what makes versioning cost nothing in the site itself: the content loader reads
+  # `docs/` at the repository root and `astro.config.mjs` holds a bidirectional sidebar gate,
+  # and both keep working unchanged because each build only ever sees one version's tree. A
+  # release whose `docs/` had 48 pages is graded against the sidebar that shipped with it.
+  #
+  # `--base` on the command line rather than an environment variable the config reads: every
+  # tag that exists today predates this feature, so its config knows nothing this workflow
+  # could tell it. Astro's own flag reaches `config.base`, which is what the loader's link
+  # rewriter uses.
+  build:
+    name: build (${{ matrix.slot }})
+    needs: versions
+    runs-on: ubuntu-latest
+    strategy:
+      # One version failing must not cancel the others: the report is more useful with four
+      # builds and one error than with one error and four cancellations.
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.versions.outputs.matrix) }}
     concurrency:
-      group: docs-${{ github.ref }}
+      group: docs-${{ github.ref }}-${{ matrix.slot }}
       cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
     steps:
+      # An empty `ref` is the event's own, which is what a pull request wants.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -68,36 +144,10 @@ jobs:
 
       # `npm ci`, not the `npm install` that `mise run docs-install` runs: a lockfile
       # is a claim about what was built, and CI is where that claim is worth enforcing.
+      # This one is the *tag's* lockfile, which is the point.
       - name: Install dependencies
         run: npm ci
         working-directory: yidam/web/docs
-
-      # Pins the Pages source to this workflow, so a source flipped to a branch in the
-      # settings UI is put back by the next deploy rather than silently serving
-      # something else. It keeps that fact in the repository instead of only in a
-      # settings page nobody reads.
-      #
-      # `enablement: true` does NOT bootstrap a repository that has never had Pages.
-      # `GITHUB_TOKEN` may update an existing site and may not create the first one,
-      # so the step fails with `Resource not accessible by integration` — which is how
-      # this site's first deploy failed, nineteen seconds after the merge that was
-      # supposed to publish it. Someone with repository admin has to create the site
-      # once:
-      #
-      #   gh api -X POST repos/goedelsoup/yidam/pages -f build_type=workflow
-      #
-      # or Settings → Pages → Source: GitHub Actions. Everything after that is this
-      # workflow's job. The flag stays because the failure it produces is loud, names
-      # the missing permission, and happens before anything is published — which is
-      # better than a deploy step failing later with less to say.
-      #
-      # Skipped on pull requests: a fork PR has no `pages: write`, and a PR has no
-      # business changing repository settings even when it could.
-      - name: Configure GitHub Pages
-        if: github.event_name != 'pull_request'
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       # ── the quality report (#467) ───────────────────────────────────────────
       #
@@ -144,33 +194,122 @@ jobs:
           git show FETCH_HEAD:series.jsonl > "${RUNNER_TEMP}/series.jsonl"
           echo "path=${RUNNER_TEMP}/series.jsonl" >> "$GITHUB_OUTPUT"
 
-      # The render assertions, and the reason they are a step here rather than a job
-      # elsewhere: they need a built site, and this is the only place one is built. They run
-      # against `ci-report`'s committed golden — never against the report fetched above — so
-      # the check is the same on every run whatever CI happened to publish.
-      - name: The quality pages render a skipped suite as a skipped suite
-        run: npm test
-        working-directory: yidam/web/docs
-
-      # On a pull request this is the whole job: a build that fails on an unlisted
-      # page, a dead relative link, or a broken sidebar slug, and publishes nothing.
+      # `npx astro build` rather than `npm run build`: the base has to be passed, and an old
+      # tag's `build` script does not forward arguments.
       - name: Build
         env:
           YIDAM_QUALITY_REPORT: ${{ steps.quality.outputs.path }}
           YIDAM_QUALITY_SERIES: ${{ steps.series.outputs.path }}
-        run: npm run build
+        run: npx astro build --base "${{ matrix.base }}"
         working-directory: yidam/web/docs
 
-      - name: Upload the site
+      # Every internal link resolves, to a page and to the heading it names. The Astro build
+      # catches a dead page and an unlisted sidebar entry; it has never checked the part
+      # after the `#`, and a wrong fragment leaves a reader at the top of the right document
+      # with nothing to tell them.
+      #
+      # `main` only, and that is a limit rather than a preference: a released tag's build is
+      # whatever that tag shipped, and this cannot be made to pass by changing anything in
+      # this repository. Its first run found two live defects on the deployed site — a
+      # sidebar link that doubled the base into `/yidam/yidam/quality/`, and a favicon
+      # referenced by all 71 pages and published by none — both of which are fixed on `main`
+      # and both of which the released builds still carry.
+      - name: Every link and anchor resolves
+        if: matrix.id == 'main'
+        run: node yidam/web/docs/scripts/check-anchors.mjs yidam/web/docs/dist
+
+      - name: Keep this version's build
         if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-${{ matrix.slot }}
+          path: yidam/web/docs/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  # Every version's build, laid out under one root and decorated with the switcher and the
+  # "you are not reading the current release" banner.
+  #
+  # The decoration happens here and not in each build for two reasons. Every tag that exists
+  # today was built before this feature, so a switcher added to the site's own theme would
+  # appear on no released version — including the one the site root serves. And a switcher
+  # that keeps a reader on the page they are reading has to know which pages the *other*
+  # versions have, which only the assembled tree does.
+  assemble:
+    name: assemble
+    if: github.event_name != 'pull_request'
+    needs: [versions, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      # Pins the Pages source to this workflow, so a source flipped to a branch in the
+      # settings UI is put back by the next deploy rather than silently serving
+      # something else. It keeps that fact in the repository instead of only in a
+      # settings page nobody reads.
+      #
+      # `enablement: true` does NOT bootstrap a repository that has never had Pages.
+      # `GITHUB_TOKEN` may update an existing site and may not create the first one,
+      # so the step fails with `Resource not accessible by integration` — which is how
+      # this site's first deploy failed, nineteen seconds after the merge that was
+      # supposed to publish it. Someone with repository admin has to create the site
+      # once:
+      #
+      #   gh api -X POST repos/goedelsoup/yidam/pages -f build_type=workflow
+      #
+      # or Settings → Pages → Source: GitHub Actions. Everything after that is this
+      # workflow's job. The flag stays because the failure it produces is loud, names
+      # the missing permission, and happens before anything is published — which is
+      # better than a deploy step failing later with less to say.
+      #
+      # Skipped on pull requests: a fork PR has no `pages: write`, and a PR has no
+      # business changing repository settings even when it could.
+      - name: Configure GitHub Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: site-*
+          path: staging
+
+      # `download-artifact` names each directory after its artifact. `assemble.mjs` matches
+      # directories against version ids, and refuses one it cannot place — so a rename that
+      # went wrong fails loudly here rather than publishing a path nothing links to.
+      - name: Name each build by its slot
+        run: |
+          set -euo pipefail
+          for dir in staging/site-*; do
+            mv "$dir" "staging/$(basename "$dir" | sed 's/^site-//')"
+          done
+          ls -1 staging
+
+      - name: Assemble one site
+        run: |
+          set -euo pipefail
+          cat > versions.json <<'YIDAM_EOF'
+          ${{ needs.versions.outputs.list }}
+          YIDAM_EOF
+          node yidam/web/docs/scripts/assemble.mjs \
+            --staging staging \
+            --out site \
+            --versions versions.json
+
+      - name: Upload the site
         uses: actions/upload-pages-artifact@v3
         with:
-          path: yidam/web/docs/dist
+          path: site
 
   deploy:
     name: deploy
     if: github.event_name != 'pull_request'
-    needs: build
+    needs: assemble
     runs-on: ubuntu-latest
     # Pages allows one deployment at a time and queuing is correct here: cancelling
     # an in-flight deploy can leave the site serving a half-published build.

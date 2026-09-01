@@ -311,7 +311,14 @@ Beyond that, each phase golden-fixtures its output where output is a contract:
    which is correct for CSS and JSX and says nothing about the VS Code extension, whose colors come
    from the editor's own theme API. Is a webview in scope? It renders in this repository's design
    language and cannot use its tokens directly.
-3. **What happens to a version's docs when its tag is yanked?** P5 builds from released `cli/v*`
-   tags. `publish-crates.yml:20-24` is clear that a yanked crate version is still downloadable by
-   anything that already resolved it — so its documentation arguably must stay up. Nothing decides
-   this, and it is the same shape as question 1: cheap now, expensive after the fact.
+3. ~~**What happens to a version's docs when its tag is yanked?**~~ **Settled in #466: dropped
+   entirely.** A yanked release is a retracted release, documentation included, and its URLs 404.
+   The argument against — that a yanked crate is still downloadable by anything that already
+   resolved it, so somebody may still be running it — was weighed and not taken.
+
+   Two consequences, implemented rather than left to be discovered. The published set of paths is
+   **not monotonic**: a yank removes live URLs with no release having happened, so a link that
+   worked yesterday can 404 today. And the build now depends on crates.io, which means an
+   unreachable crates.io must degrade toward *publishing* — a lookup that failed yields "nothing
+   known to be yanked", never "drop everything", or an outage elsewhere would withdraw this site's
+   documentation. `scripts/versions.mjs` enforces the direction; `test/versions.mjs` asserts it.

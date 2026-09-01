@@ -26,7 +26,13 @@ Bootstrapping it produces a repository that does.
 
 **[goedelsoup.github.io/yidam](https://goedelsoup.github.io/yidam/)** — the documentation
 site, and the route to prefer. It renders everything under [`docs/`](docs/README.md) with a
-sidebar, search, and working cross-links, published from `main` on every push.
+sidebar, search, and working cross-links.
+
+It is versioned on the CLI, because that is what you have installed. The address above
+documents the **current release**; the last three releases keep their own paths
+(`/yidam/v0.7/`, and so on) and every page carries a menu to move between them.
+[`/yidam/main/`](https://goedelsoup.github.io/yidam/main/) documents unreleased tooling and
+says so on every page.
 
 | Going to | Start at |
 |---|---|
