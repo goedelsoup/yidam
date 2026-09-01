@@ -49,7 +49,11 @@ jobs:
     name: ci (${{ matrix.workspace }})
     runs-on: ubuntu-latest
     steps:
+      # Full history: the summary's diff-coverage step needs the merge base, and a shallow
+      # clone has no commit to diff against.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: jdx/mise-action@v2
       # When the mise cache hits, `mise install` is a no-op and the rust
       # toolchain gets auto-installed by rustup at the first cargo call —
@@ -72,6 +76,11 @@ jobs:
             yidam/tests/harness
           key: ${{ matrix.workspace }}
       - run: mise run ci-${{ matrix.workspace }}
+      # Coverage on the CLI row only. The harness is 82 tests over a test harness; the
+      # instrumented rebuild would cost more than the number is worth there.
+      - name: Measure coverage
+        if: matrix.workspace == 'cli'
+        run: mise run coverage
       - uses: ./.github/actions/test-summary
         if: always()
         with:
@@ -79,6 +88,11 @@ jobs:
           junit: ${{ matrix.path }}/target/nextest/ci/junit.xml
           manifest: ${{ matrix.path }}/Cargo.toml
           artifact: test-results-${{ matrix.workspace }}
+          lcov: ${{ matrix.workspace == 'cli' && 'yidam/cli/target/coverage.lcov' || '' }}
+          src: ${{ matrix.workspace == 'cli' && 'yidam/cli/src' || '' }}
+          # The default set, spelled where the reader of a number can see it.
+          # `light_build.rs` is what keeps this list and `[features] default` in step.
+          features: ${{ matrix.workspace == 'cli' && 'reports,tonpa,vault-s3' || '' }}
 
   vscode:
     # The editor client. Separate from the Rust matrix because it shares no toolchain
@@ -361,3 +375,12 @@ jobs:
       # commit later than the "every PR" the issue imagined, and it is the latest it can be
       # without the number being about keyword matching.
       - run: mise run bench-example
+      # The number that covers the gated paths. Retained rather than only summarised: P7's
+      # series is a sequence of these, and a series cannot start later than its first point.
+      - run: mise run coverage-full
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-full-lcov
+          path: yidam/cli/target/coverage-full.lcov
+          if-no-files-found: warn

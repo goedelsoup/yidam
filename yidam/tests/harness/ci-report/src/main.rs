@@ -13,19 +13,33 @@
 //! contains no tests — see [`main`].
 
 use anyhow::{bail, Result};
-use ci_report::{census, junit, summary};
+use ci_report::{census, coverage, junit, summary};
 use std::path::PathBuf;
 
 struct Args {
     gate: String,
     junit: PathBuf,
     list: Option<PathBuf>,
+    /// LCOV from the same run. Optional: three of the four gates produce no coverage, and a
+    /// summary without a coverage section is better than one that invents an empty table.
+    lcov: Option<PathBuf>,
+    /// Unified diff, `-U0`, of the change being graded.
+    diff: Option<PathBuf>,
+    /// Source root the coverage is about, for classifying what the build did not compile.
+    src: Option<PathBuf>,
+    /// The cargo features the measurement was taken under. Rendered verbatim, because a
+    /// coverage number whose build is unstated is the number #464 is about.
+    features: Vec<String>,
 }
 
 fn parse_args() -> Result<Args> {
     let mut gate = None;
     let mut junit = None;
     let mut list = None;
+    let mut lcov = None;
+    let mut diff = None;
+    let mut src = None;
+    let mut features = Vec::new();
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         let mut value = || {
@@ -36,6 +50,16 @@ fn parse_args() -> Result<Args> {
             "--gate" => gate = Some(value()?),
             "--junit" => junit = Some(PathBuf::from(value()?)),
             "--list" => list = Some(PathBuf::from(value()?)),
+            "--lcov" => lcov = Some(PathBuf::from(value()?)),
+            "--diff" => diff = Some(PathBuf::from(value()?)),
+            "--src" => src = Some(PathBuf::from(value()?)),
+            "--features" => {
+                features = value()?
+                    .split(',')
+                    .map(|f| f.trim().to_string())
+                    .filter(|f| !f.is_empty())
+                    .collect()
+            }
             other => bail!("unknown argument `{other}`"),
         }
     }
@@ -43,6 +67,10 @@ fn parse_args() -> Result<Args> {
         gate: gate.unwrap_or_else(|| "tests".to_string()),
         junit: junit.ok_or_else(|| anyhow::anyhow!("--junit is required"))?,
         list,
+        lcov,
+        diff,
+        src,
+        features,
     })
 }
 
@@ -77,5 +105,36 @@ fn main() -> Result<()> {
     skips.sort_by(|a, b| a.test.cmp(&b.test));
 
     print!("{}", summary::render(&args.gate, &run, &skips));
+
+    if let Some(lcov_path) = &args.lcov {
+        // Every input is required together. A coverage section built from an LCOV with no
+        // diff would grade the whole repository against a pull request, and one with no
+        // source root cannot tell a gated file from an untested one — which is the single
+        // distinction the section exists to draw. Refusing beats rendering half of it.
+        let (Some(diff_path), Some(src)) = (&args.diff, &args.src) else {
+            bail!(
+                "--lcov needs --diff and --src: without them the coverage section cannot \
+                   tell an unmeasured file from an untested one, which is the whole of what \
+                   it is for"
+            );
+        };
+        if args.features.is_empty() {
+            bail!(
+                "--lcov needs --features: a coverage number whose build is unstated is the \
+                   number #464 exists to remove"
+            );
+        }
+        let lcov = coverage::read_lcov(lcov_path)?;
+        let diff = std::fs::read_to_string(diff_path)?;
+        let repo_root = src
+            .ancestors()
+            .find(|a| a.join(".git").exists())
+            .unwrap_or(std::path::Path::new("."));
+        let absences = coverage::absences(src, repo_root, &lcov);
+        let src_prefix = src.to_string_lossy().replace('\\', "/");
+        let files = coverage::diff_coverage(&diff, &lcov, &absences, &src_prefix);
+        print!("{}", summary::render_coverage(&args.features, &files));
+    }
+
     Ok(())
 }

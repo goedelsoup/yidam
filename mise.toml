@@ -371,6 +371,40 @@ description = "The whole supply-chain gate: advisories, licences, unused deps."
 # baseline from crates.io, and it answers a different question — what a *release* would
 # break, rather than what this tree carries.
 depends = ["deny", "machete"]
+# ── coverage (#464) ───────────────────────────────────────────────────────
+#
+# 35,806 lines of Rust had no coverage measurement of any kind. What lands in the job summary
+# is **diff coverage** — the lines a change added that no test executed — because that is the
+# number that changes what somebody does. A repository-wide percentage does not, and a floor
+# invites the ratchet-by-one-line game rather than a test. Nothing here fails a build on a
+# number; RFC-0025 defers that decision until there is a month of data.
+#
+# The feature set is passed to the reporter and printed beside the number. It is not
+# decoration: a pull request compiles the light default, so `--features index` files are not
+# in the LCOV at all, and a report that treated "absent" as "zero" would call the whole index
+# path untested. `ci-report` classifies every absence instead — gated, test-only, no coverable
+# code, or unexplained — and only the last of those is a finding.
+
+[tasks.coverage]
+description = "Line coverage over the CLI workspace, as LCOV, under the light default build."
+tools = { "github:taiki-e/cargo-llvm-cov" = "v0.9.0" }
+# `--no-report` then `report`, rather than one command: the run and the rendering are
+# separate so the same profile data can produce LCOV here and whatever P7 wants later.
+run = [
+  "cargo llvm-cov --no-report nextest --config-file .config/nextest.toml --manifest-path yidam/cli/Cargo.toml",
+  "cargo llvm-cov report --lcov --output-path yidam/cli/target/coverage.lcov --manifest-path yidam/cli/Cargo.toml",
+]
+
+[tasks.coverage-full]
+description = "Coverage including the feature-gated paths a pull request never compiles."
+tools = { "github:taiki-e/cargo-llvm-cov" = "v0.9.0" }
+# Where the gated files stop being unmeasured. This is the run whose number covers the index,
+# sqlite and rdf paths, and it belongs beside `ci-cli-full` on main and the weekly schedule
+# for the same reason that job does: protoc, an ONNX runtime, SQLite from source.
+run = [
+  "cargo llvm-cov --no-report nextest --config-file .config/nextest.toml --all-features --manifest-path yidam/cli/Cargo.toml",
+  "cargo llvm-cov report --lcov --output-path yidam/cli/target/coverage-full.lcov --manifest-path yidam/cli/Cargo.toml --all-features",
+]
 
 # ── bootstrap harness (yidam/tests/harness/) ──────────────────────────────
 
