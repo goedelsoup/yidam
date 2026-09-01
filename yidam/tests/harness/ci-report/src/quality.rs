@@ -123,9 +123,14 @@ pub struct Quality {
 pub struct RunJobs {
     /// Jobs that had finished when the report was assembled.
     pub jobs: Vec<Job>,
-    /// Jobs that had not. The reporting job is always among them — it is running this code —
-    /// and so is anything sequenced after it. Named rather than counted so that a reader can
-    /// tell "not finished" from "not configured".
+    /// Jobs that had been created and had not finished. The reporting job is always among
+    /// them: it is running this code.
+    ///
+    /// **Not** every job still to come. GitHub lists a job once it exists, and a job gated
+    /// behind this one may not have been created yet — on a real pull-request run this held
+    /// `ci (quality report)` alone, while `ci (series)` was absent rather than pending. So
+    /// this is "started and unfinished", and the jobs after the reporter are outside what
+    /// any report assembled mid-run can describe.
     pub pending: Vec<String>,
 }
 
