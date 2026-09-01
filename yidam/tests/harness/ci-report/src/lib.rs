@@ -12,11 +12,15 @@
 //! [`summary`] renders what a person reads on a red check; [`quality`] renders the same run
 //! as `quality-report.json`, which is what #467's pages read. Both are built from one parse
 //! of one document, so the page and the job summary cannot come to disagree about a number.
+//!
+//! [`series`] is the sequence of those reports — one record per push to main, on an orphan
+//! branch, because every run before #468 computed its numbers and threw them away.
 
 pub mod census;
 pub mod coverage;
 pub mod junit;
 pub mod quality;
+pub mod series;
 pub mod summary;
 
 /// The prefix a skipped test writes, on its own line.

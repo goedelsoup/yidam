@@ -161,12 +161,34 @@ console.log('unmeasured is not uncovered');
   check('the feature set the number is about is stated', t.includes('reports, tonpa, vault-s3'));
 }
 
-console.log('a section nothing measured says so');
+console.log('a section nothing measured says so, and one that is measured does not');
 {
   const t = text(trends);
-  check('the bench section declares itself unmeasured', t.includes('not measured'));
-  check('and says why', t.includes('#468'));
-  check('no chart was drawn from nothing', !trends.includes('<svg'));
+  // Named sections, not a substring of the page. This check used to be `includes('not
+  // measured')` against the whole document, and when #468 made `bench` measured it went on
+  // passing — matching the *mutation* section instead. A guard that can be satisfied by a
+  // different section than the one it names is the prose-answers-for-code shape, in a test.
+  check(
+    'the mutation section declares itself unmeasured',
+    t.includes('Mutation survivors — not measured'),
+    t.slice(0, 500),
+  );
+  check(
+    'and says where its numbers are instead',
+    t.includes('weekly schedule'),
+    'an unmeasured section that does not say why reads as an empty one',
+  );
+  check(
+    'bench is not rendered as unmeasured',
+    !t.includes('bench series — not measured'),
+    'the bench section is measured now; rendering it as absent would send a reader looking ' +
+      'for a ratchet that exists',
+  );
+  check(
+    'no chart was drawn from a series that is not there',
+    !trends.includes('<path'),
+    'this build passed no series, so any line on the page came from nothing',
+  );
 }
 
 // ── with a report that measured nothing ──────────────────────────────────────
@@ -198,6 +220,81 @@ console.log('a change with no measured lines says so, rather than claiming cover
   );
   rmSync(path, { force: true });
   rmSync(join(site, 'dist-quality-none'), { recursive: true, force: true });
+}
+
+// ── the series ───────────────────────────────────────────────────────────────
+//
+// #468's assertions, and the second one is the one the issue names: a malformed record must
+// not blank the history around it. The series is append-only and written by a job that can be
+// cancelled mid-push, so one truncated line is a thing that will happen.
+
+console.log('the series draws its shapes, and a bad line does not take the good ones…');
+{
+  const record = (commit, asserted, seconds, tokens) =>
+    JSON.stringify({
+      commit,
+      recorded_at: 1788000000,
+      gates: 4,
+      totals: { cases: asserted, failed: 0, passed: asserted, skipped: 3, gated: 0, ignored: 3, asserted },
+      test_seconds: seconds,
+      coverage: { added: 0, uncovered: 0, features: ['reports'] },
+      bench: { nodes: 4096, focused_tokens: tokens, full_scan_tokens: 6041600, focused_precision: 0.013 },
+    });
+  const path = join(site, 'series.test.jsonl');
+  writeFileSync(
+    path,
+    [record('aaa1111', 1640, 68.2, 392000), '{ truncated', record('bbb2222', 1699, 74.9, 378521), ''].join('\n'),
+  );
+  build('dist-quality-series', { YIDAM_QUALITY_REPORT: golden, YIDAM_QUALITY_SERIES: path });
+  const html = page('dist-quality-series', 'quality/trends');
+  const t = text(html);
+
+  check('the records that parsed are counted', t.includes('2 records'), t.slice(0, 400));
+  check('a line that did not parse is reported', t.includes('could not be read'), t.slice(0, 400));
+  check(
+    'and the rest is still drawn',
+    (html.match(/<path/g) || []).length >= 3,
+    'a bad line blanked the history around it',
+  );
+  check(
+    'a rising cost is drawn as a regression',
+    html.includes('--run-failed-fill'),
+    'test seconds went up across the series and nothing said so',
+  );
+  check(
+    'a falling cost is not',
+    html.includes('--run-passed-fill'),
+    'bench tokens went down across the series and it was drawn as a regression',
+  );
+  rmSync(path, { force: true });
+  rmSync(join(site, 'dist-quality-series'), { recursive: true, force: true });
+}
+
+console.log('one record is not a trend…');
+{
+  const path = join(site, 'series.one.jsonl');
+  writeFileSync(
+    path,
+    JSON.stringify({
+      commit: 'aaa1111',
+      recorded_at: 1788000000,
+      gates: 1,
+      totals: { cases: 10, failed: 0, passed: 10, skipped: 0, gated: 0, ignored: 0, asserted: 10 },
+      test_seconds: 1,
+      coverage: null,
+      bench: null,
+    }) + '\n',
+  );
+  build('dist-quality-one', { YIDAM_QUALITY_REPORT: golden, YIDAM_QUALITY_SERIES: path });
+  const html = page('dist-quality-one', 'quality/trends');
+  check(
+    'a single record says so rather than drawing a flat line',
+    text(html).includes('A trend needs two'),
+    text(html).slice(0, 400),
+  );
+  check('and draws no line at all', !html.includes('<path'), 'one point was drawn as a series');
+  rmSync(path, { force: true });
+  rmSync(join(site, 'dist-quality-one'), { recursive: true, force: true });
 }
 
 // ── with no report ───────────────────────────────────────────────────────────

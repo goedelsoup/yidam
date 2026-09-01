@@ -182,3 +182,86 @@ export function joinRanges(lines: number[]): string {
   }
   return out.join(', ');
 }
+
+// ── the series (#468) ────────────────────────────────────────────────────────
+//
+// One record per push to main, on the `quality-series` orphan branch, fetched by the docs
+// workflow. `quality-report.json` describes one commit; this is the sequence.
+//
+// It is not a second source of truth. Nothing here recomputes anything a gate measured, and
+// where a record disagrees with the report on the same page, the report is the one that came
+// from the run being described.
+
+export interface SeriesRecord {
+  commit: string;
+  recorded_at: number;
+  gates: number;
+  totals: Totals;
+  test_seconds: number;
+  coverage: { added: number; uncovered: number; features: string[] } | null;
+  bench: {
+    nodes: number;
+    focused_tokens: number;
+    full_scan_tokens: number;
+    focused_precision: number;
+  } | null;
+}
+
+export interface SeriesLoad {
+  records: SeriesRecord[];
+  /** 1-indexed line numbers that did not parse. */
+  unreadable: number[];
+  /** Why there is no series at all, when there is none. */
+  problem: string | null;
+}
+
+/**
+ * The series, or the reason there isn't one.
+ *
+ * A line that does not parse is skipped and counted, never fatal. The file is append-only and
+ * written by a job that can be cancelled mid-push; one truncated write must not blank a year
+ * of history, and a parser that refused the whole file would turn a single bad append into a
+ * page with nothing on it.
+ */
+export function loadSeries(): SeriesLoad {
+  const path = process.env.YIDAM_QUALITY_SERIES;
+  if (!path) {
+    return {
+      records: [],
+      unreadable: [],
+      problem:
+        'No series was available to this build. YIDAM_QUALITY_SERIES is unset — the docs ' +
+        'workflow fetches it from the `quality-series` branch, which does not exist until the ' +
+        'first push to main after #468.',
+    };
+  }
+
+  let raw: string;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch (e) {
+    return { records: [], unreadable: [], problem: `${path} could not be read: ${e}` };
+  }
+
+  const records: SeriesRecord[] = [];
+  const unreadable: number[] = [];
+  raw.split('\n').forEach((line, i) => {
+    if (!line.trim()) return;
+    try {
+      records.push(JSON.parse(line));
+    } catch {
+      unreadable.push(i + 1);
+    }
+  });
+
+  return {
+    records,
+    unreadable,
+    problem: records.length === 0 ? `${path} holds no readable records.` : null,
+  };
+}
+
+/** One metric down the series, oldest first — the order the file is appended in. */
+export function column(records: SeriesRecord[], pick: (r: SeriesRecord) => number | null): number[] {
+  return records.map(pick).filter((v): v is number => v !== null && Number.isFinite(v));
+}

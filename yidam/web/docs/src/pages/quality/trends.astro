@@ -1,37 +1,99 @@
 ---
-// The bench series and the mutation survivors — neither of which exists yet.
+// The series, and the sections nothing measures yet.
 //
-// One page rather than two, and it says so rather than drawing an empty chart. Both are
-// #468's work: `yidam bench` prints prose today and there is no baseline to compare a run
-// against, and no mutation run is configured at all. A sparkline with nothing to plot would
-// be a component with no consumer, which is the pattern this whole epic is about removing.
+// #467 left this page declaring both its sections unmeasured and reading the reason out of
+// the report. #468 fills the first half: the series is one record per push to main, kept on
+// the `quality-series` orphan branch, and these are its shapes.
 //
-// The report declares both sections rather than omitting them, so this page reads its reason
-// out of the document instead of holding an opinion of its own. When #468 lands, the section
-// flips to `measured` and this page grows a chart; nothing here has to be remembered.
+// Mutation survivors are still absent, and the page says so out of the report rather than
+// holding an opinion of its own — the same arrangement, one section narrower.
+import { Sparkline } from '../../../../../design/index.js';
 import Quality from '../../layouts/Quality.astro';
 import NoReport from '../../components/NoReport.astro';
-import { loadReport } from '../../quality/report';
+import { loadReport, loadSeries, column } from '../../quality/report';
 
 const { report, problem } = loadReport();
+const series = loadSeries();
 const sections = Object.entries(report?.quality.sections ?? {});
 
 const TITLES: Record<string, string> = {
   bench: 'The bench series',
   mutation: 'Mutation survivors',
 };
+
+// `higherIsWorse` is per metric and is the only thing that decides a stroke colour. Tests
+// asserting going up is not the same kind of event as test seconds going up, and one colour
+// for both teaches a reader to stop reading the colour.
+const LINES = [
+  {
+    label: 'Tests asserting',
+    points: column(series.records, (r) => r.totals.asserted),
+    higherIsWorse: false,
+    format: (v: number) => `${v}`,
+  },
+  {
+    label: 'Skipped',
+    points: column(series.records, (r) => r.totals.skipped),
+    higherIsWorse: true,
+    format: (v: number) => `${v}`,
+  },
+  {
+    label: 'Test seconds',
+    points: column(series.records, (r) => r.test_seconds),
+    higherIsWorse: true,
+    format: (v: number) => `${v.toFixed(1)}s`,
+  },
+  {
+    label: 'Focused-scan tokens at the largest corpus',
+    points: column(series.records, (r) => r.bench?.focused_tokens ?? null),
+    higherIsWorse: true,
+    format: (v: number) => v.toLocaleString('en-US'),
+  },
+];
+
+const drawable = LINES.filter((l) => l.points.length > 0);
 ---
 
 <Quality title="Trends" commit={report?.yidam.commit} version={report?.yidam.version}>
   {problem && <NoReport problem={problem} />}
+
+  <div class="card">
+    <h2>The series</h2>
+    {
+      series.problem ? (
+        <p class="note">{series.problem}</p>
+      ) : (
+        <>
+          <p class="note">
+            {`${series.records.length} record${series.records.length === 1 ? '' : 's'}, one per push to main, oldest first.`}
+          </p>
+          <div class="lines">
+            {drawable.map((line) => (
+              <Sparkline
+                label={line.label}
+                points={line.points}
+                higherIsWorse={line.higherIsWorse}
+                format={line.format}
+              />
+            ))}
+          </div>
+        </>
+      )
+    }
+    {
+      series.unreadable.length > 0 && (
+        <p class="damaged">
+          {`${series.unreadable.length} line${series.unreadable.length === 1 ? '' : 's'} of the series could not be read and ${series.unreadable.length === 1 ? 'was' : 'were'} skipped: ${series.unreadable.join(', ')}.`}
+          {' '}
+          The rest is drawn above. A truncated append must not blank the history around it.
+        </p>
+      )
+    }
+  </div>
+
   {
     sections.map(([name, section]) =>
-      section.measured ? (
-        <div class="card">
-          <h2>{TITLES[name] ?? name}</h2>
-          <p class="note">Measured, and nothing here renders it yet.</p>
-        </div>
-      ) : (
+      section.measured ? null : (
         <div class="absent">
           <p>
             <strong>{TITLES[name] ?? name} — not measured.</strong> {section.why}
@@ -44,11 +106,27 @@ const TITLES: Record<string, string> = {
     report && sections.length === 0 && (
       <div class="absent">
         <p>
-          <strong>This report declares no sections at all.</strong> Both `bench` and
-          `mutation` should be present and saying why they are unmeasured; a report that omits
-          them leaves this page unable to tell "nothing to say" from "nothing was asked".
+          <strong>This report declares no sections at all.</strong> A report that omits them
+          leaves this page unable to tell "nothing to say" from "nothing was asked".
         </p>
       </div>
     )
   }
 </Quality>
+
+<style>
+  .lines {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+    gap: var(--space-5);
+    margin-top: var(--space-3);
+  }
+
+  /* Damage is reported in the skipped family, not the failure family: a line that did not
+     parse is a gap in the record, not a red test. */
+  .damaged {
+    margin-top: var(--space-3);
+    color: var(--run-skipped-fg);
+    font-size: var(--text-xs);
+  }
+</style>

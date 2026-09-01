@@ -11,6 +11,7 @@
 //! would still work, and only the middle build nobody's CI compiles would quietly lose its
 //! reason to exist. So the arrangement is asserted rather than assumed.
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 fn crate_root() -> PathBuf {
@@ -22,7 +23,18 @@ fn read(rel: &str) -> String {
     std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{} unreadable: {e}", p.display()))
 }
 
-/// Every source file that answers a query, as opposed to building an index.
+/// Files that answer a query, as opposed to building an index.
+///
+/// Curated, and it has to be: the property is "every `#[cfg]` in this file is about reading",
+/// which no scan can decide. What #468's audit found is that nothing checked the list was
+/// *complete* — three files carrying the `vector-read` gate were absent from it, so the
+/// load-bearing assertion below, whose own comment says "nothing else would notice", did not
+/// look at them. One of the three, `src/cmd/export.rs`, belonged here.
+///
+/// [`MIXED`] carries the other two and the reason each is excluded, and
+/// `every_file_in_the_split_is_accounted_for` requires every gated file to be in one list or
+/// the other. A file added tomorrow fails that test until somebody decides which it is —
+/// which is the inverted-roster shape `report_goldens.rs` uses, for the same reason.
 const READ_PATH: &[&str] = &[
     "src/retrieval/mod.rs",
     "src/retrieval/vector.rs",
@@ -31,8 +43,106 @@ const READ_PATH: &[&str] = &[
     "src/cmd/serve/tools.rs",
     "src/cmd/serve/resources.rs",
     "src/cmd/query/anchor.rs",
+    "src/cmd/export.rs",
     "src/embedding.rs",
 ];
+
+/// Files that take part in the split and may legitimately name `index` as well.
+///
+/// The reasons are load-bearing. Both of these would fail the scan below on a line that is
+/// correct, and writing down why is what keeps the next reader from "fixing" it.
+const MIXED: &[(&str, &str)] = &[
+    (
+        "src/lib.rs",
+        "declares both halves: `#[cfg(feature = \"index\")] pub use cmd::index_build` is the \
+         build path's re-export, not a gate on reading",
+    ),
+    (
+        "src/report.rs",
+        "reports the feature list, so it must ask `cfg!(feature = \"index\")` about the build \
+         it is describing — `the_reported_feature_list_separates_reading_from_building` in \
+         this file requires exactly that",
+    ),
+];
+
+/// Every `.rs` under `src/`.
+fn source_files() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![crate_root().join("src")];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Files that name the read feature, discovered.
+fn files_naming_the_read_feature() -> BTreeSet<String> {
+    let out: BTreeSet<String> = source_files()
+        .into_iter()
+        .filter(|p| {
+            std::fs::read_to_string(p)
+                .unwrap_or_default()
+                .contains("feature = \"vector-read\"")
+        })
+        .map(|p| {
+            p.strip_prefix(crate_root())
+                .unwrap_or(&p)
+                .to_string_lossy()
+                .replace('\\', "/")
+        })
+        .collect();
+    assert!(
+        out.len() >= 8,
+        "only {} files name `vector-read` ({out:?}); if that spelling changed, every \
+         assertion built on this is vacuous",
+        out.len()
+    );
+    out
+}
+
+/// Nothing in the split is unaccounted for.
+///
+/// The check the hardcoded list never had. A file that joins the split and lands in neither
+/// list is not scanned by the assertion below and nobody is told — the way `src/cmd/export.rs`
+/// was not scanned, for as long as it has existed.
+#[test]
+fn every_file_in_the_split_is_accounted_for() {
+    let listed: BTreeSet<&str> = READ_PATH
+        .iter()
+        .copied()
+        .chain(MIXED.iter().map(|(rel, _)| *rel))
+        .collect();
+    let unaccounted: Vec<String> = files_naming_the_read_feature()
+        .into_iter()
+        .filter(|rel| !listed.contains(rel.as_str()))
+        .collect();
+    assert!(
+        unaccounted.is_empty(),
+        "these files take part in the vector-read split and are in neither list: \
+         {unaccounted:?}.\n\nAdd each to READ_PATH, so the scan covers it, or to MIXED with \
+         the reason it may also name `index`. Leaving it out is the third option and it is \
+         the one that fails silently."
+    );
+
+    for (rel, reason) in MIXED {
+        assert!(
+            crate_root().join(rel).is_file(),
+            "MIXED names {rel}, which is gone"
+        );
+        assert!(!reason.is_empty(), "{rel} is excluded and does not say why");
+    }
+}
 
 /// **The load-bearing assertion.** A `feature = "index"` anywhere in the read path puts vector
 /// search back behind protoc, and nothing else would notice.

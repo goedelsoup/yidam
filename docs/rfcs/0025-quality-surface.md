@@ -281,6 +281,11 @@ Beyond that, each phase golden-fixtures its output where output is a contract:
   second opinion on them. Where the two touch the same guard tests, RFC-0024 wins.
 - **No coverage threshold that fails a build.** Diff coverage is reported and read. Whether it
   ever becomes a gate is a decision for after the first month of data.
+
+- **No mutation gate.** `cargo-mutants` reports survivors into a job summary and fails on
+  nothing. It is measured weekly and scoped by cost: #468 measured one mutant at roughly 80
+  seconds — a 28s build and a 56s test run — so the 586 mutants in `cmd/lint/` alone would be
+  thirteen hours. The scope is the modules where a survivor means something, not the codebase.
 - **No CI latency budget increase beyond ~5 minutes on a pull request.** Today a PR gate is 1-3
   minutes. nextest is faster than `cargo test`; `cargo-deny` is seconds. `cargo-mutants` and
   full-repo coverage go on the weekly schedule `cli-full` already uses.
@@ -290,12 +295,18 @@ Beyond that, each phase golden-fixtures its output where output is a contract:
 
 ## Open questions
 
-1. **Does the series belong in git?** P7 appends one record per main push to a committed file, on
-   the argument that git is the one store this repository already trusts and that
-   `.yidam/`-shaped history is its whole thesis. The cost is a commit on `main` per push, from CI,
-   which no workflow here does today. The alternative — a Pages-side artifact — has no history
-   older than the last deploy. Settle in #468 before the first record is written, because the
-   answer is hard to change once there is a year of them.
+1. ~~**Does the series belong in git?**~~ **Settled in #468: git, on an orphan branch.**
+
+   Git, for the reason the question gave — it is the one store this repository already trusts,
+   and a Pages-side artifact has no history older than the last deploy. But on a
+   `quality-series` orphan branch rather than a file on `main`, which the question did not
+   consider. A bot commit per push to `main` would land in `git log main` beside real work,
+   would race a human push, and — `ci.yml` being `on: push: branches: [main]` — would
+   re-trigger the run that wrote it. The orphan branch costs one ref and a `git fetch` in the
+   docs build, and none of that.
+
+   `yidam/tests/harness/ci-report/series-branch-README.md` is committed to that branch and
+   carries the reasoning where somebody who lands on it will read it.
 2. **Which surfaces are inside the adherence lint?** P4 discovers consumers by token reference,
    which is correct for CSS and JSX and says nothing about the VS Code extension, whose colors come
    from the editor's own theme API. Is a webview in scope? It renders in this repository's design
