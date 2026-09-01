@@ -133,6 +133,15 @@ export function resolve({ tags, yanked = new Set(), keep = KEEP }) {
  * The alias carries the latest's own `id`, so its banner and switcher behave exactly as the
  * versioned copy's do: no "you are reading an old release" notice, and the switcher showing
  * the release it is.
+ *
+ * # What the root loses, and why that is right
+ *
+ * A page that exists on `main` and in no release is not at the site root any more. The
+ * quality surface is the first: `cli/v0.7.0` has no `src/pages/` at all, so `/yidam/quality/`
+ * moves to `/yidam/main/quality/` until a release contains it. That is the correct answer
+ * rather than a regression to route around — those pages describe commits on `main` and say
+ * so on their own face — but it does change a live URL, which is the sort of thing a
+ * migration should state rather than let a reader discover.
  */
 export const ROOT_SLOT = '__root__';
 

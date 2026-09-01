@@ -245,7 +245,7 @@ ui_kits/
 `_ds_bundle.js`, which is design-tool output carrying source hashes; only the tool can rewrite
 it, so a component added by hand has no preview until the next sync. `design_system.rs`
 asserts the gap rather than leaving it to be found by opening a blank card, and the live
-surface at `/yidam/quality/` renders both components against real data in the meantime.
+surface at `/yidam/main/quality/` renders both components against real data in the meantime.
 
 ---
 
