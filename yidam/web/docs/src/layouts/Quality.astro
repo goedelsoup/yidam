@@ -186,6 +186,17 @@ const here = Astro.url.pathname.replace(/\/?$/, '/');
     margin-bottom: var(--space-4);
   }
 
+  /* A card about something that did not succeed. The `--run-failed-*` family is the same
+     one StatusMeter draws a failure with, so a red job and a red bar are the same red. */
+  .card.alarm {
+    border-color: var(--run-failed-border);
+    background: var(--run-failed-bg);
+  }
+
+  .card.alarm h2 {
+    color: var(--run-failed-fg);
+  }
+
   .card h2 {
     font-family: var(--font-display);
     font-size: var(--text-xl);

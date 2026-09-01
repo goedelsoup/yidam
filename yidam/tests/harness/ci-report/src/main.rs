@@ -8,7 +8,7 @@
 //!
 //! ```text
 //! ci-report --gate "ci (cli)" --junit path/to/junit.xml --list path/to/list.json
-//! ci-report merge --from artifacts/ --out quality-report.json
+//! ci-report merge --from artifacts/ --out quality-report.json [--jobs jobs.json]
 //! ci-report series --report quality-report.json --file series.jsonl
 //! ```
 //!
@@ -22,6 +22,12 @@ use std::path::{Path, PathBuf};
 
 struct Args {
     gate: String,
+    /// The CI job this gate runs in, when it is not the gate's own name (#516).
+    ///
+    /// `ci (parity)` runs three parity arms and summarises one, so its gate reads
+    /// `ci (parity · rust sdk)`. The heading is the more truthful of the two and the job name
+    /// is what the run's job list can be matched against; a gate that needs both says both.
+    job: Option<String>,
     junit: PathBuf,
     list: Option<PathBuf>,
     /// LCOV from the same run. Optional: three of the four gates produce no coverage, and a
@@ -42,6 +48,8 @@ struct Args {
 struct MergeArgs {
     from: PathBuf,
     out: PathBuf,
+    /// GitHub's job list for this run, when the caller could fetch it (#516).
+    jobs: Option<PathBuf>,
 }
 
 /// Where the series reads its inputs and which file it appends to.
@@ -54,6 +62,7 @@ struct SeriesArgs {
 
 fn parse_args() -> Result<Args> {
     let mut gate = None;
+    let mut job = None;
     let mut junit = None;
     let mut list = None;
     let mut lcov = None;
@@ -69,6 +78,7 @@ fn parse_args() -> Result<Args> {
         };
         match arg.as_str() {
             "--gate" => gate = Some(value()?),
+            "--job" => job = Some(value()?),
             "--junit" => junit = Some(PathBuf::from(value()?)),
             "--list" => list = Some(PathBuf::from(value()?)),
             "--lcov" => lcov = Some(PathBuf::from(value()?)),
@@ -86,6 +96,7 @@ fn parse_args() -> Result<Args> {
         }
     }
     Ok(Args {
+        job,
         gate: gate.unwrap_or_else(|| "tests".to_string()),
         junit: junit.ok_or_else(|| anyhow::anyhow!("--junit is required"))?,
         list,
@@ -100,6 +111,7 @@ fn parse_args() -> Result<Args> {
 fn parse_merge_args() -> Result<MergeArgs> {
     let mut from = None;
     let mut out = None;
+    let mut jobs = None;
     let mut it = std::env::args().skip(2);
     while let Some(arg) = it.next() {
         let mut value = || {
@@ -109,12 +121,14 @@ fn parse_merge_args() -> Result<MergeArgs> {
         match arg.as_str() {
             "--from" => from = Some(PathBuf::from(value()?)),
             "--out" => out = Some(PathBuf::from(value()?)),
+            "--jobs" => jobs = Some(PathBuf::from(value()?)),
             other => bail!("unknown argument `{other}`"),
         }
     }
     Ok(MergeArgs {
         from: from.ok_or_else(|| anyhow::anyhow!("merge needs --from <dir>"))?,
         out: out.ok_or_else(|| anyhow::anyhow!("merge needs --out <path>"))?,
+        jobs,
     })
 }
 
@@ -220,6 +234,7 @@ fn main() -> Result<()> {
         let provenance = quality::Provenance::read(&repo_root_of(&args.junit))?;
         let gate = quality::gate(
             &args.gate,
+            args.job.as_deref(),
             &args.features,
             &run,
             &skips,
@@ -236,13 +251,37 @@ fn main() -> Result<()> {
 fn merge() -> Result<()> {
     let args = parse_merge_args()?;
     let fragments = quality::read_fragments(&args.from)?;
-    let report = quality::merge(fragments)?;
+
+    // Optional, and its absence is recorded rather than assumed away: a report merged without
+    // it says every gate's conclusion is unknown, which the pages draw as its own state. The
+    // alternative — treating "nobody asked" as "nothing failed" — is the bug being fixed.
+    let run = match &args.jobs {
+        Some(path) => {
+            let text = std::fs::read_to_string(path)
+                .with_context(|| format!("reading the run's job list at {}", path.display()))?;
+            Some(quality::parse_jobs(&text)?)
+        }
+        None => None,
+    };
+
+    let report = quality::merge(fragments, run)?;
     write_json(&args.out, &report)?;
+    let unsuccessful = report
+        .quality
+        .run
+        .as_ref()
+        .map(|r| r.unsuccessful().len())
+        .unwrap_or_default();
     eprintln!(
-        "{}: {} gate(s) at {}",
+        "{}: {} gate(s) at {}{}",
         args.out.display(),
         report.quality.gates.len(),
-        report.yidam.commit
+        report.yidam.commit,
+        match &report.quality.run {
+            None => ", no job conclusions".to_string(),
+            Some(_) if unsuccessful == 0 => String::new(),
+            Some(_) => format!(", {unsuccessful} job(s) did not succeed"),
+        }
     );
     Ok(())
 }

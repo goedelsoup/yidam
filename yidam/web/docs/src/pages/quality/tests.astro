@@ -7,7 +7,7 @@
 import { StatusMeter } from '../../../../../design/index.js';
 import Quality from '../../layouts/Quality.astro';
 import NoReport from '../../components/NoReport.astro';
-import { loadReport, notable } from '../../quality/report';
+import { loadReport, notable, gateOutcome } from '../../quality/report';
 
 const { report, problem } = loadReport();
 ---
@@ -17,8 +17,15 @@ const { report, problem } = loadReport();
   {
     report &&
       report.quality.gates.map((gate) => (
-        <div class="card">
+        <div class={gateOutcome(gate) === 'bad' ? 'card alarm' : 'card'}>
           <h2>{gate.gate}</h2>
+          {gateOutcome(gate) === 'bad' && (
+            <p class="note">
+              This job concluded <strong>{gate.conclusion}</strong>. Everything below is its
+              test cases, and a job can fail without one of them failing — a lint, a coverage
+              step, a packaging check. "Every suite passed" is not "the gate passed".
+            </p>
+          )}
           <StatusMeter
             asserted={gate.totals.asserted}
             failed={gate.totals.failed}

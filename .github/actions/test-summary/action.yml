@@ -12,6 +12,15 @@ inputs:
   gate:
     description: The job name a reader sees, used as the summary's heading.
     required: true
+  job:
+    description: >
+      The job this gate runs in, as the run displays it, when that is not `gate` itself.
+      `ci (parity)` runs three parity arms and summarises one, so its gate reads
+      `ci (parity · rust sdk)` — a truer heading than the job name, and one that the run's
+      job list will never match. Supplying this is what lets the merge stamp such a gate with
+      its job's conclusion instead of leaving it unknown (#516).
+    required: false
+    default: ""
   junit:
     description: Path to the JUnit XML the run wrote.
     required: true
@@ -104,6 +113,9 @@ runs:
       # inputs is how they would come to disagree about a number nobody could reconcile.
       run: |
         args=(--gate "${{ inputs.gate }}" --junit "${{ inputs.junit }}")
+        if [ -n "${{ inputs.job }}" ]; then
+          args+=(--job "${{ inputs.job }}")
+        fi
         if [ -n "${{ inputs.manifest }}" ]; then
           args+=(--list "${RUNNER_TEMP}/nextest-list.json")
         fi

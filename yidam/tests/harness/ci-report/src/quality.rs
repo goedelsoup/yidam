@@ -99,6 +99,58 @@ pub struct YidamBlock {
 pub struct Quality {
     pub gates: Vec<Gate>,
     pub sections: BTreeMap<String, Section>,
+    /// What the run's jobs concluded, when the merge was able to ask (#516).
+    ///
+    /// `None` in a fragment, in a locally-merged report, and in every report written before
+    /// #516 — which is why it is optional rather than a bump of `format_version`. Adding a
+    /// field does not change what an existing field means, and the site *refuses* a version
+    /// it does not know: bumping would blank the quality pages until the next successful run
+    /// on main replaced the report they read.
+    #[serde(default)]
+    pub run: Option<RunJobs>,
+}
+
+/// The jobs of one CI run, as they stood when the report was assembled.
+///
+/// # Why the report needs this at all
+///
+/// A gate's numbers come from JUnit XML, and JUnit describes test cases. A job that fails
+/// outside its tests — `fmt --check`, `clippy -D warnings`, a coverage step, a packaging
+/// check — is invisible to every number in this document. On run 33527632095 the report said
+/// `failed: 0` while `ci (cli · full features)` was red, and a reader of /quality/ would have
+/// been shown a clean bill of health for a broken main.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunJobs {
+    /// Jobs that had finished when the report was assembled.
+    pub jobs: Vec<Job>,
+    /// Jobs that had not. The reporting job is always among them — it is running this code —
+    /// and so is anything sequenced after it. Named rather than counted so that a reader can
+    /// tell "not finished" from "not configured".
+    pub pending: Vec<String>,
+}
+
+/// One job of a run, and what it concluded.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Job {
+    /// As the run displays it, e.g. `ci (cli · full features)`. Matched against
+    /// [`Gate::job`], falling back to [`Gate::gate`] when a gate did not name one.
+    pub name: String,
+    /// GitHub's own word: `success`, `failure`, `cancelled`, `skipped`, `neutral`, …
+    pub conclusion: String,
+}
+
+impl RunJobs {
+    /// The jobs a reader should be told about: every one that did not succeed or skip.
+    ///
+    /// An allow-list rather than a deny-list of `failure`. GitHub has added conclusions
+    /// before (`stale`, `timed_out`, `action_required`) and a deny-list would silently call
+    /// each new one fine — the exact shape of defect this whole surface exists to remove.
+    pub fn unsuccessful(&self) -> Vec<&Job> {
+        self.jobs
+            .iter()
+            .filter(|j| !matches!(j.conclusion.as_str(), "success" | "skipped" | "neutral"))
+            .collect()
+    }
 }
 
 /// One CI job's run.
@@ -113,6 +165,24 @@ pub struct Gate {
     pub skipped: Vec<SkipRecord>,
     /// `None` when this gate produced no LCOV — three of the five do not.
     pub coverage: Option<Coverage>,
+    /// The CI job this gate's numbers came from, when it is not the gate's own name (#516).
+    ///
+    /// Usually they are the same string and this is `None`. They are not always the same
+    /// thing: `ci (parity)` runs the Rust, TypeScript and Python parity arms and summarises
+    /// only the Rust one, so its gate is `ci (parity · rust sdk)` — a heading that is more
+    /// truthful than the job name, and would never match it. Matching on the job name alone
+    /// left that gate's conclusion permanently unknown; `the_gate_names_name_real_jobs` is
+    /// what keeps the two in step.
+    #[serde(default)]
+    pub job: Option<String>,
+    /// What the job that produced this fragment concluded (#516).
+    ///
+    /// Always `None` in the fragment itself: a gate cannot know its own outcome while it is
+    /// still running to write this. [`merge`] stamps it from the run's job list. `None` in
+    /// the merged report therefore means "nobody could say", which the pages render as its
+    /// own state — never as a pass.
+    #[serde(default)]
+    pub conclusion: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -303,6 +373,7 @@ fn split_id(id: &str) -> (String, String) {
 /// they would come to disagree.
 pub fn gate(
     name: &str,
+    job: Option<&str>,
     features: &[String],
     run: &Run,
     skips: &[Skip],
@@ -388,6 +459,9 @@ pub fn gate(
         suites,
         skipped,
         coverage,
+        job: job.map(str::to_string),
+        // A gate writing its own fragment is, by definition, still running.
+        conclusion: None,
     }
 }
 
@@ -491,6 +565,8 @@ pub fn fragment(provenance: &Provenance, gate: Gate) -> Envelope {
         quality: Quality {
             gates: vec![gate],
             sections: sections(),
+            // Likewise: one runner cannot see the others. `merge` fills this in.
+            run: None,
         },
     }
 }
@@ -527,7 +603,7 @@ fn sections() -> BTreeMap<String, Section> {
 /// A report whose gates were measured at different commits is not a report about a commit,
 /// and it would look exactly like one: the page would draw a coverage bar from one tree
 /// beside a test count from another. Refusing beats rendering it.
-pub fn merge(fragments: Vec<Envelope>) -> Result<Envelope> {
+pub fn merge(fragments: Vec<Envelope>, run: Option<RunJobs>) -> Result<Envelope> {
     let Some(first) = fragments.first().cloned() else {
         bail!(
             "no fragments to merge. Every gate that runs tests writes one, so an empty set \
@@ -561,6 +637,20 @@ pub fn merge(fragments: Vec<Envelope>) -> Result<Envelope> {
         .collect();
     gates.sort_by(|a, b| a.gate.cmp(&b.gate));
 
+    // The conclusion a fragment could not know when it was written, matched by the job name
+    // the run displays. A gate whose heading is not a job name says which job it came from;
+    // `the_gate_names_name_real_jobs` is what keeps those names real rather than this comment.
+    if let Some(run) = &run {
+        for gate in &mut gates {
+            let job = gate.job.clone().unwrap_or_else(|| gate.gate.clone());
+            gate.conclusion = run
+                .jobs
+                .iter()
+                .find(|j| j.name == job)
+                .map(|j| j.conclusion.clone());
+        }
+    }
+
     let features: BTreeSet<String> = gates.iter().flat_map(|g| g.features.clone()).collect();
 
     // Every section every fragment carried, with the strongest claim winning: a section one
@@ -585,8 +675,61 @@ pub fn merge(fragments: Vec<Envelope>) -> Result<Envelope> {
             features: features.into_iter().collect(),
         },
         root: first.root,
-        quality: Quality { gates, sections },
+        quality: Quality {
+            gates,
+            sections,
+            run,
+        },
     })
+}
+
+/// GitHub's job list for one run, as `gh api /repos/{repo}/actions/runs/{id}/jobs` returns it.
+///
+/// # Why this refuses a truncated page
+///
+/// The endpoint paginates at 30 by default and reports the true count in `total_count`. A
+/// silently short page would omit jobs, and the jobs it omits are as likely to be the failed
+/// ones as any other — a report that understates failures is the defect #516 is about, so a
+/// count that does not match is an error rather than a shrug.
+pub fn parse_jobs(json: &str) -> Result<RunJobs> {
+    #[derive(Deserialize)]
+    struct Response {
+        total_count: usize,
+        jobs: Vec<Entry>,
+    }
+    #[derive(Deserialize)]
+    struct Entry {
+        name: String,
+        /// `null` until the job finishes.
+        conclusion: Option<String>,
+    }
+
+    let response: Response =
+        serde_json::from_str(json).context("parsing the run's job list as GitHub returns it")?;
+    if response.total_count != response.jobs.len() {
+        bail!(
+            "the job list is truncated: {} jobs on this page, {} in the run. Ask for them all \
+             (`per_page=100`, and paginate above that) — a short page hides jobs, and a hidden \
+             job is as likely to be a failed one as not.",
+            response.jobs.len(),
+            response.total_count
+        );
+    }
+
+    let mut jobs = Vec::new();
+    let mut pending = Vec::new();
+    for entry in response.jobs {
+        match entry.conclusion {
+            Some(conclusion) => jobs.push(Job {
+                name: entry.name,
+                conclusion,
+            }),
+            None => pending.push(entry.name),
+        }
+    }
+    jobs.sort_by(|a, b| a.name.cmp(&b.name));
+    pending.sort();
+    Ok(RunJobs { jobs, pending })
 }
 
 /// Read every `*.json` under `dir`, recursively.
@@ -652,7 +795,7 @@ mod tests {
     fn mixed_gate() -> Gate {
         let run = run_of(MIXED);
         let skips = crate::census::gated(&run);
-        gate("ci (cli)", &["reports".into()], &run, &skips, None)
+        gate("ci (cli)", None, &["reports".into()], &run, &skips, None)
     }
 
     /// The whole point of the field, and the fixture RFC-0025 warns is easy to lose.
@@ -687,7 +830,7 @@ mod tests {
     #[test]
     fn a_run_with_no_cases_totals_nothing_rather_than_passing() {
         let run = run_of(r#"<testsuites><testsuite name="s"></testsuite></testsuites>"#);
-        let g = gate("ci (empty)", &[], &run, &[], None);
+        let g = gate("ci (empty)", None, &[], &run, &[], None);
         assert_eq!(g.totals.cases, 0);
         assert_eq!(g.totals.passed, 0);
         assert_eq!(g.totals.asserted, 0);
@@ -705,6 +848,7 @@ mod tests {
         }];
         let g = gate(
             "ci (cli)",
+            None,
             &[],
             &run_of("<testsuites></testsuites>"),
             &skips,
@@ -842,6 +986,7 @@ mod tests {
             &provenance(),
             gate(
                 "ci (cli)",
+                None,
                 &["reports".into(), "tonpa".into()],
                 &run_of(MIXED),
                 &[],
@@ -850,9 +995,9 @@ mod tests {
         );
         let harness = fragment(
             &provenance(),
-            gate("ci (harness)", &[], &run_of(MIXED), &[], None),
+            gate("ci (harness)", None, &[], &run_of(MIXED), &[], None),
         );
-        let merged = merge(vec![cli, harness]).expect("two fragments of one run");
+        let merged = merge(vec![cli, harness], None).expect("two fragments of one run");
         assert_eq!(
             merged
                 .quality
@@ -881,7 +1026,7 @@ mod tests {
             },
             mixed_gate(),
         );
-        let err = merge(vec![a, b]).expect_err("a mixed-commit merge must fail");
+        let err = merge(vec![a, b], None).expect_err("a mixed-commit merge must fail");
         assert!(format!("{err}").contains("different commits"), "{err}");
     }
 
@@ -889,8 +1034,171 @@ mod tests {
     /// empty run: a report with no gates renders as a page on which nothing failed.
     #[test]
     fn merging_nothing_is_an_error() {
-        let err = merge(Vec::new()).expect_err("an empty merge must fail");
+        let err = merge(Vec::new(), None).expect_err("an empty merge must fail");
         assert!(format!("{err}").contains("no fragments"), "{err}");
+    }
+
+    // ── the run's job conclusions (#516) ─────────────────────────────────────
+
+    const JOBS: &str = r#"{
+      "total_count": 3,
+      "jobs": [
+        { "name": "ci (cli)", "conclusion": "success" },
+        { "name": "ci (harness)", "conclusion": "failure" },
+        { "name": "ci (quality report)", "conclusion": null }
+      ]
+    }"#;
+
+    /// A finished job carries its word; an unfinished one is named as pending, not guessed.
+    #[test]
+    fn the_job_list_separates_what_concluded_from_what_is_still_running() {
+        let run = parse_jobs(JOBS).expect("GitHub's own shape");
+        assert_eq!(
+            run.jobs
+                .iter()
+                .map(|j| (j.name.as_str(), j.conclusion.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("ci (cli)", "success"), ("ci (harness)", "failure")]
+        );
+        assert_eq!(run.pending, vec!["ci (quality report)"]);
+    }
+
+    /// A short page is refused rather than quietly under-reporting.
+    ///
+    /// The endpoint paginates at 30. A truncated list drops jobs, and a dropped job is as
+    /// likely to be a failed one as any other — which would reproduce the exact defect this
+    /// field exists to fix, in the code that fixes it.
+    #[test]
+    fn a_truncated_job_list_is_refused() {
+        let json =
+            r#"{ "total_count": 14, "jobs": [ { "name": "ci (cli)", "conclusion": "success" } ] }"#;
+        let err = parse_jobs(json).expect_err("a truncated page must not be accepted");
+        assert!(format!("{err}").contains("truncated"), "{err}");
+    }
+
+    /// Anything that is not a success or a deliberate skip is something a reader is told.
+    ///
+    /// Written as an allow-list. `timed_out` is a real GitHub conclusion and a deny-list of
+    /// `failure` would call it fine; so would whatever conclusion GitHub adds next.
+    #[test]
+    fn an_unrecognised_conclusion_counts_as_unsuccessful() {
+        let run = RunJobs {
+            jobs: vec![
+                Job {
+                    name: "green".into(),
+                    conclusion: "success".into(),
+                },
+                Job {
+                    name: "not run".into(),
+                    conclusion: "skipped".into(),
+                },
+                Job {
+                    name: "slow".into(),
+                    conclusion: "timed_out".into(),
+                },
+                Job {
+                    name: "stopped".into(),
+                    conclusion: "cancelled".into(),
+                },
+            ],
+            pending: Vec::new(),
+        };
+        assert_eq!(
+            run.unsuccessful()
+                .iter()
+                .map(|j| j.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["slow", "stopped"],
+            "a conclusion this code has never heard of must be surfaced, not assumed benign"
+        );
+    }
+
+    /// The merge stamps each gate with its own job's conclusion, and invents none.
+    ///
+    /// The stamping is by the displayed job name, which is the same string the composite
+    /// action is handed as `gate`. A gate with no matching job stays `None` — "nobody could
+    /// say" — because the alternative is a page that renders an unknown as a pass.
+    #[test]
+    fn a_gate_is_stamped_with_its_own_jobs_conclusion() {
+        let cli = fragment(
+            &provenance(),
+            gate("ci (cli)", None, &[], &run_of(MIXED), &[], None),
+        );
+        let harness = fragment(
+            &provenance(),
+            gate("ci (harness)", None, &[], &run_of(MIXED), &[], None),
+        );
+        let other = fragment(
+            &provenance(),
+            gate("ci (unlisted)", None, &[], &run_of(MIXED), &[], None),
+        );
+
+        let merged = merge(
+            vec![cli, harness, other],
+            Some(parse_jobs(JOBS).expect("jobs")),
+        )
+        .expect("three fragments of one run");
+
+        let by_name = |name: &str| {
+            merged
+                .quality
+                .gates
+                .iter()
+                .find(|g| g.gate == name)
+                .unwrap_or_else(|| panic!("no gate {name}"))
+                .conclusion
+                .clone()
+        };
+        assert_eq!(by_name("ci (cli)"), Some("success".to_string()));
+        assert_eq!(
+            by_name("ci (harness)"),
+            Some("failure".to_string()),
+            "every test in this gate passed; the job did not, and that is the whole point"
+        );
+        assert_eq!(
+            by_name("ci (unlisted)"),
+            None,
+            "a gate the job list does not mention is unknown, never a pass"
+        );
+    }
+
+    /// Without a job list, nothing is claimed.
+    #[test]
+    fn a_merge_with_no_job_list_leaves_every_conclusion_unknown() {
+        let merged = merge(vec![fragment(&provenance(), mixed_gate())], None).expect("merges");
+        assert!(merged.quality.run.is_none());
+        assert!(
+            merged.quality.gates.iter().all(|g| g.conclusion.is_none()),
+            "a merge that could not ask must not answer"
+        );
+    }
+
+    /// A report written before #516 still parses, which is why these are additive.
+    ///
+    /// The site refuses a `format_version` it does not know, so bumping would blank the
+    /// quality pages until the next successful run on main replaced the report they read.
+    /// Adding optional fields costs an old consumer nothing and an old *document* nothing.
+    #[test]
+    fn a_report_from_before_the_conclusions_existed_still_parses() {
+        let current = fragment(&provenance(), mixed_gate());
+        let mut json = serde_json::to_value(&current).expect("serializes");
+        json["quality"]
+            .as_object_mut()
+            .expect("quality object")
+            .remove("run");
+        for gate in json["quality"]["gates"]
+            .as_array_mut()
+            .expect("gates array")
+        {
+            gate.as_object_mut()
+                .expect("gate object")
+                .remove("conclusion");
+        }
+
+        let back: Envelope =
+            serde_json::from_value(json).expect("a pre-#516 report must still be readable");
+        assert!(back.quality.run.is_none());
+        assert!(back.quality.gates.iter().all(|g| g.conclusion.is_none()));
     }
 
     #[test]

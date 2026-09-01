@@ -1,0 +1,11 @@
+{
+  "total_count": 6,
+  "jobs": [
+    { "id": 1, "name": "ci (cli)", "status": "completed", "conclusion": "success" },
+    { "id": 2, "name": "ci (harness)", "status": "completed", "conclusion": "failure" },
+    { "id": 3, "name": "ci (cli · full features)", "status": "completed", "conclusion": "failure" },
+    { "id": 4, "name": "ci (design system)", "status": "completed", "conclusion": "skipped" },
+    { "id": 5, "name": "ci (quality report)", "status": "in_progress", "conclusion": null },
+    { "id": 6, "name": "ci (series)", "status": "queued", "conclusion": null }
+  ]
+}

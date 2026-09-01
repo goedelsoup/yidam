@@ -3,6 +3,7 @@
   "quality": {
     "gates": [
       {
+        "conclusion": "success",
         "coverage": {
           "added": 4,
           "features": [
@@ -36,6 +37,7 @@
           "vault-s3"
         ],
         "gate": "ci (cli)",
+        "job": null,
         "skipped": [
           {
             "kind": "ignored",
@@ -146,9 +148,11 @@
         }
       },
       {
+        "conclusion": "failure",
         "coverage": null,
         "features": [],
         "gate": "ci (harness)",
+        "job": null,
         "skipped": [],
         "suites": [
           {
@@ -184,6 +188,30 @@
         }
       }
     ],
+    "run": {
+      "jobs": [
+        {
+          "conclusion": "failure",
+          "name": "ci (cli · full features)"
+        },
+        {
+          "conclusion": "success",
+          "name": "ci (cli)"
+        },
+        {
+          "conclusion": "skipped",
+          "name": "ci (design system)"
+        },
+        {
+          "conclusion": "failure",
+          "name": "ci (harness)"
+        }
+      ],
+      "pending": [
+        "ci (quality report)",
+        "ci (series)"
+      ]
+    },
     "sections": {
       "bench": {
         "measured": true,

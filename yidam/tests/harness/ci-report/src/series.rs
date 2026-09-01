@@ -58,6 +58,17 @@ pub struct Record {
     pub coverage: Option<CoverageRecord>,
     /// `None` when the bench baseline could not be read.
     pub bench: Option<BenchRecord>,
+    /// The jobs of that run which did not succeed, by name (#516).
+    ///
+    /// `totals.failed` counts test cases, and a run can fail without one of them failing.
+    /// A series of `failed: 0` across a month of red builds is a chart that says the
+    /// repository was healthy, drawn from numbers that were each individually true.
+    ///
+    /// `None` means the record was written without a job list — every record before #516,
+    /// and any run whose merge could not reach the API. An empty vector means it asked and
+    /// nothing had failed, which is a different claim and is stored as one.
+    #[serde(default)]
+    pub unsuccessful_jobs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -123,6 +134,13 @@ pub fn record(report: &quality::Envelope, bench_baseline: Option<&str>, now: u64
         test_seconds,
         coverage,
         bench: bench_baseline.and_then(bench_from_baseline),
+        // Read off the report rather than recomputed: the report is what the run concluded,
+        // and a second opinion here is how the chart and the page come to disagree.
+        unsuccessful_jobs: report
+            .quality
+            .run
+            .as_ref()
+            .map(|r| r.unsuccessful().iter().map(|j| j.name.clone()).collect()),
     }
 }
 
@@ -241,7 +259,7 @@ mod tests {
     fn envelope() -> quality::Envelope {
         let run = junit::parse(RUN).expect("fixture parses");
         let skips = crate::census::gated(&run);
-        let gate = quality::gate("ci (cli)", &["reports".into()], &run, &skips, None);
+        let gate = quality::gate("ci (cli)", None, &["reports".into()], &run, &skips, None);
         quality::fragment(
             &quality::Provenance {
                 version: "0.7.0".into(),
@@ -329,6 +347,78 @@ mod tests {
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].commit, "abc1234");
         assert_eq!(out[1].commit, "def5678", "the newest record must come last");
+    }
+
+    /// A record says which jobs failed, not merely that no test did (#516).
+    ///
+    /// `totals.failed` is a count of test cases. A run whose `ci (cli · full features)` died
+    /// on a coverage flag has `failed: 0` and is red, and a year of those is a chart that
+    /// says the repository was healthy — every point individually true.
+    #[test]
+    fn a_record_carries_the_jobs_that_did_not_succeed() {
+        let mut report = envelope();
+        report.quality.run = Some(quality::RunJobs {
+            jobs: vec![
+                quality::Job {
+                    name: "ci (cli)".into(),
+                    conclusion: "success".into(),
+                },
+                quality::Job {
+                    name: "ci (cli · full features)".into(),
+                    conclusion: "failure".into(),
+                },
+            ],
+            pending: Vec::new(),
+        });
+        let r = record(&report, None, 1788000000);
+        assert_eq!(
+            r.unsuccessful_jobs,
+            Some(vec!["ci (cli · full features)".to_string()]),
+            "the failing job is what a reader of this record most needs"
+        );
+        assert_eq!(
+            r.totals.failed, 0,
+            "and no test failed, which is the whole reason the field has to exist"
+        );
+    }
+
+    /// Asking and finding nothing is not the same claim as never asking.
+    #[test]
+    fn nothing_failed_and_nobody_asked_are_stored_differently() {
+        let mut report = envelope();
+        report.quality.run = Some(quality::RunJobs {
+            jobs: vec![quality::Job {
+                name: "ci (cli)".into(),
+                conclusion: "success".into(),
+            }],
+            pending: Vec::new(),
+        });
+        assert_eq!(
+            record(&report, None, 0).unsuccessful_jobs,
+            Some(Vec::new()),
+            "a run that was checked and was clean records an empty list"
+        );
+
+        let unasked = envelope();
+        assert_eq!(
+            record(&unasked, None, 0).unsuccessful_jobs,
+            None,
+            "a run nobody could ask about must not record a clean bill of health"
+        );
+    }
+
+    /// The records written before the field existed still parse.
+    ///
+    /// The series is append-only and years long. A consumer that could not read its own
+    /// history would blank every point before the change that added a field — which is the
+    /// same failure as a parser that refuses a truncated line, one release later.
+    #[test]
+    fn a_record_from_before_the_job_list_still_parses() {
+        let line = r#"{"commit":"aaa1111","recorded_at":1788000000,"gates":4,"totals":{"cases":10,"failed":0,"passed":10,"skipped":0,"gated":0,"ignored":0,"asserted":10},"test_seconds":1.5,"coverage":null,"bench":null}"#;
+        let series = parse(line);
+        assert!(series.unreadable.is_empty(), "{:?}", series.unreadable);
+        assert_eq!(series.records.len(), 1);
+        assert_eq!(series.records[0].unsuccessful_jobs, None);
     }
 
     #[test]
