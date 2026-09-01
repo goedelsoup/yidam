@@ -1,3 +1,6 @@
 [workspace]
-members = ["yidam-harness"]
+# `ci-report` is here rather than in yidam/cli for the reasons its own manifest gives. What
+# it buys this workspace is that `mise run ci-harness` already formats, lints and tests it —
+# a tool that reports on the gates must not be the one thing no gate reads.
+members = ["yidam-harness", "ci-report"]
 resolver = "2"

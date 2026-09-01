@@ -1,0 +1,87 @@
+name: Test summary
+description: >
+  Render a gate's test results into its job summary, and keep the machine-readable results
+  when it failed.
+
+# One definition, used by every gate that produces JUnit. Copies of a summary step is copies
+# of a place for the reporting to rot unevenly — and a gate whose summary quietly stopped
+# rendering looks exactly like a gate with nothing to report, which is the failure #462 is
+# about.
+
+inputs:
+  gate:
+    description: The job name a reader sees, used as the summary's heading.
+    required: true
+  junit:
+    description: Path to the JUnit XML the run wrote.
+    required: true
+  artifact:
+    description: Name for the uploaded results. Must be unique across the run.
+    required: true
+  manifest:
+    description: >
+      Cargo manifest of the workspace that ran, when there is one. Supplying it adds the
+      `#[ignore]`d tests to the census — they are absent from nextest's JUnit and can only be
+      read from `nextest list`. Gates that are not cargo (the extension) leave it empty, and
+      their summary counts only what their runner reports.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # `always()` on every step below: a summary that renders only when the gate passed is a
+    # summary for the case that needed no explaining.
+    # No `--locked`, unlike every other cargo line in this repository, and the exception is
+    # not an oversight: **the harness workspace has no committed `Cargo.lock`.** Neither does
+    # the Rust SDK's. Only yidam/cli's is tracked, and the two that are not were hidden the
+    # same way `.config/` nearly was — by a `Cargo.lock` entry in a global gitignore. Passing
+    # the flag here fails the step outright. `ci_reporting.rs` asserts the pairing so the flag
+    # comes back on its own the moment the lock is committed, and committing it belongs to
+    # #463, which is where lockfiles and supply chain are the subject.
+    - name: Build the reporter
+      if: always()
+      shell: bash
+      run: |
+        mise exec -- cargo build \
+          --manifest-path yidam/tests/harness/Cargo.toml \
+          --package ci-report
+
+    # Where the `#[ignore]`d tests are visible. They are absent from nextest's JUnit
+    # entirely — a binary whose every test is ignored writes `tests="0"` with no children —
+    # so a census built on the XML alone reports zero skipped for a suite that ran nothing.
+    # This is not decoration; it is half the census.
+    - name: List the tests, including the ignored ones
+      if: always() && inputs.manifest != ''
+      shell: bash
+      run: |
+        mise exec -- cargo nextest list \
+          --config-file .config/nextest.toml \
+          --manifest-path "${{ inputs.manifest }}" \
+          --message-format json > "${RUNNER_TEMP}/nextest-list.json"
+
+    - name: Render the summary
+      if: always()
+      shell: bash
+      # `ci-report` exits non-zero on a run with no test cases rather than publishing a
+      # summary of nothing, and this step does not swallow that: a blank summary under a
+      # green check is indistinguishable from "everything passed", which is the whole
+      # subject of this phase.
+      run: |
+        args=(--gate "${{ inputs.gate }}" --junit "${{ inputs.junit }}")
+        if [ -n "${{ inputs.manifest }}" ]; then
+          args+=(--list "${RUNNER_TEMP}/nextest-list.json")
+        fi
+        yidam/tests/harness/target/debug/ci-report "${args[@]}" >> "$GITHUB_STEP_SUMMARY"
+
+    # Only on failure, and it is the whole of the evidence: the JUnit carries each failing
+    # test's captured output, so a fix can start from the diff rather than from a local
+    # re-run. `report_goldens.rs` and `query_goldens.rs` both honour `UPDATE_GOLDENS=1`,
+    # which is the one command a golden failure needs once its diff is in hand.
+    - name: Keep the results when the gate failed
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact }}
+        path: ${{ inputs.junit }}
+        if-no-files-found: warn

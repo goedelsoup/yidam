@@ -22,6 +22,18 @@ python = "3.12"
 uv = "latest"
 # Node.js — docs site (yidam/web/docs/), packages/web/.
 node = "lts"
+# cargo-nextest — the runner every Rust gate below uses. `cargo test` prints a result and
+# emits nothing any consumer can read: no summary, no artifact, no input for RFC-0025's
+# quality report, and no count of what was skipped (#462). nextest writes JUnit, which is
+# what all of those are built on.
+#
+# Here rather than pinned per-task, unlike dafny below: this is what `mise run ci` runs, so
+# there is no laziness to buy. It is a ~10MB single binary against dafny's 200MB.
+#
+# The version is the release *tag*. nextest's repository publishes several artifacts from one
+# namespace and tags this one `cargo-nextest-<version>`; mise resolves the string literally,
+# so the prefix is part of the pin rather than noise in it.
+"github:nextest-rs/nextest" = "cargo-nextest-0.9.143"
 # dafny and LEAN are NOT here on purpose — see [tasks.verify]. Neither is in the mise
 # registry, both are large, and both are needed by exactly one task. `mise install` runs in
 # every derived repository, so a tool pinned here is a download every corpus pays for.
@@ -30,6 +42,11 @@ node = "lts"
 # rather than whichever yidam a derived repository last installed system-wide.
 [env]
 _.path = [".local/bin"]
+# Which nextest profile every gate runs under, said once. `.config/nextest.toml`'s `ci`
+# profile is what turns on JUnit output and captured success output; a gate that ran under a
+# different profile would pass while writing nothing for the summary to read, which is the
+# exact shape of failure this phase exists to remove.
+NEXTEST_PROFILE = "ci"
 
 # ── yidam CLI — build ─────────────────────────────────────────────────
 # The `yidam` binary lives in yidam/cli/. In a derived repo it is installed by
@@ -215,7 +232,8 @@ depends = ["parity-check"]
 # is doing work, which is the finding `parity-check`'s own directory loop exists to produce,
 # one level up.
 run = [
-  "cargo test --manifest-path yidam/prelude/sdks/rust/Cargo.toml",
+  "cargo nextest run --config-file .config/nextest.toml --manifest-path yidam/prelude/sdks/rust/Cargo.toml",
+  "cargo test --doc --manifest-path yidam/prelude/sdks/rust/Cargo.toml",
   "cd yidam/prelude/sdks/typescript && npm test",
   "cd yidam/prelude/sdks/python && uv run --extra dev pytest tests/",
 ]
@@ -355,12 +373,26 @@ run = "yidam overlay"
 # Yidam's own CI gate. Derived repos should extend this to include
 # `lint`, `test`, and `build` once the domain computer crates are in place.
 
+# `cargo nextest run` rather than `cargo test`, here and in every gate below. The reason is
+# not speed: `cargo test` emits nothing a consumer can read, so 1,399 tests reported as a
+# colored dot and nothing counted what was skipped (#462). nextest writes JUnit to
+# `<target>/nextest/ci/junit.xml`, which `ci-report` renders into a job summary.
+#
+# `--config-file` on every invocation, because these are three separate cargo workspaces and
+# nextest reads `.config/nextest.toml` from a workspace root. One config at the repository
+# root, named explicitly, beats three copies drifting apart. `ci_reporting.rs` asserts every
+# nextest line in this file passes it.
+#
+# `cargo test --doc` stays as its own step: **nextest does not run doctests.** A runner swap
+# that silently stopped running a whole class of test would be this issue's own subject, one
+# level up.
 [tasks.ci-harness]
 description = "CI for the harness workspace: fmt-check, clippy, test."
 run = [
   "cargo fmt --all --manifest-path yidam/tests/harness/Cargo.toml -- --check",
   "cargo clippy --workspace --manifest-path yidam/tests/harness/Cargo.toml -- -D warnings",
-  "cargo test --workspace --manifest-path yidam/tests/harness/Cargo.toml",
+  "cargo nextest run --config-file .config/nextest.toml --workspace --manifest-path yidam/tests/harness/Cargo.toml",
+  "cargo test --doc --workspace --manifest-path yidam/tests/harness/Cargo.toml",
 ]
 
 [tasks.ci-cli]
@@ -381,7 +413,8 @@ run = [
   # real logic — link resolution, layout mapping, golden redaction. A lint that does not
   # read the tests is a lint that goes green while the tests rot.
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --all-targets --locked -- -D warnings",
-  "cargo test --manifest-path yidam/cli/Cargo.toml --locked",
+  "cargo nextest run --config-file .config/nextest.toml --manifest-path yidam/cli/Cargo.toml --locked",
+  "cargo test --doc --manifest-path yidam/cli/Cargo.toml --locked",
 ]
 
 # Full-feature CLI build (index/sqlite/rdf) — pulls fastembed/lancedb and needs
@@ -406,9 +439,11 @@ description = "Full-feature CI for the yidam CLI (all optional features, and the
 run = [
   "cargo fmt --all --manifest-path yidam/cli/Cargo.toml -- --check",
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --features vector-read --locked -- -D warnings",
-  "cargo test --manifest-path yidam/cli/Cargo.toml --features vector-read --locked",
+  "cargo nextest run --config-file .config/nextest.toml --manifest-path yidam/cli/Cargo.toml --features vector-read --locked",
+  "cargo test --doc --manifest-path yidam/cli/Cargo.toml --features vector-read --locked",
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --all-features --locked -- -D warnings",
-  "cargo test --manifest-path yidam/cli/Cargo.toml --all-features --locked",
+  "cargo nextest run --config-file .config/nextest.toml --manifest-path yidam/cli/Cargo.toml --all-features --locked",
+  "cargo test --doc --manifest-path yidam/cli/Cargo.toml --all-features --locked",
 ]
 
 # #264: "Run it in CI against `examples/streamflow`." Which needs the full build, because

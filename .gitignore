@@ -75,6 +75,18 @@ yidam/tests/results/**/transcript.jsonl
 # which is a fact worth being able to see change.
 yidam/prelude/sdks/spec/.lake/
 
+# `.config/` is NOT ignored, and this line is here because it very nearly was.
+#
+# It holds `nextest.toml`, the profile every Rust gate runs under — the one that turns on
+# JUnit output and captured stdout. A machine whose *global* gitignore excludes `/.config`
+# (a common entry; the one this was found on had it) hides the file from `git status`, so it
+# is never committed, and CI then runs nextest under the default profile: green, silent, no
+# JUnit, and a summary step reporting on nothing. A negation here outranks the global file.
+#
+# `ci_reporting.rs` asserts the config is tracked in git rather than merely present on disk,
+# because that is the difference the local machine cannot see.
+!/.config/
+
 # mise
 .mise.local.toml
 

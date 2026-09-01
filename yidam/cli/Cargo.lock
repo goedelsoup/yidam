@@ -1194,6 +1194,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ci-report"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "quick-xml 0.37.5",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "clap"
 version = "4.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7429,6 +7439,7 @@ dependencies = [
  "arrow-array",
  "arrow-ipc",
  "arrow-schema",
+ "ci-report",
  "clap",
  "fastembed",
  "flate2",

@@ -25,7 +25,7 @@ fn fixture_dir() -> PathBuf {
 #[test]
 fn embed_config_parity() {
     if std::env::var("YIDAM_EMBED_PARITY").as_deref() != Ok("1") {
-        eprintln!("skipping embed_config parity (set YIDAM_EMBED_PARITY=1 to run)");
+        ci_report::skipped("set YIDAM_EMBED_PARITY=1 to run the embed_config parity check");
         return;
     }
 
