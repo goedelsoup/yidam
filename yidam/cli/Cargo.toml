@@ -51,7 +51,21 @@ path = "src/main.rs"
 # through P3 change none. It is worth doing and it is not this phase; the 23 are counted in
 # `panic_paths.rs` so the number cannot quietly grow while nobody is escalating anything.
 [lints.rust]
-unsafe_code = "forbid"
+# `deny`, not `forbid`, and the difference is the whole of a four-merge outage.
+#
+# #464 added this as `forbid` on the reasoning that this crate has no business writing
+# unsafe. It does, in exactly one place: `export_sqlite.rs` registers the sqlite-vec
+# extension through `sqlite3_auto_extension`, which is a C function pointer and cannot be
+# handed over from safe Rust. `forbid` cannot be lifted by `#[allow]` — that is what
+# distinguishes it from `deny` — so `--features export-sqlite` stopped compiling, and with it
+# `--all-features`.
+#
+# Nothing said so for four merges. `ci (cli · full features)` is the only gate that compiles
+# that feature and it runs on main and the weekly schedule, never on a pull request, so the
+# change went green through review and red on a job nobody was watching. The same phase
+# measured `clippy::unwrap_used` before rejecting it — 1,831 warnings — and added this one by
+# assuming. `sqlite_ffi.rs` in the test suite is the guard that would have caught it.
+unsafe_code = "deny"
 
 [dependencies]
 # ── base: the light `reports` build — the four reports + all pure-Rust

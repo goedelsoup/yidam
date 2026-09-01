@@ -517,3 +517,63 @@ fn every_summary_also_writes_a_report_fragment() {
          to collect. It would merge whatever had finished."
     );
 }
+
+/// The jobs that must run on a pipeline with a failure say so.
+///
+/// A job whose `if` carries no status check function gets an implicit `success()`, and GitHub
+/// evaluates that across the whole ancestry rather than the direct `needs`. So a job that
+/// depends on an `always()` job still skips when something further up failed — which is what
+/// happened on the merge that landed #468: `cli-full` failed, `quality` ran on its own
+/// `always()` and succeeded, and `series` was skipped anyway. The first record was never
+/// written and the branch was never created.
+///
+/// Discovered from the workflow rather than listed: any job that `needs` a job whose own `if`
+/// says `always()` has inherited that intent, and must state it too or be silently skipped by
+/// the thing its dependency was written to survive.
+#[test]
+fn a_job_needing_an_always_job_says_always_itself() {
+    let jobs = ci_jobs();
+    let unconditional: Vec<&String> = jobs
+        .iter()
+        .filter(|(_, body)| body.contains("if: always()"))
+        .map(|(name, _)| name)
+        .collect();
+    assert!(
+        !unconditional.is_empty(),
+        "no job in ci.yml runs unconditionally; this test is looking at the wrong thing"
+    );
+
+    let mut silent = Vec::new();
+    for (name, body) in &jobs {
+        let Some(needs) = body
+            .split("needs:")
+            .nth(1)
+            .and_then(|r| r.lines().next())
+            .map(str::trim)
+        else {
+            continue;
+        };
+        let inherits = unconditional.iter().any(|dep| needs.contains(dep.as_str()));
+        // `always()` anywhere in the job's own condition, however it is spelled — the block
+        // scalar form wraps it onto its own line.
+        let condition: String = body
+            .lines()
+            .skip_while(|l| !l.trim_start().starts_with("if:"))
+            .take_while(|l| {
+                !l.trim_start().starts_with("needs:") && !l.trim_start().starts_with("runs-on:")
+            })
+            .collect();
+        if inherits && !condition.contains("always()") {
+            silent.push(format!("  {name} needs {needs}"));
+        }
+    }
+    assert!(
+        silent.is_empty(),
+        "these jobs depend on a job that runs unconditionally, and do not run \
+         unconditionally themselves. GitHub applies an implicit `success()` across the whole \
+         ancestry, so one failure anywhere upstream skips them — without a message, and \
+         without the work they were supposed to do:\n{}\n\nSay `always() && \
+         needs.<job>.result == 'success' && …` so the condition is the one that was meant.",
+        silent.join("\n")
+    );
+}

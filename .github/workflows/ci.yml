@@ -481,7 +481,21 @@ jobs:
     # exactly like a repository nobody pushed to, which is the shape of every defect this
     # epic has found.
     name: ci (series)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # `always()` is load-bearing, and its absence is what kept the first record from ever
+    # being written. A job whose `if` carries no status function gets an implicit `success()`,
+    # and GitHub evaluates that over the whole ancestry rather than the direct `needs`: on the
+    # merge that landed #468, `cli-full` failed, `quality` ran anyway on its own `always()`
+    # and succeeded, and this was skipped regardless. The `quality-series` branch was never
+    # created and nothing said why.
+    #
+    # The explicit condition is also the correct one. A run with a failing gate is exactly the
+    # run whose numbers the series most needs; one that records only green pipelines describes
+    # a repository where nothing ever breaks, which is this epic's own subject.
+    if: >-
+      always()
+      && needs.quality.result == 'success'
+      && github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
     needs: quality
     runs-on: ubuntu-latest
     permissions:
