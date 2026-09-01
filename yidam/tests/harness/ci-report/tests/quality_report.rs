@@ -170,6 +170,55 @@ fn assert_golden(name: &str, mut value: serde_json::Value) {
     );
 }
 
+/// Every fixture is tracked in git, not merely present on disk.
+///
+/// `cli.lcov` was not. `*.lcov` is a coverage *output* everywhere else and sits in the same
+/// global gitignore that once hid `.config/nextest.toml` from this repository — so the file
+/// existed locally, every test passed locally, and the two that read it failed on the runner
+/// and nowhere else. `git status` showed nothing either time.
+///
+/// Discovered from the directory rather than listed: a fixture added tomorrow is covered.
+#[test]
+fn every_fixture_is_tracked_in_git() {
+    let dir = fixtures();
+    let mut untracked = Vec::new();
+    let mut seen = 0usize;
+    let mut stack = vec![dir.clone()];
+    while let Some(next) = stack.pop() {
+        for entry in std::fs::read_dir(&next).expect("fixtures are readable") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            seen += 1;
+            let tracked = Command::new("git")
+                .current_dir(&dir)
+                .args(["ls-files", "--error-unmatch"])
+                .arg(&path)
+                .output()
+                .expect("git")
+                .status
+                .success();
+            if !tracked {
+                untracked.push(path.display().to_string());
+            }
+        }
+    }
+    assert!(
+        seen > 3,
+        "only {seen} fixtures found; the walk is looking at the wrong tree"
+    );
+    assert!(
+        untracked.is_empty(),
+        "these fixtures are on this machine and not in the repository, so every test that \
+         reads them passes here and fails on a runner:\n  {}\n\nA global gitignore is the \
+         usual cause and `git status` will not show it. `git check-ignore -v <path>` names \
+         the rule; a negation in this repository's own .gitignore outranks it.",
+        untracked.join("\n  ")
+    );
+}
+
 /// Two gates, merged the way CI merges them, against a committed golden.
 ///
 /// The fixtures are the three shapes RFC-0025 names — a failing suite, a fully-skipped
