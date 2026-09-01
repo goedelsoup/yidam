@@ -149,3 +149,83 @@ fn the_gated_paths_are_measured_somewhere() {
          these and cannot start before its first point is kept"
     );
 }
+
+/// The commands of a mise task, whether `run` is one string or a list.
+fn task_run(mise: &toml::Table, name: &str) -> Vec<String> {
+    let task = mise
+        .get("tasks")
+        .and_then(|t| t.get(name))
+        .unwrap_or_else(|| panic!("mise.toml has no task `{name}`"));
+    match task.get("run") {
+        Some(toml::Value::String(s)) => vec![s.clone()],
+        Some(toml::Value::Array(a)) => a
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect(),
+        _ => panic!("task `{name}` has no `run`"),
+    }
+}
+
+/// The full-feature run renders its report exactly the way the light one does.
+///
+/// `coverage` runs on every pull request, so its rendering step is proven by every green
+/// gate. `coverage-full` runs on main and the weekly schedule only — nothing executes it
+/// before a merge, and an error in it is discovered afterwards, by main going red.
+///
+/// This makes the proven step the oracle for the unproven one. The two measure different
+/// feature sets, which is the whole point of the pair, but that difference belongs to the
+/// **run**: `--no-report nextest` is where features select what gets compiled. By the time
+/// `report` renders, the profile data already exists and there is nothing left to select.
+///
+/// Not hypothetical, and not catchable by reading the tool's documentation. `coverage-full`
+/// carried `--all-features` on its `report` step; `cargo llvm-cov report` rejects it with
+/// `invalid option '--all-features' for subcommand 'report'` — while `cargo llvm-cov report
+/// --help` *lists* `--all-features` among its options. The help is generic across
+/// subcommands and the parser is not, so a guard derived from `--help` would have passed
+/// this. A guard derived from the step that actually runs does not.
+///
+/// If the two ever need to render differently, this test is the place to say why.
+#[test]
+fn the_full_feature_run_renders_its_report_the_way_the_proven_one_does() {
+    let mise: toml::Table = read("mise.toml").parse().expect("mise.toml parses");
+
+    let render = |task: &str| -> String {
+        let steps = task_run(&mise, task);
+        let found: Vec<&String> = steps
+            .iter()
+            .filter(|s| s.contains("llvm-cov report"))
+            .collect();
+        assert_eq!(
+            found.len(),
+            1,
+            "`{task}` has {} `llvm-cov report` steps and this test compares one",
+            found.len()
+        );
+        found[0].clone()
+    };
+
+    // Everything except where it writes — the one thing the two are meant to disagree on.
+    let shape = |cmd: &str| -> String {
+        let mut out = Vec::new();
+        let mut args = cmd.split_whitespace();
+        while let Some(arg) = args.next() {
+            if arg == "--output-path" {
+                args.next();
+                continue;
+            }
+            out.push(arg);
+        }
+        out.join(" ")
+    };
+
+    let light = render("coverage");
+    let full = render("coverage-full");
+    assert_eq!(
+        shape(&light),
+        shape(&full),
+        "the two coverage tasks render differently.\n  coverage:      {light}\n  \
+         coverage-full: {full}\n\nOnly `--output-path` may differ. Feature selection belongs \
+         to the `--no-report nextest` step; `llvm-cov report` rejects it, and because nothing \
+         runs `coverage-full` before a merge, the rejection is found on main."
+    );
+}

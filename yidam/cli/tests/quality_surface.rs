@@ -259,11 +259,57 @@ fn the_render_assertions_are_invoked_from_a_task_and_from_a_workflow() {
         "no step in docs.yml runs the render assertions, so a template that draws a \
          fully-skipped suite green would deploy"
     );
+    // Discovered, not listed. #467 wired `YIDAM_QUALITY_REPORT` and asserted it here by
+    // name; #468 added `YIDAM_QUALITY_SERIES` and this test went on passing, so
+    // /quality/trends shipped with no series it could ever receive — while `report.ts` said
+    // in a comment that "the docs workflow fetches it from the `quality-series` branch",
+    // describing a step that did not exist. A check that names the variables it knows about
+    // cannot catch the next one, so both sides are read from the tree.
+    let wanted = site_env_vars();
     assert!(
-        docs_yml.contains("YIDAM_QUALITY_REPORT"),
-        "docs.yml never passes a report to the build, so every published quality page would \
-         render the `not measured` state"
+        !wanted.is_empty(),
+        "no `process.env.YIDAM_*` was found under {SITE}/src — either the pages stopped \
+         taking their inputs from the environment, or this scan stopped finding them, and \
+         the loop below is now vacuous"
     );
+    for var in &wanted {
+        assert!(
+            docs_yml.contains(var.as_str()),
+            "{var} is read by the site and never passed by docs.yml, so the page that needs \
+             it renders its `not measured` state on every deploy. Pass it in the `Build` \
+             step's env (an empty value is fine — that is the honest unset state)."
+        );
+    }
+}
+
+/// Every `YIDAM_*` environment variable the built site reads, found in its sources.
+fn site_env_vars() -> BTreeSet<String> {
+    let mut found = BTreeSet::new();
+    let mut stack = vec![repo_root().join(SITE).join("src")];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            for (i, m) in text.match_indices("process.env.") {
+                let rest = &text[i + m.len()..];
+                let name: String = rest
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .collect();
+                if name.starts_with("YIDAM_") {
+                    found.insert(name);
+                }
+            }
+        }
+    }
+    found
 }
 
 /// The pages refuse to render a report they cannot vouch for, rather than drawing zeroes.

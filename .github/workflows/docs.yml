@@ -126,6 +126,24 @@ jobs:
           gh run download "$run_id" --name quality-report --dir "${RUNNER_TEMP}/quality"
           echo "path=${RUNNER_TEMP}/quality/quality-report.json" >> "$GITHUB_OUTPUT"
 
+      # The series behind /quality/trends (#468). `quality-report.json` describes one commit;
+      # this is the sequence, appended by ci.yml's `series` job to an orphan branch that
+      # shares no history with main. Fetched rather than checked out for that reason.
+      #
+      # `continue-on-error` for the same reason as the report above, and one more: the branch
+      # does not exist until the first push to main after the series job lands, and a repo
+      # that has never run it must render "no series yet" rather than fail its docs build.
+      # An empty output leaves YIDAM_QUALITY_SERIES unset, which is the state loadSeries()
+      # already describes and quality-render.mjs already asserts.
+      - name: Fetch the quality series from its branch
+        id: series
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin quality-series
+          git show FETCH_HEAD:series.jsonl > "${RUNNER_TEMP}/series.jsonl"
+          echo "path=${RUNNER_TEMP}/series.jsonl" >> "$GITHUB_OUTPUT"
+
       # The render assertions, and the reason they are a step here rather than a job
       # elsewhere: they need a built site, and this is the only place one is built. They run
       # against `ci-report`'s committed golden — never against the report fetched above — so
@@ -139,6 +157,7 @@ jobs:
       - name: Build
         env:
           YIDAM_QUALITY_REPORT: ${{ steps.quality.outputs.path }}
+          YIDAM_QUALITY_SERIES: ${{ steps.series.outputs.path }}
         run: npm run build
         working-directory: yidam/web/docs
 
