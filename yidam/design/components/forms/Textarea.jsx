@@ -12,7 +12,7 @@ export function Textarea({
       {label && (
         <label htmlFor={areaId} style={{
           fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', fontWeight: 500,
-          color: error ? '#c8342a' : 'var(--text-primary)',
+          color: error ? 'var(--danger-text)' : 'var(--text-primary)',
         }}>
           {label}
         </label>
@@ -28,7 +28,7 @@ export function Textarea({
           fontSize: 'var(--text-sm)',
           color: 'var(--text-primary)',
           background: disabled ? 'var(--surface-overlay)' : 'var(--surface-raised)',
-          border: `1px solid ${error ? '#c8342a' : focused ? 'var(--border-focus)' : 'var(--border-ui)'}`,
+          border: `1px solid ${error ? 'var(--danger-text)' : focused ? 'var(--border-focus)' : 'var(--border-ui)'}`,
           borderRadius: 'var(--radius-md)',
           padding: '8px 12px',
           outline: 'none', resize: 'vertical',
@@ -43,7 +43,7 @@ export function Textarea({
       {(error || helper) && (
         <span style={{
           fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)',
-          color: error ? '#c8342a' : 'var(--text-tertiary)',
+          color: error ? 'var(--danger-text)' : 'var(--text-tertiary)',
         }}>
           {error || helper}
         </span>

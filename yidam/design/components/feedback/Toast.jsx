@@ -2,9 +2,13 @@ import React from 'react';
 
 const VARIANTS = {
   info:    { bg: 'var(--ink-900)',      fg: 'var(--ink-50)',  dot: 'var(--ink-400)'   },
-  success: { bg: 'var(--verified-fg)',  fg: '#fff',           dot: '#a8d8b2'          },
-  error:   { bg: '#c8342a',            fg: '#fff',           dot: '#f0a0a0'          },
-  warning: { bg: 'var(--gold-800)',    fg: '#fff',           dot: 'var(--gold-200)'  },
+  // Every variant here is light text on a dark ground, which is what `--text-inverse` is
+  // for — and what `info` beside them already resolves to. Not `--action-fg`: that is the
+  // text on the action BUTTON, and under the default sid theme the action button is light
+  // gold, so `--action-fg` is near-black ink. It would have put black text on these.
+  success: { bg: 'var(--verified-fg)',  fg: 'var(--text-inverse)', dot: 'var(--verified-fg-dark)' },
+  error:   { bg: 'var(--danger-bg)',    fg: 'var(--danger-fg)',    dot: 'var(--danger-accent)'    },
+  warning: { bg: 'var(--gold-800)',     fg: 'var(--text-inverse)', dot: 'var(--gold-200)'         },
 };
 
 export function Toast({ message, type = 'info', detail, onDismiss }) {

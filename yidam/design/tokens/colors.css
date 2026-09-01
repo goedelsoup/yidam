@@ -98,6 +98,34 @@
   --saffron-100: oklch(93% 0.05 50);
   --saffron-50:  oklch(97% 0.03 50);
 
+  /* ── Vermilion ── Destruction; the colour of a thing that cannot be undone ─
+     Not a theme accent, and that is the point. Every other family here belongs
+     to a theme — `--action-bg` is crimson under kal and jade under tara — so a
+     danger affordance drawn from one of them changes hue with the reader's
+     theme, and under kal becomes the *same swatch* as the primary button.
+
+     Vermilion is hue 28.5 against crimson's 11–16: a brick red beside a
+     raspberry one, far enough apart to read as a different intent. It is
+     declared once at :root and never re-declared per theme, because "this
+     cannot be undone" is not a thing a theme should restyle.
+
+     Anchored, not invented. `--vermilion-500` is the #c8342a that the danger
+     button, the error toast and the three form fields had all been spelling
+     by hand (#512) — measured at L55 C0.19 H28.6 and rounded to the ladder.
+     The ladder itself is crimson's, with chroma scaled to that anchor, so the
+     family steps like its neighbours rather than like a fourteenth opinion. */
+  --vermilion-950: oklch(14% 0.05 28.5);
+  --vermilion-900: oklch(20% 0.07 28.5);
+  --vermilion-800: oklch(28% 0.11 28.5);
+  --vermilion-700: oklch(37% 0.15 28.5);
+  --vermilion-600: oklch(46% 0.18 28.5);
+  --vermilion-500: oklch(55% 0.19 28.5);
+  --vermilion-400: oklch(64% 0.16 28.5);
+  --vermilion-300: oklch(74% 0.12 28.5);
+  --vermilion-200: oklch(84% 0.07 28.5);
+  --vermilion-100: oklch(92% 0.04 28.5);
+  --vermilion-50:  oklch(96% 0.02 28.5);
+
   /* ── Claim states ── Epistemic honesty in color ─────────────────── */
   --verified-bg:     #eaf5ec;
   --verified-fg:     #1a5230;

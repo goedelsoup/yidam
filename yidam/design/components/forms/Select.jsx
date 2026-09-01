@@ -12,7 +12,7 @@ export function Select({
       {label && (
         <label htmlFor={selectId} style={{
           fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', fontWeight: 500,
-          color: error ? '#c8342a' : 'var(--text-primary)',
+          color: error ? 'var(--danger-text)' : 'var(--text-primary)',
         }}>
           {label}
         </label>
@@ -28,7 +28,7 @@ export function Select({
             fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)',
             color: value ? 'var(--text-primary)' : 'var(--text-tertiary)',
             background: disabled ? 'var(--surface-overlay)' : 'var(--surface-raised)',
-            border: `1px solid ${error ? '#c8342a' : focused ? 'var(--border-focus)' : 'var(--border-ui)'}`,
+            border: `1px solid ${error ? 'var(--danger-text)' : focused ? 'var(--border-focus)' : 'var(--border-ui)'}`,
             borderRadius: 'var(--radius-md)',
             padding: '8px 32px 8px 12px',
             outline: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
@@ -55,7 +55,7 @@ export function Select({
         </span>
       </div>
       {(error || helper) && (
-        <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: error ? '#c8342a' : 'var(--text-tertiary)' }}>
+        <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: error ? 'var(--danger-text)' : 'var(--text-tertiary)' }}>
           {error || helper}
         </span>
       )}

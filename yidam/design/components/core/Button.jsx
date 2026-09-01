@@ -23,8 +23,8 @@ function getVariantStyle(variant, hovered, pressed) {
     borderColor: 'transparent',
   };
   if (variant === 'danger') return {
-    background: pressed ? '#a12720' : hovered ? '#d4362b' : '#c8342a',
-    color: '#fff',
+    background: pressed ? 'var(--danger-bg-active)' : hovered ? 'var(--danger-bg-hover)' : 'var(--danger-bg)',
+    color: 'var(--danger-fg)',
     borderColor: 'transparent',
   };
   return {};
