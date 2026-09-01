@@ -81,10 +81,13 @@ const sidebar = [
       // built from `src/pages/quality/`, and `sidebarSlugs` below collects slugs only — so
       // the bidirectional gate neither demands a page for it nor calls it unlisted.
       //
-      // Written against BASE for the reason `docs_site.rs` exists: a literal `/yidam/quality/`
-      // beside a `base` that moved is a working site and a dead link, and only the second is
-      // visible in a diff.
-      { link: `${BASE}/quality/`, label: 'Measurements' },
+      // Root-relative and WITHOUT `base`, which Starlight prepends itself. Writing
+      // `${BASE}/quality/` here — for the reason `docs_site.rs` exists, that a literal
+      // `/yidam/quality/` beside a `base` that moved is a working site and a dead link —
+      // doubled it instead: the deployed site linked to `/yidam/yidam/quality/`, which 404s,
+      // from every page, from #467 until #466 found it. The reasoning was right and the fix
+      // was the opposite of the one it called for. `check-anchors.mjs` is what noticed.
+      { link: '/quality/', label: 'Measurements' },
     ],
   },
   {

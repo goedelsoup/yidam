@@ -1,0 +1,13 @@
+<svg width="48" height="32" viewBox="0 0 48 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="yidam mark">
+  <defs>
+    <marker id="yidam-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+      <path d="M 1 1.5 L 9 5 L 1 8.5" fill="none" stroke="#b88a00" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+    </marker>
+  </defs>
+  <circle cx="5.5" cy="8" r="4.5" stroke="#413d36" stroke-width="1.3" fill="none"></circle>
+  <circle cx="5.5" cy="24" r="4.5" stroke="#413d36" stroke-width="1.3" fill="none"></circle>
+  <path d="M9.8 9.6 L34.4 14.2" stroke="#b88a00" stroke-width="1.1" stroke-linecap="round" marker-end="url(#yidam-arrow)"></path>
+  <path d="M9.8 22.4 L34.4 17.8" stroke="#b88a00" stroke-width="1.1" stroke-linecap="round" marker-end="url(#yidam-arrow)"></path>
+  <circle cx="42.5" cy="16" r="5.5" stroke="#413d36" stroke-width="1.4" fill="none"></circle>
+  <circle cx="42.5" cy="16" r="2.2" fill="#b88a00"></circle>
+</svg>

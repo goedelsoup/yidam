@@ -113,11 +113,20 @@ fn every_quality_route_is_reachable_from_the_surfaces_own_navigation() {
     );
 }
 
-/// The docs sidebar reaches the surface, and reaches it through `BASE`.
+/// The docs sidebar reaches the surface, with the base Starlight adds and not a second one.
 ///
-/// A literal `/yidam/quality/` beside a `base` that moved is a working site and a dead link,
-/// and only the second is visible in a diff — `docs_site.rs`'s own words, applied to the one
-/// link on this site that Starlight does not generate.
+/// This test used to require `${BASE}/quality/`, on `docs_site.rs`'s reasoning that a
+/// literal `/yidam/quality/` beside a `base` that moved is a working site and a dead link.
+/// The reasoning is right and the conclusion was backwards: **Starlight prepends `base` to a
+/// sidebar `link` itself**, so writing it again produced `/yidam/yidam/quality/` — a 404,
+/// linked from the header of all 71 pages of the deployed site, from #467 until #466.
+///
+/// Nothing caught it because nothing read a built page. The Astro build resolves the
+/// relative links in `docs/` and says nothing about a sidebar `link`, and this test asserted
+/// the defect. `scripts/check-anchors.mjs` is what found it, on its first run.
+///
+/// So the assertion is inverted, and the reason is recorded where the next person will
+/// reach for `${BASE}` again.
 #[test]
 fn the_docs_sidebar_links_to_the_quality_surface() {
     let config = code_only(&read(&format!("{SITE}/astro.config.mjs")));
@@ -129,9 +138,14 @@ fn the_docs_sidebar_links_to_the_quality_surface() {
         .next()
         .unwrap_or_default();
     assert!(
-        quality_group.contains("${BASE}/quality/"),
-        "the Quality sidebar group does not link to the measurements, or links to them with \
-         a literal path rather than through BASE:\n{quality_group}"
+        quality_group.contains("link: '/quality/'"),
+        "the Quality sidebar group does not link to the measurements:\n{quality_group}"
+    );
+    assert!(
+        !quality_group.contains("${BASE}"),
+        "the sidebar link spells `base` a second time. Starlight prepends it, so this \
+         publishes `/yidam/yidam/quality/` — which is what shipped for a month:\n\
+         {quality_group}"
     );
 }
 
