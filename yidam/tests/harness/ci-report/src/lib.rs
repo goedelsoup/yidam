@@ -10,6 +10,7 @@
 //! that agree by luck — the tests depend on it to write, and the binary uses it to read.
 
 pub mod census;
+pub mod coverage;
 pub mod junit;
 pub mod summary;
 

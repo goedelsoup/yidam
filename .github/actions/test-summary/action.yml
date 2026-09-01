@@ -18,6 +18,21 @@ inputs:
   artifact:
     description: Name for the uploaded results. Must be unique across the run.
     required: true
+  lcov:
+    description: >
+      Path to the LCOV this gate produced, when it produced one. Supplying it adds the
+      diff-coverage section; `features` must come with it, because a coverage number whose
+      build is unstated is the number #464 exists to remove.
+    required: false
+    default: ""
+  features:
+    description: Cargo features the coverage was measured under, comma-separated.
+    required: false
+    default: ""
+  src:
+    description: Source root the coverage is about, for classifying what was not compiled.
+    required: false
+    default: ""
   manifest:
     description: >
       Cargo manifest of the workspace that ran, when there is one. Supplying it adds the
@@ -58,6 +73,16 @@ runs:
           --manifest-path "${{ inputs.manifest }}" \
           --message-format json > "${RUNNER_TEMP}/nextest-list.json"
 
+    # `-U0`, so a hunk's range is exactly the added lines. With context the range covers
+    # lines the change did not touch, and diff coverage starts grading a neighbour's code.
+    - name: The lines this change added
+      if: always() && inputs.lcov != ''
+      shell: bash
+      run: |
+        base="${{ github.event.pull_request.base.sha }}"
+        if [ -z "$base" ]; then base="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"; fi
+        git diff -U0 "$base"...HEAD -- '*.rs' > "${RUNNER_TEMP}/change.diff" || true
+
     - name: Render the summary
       if: always()
       shell: bash
@@ -69,6 +94,10 @@ runs:
         args=(--gate "${{ inputs.gate }}" --junit "${{ inputs.junit }}")
         if [ -n "${{ inputs.manifest }}" ]; then
           args+=(--list "${RUNNER_TEMP}/nextest-list.json")
+        fi
+        if [ -n "${{ inputs.lcov }}" ]; then
+          args+=(--lcov "${{ inputs.lcov }}" --diff "${RUNNER_TEMP}/change.diff")
+          args+=(--src "${{ inputs.src }}" --features "${{ inputs.features }}")
         fi
         yidam/tests/harness/target/debug/ci-report "${args[@]}" >> "$GITHUB_STEP_SUMMARY"
 

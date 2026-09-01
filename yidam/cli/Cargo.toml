@@ -31,6 +31,28 @@ name = "yidam"
 path = "src/main.rs"
 
 
+
+
+# -- lints ---------------------------------------------------------------------
+#
+# `-D warnings` lives only on the CI command line, so `cargo clippy` locally and `cargo
+# clippy` in CI are different checks and the difference stays invisible until a pull request
+# goes red (#464). A level in the manifest is read by every invocation, which is the point.
+#
+# **`clippy::unwrap_used` is deliberately NOT here**, and the measurement is why. Production
+# code carries 23 panic paths across 13 files once test modules are excluded — an affordable
+# number, which is what #464 expected. But `[lints]` applies to the whole package, tests
+# included, and this repository's tests unwrap freely: switching it on emits **1,831**
+# warnings, and since every gate passes `-D warnings`, a warn-level lint here is a deny.
+#
+# The issue's own wording is the right scope — "in the modules that must not panic" — and
+# that is a `#![deny(clippy::unwrap_used)]` at the top of chosen modules, after their
+# unwraps are removed. Removing them changes behaviour, and RFC-0025 is explicit that P0
+# through P3 change none. It is worth doing and it is not this phase; the 23 are counted in
+# `panic_paths.rs` so the number cannot quietly grow while nobody is escalating anything.
+[lints.rust]
+unsafe_code = "forbid"
+
 [dependencies]
 # ── base: the light `reports` build — the four reports + all pure-Rust
 #    commands. No protoc, no native libraries, no ML runtime. ───────────────
