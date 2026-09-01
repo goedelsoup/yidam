@@ -433,7 +433,7 @@ tools = { "github:taiki-e/cargo-llvm-cov" = "v0.9.0" }
 # for the same reason that job does: protoc, an ONNX runtime, SQLite from source.
 run = [
   "cargo llvm-cov --no-report nextest --config-file .config/nextest.toml --all-features --manifest-path yidam/cli/Cargo.toml",
-  "cargo llvm-cov report --lcov --output-path yidam/cli/target/coverage-full.lcov --manifest-path yidam/cli/Cargo.toml --all-features",
+  "cargo llvm-cov report --lcov --output-path yidam/cli/target/coverage-full.lcov --manifest-path yidam/cli/Cargo.toml",
 ]
 
 # ── bootstrap harness (yidam/tests/harness/) ──────────────────────────────
