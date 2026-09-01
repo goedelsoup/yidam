@@ -103,8 +103,10 @@ const askedAboutJobs = Boolean(report?.quality.run);
           <div class="card">
             <h2>Still running when this was written</h2>
             <p class="note">
-              {pending.join(', ')} — the report is assembled by a job of the run it describes,
-              so that job and everything after it can only be named, not judged.
+              {pending.join(', ')} — the report is assembled by a job of the run it
+              describes, so that job can be named but not judged. Jobs sequenced after it may
+              not have started yet, and a run's later jobs are outside what any report written
+              during it can say.
             </p>
           </div>
         )}
