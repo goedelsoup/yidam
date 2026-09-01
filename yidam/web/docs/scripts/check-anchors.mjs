@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Every internal link resolves — to a page, and to the heading it names.
 //
-//   node scripts/check-anchors.mjs <site-dir>
+//   node scripts/check-anchors.mjs <site-dir> [--base <path>]
 //
 // The Astro build already fails on a dead relative link in `docs/` and on a sidebar entry
 // naming a page that does not exist. What it has never checked is the part after the `#`.
@@ -14,6 +14,8 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { ROOT } from '../src/versions.mjs';
 
 /** Every file under `dir`, relative, `/`-separated. */
 function walk(dir, prefix = '') {
@@ -73,11 +75,26 @@ export function resolveHref(href, fromPage, root) {
 }
 
 const root = process.argv[2];
-if (!root) {
-  console.error('usage: check-anchors.mjs <site-dir>');
+if (!root || root.startsWith('--')) {
+  console.error('usage: check-anchors.mjs <site-dir> [--base <path>]');
   process.exit(2);
 }
-const ROOT_PREFIX = '/yidam';
+
+/**
+ * The base the tree under test was built for — the prefix its absolute links carry.
+ *
+ * An argument, not a constant, and that distinction is the whole reason this note exists.
+ * It was `'/yidam'` hardcoded, which is right for the assembled site and for a default
+ * build, and wrong for every versioned one: `main` builds at `/yidam/main`, so every link on
+ * every page failed to resolve and the gate reported 28 dead links per page on a tree with
+ * none. It passed locally because the build it was tried against used the default base.
+ */
+const BASE_ARG = process.argv.indexOf('--base');
+const ROOT_PREFIX = (BASE_ARG > 0 ? process.argv[BASE_ARG + 1] : ROOT).replace(/\/+$/, '');
+if (!ROOT_PREFIX.startsWith('/')) {
+  console.error(`--base must be a root-relative path, got ${ROOT_PREFIX}`);
+  process.exit(2);
+}
 
 /**
  * Fragments the framework emits and owns, listed rather than pattern-matched.
@@ -125,7 +142,7 @@ for (const rel of files) {
 }
 
 console.error(
-  `checked ${pages.size} page(s): ${deadPages.length} dead link(s), ` +
+  `checked ${pages.size} page(s) under ${ROOT_PREFIX}: ${deadPages.length} dead link(s), ` +
     `${deadAnchors.length} dead anchor(s)`,
 );
 

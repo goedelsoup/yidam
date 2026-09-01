@@ -216,7 +216,7 @@ jobs:
       # and both of which the released builds still carry.
       - name: Every link and anchor resolves
         if: matrix.id == 'main'
-        run: node yidam/web/docs/scripts/check-anchors.mjs yidam/web/docs/dist
+        run: node yidam/web/docs/scripts/check-anchors.mjs yidam/web/docs/dist --base "${{ matrix.base }}"
 
       - name: Keep this version's build
         if: github.event_name != 'pull_request'
