@@ -1,7 +1,20 @@
 /* yidam docs — design system theme
    Maps yidam design tokens to Starlight's CSS variable slots.
    Ink scale replaces Starlight's cool grays. Gold replaces the blue accent.
+
+   The mapping is by `var()`, not by value. It was by value until #465: every slot held a
+   hex literal with the token's name in a trailing comment, so the comment was the only
+   thing connecting the two and nothing checked it. That copy happened to be faithful —
+   all twenty-five matched — which is the part worth noticing, because the CLI's copy of
+   the same palette had drifted in ten places and transposed two colour families, and no
+   build, test or lint would have told either of them apart.
+
+   `design_tokens.rs` now asserts that no surface outside yidam/design/ declares a raw hex.
    ─────────────────────────────────────────────────────────────────────── */
+
+/* The design system itself. Relative, resolved by Vite at build time — the docs site
+   is bundled, so this costs no request. `_ds_manifest.json` decides the order inside. */
+@import "../../../../design/tokens.css";
 
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500;1,600&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300;1,9..40,400&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=Spectral:ital,wght@0,300;0,400;0,500;1,300;1,400;1,500&display=swap');
 
@@ -15,42 +28,42 @@
 :root,
 ::backdrop {
   /* Ink scale — dark end maps to Starlight's dark grays */
-  --sl-color-white:  #faf8f4;   /* ink-0   (brightest: hover highlights) */
-  --sl-color-gray-1: #e8e4dc;   /* ink-100 (lightest foreground) */
-  --sl-color-gray-2: #b9b0a1;   /* ink-300 (body text on dark) */
-  --sl-color-gray-3: #786e61;   /* ink-500 */
-  --sl-color-gray-4: #5a5449;   /* ink-600 */
-  --sl-color-gray-5: #413d36;   /* ink-700 */
-  --sl-color-gray-6: #2c2924;   /* ink-800 (sidebar bg) */
-  --sl-color-black:  #181614;   /* ink-900 (page bg) */
+  --sl-color-white:  var(--ink-0);   /* (brightest: hover highlights) */
+  --sl-color-gray-1: var(--ink-100);   /* (lightest foreground) */
+  --sl-color-gray-2: var(--ink-300);   /* (body text on dark) */
+  --sl-color-gray-3: var(--ink-500);
+  --sl-color-gray-4: var(--ink-600);
+  --sl-color-gray-5: var(--ink-700);
+  --sl-color-gray-6: var(--ink-800);   /* (sidebar bg) */
+  --sl-color-black:  var(--ink-900);   /* (page bg) */
 
   /* Gold accent — lighter for dark backgrounds */
-  --sl-color-accent-low:  #3d2c00;   /* gold-900 */
-  --sl-color-accent:      #d4a400;   /* gold-400 */
-  --sl-color-accent-high: #f1d47c;   /* gold-200 */
+  --sl-color-accent-low:  var(--gold-900);
+  --sl-color-accent:      var(--gold-400);
+  --sl-color-accent-high: var(--gold-200);
 }
 
 /* ── Light theme override ─────────────────────────────────────────────── */
 [data-theme='light'] {
   /* Ink scale — light end maps to Starlight's light grays */
-  --sl-color-white:  #0d0c0b;   /* ink-950 (inverted for light mode logic) */
-  --sl-color-gray-1: #2c2924;   /* ink-800 */
-  --sl-color-gray-2: #413d36;   /* ink-700 */
-  --sl-color-gray-3: #786e61;   /* ink-500 */
-  --sl-color-gray-4: #b9b0a1;   /* ink-300 */
-  --sl-color-gray-5: #e8e4dc;   /* ink-100 */
-  --sl-color-gray-6: #f5f2eb;   /* ink-50  (sidebar bg) */
-  --sl-color-black:  #faf8f4;   /* ink-0   (page bg) */
+  --sl-color-white:  var(--ink-950);   /* (inverted for light mode logic) */
+  --sl-color-gray-1: var(--ink-800);
+  --sl-color-gray-2: var(--ink-700);
+  --sl-color-gray-3: var(--ink-500);
+  --sl-color-gray-4: var(--ink-300);
+  --sl-color-gray-5: var(--ink-100);
+  --sl-color-gray-6: var(--ink-50);   /* (sidebar bg) */
+  --sl-color-black:  var(--ink-0);   /* (page bg) */
 
   /* Gold accent */
-  --sl-color-accent-low:  #fdf7e0;   /* gold-50  */
-  --sl-color-accent:      #9c7800;   /* gold-600 (darkened for contrast on light) */
-  --sl-color-accent-high: #5c4200;   /* gold-800 */
+  --sl-color-accent-low:  var(--gold-50);
+  --sl-color-accent:      var(--gold-600);   /* (darkened for contrast on light) */
+  --sl-color-accent-high: var(--gold-800);
 
   /* Hairlines */
-  --sl-color-hairline-light: #e8e4dc;  /* ink-100 */
-  --sl-color-hairline:       #d5cfc4;  /* ink-200 */
-  --sl-color-hairline-shade: #b9b0a1;  /* ink-300 */
+  --sl-color-hairline-light: var(--ink-100);
+  --sl-color-hairline:       var(--ink-200);
+  --sl-color-hairline-shade: var(--ink-300);
 }
 
 /* ── Header ───────────────────────────────────────────────────────────── */
@@ -142,8 +155,8 @@
 
 /* Blockquote — gold left rule, warm tinted background */
 .sl-markdown-content blockquote {
-  border-inline-start: 2px solid #b88a00;
-  background-color: #fdf7e0;
+  border-inline-start: 2px solid var(--gold-500);
+  background-color: var(--gold-50);
   border-radius: 0 4px 4px 0;
   padding: 1rem 1.25rem;
   font-style: italic;
@@ -152,16 +165,16 @@
 
 /* Links in content */
 .sl-markdown-content a:not([class]) {
-  color: #2254a4;   /* rigpa-600 */
+  color: var(--rigpa-600);
   text-decoration: underline;
   text-underline-offset: 3px;
-  text-decoration-color: #aacef8;   /* rigpa-200 */
+  text-decoration-color: var(--rigpa-200);
   transition: color 200ms;
 }
 
 .sl-markdown-content a:not([class]):hover {
-  color: #1b3f7e;   /* rigpa-700 */
-  text-decoration-color: #7aacf0;   /* rigpa-300 */
+  color: var(--rigpa-700);
+  text-decoration-color: var(--rigpa-300);
 }
 
 /* Tables */
@@ -202,5 +215,5 @@
 /* ── Scrollbar ────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #d5cfc4; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #b9b0a1; }
+::-webkit-scrollbar-thumb { background: var(--ink-200); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-300); }

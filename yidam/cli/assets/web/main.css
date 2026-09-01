@@ -1,28 +1,19 @@
-/* yidam web agent — token subset of yidam/design/ (see ui_kits/web-agent/DESIGN.md) */
-
-:root {
-  --ink-950: #0d0c0b; --ink-900: #181614; --ink-700: #413d36; --ink-600: #5a5449;
-  --ink-400: #978d7e; --ink-300: #b9b0a1; --ink-200: #d5cfc4; --ink-100: #e8e4dc;
-  --ink-50: #f5f2eb; --ink-0: #faf8f4;
-  --gold-700: #7b5d00; --gold-500: #b88a00; --gold-400: #d4a400; --gold-50: #faf5e6;
-  --verified-bg: #eef4ee; --verified-fg: #1e4a28; --verified-border: #c9dcc9;
-  --inference-bg: #eff2f7; --inference-fg: #2b4a6f; --inference-border: #ccd8e8;
-  --open-bg: #faf0e6; --open-fg: #8a4b0f; --open-border: #ecd5bb;
-
-  --surface-base: var(--ink-0); --surface-raised: #ffffff; --surface-overlay: var(--ink-50);
-  --text-primary: var(--ink-900); --text-secondary: var(--ink-600); --text-tertiary: var(--ink-400);
-  --border-ui: var(--ink-200); --border-ui-strong: var(--ink-300); --border-subtle: var(--ink-100);
-  --border-focus: var(--gold-400);
-  --action-bg: var(--gold-500); --action-fg: var(--ink-950);
-
-  --font-ui: -apple-system, "Segoe UI", system-ui, sans-serif;
-  --font-serif: Georgia, "Times New Roman", serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --font-display: var(--font-serif);
-  --radius-md: 6px; --radius-xl: 10px;
-  --shadow-xs: 0 1px 2px rgba(13, 12, 11, 0.05);
-}
-
+/* yidam web agent — component styles.
+ *
+ * **No token definitions.** They arrive ahead of this file, concatenated by `build.rs` from
+ * the eight files `yidam/design/_ds_manifest.json` names, so what an exported page renders
+ * with is the design system itself rather than a copy of part of it.
+ *
+ * It was a copy until #465, and the copy had gone wrong in the way copies do: ten of its
+ * twenty-four values no longer matched the source, and `--inference-*` and `--open-*` had
+ * swapped colour families — an exported corpus showed inference in blue and open questions
+ * in amber while every other surface said the reverse. `ui_kits/web-agent/DESIGN.md` had
+ * said all along that claim markers use `--status-{verified,inference,open}-*`; nothing
+ * made it so.
+ *
+ * Every `var(--…)` below resolves from that bundle. `design_tokens.rs` checks it, so a
+ * token renamed at the source fails a test here rather than rendering as nothing.
+ */
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {

@@ -371,6 +371,27 @@ description = "The whole supply-chain gate: advisories, licences, unused deps."
 # baseline from crates.io, and it answers a different question — what a *release* would
 # break, rather than what this tree carries.
 depends = ["deny", "machete"]
+# ── design system (#465) ──────────────────────────────────────────────────
+#
+# `_adherence.oxlintrc.json` forbids raw hex, raw px, off-system fonts and undeclared
+# component props. Nothing invoked it — not this file, not a workflow, not a package.json —
+# and it would not have run if anything had: it carried an `x-omelette` key that oxlint
+# rejects outright, so the config had never been loadable either. A surface with no consumer,
+# and the consumer would have failed on contact.
+#
+# It lints JS and JSX, which is what oxlint reads. The palette's other two consumers are CSS
+# files it cannot parse, and they are covered from the other side: they now hold no colours
+# at all, only `var(--…)` into the one bundle, and `design_tokens.rs` asserts that no surface
+# outside yidam/design/ declares a raw hex.
+
+[tasks.design-lint]
+description = "Design-system adherence: no raw hex, no raw px, no off-system fonts, declared props only."
+tools = { "npm:oxlint" = "1.42.0" }
+# `--deny-warnings`, because a lint that only warns in CI is a lint that is off. The rules
+# themselves moved from `warn` to `error` in #465 for the same reason; this covers oxlint's
+# own defaults, one of which was already firing on a stray escape in `Avatar.jsx`.
+run = "oxlint --config yidam/design/_adherence.oxlintrc.json --deny-warnings yidam/design"
+
 # ── coverage (#464) ───────────────────────────────────────────────────────
 #
 # 35,806 lines of Rust had no coverage measurement of any kind. What lands in the job summary
