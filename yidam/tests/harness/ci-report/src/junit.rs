@@ -14,7 +14,7 @@
 
 use anyhow::{bail, Context, Result};
 use quick_xml::events::Event;
-use quick_xml::Reader;
+use quick_xml::{Reader, XmlVersion};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Case {
@@ -50,10 +50,20 @@ impl Run {
     }
 }
 
+/// One attribute's value, with entities resolved.
+///
+/// `normalized_value` rather than the `unescape_value` this used at quick-xml 0.37: the two
+/// advisories that forced the upgrade (RUSTSEC-2026-0194/0195) came with a rename, and the
+/// old name is deprecated rather than gone. Following the rename is what keeps the next
+/// upgrade from being a second decision.
 fn attr(e: &quick_xml::events::BytesStart, key: &str) -> Option<String> {
     e.attributes().flatten().find_map(|a| {
         (a.key.as_ref() == key.as_bytes())
-            .then(|| a.unescape_value().ok().map(|v| v.into_owned()))
+            .then(|| {
+                a.normalized_value(XmlVersion::Implicit1_0)
+                    .ok()
+                    .map(|v| v.into_owned())
+            })
             .flatten()
     })
 }
@@ -129,7 +139,14 @@ pub fn parse(xml: &str) -> Result<Run> {
             }
             Ok(Event::Text(t)) => {
                 if let (Some(c), Some(field)) = (current.as_mut(), sink) {
-                    let text = t.unescape().unwrap_or_default().into_owned();
+                    // `xml_content` resolves entities in character data, the counterpart to
+                    // `normalized_value` for attributes. Test output is full of `&lt;` and
+                    // `&amp;`, and handing those to a reader is the reason this crate parses
+                    // XML rather than scanning it.
+                    let text = t
+                        .xml_content(XmlVersion::Implicit1_0)
+                        .unwrap_or_default()
+                        .into_owned();
                     match field {
                         "stdout" => c.stdout.push_str(&text),
                         "stderr" => c.stderr.push_str(&text),

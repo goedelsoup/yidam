@@ -2,6 +2,11 @@
 name = "yidam-harness"
 version = "0.1.0"
 edition = "2021"
+# Neither of these was here before #463, which `cargo deny` found the moment it first ran:
+# an unlicensed crate, and one that nothing stopped from being published by a mistyped
+# `cargo publish`. It is repository infrastructure and belongs on no registry.
+publish = false
+license = "MIT"
 
 [[bin]]
 name = "harness"
@@ -14,7 +19,6 @@ serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 serde_json = "1"
 walkdir = "2"
-pulldown-cmark = "0.11"
 tempfile = "3"
 
 # Integration tests under `tests/` do not inherit `[dependencies]`, and `baseline.rs` walks

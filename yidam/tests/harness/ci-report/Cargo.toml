@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Renders a nextest run into a job summary, and counts what did not run."
 publish = false
+license = "MIT"
 
 # ── Why this is a crate of its own ────────────────────────────────────────────
 #
@@ -32,4 +33,4 @@ serde_json = "1"
 # The input carries test *output* — failure messages with `<`, `&` and quotes in them — so a
 # reader that mis-decodes an entity turns diagnosing a red test into a second puzzle. Two
 # marginal packages, no build script, no C.
-quick-xml = "0.37"
+quick-xml = "0.41"

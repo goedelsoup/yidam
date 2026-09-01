@@ -75,6 +75,21 @@ yidam/tests/results/**/transcript.jsonl
 # which is a fact worth being able to see change.
 yidam/prelude/sdks/spec/.lake/
 
+# Lockfiles are NOT ignored, for the same reason `.config/` below is not: a `Cargo.lock`
+# entry in a *global* gitignore hid two of this repository's three from `git status`, so
+# yidam/cli's was tracked and the harness's and the Rust SDK's were not. That is not a
+# preference anyone expressed — nobody chose it, and nothing said so.
+#
+# What it cost: `--locked` cannot be passed against a workspace with no committed lock, so
+# #462's summary step had to drop the flag that every other cargo line in this repository
+# carries. `cargo deny` reads the lock too, and would have audited a resolution that existed
+# only on the runner.
+#
+# Committed for libraries as well as binaries. Cargo ignores a library's lock when it is a
+# dependency, so it costs a downstream consumer nothing and buys this repository a
+# reproducible audit.
+!Cargo.lock
+
 # `.config/` is NOT ignored, and this line is here because it very nearly was.
 #
 # It holds `nextest.toml`, the profile every Rust gate runs under — the one that turns on

@@ -322,6 +322,56 @@ run = [
   "lake build Yidam",
 ]
 
+# ── supply chain (#463) ───────────────────────────────────────────────────
+#
+# Nothing checked a single advisory before this. The light binary carries rustls (and so
+# `ring`), reqwest and an S3 client; the full build adds an ONNX runtime and LanceDB. Six
+# install channels deliver it and `install-channels.yml` verifies that they *work* — nothing
+# asked whether what they deliver has a known vulnerability or a licence this repository can
+# ship. The first run found three advisories, one of them in a crate added the week before.
+#
+# The tools are pinned per-task rather than in [tools], for the reason [tasks.verify] gives:
+# `mise install` runs in every derived repository, and these serve one gate.
+
+[tasks.deny]
+description = "Advisories, licences, bans and sources across all three cargo workspaces."
+tools = { "github:EmbarkStudios/cargo-deny" = "0.20.2" }
+# All three manifests, because each resolves its own dependency graph and only yidam/cli's
+# is the one anybody thinks about. The harness is what runs in CI; the SDK is published.
+run = [
+  "cargo deny --manifest-path yidam/cli/Cargo.toml check",
+  "cargo deny --manifest-path yidam/prelude/sdks/rust/Cargo.toml check",
+  "cargo deny --manifest-path yidam/tests/harness/Cargo.toml check",
+]
+
+[tasks.machete]
+description = "Unused dependencies across every cargo manifest."
+tools = { "github:bnjbvr/cargo-machete" = "v0.9.2" }
+# Cheap and pointed: a stray default-features dependency is how `protoc` gets back into the
+# light build RFC-0023 split it out of. Its first run removed three — two `pulldown-cmark`
+# and one `anyhow`, none of them referenced by a single line of code.
+run = "cargo machete"
+
+[tasks.semver-check]
+description = "API compatibility of yidam-core against the last version published to crates.io."
+tools = { "github:obi1kenobi/cargo-semver-checks" = "v0.50.0" }
+# `+stable`, and it is the one place in this repository that deliberately leaves the pin.
+# cargo-semver-checks needs rustc >= 1.93 to read rustdoc JSON and the pin is 1.88.0. It
+# builds nothing this repository ships — it reads an API and compares it — so the reason the
+# release path was pinned in #463 does not apply to it. `toolchain_pins.rs` requires every
+# such departure to say why, which is what this comment is.
+#
+# `publish-crates.yml` runs it before the upload, which is the last moment it is not too
+# late: a published version cannot be replaced, only yanked.
+run = "cargo +stable semver-checks check-release --manifest-path yidam/prelude/sdks/rust/Cargo.toml"
+
+[tasks.supply-chain]
+description = "The whole supply-chain gate: advisories, licences, unused deps."
+# `semver-check` is deliberately not here. It needs a different toolchain and a network
+# baseline from crates.io, and it answers a different question — what a *release* would
+# break, rather than what this tree carries.
+depends = ["deny", "machete"]
+
 # ── bootstrap harness (yidam/tests/harness/) ──────────────────────────────
 
 [tasks.harness-test]

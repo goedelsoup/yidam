@@ -196,6 +196,50 @@ jobs:
           lint: false
       - run: mise run verify
 
+  supply-chain:
+    # Advisories, licences, bans, sources, and unused dependencies. On pull requests: the
+    # whole point is to hear about a vulnerability before it ships, and this repository
+    # reaches users through six install channels that `install-channels.yml` only verifies
+    # *work*. Seconds, not minutes — cargo-deny reads lockfiles rather than building.
+    #
+    # Its first run found three advisories, one of them (`quick-xml`) in a crate added the
+    # week before by #462. That is the argument for running it on every pull request rather
+    # than weekly, made by the tool itself on the day it was installed.
+    name: ci (supply chain)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - run: mise run supply-chain
+
+  semver:
+    # What a release of `yidam-core` would break, asked while it is still a question.
+    # `publish-crates.yml` runs this too, immediately before the upload — but a PR is where
+    # the change is still cheap to reconsider, and the tag is where it is already decided.
+    #
+    # Runs on every pull request rather than only when `yidam/prelude/sdks/rust/` changes.
+    # A per-job path filter needs a filter action or a `paths:` on the workflow, and a
+    # required check that reports "skipped" is its own well-known problem. This costs a
+    # network fetch and two builds of a small crate.
+    name: ci (semver · yidam-core)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # `@stable`, not the pin, and this is the documented exception rather than an
+      # oversight: cargo-semver-checks needs rustc >= 1.93 to read rustdoc JSON while this
+      # repository builds on 1.88.0. It produces no artifact — it reads an API and compares
+      # it — so the reason release.yml was pinned does not reach it. `toolchain_pins.rs`
+      # requires every `@stable` to carry a reason, and this is that reason.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: jdx/mise-action@v2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: yidam/prelude/sdks/rust
+          key: semver
+      - run: mise run semver-check
+
   cross:
     # The aarch64 Linux cross-compile, which nothing has ever run.
     #
@@ -223,7 +267,12 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # The pinned toolchain, not `@stable`. An artifact built by whatever stable shipped
+      # that week is not the build any gate here tested, and this one is published. The
+      # three `@stable` steps left in install-channels.yml are the deliberate opposite:
+      # they simulate a user, who has whatever stable is, and pinning them would test a
+      # channel nobody uses. `toolchain_pins.rs` asserts both halves.
+      - uses: dtolnay/rust-toolchain@1.88.0
         with:
           targets: aarch64-unknown-linux-gnu
       # The cross C compiler, not only the linker. Both halves are used: the
