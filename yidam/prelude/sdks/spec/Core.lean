@@ -1,11 +1,18 @@
 -- Yidam core: type-theoretic corpus and resolution model.
 --
--- Three structural theorems:
---   (1) Corpus graph forms a category: nodes as objects, link-paths as morphisms.
---   (2) Sangha positions form a partial order under semantic entailment.
---   (3) Constitutional non-contradiction: domain augmentations are purely additive.
+-- Three structural claims, and what this file actually establishes about each:
+--   (1) Corpus graph forms a category: nodes as objects, link-paths as morphisms.  PROVED
+--   (2) Sangha positions form a partial order under semantic entailment.           PROVED
+--   (3) Constitutional non-contradiction: domain augmentations are purely additive. VACUOUS
 --
--- Run: lake build Yidam  (Lake project: prelude/sdks/spec/lakefile.lean)
+-- (3) is `additive_augmentations_do_not_contradict`, whose conclusion is `True` and whose
+-- proof is `trivial`. It discharges no obligation and would still elaborate if every article
+-- of the constitution were false — its hypotheses are unused, which is what the three
+-- `unused variable` warnings on a green build are telling anyone who reads them. Stating that
+-- here is the alternative to a green check that stands for a claim nobody has made. Giving it
+-- content is #499.
+--
+-- Run: mise run verify   (or `lake build Yidam` from this directory)
 
 -- ── Core types ────────────────────────────────────────────────────────────────
 
@@ -80,12 +87,18 @@ def IsDAG (g : CorpusGraph) : Prop :=
   ∀ (u v : String), u ≠ v → ¬ (Reachable g u v ∧ Reachable g v u)
 
 -- In a DAG, the only path from a node to itself is the identity.
+--
+-- `¬(A ∧ B) → ¬A ∨ ¬B` is classical, so the proof needs excluded middle — but it needs only
+-- that. The version that stood here reached for `by_contra`/`push_neg`, which are Mathlib
+-- tactics this package does not depend on and never has, so it did not elaborate. Mathlib
+-- for one De Morgan step would be the largest dependency in the repository; `Classical.em`
+-- is in core and proves the same statement, unweakened.
 theorem dag_no_nontrivial_cycle (g : CorpusGraph) (hdag : IsDAG g) (v : String) :
-    ∀ (u : String), u ≠ v → ¬ Reachable g v u ∨ ¬ Reachable g u v := by
-  intro u huv
-  by_contra h
-  push_neg at h
-  exact hdag u v (Ne.symm huv) ⟨h.2, h.1⟩
+    ∀ (u : String), u ≠ v → ¬ Reachable g v u ∨ ¬ Reachable g u v :=
+  fun u huv =>
+    (Classical.em (Reachable g v u)).elim
+      (fun hvu => Or.inr (fun huv' => hdag u v huv ⟨huv', hvu⟩))
+      Or.inl
 
 -- ── Sangha positions as a partial order ──────────────────────────────────────
 --

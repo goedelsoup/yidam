@@ -22,8 +22,9 @@ python = "3.12"
 uv = "latest"
 # Node.js — docs site (yidam/web/docs/), packages/web/.
 node = "lts"
-# dafny: not in the mise registry — install via https://dafny.org/dafny/Installation
-# LEAN 4 / lake: not in the mise registry — install via elan (https://github.com/leanprover/elan)
+# dafny and LEAN are NOT here on purpose — see [tasks.verify]. Neither is in the mise
+# registry, both are large, and both are needed by exactly one task. `mise install` runs in
+# every derived repository, so a tool pinned here is a download every corpus pays for.
 
 # `.local/bin` first, so every task below runs the binary built from THIS tree
 # rather than whichever yidam a derived repository last installed system-wide.
@@ -269,11 +270,37 @@ run = [
   "cd yidam/prelude/sdks/python && uv run --extra dev --extra embed pytest tests/parity/test_embed_config.py",
 ]
 
+# This task was declared, was documented, and had never executed once — #461. Three faults,
+# none of which anything could report, because nothing ran it:
+#
+#   1. No `dir`, so mise ran it from the repository root and `lake build` looked for a
+#      lakefile that is four directories down. Fixed by `dir` below; the paths are now
+#      relative to the specs, which is also what makes the guard test's job legible.
+#   2. `lakefile.lean` set `name := "Yidam"` — a String where Lake wants a Name — so the
+#      package did not elaborate even from the right directory. Lake accepted the string
+#      form years ago, which is the tell: it was written against a toolchain nobody
+#      recorded. `lean-toolchain` beside it records one now.
+#   3. Neither tool was installed by anything. `dafny verify` had never run on any machine
+#      we can evidence, and both specs turned out not to parse under Dafny 4.
+#
+# Dafny is pinned per-task rather than in [tools]: `mise install` runs in every derived
+# repository, and this is a 200MB download for a task a corpus will almost never invoke.
+# The release ships a self-contained zip that unpacks to a `dafny/` directory holding the
+# binary and its .NET runtime, hence extract_all + bin_path rather than a one-line pin.
+#
+# LEAN has no equivalent line. `github:leanprover/elan` ships only `elan-init`, a
+# bootstrapper, so mise cannot provision `lake` — and pinning `leanprover/lean4` directly
+# would be a second version of a thing `lean-toolchain` already pins, which is one more
+# place for the two to disagree. `lean-toolchain` is the single pin: elan reads it locally
+# (https://github.com/leanprover/elan) and lean-action reads it in CI. `formal_specs.rs`
+# asserts the workflow names no version of its own.
 [tasks.verify]
-description = "Formal verification: Dafny specs and LEAN 4 proofs (requires dafny + lake via elan)."
+description = "Formal verification: Dafny specs and LEAN 4 proofs (needs lake on PATH via elan)."
+dir = "yidam/prelude/sdks/spec"
+tools = { "github:dafny-lang/dafny" = { version = "4.11.0", extract_all = true, bin_path = "dafny" } }
 run = [
-  "dafny verify yidam/prelude/sdks/spec/graph.dfy",
-  "dafny verify yidam/prelude/sdks/spec/sangha.dfy",
+  "dafny verify graph.dfy",
+  "dafny verify sangha.dfy",
   "lake build Yidam",
 ]
 

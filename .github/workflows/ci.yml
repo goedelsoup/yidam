@@ -123,6 +123,41 @@ jobs:
       # runner that reads it.
       - run: mise run parity
 
+  verify:
+    # The formal specs — 658 lines of Dafny and LEAN that `mise.toml` has named since it was
+    # written and that had never executed once (#461). Not a check that regressed: a check
+    # that had no runner, in the repository whose CI header calls the alternative "a green
+    # check for a build nobody ships" three jobs down.
+    #
+    # It runs on pull requests, and the case is the one `cross` makes: this is light. Dafny
+    # is a download and a Boogie run over 400 lines; the Lean library is 211 lines and one
+    # module. The expensive half is fetching the toolchains, which caches. What it guards
+    # against is a spec edited into falsehood and noticed by nobody, which — given the two
+    # tools had never been installed anywhere — is the state this repository was already in.
+    #
+    # The job runs `mise run verify`, the same command a contributor runs, rather than
+    # spelling the three verifications out again here. `formal_specs.rs` asserts that.
+    name: ci (verify · formal specs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      # elan only. Every `build`/`test`/`lint` input is off because `mise run verify` does
+      # the building, and lean-action is here for one thing mise cannot do: `elan` ships as
+      # `elan-init`, a bootstrapper, so there is no mise pin for `lake`.
+      #
+      # No version appears here. The Lean toolchain is pinned by `lean-toolchain` in the
+      # package directory and by nothing else, which is why a second pin is not worth the
+      # convenience — see the note beside [tasks.verify].
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: yidam/prelude/sdks/spec
+          auto-config: false
+          build: false
+          test: false
+          lint: false
+      - run: mise run verify
+
   cross:
     # The aarch64 Linux cross-compile, which nothing has ever run.
     #

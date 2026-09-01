@@ -667,13 +667,23 @@ run = [
 ]
 
 [tasks.verify]
-description = "Type-check formal specs (Dafny and LEAN 4)."
+description = "Formal verification: Dafny specs and LEAN 4 proofs (needs lake on PATH via elan)."
+# `dir`, not repo-relative paths: `lake build` resolves its lakefile from the working
+# directory, so without this it looks for one at the repository root and there is none.
+# The task stood here and in mise.toml for months with repo-relative paths and no `dir`,
+# which is why it had never run once (#461).
+dir = "prelude/sdks/spec"
+tools = { "github:dafny-lang/dafny" = { version = "4.11.0", extract_all = true, bin_path = "dafny" } }
 run = [
-  "dafny verify prelude/sdks/spec/graph.dfy",
-  "dafny verify prelude/sdks/spec/sangha.dfy",
+  "dafny verify graph.dfy",
+  "dafny verify sangha.dfy",
   "lake build Yidam",   # LEAN 4 project named Yidam in spec/
 ]
 ```
+
+Dafny is pinned on the task rather than in `[tools]`: it is a 200MB download for a task most
+corpora will never invoke, and `mise install` runs everywhere. LEAN has no pin here at all —
+`spec/lean-toolchain` is elan's own, and a second one would be a second thing to keep in step.
 
 These join `harness-test` and `ci` as repo-level tasks. `ci` eventually includes `parity`.
 
