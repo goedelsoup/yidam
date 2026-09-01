@@ -60,19 +60,40 @@ fn measure() -> serde_json::Value {
 
 /// Drop the envelope fields that describe the build rather than the measurement.
 ///
-/// And fail if they were not there to drop. A redaction that silently matches nothing turns a
-/// golden into a test of the redactor — the assertion `report_goldens.rs` needed for the same
-/// reason, and the one that keeps this from passing after the envelope stops being emitted.
+/// **The whole `yidam` block, not a list of its fields.** The first version redacted `commit`
+/// and `version` and left `features`, which is fine on every gate that compiles the light
+/// default and fails on `ci (cli · full features)` — a job that runs on main and the weekly
+/// schedule and never on a pull request. So it went green through review and red on main,
+/// with every benchmark number identical and one array different:
+///
+/// ```text
+/// left  (--features vector-read): ["reports", "vector-read", "tonpa", "vault-s3"]
+/// right (the golden, light):      ["reports", "tonpa", "vault-s3"]
+/// ```
+///
+/// `report_goldens.rs` has carried `redact_features` and a note about this since it was
+/// written — *"it runs `--all-features`, which reports five, against goldens recorded from
+/// the light build, which reports one"* — and this file was written after reading it.
+/// Redacting the block wholesale is what makes the lesson structural: a field added to the
+/// envelope tomorrow cannot be forgotten here, because nothing here names the fields.
+///
+/// The failure is also the evidence for the module header's claim. Two builds with different
+/// feature sets produced byte-identical numbers, which is what "the measurement does not
+/// depend on the build" means when it is measured rather than asserted.
 fn redact(value: &mut serde_json::Value) {
     let yidam = value
         .get_mut("yidam")
         .expect("the report carries no `yidam` block; the envelope is gone");
-    assert!(
-        yidam["commit"].is_string() && yidam["version"].is_string(),
-        "the `yidam` block no longer carries a version and a commit"
-    );
-    yidam["commit"] = serde_json::Value::String("<commit>".into());
-    yidam["version"] = serde_json::Value::String("<version>".into());
+    // Checked before it is dropped, so this cannot become a redaction of nothing.
+    for field in ["version", "commit", "features"] {
+        assert!(
+            !yidam[field].is_null(),
+            "the `yidam` block no longer carries `{field}`; the envelope has changed shape \
+             and this golden would stop describing it"
+        );
+    }
+    *yidam = serde_json::Value::String("<build>".into());
+
     assert!(
         value["root"].as_str().is_some_and(|r| r.starts_with('/')),
         "`root` is not an absolute path"

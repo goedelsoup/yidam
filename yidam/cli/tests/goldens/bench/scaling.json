@@ -243,13 +243,5 @@
   ],
   "standing": "baseline",
   "standing_reason": "this run establishes the O(n) baseline and the corpora; it is not yet a comparison. these corpora are generated in memory and carry no embeddings, so an anchor over them would resolve by keyword search over synthetic prose — a keyword baseline scored as the arm that is supposed to beat one. Embedding four thousand generated nodes to fix that would measure the generator's vocabulary. The anchored arm is measured on a real corpus, by `yidam bench` without `--scaling`.",
-  "yidam": {
-    "commit": "<commit>",
-    "features": [
-      "reports",
-      "tonpa",
-      "vault-s3"
-    ],
-    "version": "<version>"
-  }
+  "yidam": "<build>"
 }
