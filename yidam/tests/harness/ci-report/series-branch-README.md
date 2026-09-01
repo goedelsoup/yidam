@@ -4,7 +4,7 @@ This branch is **not code**. It holds one file, `series.jsonl`, and one record p
 `main`: what the gates measured, in the order they measured it.
 
 It is written by the `ci (series)` job in `.github/workflows/ci.yml` and read by the docs
-build, which renders it at <https://goedelsoup.github.io/yidam/quality/trends/>. Nothing else
+build, which renders it at <https://goedelsoup.github.io/yidam/main/quality/trends/>. Nothing else
 reads it, and **nothing reads it to decide whether CI passes**. If a number here disagrees
 with a gate, the gate is right and the series has a bug.
 
