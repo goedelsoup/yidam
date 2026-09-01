@@ -186,12 +186,12 @@
     ],
     "sections": {
       "bench": {
-        "measured": false,
-        "why": "`yidam bench` prints prose and no machine-readable series exists yet; #468 adds the baseline this would be compared against."
+        "measured": true,
+        "why": "Ratcheted by `bench_baseline.rs` against `yidam/cli/tests/goldens/bench/scaling.json`. The series on the `quality-series` branch carries the headline cost per push."
       },
       "mutation": {
         "measured": false,
-        "why": "No mutation run is configured. #468 adds it, sequenced after #440 so it inherits RFC-0024's call sites rather than filing a second opinion on them."
+        "why": "`cargo-mutants` runs on the weekly schedule, not on the run this report describes. Its survivors are in that job's summary; a per-commit report cannot state them."
       }
     }
   },

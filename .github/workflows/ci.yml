@@ -457,3 +457,207 @@ jobs:
           name: quality-report
           path: quality-report.json
           if-no-files-found: error
+
+  series:
+    # One record per push to main — the history the gates never kept (#468).
+    #
+    # Every run before this computed its numbers, displayed them, and threw them away. There
+    # was no way to see that a suite had been shrinking, or that coverage moved three weeks
+    # ago and nobody noticed.
+    #
+    # ── why an orphan branch ─────────────────────────────────────────────────
+    #
+    # RFC-0025 left the store open and asked for it to be settled here, "because the answer is
+    # hard to change once there is a year of them". Git, because git is the one store this
+    # repository already trusts and a Pages-side artifact has no history older than the last
+    # deploy. An *orphan branch* rather than a file on main, because a bot commit per push
+    # would land in `git log main` beside real work, would race a human push, and — this
+    # workflow being `on: push: branches: [main]` — would re-trigger the run that wrote it.
+    #
+    # Nothing reads the series to decide whether CI passes. If a number in it disagrees with a
+    # gate, the gate is right and this has a bug.
+    #
+    # It fails loudly rather than warning. A series that quietly stopped recording looks
+    # exactly like a repository nobody pushed to, which is the shape of every defect this
+    # epic has found.
+    name: ci (series)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: quality
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # One writer at a time. Two pushes to main landing together would otherwise race on the
+    # same ref; queued rather than cancelled, because a cancelled run is a lost record.
+    concurrency:
+      group: quality-series
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: yidam/tests/harness
+          key: quality
+      - name: Build the reporter
+        run: |
+          mise exec -- cargo build --locked \
+            --manifest-path yidam/tests/harness/Cargo.toml \
+            --package ci-report
+      - uses: actions/download-artifact@v4
+        with:
+          name: quality-report
+          path: ${{ runner.temp }}
+
+      # The branch, or the first one. `checkout` has already configured credentials for
+      # `origin`, so this reuses them rather than putting a token on a command line.
+      - name: Check out the series branch
+        run: |
+          set -euo pipefail
+          dir="${RUNNER_TEMP}/series"
+          if git ls-remote --exit-code --heads origin quality-series >/dev/null 2>&1; then
+            git fetch --depth=1 origin quality-series
+            git worktree add "$dir" FETCH_HEAD
+            git -C "$dir" checkout -B quality-series
+          else
+            echo "::notice::quality-series does not exist yet; starting it"
+            git worktree add --detach "$dir"
+            git -C "$dir" checkout --orphan quality-series
+            git -C "$dir" rm -rf . >/dev/null 2>&1 || true
+          fi
+
+      - name: Append this run
+        run: |
+          set -euo pipefail
+          dir="${RUNNER_TEMP}/series"
+          yidam/tests/harness/target/debug/ci-report series \
+            --report "${RUNNER_TEMP}/quality-report.json" \
+            --file "$dir/series.jsonl" \
+            --bench yidam/cli/tests/goldens/bench/scaling.json
+          cp yidam/tests/harness/ci-report/series-branch-README.md "$dir/README.md"
+
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          dir="${RUNNER_TEMP}/series"
+          cd "$dir"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add series.jsonl README.md
+          if git diff --cached --quiet; then
+            echo "::notice::this commit is already recorded; nothing to push"
+            exit 0
+          fi
+          git commit -qm "chore(series): ${GITHUB_SHA:0:7}"
+          git push origin quality-series
+
+  mutants:
+    # The mutation testing this repository has been doing by hand (#468).
+    #
+    # RFC-0024's testing section prescribes it per call site — "delete the guard, keep the
+    # comment, confirm red" — and every phase of #459 has carried it out by remembering to.
+    # This catches the ones nobody thought to do.
+    #
+    # ── weekly, and scoped by a measured cost ────────────────────────────────
+    #
+    # One mutant is roughly 80 seconds here: a 28-second build and a 56-second test run,
+    # measured rather than guessed. `cmd/lint/` alone holds 586 mutants — thirteen hours — so
+    # the scope is the modules where a survivor means something rather than the codebase.
+    # `vault/policy.rs` decides what leaves a machine and `cmd/lint/commits.rs` decides what
+    # a derived repository is allowed to commit; a mutant surviving in either is a rule that
+    # is not enforced.
+    #
+    # ── --in-place, and why it is safe here and not on a laptop ──────────────
+    #
+    # cargo-mutants copies the package directory and builds the copy. `yidam/cli` dev-depends
+    # on `../tests/harness/ci-report`, which is outside that directory, so the copy cannot
+    # resolve it and the baseline build fails before any mutant runs. `--in-place` mutates the
+    # checkout instead. On a disposable runner that costs nothing; on a working tree an
+    # interrupted run leaves a mutated file behind, which is why `mise run mutants` says so.
+    #
+    # `NEXTEST_PROFILE` is cleared for the same class of reason: mise sets it to `ci`
+    # globally, and the config that defines that profile is only found through the explicit
+    # `--config-file` every gate passes. cargo-mutants builds its baseline with its own
+    # command line and never sees the flag.
+    name: ci (mutants)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: yidam/cli
+          key: mutants
+      - name: Hunt
+        id: hunt
+        run: |
+          set -uo pipefail
+          mise exec "cargo:cargo-mutants@25.3.1" -- env NEXTEST_PROFILE=default \
+            cargo mutants \
+              --manifest-path yidam/cli/Cargo.toml \
+              --cargo-arg=--locked \
+              --in-place \
+              --test-tool nextest \
+              --timeout 300 \
+              --file src/vault/policy.rs \
+              --file src/cmd/lint/commits.rs \
+              --output "${RUNNER_TEMP}/mutants"
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          # 0 = every mutant caught. 2 = some survived, which is a finding and not a failure:
+          # this reports, it does not gate. Anything else — a usage error, a baseline whose
+          # tests already fail — means the run tested nothing, and a run that tested nothing
+          # reports no survivors and reads exactly like a clean bill of health. That is the
+          # failure mode #468 names, so it is the one thing here that goes red.
+          case "$code" in
+            0|2) exit 0 ;;
+            *) echo "::error::cargo-mutants exited $code — the run did not test mutants"; exit 1 ;;
+          esac
+
+      - name: Report
+        if: always()
+        run: |
+          set -euo pipefail
+          # `--output DIR` writes into `DIR/mutants.out/`, not `DIR/`. Reading the wrong level
+          # found nothing, took the "nothing was tested" branch, and left the job green with an
+          # empty summary — the failure this job exists to detect, produced by the code meant
+          # to report it. Found by running it.
+          out="${RUNNER_TEMP}/mutants/mutants.out"
+          {
+            echo "### ci (mutants)"
+            echo
+            if [ ! -f "$out/caught.txt" ]; then
+              echo "The run produced no outcome files, so nothing was tested."
+              exit 0
+            fi
+            caught=$(wc -l < "$out/caught.txt")
+            missed=$(wc -l < "$out/missed.txt" 2>/dev/null || echo 0)
+            timeout=$(wc -l < "$out/timeout.txt" 2>/dev/null || echo 0)
+            unviable=$(wc -l < "$out/unviable.txt" 2>/dev/null || echo 0)
+            echo "| caught | survived | timed out | unviable |"
+            echo "|---|---|---|---|"
+            echo "| $caught | $missed | $timeout | $unviable |"
+            echo
+            # Stated rather than omitted when empty, for the reason the skip census is: an
+            # absent section reads as "nothing to say", and "no survivors" is the sentence a
+            # broken run also produces.
+            if [ "$missed" -eq 0 ]; then
+              echo "No mutant survived. $caught were introduced and every one failed a test."
+            else
+              echo "#### Survivors ($missed)"
+              echo
+              echo 'These changes to the source were not caught by any test.'
+              echo
+              echo '```'
+              cat "$out/missed.txt"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutants
+          path: ${{ runner.temp }}/mutants
+          if-no-files-found: warn

@@ -402,14 +402,45 @@ fn the_generated_bundle_is_a_subset_of_the_source() {
          preview would render a component nobody can edit."
     );
 
-    // The other direction is expected and is recorded, not asserted away. If it ever reaches
-    // zero the design tool has been re-run and this note can go.
-    let unpreviewed: Vec<&String> = files.difference(&bundled).collect();
+    // The other direction is expected, and what it is allowed to be is derived rather than
+    // counted. A number here would be the roster pattern in miniature: `<= 2` stops meaning
+    // anything the moment a third component is added, and the way it stops meaning something
+    // is a red build that gets its bound bumped.
+    //
+    // The rule instead: everything the bundle lacks is in the group that was added by hand
+    // since the last sync. A hand-added component *elsewhere* is a real question — the tool
+    // owns those groups — and this is where somebody answers it.
+    let unpreviewed: BTreeSet<&String> = files.difference(&bundled).collect();
+    let hand_added: BTreeSet<&String> = component_group_members("measurement")
+        .iter()
+        .filter_map(|n| files.get(n))
+        .collect();
+    let elsewhere: Vec<&&String> = unpreviewed.difference(&hand_added).collect();
     assert!(
-        unpreviewed.len() <= 2,
-        "{} components are missing from the generated bundle and therefore have no card \
-         preview: {unpreviewed:?}. Two is the number #467 added by hand; more than that \
-         means the bundle has fallen further behind than anyone decided it should.",
-        unpreviewed.len()
+        elsewhere.is_empty(),
+        "these components are missing from the generated bundle and are not in the group \
+         that was added by hand: {elsewhere:?}. The design tool owns those groups, so either \
+         it has not been re-run since they were edited — in which case their card previews \
+         are stale — or they were written by hand into a group that does not expect it."
     );
+}
+
+/// The components in one group directory. Discovered, so the group's membership is never
+/// stated twice.
+fn component_group_members(group: &str) -> BTreeSet<String> {
+    let dir = repo_root().join(DESIGN).join("components").join(group);
+    let entries =
+        std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("{} is unreadable ({e})", dir.display()));
+    let out: BTreeSet<String> = entries
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "jsx"))
+        .map(|p| p.file_stem().unwrap().to_string_lossy().to_string())
+        .collect();
+    assert!(
+        !out.is_empty(),
+        "{} holds no components; the group this test is about has moved",
+        dir.display()
+    );
+    out
 }

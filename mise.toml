@@ -564,10 +564,17 @@ run = [
 # `bench` refuses to measure against keyword search — so this cannot live in the light gate
 # and runs where `cli-full` runs: main push and the weekly schedule, not on pull requests.
 #
-# The regression guard it provides is real but narrow until #261 lands. It ratchets nothing
-# yet: the arms that exist — flat and full-scan — cannot regress from a change to the
-# traversal path, because neither traverses. What it does catch today is the goal set and
-# the corpus drifting apart, retrieval breaking outright, and the example losing its index.
+# The regression guard it provides is real but narrow, and #261 has since landed. What it
+# catches is the goal set and the corpus drifting apart, retrieval breaking outright, and the
+# example losing its index.
+#
+# It still ratchets nothing, and that is now a stated scope rather than a pending one: this
+# arm needs a vector index and an embedding run, and whether an ANN search over embedded
+# prose reproduces closely enough to hold a baseline is a question #468 did not measure.
+# Guessing a tolerance for it would be inventing the number instead of finding it.
+#
+# The arm that *is* ratcheted is `--scaling`, by `bench_baseline.rs` in the `ci (cli)` gate —
+# it is deterministic, so the baseline is exact and the diff is the review.
 [tasks.bench-example]
 description = "Run `yidam bench` against examples/streamflow, with a real index (needs --features index)."
 run = [
@@ -577,12 +584,50 @@ run = [
 
 # `--scaling` generates its corpora in memory and has no retrieval arm, so it needs neither
 # the index feature nor a corpus — which is why this one *can* run on every pull request.
+# Its numbers are ratcheted by `bench_baseline.rs`, which runs the same binary over the same
+# committed config inside `ci (cli)` and compares against `tests/goldens/bench/scaling.json`.
+# This job remains because the two answer different questions: the test asks whether the
+# numbers moved, and this prints the table a reader actually reads.
 [tasks.bench-scaling]
 description = "Run `yidam bench --scaling` over generated corpora."
 run = [
   "cargo build --manifest-path yidam/cli/Cargo.toml --locked",
   "yidam/cli/target/debug/yidam bench --scaling",
 ]
+
+# ── mutation testing (#468) ───────────────────────────────────────────────
+#
+# The check this repository has been performing by hand. RFC-0024 prescribes it per call site
+# — "delete the guard, keep the comment, confirm red" — and every phase of #459 has done it by
+# remembering to. This catches the ones nobody thought to do.
+#
+# **It mutates your working tree.** cargo-mutants copies the package directory and builds the
+# copy; `yidam/cli` dev-depends on `../tests/harness/ci-report`, which is outside that
+# directory, so the copy cannot resolve it and the baseline build fails before any mutant runs.
+# `--in-place` is the way around that, and the cost is real: interrupt this and a source file
+# is left holding a mutant. `git status` will show it and `git checkout --` on that one path
+# restores it — but commit your work first, because that command takes uncommitted edits with
+# it.
+#
+# `NEXTEST_PROFILE=default` because mise sets it to `ci` globally and the config defining that
+# profile is only found through the explicit `--config-file` every gate passes. cargo-mutants
+# builds its baseline with its own command line and never sees the flag.
+#
+# Scoped, and by a measured cost rather than a guess: one mutant is roughly 80 seconds here,
+# and `cmd/lint/` alone holds 586 of them.
+[tasks.mutants]
+description = "Mutate the rule-bearing modules and report which mutants no test caught."
+tools = { "cargo:cargo-mutants" = "25.3.1" }
+run = """
+env NEXTEST_PROFILE=default cargo mutants \
+  --manifest-path yidam/cli/Cargo.toml \
+  --cargo-arg=--locked \
+  --in-place \
+  --test-tool nextest \
+  --timeout 300 \
+  --file src/vault/policy.rs \
+  --file src/cmd/lint/commits.rs
+"""
 
 # The editor client. Not a cargo workspace, so it is not in the `ci` composite below —
 # `mise run ci` is the Rust gate and stays fast. CI runs this as its own job.

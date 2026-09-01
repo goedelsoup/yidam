@@ -1,0 +1,255 @@
+{
+  "config": {
+    "class_shares": [
+      0.01,
+      0.015,
+      0.02,
+      0.025,
+      0.03,
+      0.035,
+      0.043,
+      0.06,
+      0.09,
+      0.14,
+      0.23,
+      0.302
+    ],
+    "goals_per_size": 24,
+    "max_hops": 2,
+    "mean_out_degree": 4.18,
+    "node_chars": 5900,
+    "seed": 20260823,
+    "sizes": [
+      8,
+      64,
+      512,
+      4096
+    ],
+    "source": "a 102-node derived corpus, measured 2026-08-23 (#264)",
+    "version": 1
+  },
+  "flat_excluded_because": "top-k retrieval considers k candidates whatever N is, so its cost and precision are constant in N by construction. Measuring it across sizes would spend an embedding run to rediscover the k we chose. O(n) lives on the full-scan arm.",
+  "format_version": "1",
+  "root": "<root>",
+  "rows": [
+    {
+      "anchored": {
+        "arm": "anchored",
+        "candidates": null,
+        "hits": [],
+        "nodes_read": null,
+        "precision": null,
+        "ran": false,
+        "recall": null,
+        "returned": [],
+        "tokens": null,
+        "traversal_nodes_read": null,
+        "unavailable_reason": "these corpora are generated in memory and carry no embeddings, so an anchor over them would resolve by keyword search over synthetic prose — a keyword baseline scored as the arm that is supposed to beat one. Embedding four thousand generated nodes to fix that would measure the generator's vocabulary. The anchored arm is measured on a real corpus, by `yidam bench` without `--scaling`."
+      },
+      "corpus": {
+        "ceiling_reaches_claim": false,
+        "classes": 5,
+        "narrowing_ceiling": 8.0,
+        "nodes": 8,
+        "smallest_class": "c0",
+        "smallest_class_size": 1
+      },
+      "focused_scan": {
+        "arm": "focused-scan",
+        "candidates": 2,
+        "hits": [],
+        "nodes_read": 2,
+        "precision": 0.7916666666666669,
+        "ran": true,
+        "recall": 1.0,
+        "returned": [],
+        "tokens": 2519,
+        "traversal_nodes_read": null,
+        "unavailable_reason": null
+      },
+      "full_scan": {
+        "arm": "full-scan",
+        "candidates": 8,
+        "hits": [],
+        "nodes_read": 8,
+        "precision": 0.140625,
+        "ran": true,
+        "recall": 1.0,
+        "returned": [],
+        "tokens": 11800,
+        "traversal_nodes_read": null,
+        "unavailable_reason": null
+      },
+      "goals": 24,
+      "mean_expected": 1.125,
+      "mean_hops": 1.5416666666666667
+    },
+    {
+      "anchored": {
+        "arm": "anchored",
+        "candidates": null,
+        "hits": [],
+        "nodes_read": null,
+        "precision": null,
+        "ran": false,
+        "recall": null,
+        "returned": [],
+        "tokens": null,
+        "traversal_nodes_read": null,
+        "unavailable_reason": "these corpora are generated in memory and carry no embeddings, so an anchor over them would resolve by keyword search over synthetic prose — a keyword baseline scored as the arm that is supposed to beat one. Embedding four thousand generated nodes to fix that would measure the generator's vocabulary. The anchored arm is measured on a real corpus, by `yidam bench` without `--scaling`."
+      },
+      "corpus": {
+        "ceiling_reaches_claim": true,
+        "classes": 12,
+        "narrowing_ceiling": 64.0,
+        "nodes": 64,
+        "smallest_class": "c0",
+        "smallest_class_size": 1
+      },
+      "focused_scan": {
+        "arm": "focused-scan",
+        "candidates": 6,
+        "hits": [],
+        "nodes_read": 6,
+        "precision": 0.5210526315789473,
+        "ran": true,
+        "recall": 1.0,
+        "returned": [],
+        "tokens": 9218,
+        "traversal_nodes_read": null,
+        "unavailable_reason": null
+      },
+      "full_scan": {
+        "arm": "full-scan",
+        "candidates": 64,
+        "hits": [],
+        "nodes_read": 64,
+        "precision": 0.0234375,
+        "ran": true,
+        "recall": 1.0,
+        "returned": [],
+        "tokens": 94400,
+        "traversal_nodes_read": null,
+        "unavailable_reason": null
+      },
+      "goals": 24,
+      "mean_expected": 1.5,
+      "mean_hops": 1.5
+    },
+    {
+      "anchored": {
+        "arm": "anchored",
+        "candidates": null,
+        "hits": [],
+        "nodes_read": null,
+        "precision": null,
+        "ran": false,
+        "recall": null,
+        "returned": [],
+        "tokens": null,
+        "traversal_nodes_read": null,
+        "unavailable_reason": "these corpora are generated in memory and carry no embeddings, so an anchor over them would resolve by keyword search over synthetic prose — a keyword baseline scored as the arm that is supposed to beat one. Embedding four thousand generated nodes to fix that would measure the generator's vocabulary. The anchored arm is measured on a real corpus, by `yidam bench` without `--scaling`."
+      },
+      "corpus": {
+        "ceiling_reaches_claim": true,
+        "classes": 12,
+        "narrowing_ceiling": 102.4,
+        "nodes": 512,
+        "smallest_class": "c0",
+        "smallest_class_size": 5
+      },
+      "focused_scan": {
+        "arm": "focused-scan",
+        "candidates": 59,
+        "hits": [],
+        "nodes_read": 59,
+        "precision": 0.09778603930292011,
+        "ran": true,
+        "recall": 1.0,
+        "returned": [],
+        "tokens": 87332,
+        "traversal_nodes_read": null,
+        "unavailable_reason": null
+      },
+      "full_scan": {
+        "arm": "full-scan",
+        "candidates": 512,
+        "hits": [],
+        "nodes_read": 512,
+        "precision": 0.0037434895833333335,
+        "ran": true,
+        "recall": 1.0,
+        "returned": [],
+        "tokens": 755200,
+        "traversal_nodes_read": null,
+        "unavailable_reason": null
+      },
+      "goals": 24,
+      "mean_expected": 1.9166666666666667,
+      "mean_hops": 1.4166666666666667
+    },
+    {
+      "anchored": {
+        "arm": "anchored",
+        "candidates": null,
+        "hits": [],
+        "nodes_read": null,
+        "precision": null,
+        "ran": false,
+        "recall": null,
+        "returned": [],
+        "tokens": null,
+        "traversal_nodes_read": null,
+        "unavailable_reason": "these corpora are generated in memory and carry no embeddings, so an anchor over them would resolve by keyword search over synthetic prose — a keyword baseline scored as the arm that is supposed to beat one. Embedding four thousand generated nodes to fix that would measure the generator's vocabulary. The anchored arm is measured on a real corpus, by `yidam bench` without `--scaling`."
+      },
+      "corpus": {
+        "ceiling_reaches_claim": true,
+        "classes": 12,
+        "narrowing_ceiling": 99.90243902439025,
+        "nodes": 4096,
+        "smallest_class": "c0",
+        "smallest_class_size": 41
+      },
+      "focused_scan": {
+        "arm": "focused-scan",
+        "candidates": 257,
+        "hits": [],
+        "nodes_read": 257,
+        "precision": 0.01340666952259052,
+        "ran": true,
+        "recall": 1.0,
+        "returned": [],
+        "tokens": 378521,
+        "traversal_nodes_read": null,
+        "unavailable_reason": null
+      },
+      "full_scan": {
+        "arm": "full-scan",
+        "candidates": 4096,
+        "hits": [],
+        "nodes_read": 4096,
+        "precision": 0.0004679361979166667,
+        "ran": true,
+        "recall": 1.0,
+        "returned": [],
+        "tokens": 6041600,
+        "traversal_nodes_read": null,
+        "unavailable_reason": null
+      },
+      "goals": 24,
+      "mean_expected": 1.9166666666666667,
+      "mean_hops": 1.5
+    }
+  ],
+  "standing": "baseline",
+  "standing_reason": "this run establishes the O(n) baseline and the corpora; it is not yet a comparison. these corpora are generated in memory and carry no embeddings, so an anchor over them would resolve by keyword search over synthetic prose — a keyword baseline scored as the arm that is supposed to beat one. Embedding four thousand generated nodes to fix that would measure the generator's vocabulary. The anchored arm is measured on a real corpus, by `yidam bench` without `--scaling`.",
+  "yidam": {
+    "commit": "<commit>",
+    "features": [
+      "reports",
+      "tonpa",
+      "vault-s3"
+    ],
+    "version": "<version>"
+  }
+}

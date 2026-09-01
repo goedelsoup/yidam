@@ -36,6 +36,7 @@ export { NodeCard } from './components/knowledge/NodeCard.jsx';
 export { PhaseTag } from './components/knowledge/PhaseTag.jsx';
 
 export { CoverageBar } from './components/measurement/CoverageBar.jsx';
+export { Sparkline } from './components/measurement/Sparkline.jsx';
 export { StatusMeter } from './components/measurement/StatusMeter.jsx';
 
 export { Breadcrumb } from './components/navigation/Breadcrumb.jsx';

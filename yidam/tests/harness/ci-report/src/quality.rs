@@ -49,18 +49,27 @@ pub const FORMAT_VERSION: &str = "1";
 /// reads as what it is. Same argument the census makes about a skip nobody counted, applied
 /// to a whole page. #468 replaces these with data; until it does, the report states the gap
 /// rather than leaving the page to infer it.
-pub const SECTIONS: &[(&str, &str)] = &[
-    (
-        "bench",
-        "`yidam bench` prints prose and no machine-readable series exists yet; #468 adds the \
-         baseline this would be compared against.",
-    ),
-    (
-        "mutation",
-        "No mutation run is configured. #468 adds it, sequenced after #440 so it inherits \
-         RFC-0024's call sites rather than filing a second opinion on them.",
-    ),
-];
+pub const SECTIONS: &[(&str, &str)] = &[(
+    "mutation",
+    "`cargo-mutants` runs on the weekly schedule, not on the run this report describes. Its \
+     survivors are in that job's summary; a per-commit report cannot state them.",
+)];
+
+/// Sections a run *does* measure, and where a reader finds them.
+///
+/// `bench` was in [`SECTIONS`] until #468, saying "`yidam bench` prints prose and no
+/// machine-readable series exists yet". The second half was true and the first was not:
+/// `yidam bench --format json` has emitted through this same envelope since the command was
+/// written. The claim was made in #467 by reading the task rather than running the command —
+/// the mistake this epic keeps finding, made by the phase that was cataloguing it.
+///
+/// It is measured now: `bench_baseline.rs` ratchets `--scaling` against a committed baseline,
+/// and the series carries the headline cost per push.
+pub const MEASURED_SECTIONS: &[(&str, &str)] = &[(
+    "bench",
+    "Ratcheted by `bench_baseline.rs` against `yidam/cli/tests/goldens/bench/scaling.json`. \
+     The series on the `quality-series` branch carries the headline cost per push.",
+)];
 
 // ── the envelope ─────────────────────────────────────────────────────────────
 
@@ -406,7 +415,8 @@ fn totals_of(tests: &[Test], ignored_ids: &BTreeSet<String>, suite: &str) -> Tot
 }
 
 impl Totals {
-    fn zero() -> Self {
+    /// The identity for [`Totals::plus`], so a fold over gates needs no special case.
+    pub fn zero() -> Self {
         Self {
             cases: 0,
             failed: 0,
@@ -418,7 +428,8 @@ impl Totals {
         }
     }
 
-    fn plus(self, other: Self) -> Self {
+    /// Componentwise. `asserted` adds like the rest: it is a count of tests, not a ratio.
+    pub fn plus(self, other: Self) -> Self {
         Self {
             cases: self.cases + other.cases,
             failed: self.failed + other.failed,
@@ -485,18 +496,25 @@ pub fn fragment(provenance: &Provenance, gate: Gate) -> Envelope {
 }
 
 fn sections() -> BTreeMap<String, Section> {
-    SECTIONS
-        .iter()
-        .map(|(name, why)| {
-            (
-                name.to_string(),
-                Section {
-                    measured: false,
-                    why: why.to_string(),
-                },
-            )
-        })
-        .collect()
+    let unmeasured = SECTIONS.iter().map(|(name, why)| {
+        (
+            name.to_string(),
+            Section {
+                measured: false,
+                why: why.to_string(),
+            },
+        )
+    });
+    let measured = MEASURED_SECTIONS.iter().map(|(name, why)| {
+        (
+            name.to_string(),
+            Section {
+                measured: true,
+                why: why.to_string(),
+            },
+        )
+    });
+    unmeasured.chain(measured).collect()
 }
 
 // ── merging ──────────────────────────────────────────────────────────────────
@@ -787,22 +805,34 @@ mod tests {
         assert_eq!(e.quality.gates.len(), 1);
     }
 
-    /// Both sections are declared even though nothing measured either. An absent section
-    /// reads as "nothing to say"; this reads as what it is.
+    /// Every section is declared, measured or not, and every one says where it stands.
+    ///
+    /// An absent section reads as "nothing to say"; this reads as what it is. Both halves
+    /// carry a `why` — a measured section that could not say where its numbers are would send
+    /// a reader looking for a chart this report does not hold.
     #[test]
-    fn the_unmeasured_sections_are_declared_rather_than_omitted() {
+    fn every_section_is_declared_with_its_standing_and_its_reason() {
         let e = fragment(&provenance(), mixed_gate());
-        for (name, _) in SECTIONS {
+        assert_eq!(
+            e.quality.sections.len(),
+            SECTIONS.len() + MEASURED_SECTIONS.len(),
+            "a section is declared twice, or one name appears under both standings"
+        );
+        for (name, expected) in SECTIONS
+            .iter()
+            .map(|(n, _)| (n, false))
+            .chain(MEASURED_SECTIONS.iter().map(|(n, _)| (n, true)))
+        {
             let s = e
                 .quality
                 .sections
                 .get(*name)
                 .unwrap_or_else(|| panic!("no `{name}` section"));
-            assert!(!s.measured);
-            assert!(
-                !s.why.is_empty(),
-                "`{name}` says it is unmeasured and not why"
+            assert_eq!(
+                s.measured, expected,
+                "`{name}` is declared under the wrong standing"
             );
+            assert!(!s.why.is_empty(), "`{name}` states a standing and not why");
         }
     }
 

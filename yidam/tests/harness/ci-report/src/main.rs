@@ -9,14 +9,15 @@
 //! ```text
 //! ci-report --gate "ci (cli)" --junit path/to/junit.xml --list path/to/list.json
 //! ci-report merge --from artifacts/ --out quality-report.json
+//! ci-report series --report quality-report.json --file series.jsonl
 //! ```
 //!
 //! Markdown to stdout; a gate redirects it. `--json` additionally writes this gate's
 //! `quality-report.json` fragment, which the merge mode joins into the one document #467's
 //! pages read. Exits non-zero when the run it was pointed at contains no tests — see [`main`].
 
-use anyhow::{bail, Result};
-use ci_report::{census, coverage, junit, quality, summary};
+use anyhow::{bail, Context, Result};
+use ci_report::{census, coverage, junit, quality, series, summary};
 use std::path::{Path, PathBuf};
 
 struct Args {
@@ -41,6 +42,14 @@ struct Args {
 struct MergeArgs {
     from: PathBuf,
     out: PathBuf,
+}
+
+/// Where the series reads its inputs and which file it appends to.
+struct SeriesArgs {
+    report: PathBuf,
+    file: PathBuf,
+    /// The committed bench baseline. Optional so the mode still works before one exists.
+    bench: Option<PathBuf>,
 }
 
 fn parse_args() -> Result<Args> {
@@ -109,6 +118,31 @@ fn parse_merge_args() -> Result<MergeArgs> {
     })
 }
 
+fn parse_series_args() -> Result<SeriesArgs> {
+    let mut report = None;
+    let mut file = None;
+    let mut bench = None;
+    let mut it = std::env::args().skip(2);
+    while let Some(arg) = it.next() {
+        let mut value = || {
+            it.next()
+                .ok_or_else(|| anyhow::anyhow!("{arg} needs a value"))
+        };
+        match arg.as_str() {
+            "--report" => report = Some(PathBuf::from(value()?)),
+            "--file" => file = Some(PathBuf::from(value()?)),
+            "--bench" => bench = Some(PathBuf::from(value()?)),
+            other => bail!("unknown argument `{other}`"),
+        }
+    }
+    Ok(SeriesArgs {
+        report: report
+            .ok_or_else(|| anyhow::anyhow!("series needs --report <quality-report.json>"))?,
+        file: file.ok_or_else(|| anyhow::anyhow!("series needs --file <series.jsonl>"))?,
+        bench,
+    })
+}
+
 /// # Why an empty run is an error
 ///
 /// A summary step that emits nothing and exits zero is the failure mode of this whole phase,
@@ -121,8 +155,10 @@ fn parse_merge_args() -> Result<MergeArgs> {
 /// has no cases is a binary whose every test is `#[ignore]`d, and that is not what this is
 /// ever pointed at: it reads a whole gate's run.
 fn main() -> Result<()> {
-    if std::env::args().nth(1).as_deref() == Some("merge") {
-        return merge();
+    match std::env::args().nth(1).as_deref() {
+        Some("merge") => return merge(),
+        Some("series") => return append_series(),
+        _ => {}
     }
 
     let args = parse_args()?;
@@ -207,6 +243,59 @@ fn merge() -> Result<()> {
         args.out.display(),
         report.quality.gates.len(),
         report.yidam.commit
+    );
+    Ok(())
+}
+
+/// Append this run to the series, replacing any record the same commit already has.
+///
+/// Idempotent on purpose. A re-run of a workflow must not add a second point for one commit:
+/// the series would show a step that never happened and the page would draw it.
+fn append_series() -> Result<()> {
+    let args = parse_series_args()?;
+    let text = std::fs::read_to_string(&args.report)
+        .with_context(|| format!("reading {}", args.report.display()))?;
+    let report: quality::Envelope = serde_json::from_str(&text)
+        .with_context(|| format!("parsing {} as a quality report", args.report.display()))?;
+
+    let bench = match &args.bench {
+        Some(path) => Some(
+            std::fs::read_to_string(path)
+                .with_context(|| format!("reading the bench baseline at {}", path.display()))?,
+        ),
+        None => None,
+    };
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let existing = series::read(&args.file)?;
+    if !existing.unreadable.is_empty() {
+        // Reported, never repaired. A writer that silently rewrote the lines it could not
+        // read would destroy whatever a truncated append left behind, and the point of
+        // keeping this in git is that nothing quietly rewrites history.
+        eprintln!(
+            "::warning::{} line(s) of {} did not parse and are being dropped from the \
+             rewrite: {:?}",
+            existing.unreadable.len(),
+            args.file.display(),
+            existing.unreadable
+        );
+    }
+
+    let record = series::record(&report, bench.as_deref(), now);
+    let commit = record.commit.clone();
+    let records = series::append(&existing, record);
+    if let Some(parent) = args.file.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&args.file, series::render(&records))?;
+    eprintln!(
+        "{}: {} record(s), newest {commit}",
+        args.file.display(),
+        records.len()
     );
     Ok(())
 }
