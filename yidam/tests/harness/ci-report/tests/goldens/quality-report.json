@@ -1,0 +1,208 @@
+{
+  "format_version": "1",
+  "quality": {
+    "gates": [
+      {
+        "coverage": {
+          "added": 4,
+          "features": [
+            "reports",
+            "tonpa",
+            "vault-s3"
+          ],
+          "files": [
+            {
+              "added": 4,
+              "path": "yidam/cli/src/parse.rs",
+              "uncovered": [
+                5,
+                6
+              ]
+            }
+          ],
+          "uncovered": 2,
+          "unmeasured": [
+            {
+              "added": 3,
+              "feature": "index",
+              "path": "yidam/cli/src/embedding.rs",
+              "reason": "gated"
+            }
+          ]
+        },
+        "features": [
+          "reports",
+          "tonpa",
+          "vault-s3"
+        ],
+        "gate": "ci (cli)",
+        "skipped": [
+          {
+            "kind": "ignored",
+            "reason": "#[ignore] — see the test's own note",
+            "suite": "yidam::example_corpus",
+            "test": "the_streamflow_example_still_bootstraps"
+          },
+          {
+            "kind": "gated",
+            "reason": "set YIDAM_S3_TEST=1 and run a MinIO on http://127.0.0.1:9000",
+            "suite": "yidam::vault_s3",
+            "test": "a_missing_object_is_not_an_empty_one"
+          },
+          {
+            "kind": "gated",
+            "reason": "set YIDAM_S3_TEST=1 and run a MinIO on http://127.0.0.1:9000",
+            "suite": "yidam::vault_s3",
+            "test": "a_round_trip_through_the_bucket"
+          }
+        ],
+        "suites": [
+          {
+            "suite": "yidam::design_tokens",
+            "tests": [
+              {
+                "failure": "dangling token\nthese reference tokens the design system does not declare:\n  yidam/web/docs/src/styles/custom.css:12: var(--ink-999)",
+                "name": "every_token_a_consumer_uses_is_declared_at_the_source",
+                "seconds": 0.044,
+                "skip_reason": null,
+                "status": "failed"
+              },
+              {
+                "failure": null,
+                "name": "no_consumer_declares_a_raw_colour",
+                "seconds": 0.031,
+                "skip_reason": null,
+                "status": "passed"
+              }
+            ],
+            "totals": {
+              "asserted": 1,
+              "cases": 2,
+              "failed": 1,
+              "gated": 0,
+              "ignored": 0,
+              "passed": 1,
+              "skipped": 0
+            }
+          },
+          {
+            "suite": "yidam::example_corpus",
+            "tests": [
+              {
+                "failure": null,
+                "name": "the_streamflow_example_still_bootstraps",
+                "seconds": null,
+                "skip_reason": "#[ignore] — see the test's own note",
+                "status": "skipped"
+              }
+            ],
+            "totals": {
+              "asserted": 0,
+              "cases": 0,
+              "failed": 0,
+              "gated": 0,
+              "ignored": 1,
+              "passed": 0,
+              "skipped": 1
+            }
+          },
+          {
+            "suite": "yidam::vault_s3",
+            "tests": [
+              {
+                "failure": null,
+                "name": "a_missing_object_is_not_an_empty_one",
+                "seconds": 0.001,
+                "skip_reason": "set YIDAM_S3_TEST=1 and run a MinIO on http://127.0.0.1:9000",
+                "status": "skipped"
+              },
+              {
+                "failure": null,
+                "name": "a_round_trip_through_the_bucket",
+                "seconds": 0.002,
+                "skip_reason": "set YIDAM_S3_TEST=1 and run a MinIO on http://127.0.0.1:9000",
+                "status": "skipped"
+              }
+            ],
+            "totals": {
+              "asserted": 0,
+              "cases": 2,
+              "failed": 0,
+              "gated": 2,
+              "ignored": 0,
+              "passed": 2,
+              "skipped": 2
+            }
+          }
+        ],
+        "totals": {
+          "asserted": 1,
+          "cases": 4,
+          "failed": 1,
+          "gated": 2,
+          "ignored": 1,
+          "passed": 3,
+          "skipped": 3
+        }
+      },
+      {
+        "coverage": null,
+        "features": [],
+        "gate": "ci (harness)",
+        "skipped": [],
+        "suites": [
+          {
+            "suite": "yidam-harness::judge",
+            "tests": [
+              {
+                "failure": null,
+                "name": "the_baselines_still_agree",
+                "seconds": 1.25,
+                "skip_reason": null,
+                "status": "passed"
+              }
+            ],
+            "totals": {
+              "asserted": 1,
+              "cases": 1,
+              "failed": 0,
+              "gated": 0,
+              "ignored": 0,
+              "passed": 1,
+              "skipped": 0
+            }
+          }
+        ],
+        "totals": {
+          "asserted": 1,
+          "cases": 1,
+          "failed": 0,
+          "gated": 0,
+          "ignored": 0,
+          "passed": 1,
+          "skipped": 0
+        }
+      }
+    ],
+    "sections": {
+      "bench": {
+        "measured": false,
+        "why": "`yidam bench` prints prose and no machine-readable series exists yet; #468 adds the baseline this would be compared against."
+      },
+      "mutation": {
+        "measured": false,
+        "why": "No mutation run is configured. #468 adds it, sequenced after #440 so it inherits RFC-0024's call sites rather than filing a second opinion on them."
+      }
+    }
+  },
+  "root": "<root>",
+  "yidam": {
+    "commit": "<commit>",
+    "features": [
+      "reports",
+      "tonpa",
+      "vault-s3"
+    ],
+    "version": "0.0.0-fixture"
+  }
+}

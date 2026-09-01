@@ -15,6 +15,27 @@
 //! The third is why this file exists rather than trusting the job to fail. Emptying
 //! `no-restricted-syntax` leaves `mise run design-lint` green — a lint with nothing to say
 //! exits zero, and reads from the outside exactly like a lint with nothing to complain about.
+//!
+//! # And every one of those rules was inert anyway (#467)
+//!
+//! The three findings above were all true and none of them was the problem. #467 pointed a
+//! deliberately-broken file at the lint and it reported nothing, because:
+//!
+//! 4. **`no-restricted-syntax` is not a rule oxlint has.** It is absent from `oxlint --rules`,
+//!    and an unknown rule key is accepted at load and ignored at run. All 47 selectors —
+//!    every prop contract, the hex rule, the px rule, the font rule — did nothing at all.
+//! 5. **`no-restricted-imports` is implemented, and was switched off everywhere.** An
+//!    `overrides` block exempting `**/index.js` disabled the rule for every file, not for
+//!    that one; and its patterns were written for bare specifiers (`components/core/**`)
+//!    while every import in the tree is relative (`../core/Badge.jsx`), so it could not have
+//!    matched even had it run.
+//!
+//! The lesson is the one this file was already about, applied to itself: **reading a config
+//! cannot tell you whether a linter enforces it.** Three tests here asserted the rules were
+//! present, were errors, and were invoked, and all three were true of a lint that caught
+//! nothing. `scripts/design-lint-selftest.sh` runs it against a file that breaks it, and the
+//! prop contracts now live in `design_system.rs`, derived from each component's `.d.ts`
+//! rather than transcribed into a regex.
 
 use std::path::PathBuf;
 
@@ -69,34 +90,53 @@ fn the_config_holds_only_keys_oxlint_accepts() {
     );
 }
 
-/// The rules the lint exists for are present and say something.
+/// The rule that survives is configured to catch what it was written to catch.
 ///
-/// Discovered by what the selectors match rather than by counting them: a config with three
-/// entries none of which mentions a colour is the same nothing as a config with none.
+/// One rule, not forty-seven. The rest named `no-restricted-syntax`, which oxlint does not
+/// implement, and #467 removed them rather than leave a config that reads as enforcement.
+///
+/// What is asserted here is the shape of the patterns, because that is where the second
+/// defect was: `components/core/**` matches a bare specifier and every import in this tree is
+/// relative. Whether the rule then *fires* is not knowable from here — oxlint is a task-scoped
+/// tool and this gate has no npm — so `scripts/design-lint-selftest.sh` answers that by
+/// running it, and `the_lint_is_proved_against_a_file_that_breaks_it` below requires the task
+/// to invoke it.
 #[test]
-fn the_adherence_rules_still_forbid_what_they_were_written_to_forbid() {
+fn the_import_boundary_is_configured_to_match_the_imports_this_tree_has() {
     let cfg = config();
-    let restricted = cfg["rules"]["no-restricted-syntax"]
+    let patterns = cfg["rules"]["no-restricted-imports"][1]["patterns"][0]["group"]
         .as_array()
-        .unwrap_or_else(|| panic!("{CONFIG} declares no `no-restricted-syntax`"));
+        .unwrap_or_else(|| panic!("{CONFIG} declares no `no-restricted-imports` patterns"));
+    assert!(
+        !patterns.is_empty(),
+        "the import boundary forbids nothing, which is the same nothing as not being there"
+    );
 
-    let selectors: String = restricted
-        .iter()
-        .filter_map(|e| e.get("selector").and_then(|s| s.as_str()))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let groups: Vec<&str> = patterns.iter().filter_map(|p| p.as_str()).collect();
+    let unmatched: Vec<&&str> = groups.iter().filter(|g| !g.starts_with("**/")).collect();
+    assert!(
+        unmatched.is_empty(),
+        "these patterns are anchored where an import specifier is not: {unmatched:?}. A \
+         sibling import reads `../core/Badge.jsx` and carries no `components/` segment, so a \
+         pattern that names one matches only the barrel — which is how this rule spent its \
+         life matching nothing but the file it was meant to exempt."
+    );
 
-    for (what, needle) in [
-        ("a raw hex colour", "#[0-9a-fA-F]"),
-        ("a raw px value", "px"),
-        ("an off-system font", "font-family"),
-    ] {
-        assert!(
-            selectors.contains(needle),
-            "no rule forbids {what} any more. `mise run design-lint` still exits zero with \
-             an empty rule list, which is why this is asserted here and not left to the job."
-        );
-    }
+    // Every component group is behind the boundary. Discovered, so a group added tomorrow is
+    // covered without anyone remembering this file.
+    let dir = repo_root().join("yidam/design/components");
+    let missing: Vec<String> = std::fs::read_dir(&dir)
+        .expect("yidam/design/components is readable")
+        .filter_map(Result::ok)
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|group| !groups.iter().any(|g| g.contains(group.as_str())))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "these component groups are not behind the import boundary, so their internals can \
+         be imported directly: {missing:?}"
+    );
 }
 
 /// Every rule is an error.
@@ -180,5 +220,72 @@ fn a_task_runs_the_lint_and_a_workflow_runs_the_task() {
         runs,
         "no workflow runs `mise run design-lint`. The lint would be back where #465 found \
          it: a config for a rule nobody checks."
+    );
+}
+
+/// The lint is proved by running it, not by reading it.
+///
+/// The whole of #467's finding in one assertion. Three tests in this file were green against
+/// a lint that enforced nothing, because all three read the config. `oxlint` is provisioned by
+/// the `design-lint` task and is not on this gate's PATH, so what is checked here is that the
+/// proof exists and that the task performs it; the proof itself lives in the script.
+#[test]
+fn the_lint_is_proved_against_a_file_that_breaks_it() {
+    let script = "scripts/design-lint-selftest.sh";
+    let selftest = read(script);
+    assert!(
+        selftest.contains("--rules"),
+        "{script} no longer checks that the config names rules oxlint implements — the defect \
+         that hid 47 dead selectors for the life of the config"
+    );
+
+    let fixture_dir = repo_root().join("yidam/tests/design-lint-selftest");
+    let fixtures: Vec<PathBuf> = std::fs::read_dir(&fixture_dir)
+        .unwrap_or_else(|e| panic!("{} is unreadable ({e})", fixture_dir.display()))
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "jsx"))
+        .collect();
+    assert!(
+        !fixtures.is_empty(),
+        "{} holds no fixture, so the self-test proves the lint reports on nothing",
+        fixture_dir.display()
+    );
+    // The fixture has to actually break a rule the config still carries. One that stopped
+    // doing so would leave the self-test passing and the lint unproven.
+    let breaks: Vec<&PathBuf> = fixtures
+        .iter()
+        .filter(|p| {
+            let text = std::fs::read_to_string(p).unwrap_or_default();
+            text.lines()
+                .filter(|l| l.trim_start().starts_with("import "))
+                .any(|l| l.contains("/components/"))
+        })
+        .collect();
+    assert!(
+        !breaks.is_empty(),
+        "no fixture in {} imports a component internal any more, so the self-test asserts \
+         that a clean file is clean",
+        fixture_dir.display()
+    );
+
+    // Comments stripped: the task's own note explains what the self-test is for, and a check
+    // satisfied by that note is the mistake this file has now found three times.
+    let mise: String = read("mise.toml")
+        .lines()
+        .map(|l| l.split('#').next().unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let task = mise
+        .split("[tasks.design-lint]")
+        .nth(1)
+        .expect("mise.toml declares no `design-lint` task")
+        .split("\n[tasks.")
+        .next()
+        .unwrap_or_default();
+    assert!(
+        task.contains(script),
+        "the `design-lint` task no longer runs {script}, so the lint is back to being \
+         checked only by reading it"
     );
 }

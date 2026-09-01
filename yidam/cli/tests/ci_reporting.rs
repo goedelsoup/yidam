@@ -157,10 +157,10 @@ fn every_workspace_that_runs_nextest_also_runs_the_doctests() {
 /// The bar is *uniformity*, not any one job: a gate that reports differently from its
 /// neighbours is how a reader learns to stop trusting the summary, and a gate whose summary
 /// step was never added looks identical to one with nothing to say.
-#[test]
-fn every_job_that_runs_tests_also_renders_a_summary() {
+/// `ci.yml`'s jobs and their bodies. Jobs are the two-space keys under `jobs:`; a job's body
+/// runs to the next one.
+fn ci_jobs() -> Vec<(String, String)> {
     let yml = ci_yml();
-    // Jobs are the two-space keys under `jobs:`; a job's body runs to the next one.
     let mut jobs: Vec<(String, String)> = Vec::new();
     let mut name = String::new();
     let mut body = String::new();
@@ -184,9 +184,15 @@ fn every_job_that_runs_tests_also_renders_a_summary() {
     }
     assert!(
         jobs.len() >= 5,
-        "only {} jobs parsed out of ci.yml; every assertion below would be vacuous",
+        "only {} jobs parsed out of ci.yml; every assertion built on this would be vacuous",
         jobs.len()
     );
+    jobs
+}
+
+#[test]
+fn every_job_that_runs_tests_also_renders_a_summary() {
+    let jobs = ci_jobs();
 
     // A job runs tests when it invokes a task that does. Read from the task file rather than
     // guessed, so a task that stops running tests stops being required to report them.
@@ -425,5 +431,89 @@ fn a_skip_is_announced_through_the_helper_and_not_in_its_own_words() {
         "these announce a skip in their own words rather than through `ci_report::skipped`, \
          so the census does not see them:\n{}",
         offenders.join("\n")
+    );
+}
+
+/// Every gate that renders a summary also contributes a fragment, and the merge collects it.
+///
+/// Three joins, none of them visible in one file, and each fails quietly on its own:
+///
+/// 1. **A gate that summarises but writes no fragment.** Its results are in a job summary and
+///    absent from the report. The page renders the gates it was given and says nothing about
+///    the one it was not — which reads as a complete run.
+/// 2. **A renamed artifact.** The action uploads `quality-<artifact>`; the merge downloads a
+///    pattern. `ci-report merge` refuses an *empty* set, so losing every fragment is red —
+///    and losing one is a report describing half a run, green.
+/// 3. **A merge that does not wait.** A job absent from `needs:` may not have uploaded yet.
+///
+/// All three are discovered from the two files rather than listed here.
+#[test]
+fn every_summary_also_writes_a_report_fragment() {
+    let jobs = ci_jobs();
+    let action = code_only(&read(".github/actions/test-summary/action.yml"), "#");
+
+    // The literal prefix of the artifact the action uploads, up to the first expansion.
+    let upload = action
+        .split("name: quality-")
+        .nth(1)
+        .expect("the composite action no longer uploads a `quality-` artifact");
+    let templated = upload.lines().next().unwrap_or("").trim();
+    assert!(
+        templated.contains("${{ inputs.artifact }}"),
+        "the fragment artifact is no longer named after the gate ({templated:?}); two gates \
+         writing one name would leave a report describing half a run"
+    );
+
+    let mut summarising = Vec::new();
+    let mut without_fragment = Vec::new();
+    for (job, body) in &jobs {
+        if !body.contains("./.github/actions/test-summary") {
+            continue;
+        }
+        summarising.push(job.clone());
+        if !body.contains("json:") {
+            without_fragment.push(job.clone());
+        }
+    }
+    assert!(
+        summarising.len() >= 4,
+        "only {summarising:?} render a summary; the parse is reading the wrong thing"
+    );
+    assert!(
+        without_fragment.is_empty(),
+        "these gates render a summary and write no report fragment, so their results reach \
+         the quality pages not at all — and a page that lists the gates it was given reads \
+         as a complete run: {without_fragment:?}"
+    );
+
+    let (_, merge) = jobs
+        .iter()
+        .find(|(_, body)| body.contains("ci-report merge"))
+        .expect("no job merges the fragments into a quality report");
+
+    let pattern = merge
+        .split("pattern: ")
+        .nth(1)
+        .and_then(|r| r.lines().next())
+        .map(str::trim)
+        .expect("the merge job downloads no artifact pattern");
+    assert!(
+        pattern.starts_with("quality-") && pattern.ends_with('*'),
+        "the merge downloads {pattern:?}, which does not match what the action uploads \
+         (`quality-<artifact>`). A pattern that matches nothing is caught — `merge` refuses \
+         an empty set — but one that matches some of them is a partial report, green."
+    );
+
+    let needs = merge
+        .split("needs: ")
+        .nth(1)
+        .and_then(|r| r.lines().next())
+        .unwrap_or_default()
+        .to_string();
+    let unawaited: Vec<&String> = summarising.iter().filter(|j| !needs.contains(*j)).collect();
+    assert!(
+        unawaited.is_empty(),
+        "the merge job does not wait for {unawaited:?}, which write fragments it is supposed \
+         to collect. It would merge whatever had finished."
     );
 }

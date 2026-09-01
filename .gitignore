@@ -49,6 +49,10 @@ dist/
 # Node / TypeScript
 node_modules/
 dist/
+# The render assertions build the docs site into directories of their own, so a fixture
+# render can never become the thing that deploys (#467). The script removes them; a failed
+# run leaves them behind.
+dist-*/
 .pnpm-store/
 *.tsbuildinfo
 

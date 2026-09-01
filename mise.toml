@@ -390,7 +390,16 @@ tools = { "npm:oxlint" = "1.42.0" }
 # `--deny-warnings`, because a lint that only warns in CI is a lint that is off. The rules
 # themselves moved from `warn` to `error` in #465 for the same reason; this covers oxlint's
 # own defaults, one of which was already firing on a stray escape in `Avatar.jsx`.
-run = "oxlint --config yidam/design/_adherence.oxlintrc.json --deny-warnings yidam/design"
+#
+# The self-test is not decoration. Every custom rule this config carried was inert: 47
+# `no-restricted-syntax` selectors named a rule oxlint does not implement, and the one rule it
+# does implement was switched off everywhere by an `overrides` block. The job ran, read 40
+# files, and reported nothing — on a tree with 21 hand-written hex colours in it. A lint is
+# only checked by running it against something that should fail.
+run = [
+  "oxlint --config yidam/design/_adherence.oxlintrc.json --deny-warnings yidam/design",
+  "bash scripts/design-lint-selftest.sh",
+]
 
 # ── coverage (#464) ───────────────────────────────────────────────────────
 #
@@ -668,6 +677,23 @@ run = "npm install --prefix yidam/web/docs"
 [tasks.docs-dev]
 description = "Start the docs dev server on http://localhost:4321/yidam/."
 run = "npm run --prefix yidam/web/docs dev -- --port 4321"
+
+# The quality pages, built and read back (#467).
+#
+# Everything else about that phase is asserted on the model, and none of it can catch a
+# template that is handed `asserted: 0` and draws a green bar anyway. This builds the site
+# twice — once against `ci-report`'s committed golden, once with no report at all — and reads
+# the emitted HTML. Two builds rather than one, into directories of their own, so a render
+# against a fixture can never become the thing that deploys.
+#
+# It found the two bugs it was written for on its first run: an overview page reading
+# "3 ignored test s", and a no-report state that had never been rendered.
+[tasks.docs-test]
+description = "Build the quality pages against a fixture report and assert on the HTML."
+# `package.json`'s `test` script, for the reason `docs-build` calls `build`: docs.yml carries
+# no mise, so the workflow and the terminal have to reach the same command by two routes, and
+# the npm script is the one they can both name.
+run = "npm run --prefix yidam/web/docs test"
 
 [tasks.docs-build]
 description = "Build the docs site to yidam/web/docs/dist/."

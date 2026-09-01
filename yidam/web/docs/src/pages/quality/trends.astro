@@ -1,0 +1,54 @@
+---
+// The bench series and the mutation survivors — neither of which exists yet.
+//
+// One page rather than two, and it says so rather than drawing an empty chart. Both are
+// #468's work: `yidam bench` prints prose today and there is no baseline to compare a run
+// against, and no mutation run is configured at all. A sparkline with nothing to plot would
+// be a component with no consumer, which is the pattern this whole epic is about removing.
+//
+// The report declares both sections rather than omitting them, so this page reads its reason
+// out of the document instead of holding an opinion of its own. When #468 lands, the section
+// flips to `measured` and this page grows a chart; nothing here has to be remembered.
+import Quality from '../../layouts/Quality.astro';
+import NoReport from '../../components/NoReport.astro';
+import { loadReport } from '../../quality/report';
+
+const { report, problem } = loadReport();
+const sections = Object.entries(report?.quality.sections ?? {});
+
+const TITLES: Record<string, string> = {
+  bench: 'The bench series',
+  mutation: 'Mutation survivors',
+};
+---
+
+<Quality title="Trends" commit={report?.yidam.commit} version={report?.yidam.version}>
+  {problem && <NoReport problem={problem} />}
+  {
+    sections.map(([name, section]) =>
+      section.measured ? (
+        <div class="card">
+          <h2>{TITLES[name] ?? name}</h2>
+          <p class="note">Measured, and nothing here renders it yet.</p>
+        </div>
+      ) : (
+        <div class="absent">
+          <p>
+            <strong>{TITLES[name] ?? name} — not measured.</strong> {section.why}
+          </p>
+        </div>
+      ),
+    )
+  }
+  {
+    report && sections.length === 0 && (
+      <div class="absent">
+        <p>
+          <strong>This report declares no sections at all.</strong> Both `bench` and
+          `mutation` should be present and saying why they are unmeasured; a report that omits
+          them leaves this page unable to tell "nothing to say" from "nothing was asked".
+        </p>
+      </div>
+    )
+  }
+</Quality>

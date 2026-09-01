@@ -1,4 +1,5 @@
 import { defineConfig } from 'astro/config';
+import react from '@astrojs/react';
 import starlight from '@astrojs/starlight';
 import { DOCS_BASE, publishedIds, resolveFrom } from './src/content/docs-source.ts';
 
@@ -75,6 +76,15 @@ const sidebar = [
       { slug: 'quality-rubric', label: 'Quality rubric' },
       { slug: 'test-harness', label: 'Test harness' },
       { slug: 'post-genesis-measurement', label: 'Post-genesis measurement' },
+      // A `link` rather than a `slug`: `/quality/` is not a Starlight route and has no entry
+      // in the content collection. It is a segment of this deployment with its own layout,
+      // built from `src/pages/quality/`, and `sidebarSlugs` below collects slugs only — so
+      // the bidirectional gate neither demands a page for it nor calls it unlisted.
+      //
+      // Written against BASE for the reason `docs_site.rs` exists: a literal `/yidam/quality/`
+      // beside a `base` that moved is a working site and a dead link, and only the second is
+      // visible in a diff.
+      { link: `${BASE}/quality/`, label: 'Measurements' },
     ],
   },
   {
@@ -201,6 +211,12 @@ export default defineConfig({
     '/': `${BASE}/what-yidam-is/`,
   },
   integrations: [
+    // The quality routes (#467) render the design system's own React components — the first
+    // consumer `yidam/design/components/` has ever had. No `client:*` directive appears on
+    // any of them, so this is a build-time renderer: React produces HTML and none of it is
+    // shipped to a reader. The alternative was re-implementing a status meter and a coverage
+    // bar in Astro, which is the second copy #465 spent a phase removing.
+    react(),
     starlight({
       title: 'yidam',
       description: 'A git-native knowledge graph system for structured domain research.',

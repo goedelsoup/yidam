@@ -88,6 +88,7 @@ jobs:
           junit: ${{ matrix.path }}/target/nextest/ci/junit.xml
           manifest: ${{ matrix.path }}/Cargo.toml
           artifact: test-results-${{ matrix.workspace }}
+          json: "true"
           lcov: ${{ matrix.workspace == 'cli' && 'yidam/cli/target/coverage.lcov' || '' }}
           src: ${{ matrix.workspace == 'cli' && 'yidam/cli/src' || '' }}
           # The default set, spelled where the reader of a number can see it.
@@ -132,6 +133,7 @@ jobs:
           gate: ci (vscode)
           junit: yidam/editors/vscode/junit.xml
           artifact: test-results-vscode
+          json: "true"
 
   parity:
     # The cross-language parity suites, which nothing ran. `ci-cli` builds only the CLI's
@@ -174,6 +176,7 @@ jobs:
           junit: yidam/prelude/sdks/rust/target/nextest/ci/junit.xml
           manifest: yidam/prelude/sdks/rust/Cargo.toml
           artifact: test-results-parity
+          json: "true"
 
   verify:
     # The formal specs — 658 lines of Dafny and LEAN that `mise.toml` has named since it was
@@ -383,6 +386,7 @@ jobs:
           junit: yidam/cli/target/nextest/ci/junit.xml
           manifest: yidam/cli/Cargo.toml
           artifact: test-results-cli-full
+          json: "true"
       # #264: "Run it in CI against `examples/streamflow`." It lives here rather than in the
       # light gate because `bench` refuses to measure against keyword search, and the vector
       # arm of `retrieve` is `--features index`. So the benchmark runs where the full build
@@ -399,3 +403,57 @@ jobs:
           name: coverage-full-lcov
           path: yidam/cli/target/coverage-full.lcov
           if-no-files-found: warn
+
+  quality:
+    # One `quality-report.json` out of every gate's fragment (#467).
+    #
+    # The gates run on separate runners and cannot see each other, so each writes a fragment
+    # — its own whole envelope — and this joins them. The alternative, a job that re-runs
+    # every suite in order to report on them, is the same tests twice.
+    #
+    # `always()`, because a failing gate is the one whose numbers the report most needs. A
+    # report assembled only from green runs is a report in which nothing ever fails.
+    #
+    # It runs on pull requests too, where nothing publishes it. That is deliberate: the merge
+    # is the step most likely to break silently — a renamed artifact, a fragment nobody
+    # uploaded — and the failure would otherwise appear on main, one commit after the change
+    # that caused it. `ci-report merge` refuses an empty set rather than writing an empty
+    # document, so a run that collected nothing is red here rather than a page saying nothing
+    # failed.
+    name: ci (quality report)
+    if: always()
+    needs: [ci, vscode, parity, cli-full]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: yidam/tests/harness
+          key: quality
+      - name: Build the reporter
+        run: |
+          mise exec -- cargo build --locked \
+            --manifest-path yidam/tests/harness/Cargo.toml \
+            --package ci-report
+      # Every gate's fragment, flattened into one directory. `merge-multiple` is why the
+      # composite action names each file after its gate: two files called `fragment.json`
+      # would leave a report describing half a run.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: quality-test-results-*
+          path: ${{ runner.temp }}/fragments
+          merge-multiple: true
+      - name: Merge
+        run: |
+          yidam/tests/harness/target/debug/ci-report merge \
+            --from "${RUNNER_TEMP}/fragments" \
+            --out quality-report.json
+      # Retained on every run, not only on main. `docs.yml` reads the most recent one from
+      # main; a pull request's own copy is what makes the artifact downloadable by whoever is
+      # reviewing the change that moved a number.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quality-report
+          path: quality-report.json
+          if-no-files-found: error

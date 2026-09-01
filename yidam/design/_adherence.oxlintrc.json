@@ -4,7 +4,8 @@
     "import"
   ],
   "ignorePatterns": [
-    "_ds_bundle.js"
+    "_ds_bundle.js",
+    "index.js"
   ],
   "rules": {
     "react/forbid-elements": [
@@ -19,185 +20,17 @@
         "patterns": [
           {
             "group": [
-              "components/core/**",
-              "components/feedback/**",
-              "components/forms/**",
-              "components/knowledge/**",
-              "components/navigation/**"
+              "**/core/**",
+              "**/feedback/**",
+              "**/forms/**",
+              "**/knowledge/**",
+              "**/measurement/**",
+              "**/navigation/**"
             ],
             "message": "Import design-system components from 'index.js', not component internals."
           }
         ]
       }
-    ],
-    "no-restricted-syntax": [
-      "error",
-      {
-        "selector": "Literal[value=/#[0-9a-fA-F]{3,8}\\b/]",
-        "message": "Raw hex color \u2014 use a design-system color token via var()."
-      },
-      {
-        "selector": "Literal[value=/\\b\\d+px\\b/]",
-        "message": "Raw px value \u2014 use a design-system spacing token via var()."
-      },
-      {
-        "selector": "Literal[value=/font-family\\s*:\\s*(?!['\\\"]?(?:Cormorant Garamond|DM Sans|IBM Plex Mono|Spectral))/i]",
-        "message": "Font not provided by the design system. Available: Cormorant Garamond, DM Sans, IBM Plex Mono, Spectral."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Avatar'] > JSXAttribute > JSXIdentifier[name!=/^(?:name|src|size|variant|style|key|ref|className|style|children)$/]",
-        "message": "<Avatar> doesn't accept that prop. Declared props: name, src, size, variant, style."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Avatar'] > JSXAttribute[name.name='size'] > Literal[value!=/^(?:xs|sm|md|lg)$/]",
-        "message": "<Avatar> size must be one of 'xs' | 'sm' | 'md' | 'lg'."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Avatar'] > JSXAttribute[name.name='variant'] > Literal[value!=/^(?:human|agent)$/]",
-        "message": "<Avatar> variant must be one of 'human' | 'agent'."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Badge'] > JSXAttribute > JSXIdentifier[name!=/^(?:variant|size|dot|children|key|ref|className|style|children)$/]",
-        "message": "<Badge> doesn't accept that prop. Declared props: variant, size, dot, children."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Badge'] > JSXAttribute[name.name='variant'] > Literal[value!=/^(?:default|gold|rigpa|ma|verified|inference|open|inverse)$/]",
-        "message": "<Badge> variant must be one of 'default' | 'gold' | 'rigpa' | 'ma' | 'verified' | 'inference' | 'open' | 'inverse'."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Badge'] > JSXAttribute[name.name='size'] > Literal[value!=/^(?:sm|md)$/]",
-        "message": "<Badge> size must be one of 'sm' | 'md'."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='BranchRef'] > JSXAttribute > JSXIdentifier[name!=/^(?:branch|short|commit|key|ref|className|style|children)$/]",
-        "message": "<BranchRef> doesn't accept that prop. Declared props: branch, short, commit."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='BreadcrumbItem'] > JSXAttribute > JSXIdentifier[name!=/^(?:label|href|key|ref|className|style|children)$/]",
-        "message": "<BreadcrumbItem> doesn't accept that prop. Declared props: label, href."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Button'] > JSXAttribute > JSXIdentifier[name!=/^(?:variant|size|disabled|type|children|onClick|style|key|ref|className|style|children)$/]",
-        "message": "<Button> doesn't accept that prop. Declared props: variant, size, disabled, type, children, onClick, style."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Button'] > JSXAttribute[name.name='variant'] > Literal[value!=/^(?:primary|ghost|subtle|danger)$/]",
-        "message": "<Button> variant must be one of 'primary' | 'ghost' | 'subtle' | 'danger'."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Button'] > JSXAttribute[name.name='size'] > Literal[value!=/^(?:sm|md|lg)$/]",
-        "message": "<Button> size must be one of 'sm' | 'md' | 'lg'."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Button'] > JSXAttribute[name.name='type'] > Literal[value!=/^(?:button|submit|reset)$/]",
-        "message": "<Button> type must be one of 'button' | 'submit' | 'reset'."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Card'] > JSXAttribute > JSXIdentifier[name!=/^(?:children|padding|shadow|border|onClick|as|style|key|ref|className|style|children)$/]",
-        "message": "<Card> doesn't accept that prop. Declared props: children, padding, shadow, border, onClick, as, style."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Card'] > JSXAttribute[name.name='padding'] > Literal[value!=/^(?:none|sm|md|lg)$/]",
-        "message": "<Card> padding must be one of 'none' | 'sm' | 'md' | 'lg'."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Card'] > JSXAttribute[name.name='shadow'] > Literal[value!=/^(?:none|xs|sm|md)$/]",
-        "message": "<Card> shadow must be one of 'none' | 'xs' | 'sm' | 'md'."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Checkbox'] > JSXAttribute > JSXIdentifier[name!=/^(?:checked|onChange|label|disabled|id|key|ref|className|style|children)$/]",
-        "message": "<Checkbox> doesn't accept that prop. Declared props: checked, onChange, label, disabled, id."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='ClaimMarker'] > JSXAttribute > JSXIdentifier[name!=/^(?:type|annotation|key|ref|className|style|children)$/]",
-        "message": "<ClaimMarker> doesn't accept that prop. Declared props: type, annotation."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='ClaimMarker'] > JSXAttribute[name.name='type'] > Literal[value!=/^(?:verified|inference|open)$/]",
-        "message": "<ClaimMarker> type must be one of 'verified' | 'inference' | 'open'."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Dialog'] > JSXAttribute > JSXIdentifier[name!=/^(?:open|onClose|title|children|footer|size|key|ref|className|style|children)$/]",
-        "message": "<Dialog> doesn't accept that prop. Declared props: open, onClose, title, children, footer, size."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Dialog'] > JSXAttribute[name.name='size'] > Literal[value!=/^(?:sm|md|lg|xl)$/]",
-        "message": "<Dialog> size must be one of 'sm' | 'md' | 'lg' | 'xl'."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Input'] > JSXAttribute > JSXIdentifier[name!=/^(?:label|value|onChange|placeholder|error|helper|disabled|size|prefix|suffix|type|id|style|key|ref|className|style|children)$/]",
-        "message": "<Input> doesn't accept that prop. Declared props: label, value, onChange, placeholder, error, helper, disabled, size, prefix, suffix, type, id, style."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Input'] > JSXAttribute[name.name='size'] > Literal[value!=/^(?:sm|md)$/]",
-        "message": "<Input> size must be one of 'sm' | 'md'."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='NodeCard'] > JSXAttribute > JSXIdentifier[name!=/^(?:path|title|excerpt|outgoing|incoming|lineCount|lastModified|markers|isOpenQuestion|onClick|style|key|ref|className|style|children)$/]",
-        "message": "<NodeCard> doesn't accept that prop. Declared props: path, title, excerpt, outgoing, incoming, lineCount, lastModified, markers, isOpenQuestion, onClick, style."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='PhaseTag'] > JSXAttribute > JSXIdentifier[name!=/^(?:phase|key|ref|className|style|children)$/]",
-        "message": "<PhaseTag> doesn't accept that prop. Declared props: phase."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='PhaseTag'] > JSXAttribute[name.name='phase'] > Literal[value!=/^(?:Investigation|Extraction|Synthesis|Assessment)$/]",
-        "message": "<PhaseTag> phase must be one of 'Investigation' | 'Extraction' | 'Synthesis' | 'Assessment'."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Radio'] > JSXAttribute > JSXIdentifier[name!=/^(?:checked|onChange|label|disabled|name|value|id|key|ref|className|style|children)$/]",
-        "message": "<Radio> doesn't accept that prop. Declared props: checked, onChange, label, disabled, name, value, id."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='SelectOption'] > JSXAttribute > JSXIdentifier[name!=/^(?:value|label|key|ref|className|style|children)$/]",
-        "message": "<SelectOption> doesn't accept that prop. Declared props: value, label."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Switch'] > JSXAttribute > JSXIdentifier[name!=/^(?:checked|onChange|label|disabled|key|ref|className|style|children)$/]",
-        "message": "<Switch> doesn't accept that prop. Declared props: checked, onChange, label, disabled."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='TabItem'] > JSXAttribute > JSXIdentifier[name!=/^(?:id|label|count|disabled|key|ref|className|style|children)$/]",
-        "message": "<TabItem> doesn't accept that prop. Declared props: id, label, count, disabled."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Tag'] > JSXAttribute > JSXIdentifier[name!=/^(?:children|onRemove|variant|disabled|key|ref|className|style|children)$/]",
-        "message": "<Tag> doesn't accept that prop. Declared props: children, onRemove, variant, disabled."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Tag'] > JSXAttribute[name.name='variant'] > Literal[value!=/^(?:default|gold|rigpa|ma)$/]",
-        "message": "<Tag> variant must be one of 'default' | 'gold' | 'rigpa' | 'ma'."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Textarea'] > JSXAttribute > JSXIdentifier[name!=/^(?:label|value|onChange|placeholder|error|helper|disabled|rows|id|style|key|ref|className|style|children)$/]",
-        "message": "<Textarea> doesn't accept that prop. Declared props: label, value, onChange, placeholder, error, helper, disabled, rows, id, style."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Toast'] > JSXAttribute > JSXIdentifier[name!=/^(?:message|type|detail|onDismiss|key|ref|className|style|children)$/]",
-        "message": "<Toast> doesn't accept that prop. Declared props: message, type, detail, onDismiss."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Toast'] > JSXAttribute[name.name='type'] > Literal[value!=/^(?:info|success|error|warning)$/]",
-        "message": "<Toast> type must be one of 'info' | 'success' | 'error' | 'warning'."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Tooltip'] > JSXAttribute > JSXIdentifier[name!=/^(?:content|children|position|delay|key|ref|className|style|children)$/]",
-        "message": "<Tooltip> doesn't accept that prop. Declared props: content, children, position, delay."
-      },
-      {
-        "selector": "JSXOpeningElement[name.name='Tooltip'] > JSXAttribute[name.name='position'] > Literal[value!=/^(?:top|bottom|left|right)$/]",
-        "message": "<Tooltip> position must be one of 'top' | 'bottom' | 'left' | 'right'."
-      }
     ]
-  },
-  "overrides": [
-    {
-      "files": [
-        "**/index.js"
-      ],
-      "rules": {
-        "no-restricted-imports": "off"
-      }
-    }
-  ]
+  }
 }
