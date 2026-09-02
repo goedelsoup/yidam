@@ -229,9 +229,37 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     // `docs/` is included — documentation about the repository is authored, and its links
     // rot the same way. Not `crates/` or `web/`, whose READMEs carry illustrative targets
     // rather than references to files that are supposed to exist.
+    // ── REGEN blocks (#524) ─────────────────────────────────────────────────────
+    //
+    // Every authored file the generators can write into. The walk is the prose-link walk
+    // plus the repository README, which `yidam status` and `yidam vault-status` write and
+    // which nothing else in this function reads. A file with no markers contributes nothing,
+    // so a walk wider than the generators' own list costs a read and cannot miss a target —
+    // which a list copied from the ten `update_file_regen` call sites would.
     let authorship = crate::authorship::Authorship::load_or_default(root);
     let mut prose_link_paths: Vec<std::path::PathBuf> = walk_linkable_files(&root.join(".yidam"));
     prose_link_paths.extend(walk_linkable_files(&root.join("docs")));
+
+    let mut regen_files: Vec<(String, String)> = Vec::new();
+    for p in prose_link_paths
+        .iter()
+        .chain([root.join("README.md")].iter().filter(|p| p.exists()))
+    {
+        let rel = p
+            .strip_prefix(root)
+            .unwrap_or(p)
+            .to_string_lossy()
+            .to_string();
+        // The same authorship rule the prose-link check applies: a finding in vendored
+        // prelude content is one the derived repository cannot act on.
+        if authorship
+            .covering(&rel)
+            .is_some_and(|r| !r.kind.reportable())
+        {
+            continue;
+        }
+        regen_files.push((rel, overlay.read(p)));
+    }
 
     let mut prose_links: Vec<checks::ProseLink> = Vec::new();
     let mut unauthored: Vec<checks::UnauthoredLink> = Vec::new();
@@ -339,6 +367,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::catalog_artifact_malformed(&sources),
         checks::catalog_artifact_unroutable(&sources, &declared_vaults),
         checks::malformed_table(&prose),
+        checks::malformed_regen_block(&regen_files),
         orphan_in_dated(root, &nodes, &classes).escalating_after(escalate_after),
         checks::catalog_uncited(&sources, &cites),
         checks::class_asserts_purpose(&classes),
@@ -747,7 +776,7 @@ decision := {"allow": true, "deny": []}
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 35);
+        assert_eq!(all.len(), 36);
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
@@ -764,6 +793,9 @@ decision := {"allow": true, "deny": []}
         assert!(ids.contains("broken-prose-link"));
         assert!(ids.contains("unauthored-prose-link"));
         assert!(ids.contains("claim-tag-malformed"));
+        // Reported in a repository whose REGEN blocks are all well formed, which is the
+        // state every corpus is in until one is edited by hand.
+        assert!(ids.contains("malformed-regen-block"));
         assert!(ids.contains("authorship-region-stale"));
         // The class contract. `clean_repo`'s ontology declares neither properties nor
         // edges, so all five pass here — which is the case worth pinning: silence is not a
@@ -914,7 +946,7 @@ decision := {"allow": true, "deny": []}
         assert!(crate::authorship::Authorship::load(tmp.path()).is_err());
         // …while the checks themselves keep answering, for the editor's sake.
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 35);
+        assert_eq!(all.len(), 36);
     }
 
     /// A class declaring an implementation, and a `crates/` tree that may or may not hold it.
@@ -1239,7 +1271,7 @@ decision := {"allow": true, "deny": []}
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 35, "every check still ran");
+        assert_eq!(all.len(), 36, "every check still ran");
         assert_eq!(errors(&all), 0);
     }
 

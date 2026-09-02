@@ -20,7 +20,10 @@
 //     source as a raw substring after "<!-- REGEN: ". It does not — `parse_markers` trims, and
 //     one extra space in the tag is enough. `TheSubstringFormOfGroundingIsFalse`.
 //   - `ParseMarkersComplete` claimed every REGEN block yields a marker. An unterminated block
-//     swallows every one below it: `ParseMarkersIsNotComplete`, filed as #524.
+//     swallows every one below it: `ParseMarkersIsNotComplete`. Still true, and no longer
+//     silent — #524 gave `scan_markers` a second channel, `ScanFrom` models it, and
+//     `TheSwallowedBlockIsReported` proves the same input now names the block that took the
+//     other one.
 //
 // What is *not* modelled, stated so nobody reads more into the green than is there: Dafny
 // still cannot see the Rust. These lemmas prove the model correct, and `parity.rs` checks the
@@ -638,22 +641,101 @@ module YidamGraph {
   // discharges it: `ParseFrom` cannot return a marker that no line in the range it read
   // opens. The recursion is the implementation's loop; the `k` the REGEN branch resumes from
   // is where `lines.by_ref()` left the iterator.
-  function ParseFrom(lines: seq<string>, i: nat): seq<Marker>
+  // ── What the scan could not read the way it was meant (#524) ─────────────────
+  //
+  // `ParseMarkersIsNotComplete` below proves that a block running past its own end silently
+  // takes the markers under it. `scan_markers` reports that rather than leaving it to be
+  // inferred from markers that are absent, and this is the model of the second channel.
+  //
+  // Three faults, because there are three ways a block's extent goes wrong, and only one of
+  // them needs the damaged block to be last in the document — which is why it is the one that
+  // is easy to miss and the other is the one a real file has.
+
+  datatype Fault = OpenArrowMissing | CloseTagMissing | ClosedOnAnothersTag
+
+  datatype MalformedBlock = MalformedBlock(command: string, line: nat, fault: Fault)
+
+  // A body holding an open tag of its own means a close tag is missing above it: the tag this
+  // block closed on is the inner block's.
+  ghost predicate BodyOpensARegen(lines: seq<string>, j: nat, k: nat)
+    requires j <= |lines| && k <= |lines|
+  {
+    exists m :: j <= m < k && HasPrefix(Trim(lines[m]), RegenTag)
+  }
+
+  predicate BodyOpensARegenD(lines: seq<string>, j: nat, k: nat)
+    requires j <= k <= |lines|
+    decreases k - j
+  {
+    if j == k then false
+    else HasPrefix(Trim(lines[j]), RegenTag) || BodyOpensARegenD(lines, j + 1, k)
+  }
+
+  // The order is not arbitrary: an open tag that never closed has no body to inspect, and a
+  // block that ran off the end has no close tag to have taken from anyone. Each test is only
+  // meaningful once the ones above it have failed.
+  //
+  // `k - 1` in the third test excludes the close tag the block landed on. Widening it to `k`
+  // is an **equivalent mutation** — it survives every witness here, and it should: in every
+  // state that reaches this branch `lines[k - 1]` is the close tag, which does not open a
+  // REGEN block. Recorded rather than papered over with a witness that would only be
+  // asserting the two spellings agree.
+  function BlockFault(lines: seq<string>, i: nat, j: nat, k: nat): Option<Fault>
+    requires i <= j <= k <= |lines|
+  {
+    if j == |lines| && !(j > i && HasSuffix(Trim(lines[j - 1]), RegenArrow))
+      then Some(OpenArrowMissing)
+    else if k == |lines| && !(k > j && Trim(lines[k - 1]) == CloseLine)
+      then Some(CloseTagMissing)
+    else if BodyOpensARegenD(lines, j, if k > j then k - 1 else k)
+      then Some(ClosedOnAnothersTag)
+    else None
+  }
+
+  datatype Scan = Scan(markers: seq<Marker>, malformed: seq<MalformedBlock>)
+
+  // The scan, with both of its outputs. Each carries its own grounding postcondition: a
+  // marker comes from a line that opens it, and a report points at a line that opens a REGEN
+  // block. Neither can be invented, which is what makes the second channel worth as much as
+  // the first.
+  function ScanFrom(lines: seq<string>, i: nat): Scan
     requires i <= |lines|
     decreases |lines| - i
-    ensures forall m :: m in ParseFrom(lines, i) ==>
+    ensures forall m :: m in ScanFrom(lines, i).markers ==>
       exists k :: i <= k < |lines| && Opens(lines[k], m)
+    ensures forall b :: b in ScanFrom(lines, i).malformed ==>
+      && i < b.line <= |lines|
+      && HasPrefix(Trim(lines[b.line - 1]), RegenTag)
+      // The command too, and not only the line. Grounding that stops at "it points at a
+      // REGEN line" is satisfied by a report about the right line with the wrong block in
+      // it — which is exactly what a mutation replacing the `None` branch with a fabricated
+      // entry did, while every assertion stayed green.
+      && b.command == RegenCommand(Trim(lines[b.line - 1]))
   {
-    if i == |lines| then []
+    if i == |lines| then Scan([], [])
     else
       var t := Trim(lines[i]);
       if IsTemplateLine(t) then
-        [TemplateMarker(TemplateInstruction(t))] + ParseFrom(lines, i + 1)
+        var rest := ScanFrom(lines, i + 1);
+        Scan([TemplateMarker(TemplateInstruction(t))] + rest.markers, rest.malformed)
       else if HasPrefix(t, RegenTag) then
         var j := if RegenOpenClosesOnItsLine(t) then i + 1 else SkipToArrow(lines, i + 1);
         var k := SkipToClose(lines, j);
-        [RegenMarker(RegenCommand(t), Content(lines, j, k))] + ParseFrom(lines, k)
-      else ParseFrom(lines, i + 1)
+        var rest := ScanFrom(lines, k);
+        var here := match BlockFault(lines, i, j, k)
+          case None => []
+          case Some(f) => [MalformedBlock(RegenCommand(t), i + 1, f)];
+        Scan([RegenMarker(RegenCommand(t), Content(lines, j, k))] + rest.markers,
+             here + rest.malformed)
+      else ScanFrom(lines, i + 1)
+  }
+
+  function ParseFrom(lines: seq<string>, i: nat): seq<Marker>
+    requires i <= |lines|
+    ensures forall m :: m in ParseFrom(lines, i) ==>
+      exists k :: i <= k < |lines| && Opens(lines[k], m)
+  {
+    ScanFrom(lines, i).markers
   }
 
   function ParseMarkers(text: string): seq<Marker> { ParseFrom(Lines(text), 0) }
@@ -729,7 +811,12 @@ module YidamGraph {
   // Five lines, one block, and the command is on a different line from the arrow that closes
   // its tag. `parse_markers` consumes the arrow line before it starts collecting content;
   // stopping either side of it changes the content this asserts.
+  // The fuel on the two skips is not tuning for its own sake: without it the solver searches
+  // instead of unfolding, and this lemma sat a few seconds under the 30s limit — close enough
+  // that adding an unrelated lemma to the file pushed it over. A proof that passes depending
+  // on what else is in the file is one that will fail on somebody else's change.
   lemma {:fuel TrimLeft, 4, 5} {:fuel TrimRight, 4, 5} {:fuel Trim, 4, 5}
+        {:fuel SkipToArrow, 5, 6} {:fuel SkipToClose, 5, 6}
         ParseMarkersReadsAMultiLineBlock()
     ensures var lines := ["<!-- REGEN: due", "  more", "-->", "body", "<!-- /REGEN -->"];
             ParseFrom(lines, 0) == [RegenMarker("due", "body")]
@@ -799,9 +886,10 @@ module YidamGraph {
   // block's content, so a missing close tag does not report itself — it silently costs you
   // every marker below it.
   //
-  // This is a defect in `parse_markers`, stated here rather than fixed here: changing the
-  // parser is a change to three SDKs and their parity tests. Filed as #524, which will need
-  // this lemma updated — it asserts the current output exactly, so it goes red on the fix.
+  // The marker sequence is unchanged by #524 and this lemma still holds: `parse_markers`
+  // returns exactly what it always did. What changed is that the loss is no longer silent —
+  // `TheSwallowedBlockIsReported` below is the same input through `ScanFrom`, and the second
+  // channel names the block that took the other one.
   lemma {:fuel TrimLeft, 6, 7} {:fuel TrimRight, 6, 7} {:fuel Trim, 6, 7}
         ParseMarkersIsNotComplete()
     ensures var a := "<!-- REGEN: a -->";
@@ -827,6 +915,77 @@ module YidamGraph {
     assert Content([a, b], 1, 2) == b by { assert Join([b], "\n") == b; assert Trim(b) == b; }
     assert ParseFrom([a, b], 2) == [];
     assert ParseFrom([a, b], 0) == [RegenMarker("a", b)];
+  }
+
+  // The fault a real file carries, and the one no other lemma here reaches.
+  //
+  // `CloseTagMissing` needs the damaged block to be the last in the document. Give it a
+  // sibling below and the scan runs past the sibling's open tag, closes on the sibling's
+  // close tag, and returns one well-formed-looking block. Nothing is missing; a marker is
+  // simply gone. Added because mutating this fault away left the file green — the "red" that
+  // looked like a catch was an unrelated lemma timing out.
+  lemma {:fuel TrimLeft, 6, 7} {:fuel TrimRight, 6, 7} {:fuel Trim, 6, 7}
+        {:fuel SkipToClose, 5, 6} {:fuel BodyOpensARegenD, 5, 6}
+        ABlockThatClosesOnAnothersTagIsReported()
+    ensures var a := "<!-- REGEN: a -->";
+            var b := "<!-- REGEN: b -->";
+            ScanFrom([a, "x", b, "<!-- /REGEN -->"], 0).malformed
+              == [MalformedBlock("a", 1, ClosedOnAnothersTag)]
+  {
+    var a := "<!-- REGEN: a -->";
+    var b := "<!-- REGEN: b -->";
+    var lines := [a, "x", b, "<!-- /REGEN -->"];
+    assert Trim(a) == a && Trim(b) == b;
+    assert Trim("x") == "x" && Trim("<!-- /REGEN -->") == CloseLine;
+    assert !IsTemplateLine(a) by {
+      if HasPrefix(a, TemplateTag) { assert a[..|TemplateTag|][5] == TemplateTag[5]; }
+    }
+    assert HasPrefix(a, RegenTag);
+    assert a[|RegenTag|..] == " a -->";
+    assert TrimRight(" a -->") == " a -->";
+    assert RegenOpenClosesOnItsLine(a);
+    assert " a -->"[..|" a -->"| - |RegenArrow|] == " a ";
+    assert Trim(" a ") == "a";
+    assert RegenCommand(a) == "a";
+    assert Trim("x") != CloseLine by { assert |"x"| != |CloseLine|; }
+    assert Trim(b) != CloseLine by { assert b[5] == 'R' && CloseLine[5] == '/'; }
+    assert SkipToClose(lines, 1) == 4;
+    assert HasPrefix(Trim(lines[2]), RegenTag);
+    assert BodyOpensARegenD(lines, 1, 3);
+    assert BlockFault(lines, 0, 1, 4) == Some(ClosedOnAnothersTag);
+    assert ScanFrom(lines, 4) == Scan([], []);
+  }
+
+  // …and the same input, reported (#524).
+  //
+  // This is the pair that matters. `ParseMarkersIsNotComplete` proves a marker is lost;
+  // this proves the loss is stated. An axiom could have asserted either one and neither
+  // would have been checked against the other, which is how the incompleteness sat beside a
+  // predicate declaring the opposite for as long as the file existed.
+  lemma {:fuel TrimLeft, 6, 7} {:fuel TrimRight, 6, 7} {:fuel Trim, 6, 7}
+        TheSwallowedBlockIsReported()
+    ensures var a := "<!-- REGEN: a -->";
+            var b := "<!-- REGEN: b -->";
+            ScanFrom([a, b], 0).malformed == [MalformedBlock("a", 1, CloseTagMissing)]
+  {
+    var a := "<!-- REGEN: a -->";
+    var b := "<!-- REGEN: b -->";
+    var lines := [a, b];
+    assert Trim(a) == a && Trim(b) == b;
+    assert !IsTemplateLine(a) by {
+      if HasPrefix(a, TemplateTag) { assert a[..|TemplateTag|][5] == TemplateTag[5]; }
+    }
+    assert HasPrefix(a, RegenTag);
+    assert a[|RegenTag|..] == " a -->";
+    assert TrimRight(" a -->") == " a -->";
+    assert RegenOpenClosesOnItsLine(a);
+    assert " a -->"[..|" a -->"| - |RegenArrow|] == " a ";
+    assert Trim(" a ") == "a";
+    assert RegenCommand(a) == "a";
+    assert Trim(b) != CloseLine by { assert b[5] == 'R' && CloseLine[5] == '/'; }
+    assert SkipToClose(lines, 1) == 2;
+    assert BlockFault(lines, 0, 1, 2) == Some(CloseTagMissing);
+    assert ScanFrom(lines, 2) == Scan([], []);
   }
   // ── Corpus graph validity ─────────────────────────────────────────────────────
 

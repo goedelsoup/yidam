@@ -1,0 +1,22 @@
+function = "parse_markers"
+description = "A multi-line open tag whose arrow never arrives consumes the rest of the file and leaves an empty body"
+
+[input]
+content = """
+<!-- REGEN: yidam status
+Fields: node count, open questions.
+
+## Later section
+"""
+
+[[expected]]
+kind = "Regen"
+command = "yidam status"
+content = ""
+
+[[expected_malformed]]
+command = "yidam status"
+line = 1
+fault = "OpenArrowMissing"
+swallowed_lines = 3
+swallowed_markers = 0

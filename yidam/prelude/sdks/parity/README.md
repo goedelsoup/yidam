@@ -12,7 +12,7 @@ is a build error — `mise run parity` enforces it before running any SDK tests.
 | `extract_claims` | Extract `Claim[]` from markdown content, inferring `EvidenceTag` from inline markers |
 | `extract_links` | Extract `Link[]` from markdown content; exclude images and bare URLs |
 | `classify_commit` | Classify a commit message as `Epistemic` or `Operational` by its verb |
-| `parse_markers` | Parse `REGEN` and `TEMPLATE` markers from file content |
+| `parse_markers` | Parse `REGEN` and `TEMPLATE` markers from file content, and report blocks that took lines which were not theirs |
 | `update_regen` | Replace the content inside a named `REGEN` section, preserving the marker |
 | `find_reachable` | Return all nodes reachable from a given node following directed edges (BFS); result sorted |
 | `find_citations` | Return all nodes that have a directed edge pointing to a given node; result sorted |
@@ -41,6 +41,34 @@ description = "<what this case exercises>"
 Span fields (`span`, byte offsets) are intentionally excluded from fixtures. Byte boundary
 behavior varies across parsers and is not part of the cross-language contract; text and
 tag values are.
+
+### `parse_markers` and malformed blocks
+
+`parse_markers` has a second output, reached through `scan_markers` (`scanMarkers` in
+TypeScript): the blocks whose extent the scan could not read the way they were meant. The
+marker sequence itself is unchanged and stays the contract it was; this is the diagnostic
+beside it (#524).
+
+A fixture declares them as an array beside `[[expected]]`:
+
+```toml
+[[expected_malformed]]
+command = "yidam status"
+line = 3                       # 1-indexed, the open tag's line
+fault = "ClosedOnAnothersTag"  # or CloseTagMissing, OpenArrowMissing
+swallowed_lines = 6            # lines after the open tag this block took as its own
+swallowed_markers = 1          # how many of those open a marker — markers now lost
+```
+
+**Absent means none, not "not checked".** All three runners read the field as an empty list
+when it is missing and assert the scan reported nothing, so every fixture written before it
+existed is now asserting its input is well-formed. A field that were merely optional would
+leave four fixtures silently ungraded on the half that was just added.
+
+`line` is why this is a contract and not three separate diagnostics. TypeScript reached it
+with `split('\n')`, which leaves a trailing empty element on any text ending in a newline —
+invisible while the only output was markers, and one extra swallowed line the moment one is
+counted. `close-tag-missing.toml` is what fails when that is reintroduced.
 
 ## The MUST rule
 
