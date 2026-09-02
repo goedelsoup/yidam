@@ -25,6 +25,12 @@ on:
     # Weekly full-feature build (Mondays 06:00 UTC) — catches gated-code breakage
     # and arrow/lancedb version-lock rot that the light PR builds never compile.
     - cron: '0 6 * * 1'
+  # `ci (mutants)` has guarded on `workflow_dispatch` since it was written and this trigger
+  # was not here, so that arm of its condition was unreachable: the job could be reached by
+  # the Monday schedule and by nothing else. The heavy jobs — mutants, and the full-feature
+  # build — are exactly the ones worth running against a branch on purpose, which is also how
+  # #539 gets measured rather than guessed at.
+  workflow_dispatch:
 
 # Cancel superseded runs on the same ref (e.g. a force-push to a PR branch).
 # Never cancel main — keep its history green.
@@ -403,7 +409,34 @@ jobs:
       - run: mise run bench-example
       # The number that covers the gated paths. Retained rather than only summarised: P7's
       # series is a sequence of these, and a series cannot start later than its first point.
-      - run: mise run coverage-full
+      #
+      # ── the sampler, and why it writes to stdout ─────────────────────────────
+      #
+      # This step is where the runner was killed on `d01cb87` and every commit after it
+      # (#539): every test passes, then the job stops mid-crate with exit 137 and "the runner
+      # has received a shutdown signal". No cargo error, no `No space left on device`, no OOM
+      # line — nothing in the log says which resource ran out, so memory and disk were equally
+      # good guesses and a fix for either would have been a guess.
+      #
+      # The sampler runs beside the build and prints to the step's own stdout, which GitHub
+      # streams. A file in /tmp would die with the VM, and a post-step with `if: always()`
+      # does not run when the runner agent is the thing that was killed — so the last `[res]`
+      # line to reach the log before the kill is the measurement, and it survives precisely
+      # the failure it is there to explain.
+      - name: Coverage (full features), with a resource sampler
+        run: |
+          (
+            while true; do
+              printf '[res] %s mem_avail=%s disk_avail=%s\n' \
+                "$(date -u +%H:%M:%S)" \
+                "$(awk '/MemAvailable/{printf "%.1fGi", $2/1048576}' /proc/meminfo)" \
+                "$(df -h --output=avail / | tail -1 | tr -d ' ')"
+              sleep 15
+            done
+          ) &
+          sampler=$!
+          trap 'kill "$sampler" 2>/dev/null || true' EXIT
+          mise run coverage-full
       - uses: actions/upload-artifact@v4
         if: always()
         with:
