@@ -31,6 +31,26 @@ name: Docs
 on:
   push:
     branches: [main]
+    # The version list is derived from `cli/v*` tags — `scripts/versions.mjs` reads
+    # `git tag -l` and `src/versions.mjs` keeps the last three minor series. Pushing such a
+    # tag is therefore the one event that changes the answer, and it was the one event that
+    # did not rebuild the site (#535). Nothing went red: the site kept serving a coherent
+    # *previous* release until somebody happened to push to main for an unrelated reason, so
+    # the stale window was invisible and its length arbitrary — and it always covered the
+    # period right after a release, when a reader following the announcement arrives.
+    #
+    # `cli/v*` and not `v*`: four layers release into one tag namespace and only this one is
+    # in the list, so a build per template or editor tag would redeploy identical content.
+    #
+    # The `paths-ignore` below does not suppress these. GitHub does not evaluate path filters
+    # for pushes of tags — a tag push has no changed-file set to filter on — which is the
+    # first thing a reader worries about on seeing the two in one block.
+    #
+    # This also needs the `github-pages` environment to permit the ref: its deployment branch
+    # policy listed `main` alone, so a tag run would have built, assembled, and then declined
+    # to publish. A `cli/v*` tag policy was added alongside this trigger; the two are one
+    # change and neither works without the other.
+    tags: ['cli/v*']
     paths-ignore:
       - 'LICENSE'
   pull_request:
