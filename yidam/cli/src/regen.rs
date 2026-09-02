@@ -78,31 +78,21 @@ fn repo_relative(path: &Path) -> String {
         .replace('\\', "/")
 }
 
-// Replaces content between <!-- REGEN: <command> ... --> and <!-- /REGEN -->.
-// Returns the original string unchanged if either marker is not found.
-pub fn update_regen(text: &str, command: &str, new_content: &str) -> String {
-    let open_tag = format!("<!-- REGEN: {command}");
-    let close_tag = "<!-- /REGEN -->";
-
-    let Some(open_pos) = text.find(&open_tag) else {
-        return text.to_string();
-    };
-    let after_open = open_pos + open_tag.len();
-    let Some(arrow_rel) = text[after_open..].find("-->") else {
-        return text.to_string();
-    };
-    let content_start = after_open + arrow_rel + 3; // right after "-->"
-    let Some(close_rel) = text[content_start..].find(close_tag) else {
-        return text.to_string();
-    };
-    let close_abs = content_start + close_rel;
-    format!(
-        "{}\n{}\n{}",
-        &text[..content_start],
-        new_content,
-        &text[close_abs..]
-    )
-}
+// The one implementation, and it is not here.
+//
+// This module carried a fourth copy of `update_regen` — the SDKs have three, kept in step by
+// the parity fixtures — and it disagreed with them. Given empty content it wrote a blank line
+// between the markers; `yidam_core`'s collapses it, which is what
+// `parity/fixtures/update_regen/empty-new-content.toml` requires of all three and what
+// `graph.dfy`'s `ClearingASectionLeavesNoBlankLine` proves of the model.
+//
+// Nothing compared them. The parity surface grades the three SDKs against each other, and
+// this copy is not an SDK, so it sat outside the comparison whose entire purpose is that
+// there are exactly three answers. Its three unit tests never passed an empty string.
+//
+// The CLI already depends on `yidam-core` for `ontology`, `git` and `corpus`. This removes an
+// implementation rather than adding a dependency.
+pub use yidam_core::markers::update_regen;
 
 pub fn update_file_regen(path: &Path, command: &str, new_content: &str) -> Result<()> {
     if !path.exists() {
@@ -157,6 +147,41 @@ Fields: node count, open questions.\n\
     fn missing_marker_is_noop() {
         let input = "# No REGEN here\n";
         assert_eq!(update_regen(input, "yidam status", "new content"), input);
+    }
+
+    /// Clearing a section leaves the two markers on consecutive lines.
+    ///
+    /// The case that was never covered here, and the reason a fourth implementation could
+    /// disagree with the contract for as long as it existed: the three tests above pass an
+    /// empty string to nothing.
+    ///
+    /// Read out of the parity fixture rather than restated. A fourth copy of the expected
+    /// output is exactly what this change removes, and writing one here would put it back a
+    /// file over.
+    #[test]
+    fn clearing_a_section_matches_the_parity_fixture() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../prelude/sdks/parity/fixtures/update_regen/empty-new-content.toml");
+        let raw = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{} is unreadable ({e})", path.display()));
+        let fx: toml::Value = raw.parse().expect("the fixture parses as TOML");
+
+        let new_content = fx["input"]["new_content"].as_str().expect("new_content");
+        assert!(
+            new_content.is_empty(),
+            "this test is about the empty case; the fixture now passes {new_content:?}"
+        );
+        assert_eq!(
+            update_regen(
+                fx["input"]["content"].as_str().expect("content"),
+                fx["input"]["command"].as_str().expect("command"),
+                new_content,
+            ),
+            fx["expected"]["content"]
+                .as_str()
+                .expect("expected.content"),
+            "the CLI writes a different document than the three SDKs are held to"
+        );
     }
 
     #[test]
