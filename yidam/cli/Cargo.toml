@@ -187,7 +187,7 @@ tokio-util = { version = "0.7", default-features = false, features = ["io"], opt
 # `unrecognized subcommand`, which is not "this feature is unavailable" but "a
 # documented workflow is impossible". Every other gated feature degrades to a
 # missing capability; this one degraded to a broken instruction.
-default = ["reports", "tonpa", "vault-s3"]
+default = ["reports", "tonpa", "vault-s3", "export-graph"]
 # The name of the base build — and **not a supported feature set on its own.**
 #
 # It gates nothing. `reports = []` enables no dependency, and there is no
@@ -250,7 +250,24 @@ export-sqlite = [
   "dep:arrow-schema",
   "dep:arrow-ipc",
 ]
-# `export --format rdf` — pure-Rust RDF (no protoc, no C).
+# `export --format rdf` — pure-Rust RDF. **In the default set, deliberately**, and for
+# the reason given on `vault-s3` below rather than a new one: PR CI never compiles
+# `--features full`, so while this was optional its code shipped without a single pull
+# request having built it. Everything in `default` is compiled and tested by every PR,
+# including the aarch64 cross-compile.
+#
+# It is the cheapest thing that argument has ever been applied to. Measured on this
+# lockfile: +9 crates (`oxrdf`, `oxttl`, `oxiri`, `oxilangtag` and a `rand`/`zerocopy`
+# chain, all pure Rust) and **+0.18 MB on a 15.02 MB release binary**. No protoc, no
+# system C library, so the cross-compile is untouched. RFC-0003 listed it `Default: no`
+# and gave no cost reason; the only cost it names — protoc, C — does not apply.
+#
+# It moved here after a derived repository declined to adopt the download channel (#532):
+# it compiled with `--features export-graph`, its pin reached a `cli/v*` tag, and the
+# released binary would have silently replaced a build that could render RDF with one
+# that reports `needs --features export-graph` — under a test that *skips* on exactly
+# that predicate. A capability that has to be added back by every consumer that needs it
+# is one the default set was choosing wrongly about.
 export-graph = ["dep:oxrdf", "dep:oxttl"]
 # `tonpa` bundle dependency manager — async network fetch via reqwest. In the
 # default set; see the note there and on the reqwest dependency above.

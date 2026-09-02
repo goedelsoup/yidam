@@ -71,7 +71,7 @@ Introduce a `[features]` table in `yidam/cli/Cargo.toml` and move the heavy depe
 | `vector-read` | no | semantic `retrieve` and an anchored `query`, over an index built elsewhere | `fastembed 4`, `arrow-* 52` → ONNX runtime, **no `protoc`** |
 | `index` | no | `vector-read`, plus `index-build` | `+ lancedb 0.13`, `tokio`, `futures` → **requires `protoc 31` at build** |
 | `export-sqlite` | no | `export --format sqlite` | `rusqlite 0.32 {bundled}` (**from-source SQLite**), `sqlite-vec` |
-| `export-graph` | no | `export --format rdf` | `oxrdf`, `oxttl` (pure Rust; no `protoc`, no C) |
+| `export-graph` | **yes** (since #532) | `export --format rdf` | `oxrdf`, `oxttl` (pure Rust; no `protoc`, no C) |
 
 Three placements are load-bearing and worth stating explicitly:
 

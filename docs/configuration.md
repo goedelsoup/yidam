@@ -35,6 +35,33 @@ committed = "2026-08-27"
 | `template` | The template-layer release tag at that commit, or `"untagged"` |
 | `committed` | That commit's author date — i.e. how old the vendored prelude is |
 
+### `[build]` — yours, and preserved
+
+```toml
+[build]
+features = ["export-sqlite"]
+```
+
+| Field | Meaning |
+|---|---|
+| `features` | Features this repository's `yidam` binary must have beyond the released default set |
+
+The only part of this file you write. Every path that can produce a binary reads it:
+
+| Path | What it does |
+|---|---|
+| `mise run yidam-build` (download) | asks the downloaded binary's `--version` and compiles instead if it is short |
+| `yidam-build-source` (compile) | passes it to `cargo install --features` |
+| `mise run yidam-vendor-update` | withholds the `[tools]` entry, so `mise install` cannot make the swap |
+
+Declare it here rather than editing `mise.yidam.toml`: that file is the inherited task layer
+and a re-vendor replaces it wholesale. This table survives the re-vendor that rewrites
+everything else in `.yidam.toml`.
+
+A release that carries what you asked for is still adopted — the declaration costs nothing
+until it would cost you a capability. A single-line array; the writer emits that form and the
+readers are `sed`, not a TOML parser.
+
 `commit` is the field that makes the pin mean anything; the other three are for reading.
 `template` names the **template** layer specifically — bare `v<semver>` tags — because every
 other layer prefixes its tag (`cli/v*`, `sdk/rust/v*`, `bootstrap/v*`, `editor/v*`) and a field
