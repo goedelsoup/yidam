@@ -317,6 +317,65 @@ export function loadSeries(): SeriesLoad {
   };
 }
 
+/**
+ * A unix instant as `2026-09-02 00:25 UTC`.
+ *
+ * Built from the `getUTC*` accessors rather than the locale ones, and with the zone in the
+ * string. A build machine's clock is UTC, a reader's is not, and a timestamp rendered at
+ * build time in the builder's zone is a number two people read as two different moments.
+ */
+export function utcMinute(unixSeconds: number | null | undefined): string | null {
+  if (typeof unixSeconds !== 'number' || !Number.isFinite(unixSeconds)) return null;
+  const d = new Date(unixSeconds * 1000);
+  if (Number.isNaN(d.getTime())) return null;
+  const pad = (n: number) => `${n}`.padStart(2, '0');
+  return (
+    `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ` +
+    `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`
+  );
+}
+
+/** Which moment the series describes, and whether it is the masthead's. */
+export interface SeriesProvenance {
+  /** The newest record's commit, or null when the build read no records. */
+  commit: string | null;
+  /** When that record was written, or null when it carries no usable timestamp. */
+  recordedAt: string | null;
+  /** True only when both commits are known and they differ. */
+  disagrees: boolean;
+}
+
+/**
+ * When the build read the series, and whether that is the moment the masthead names.
+ *
+ * The two halves of the trends page come from two places with two lags. The report is
+ * downloaded from the last CI run on main that *succeeded*, so a stretch of red leaves it
+ * several commits back — main-only jobs were red across four merges once, which is not a
+ * hypothetical shape. The series is fetched from the `quality-series` branch at build time,
+ * so it is behind by however far `ci.yml`'s parallel `series` job has got.
+ *
+ * The report's lag has always been disclosed: that is what `yidam.commit` and the masthead's
+ * `measured at` line are for. The series had no such line, and a masthead describing the
+ * other half of the page is not one. This is that line.
+ *
+ * The last record in file order is the newest: `series::append` drops any record for the same
+ * commit and pushes the new one at the end, so position is write order.
+ */
+export function seriesProvenance(
+  records: SeriesRecord[],
+  reportCommit: string | null | undefined,
+): SeriesProvenance {
+  const newest = records.length > 0 ? records[records.length - 1] : null;
+  const commit = newest?.commit ?? null;
+  return {
+    commit,
+    recordedAt: utcMinute(newest?.recorded_at),
+    // A plain comparison, because both sides are the same field: `series::record` copies
+    // `yidam.commit` off a report. What differs is *which* report, which is the whole point.
+    disagrees: Boolean(commit && reportCommit && commit !== reportCommit),
+  };
+}
+
 /** One metric down the series, oldest first — the order the file is appended in. */
 export function column(records: SeriesRecord[], pick: (r: SeriesRecord) => number | null): number[] {
   return records.map(pick).filter((v): v is number => v !== null && Number.isFinite(v));
