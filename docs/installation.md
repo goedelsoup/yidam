@@ -122,7 +122,8 @@ artifacts — the script, the tap, binstall — carry the **default** set.
 | `vector-read` | Upgrades `serve --mcp`'s `retrieve` from keyword to semantic, over an index built elsewhere | fastembed (ONNX); **no protoc** |
 | `index` | `vector-read`, plus `index-build` — the ability to *make* one | + LanceDB; **needs protoc 31 at build time** |
 | `export-sqlite` | `export --format sqlite` | Bundled SQLite + sqlite-vec, compiled from C |
-| `export-graph` | `export --format rdf` | Pure Rust |
+| `vault-s3` *(default)* | The `s3://` transport for `yidam vault`. The rest of the vault — addressing, cache, `file://` — is ungated | hmac + reqwest (rustls) + tokio |
+| `export-graph` *(default)* | `export --format rdf` | Pure Rust |
 | `full` | All of the above | |
 
 Two things follow from that table that are easy to get backwards.

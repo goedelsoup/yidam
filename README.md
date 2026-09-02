@@ -274,7 +274,8 @@ The binary is partitioned by cargo feature so the common case stays cheap to ins
 | `tonpa` *(default)* | Bundle dependency manager — `tonpa add`, `verify`, `update` | reqwest (rustls) + tokio. Vendored C, no system library |
 | `index` | `index-build`, and upgrades `serve --mcp`'s `retrieve` from keyword to semantic | fastembed (ONNX) + LanceDB; needs protoc 31 at build time |
 | `export-sqlite` | `export --format sqlite` | Bundled SQLite + sqlite-vec, compiled from C |
-| `export-graph` | `export --format rdf` | Pure Rust |
+| `vault-s3` *(default)* | The `s3://` transport for `yidam vault` — the rest of the vault is ungated | hmac + reqwest (rustls) + tokio |
+| `export-graph` *(default)* | `export --format rdf` | Pure Rust |
 | `full` | All of the above | |
 
 `tonpa` is in the default set even though it costs an HTTP stack, because it is the only

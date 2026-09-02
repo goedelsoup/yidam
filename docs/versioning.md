@@ -48,6 +48,29 @@ committed = "2026-08-27"
 check out. `template` is the template-layer tag at that commit, or `"untagged"`. `committed` is
 that commit's author date, which is how `yidam doctor` reports the prelude's age.
 
+There is one optional table beside it, and it is the repository's rather than yidam's:
+
+```toml
+[build]
+features = ["export-sqlite"]
+```
+
+**Features this repository's binary must have beyond the released default set.** One
+declaration, read by all three paths that can produce a binary: `yidam-build-source` passes it
+to `cargo install --features`, `yidam-build` checks the release it just downloaded and compiles
+instead if it is short, and `yidam-vendor-update` withholds the `[tools]` entry so `mise
+install` cannot make the swap either.
+
+It exists because the download channel used to make that swap silently. A repository
+compiling with `--features export-graph` whose pin reached a `cli/v*` tag would have had that
+binary replaced by the released one, and `export --format rdf` would start answering `needs
+--features export-graph` — which is a *decline*, not a failure, so a test written to skip when
+the capability is absent goes on passing while asserting nothing. It was caught by a derived
+repository reading the change before adopting it, not by anything here (#532).
+
+`yidam-vendor-update` preserves this table across the re-vendor that rewrites everything else
+in the file.
+
 [Configuration](configuration.md#yidamtoml) has the field-by-field detail.
 
 ### How a derived repo adopts a newer one

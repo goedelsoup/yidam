@@ -61,6 +61,13 @@ if [ ! -f .yidam.toml ]; then
 fi
 origin=$(sed -n 's/^ *origin *= *"\\(.*\\)"/\\1/p' .yidam.toml)
 commit=$(sed -n 's/^ *commit *= *"\\(.*\\)"/\\1/p' .yidam.toml)
+# Features this repository's binary must have, from `[build] features` in .yidam.toml.
+# One declaration, read by both channels: the source build passes it to cargo, and the
+# download below declines a release that was not built with it.
+#
+# A single-line array only. That is what the file's own writer emits, and a parser for the
+# multi-line form would be a TOML parser written in sed.
+required=$(sed -n 's/^ *features *= *\\[\\(.*\\)\\]/\\1/p' .yidam.toml | tr -d '" ' | tr ',' ' ')
 if [ -z "$commit" ] || [ "$commit" = "unknown" ]; then
   echo "ERROR: .yidam.toml records no resolvable commit." >&2
   echo "       repair it with 'mise run yidam-vendor-update'." >&2
@@ -141,7 +148,33 @@ if [ -n "$tag" ] && [ -n "$os" ] && [ -n "$arch" ]; then
       mkdir -p "$PWD/.yidam/bin"
       tar -xzf "$dl/$name.tar.gz" -C "$dl"
       install -m 0755 "$dl/$name/yidam" "$PWD/.yidam/bin/yidam"
-      installed="$tag"
+      # ── does this release do what this repository needs? ────────────────
+      #
+      # The release is built from the `default` feature set. A repository that
+      # needs more than that — `export-sqlite`, `index`, anything a future
+      # release does not carry — would otherwise have a working build silently
+      # replaced by a binary that answers `needs --features …`. The commands
+      # do not fail; they decline, and a test written to skip when a capability
+      # is absent goes on passing while asserting nothing. That is #532, and it
+      # was reported by a derived repository that spotted it before adopting.
+      #
+      # Asked of the binary rather than predicted from the tag: `--version`
+      # prints the feature list it was compiled with, so this is the one place
+      # the answer is a fact rather than an expectation.
+      short=""
+      if [ -n "$required" ]; then
+        have=" $("$PWD/.yidam/bin/yidam" --version 2>/dev/null | sed -n 's/.*\\[\\(.*\\)\\].*/\\1/p') "
+        for f in $required; do
+          case "$have" in *" $f "*) ;; *) short="$short $f" ;; esac
+        done
+      fi
+      if [ -n "$short" ]; then
+        echo "release $tag was built without:$short" >&2
+        echo "  .yidam.toml [build] features requires it — compiling instead." >&2
+        rm -f "$PWD/.yidam/bin/yidam"
+      else
+        installed="$tag"
+      fi
     else
       echo "checksum did not verify for $name — compiling instead" >&2
     fi
@@ -213,9 +246,14 @@ trap 'rm -rf "$tmp"' EXIT
 git clone --quiet --filter=blob:none "$origin" "$tmp/yidam"
 git -C "$tmp/yidam" checkout --quiet "$commit"
 # The light `reports` build: no protoc, no fastembed, no lancedb. Add
-# `--features full` if you need index-build/serve/sqlite/rdf. NOT tonpa — it
-# joined the `default` set in #203, so the released binary reports
-# `[reports tonpa]` and this build carries it too.
+# `--features full` if you need index-build or sqlite export. NOT tonpa,
+# vault-s3 or export-graph — each joined the `default` set (#203, #482, #532),
+# so the released binary carries them and so does this build.
+#
+# Anything else this repository needs, declare in `.yidam.toml`'s `[build]
+# features` rather than editing this line: that is the one place both channels
+# read, and it is what stops a re-vendor swapping this build for a release that
+# cannot do what it does. See the note on the `[tools]` block in mise.toml.
 #
 # --root: install here rather than into ~/.cargo/bin. `cargo install --root DIR`
 # writes DIR/bin/, so this lands at .yidam/bin/yidam.
@@ -225,7 +263,18 @@ git -C "$tmp/yidam" checkout --quiet "$commit"
 # beside it is not, so the two drift apart on any fresh clone or hand-copied
 # binary — and this task, whose whole job is to make the binary match the pin,
 # would fail rather than do it.
-cargo install --force --root "$PWD/.yidam" --path "$tmp/yidam/yidam/cli" --locked
+# `[build] features` from .yidam.toml, the same declaration the download path reads. A
+# repository that needs a non-default feature says so once, here, rather than editing this
+# task — which a re-vendor would replace.
+features=""
+if [ -f .yidam.toml ]; then
+  want=$(sed -n 's/^ *features *= *\\[\\(.*\\)\\]/\\1/p' .yidam.toml | tr -d '" ' | tr ',' ' ')
+  if [ -n "$want" ]; then
+    features="--features $(echo $want | tr ' ' ',')"
+    echo "building with $features (from .yidam.toml [build] features)"
+  fi
+fi
+cargo install --force --root "$PWD/.yidam" --path "$tmp/yidam/yidam/cli" --locked $features
 echo
 echo "installed .yidam/bin/yidam @ $commit"
 echo "Put .yidam/bin first on PATH — [env] _.path in mise.toml covers anything mise"
@@ -321,8 +370,13 @@ ref="${YIDAM_REF:-HEAD}"
 # The pin being replaced, captured before .yidam.toml is overwritten below. It is what
 # makes the vocabulary report at the end possible.
 previous=""
+# `[build] features` is the repository's, not yidam's, and this task overwrites .yidam.toml
+# wholesale. Read it out before that happens and write it back below, or a re-vendor would
+# silently delete the declaration that keeps the download path honest.
+required=""
 if [ -f .yidam.toml ]; then
   previous=$(sed -n 's/^ *commit *= *"\\(.*\\)"/\\1/p' .yidam.toml)
+  required=$(sed -n 's/^ *features *= *\\[\\(.*\\)\\]/\\1/p' .yidam.toml | tr -d '" ' | tr ',' ' ')
 fi
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -374,6 +428,18 @@ commit    = "$commit"
 template  = "$template"
 committed = "$committed"
 EOF
+# Yours, and preserved across every re-vendor. Both channels read it: the source build passes
+# it to cargo, and the download declines a release that was not built with it.
+if [ -n "$required" ]; then
+  quoted=$(echo $required | sed -e 's/ /", "/g')
+  cat >> .yidam.toml <<EOF
+
+[build]
+# Features this repository's yidam binary must have beyond the released default set.
+# \\`mise run yidam-build\\` compiles rather than downloading when a release lacks one.
+features = ["$quoted"]
+EOF
+fi
 echo
 echo "re-vendored to $commit ($template)"
 
@@ -405,6 +471,30 @@ echo "re-vendored to $commit ($template)"
 # place inside the one that is already there.
 cli_tag=$(git -C "$tmp/yidam" tag --points-at HEAD --list 'cli/v*' 2>/dev/null | head -1)
 cli_version="${cli_tag#cli/v}"
+# ── and does that release do what this repository needs? ──────────────
+#
+# The `[tools]` entry is installed by `mise install`, which never runs yidam-build and so
+# never reaches its post-download check. If this wrote the entry regardless, a repository
+# declaring `[build] features` would get a binary without them from the one path that does
+# not look — and the symptom is tests that skip rather than tests that fail (#532).
+#
+# The released set is `[features] default`, read out of the tree just cloned at this exact
+# pin. Not restated here: a copy would be a second answer, and this task has the file.
+if [ -n "$cli_version" ] && [ -n "$required" ]; then
+  released=" $(sed -n 's/^default *= *\\[\\(.*\\)\\].*/\\1/p' "$tmp/yidam/yidam/cli/Cargo.toml" | tr -d '" ' | tr ',' ' ') "
+  short=""
+  for f in $required; do
+    case "$released" in *" $f "*) ;; *) short="$short $f" ;; esac
+  done
+  if [ -n "$short" ]; then
+    echo
+    echo "release $cli_tag is built without:$short"
+    echo "  .yidam.toml [build] features requires it, so the [tools] entry is NOT adopted"
+    echo "  and 'mise run yidam-build' will keep compiling. Nothing is lost; the fast path"
+    echo "  becomes available when upstream ships those features in its default set."
+    cli_version=""
+  fi
+fi
 # No backslashes anywhere in this program, deliberately: it is embedded in a TOML
 # multi-line string, read back out of it by a test, and run through sh — three
 # escaping layers to be wrong in. `index(s, t) == 1` is a prefix test that needs

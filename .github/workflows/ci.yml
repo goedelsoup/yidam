@@ -92,8 +92,11 @@ jobs:
           lcov: ${{ matrix.workspace == 'cli' && 'yidam/cli/target/coverage.lcov' || '' }}
           src: ${{ matrix.workspace == 'cli' && 'yidam/cli/src' || '' }}
           # The default set, spelled where the reader of a number can see it.
-          # `light_build.rs` is what keeps this list and `[features] default` in step.
-          features: ${{ matrix.workspace == 'cli' && 'reports,tonpa,vault-s3' || '' }}
+          # `coverage_reporting.rs::the_reported_feature_set_is_the_one_the_gate_builds`
+          # is what keeps this list and `[features] default` in step — it reads this line
+          # and the manifest and requires them equal. (It used to say `light_build.rs`,
+          # which never read this file.)
+          features: ${{ matrix.workspace == 'cli' && 'reports,tonpa,vault-s3,export-graph' || '' }}
 
   vscode:
     # The editor client. Separate from the Rust matrix because it shares no toolchain
