@@ -410,20 +410,42 @@ jobs:
       # The number that covers the gated paths. Retained rather than only summarised: P7's
       # series is a sequence of these, and a series cannot start later than its first point.
       #
-      # ── the sampler, and why it writes to stdout ─────────────────────────────
+      # ── CARGO_BUILD_JOBS, and the measurement that chose it ──────────────────
       #
-      # This step is where the runner was killed on `d01cb87` and every commit after it
-      # (#539): every test passes, then the job stops mid-crate with exit 137 and "the runner
-      # has received a shutdown signal". No cargo error, no `No space left on device`, no OOM
-      # line — nothing in the log says which resource ran out, so memory and disk were equally
-      # good guesses and a fix for either would have been a guess.
+      # This step was where the runner died on `d01cb87` and every commit after it: every test
+      # passed, then the job stopped mid-crate with exit 137 and "the runner has received a
+      # shutdown signal". No cargo error, no `No space left on device`, no OOM line — nothing
+      # in the log named the resource, so memory and disk were equally good guesses and they
+      # take opposite fixes. The sampler below was added first, alone, and measured it (#539):
       #
-      # The sampler runs beside the build and prints to the step's own stdout, which GitHub
-      # streams. A file in /tmp would die with the VM, and a post-step with `if: always()`
-      # does not run when the runner agent is the thing that was killed — so the last `[res]`
-      # line to reach the log before the kill is the measurement, and it survives precisely
-      # the failure it is there to explain.
+      #   [res] 20:34:37 mem_avail=13.6Gi disk_avail=39G   ← start of the coverage build
+      #   [res] 20:38:37 mem_avail=0.6Gi  disk_avail=34G
+      #   [res] 20:40:38 mem_avail=0.5Gi  disk_avail=29G   ← last line before the kill
+      #
+      # Memory, decisively. Disk never went below 29G, so freeing the preinstalled images or
+      # splitting the job — the two disk fixes — would have changed nothing.
+      #
+      # The runner has 4 vCPU, so cargo defaults to `-j 4`, and four rustc processes each
+      # holding an instrumented LLVM module for lancedb/lance/datafusion do not fit in 16GB.
+      # `d01cb87` is where it began because that is where arrow went 52.2.0 → 53.4.1 and
+      # datafusion 41 → 44, underneath the crate being compiled when the VM went away.
+      #
+      # 2 rather than 3: at 4 jobs the peak was ~15.5GB of 16, so a job costs roughly 3.5GB
+      # and 3 would leave about a gigabyte of headroom on a machine that had just proved it
+      # has none. This step gets slower; nothing else does, and the run it replaces produced
+      # no coverage number at all.
+      #
+      # ── the sampler stays, and why it writes to stdout ───────────────────────
+      #
+      # It is what made this diagnosable, and it is what makes the next regression legible
+      # rather than another silent kill. A file in /tmp would die with the VM, and a post-step
+      # with `if: always()` does not run when the runner agent is the thing that was killed —
+      # so the last `[res]` line to reach the log survives precisely the failure it explains.
       - name: Coverage (full features), with a resource sampler
+        env:
+          # Peak memory scales with the number of parallel rustc processes, and this is the
+          # only knob that touches it without changing what is measured.
+          CARGO_BUILD_JOBS: '2'
         run: |
           (
             while true; do
