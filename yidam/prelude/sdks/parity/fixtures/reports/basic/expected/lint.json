@@ -257,6 +257,13 @@
       "violations": []
     },
     {
+      "id": "malformed-regen-block",
+      "title": "REGEN block whose extent is not what it looks like",
+      "severity": "warn",
+      "rationale": "A REGEN block is three markers: the open tag, the `-->` that ends it, and `<!-- /REGEN -->`. `yidam regen` finds all three or writes nothing at all, without saying so — the section goes stale and looks like a generator that stopped running. Where the missing tag is a close tag, the block also swallows whatever is below it, so the *next* section stops updating for the same invisible reason.",
+      "violations": []
+    },
+    {
       "id": "orphan-in",
       "title": "Node nothing points to",
       "severity": "info",

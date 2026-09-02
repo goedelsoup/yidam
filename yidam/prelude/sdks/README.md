@@ -310,10 +310,28 @@ function ParseFrom(lines: seq<string>, i: nat): seq<Marker>
 Every marker returned is one that some line of the source opens — the parser cannot invent
 one. The postcondition rides on the scan itself, so every call discharges it.
 
-The converse does **not** hold, and `ParseMarkersIsNotComplete` proves it: an unterminated
-REGEN block swallows every marker below it, because the scan looking for `<!-- /REGEN -->`
-runs to the end of the file and takes the rest of the document as that block's content. A
-missing close tag does not report itself. Filed as #524.
+The converse does **not** hold, and `ParseMarkersIsNotComplete` proves it: a REGEN block
+missing its close tag swallows every marker below it, because the scan looking for
+`<!-- /REGEN -->` runs to the end of the file and takes the rest of the document as that
+block's content.
+
+It no longer does so in silence. `scan_markers` (#524) returns the same marker sequence and,
+beside it, the blocks whose extent it could not read the way they were meant:
+
+```
+Fault = OpenArrowMissing | CloseTagMissing | ClosedOnAnothersTag
+MalformedBlock { command, line, fault, swallowed_lines, swallowed_markers }
+```
+
+`ClosedOnAnothersTag` is the one a real file carries. `CloseTagMissing` needs the damaged
+block to be the *last* in the document; give it a sibling below and the scan runs past the
+sibling's open tag, closes on the sibling's close tag, and returns one well-formed-looking
+block with a marker quietly gone. `TheSwallowedBlockIsReported` and
+`ABlockThatClosesOnAnothersTagIsReported` prove both of the model.
+
+`parse_markers` is `scan_markers` without the second channel and keeps its signature: the
+marker sequence is the frozen contract and did not change. `yidam lint`'s
+`malformed-regen-block` is the first consumer either has had in this repository.
 
 Grounding is stated over *lines*, not raw substrings. The version that said a marker's
 command appears in the source after `"<!-- REGEN: "` is false of the parser, which trims:

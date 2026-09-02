@@ -2094,6 +2094,73 @@ fn is_delimiter_row(line: &str) -> bool {
             .all(|c| !c.trim().is_empty() && c.trim().chars().all(|ch| ch == '-' || ch == ':'))
 }
 
+/// REGEN blocks that took lines which were not theirs.
+///
+/// `yidam regen` writes into a block by finding its open tag, its arrow and its close tag. If
+/// any of the three is missing the write is a **silent no-op** — `update_regen` returns the
+/// text unchanged — so the section simply stops updating, and the failure reads as "that part
+/// never refreshes" rather than as a malformed file. Where a marker below it gets swallowed
+/// as content, that marker's section stops updating too, and nothing anywhere says so.
+///
+/// The scan is `yidam_core::markers::scan_markers`, not a reader of this check's own. A
+/// second scanner would be a second answer to "where does a block end", and the two would
+/// drift without either going red — the argument `formal_specs.rs` makes about a workflow
+/// that reproduces a task instead of running it. It is also this repository's first consumer
+/// of a function that had three implementations, shared fixtures, and nothing calling it.
+///
+/// Warn rather than Error, and the reason is a limit of the scanner rather than a doubt about
+/// the finding: it does not know about fenced code blocks, so a document explaining the marker
+/// syntax with a deliberately unbalanced example is indistinguishable from a damaged file.
+/// Gating on a check that cannot tell those apart is how `--warn-only` gets typed, which turns
+/// every check off at once. Every markdown file in this repository passes it as written.
+pub fn malformed_regen_block(files: &[(String, String)]) -> Check {
+    use yidam_core::markers::Fault;
+    let mut violations = Vec::new();
+    for (rel, text) in files {
+        for b in yidam_core::markers::scan_markers(text).malformed {
+            let what = match b.fault {
+                Fault::OpenArrowMissing => {
+                    "its opening comment never closes: no line after it ends in `-->`, so \
+                     everything below became part of the tag"
+                }
+                Fault::CloseTagMissing => {
+                    "`<!-- /REGEN -->` never arrives, so the rest of the file became its body"
+                }
+                Fault::ClosedOnAnothersTag => {
+                    "it closes on a `<!-- /REGEN -->` belonging to a block opened inside its \
+                     own body — a close tag is missing between them"
+                }
+            };
+            let lost = match b.swallowed_markers {
+                0 => String::new(),
+                n => format!(
+                    ", {n} of which open{} a marker that is now content",
+                    if n == 1 { "s" } else { "" }
+                ),
+            };
+            violations.push(Violation::new(
+                rel,
+                format!(
+                    "line {}: the `{}` block — {what}. It took the {} line(s) after it{lost}. \
+                     `yidam regen` will not write to it.",
+                    b.line, b.command, b.swallowed_lines
+                ),
+            ));
+        }
+    }
+    Check::new(
+        "malformed-regen-block",
+        "REGEN block whose extent is not what it looks like",
+        Severity::Warn,
+        "A REGEN block is three markers: the open tag, the `-->` that ends it, and \
+         `<!-- /REGEN -->`. `yidam regen` finds all three or writes nothing at all, without \
+         saying so — the section goes stale and looks like a generator that stopped running. \
+         Where the missing tag is a close tag, the block also swallows whatever is below it, \
+         so the *next* section stops updating for the same invisible reason.",
+        violations,
+    )
+}
+
 /// Ragged markdown tables in any committed prose.
 ///
 /// Applied to catalog entries and the corpus's own READMEs — anywhere a reader meets a
@@ -3199,6 +3266,81 @@ mod tests {
             description: None,
         }];
         assert!(catalog_location_malformed(&[s]).passed());
+    }
+
+    #[test]
+    fn a_well_formed_regen_block_passes() {
+        let text = "## Status\n\n<!-- REGEN: yidam status -->\n12 nodes\n<!-- /REGEN -->\n";
+        assert!(malformed_regen_block(&[("f.md".into(), text.into())]).passed());
+    }
+
+    #[test]
+    fn prose_with_no_markers_at_all_passes() {
+        let text = "# A document\n\nNothing generated here.\n";
+        assert!(malformed_regen_block(&[("f.md".into(), text.into())]).passed());
+    }
+
+    /// The shape a damaged file has in practice: two blocks, one missing close tag, and the
+    /// scan reads it as a single long block that closed normally. The second section stops
+    /// updating and nothing about the file looks wrong.
+    #[test]
+    fn a_block_that_swallows_the_next_one_is_reported_with_the_line_and_what_was_lost() {
+        let text = "<!-- REGEN: yidam status -->\n12 nodes\n\n                    <!-- REGEN: yidam open-questions -->\n- q\n<!-- /REGEN -->\n";
+        let c = malformed_regen_block(&[("README.md".into(), text.into())]);
+        assert_eq!(c.violations.len(), 1, "{:#?}", c.violations);
+        let d = &c.violations[0].detail;
+        assert!(d.contains("line 1"), "{d}");
+        assert!(d.contains("yidam status"), "{d}");
+        assert!(d.contains("belonging to a block opened inside"), "{d}");
+        assert!(
+            d.contains("1 of which opens a marker that is now content"),
+            "the finding must say a marker was lost, not just that lines were taken: {d}"
+        );
+        assert!(d.contains("will not write to it"), "{d}");
+    }
+
+    #[test]
+    fn a_block_with_no_close_tag_at_the_end_of_a_file_is_reported() {
+        let text = "## Status\n\n<!-- REGEN: yidam status -->\n12 nodes\n";
+        let c = malformed_regen_block(&[("README.md".into(), text.into())]);
+        assert_eq!(c.violations.len(), 1);
+        assert!(
+            c.violations[0].detail.contains("line 3"),
+            "{:?}",
+            c.violations[0].detail
+        );
+        assert!(
+            c.violations[0].detail.contains("never arrives"),
+            "{:?}",
+            c.violations[0].detail
+        );
+    }
+
+    #[test]
+    fn an_open_tag_that_never_closes_is_reported_as_its_own_fault() {
+        let text = "<!-- REGEN: yidam status\nFields: count.\n\nmore prose\n";
+        let c = malformed_regen_block(&[("README.md".into(), text.into())]);
+        assert_eq!(c.violations.len(), 1);
+        assert!(
+            c.violations[0]
+                .detail
+                .contains("opening comment never closes"),
+            "{:?}",
+            c.violations[0].detail
+        );
+    }
+
+    /// The finding names the file it is in, so a report over a hundred of them is actionable.
+    #[test]
+    fn each_file_is_scanned_and_named() {
+        let bad = "<!-- REGEN: a -->\nx\n";
+        let good = "<!-- REGEN: b -->\ny\n<!-- /REGEN -->\n";
+        let c = malformed_regen_block(&[
+            ("good.md".into(), good.into()),
+            ("bad.md".into(), bad.into()),
+        ]);
+        assert_eq!(c.violations.len(), 1);
+        assert_eq!(c.violations[0].node, "bad.md");
     }
 
     #[test]
