@@ -142,6 +142,11 @@ export function resolve({ tags, yanked = new Set(), keep = KEEP }) {
  * rather than a regression to route around — those pages describe commits on `main` and say
  * so on their own face — but it does change a live URL, which is the sort of thing a
  * migration should state rather than let a reader discover.
+ *
+ * `cli/v0.8.0` is the release that contains it, so the root serves `/yidam/quality/` again
+ * from that tag onward. The paragraph above is kept because the arrangement it describes is
+ * not over: it is what happens to every page whose first release has not been cut yet, and
+ * the quality surface is only the instance that made it visible.
  */
 export const ROOT_SLOT = '__root__';
 
