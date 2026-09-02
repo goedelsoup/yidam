@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "yidam-core"
-version = "0.3.0"
+version = "0.4.0"
 description = "Yidam corpus types and parity surface — Python reference implementation"
 requires-python = ">=3.11"
 # The ontology compiler reads `.ont.yml`. This is the package's first runtime dependency,

@@ -1,6 +1,6 @@
 [package]
 name = "yidam"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 # The toolchain pinned in mise.toml and every rust-toolchain.toml, and it must stay that.
 # The resolver (with incompatible-rust-versions = "fallback") uses it to avoid dependencies
@@ -113,7 +113,7 @@ toml = "0.8"
 regorus = { version = "0.11", default-features = false, features = ["arc", "ast", "regex"] }
 # Parity SDK — reference implementations of classify_commit etc.; the CLI
 # must not re-implement the parity surface (see prelude/sdks/parity/README.md).
-yidam-core = { path = "../prelude/sdks/rust", version = "0.3.0" }
+yidam-core = { path = "../prelude/sdks/rust", version = "0.4.0" }
 
 # ── optional: `index` — semantic index build, and the vector arm of the MCP
 #    server's `retrieve`. Not `serve` itself: that is in the light default, and

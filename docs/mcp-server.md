@@ -38,7 +38,7 @@ yidam --version
 If you want the semantic build, it needs protoc 31, a C toolchain and an ONNX runtime:
 
 ```sh
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.7.0 --locked \
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.8.0 --locked \
   --features index yidam
 ```
 
