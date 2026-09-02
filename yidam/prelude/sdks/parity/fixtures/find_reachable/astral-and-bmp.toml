@@ -1,0 +1,12 @@
+function = "find_reachable"
+description = "sorted means code-point order: an astral path sorts after a BMP one above U+E000"
+
+[input]
+node_path = "corpus/a.md"
+edges = [
+  { from = "corpus/a.md", to = "corpus/🌍.md" },
+  { from = "corpus/a.md", to = "corpus/ｱ.md" },
+]
+
+[expected]
+reachable = ["corpus/ｱ.md", "corpus/🌍.md"]

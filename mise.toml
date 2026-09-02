@@ -217,6 +217,12 @@ for name in $exceptions; do
   fi
 done
 
+# The third question — does every SDK *answer* every function — is not asked here. Both loops
+# above are about fixtures, and both passed while `find_reachable` and `find_citations` existed
+# in the Rust SDK alone (#530). It is asked by `yidam/cli/tests/parity_implementations.rs`,
+# which reads this `functions=` line rather than restating it, and which needs a comment
+# stripper and a tree walk that this shell task has no business growing.
+
 # Counted, not stated. This line read "9 functions covered" while the loop above walked
 # ten — the same drift one line below the check that exists to catch it.
 echo "parity fixture check: $(echo $functions | wc -w | tr -d ' ') functions covered, $(ls -d $fixtures/*/ | wc -l | tr -d ' ') directories all accounted for"

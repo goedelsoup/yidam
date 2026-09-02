@@ -1,6 +1,6 @@
 # Parity
 
-Cross-language fixture suite for the ten parity functions all three SDKs must implement
+Cross-language fixture suite for the parity functions all three SDKs must implement
 identically. Adding a new function to the parity surface without a fixture in this directory
 is a build error — `mise run parity` enforces it before running any SDK tests.
 
@@ -14,14 +14,26 @@ is a build error — `mise run parity` enforces it before running any SDK tests.
 | `classify_commit` | Classify a commit message as `Epistemic` or `Operational` by its verb |
 | `parse_markers` | Parse `REGEN` and `TEMPLATE` markers from file content, and report blocks that took lines which were not theirs |
 | `update_regen` | Replace the content inside a named `REGEN` section, preserving the marker |
-| `find_reachable` | Return all nodes reachable from a given node following directed edges (BFS); result sorted |
-| `find_citations` | Return all nodes that have a directed edge pointing to a given node; result sorted |
+| `find_reachable` | Return all nodes reachable from a given node following directed edges (BFS); result sorted by code point |
+| `find_citations` | Return all nodes that have a directed edge pointing to a given node; result sorted by code point |
 | `is_recognized_verb` | Whether a leading commit verb is in the closed vocabulary |
 | `compile_class_schema` | Compile a `.ont.yml` class definition into a JSON Schema for its instances |
 
 The parity surface is versioned in [`VERSION`](VERSION). Any change to a function's
 contract — input shape, output shape, or classification logic — requires bumping this
 version and updating ALL THREE SDK implementations in the same PR.
+
+**The table is the count.** This document used to say "the nine" in five places while the
+table held ten, and `VERSIONING.md` used to say "the six". A number written beside a list is
+a second copy of the list's length with nothing keeping it honest, so the numbers are gone
+and the rows are what a reader counts.
+
+**Sorted means code-point order.** Rust sorts a `String` by UTF-8 bytes and Python by code
+point, and those two agree everywhere. JavaScript's default comparator orders by UTF-16 code
+unit, which puts an astral character *below* every BMP character from U+E000 up — so the
+TypeScript SDK carries an explicit comparator, and `find_reachable/astral-and-bmp.toml` and
+`find_citations/astral-and-bmp.toml` are what fail when it is removed. Every ASCII fixture
+passes either way, which is the shape the divergence would have hidden in.
 
 ## Fixture format
 
@@ -86,7 +98,7 @@ schema.
 
 **And every fixture directory must have a runner that reads it.** The rule runs both ways.
 A directory nobody runs looks exactly like one that is doing work — it passes every gate and
-asserts nothing — so anything under `fixtures/` that is not one of the nine has to be named
+asserts nothing — so anything under `fixtures/` that is not a parity function has to be named
 in `parity-check`'s exception list *and* given a section here saying who reads it. The check
 enforces both halves; the section you are reading exists because the first run of it found
 that `reports/`, the largest family here, was documented nowhere in this file.
@@ -95,6 +107,17 @@ that `reports/`, the largest family here, was documented nowhere in this file.
 the three failures. It is run by the `ci (parity)` job on every push and pull request —
 which it was not until #145, so for as long as this paragraph claimed enforcement, the
 enforcement was of a command nobody's CI ran.
+
+**And the third question: does every SDK answer every function?** The two rules above are
+about fixtures, and both passed for as long as `find_reachable` and `find_citations` existed
+in the Rust SDK alone — the directories were there, and one runner read them. Two thirds of
+what the first line of this file promises was missing with every gate green (#530). What asks
+now is `yidam/cli/tests/parity_implementations.rs`, in two tests: every SDK *defines* every
+function, and every SDK's runner *loads* every fixture directory. Both sides are discovered —
+the functions out of `parity-check`'s own `functions` loop, the SDKs by walking
+`prelude/sdks/*/tests/` — so neither can rot into naming one SDK and forgetting the others.
+It reads the runners with their comments stripped, because a check that greps a whole file is
+answered by the paragraph explaining what it looks for.
 
 ## Adding a fixture
 
@@ -107,9 +130,9 @@ kebab-case names that describe what the case exercises, not what it expects.
 
 ## The MCP contract
 
-`mcp/` is not part of the nine-function parity surface either. It freezes the **tool and
-resource surface** three servers are meant to share — names, capability tiers, input schemas,
-and call/response cases — in the shape RFC-0005 specifies. See [mcp/README.md](mcp/README.md).
+`mcp/` is not part of the parity surface either. It freezes the **tool and resource
+surface** three servers are meant to share — names, capability tiers, input schemas, and
+call/response cases — in the shape RFC-0005 specifies. See [mcp/README.md](mcp/README.md).
 
 It exists because the list was previously frozen in three places at once: a Rust E2E test, a
 TypeScript README, and a third implementation's source. They shared **one tool name out of
@@ -122,10 +145,10 @@ two cannot disagree.
 
 ## The reports fixtures
 
-`fixtures/reports/` is not part of the nine-function parity surface either, and no SDK
-implements it. It holds **RFC-0001's report goldens**: a small derived repository under
-`basic/repo/`, the recipe that turns it into a git repository in `basic/stage.toml`, and the
-exact output of every report in every format under `basic/expected/`.
+`fixtures/reports/` is not part of the parity surface either, and no SDK implements it. It
+holds **RFC-0001's report goldens**: a small derived repository under `basic/repo/`, the
+recipe that turns it into a git repository in `basic/stage.toml`, and the exact output of
+every report in every format under `basic/expected/`.
 
 It is the largest fixture family here and it went undocumented in this file until the
 check below started asking who reads each directory — which is the finding that check exists
@@ -140,9 +163,9 @@ once seven copies of that staging.
 
 ## The diagnostic_severity fixtures
 
-`fixtures/diagnostic_severity/` is not part of the nine-function parity surface above, and no
-SDK implements it. It pins **RFC-0016's severity table**: how a lint finding's check severity
-and its baseline membership together decide what an editor renders.
+`fixtures/diagnostic_severity/` is not part of the parity surface above, and no SDK
+implements it. It pins **RFC-0016's severity table**: how a lint finding's check severity and
+its baseline membership together decide what an editor renders.
 
 It exists because that table is the one verdict RFC-0016 licenses a client to recompute. The
 rule everywhere else is that the CLI computes verdicts and a client computes affordances; this
@@ -179,9 +202,9 @@ the table; `mise run parity` does not run them, because neither is an SDK.
 
 ## The embed_config fixtures
 
-`fixtures/embed_config/` is not part of the nine-function parity surface above. It holds
-the **embedding reproducibility contract**: the same sentence must embed to matching vectors
-across fastembed (Rust), transformers.js (TypeScript), and sentence-transformers (Python),
+`fixtures/embed_config/` is not part of the parity surface above. It holds the **embedding
+reproducibility contract**: the same sentence must embed to matching vectors across fastembed
+(Rust), transformers.js (TypeScript), and sentence-transformers (Python),
 so that every consumer of `embed.config.json` retrieves against the same vector space.
 
 These fixtures are run by `mise run embed-parity`, not the default `parity` task — the

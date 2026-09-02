@@ -159,8 +159,8 @@ They need an *edge extractor* to feed them: from Model A that is `extract_links`
 from Model B it is `links[].target`. Whichever model wins, the graph functions survive unchanged;
 only the adapter that builds the edge list moves. Notably, neither of the four reports calls these
 functions today — `graph-check` resolves links itself against the filesystem (`corpus.rs:107`) — so
-`find_reachable`/`find_citations` are already orphaned parity functions (they are also Rust-only; see
-RFC-0006). Unifying the node model is the precondition for giving them a single, tested edge source.
+`find_reachable`/`find_citations` are already orphaned parity functions (they were also Rust-only
+until #530; see RFC-0006). Unifying the node model is the precondition for giving them a single, tested edge source.
 
 ## Open questions
 

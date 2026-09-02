@@ -2,7 +2,7 @@ import json
 import tomllib
 from pathlib import Path
 
-from yidam_core import corpus, git, markers, ontology
+from yidam_core import corpus, git, graph, markers, ontology
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent / "parity" / "fixtures"
 
@@ -116,6 +116,28 @@ def test_parity_parse_markers():
             assert block.fault.value == eb["fault"], "malformed.fault"
             assert block.swallowed_lines == eb["swallowed_lines"], "malformed.swallowed_lines"
             assert block.swallowed_markers == eb["swallowed_markers"], "malformed.swallowed_markers"
+
+
+def _edges(inp: dict) -> list[graph.GraphEdge]:
+    return [graph.GraphEdge(from_=e["from"], to=e["to"]) for e in inp["edges"]]
+
+
+def test_parity_find_reachable():
+    fixtures = load_fixtures("find_reachable")
+    assert fixtures, "no find_reachable fixtures"
+    for fx in fixtures:
+        inp = fx["input"]
+        reachable = graph.find_reachable(_edges(inp), inp["node_path"])
+        assert reachable == fx["expected"]["reachable"], fx["description"]
+
+
+def test_parity_find_citations():
+    fixtures = load_fixtures("find_citations")
+    assert fixtures, "no find_citations fixtures"
+    for fx in fixtures:
+        inp = fx["input"]
+        citations = graph.find_citations(_edges(inp), inp["node_path"])
+        assert citations == fx["expected"]["citations"], fx["description"]
 
 
 def test_parity_update_regen():

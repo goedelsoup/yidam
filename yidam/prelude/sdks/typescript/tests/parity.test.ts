@@ -5,6 +5,7 @@ import { parse } from 'smol-toml'
 import { describe, it, expect } from 'vitest'
 import { parseNode, extractClaims, extractLinks } from '../src/corpus.ts'
 import { classifyCommit, isRecognizedVerb } from '../src/git.ts'
+import { findReachable, findCitations, type GraphEdge } from '../src/graph.ts'
 import { scanMarkers, updateRegen } from '../src/markers.ts'
 import { parseClass, compileClassSchema } from '../src/ontology.ts'
 
@@ -199,6 +200,40 @@ describe('parity: compile_class_schema', () => {
       // Compared as parsed JSON, not as text: key order and whitespace are not part of the
       // contract, and three languages will not agree on either.
       expect(got).toEqual(JSON.parse(exp['schema']))
+    })
+  }
+})
+
+// ── find_reachable ────────────────────────────────────────────────────────────
+
+function edgesOf(inp: Record<string, unknown>): GraphEdge[] {
+  return (inp['edges'] as Record<string, string>[]).map(e => ({ from: e['from'], to: e['to'] }))
+}
+
+describe('parity: find_reachable', () => {
+  const fixtures = loadFixtures('find_reachable')
+  it('has fixtures', () => expect(fixtures.length).toBeGreaterThan(0))
+
+  for (const fx of fixtures) {
+    const inp = fx['input'] as Record<string, unknown>
+    const exp = fx['expected'] as Record<string, string[]>
+    it(fx['description'] as string, () => {
+      expect(findReachable(edgesOf(inp), inp['node_path'] as string)).toEqual(exp['reachable'])
+    })
+  }
+})
+
+// ── find_citations ────────────────────────────────────────────────────────────
+
+describe('parity: find_citations', () => {
+  const fixtures = loadFixtures('find_citations')
+  it('has fixtures', () => expect(fixtures.length).toBeGreaterThan(0))
+
+  for (const fx of fixtures) {
+    const inp = fx['input'] as Record<string, unknown>
+    const exp = fx['expected'] as Record<string, string[]>
+    it(fx['description'] as string, () => {
+      expect(findCitations(edgesOf(inp), inp['node_path'] as string)).toEqual(exp['citations'])
     })
   }
 })
