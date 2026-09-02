@@ -205,3 +205,62 @@ fn the_docs_workflow_and_the_toolchain_pin_the_same_node() {
          `{expected}`"
     );
 }
+
+/// The workflow that derives the version list runs when the tags it derives from change.
+///
+/// `scripts/versions.mjs` reads `git tag -l` and `src/versions.mjs` keeps the last three
+/// minor series, so a `cli/v*` tag push is the only event that changes the published set. It
+/// was also the only event `docs.yml` did not fire on, and nothing went red: the site served
+/// a coherent *previous* release until an unrelated push to main happened along (#535).
+///
+/// **Both sides are discovered.** The glob comes out of the workflow's `tags:` line and the
+/// prefix out of `src/versions.mjs`'s own filter — the one the test above already requires to
+/// exist. Hardcoding `cli/v` here would let the two drift: rename the tag namespace and the
+/// version list would follow it while the trigger kept watching the old one, which is this
+/// bug again with the halves swapped.
+#[test]
+fn the_docs_workflow_fires_on_the_tags_its_version_list_is_built_from() {
+    let workflow = read(".github/workflows/docs.yml");
+
+    // The `tags:` entry under `on: push:`, not one in a job's script or a comment.
+    let globs = workflow
+        .lines()
+        .map(str::trim_start)
+        .filter(|l| !l.starts_with('#'))
+        .find_map(|l| l.strip_prefix("tags:"))
+        .map(|v| {
+            v.trim()
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .split(',')
+                .map(|g| g.trim().trim_matches(['\'', '"']).to_string())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "docs.yml has no `tags:` filter, so pushing a release tag does not rebuild \
+                 the site. The version list is read from `git tag -l`; the workflow that \
+                 reads it must run when that answer changes."
+            )
+        });
+
+    // The prefix the version list itself filters on, spelled as the regex escapes it.
+    let source = read("yidam/web/docs/src/versions.mjs");
+    let prefix = source
+        .split_once("^cli\\/v")
+        .map(|_| "cli/v")
+        .expect("src/versions.mjs no longer filters tags with `^cli\\/v`");
+
+    assert!(
+        globs.iter().any(|g| g.starts_with(prefix)),
+        "docs.yml fires on {globs:?}, but the version list is built from tags matching \
+         `{prefix}*`. A trigger that does not cover the prefix the list filters on leaves \
+         the published set stale from the tag until an unrelated push to main."
+    );
+    assert!(
+        !globs.iter().any(|g| g == "v*" || g == "*"),
+        "docs.yml fires on {globs:?}. Four layers release into one tag namespace and only \
+         `{prefix}*` changes this list, so a broader glob is a deploy per template, editor \
+         and SDK tag that rewrites the site with identical content."
+    );
+}
