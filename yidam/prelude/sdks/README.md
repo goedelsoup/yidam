@@ -216,8 +216,11 @@ ScoredNode
 
 ## The parity surface
 
-These eight functions form the **parity contract** — the operations all three SDKs must
-implement identically, as verified by the fixture harness.
+These functions form the **parity contract** — the operations all three SDKs must
+implement identically, as verified by the fixture harness. `parity-check`'s `functions` loop
+in `mise.toml` is the authoritative list; this section is the prose beside it, and it said
+"eight" while naming eight of ten for as long as `is_recognized_verb` and
+`compile_class_schema` were on the surface.
 
 ```
 parse_node(text: string) -> CorpusNode
@@ -250,10 +253,24 @@ update_regen(text: string, command: string, new_content: string) -> string
   Empty new_content clears the body with no blank line left between the markers.
 
 find_reachable(edges: GraphEdge[], node_path: string) -> string[]
-  All nodes reachable from node_path following directed edges (BFS), sorted.
+  All nodes reachable from node_path following directed edges (BFS).
+  The start node is not included. Sorted by code point, which is not what
+  JavaScript's default comparator does — see parity/README.md.
 
 find_citations(edges: GraphEdge[], node_path: string) -> string[]
-  All nodes with a directed edge pointing to node_path, sorted.
+  All nodes with a directed edge pointing to node_path, sorted by code point
+  and deduplicated.
+
+is_recognized_verb(verb: string) -> bool
+  Whether a leading commit verb is in the closed vocabulary — the epistemic and
+  operational verb sets together. classify_commit treats anything else as Epistemic;
+  this is the predicate that says whether it was recognised at all.
+
+compile_class_schema(class: OntologyClass) -> JsonSchema
+  Compile a parsed .ont.yml class definition into the JSON Schema its instances
+  validate against. An empty `required` is omitted rather than written as [].
+  Declared relationships are published as an x-yidam-edges annotation, not as a
+  constraint on links[].relationship — see ontology.rs for why.
 ```
 
 Every parity fixture is a TOML file pairing one of these functions with a representative

@@ -15,8 +15,13 @@
 //! deliberately does not restate — and the definitions come from walking the tree. Neither is
 //! a list in this file.
 //!
-//! What this does *not* check is that all three SDKs implement each one. Two of them do not,
-//! which is #530.
+//! **And all three SDKs answer each one.** `parity-check` asks whether every function has a
+//! fixture and whether every fixture directory has a runner. Both passed for as long as
+//! `find_reachable` and `find_citations` existed in Rust alone: the directories were there and
+//! one runner read them, so two thirds of what `parity/README.md` calls "all three SDKs must
+//! implement identically" was missing with every gate green. The two tests at the foot of this
+//! file are the third question — is each function implemented in each SDK, and does each SDK's
+//! runner load each fixture directory (#530).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -263,4 +268,293 @@ fn the_scan_recognises_all_three_languages() {
     assert_eq!(camel("find_reachable"), "findReachable");
     assert_eq!(camel("update_regen"), "updateRegen");
     assert_eq!(camel("parse_node"), "parseNode");
+}
+
+// ── and all three SDKs answer each one (#530) ─────────────────────────────────
+
+const PRELUDE_SDKS: &str = "yidam/prelude/sdks";
+
+/// The SDK directories: every subdirectory of `yidam/prelude/sdks` that carries a test suite.
+///
+/// Discovered, not named. `parity/` holds fixtures and `spec/` holds proofs; neither has a
+/// `tests/`, and a fourth SDK is covered the day it grows one. A list here would be a list
+/// that stops covering what arrives after it — which is the failure this file is about, one
+/// directory up.
+fn sdk_dirs() -> Vec<String> {
+    let root = repo_root();
+    let mut dirs: Vec<String> = std::fs::read_dir(root.join(PRELUDE_SDKS))
+        .expect("yidam/prelude/sdks is readable")
+        .filter_map(Result::ok)
+        .filter(|e| e.path().join("tests").is_dir())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    dirs.sort();
+    assert!(
+        dirs.len() >= 3,
+        "found {} SDK(s) under {PRELUDE_SDKS} with a tests/ directory: {dirs:?} — the parity \
+         surface is a promise about three, so this scan is looking in the wrong place",
+        dirs.len()
+    );
+    dirs
+}
+
+/// Source with its comments removed, so a name in prose cannot answer for a name in code.
+///
+/// `defines` above stays off prose by anchoring at the start of a line, where the keyword
+/// would have to be. The thing looked for below is a call in the middle of one, so anchoring
+/// is not available and the comments have to go instead — including Python docstrings, which
+/// are prose held in a string. A guard that greps a whole file is satisfied by the paragraph
+/// explaining what it is looking for; that is the fault `formal_specs.rs` records.
+fn strip_comments(text: &str, ext: &str) -> String {
+    let py = ext == "py";
+    // `'` opens a string in TypeScript and Python. In Rust it opens a lifetime, and a scanner
+    // that read `&'a str` as a string would swallow everything after it.
+    let quotes: &[char] = match ext {
+        "rs" => &['"'],
+        "ts" => &['"', '\'', '`'],
+        _ => &['"', '\''],
+    };
+    let c: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < c.len() {
+        let (this, next) = (c[i], c.get(i + 1).copied().unwrap_or('\0'));
+
+        if (py && this == '#') || (!py && this == '/' && next == '/') {
+            while i < c.len() && c[i] != '\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if !py && this == '/' && next == '*' {
+            i += 2;
+            while i + 1 < c.len() && !(c[i] == '*' && c[i + 1] == '/') {
+                i += 1;
+            }
+            i = (i + 2).min(c.len());
+            continue;
+        }
+        if py && quotes.contains(&this) && next == this && c.get(i + 2) == Some(&this) {
+            i += 3;
+            while i + 2 < c.len() && !(c[i] == this && c[i + 1] == this && c[i + 2] == this) {
+                i += 1;
+            }
+            i = (i + 3).min(c.len());
+            continue;
+        }
+        // A string literal is copied through — the fixture directory name is one, and a `//`
+        // inside a URL is not a comment.
+        if quotes.contains(&this) {
+            out.push(this);
+            i += 1;
+            while i < c.len() {
+                if c[i] == '\\' {
+                    out.push(c[i]);
+                    if let Some(&e) = c.get(i + 1) {
+                        out.push(e);
+                    }
+                    i += 2;
+                    continue;
+                }
+                out.push(c[i]);
+                let closed = c[i] == this;
+                i += 1;
+                if closed {
+                    break;
+                }
+            }
+            continue;
+        }
+        out.push(this);
+        i += 1;
+    }
+    out
+}
+
+/// Whether `text` passes `name` to a fixture loader.
+///
+/// The directory name as the sole argument of a call — `load_fixtures("find_reachable")`,
+/// `loadFixtures('find_reachable')` — which is the one thing that goes away when a function's
+/// cases are deleted from a runner. Weaker forms do not: the Rust runner's failure messages
+/// carry `"find_reachable({node_path})"`, and a suite that merely *mentions* the name is
+/// exactly the vacuous pass this is looking for.
+fn loads_fixtures_for(text: &str, name: &str) -> bool {
+    text.contains(&format!("(\"{name}\")")) || text.contains(&format!("('{name}')"))
+}
+
+/// Every authored test source under one SDK's `tests/`, comments removed.
+///
+/// The whole directory, not a file named `parity`. "Does this SDK read that fixture
+/// directory" is a question about the suite `mise run parity` runs, and a name pattern here
+/// would be one more list to keep in step with the filenames three languages happen to use.
+fn runner_sources(sdk: &str) -> Vec<String> {
+    let root = repo_root().canonicalize().expect("the repo root exists");
+    authored_sources(&root.join(PRELUDE_SDKS).join(sdk).join("tests"))
+        .into_iter()
+        .filter_map(|p| {
+            let ext = p.extension()?.to_string_lossy().into_owned();
+            Some(strip_comments(&std::fs::read_to_string(&p).ok()?, &ext))
+        })
+        .collect()
+}
+
+/// Every SDK defines every parity function.
+///
+/// `parity-check` asks two questions — every function has a fixture, every fixture directory
+/// has a runner — and neither is this one. Both passed for as long as `find_reachable` and
+/// `find_citations` existed in Rust alone: the fixtures were there and the Rust runner read
+/// them, so two thirds of a promise the README calls "all three SDKs must implement
+/// identically" was missing with every gate green (#530).
+#[test]
+fn every_sdk_implements_every_parity_function() {
+    let found = definitions();
+    let sdks = sdk_dirs();
+
+    let mut missing: Vec<String> = Vec::new();
+    for (function, files) in &found {
+        for sdk in &sdks {
+            let prefix = format!("{PRELUDE_SDKS}/{sdk}/");
+            let implemented = files
+                .iter()
+                .any(|f| f.starts_with(&prefix) && !f.contains("/tests/"));
+            if !implemented {
+                missing.push(format!("  {sdk} does not define `{function}`"));
+            }
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "{} (function, SDK) pair(s) on the parity surface with no implementation:\n{}\n\n\
+         The parity fixtures grade whoever calls them. An SDK that does not define a surface \
+         function is not compared to the other two — it passes vacuously, which is not what \
+         `parity/README.md` promises about it. Implement it, or take the function off the \
+         surface: out of `parity-check`'s `functions` list, into the exceptions, and with a \
+         `parity/VERSION` bump, because a function leaving the surface is a contract change.",
+        missing.len(),
+        missing.join("\n")
+    );
+}
+
+/// And every SDK's runner reads every fixture directory.
+///
+/// The third question, and the one the other two cannot reach: a function can be implemented
+/// in all three and still be graded in one. Both sides are discovered — the functions from
+/// `parity-check`'s own loop, the runners by walking each SDK's `tests/` — so this cannot rot
+/// into naming one SDK and forgetting the others.
+#[test]
+fn every_sdk_runner_reads_every_fixture_directory() {
+    let functions = parity_functions();
+    let sdks = sdk_dirs();
+
+    let mut ungraded: Vec<String> = Vec::new();
+    let mut read = 0usize;
+    for sdk in &sdks {
+        let sources = runner_sources(sdk);
+        assert!(
+            !sources.is_empty(),
+            "no test sources found under {PRELUDE_SDKS}/{sdk}/tests"
+        );
+        for f in &functions {
+            if sources.iter().any(|text| loads_fixtures_for(text, f)) {
+                read += 1;
+            } else {
+                ungraded.push(format!("  {sdk} reads no fixtures for `{f}`"));
+            }
+        }
+    }
+
+    assert!(
+        read > 0,
+        "the scan matched no fixture-loader call in any of {} SDK(s), which means it is \
+         reading the wrong files or the wrong call shape",
+        sdks.len()
+    );
+    assert!(
+        ungraded.is_empty(),
+        "{} fixture director(ies) that an SDK never reads:\n{}\n\n\
+         A fixture nobody loads looks exactly like one that is doing work. `parity-check` \
+         asks whether each function has a fixture and whether each fixture has *a* runner; \
+         both pass while one runner does all the reading, which is how two functions were \
+         graded in Rust and nowhere else for as long as they existed.",
+        ungraded.len(),
+        ungraded.join("\n")
+    );
+}
+
+/// The runner scan reads calls, not the prose around them.
+///
+/// Otherwise the test above passes because a comment names the function, which is the exact
+/// substitution `formal_specs.rs` found: prose answering for code in a check that greps a
+/// whole file.
+#[test]
+fn the_runner_scan_reads_calls_and_not_prose() {
+    assert!(loads_fixtures_for(
+        r#"let fixtures = load_fixtures("find_reachable");"#,
+        "find_reachable"
+    ));
+    assert!(loads_fixtures_for(
+        "  const fixtures = loadFixtures('find_reachable')",
+        "find_reachable"
+    ));
+
+    // A mention is not a call, and neither is a failure message that interpolates the name.
+    assert!(!loads_fixtures_for(
+        r#"assert_eq!(got, want, "find_reachable({node_path})");"#,
+        "find_reachable"
+    ));
+    assert!(!loads_fixtures_for(
+        r#"assert!(!fixtures.is_empty(), "no find_reachable fixtures found");"#,
+        "find_reachable"
+    ));
+    // …nor a longer name that contains it.
+    assert!(!loads_fixtures_for(
+        r#"load_fixtures("find_reachable_v2")"#,
+        "find_reachable"
+    ));
+
+    // Comments go before the search, in all three languages.
+    assert!(!loads_fixtures_for(
+        &strip_comments(
+            "// load_fixtures(\"find_reachable\") used to be here\n",
+            "rs"
+        ),
+        "find_reachable"
+    ));
+    assert!(!loads_fixtures_for(
+        &strip_comments("/** loadFixtures('find_reachable') */\n", "ts"),
+        "find_reachable"
+    ));
+    assert!(!loads_fixtures_for(
+        &strip_comments("# load_fixtures(\"find_reachable\")\n", "py"),
+        "find_reachable"
+    ));
+    assert!(!loads_fixtures_for(
+        &strip_comments(
+            "\"\"\"Reads load_fixtures(\"find_reachable\").\"\"\"\n",
+            "py"
+        ),
+        "find_reachable"
+    ));
+
+    // …and the call survives stripping when it is code.
+    assert!(loads_fixtures_for(
+        &strip_comments(
+            "let f = load_fixtures(\"find_reachable\"); // the graph one\n",
+            "rs"
+        ),
+        "find_reachable"
+    ));
+    // A `//` inside a string is not a comment, and a Rust lifetime is not a string.
+    assert!(strip_comments(r#"let u = "https://example.com/x";"#, "rs").contains("example.com/x"));
+    assert!(
+        loads_fixtures_for(
+            &strip_comments(
+                "fn f<'a>(x: &'a str) { load_fixtures(\"find_reachable\"); }",
+                "rs"
+            ),
+            "find_reachable"
+        ),
+        "a lifetime was read as an unterminated string and swallowed the rest of the file"
+    );
 }

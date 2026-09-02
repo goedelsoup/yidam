@@ -7,7 +7,9 @@
     ".": "./src/index.ts",
     "./corpus": "./src/corpus.ts",
     "./git": "./src/git.ts",
-    "./markers": "./src/markers.ts"
+    "./graph": "./src/graph.ts",
+    "./markers": "./src/markers.ts",
+    "./ontology": "./src/ontology.ts"
   },
   "scripts": {
     "test": "vitest run"

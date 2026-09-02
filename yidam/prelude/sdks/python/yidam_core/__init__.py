@@ -1,3 +1,3 @@
-from . import corpus, git, markers, ontology
+from . import corpus, git, graph, markers, ontology
 
-__all__ = ["corpus", "git", "markers", "ontology"]
+__all__ = ["corpus", "git", "graph", "markers", "ontology"]
