@@ -29,8 +29,17 @@ on:
   # was not here, so that arm of its condition was unreachable: the job could be reached by
   # the Monday schedule and by nothing else. The heavy jobs — mutants, and the full-feature
   # build — are exactly the ones worth running against a branch on purpose, which is also how
-  # #539 gets measured rather than guessed at.
+  # #539 was measured rather than guessed at.
+  #
+  # `mutants` is opt-in rather than implied, because it is a 180-minute job and the reason to
+  # dispatch is usually one of the other twelve. The first dispatch of this workflow started
+  # it by accident twice; a trigger whose cheap use costs three hours is one nobody dares use.
   workflow_dispatch:
+    inputs:
+      mutants:
+        description: 'Also run ci (mutants) — mutation testing, up to 180 minutes'
+        type: boolean
+        default: false
 
 # Cancel superseded runs on the same ref (e.g. a force-push to a PR branch).
 # Never cancel main — keep its history green.
@@ -700,7 +709,9 @@ jobs:
     # `--config-file` every gate passes. cargo-mutants builds its baseline with its own
     # command line and never sees the flag.
     name: ci (mutants)
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # Dispatch runs it only when asked. `inputs.mutants` is absent on a schedule run, so the
+    # first clause is what keeps Monday's run intact.
+    if: github.event_name == 'schedule' || inputs.mutants
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
