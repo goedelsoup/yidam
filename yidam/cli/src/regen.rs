@@ -164,7 +164,12 @@ Fields: node count, open questions.\n\
             .join("../prelude/sdks/parity/fixtures/update_regen/empty-new-content.toml");
         let raw = std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("{} is unreadable ({e})", path.display()));
-        let fx: toml::Value = raw.parse().expect("the fixture parses as TOML");
+        // `toml::from_str`, not `raw.parse()`. toml 1.1 repointed `FromStr for Value` at
+        // its *value* parser (`ValueDeserializer::parse`) — 0.8's went to `from_str`, the
+        // document parser — so `.parse()` on a whole fixture now fails at the first key.
+        // `FromStr for Table` is still the document parser, which is why the one other
+        // `.parse()` in this repository (`task_layer.rs`) was unaffected.
+        let fx: toml::Value = toml::from_str(&raw).expect("the fixture parses as TOML");
 
         let new_content = fx["input"]["new_content"].as_str().expect("new_content");
         assert!(

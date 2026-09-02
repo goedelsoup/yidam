@@ -83,9 +83,9 @@ regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 serde_json = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 hex = "0.4"
-toml = "0.8"
+toml = "1.1"
 # The Rego interpreter behind `yidam policy` (RFC-0024). **Ungated**, and for the
 # reason `vault/mod.rs` gives about its own module: a feature buys the *network*,
 # and compiling a rule and deciding against it are neither. Under RFC-0024's
@@ -119,25 +119,31 @@ yidam-core = { path = "../prelude/sdks/rust", version = "0.4.0" }
 #    server's `retrieve`. Not `serve` itself: that is in the light default, and
 #    answers every tool without these. Pulls the ML/native stack; lancedb's
 #    prost-build needs protoc 31 at build time. ─────────────────────────────
+# **Held at 4 deliberately — see #536.** fastembed 6 embeds the same sentence to a
+# different vector: every element of the `embed_config` parity witness moves by 1e-4 to
+# 6e-4, against a 1e-5 tolerance. The model registry is byte-identical between 4.9.1 and
+# 6.0.2 for this model, so it is not a weights change; it is the runtime underneath.
+# Taking it would silently invalidate every index already built, and only
+# `yidam index verify` would notice — the query path does not check the witness.
 fastembed = { version = "4", optional = true }
-lancedb = { version = "0.13", optional = true }
+lancedb = { version = "0.15", optional = true }
 futures = { version = "0.3", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
 # Arrow decodes the vector index (model::index_rows); shared by `index` and
 # `export-sqlite`. Versions must match lancedb's transitive dependency — update
 # together if bumping either.
-arrow-array = { version = "52", optional = true }
-arrow-schema = { version = "52", optional = true }
-arrow-ipc = { version = "52", optional = true }
+arrow-array = { version = "53", optional = true }
+arrow-schema = { version = "53", optional = true }
+arrow-ipc = { version = "53", optional = true }
 
 # ── optional: `export-sqlite` — `export --format sqlite`. `bundled` compiles
 #    SQLite from C source. ──────────────────────────────────────────────────
-rusqlite = { version = "0.32", features = ["bundled"], optional = true }
+rusqlite = { version = "0.40", features = ["bundled"], optional = true }
 sqlite-vec = { version = "0.1.9", optional = true }
 
 # ── optional: `export-graph` — `export --format rdf`. Pure Rust. ───────────
-oxrdf = { version = "0.2", optional = true }
-oxttl = { version = "0.1", optional = true }
+oxrdf = { version = "0.3", optional = true }
+oxttl = { version = "0.2", optional = true }
 
 # ── `tonpa` — bundle dependency manager (async network fetch). ────────────
 #
@@ -175,7 +181,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 #
 # RustCrypto, pure Rust, no build script, no C — so it cannot affect the aarch64
 # cross-compile, which is the constraint the TLS note above exists to protect.
-hmac = { version = "0.12", optional = true }
+hmac = { version = "0.13", optional = true }
 # Wraps a `tokio::fs::File` as a stream for a `PUT` body. Already in the graph through
 # reqwest's `stream` feature — naming it as a dependency adds no package, and using it
 # without naming it is not allowed.
@@ -305,10 +311,10 @@ ci-report = { path = "../tests/harness/ci-report" }
 # Reads `examples/<name>/history.toml` in `example_corpus.rs`, so an example can ship the
 # order it was written in and `replay` has a history to reconstruct. Costs no package: it is
 # already a dependency above, and naming it here is what lets a test use it.
-toml = "0.8"
-quick-xml = "0.41"
+toml = "1.1"
+quick-xml = "0.42"
 tempfile = "3"
-jsonschema = { version = "0.51.0", default-features = false }
+jsonschema = { version = "0.52.1", default-features = false }
 
 # ── cargo-binstall ────────────────────────────────────────────────────────────
 #
