@@ -759,3 +759,113 @@ fn the_runs_job_conclusions_are_fetched_and_reach_the_merge() {
          would start failing for a reason nobody would connect to it"
     );
 }
+
+/// The body of one job in `ci.yml`, comments already stripped.
+///
+/// Textual rather than parsed: this repository takes no YAML dependency, and the shape a
+/// guard needs is unambiguous here — every job is a two-space key, every job property a
+/// four-space one, so a job ends at the next line whose indent is exactly two.
+fn job_block(name: &str) -> String {
+    let yml = ci_yml();
+    let mut out: Vec<&str> = Vec::new();
+    let mut inside = false;
+    for line in yml.lines() {
+        let opens_a_job = line.len() > 2 && line.starts_with("  ") && !line.starts_with("   ");
+        if opens_a_job && line.trim_start().starts_with(&format!("{name}:")) {
+            inside = true;
+            continue;
+        }
+        if inside && opens_a_job {
+            break;
+        }
+        if inside {
+            out.push(line);
+        }
+    }
+    assert!(
+        !out.is_empty(),
+        "no `{name}:` job in ci.yml, or this parser stopped finding one. Every assertion \
+         below reads this block, so an empty one passes them all."
+    );
+    out.join("\n")
+}
+
+/// Every step that runs work in the full-feature job streams resource samples while it runs.
+///
+/// A GitHub-hosted runner killed for memory names no resource: the step ends with "The runner
+/// has received a shutdown signal" and an exit code, and memory and disk are equally good
+/// guesses that take opposite fixes. #539 added a sampler to the step that was failing and
+/// measured it. On d596634 the job was killed two steps earlier, where the sampler was not,
+/// and left exactly the empty log #539 had started from — a second undiagnosable kill, from a
+/// fix that closed the instance and not the class.
+///
+/// So the rule is the class: **anything in this job that runs a mise task goes through the
+/// wrapper.** Discovered by walking the job's own steps, because a list of heavy steps kept
+/// here would stop covering whatever was added next without ever going red — which is the
+/// same failure one level up.
+#[test]
+fn every_heavy_step_in_the_full_feature_job_is_sampled() {
+    let block = job_block("cli-full");
+    let invocations: Vec<&str> = block
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.contains("mise run "))
+        .collect();
+    assert!(
+        !invocations.is_empty(),
+        "the full-feature job runs no mise task. Either the job stopped doing the work this \
+         gate exists for, or this parser is reading the wrong block — and both make the \
+         assertion below vacuous."
+    );
+
+    let unsampled: Vec<&str> = invocations
+        .iter()
+        .filter(|l| !l.contains("with-sampler.sh"))
+        .copied()
+        .collect();
+    assert!(
+        unsampled.is_empty(),
+        "these steps in `cli-full` run without a resource sampler:\n  {}\nThis job has been \
+         killed for memory twice, and each time the log named no resource. Wrap it: \
+         `.github/scripts/with-sampler.sh mise run <task>`.",
+        unsampled.join("\n  ")
+    );
+}
+
+/// The sampler the steps call still samples.
+///
+/// The guard above matches a path. A wrapper that had been emptied to `exec \"$@\"` would
+/// satisfy it and restore the silence, so the marker every `[res]` line carries is checked
+/// where it is produced.
+#[test]
+fn the_sampler_the_steps_call_still_reports_both_resources() {
+    let script = read(".github/scripts/with-sampler.sh");
+    for needle in ["[res]", "MemAvailable", "df -h"] {
+        assert!(
+            script.contains(needle),
+            "with-sampler.sh no longer emits `{needle}`. Memory and disk take opposite fixes, \
+             so a sampler reporting one of them leaves half the diagnosis to a guess."
+        );
+    }
+}
+
+/// The compile-job cap belongs to the job, not to a step inside it.
+///
+/// #539 capped `CARGO_BUILD_JOBS` on `coverage-full`, the step that happened to be failing.
+/// d596634 was killed in `ci-cli-full`, which had no cap, for the same reason. A four-space
+/// `env:` covers every step; a step-level one covers exactly the instance that was last seen
+/// to fail, and moving it back would be invisible in review.
+#[test]
+fn the_build_job_cap_covers_the_whole_full_feature_job() {
+    let block = job_block("cli-full");
+    let at_job_level = block
+        .lines()
+        .any(|l| l.starts_with("      CARGO_BUILD_JOBS:") && !l.starts_with("       "));
+    assert!(
+        at_job_level,
+        "`CARGO_BUILD_JOBS` is not set at the job's own `env:` (six-space key under a \
+         four-space `env:`). Every heavy step in this job links the same 59 test binaries \
+         against the same dependency tree; a cap on one of them is a cap on the step that \
+         failed last time.\n{block}"
+    );
+}
