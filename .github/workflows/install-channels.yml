@@ -517,6 +517,26 @@ jobs:
   # `git init` plus a `.yidam/` directory: an empty corpus is a served one, so this
   # asks whether the bundled binary comes up against a directory it was told about
   # from a working directory that is not it — which is the whole repair.
+  #
+  # ── it arms itself, and on a sharper condition than the editor jobs ─────────
+  #
+  # This landed while the newest release was `cli/v0.9.0`, which predates the
+  # packaging step — so the job went red on the merge commit and would have stayed
+  # red until the next tag. That is the state the three editor jobs below already
+  # avoid, for the reason their comment gives: a job red from the day it lands is
+  # one people learn to ignore.
+  #
+  # Their condition cannot be reused. "No `editor/v*` tag exists" has no analogue
+  # here — `cli/v*` tags exist in quantity, and the thing that is missing is one
+  # asset on them. Keying off the asset's absence would be the wrong test twice
+  # over: it would green a release that *forgot* the bundle, which is precisely the
+  # failure this job exists to catch.
+  #
+  # So the question is asked of the workflow at the released tag: could that
+  # release have built a bundle? If it could not, the channel did not exist yet and
+  # there is nothing to obtain. If it could and the asset is missing, that is a
+  # broken release and this goes red. Comments are stripped before the match, so
+  # the prose above cannot answer for the matrix key it names.
   mcpb-bundle:
     name: .mcpb on the release
     needs: released
@@ -530,6 +550,18 @@ jobs:
           expected="${{ needs.released.outputs.version }}"
           tag="${{ needs.released.outputs.tag }}"
           bundle="yidam-${expected}-aarch64-apple-darwin.mcpb"
+
+          # Fetched to a file rather than piped into grep: with `pipefail`, a failed
+          # API call inside an `if !` is indistinguishable from "the key is absent",
+          # and a transient outage would silently green this channel forever.
+          gh api "repos/${{ github.repository }}/contents/.github/workflows/release.yml?ref=${tag}" \
+            -H "Accept: application/vnd.github.raw" > release-at-tag.yml
+          if ! grep -v '^[[:space:]]*#' release-at-tag.yml | grep -q 'mcpb_platform:'; then
+            echo "${tag} was built by a release.yml with no bundle step, so this channel"
+            echo "did not exist when it was cut. Nothing to obtain; nothing is claimed."
+            echo "This job arms itself on the first release that can build one."
+            exit 0
+          fi
 
           # `--repo` because this job checks out nothing, for `editor-vsix`'s reason.
           gh api "repos/${{ github.repository }}/releases/tags/${tag}" \

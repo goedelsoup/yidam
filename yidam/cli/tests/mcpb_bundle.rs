@@ -252,6 +252,63 @@ fn the_release_publishes_and_attests_the_bundle() {
     );
 }
 
+/// The channel job must survive the releases that predate it.
+///
+/// Written after shipping the opposite. The job landed while `cli/v0.9.0` was newest — a
+/// release cut by a workflow with no packaging step — so it went red on the merge commit and
+/// would have stayed red until the next tag. `install-channels.yml` already says why that is
+/// the wrong state to be in: a job red from the day it lands is one people learn to ignore.
+///
+/// The condition is asserted, not just its presence. Arming on the *asset's* absence would
+/// green a release that forgot the bundle, which is the failure the job exists to catch; so
+/// the question has to be asked of the release workflow at the tag, and the answer has to be
+/// read past the comments that mention the key.
+#[test]
+fn the_bundle_channel_arms_itself_on_the_first_release_that_can_build_one() {
+    let wf: serde_yaml::Value = serde_yaml::from_str(
+        &std::fs::read_to_string(repo_root().join(".github/workflows/install-channels.yml"))
+            .expect("reading install-channels.yml"),
+    )
+    .expect("install-channels.yml must parse as YAML");
+
+    let job = &wf["jobs"]["mcpb-bundle"];
+    assert!(
+        !job.is_null(),
+        "install-channels.yml has no `mcpb-bundle` job, so the .mcpb channel is documented \
+         and checked by nothing"
+    );
+    let script = job["steps"]
+        .as_sequence()
+        .expect("the job has steps")
+        .iter()
+        .filter_map(|s| s["run"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        script.contains("release.yml?ref="),
+        "the job never asks whether the released tag's workflow could build a bundle, so it \
+         goes red on every release cut before the packaging step existed"
+    );
+    assert!(
+        script.contains("exit 0"),
+        "the job reads the release workflow at the tag and never exits green on the answer"
+    );
+    // The discriminator must survive its own prose. `mcpb_platform` is named in the comment
+    // that explains this very check, so a match over the raw file would be answered by the
+    // explanation rather than by the matrix key.
+    assert!(
+        script.contains("grep -v '^[[:space:]]*#'"),
+        "the workflow probe does not strip comments before matching, so a release.yml that \
+         merely *mentions* the bundle would arm the channel"
+    );
+    assert!(
+        !script.contains("if ! gh api"),
+        "the probe pipes a `gh api` call straight into the test, so a transient API failure \
+         is indistinguishable from `this release predates the bundle` and greens the channel"
+    );
+}
+
 // ── the bundle, run the way Claude Desktop runs it ──────────────────────────
 
 /// `${__dirname}` and `${user_config.KEY}`, substituted as the MCPB spec defines them.
