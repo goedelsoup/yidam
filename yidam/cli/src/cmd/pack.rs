@@ -794,7 +794,12 @@ mod tests {
             },
         };
 
-        let whole = crate::cmd::export_llms::render_llms(&model, None).text;
+        let whole = crate::cmd::export_llms::render_llms(
+            &model,
+            std::path::Path::new("/nonexistent/for-pack-tests"),
+            None,
+        )
+        .text;
         let goal = pack_of(&dir, "*", None).text;
         for id in ["concept/hydropeaking", "reach/tailwater"] {
             let section = |text: &str| {

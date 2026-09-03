@@ -391,6 +391,15 @@ enum Command {
     Bundle,
     /// Export the domain model in the specified format
     Export {
+        /// The corpus to export. Defaults to wherever this process was started.
+        ///
+        /// The same flag `serve` takes, and for the reason #236 and #428 both give: the
+        /// corpus worth exporting is often not the repository you are standing in.
+        /// `examples/streamflow` is a corpus inside this one, and `git rev-parse
+        /// --show-toplevel` from it answers with yidam, which has no `.yidam/` — so the
+        /// only way to export it was to copy it elsewhere and `git init` the copy.
+        #[arg(long, value_name = "DIR")]
+        root: Option<PathBuf>,
         /// Output format (use --list to see available formats and their status)
         #[arg(long, value_enum, required_unless_present = "list")]
         format: Option<ExportFormat>,
@@ -847,6 +856,7 @@ fn main() -> Result<()> {
         Command::CheckDiff { range, format } => yidam::check_diff(&range, format),
         Command::Bundle => yidam::bundle(),
         Command::Export {
+            root,
             format,
             out,
             webllm_model,
@@ -863,7 +873,7 @@ fn main() -> Result<()> {
                     rdf_format,
                     token_budget,
                 };
-                yidam::run_export(format.unwrap(), out.as_deref(), &options)
+                yidam::run_export(root.as_deref(), format.unwrap(), out.as_deref(), &options)
             }
         }
         Command::Embed { no_catalog } => yidam::embed(yidam::EmbedOptions {

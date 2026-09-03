@@ -440,3 +440,72 @@ fn clone_does_not_copy_the_example_into_a_derived_repository() {
         "sadhana/docs/ must ship: the bootstrap skill reads it"
     );
 }
+
+/// An example exports **in place**, named rather than copied (#236, #428).
+///
+/// This file's header describes the workaround: every case above copies its corpus to a temp
+/// directory and `git init`s it, because `git rev-parse --show-toplevel` from
+/// `examples/<name>/` answers with *this* repository, which has no `.yidam/`. That is a real
+/// constraint on the tests and it was also a constraint on anybody wanting to do anything
+/// with an example — #428 needs `examples/streamflow` served, #236 needs it exported, and
+/// both named the same missing flag.
+///
+/// So this one deliberately does **not** materialize. It runs against the checked-in
+/// directory, from a working directory that is neither the example nor this repository, and
+/// the copy-and-init recipe is what it is asserting to be unnecessary.
+///
+/// The failure it pins is silent, which is why it counts nodes rather than exit status:
+/// before `--root`, this command succeeded, printed `0 node(s)`, and wrote a valid export of
+/// the wrong repository.
+#[test]
+fn every_example_exports_in_place_through_root() {
+    for name in examples() {
+        let dir = repo_root().join("examples").join(&name);
+        assert!(
+            dir.is_dir(),
+            "{name} is discovered but not on disk at {}",
+            dir.display()
+        );
+
+        let out = tempfile::TempDir::new().unwrap();
+        let elsewhere = tempfile::TempDir::new().unwrap();
+        let dest = out.path().join("llms.md");
+
+        let result = Command::new(env!("CARGO_BIN_EXE_yidam"))
+            .arg("export")
+            .arg("--root")
+            .arg(&dir)
+            .args(["--format", "llms", "--out"])
+            .arg(&dest)
+            .current_dir(elsewhere.path())
+            .output()
+            .expect("running yidam export");
+        let stdout = String::from_utf8_lossy(&result.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&result.stderr).into_owned();
+        assert!(
+            result.status.success(),
+            "export --root failed for {name}\n{stdout}\n{stderr}"
+        );
+
+        let text = std::fs::read_to_string(&dest)
+            .unwrap_or_else(|e| panic!("no export written for {name}: {e}"));
+        let nodes: usize = text
+            .lines()
+            .find_map(|l| l.split("Nodes: ").nth(1))
+            .and_then(|n| n.trim().parse().ok())
+            .unwrap_or_else(|| panic!("no `Nodes:` count in the export for {name}:\n{text}"));
+        assert!(
+            nodes > 0,
+            "export --root {} wrote {nodes} nodes. An empty export is what resolving the \
+             *enclosing* repository looks like — it succeeds, and the emptiness is the only \
+             tell.\n{stdout}",
+            dir.display()
+        );
+        assert!(
+            text.starts_with(&format!("# {name}\n")),
+            "the export for {name} names a different domain in its header, so --root \
+             resolved to some other corpus:\n{}",
+            text.lines().next().unwrap_or("")
+        );
+    }
+}
