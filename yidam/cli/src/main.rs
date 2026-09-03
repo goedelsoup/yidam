@@ -496,6 +496,33 @@ enum Command {
         /// Serve LSP over stdio — the editor surface. In the light default.
         #[arg(long)]
         lsp: bool,
+        /// Serve MCP over HTTP instead of stdio — the remote agent surface (#423).
+        ///
+        /// Every platform that reaches a corpus by URL needs this; none of them can spawn a
+        /// subprocess on someone else's machine. Read-only, one corpus, no authentication:
+        /// put it behind a tunnel or a proxy that supplies one.
+        #[cfg(feature = "serve-http")]
+        #[arg(long, requires = "mcp")]
+        http: bool,
+        /// Address to bind `--http` to. Defaults to loopback, which the MCP spec asks for:
+        /// a server on 0.0.0.0 is reachable by anything on the network, and this one
+        /// authenticates nobody.
+        #[cfg(feature = "serve-http")]
+        #[arg(long, default_value = "127.0.0.1", requires = "http")]
+        bind: String,
+        /// Port for `--http`.
+        #[cfg(feature = "serve-http")]
+        #[arg(long, default_value_t = 8787, requires = "http")]
+        port: u16,
+        /// A browser origin that may reach `--http`. Repeatable.
+        ///
+        /// The spec requires Origin validation against DNS rebinding, where a page on another
+        /// site drives a server bound to localhost. A request carrying no Origin — curl, and
+        /// every server-to-server client — is not a cross-origin request and passes without
+        /// this flag.
+        #[cfg(feature = "serve-http")]
+        #[arg(long, value_name = "URL", requires = "http")]
+        allow_origin: Vec<String>,
     },
     /// Run corpus quality checks against the baseline ratchet
     Lint {
@@ -874,12 +901,27 @@ fn main() -> Result<()> {
         // only the ML build carried was one almost nobody could reach. MCP's *semantic*
         // retrieval still needs `index`; every tool it serves does not, and the server
         // reports the difference on the handshake and on every `retrieve`.
-        Command::Serve { mcp, lsp } => {
+        Command::Serve {
+            mcp,
+            lsp,
+            #[cfg(feature = "serve-http")]
+            http,
+            #[cfg(feature = "serve-http")]
+            bind,
+            #[cfg(feature = "serve-http")]
+            port,
+            #[cfg(feature = "serve-http")]
+            allow_origin,
+        } => {
             if lsp && mcp {
                 anyhow::bail!("pick one transport — `--lsp` or `--mcp`")
             }
             if lsp {
                 return yidam::serve_lsp();
+            }
+            #[cfg(feature = "serve-http")]
+            if mcp && http {
+                return yidam::serve_mcp_http(&bind, port, allow_origin);
             }
             if mcp {
                 return yidam::serve_mcp();

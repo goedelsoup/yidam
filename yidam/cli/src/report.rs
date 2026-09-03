@@ -71,6 +71,13 @@ impl YidamBlock {
         if cfg!(feature = "tonpa") {
             features.push("tonpa".to_string());
         }
+        // Not a subcommand gate either: `serve --mcp` exists in every build, and this says
+        // whether it can be reached by a URL rather than only by a subprocess. A report that
+        // omitted it would call a stdio-only binary and a remotely reachable one the same
+        // build, which is the difference #420 is entirely about.
+        if cfg!(feature = "serve-http") {
+            features.push("serve-http".to_string());
+        }
         // Not a subcommand gate like the others: `yidam vault` exists in every build, and
         // this says whether it can reach an `s3://` store. `store.rs` refuses such a url by
         // telling the reader that this list is where to look, so the list has to carry it.

@@ -98,6 +98,8 @@ pub use samudaya_audit::{samudaya_audit, VALID_KINDS as SAMUDAYA_KINDS};
 pub use sangha::sangha;
 pub use schema::{class_schemas, schema};
 pub use serve::serve_mcp;
+#[cfg(feature = "serve-http")]
+pub use serve::serve_mcp_http;
 pub(crate) use status::index_status_data;
 pub use status::{index_status, status};
 pub use vault::{run as run_vault, vault_status, VaultCommand};

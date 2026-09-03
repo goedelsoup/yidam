@@ -276,6 +276,7 @@ The binary is partitioned by cargo feature so the common case stays cheap to ins
 | `export-sqlite` | `export --format sqlite` | Bundled SQLite + sqlite-vec, compiled from C |
 | `vault-s3` *(default)* | The `s3://` transport for `yidam vault` — the rest of the vault is ungated | hmac + reqwest (rustls) + tokio |
 | `export-graph` *(default)* | `export --format rdf` | Pure Rust |
+| `serve-http` *(default)* | `serve --mcp --http` — MCP over a URL, the transport every remote agent platform needs | hyper 1.x server features. **+1 package** (`httpdate`); hyper is already here for reqwest |
 | `full` | All of the above | |
 
 `tonpa` is in the default set even though it costs an HTTP stack, because it is the only

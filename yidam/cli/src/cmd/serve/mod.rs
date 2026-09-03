@@ -18,6 +18,8 @@
 //! one command a collaborator cannot install.
 
 mod absence;
+#[cfg(feature = "serve-http")]
+pub(crate) mod http;
 mod resources;
 pub(crate) mod tools;
 
@@ -319,12 +321,17 @@ fn load_citations(root: &Path, nodes: &[Node]) -> std::collections::HashMap<Stri
         .collect()
 }
 
-/// Serve the domain computer over MCP stdio. Blocks until stdin closes.
-pub fn serve_mcp() -> Result<()> {
-    let root = repo_root()?;
-    let state = ServerState::load(&root)?;
-
-    // Banner goes to stderr — stdout carries only JSON-RPC frames.
+/// What this server is about to serve, on stderr.
+///
+/// Shared by both transports rather than written once per transport: everything it reports is a
+/// fact about the *corpus and the build* — how many nodes, whether an index is readable,
+/// whether HEAD has moved past it — and none of it is about framing. A second copy would be a
+/// second place for the staleness warning to go stale.
+///
+/// It is stderr on stdio because stdout carries JSON-RPC frames. It is stderr over HTTP for a
+/// weaker reason: a person at a terminal reads it, and **a remote client cannot see it at all**.
+/// That is #424, and this function is where its fix will land.
+fn banner(state: &ServerState, root: &Path) {
     eprintln!(
         "yidam MCP server — domain {:?}, {} node(s), {} skill(s), {} decision(s)",
         state.domain,
@@ -351,7 +358,7 @@ pub fn serve_mcp() -> Result<()> {
         ),
     }
     if let Some(indexed) = &state.indexed_commit {
-        let head = head_commit_short(&root);
+        let head = head_commit_short(root);
         if *indexed != head {
             // "serving the stale index" is only true of a build that is serving it. A
             // build that cannot read the index still owes the warning — the staleness is
@@ -367,11 +374,31 @@ pub fn serve_mcp() -> Result<()> {
             );
         }
     }
+}
+
+/// Serve the domain computer over MCP stdio. Blocks until stdin closes.
+pub fn serve_mcp() -> Result<()> {
+    let root = repo_root()?;
+    let state = ServerState::load(&root)?;
+    banner(&state, &root);
     eprintln!("serving MCP over stdio");
 
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     run_loop(&state, stdin.lock(), stdout.lock())
+}
+
+/// Serve the same contract over HTTP. Blocks until the process is stopped.
+///
+/// The corpus is loaded once, before the socket is bound, so a repository that cannot be read
+/// fails at the command rather than at the first request — which over HTTP would be a 500 to
+/// whoever happened to connect first.
+#[cfg(feature = "serve-http")]
+pub fn serve_mcp_http(bind: &str, port: u16, allow_origin: Vec<String>) -> Result<()> {
+    let root = repo_root()?;
+    let state = ServerState::load(&root)?;
+    banner(&state, &root);
+    http::serve(state, bind, port, allow_origin)
 }
 
 /// Read newline-delimited JSON-RPC messages from `input`, write responses to

@@ -206,6 +206,27 @@ hmac = { version = "0.13", optional = true }
 # Wraps a `tokio::fs::File` as a stream for a `PUT` body. Already in the graph through
 # reqwest's `stream` feature — naming it as a dependency adds no package, and using it
 # without naming it is not allowed.
+# ── `serve --mcp --http` (#423) ───────────────────────────────────────────────
+#
+# **Already in the tree.** `reqwest` pulls hyper 1.x, hyper-util and http-body-util for its
+# client; naming them here with their SERVER features adds exactly **one** crate to the default
+# build, measured on this lockfile: `httpdate` — pure Rust, no build script, no dependencies of
+# its own, and **already pinned in Cargo.lock**, so the audited set does not change at all and
+# neither does the aarch64 cross-compile. `axum` measured at +5, also pure Rust and also cheap;
+# it was not chosen because what sits on top of hyper here is a match on method and path, not
+# an HTTP implementation.
+#
+# `default-features = false` on both: hyper's default set is client + server + http1 + http2,
+# and this transport speaks http1 only. It is one endpoint answering one POST.
+hyper = { version = "1", default-features = false, features = [
+  "server",
+  "http1",
+], optional = true }
+hyper-util = { version = "0.1", default-features = false, features = [
+  "server",
+  "tokio",
+], optional = true }
+http-body-util = { version = "0.1", optional = true }
 tokio-util = { version = "0.7", default-features = false, features = ["io"], optional = true }
 
 [features]
@@ -214,7 +235,7 @@ tokio-util = { version = "0.7", default-features = false, features = ["io"], opt
 # `unrecognized subcommand`, which is not "this feature is unavailable" but "a
 # documented workflow is impossible". Every other gated feature degrades to a
 # missing capability; this one degraded to a broken instruction.
-default = ["reports", "tonpa", "vault-s3", "export-graph"]
+default = ["reports", "tonpa", "vault-s3", "export-graph", "serve-http"]
 # The name of the base build — and **not a supported feature set on its own.**
 #
 # It gates nothing. `reports = []` enables no dependency, and there is no
@@ -309,8 +330,28 @@ tonpa = ["dep:reqwest", "dep:tokio"]
 # The rest of the vault — addressing, the cache, the `file://` backend — is ungated and stays
 # that way. This feature buys the network and nothing else.
 vault-s3 = ["dep:hmac", "dep:reqwest", "dep:tokio", "dep:tokio-util"]
+# `serve --mcp --http` — MCP over a transport a URL can reach. **In the default set,
+# deliberately**, and for the reason `vault-s3` and `export-graph` give rather than a new one:
+# anything outside `default` ships code no pull request compiled, and this is the one command
+# that decides whether a corpus is reachable by an agent at all. #237 put `serve` itself behind
+# `index` once and the effect was that the surface making a corpus reachable lived in the build
+# almost nobody installs; gating its only remote transport would be that bug one level out.
+#
+# It is a feature rather than an unconditional dependency so that `--no-default-features
+# --features reports` keeps meaning something — RFC-0003's reports-only binary has no business
+# linking a web server. `tokio/net` rather than `dep:tokio`: tokio is already pulled by `tonpa`
+# and `vault-s3`, and this needs one more of its features, not another copy of it.
+serve-http = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "tokio/net"]
 # Everything — reproduces the pre-partition monolith (`cargo install --features full`).
-full = ["reports", "index", "export-sqlite", "export-graph", "tonpa", "vault-s3"]
+full = [
+  "reports",
+  "index",
+  "export-sqlite",
+  "export-graph",
+  "tonpa",
+  "vault-s3",
+  "serve-http",
+]
 # `index` implies `vector-read`, so `full` carries it without naming it.
 
 # `build.rs` reads `_ds_manifest.json` to concatenate the design tokens the web exporter

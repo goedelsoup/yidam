@@ -532,6 +532,7 @@ is the reliable answer — two of the six are feature-gated:
 | Command | What it does |
 |---|---|
 | `serve --mcp` | MCP over stdio — the agent surface. See [Connecting an agent](mcp-server.md) |
+| `serve --mcp --http` | The same server over HTTP, for a client that takes a URL rather than spawning a process. `--bind` (loopback by default), `--port`, `--allow-origin` |
 | `serve --lsp` | LSP over stdio — the editor surface. See [Editor setup](editor-setup.md) |
 
 **Both transports are in the light default build.** `--features index` upgrades MCP's
