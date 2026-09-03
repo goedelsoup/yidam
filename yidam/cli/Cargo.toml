@@ -119,12 +119,33 @@ yidam-core = { path = "../prelude/sdks/rust", version = "0.4.0" }
 #    server's `retrieve`. Not `serve` itself: that is in the light default, and
 #    answers every tool without these. Pulls the ML/native stack; lancedb's
 #    prost-build needs protoc 31 at build time. ─────────────────────────────
-# **Held at 4 deliberately — see #536.** fastembed 6 embeds the same sentence to a
-# different vector: every element of the `embed_config` parity witness moves by 1e-4 to
-# 6e-4, against a 1e-5 tolerance. The model registry is byte-identical between 4.9.1 and
-# 6.0.2 for this model, so it is not a weights change; it is the runtime underneath.
-# Taking it would silently invalidate every index already built, and only
-# `yidam index verify` would notice — the query path does not check the witness.
+# **Held at 4 — see #536.** Not "not yet tried": the bump was taken, measured, and reverted.
+#
+# fastembed 6 embeds the same sentence to a different vector than 4.9.1 — every element of
+# the `embed_config` parity witness moves by 1e-4 to 6e-4 against a 1e-5 tolerance. Bisecting
+# the releases between them puts it on ONE bump: `ort` 2.0.0-rc.12 to rc.13, which skips the
+# bundled ONNX Runtime ahead four versions to 1.28. Not the tokenizer (0.21 to 0.22 is
+# clean), not `ndarray`, not pooling, and not the weights — the registry names the same
+# AllMiniLML6V2Q and the same onnx/model_quantized.onnx in both.
+#
+# THE REASON TO HOLD IS NOT STALE INDEXES. Those are now handled: `retrieval::vector::search`
+# checks the `embed.config.json` witness on the same first-use path that loads the model, and
+# an index from another space degrades to keyword search under `stale_contract`. The reason
+# to hold is that **transformers.js agrees with fastembed 4.9.1 and not with 6**:
+#
+#   fastembed 4.9.1   0.0008519883
+#   transformers.js   0.0008519888        <- ~5e-10 from 4.9.1
+#   fastembed 6.0.2   0.00056339556       <- ~3e-4 from both
+#
+# Two independent runtimes are in one space and the bump moves the Rust reference out of it.
+# Re-recording the fixture to rc.13's numbers does not fix that; it relabels the outlier as
+# the reference and makes the TypeScript SDK non-conforming to its own parity contract. The
+# only way to a green suite would be a `known_delta` for transformers.js, which
+# parity/README.md reserves for "a runtime that cannot load the exact weights in model_file"
+# — and transformers.js loads exactly those weights.
+#
+# Revisit when transformers.js ships an ONNX Runtime that answers the way rc.13 does; the two
+# move back into one space then, and the fixture moves once, deliberately, for both.
 fastembed = { version = "4", optional = true }
 lancedb = { version = "0.15", optional = true }
 futures = { version = "0.3", optional = true }

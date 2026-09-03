@@ -223,9 +223,21 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
 
     #[cfg(feature = "vector-read")]
     if let Retrieval::Vector(index) = &state.retrieval {
-        let hits = crate::retrieval::vector::search(index, query, k, |r| {
+        let searched = crate::retrieval::vector::search(index, query, k, |r| {
             class_filter.is_none_or(|c| r.class == c)
         })?;
+        // The index was built in a different vector space than this binary embeds into, so
+        // scoring against its rows would return plausible, wrong rankings. Keyword search is
+        // the same answer this tool gives a corpus with no index, under its own reason.
+        let crate::retrieval::vector::Searched::Hits(hits) = searched else {
+            return Ok(keyword_retrieve(
+                state,
+                query,
+                k,
+                class_filter,
+                Some(crate::retrieval::STALE_CONTRACT),
+            ));
+        };
         let results: Vec<Value> = hits
             .iter()
             .map(|(r, score)| {

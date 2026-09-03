@@ -289,7 +289,10 @@ done
 description = "Cross-runtime embedding reproducibility check (fastembed / transformers.js / sentence-transformers). Downloads model weights on first run; skipped by the default parity task."
 env = { YIDAM_EMBED_PARITY = "1" }
 run = [
-  "cargo test --manifest-path yidam/cli/Cargo.toml --features index --test embed_parity",
+  # `vector-read`, not `index`: this runner embeds text and never builds an index, so
+  # `index` bought it protoc and lancedb for nothing. #442 split the two features for
+  # exactly this and `embed_parity.rs` records it — the task kept the old flag.
+  "cargo test --manifest-path yidam/cli/Cargo.toml --features vector-read --test embed_parity",
   "cd yidam/prelude/sdks/typescript && npm test -- embed_parity",
   "cd yidam/prelude/sdks/python && uv run --extra dev --extra embed pytest tests/parity/test_embed_config.py",
 ]
