@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use super::export::unix_to_iso;
 use crate::model::{corpus_nodes, DomainModel, NodeView};
@@ -36,8 +37,8 @@ impl LlmsPack {
 /// pack keeps at least one node of every class for as long as the budget admits
 /// one. Whatever is still lost is named in the trailer, per class, rather than
 /// vanishing.
-pub fn render_llms(model: &DomainModel, token_budget: Option<usize>) -> LlmsPack {
-    let nodes = sorted_nodes(model);
+pub fn render_llms(model: &DomainModel, root: &Path, token_budget: Option<usize>) -> LlmsPack {
+    let nodes = sorted_nodes(model, root);
     let total = nodes.len();
 
     // The unbudgeted pack, which is also the answer whenever a budget is generous
@@ -151,13 +152,16 @@ fn pack(
     }
 }
 
-fn sorted_nodes(model: &DomainModel) -> Vec<NodeView> {
+fn sorted_nodes(model: &DomainModel, root: &Path) -> Vec<NodeView> {
     let mut nodes = corpus_nodes(model);
     // Open questions sort first, so the fields that decide "open" have to be loaded before
     // the comparison rather than inside it.
-    let fields = crate::paths::repo_root()
-        .map(|r| crate::claims::ClaimFields::load(&crate::paths::yidam_corpus_dir(&r)))
-        .unwrap_or_default();
+    //
+    // From `root`, never from `repo_root()`. This asked the *process* which corpus it was in
+    // while `model` had already been loaded from a corpus somebody named — one export, two
+    // answers, and nothing to notice when they disagreed. Unreachable until `--root` existed;
+    // reachable the moment it did.
+    let fields = crate::claims::ClaimFields::load(&crate::paths::yidam_corpus_dir(root));
     order(&mut nodes, &fields);
     nodes
 }
@@ -498,6 +502,16 @@ mod tests {
         text.lines().filter_map(|l| l.strip_prefix("## ")).collect()
     }
 
+    /// A corpus root with no `.yidam/corpus/` under it, so [`ClaimFields`] loads its default.
+    ///
+    /// Which is what these cases always got, and got by accident: `sorted_nodes` used to ask
+    /// `repo_root()`, and under `cargo test` that resolves to the yidam repository — which has
+    /// no `.yidam/`. So the fields were empty because of where the test runner stood. Now the
+    /// emptiness is an argument, and a case that wants real claim fields can pass a corpus.
+    fn no_claim_fields() -> &'static Path {
+        Path::new("/nonexistent/for-llms-tests")
+    }
+
     fn classes_present(text: &str) -> std::collections::BTreeSet<&str> {
         section_ids(text)
             .into_iter()
@@ -507,7 +521,7 @@ mod tests {
 
     #[test]
     fn one_section_per_node_and_header_count_matches() {
-        let pack = render_llms(&test_model(), None);
+        let pack = render_llms(&test_model(), no_claim_fields(), None);
         let ids = section_ids(&pack.text);
         assert_eq!(ids.len(), 3);
         assert_eq!((pack.written, pack.total, pack.omitted()), (3, 3, 0));
@@ -521,7 +535,7 @@ mod tests {
 
     #[test]
     fn open_question_nodes_first_then_by_link_count() {
-        let text = render_llms(&test_model(), None).text;
+        let text = render_llms(&test_model(), no_claim_fields(), None).text;
         assert_eq!(
             section_ids(&text),
             vec!["concept/gamma", "concept/beta", "concept/alpha"],
@@ -531,10 +545,10 @@ mod tests {
     #[test]
     fn budget_drops_prose_before_it_drops_nodes() {
         let model = multi_class_model();
-        let full = render_llms(&model, None);
+        let full = render_llms(&model, no_claim_fields(), None);
         // Half the full size: far too small for every description, roomy enough
         // for every label.
-        let pack = render_llms(&model, Some(full.text.len() / 2 / 4));
+        let pack = render_llms(&model, no_claim_fields(), Some(full.text.len() / 2 / 4));
 
         assert_eq!(pack.written, pack.total, "membership survives");
         assert_eq!(pack.omitted(), 0);
@@ -549,7 +563,7 @@ mod tests {
     fn membership_when_it_must_give_is_spread_across_classes() {
         let model = multi_class_model();
         // Room for only a few nodes even label-only.
-        let pack = render_llms(&model, Some(120));
+        let pack = render_llms(&model, no_claim_fields(), Some(120));
 
         assert!(pack.written < pack.total, "this budget must drop nodes");
         assert!(pack.written >= 3, "but not below one node per class");
@@ -563,7 +577,7 @@ mod tests {
     #[test]
     fn omitted_nodes_are_named_by_class_in_the_trailer() {
         let model = multi_class_model();
-        let pack = render_llms(&model, Some(120));
+        let pack = render_llms(&model, no_claim_fields(), Some(120));
 
         let line = pack
             .text
@@ -588,7 +602,7 @@ mod tests {
     fn budgeted_output_stays_within_its_budget() {
         let model = multi_class_model();
         for budget in [60usize, 120, 400, 1_000, 2_000] {
-            let pack = render_llms(&model, Some(budget));
+            let pack = render_llms(&model, no_claim_fields(), Some(budget));
             assert!(
                 pack.text.len() <= budget * 4,
                 "budget {budget}: {} chars",
@@ -600,34 +614,39 @@ mod tests {
     #[test]
     fn the_boundary_node_keeps_truncated_prose() {
         let model = multi_class_model();
-        let full = render_llms(&model, None);
+        let full = render_llms(&model, no_claim_fields(), None);
         // Between "every label fits" and "every description fits" there is a node
         // whose prose only partly fits.
-        let found = (1..=full.text.len() / 4)
-            .step_by(7)
-            .any(|b| render_llms(&model, Some(b)).text.contains("[truncated]"));
+        let found = (1..=full.text.len() / 4).step_by(7).any(|b| {
+            render_llms(&model, no_claim_fields(), Some(b))
+                .text
+                .contains("[truncated]")
+        });
         assert!(found, "some budget lands mid-description");
     }
 
     #[test]
     fn generous_budget_emits_everything_without_a_trailer() {
-        let pack = render_llms(&test_model(), Some(100_000));
+        let pack = render_llms(&test_model(), no_claim_fields(), Some(100_000));
         assert_eq!(section_ids(&pack.text).len(), 3);
         assert_eq!((pack.elided, pack.omitted()), (0, 0));
         assert!(!pack.text.contains("[truncated]"));
         assert!(!pack.text.contains("# Omitted:"));
         assert!(!pack.text.contains("# Elided:"));
         // A budget that fits is invisible: same bytes as no budget at all.
-        assert_eq!(pack.text, render_llms(&test_model(), None).text);
+        assert_eq!(
+            pack.text,
+            render_llms(&test_model(), no_claim_fields(), None).text
+        );
     }
 
     #[test]
     fn empty_corpus_renders_header_only() {
-        let pack = render_llms(&model_with(vec![]), None);
+        let pack = render_llms(&model_with(vec![]), no_claim_fields(), None);
         assert!(pack.text.contains("Nodes: 0\n"));
         assert!(section_ids(&pack.text).is_empty());
         // Budget on an empty corpus must not panic or emit a trailer.
-        let budgeted = render_llms(&model_with(vec![]), Some(10));
+        let budgeted = render_llms(&model_with(vec![]), no_claim_fields(), Some(10));
         assert!(!budgeted.text.contains("# Omitted:"));
         assert_eq!(budgeted.total, 0);
     }
@@ -641,7 +660,7 @@ mod tests {
         )]);
         // Sweep budgets so the cut lands on every possible byte offset.
         for budget in 1..80 {
-            let text = render_llms(&model, Some(budget)).text;
+            let text = render_llms(&model, no_claim_fields(), Some(budget)).text;
             assert!(text.is_char_boundary(text.len()));
         }
     }
