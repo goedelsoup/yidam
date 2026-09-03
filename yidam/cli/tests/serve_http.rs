@@ -411,3 +411,86 @@ fn another_path_names_the_endpoint() {
     assert_eq!(status_of(&response), 404, "{response}");
     assert!(body_of(&response).contains("/mcp"), "{response}");
 }
+
+/// Over HTTP the refusal has to happen before the socket is bound, because there is no stderr
+/// for the client to read (#549, and #424's reason).
+///
+/// The stdio half of this is pinned in `mcp_serve.rs`. It is asserted again here because the
+/// two transports are two entry points, they *were* two places that both forgot the check, and
+/// the consequence differs: on stdio the person who misconfigured the client is at a terminal
+/// and can see the banner, while an HTTP client gets a handshake and nothing else. A server
+/// that bound a port and served a fabricated domain over it is reachable by anyone who can
+/// reach the port.
+///
+/// The assertion is that **nothing is listening**, not merely that the process failed. A
+/// process that exits after binding leaves a window, and `serve_mcp_http` loads the corpus
+/// before `http::serve` for the neighbouring reason — a repository that cannot be read should
+/// fail at the command rather than as a 500 to whoever connects first.
+#[test]
+fn the_http_transport_refuses_a_non_corpus_before_it_binds() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let root = tmp.path();
+    std::fs::write(root.join("README.md"), "a repository\n").unwrap();
+    git(root, &["init", "-q"]);
+    git(root, &["config", "user.email", "t@example.com"]);
+    git(root, &["config", "user.name", "t"]);
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-qm", "genesis: not a corpus"]);
+
+    // A fixed port, so that "nothing is listening" is a question with an address. `--port 0`
+    // would make the refusal untestable: there would be no port to fail to connect to.
+    let port = "8797";
+    let mut child = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(root)
+        .args(["serve", "--mcp", "--http", "--port", port])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the binary runs");
+
+    // **Not `output()`.** A serving process never exits, so waiting for one turns the very
+    // regression this test exists for into a hang — which is not a failing test, it is a job
+    // that burns its timeout and reports nothing. Found by mutating the fix out and watching
+    // this file hang instead of go red. Poll, then kill and fail on our own terms.
+    let exit = {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            match child.try_wait().expect("polling the child") {
+                Some(status) => break Some(status),
+                None if std::time::Instant::now() >= deadline => {
+                    let _ = child.kill();
+                    break None;
+                }
+                None => std::thread::sleep(std::time::Duration::from_millis(50)),
+            }
+        }
+    };
+    let out = child.wait_with_output().expect("collecting output");
+
+    let Some(status) = exit else {
+        panic!(
+            "the HTTP transport was still serving after 10s in a directory with no .yidam/ \
+             — it bound a port and would have answered a fabricated domain over it. \
+             stderr:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        )
+    };
+    assert!(
+        !status.success(),
+        "the HTTP transport started in a directory with no .yidam/ and exited {:?}",
+        status.code()
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("not a yidam repository"),
+        "the refusal does not say what is wrong:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("http://"),
+        "the server announced an address it should never have bound:\n{stderr}"
+    );
+    assert!(
+        TcpStream::connect(format!("127.0.0.1:{port}")).is_err(),
+        "something is listening on {port} after the refusal"
+    );
+}

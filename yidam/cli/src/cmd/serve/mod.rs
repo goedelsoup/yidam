@@ -168,7 +168,35 @@ impl ServerState {
         Some(matches!(&self.indexed_commit, Some(i) if *i != self.commit))
     }
 
+    /// Load the corpus at `root`, or refuse if `root` is not one.
+    ///
+    /// The check is here rather than in each transport's entry point because it is a fact
+    /// about *this state*, not about framing — the same reason [`banner`] is shared. Two
+    /// transports forgot it once; a third would have been free to.
+    ///
+    /// **Why a server owes this and a report does not.** [`crate::paths::repo_root`] falls
+    /// back to the working directory when `git rev-parse` fails, which is what lets every
+    /// report run somewhere no repository exists, and `require_yidam_repo`'s own doc draws the
+    /// line at *report tolerates, gate requires*. A server is neither, and it is the worse
+    /// case of the two: a report prints its emptiness to a person who can see it, and a server
+    /// hands emptiness to an agent **as an answer**.
+    ///
+    /// It was measured before it was fixed (#549). In an ordinary git repository with no
+    /// `.yidam/`, `serve` exited 0 and answered `initialize` with a handshake identical in
+    /// shape to a corpus bootstrapped an hour ago — `nodes: 0, skills: 0, decisions: 0` in
+    /// both — differing only in `domain`, which [`load_domain_model`] had **fabricated from
+    /// the directory basename**. So the server did not merely fail to notice it was outside a
+    /// corpus; it presented a plausible one, named after whatever folder the client started
+    /// in, and the warning saying so went to stderr where an HTTP client cannot read it.
+    ///
+    /// That is RFC-0005's `absence` argument one level up. *Not a corpus* and *an empty
+    /// corpus* are two different facts; the handshake collapsed them; and all thirteen tools
+    /// then answered from the collapsed one. `require_yidam_repo` admits the empty corpus on
+    /// purpose — its test is `.yidam/`, not corpus content — so nothing here refuses a
+    /// repository that has simply not been written into yet.
     pub(crate) fn load(root: &Path) -> Result<Self> {
+        crate::paths::require_yidam_repo(root)?;
+
         let model = load_domain_model(root)?;
 
         let nodes = corpus_nodes(&model);

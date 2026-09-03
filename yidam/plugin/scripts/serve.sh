@@ -10,10 +10,10 @@
 #      failed MCP server and no instruction; here it surfaces as the install line.
 #
 #   2. The directory is not a corpus. A plugin is installed once and Claude Code starts
-#      its servers in *every* project. `serve` locates the corpus with
-#      `git rev-parse --show-toplevel` and does not ask whether it found the repository
-#      you meant — outside a derived repository it starts, serves nothing, and answers
-#      every tool with an empty result. Refusing is louder than answering nothing.
+#      its servers in *every* project, so this is the ordinary case rather than the odd one.
+#      `serve` refuses this too (#549) — checking here is not the only line of defence, it
+#      is the one that can say it in terms of the plugin, and it avoids starting a 50 MB
+#      binary in every non-corpus project to be told no.
 #
 # Everything here writes to stderr. stdout carries JSON-RPC frames and a stray line on it
 # corrupts the protocol.
