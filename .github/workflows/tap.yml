@@ -60,7 +60,7 @@ jobs:
     name: tap (goedelsoup/homebrew-tap)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # ── the tap serves one formula, so an older tag is a downgrade ──────────
       #
