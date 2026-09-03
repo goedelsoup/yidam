@@ -4,7 +4,7 @@ The `yidam` binary is the whole toolchain. There is no daemon, no service, and n
 configure before the first run — a derived repository records which yidam governs it in its
 own `.yidam.toml`, and the binary reads that.
 
-Five channels serve the same artifact. Each one is exercised weekly by
+Six channels serve the same artifact. Each one is exercised weekly by
 [`install-channels.yml`](https://github.com/goedelsoup/yidam/blob/main/.github/workflows/install-channels.yml),
 which runs the lines below verbatim in a container holding only the tools the line claims to
 need and asserts that `yidam --version` answers with the latest release. A channel that stops
@@ -77,6 +77,27 @@ cargo binstall yidam
 Fetches the same prebuilt artifact the script does — it does not compile. Useful when cargo is
 already on hand and you would rather not add another package manager.
 
+## Claude Desktop, as a bundle
+
+Not a channel that installs a binary you run — it installs one Claude Desktop runs, without a
+terminal anywhere in the process. Download the `.mcpb` for your Mac from the
+[latest release](https://github.com/goedelsoup/yidam/releases) and drag it onto the Extensions
+pane, or:
+
+```sh
+open yidam-0.9.0-aarch64-apple-darwin.mcpb    # Apple silicon
+open yidam-0.9.0-x86_64-apple-darwin.mcpb     # Intel
+```
+
+The bundle is a zip holding a manifest and the light `yidam` build, and the installer asks
+which repository to serve — so nothing lands on your `PATH` and no client configuration is
+written by hand. **macOS only**: Claude Desktop runs there and on Windows, and this project
+cross-compiles no Windows target.
+
+It gives you the MCP server and nothing else. If you want to *run* `yidam` — `lint`, `status`,
+`propose` — you want one of the channels above as well. [Connecting an
+agent](mcp-server.md#claude-desktop-as-a-bundle) has the rest.
+
 ## From source
 
 ```sh
@@ -91,8 +112,9 @@ get something that merely resembles it.
 `yidam` is also on [crates.io](https://crates.io/crates/yidam), so `cargo install yidam` works
 — but it re-resolves dependencies the same way, and pinning the tag is the reproducible form.
 
-**MSRV is Rust 1.85**, deliberately below the 1.88 toolchain this repository pins, so a derived
-repo on an older toolchain can still install the CLI.
+**MSRV is Rust 1.88**, which is the toolchain this repository pins. It read 1.85 here and in
+`Cargo.toml` while every gate built 1.88 and nothing compiled the floor — an unverified promise
+rather than a lower one — so #463 raised it to the pin, where every build verifies it.
 
 ## Verifying
 
