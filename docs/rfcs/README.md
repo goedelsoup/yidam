@@ -57,6 +57,7 @@ re-deriving it.
 | [0024](0024-policy-as-code.md) | I19 | The rule a repository writes about itself — policy as code | Draft |
 | [0025](0025-quality-surface.md) | I20 | The instrument, turned around — measuring the repository that measures | Draft |
 | [0026](0026-orchestrator-layer.md) | I21 | A run is a commit somebody can refuse — the orchestrator layer | Draft |
+| [0027](0027-openai-profile.md) | I22 | A profile is a projection, not a second contract — the `openai` profile | Draft |
 
 ## Reading order
 

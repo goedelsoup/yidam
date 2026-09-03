@@ -158,6 +158,7 @@ const sidebar = [
       { slug: 'rfcs/0024-policy-as-code', label: '0024 · Policy as code' },
       { slug: 'rfcs/0025-quality-surface', label: '0025 · The instrument, turned around' },
       { slug: 'rfcs/0026-orchestrator-layer', label: '0026 · The orchestrator layer' },
+      { slug: 'rfcs/0027-openai-profile', label: '0027 · The openai profile' },
     ],
   },
 ];
