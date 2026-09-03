@@ -52,6 +52,26 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// Everywhere this repository writes commands an agent is expected to run.
+///
+/// The vendored prelude, the scaffold a derived repo is built from, the inherited task
+/// layer — and the Claude Code plugin, whose skills are prose an agent reads at the moment
+/// it is about to commit. The plugin was outside this scan for as long as it existed
+/// unlisted, which is the shape the list itself invites: a fifth place to prescribe a commit
+/// is covered only by somebody remembering this line. One list rather than the two identical
+/// copies that were here, so at least it is one line to remember.
+fn prescribing_targets(root: &Path) -> Vec<PathBuf> {
+    [
+        "yidam/prelude",
+        "sadhana",
+        "mise.yidam.toml",
+        "yidam/plugin",
+    ]
+    .iter()
+    .map(|t| root.join(t))
+    .collect()
+}
+
 /// A `git commit … -m <quoted>` occurrence: the subject, and where it was written.
 struct Prescribed {
     file: String,
@@ -144,11 +164,7 @@ fn quoted_spans(text: &str) -> Vec<(usize, usize)> {
 #[test]
 fn no_step_names_a_commit_kind_instead_of_its_verb() {
     let root = repo_root();
-    let targets = [
-        root.join("yidam/prelude"),
-        root.join("sadhana"),
-        root.join("mise.yidam.toml"),
-    ];
+    let targets = prescribing_targets(&root);
     // Prose *about* the split is legitimate and common — GRAPH.md defines both words, and
     // the conventions discuss them. Only an instruction to produce one is a finding, so
     // the match requires the imperative shape: "commit … as a[n] <kind> commit".
@@ -219,13 +235,7 @@ fn no_step_names_a_commit_kind_instead_of_its_verb() {
 #[test]
 fn every_prescribed_commit_uses_a_recognized_verb() {
     let root = repo_root();
-    // The three places that prescribe commands an agent runs: the vendored prelude, the
-    // scaffold template a derived repo is built from, and the inherited task layer.
-    let targets = [
-        root.join("yidam/prelude"),
-        root.join("sadhana"),
-        root.join("mise.yidam.toml"),
-    ];
+    let targets = prescribing_targets(&root);
 
     let mut found = Vec::new();
     for target in &targets {
