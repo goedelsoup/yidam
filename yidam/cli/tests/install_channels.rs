@@ -881,3 +881,114 @@ fn the_release_publishes_build_provenance_for_what_it_ships() {
          publishing without permission to write the release"
     );
 }
+
+/// The notes for a release must start from the previous release **of its own layer**.
+///
+/// `nothing_resolves_a_layer_release_through_the_repository_latest` is the same finding at a
+/// different call site, and this is the fourth. `releases/generate-notes` picks a base when
+/// `previous_tag_name` is omitted, and on `cli/v0.9.0` it picked `cli/v0.7.0` — past
+/// `cli/v0.8.0`, which exists, is a release, is an annotated tag on `main`, and is an ancestor
+/// of the tag being cut. The published notes listed 37 pull requests where 16 belonged to the
+/// release; everything from #497 on had already shipped (#555).
+///
+/// It is a content defect rather than a broken link, and the least alarming shape one can
+/// take: a changelog that is too long reads like a busy release.
+#[test]
+fn the_release_notes_start_from_this_layers_previous_release() {
+    let workflow = read(".github/workflows/release.yml");
+    let commands = workflow
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        commands.contains("previous_tag_name"),
+        "release.yml generates notes without `previous_tag_name`, so GitHub chooses the base. \
+         It chose one release too far back on cli/v0.9.0 and repeated a whole release's \
+         changelog."
+    );
+    assert!(
+        commands.contains("previous-release-tag.sh"),
+        "release.yml must resolve the previous tag per layer. A hardcoded one is a second \
+         place the version lives, and omitting it is the defect above."
+    );
+}
+
+/// The resolution itself, run against fixtures rather than the network.
+///
+/// The workflow's copy is exercised by cutting a release, which is a poor place to learn that
+/// a shell expansion was wrong. This drives the same script the workflow calls.
+///
+/// The fixture interleaves layers in *creation* order the way this repository's really does,
+/// because that ordering is what the first version of the script got wrong: it took the newest
+/// release of the layer that was not the tag itself, which is correct only while the tag being
+/// cut is the newest one. Asked about a historical tag it answered with a *later* release.
+/// That had no reachable symptom in the release flow — it only ever cuts the newest — and
+/// would have grown one the first time somebody re-cut an old tag.
+#[test]
+fn the_previous_release_resolution_answers_per_layer() {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let script = repo_root().join(".github/scripts/previous-release-tag.sh");
+    assert!(script.is_file(), "{} is missing", script.display());
+
+    // Newest-first, as the releases API returns them, and deliberately not in version order.
+    const RELEASES: &str = r#"[
+      {"tag_name": "cli/v0.10.0"},
+      {"tag_name": "v0.3.0"},
+      {"tag_name": "cli/v0.9.0"},
+      {"tag_name": "sdk/rust/v0.4.0"},
+      {"tag_name": "cli/v0.8.0"},
+      {"tag_name": "editor/v0.2.0"},
+      {"tag_name": "editor/v0.1.0"}
+    ]"#;
+
+    let cases: &[(&str, &str)] = &[
+        // `0.10.0` sorts above `0.9.0` by version and below it as a string.
+        ("cli/v0.10.0", "cli/v0.9.0"),
+        // A tag that is not the newest release of its layer: the answer is the one below it,
+        // never the one above.
+        ("cli/v0.9.0", "cli/v0.8.0"),
+        // The layer's earliest release has no predecessor, and "" is the answer rather than
+        // an error — the caller omits `previous_tag_name` on it.
+        ("cli/v0.8.0", ""),
+        ("editor/v0.2.0", "editor/v0.1.0"),
+        ("editor/v0.1.0", ""),
+        // Layers with exactly one release, and a tag whose prefix is a prefix of nothing else.
+        ("sdk/rust/v0.4.0", ""),
+        ("v0.3.0", ""),
+        // A tag with no release yet — the ordinary case, since notes are generated before the
+        // release is created.
+        ("cli/v0.11.0", "cli/v0.10.0"),
+    ];
+
+    for (tag, expected) in cases {
+        let mut child = Command::new(&script)
+            .arg(tag)
+            .current_dir(repo_root())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("the resolution script runs");
+        child
+            .stdin
+            .take()
+            .expect("stdin is piped")
+            .write_all(RELEASES.as_bytes())
+            .expect("the fixture is written");
+        let out = child.wait_with_output().expect("the script terminates");
+        assert!(
+            out.status.success(),
+            "resolving {tag} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let got = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        assert_eq!(
+            &got, expected,
+            "previous release of {tag}: expected {expected:?}, got {got:?}"
+        );
+    }
+}

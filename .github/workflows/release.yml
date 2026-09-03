@@ -271,8 +271,28 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
-            -f tag_name="$GITHUB_REF_NAME" --jq .body > generated.md
+          # Which release these notes start from, asked per layer rather than left to
+          # GitHub. Omitting `previous_tag_name` let it pick `cli/v0.7.0` for
+          # `cli/v0.9.0` — past `cli/v0.8.0`, which exists and is an ancestor — and the
+          # published notes listed 37 pull requests where 16 belonged to the release
+          # (#555). The same call answers correctly for `cli/v0.8.0`, so the heuristic is
+          # right for one release and wrong for the next with nothing visible between
+          # them.
+          previous=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            | .github/scripts/previous-release-tag.sh "$GITHUB_REF_NAME")
+
+          if [ -n "$previous" ]; then
+            echo "notes start from $previous"
+            gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+              -f tag_name="$GITHUB_REF_NAME" \
+              -f previous_tag_name="$previous" --jq .body > generated.md
+          else
+            # The first release of a layer has no predecessor, and an empty
+            # `previous_tag_name` is not the way to say so.
+            echo "no earlier release of this layer; generating from the beginning"
+            gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+              -f tag_name="$GITHUB_REF_NAME" --jq .body > generated.md
+          fi
 
           # The lines under `## <tag>` up to the next `## ` heading. `-v` rather
           # than interpolating the tag into the program: a tag holds `/` and `.`,
