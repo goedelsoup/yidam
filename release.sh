@@ -118,6 +118,39 @@ if [ -n "$MANIFEST" ]; then
   fi
 fi
 
+# ── an upgrade note staged under Unreleased is one nobody filed ──────────────
+#
+# `docs/upgrading.md` carries the sentence a version number cannot: your working
+# setup will behave differently, and here is the repair. `release.yml` prepends
+# this file's `## <tag>` section to the generated notes, so a note filed under the
+# tag reaches the release and a note left under `## Unreleased` does not.
+#
+# Both ways that can go wrong are silent. The note is dropped from the release
+# being cut, or — if nobody notices — repeated into the next one, describing a
+# change that shipped a version ago. Neither shows up as a failure anywhere.
+#
+# So a staged note refuses the tag. The repair is one edit: rename the heading to
+# the tag being cut. A release with nothing to say leaves the section empty and is
+# never asked about it, which is most of them.
+#
+# Read from HEAD for `WORKFLOWS`'s reason: the tag names a commit, and a note that
+# is only in the working tree is a note the tagged ref does not carry.
+NOTES="docs/upgrading.md"
+if git cat-file -e "HEAD:$NOTES" 2>/dev/null; then
+  # The lines between `## Unreleased` and the next `## ` heading, minus blanks and
+  # HTML comments — the heading itself always stays, so its presence says nothing.
+  staged=$(git show "HEAD:$NOTES" | awk '
+    /^## Unreleased[[:space:]]*$/ { inside = 1; next }
+    /^## / { inside = 0 }
+    inside && !/^[[:space:]]*$/ && !/^[[:space:]]*<!--/ && !/^[[:space:]]*-->/ { print }
+  ')
+  if [ -n "$staged" ]; then
+    refuse staged-upgrade-note "$NOTES has content under '## Unreleased'; file it under '## $TAG' so the release carries it"
+  fi
+else
+  refuse missing-upgrade-notes "$NOTES is absent at HEAD; release.yml reads it for the notes it publishes"
+fi
+
 # ── a tag whose workflow does not exist yet fires nothing ────────────────────
 #
 # Checked against HEAD, not the working tree: the tag names a commit, and a
