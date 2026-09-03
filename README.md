@@ -102,6 +102,14 @@ fetches the same artifact:
 cargo binstall yidam
 ```
 
+Not going to install a binary at all? Claude Desktop takes an `.mcpb` bundle — the server and
+the binary in one file you drag onto the Extensions pane, which asks which repository to serve.
+macOS only, and it gives you the MCP server rather than the CLI:
+
+```sh
+open yidam-0.9.0-aarch64-apple-darwin.mcpb    # from the latest release; or double-click it
+```
+
 Or from source, if you would rather. Same light default build, and it needs only a Rust
 toolchain — no protoc, no system C library, no ML runtime. `--locked` builds from the lock file the
 tag committed, which is what makes it the same binary the release was built from; without it
@@ -284,8 +292,9 @@ feature whose absence broke an instruction rather than removing a capability: wi
 `yidam tonpa add …` answered `unrecognized subcommand`, and inside a script with output
 redirected that is indistinguishable from success.
 
-MSRV is Rust 1.85, deliberately below the 1.88 toolchain this repo pins, so derived repos on
-older toolchains can still install the CLI.
+MSRV is Rust 1.88, the toolchain this repo pins. It read 1.85 here and in `Cargo.toml` while
+every gate built 1.88 and nothing ever compiled the floor, so #463 raised it to the pin —
+an unverified promise replaced by one every build checks.
 
 ## Prelude SDKs, parity, and specs
 
