@@ -418,3 +418,83 @@ jobs:
             echo "::error::Open VSX serves $got; the latest editor release is ${{ needs.editor-released.outputs.version }}"
             exit 1
           }
+
+  # ── the .vsix on the GitHub release ────────────────────────────────────────
+  #
+  # This workflow's comment above already said the thing: Open VSX does not serve
+  # VS Code proper, so for a VS Code user the release asset "is not a fallback, it
+  # is the only route". It said so and nothing asked. A note stating a fact is not
+  # a check of it, and `install-channels.yml` exists precisely because a documented
+  # route can stop working while every build stays green (#313).
+  #
+  # It is the largest audience the extension has and the one channel it reaches
+  # them by, so it is checked the way the CLI channels are: obtain the artifact the
+  # documentation names, then make it say its own version.
+  editor-vsix:
+    name: .vsix on the release
+    needs: editor-released
+    if: needs.editor-released.outputs.version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: The asset a VS Code user is told to download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The resolved release, named in the step that compares against it. It was an
+          # `env:` entry, which reads the same and is not: `each_channel_asserts_the_released_version`
+          # asks whether the job's `run:` steps compare against `editor-released`'s output,
+          # because a version arriving through `env:` is a version the step could be ignoring.
+          expected="${{ needs.editor-released.outputs.version }}"
+          vsix="yidam-vscode-${expected}.vsix"
+          tag="editor/v${expected}"
+
+          gh api "repos/${{ github.repository }}/releases/tags/${tag}" \
+            --jq '.assets[].name' > names.txt
+          for want in "$vsix" "${vsix}.sha256"; do
+            grep -qxF "$want" names.txt || {
+              echo "::error::${tag} has no ${want}. README.md and docs/editor-setup.md tell a"
+              echo "::error::VS Code user to download it, and Open VSX does not serve VS Code,"
+              echo "::error::so this is the only route and it is broken. Assets present:"
+              sed 's/^/::error::  /' names.txt
+              exit 1
+            }
+          done
+
+          # `--repo` because this job checks out nothing: it needs no source, only the
+          # artifact a reader is told to fetch. Without it `gh` looks for a git remote and
+          # fails with "not a git repository" — verified by running this body outside a
+          # checkout, which is what a runner without `actions/checkout` is.
+          gh release download "$tag" --repo "${{ github.repository }}" \
+            --pattern "${vsix}*" --clobber
+
+          # `sha256sum -c` cannot be used: the asset records `<hash>  dist/<name>`, a path
+          # that exists on the builder and not here. Compare the hashes themselves.
+          want=$(cut -d' ' -f1 < "${vsix}.sha256")
+          got=$(sha256sum "$vsix" | cut -d' ' -f1)
+          # An empty `want` compares equal to an empty `got`. Both were empty while this
+          # recipe was being written — against a directory where the download had failed —
+          # and the comparison passed.
+          [ -n "$want" ] || { echo "::error::${vsix}.sha256 records no hash"; exit 1; }
+          [ "$want" = "$got" ] || {
+            echo "::error::${vsix} hashes ${got}; the release records ${want}"
+            exit 1
+          }
+
+          # And it must be the released version, which is this channel's `yidam --version`:
+          # an asset that downloads and unpacks is not evidence it is the one that was cut.
+          # `publisher` is checked with it because `goedelsoup.yidam-vscode` — the id every
+          # documented install line uses — is built from it.
+          manifest=$(unzip -p "$vsix" extension/package.json)
+          got_version=$(printf '%s' "$manifest" | jq -r '.version // ""')
+          got_publisher=$(printf '%s' "$manifest" | jq -r '.publisher // ""')
+          echo "vsix manifest: publisher=${got_publisher} version=${got_version}  expected version=${expected}"
+          [ "$got_version" = "$expected" ] || {
+            echo "::error::${vsix} declares version ${got_version}; ${tag} released ${expected}"
+            exit 1
+          }
+          [ "$got_publisher" = "goedelsoup" ] || {
+            echo "::error::${vsix} declares publisher ${got_publisher}; every documented"
+            echo "::error::install line says goedelsoup.yidam-vscode"
+            exit 1
+          }

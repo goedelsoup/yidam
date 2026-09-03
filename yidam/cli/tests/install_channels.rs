@@ -87,28 +87,53 @@ struct Channel {
     marker: &'static str,
     /// The substring `.github/workflows/install-channels.yml` must contain to be running it.
     probe: &'static str,
+    /// How *this* channel proves it obtained the released version rather than merely
+    /// something.
+    ///
+    /// It used to be `yidam --version` for every channel, hardcoded in one assertion, because
+    /// every channel delivered the binary. Two of them now deliver a VS Code extension, which
+    /// has no `--version` and is never on `PATH` — and a count of `yidam --version` against
+    /// `CHANNELS.len()` would have failed those for the wrong reason, or been lowered until it
+    /// asserted nothing.
+    ///
+    /// **It is the comparison, not the command.** `yidam --version` was the first spelling
+    /// here and it failed `installer-linux`, which verifies the version by running
+    /// `"$HOME/.local/bin/yidam" --version` — the binary is not on `PATH` inside that
+    /// container. The literal appeared only in the step's `name:`, which is the hole this file
+    /// already knows about from the other direction. What every channel genuinely has in
+    /// common is that it compares what it obtained against the release the workflow resolved.
+    version_probe: &'static str,
 }
+
+/// What each family of channels compares against: the release its own job resolved, rather
+/// than a version hardcoded anywhere.
+const CLI_VERSION: &str = "needs.released.outputs.version";
+const EDITOR_VERSION: &str = "needs.editor-released.outputs.version";
 
 const CHANNELS: &[Channel] = &[
     Channel {
         opener: "curl -fsSL",
         marker: "install.sh | sh",
         probe: "install.sh | sh",
+        version_probe: CLI_VERSION,
     },
     Channel {
         opener: "brew install",
         marker: "brew install goedelsoup/tap/yidam",
         probe: "brew install goedelsoup/tap/yidam",
+        version_probe: CLI_VERSION,
     },
     Channel {
         opener: "cargo binstall",
         marker: "cargo binstall yidam",
         probe: "cargo binstall",
+        version_probe: CLI_VERSION,
     },
     Channel {
         opener: "cargo install",
         marker: "cargo install --git",
         probe: "cargo install --git",
+        version_probe: CLI_VERSION,
     },
     // `marker` and `probe` are the same string, and deliberately carry the tool option: a
     // job that resolved the binary without `version_prefix` would be checking a channel
@@ -119,6 +144,32 @@ const CHANNELS: &[Channel] = &[
         opener: "mise use",
         marker: "github:goedelsoup/yidam[version_prefix=cli/v]",
         probe: "github:goedelsoup/yidam[version_prefix=cli/v]",
+        version_probe: CLI_VERSION,
+    },
+    // ── the extension is a channel too, and was exempt for as long as it was unlisted ──
+    //
+    // #313 asked for two things: document how the extension is obtained, and check that the
+    // documentation can succeed. The documentation landed, in `README.md` and
+    // `docs/editor-setup.md`. The check landed for Open VSX only, and the `.vsix` line stayed
+    // uncovered — not by a decision, but because no `opener` matched it, which is precisely
+    // the silent exemption `every_channel_can_be_seen_by_the_collector` exists to describe.
+    //
+    // It is the line that matters most. Open VSX does not serve VS Code proper, so for a VS
+    // Code user the release asset is not a fallback — it is the only route the extension has,
+    // and it was the one nothing asked about. `install-channels.yml` said so in a comment.
+    Channel {
+        opener: "codium --install-extension",
+        marker: "codium --install-extension goedelsoup.yidam-vscode",
+        probe: "open-vsx.org",
+        version_probe: EDITOR_VERSION,
+    },
+    Channel {
+        opener: "code --install-extension",
+        marker: "code --install-extension yidam-vscode-",
+        // The manifest inside the archive, which is this channel's `yidam --version`: an
+        // asset that downloads and unpacks is not evidence it is the one that was cut.
+        probe: "extension/package.json",
+        version_probe: EDITOR_VERSION,
     },
 ];
 
@@ -127,7 +178,19 @@ const CHANNELS: &[Channel] = &[
 /// are not distribution channels — but they open with `cargo install` and would otherwise
 /// read as an unchecked one. Named here rather than filtered by shape, so that calling a
 /// line "not a channel" stays a decision someone wrote down.
-const NOT_A_CHANNEL: &[&str] = &["cargo install --path"];
+const NOT_A_CHANNEL: &[&str] = &[
+    "cargo install --path",
+    // `code --install-extension yidam/editors/vscode/dist/yidam-vscode.vsix`, under "Or build
+    // it from a checkout". The path is the point: it names a file `mise run ext-package`
+    // writes inside this repository, so there is no release, registry or asset for it to be
+    // wrong about. The release-asset line two blocks above it — `yidam-vscode-<version>.vsix`
+    // — is a channel and is not exempted by this.
+    //
+    // Found by adding the `code --install-extension` opener, which is the whole argument for
+    // deriving openers from `CHANNELS`: the line had been in `README.md` and
+    // `docs/editor-setup.md` all along, collected by nothing.
+    "yidam/editors/vscode/dist/",
+];
 
 fn documented_install_lines(doc: &str) -> Vec<String> {
     read(doc)
@@ -187,6 +250,60 @@ fn workflow_commands(text: &str) -> String {
         }
     }
     commands.join("\n")
+}
+
+/// Every job in the workflow, as (job name, the text of its `run:` steps).
+///
+/// Needed because a *count* of version assertions cannot say which channel made them. Two
+/// channels assert with the editor release's own output and one job says it three times, so a
+/// per-probe count of two was satisfied while the other job asserted nothing — measured by
+/// deleting that job's comparison and watching this file stay green.
+///
+/// Jobs are the two-space keys under `jobs:`, which is how this file is written throughout.
+fn workflow_jobs(text: &str) -> Vec<(String, String)> {
+    let mut jobs: Vec<(String, String)> = Vec::new();
+    let body = match text.split_once("\njobs:\n") {
+        Some((_, rest)) => rest,
+        None => return jobs,
+    };
+    let mut current: Option<(String, String)> = None;
+    for line in body.lines() {
+        let is_job_key = line.starts_with("  ")
+            && !line.starts_with("   ")
+            && line.trim_end().ends_with(':')
+            && !line.trim_start().starts_with('#');
+        if is_job_key {
+            if let Some(job) = current.take() {
+                jobs.push(job);
+            }
+            let name = line.trim().trim_end_matches(':').to_string();
+            current = Some((name, String::new()));
+        } else if let Some((_, buf)) = current.as_mut() {
+            buf.push_str(line);
+            buf.push('\n');
+        }
+    }
+    if let Some(job) = current {
+        jobs.push(job);
+    }
+    jobs.into_iter()
+        .map(|(name, text)| {
+            // `::error::` lines are dropped, and that is the point rather than tidiness. Every
+            // one of these jobs names the expected version in its failure message as well as
+            // in its comparison, so a mutation that deletes the comparison and leaves the
+            // message reads as still checking — measured: `installer-linux`'s
+            // `case "yidam ${{ … }} "*)` was replaced with `case "yidam "*)` and this file
+            // stayed green, because the `::error::` echo below it still carried the string.
+            //
+            // A message that names the release is not a check of it.
+            let commands = workflow_commands(&text)
+                .lines()
+                .filter(|l| !l.contains("::error::"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            (name, commands)
+        })
+        .collect()
 }
 
 /// Nothing may be documented as an install path without something running it.
@@ -281,25 +398,64 @@ fn every_channel_can_be_seen_by_the_collector() {
     );
 }
 
-/// Each channel must prove it installed the *released* version, not merely something.
+/// Each channel must prove it obtained the *released* version, not merely something.
 ///
 /// A tap that lags a release, or a binstall that quietly compiled from source, both end with
-/// a working `yidam` on PATH. Only the version tells them apart.
+/// a working `yidam` on PATH. Only the version tells them apart. The same holds for a `.vsix`
+/// that downloads and unpacks: that is not evidence it is the one that was cut.
+///
+/// **Asserted in the job that obtains it, not counted across the file.** Two earlier shapes of
+/// this test both passed a mutation that deleted a real comparison:
+///
+/// - counting occurrences in the raw file, where a job `name:` and the comment above a step
+///   answer for the step — the hole `workflow_commands` exists for, on another test, and this
+///   one had it too;
+/// - counting them per `version_probe` across all jobs, where `editor-openvsx` says
+///   `needs.editor-released.outputs.version` three times and so covered the quota for two
+///   channels while `editor-vsix` asserted nothing.
+///
+/// Both were measured by deleting the comparison and leaving its comment. So the claim is now
+/// the one that was meant all along: the job whose steps run this channel's `probe` is the job
+/// whose steps must contain its `version_probe`, read with `::error::` lines removed — see
+/// [`workflow_jobs`] for the third mutation that made that last clause necessary.
+///
+/// It is still a substring check over shell, and there is a shape it cannot see: a comparison
+/// rewritten to compare against something *else* that happens to mention the release nearby.
+/// No substring check can. That is what review is for; what this closes is the whole class of
+/// channel with no assertion at all, which is the one that let a stale tap look healthy.
 #[test]
 fn each_channel_asserts_the_released_version() {
     let workflow = read(".github/workflows/install-channels.yml");
-    let checks = workflow.matches("yidam --version").count();
+    let jobs = workflow_jobs(&workflow);
     assert!(
-        checks >= CHANNELS.len(),
-        "install-channels.yml runs `yidam --version` {checks} time(s) for {} documented \
-         channel(s); every channel must assert what it installed",
+        jobs.len() > CHANNELS.len(),
+        "the job split found {} job(s) in a workflow with {} channels; it is parsing the \
+         wrong thing and every assertion below is vacuous",
+        jobs.len(),
         CHANNELS.len()
     );
-    assert!(
-        workflow.contains("needs.released.outputs.version"),
-        "install-channels.yml must compare against the latest release's version; asserting \
-         that *a* binary runs is what let a stale tap look healthy"
-    );
+
+    for channel in CHANNELS {
+        let running: Vec<&(String, String)> = jobs
+            .iter()
+            .filter(|(_, cmds)| cmds.contains(channel.probe))
+            .collect();
+        assert!(
+            !running.is_empty(),
+            "no job's `run:` steps contain `{}`, so nothing obtains the {} channel",
+            channel.probe,
+            channel.marker
+        );
+        for (name, cmds) in running {
+            assert!(
+                cmds.contains(channel.version_probe),
+                "job `{name}` obtains the `{}` channel and never checks `{}` — it proves \
+                 something was installed and not that it was the release",
+                channel.marker,
+                channel.version_probe
+            );
+        }
+    }
 }
 
 /// The check must run without anyone remembering to run it, and must run when it lands.
