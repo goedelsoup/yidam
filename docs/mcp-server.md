@@ -79,10 +79,9 @@ says so with the install line rather than failing as a dead server, and if `yida
 somewhere off `PATH`, set `YIDAM_BIN` to it.
 
 **It refuses to serve a directory that is not a corpus.** A plugin is installed once and
-Claude Code starts its servers in every project you open; the launcher checks for `.yidam/`
-first, because a server that starts outside a corpus answers every tool with nothing and says
-so only in a banner nobody reads. That is the working-directory footgun below, closed rather
-than documented.
+Claude Code starts its servers in every project you open, so the launcher checks for
+`.yidam/` before spawning anything. `serve` itself refuses too — the launcher is there to say
+it in terms of the plugin, and to not pay for starting a binary to be told no.
 
 `bootstrap.md` does not travel. It is the prelude skill for an *empty* repository and is
 actively wrong to load into a corpus that already exists — which is what the plugin installs
@@ -120,10 +119,22 @@ streams will corrupt the protocol.
 ### The working directory is load-bearing
 
 `serve` locates the corpus with `git rev-parse --show-toplevel` from wherever the process was
-started, and falls back to the current directory when that fails. Neither step asks whether
-it found the repository you meant. A server launched from your home directory does not
-error — it serves an empty corpus, answers every tool with nothing, and says so only in the
-banner.
+started, and falls back to the current directory when that fails.
+
+**It now refuses to serve a directory that is not a corpus.** Started somewhere with no
+`.yidam/`, it fails at the command — before the socket is bound, on the HTTP transport — and
+names the repair. It does not start.
+
+That is a change, and worth knowing if you are upgrading: a client configuration that was
+quietly pointing at the wrong directory used to produce a server that answered every tool
+with nothing, and now produces a server that does not come up. The second is the same
+misconfiguration, reported. What made the first worse than it sounds is that the handshake
+could not be told apart from a real corpus that was merely empty — same `nodes: 0`, and a
+`domain` field derived from the directory's own name — so an agent had no way to know it was
+being answered by a folder.
+
+A repository bootstrapped an hour ago with nothing written into it yet is still served. The
+test is `.yidam/`, not corpus content.
 
 The two blocks above are correct for a client that starts its servers in the project
 directory. For one that does not, or when you are unsure, pin it:
@@ -140,6 +151,8 @@ directory. For one that does not, or when you are unsure, pin it:
 ```
 
 An absolute path and `exec` — the `exec` so signals reach the server rather than the shell.
+
+The [plugin](#claude-code-as-a-plugin) does this for you, and checks before it spawns.
 
 ### Over HTTP, for a client that cannot spawn a process
 
@@ -454,23 +467,20 @@ cross-corpus citation is and is not; an agent working a composed corpus should h
 
 In rough order of likelihood.
 
-**The working directory.** Check the domain and node count first — in the banner over stdio, in
-`capabilities.yidam.corpus` over HTTP. Started outside a
-corpus, the server does not complain — it names the directory it landed in and serves
-nothing:
+**The working directory.** This one now announces itself: started outside a corpus, the
+server refuses rather than connecting. If your client reports that the server failed to
+start, read its stderr — the refusal names the directory it landed in and the repair.
 
-```text
-yidam MCP server — domain "nowhere", 0 node(s), 0 skill(s), 0 decision(s)
-```
+It used to connect. The banner said `domain "nowhere", 0 node(s)`, `list_nodes` answered
+`{"nodes": []}`, and from the client side that was indistinguishable from a corpus that was
+simply empty — so this entry was advice about reading a node count carefully. It is now a
+startup failure. Pin the directory with the `sh -c 'cd … && exec …'` form, or use the
+[plugin](#claude-code-as-a-plugin), which asks at install time.
 
-`list_nodes` then answers `{"nodes": []}`, which from the client side is indistinguishable
-from an empty corpus. `0 node(s)`, or a domain that belongs to another repository, and
-nothing else in this list matters. Pin the directory with the `sh -c 'cd … && exec …'` form.
-
-**The corpus was never built out.** A repository that has been cloned but not bootstrapped
-has `.yidam/` and no nodes in it. That is a legitimate empty corpus, and it looks exactly
-like a successful connection to nothing. `yidam status` in the repository will tell you which
-one you have.
+**The corpus was never built out.** A repository that has been bootstrapped but not written
+into has `.yidam/` and no nodes in it. That is a legitimate empty corpus and it *is* served —
+the startup check tests `.yidam/`, not content — so `0 node(s)` on a connection that came up
+means this rather than the case above. `yidam status` in the repository confirms it.
 
 **`retrieve` finds nothing and `list_nodes` finds plenty.** Almost always `degraded: true`
 plus a query phrased in words the corpus does not use — keyword search matches terms, not

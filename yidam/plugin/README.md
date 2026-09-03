@@ -49,10 +49,10 @@ reach for.
 dead server; set `YIDAM_BIN` if it lives somewhere the launcher cannot guess.
 
 The launcher also refuses a directory with no `.yidam/`. A plugin is installed once and
-Claude Code starts its servers in every project — and `serve` locates the corpus with
-`git rev-parse --show-toplevel` without asking whether it found the repository you meant, so
-outside a corpus it starts, serves nothing, and answers every tool with an empty result.
-Refusing is louder.
+Claude Code starts its servers in every project, so that is the ordinary case rather than the
+odd one. `serve` refuses it too, as of #549 — checking here is what lets the message be about
+the plugin, and what avoids starting a 50 MB binary in every non-corpus project to be told
+no.
 
 ## Releasing
 
