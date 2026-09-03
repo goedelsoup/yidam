@@ -16,6 +16,37 @@
 #[cfg(feature = "vector-read")]
 pub(crate) mod vector;
 
+/// The `degraded_reason` an index built in another vector space reports.
+///
+/// **Not a new string.** `prelude/sdks/parity/mcp/tools.json` froze this value alongside
+/// `no_index` and `no_vector_support` — "an index exists and was built with different
+/// embedding settings than this server would use, so answering from it would be answering in
+/// another vector space" — and says a value outside that set is a divergence. It had no
+/// implementation until #536: the contract named the state, and the query path that could
+/// reach it never looked. `mcp_serve.rs` records it as "frozen and unforced", which it now
+/// is not.
+///
+/// Here and not in [`vector`], though only that module can produce it: these three strings
+/// are a client's whole vocabulary for why retrieval degraded, and one of them living in the
+/// module the light build does not compile is how two of them would come to disagree. It is
+/// also what lets the light build assert all three against the freeze.
+///
+/// The light build cannot *produce* it — it never embeds, so it can never find that an index
+/// is in another space — but it carries the value anyway, because the vocabulary is the
+/// contract and the test asserting all three against the freeze has to run in the build CI
+/// compiles on a pull request. Gating the constant would put that assertion in the build
+/// nothing checks until main.
+#[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
+pub(crate) const STALE_CONTRACT: &str = "stale_contract";
+
+/// What to do about it, in the clause shape [`Retrieval::repair`] uses.
+///
+/// Rebuilding is the only repair: the rows were written by a runtime this binary no longer
+/// contains, and nothing on this side can be adjusted to reach them.
+#[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
+pub(crate) const STALE_CONTRACT_REPAIR: &str =
+    "rebuild it with this yidam — `yidam embed && yidam index-build`";
+
 use anyhow::Result;
 
 use crate::model::DomainModel;
@@ -106,7 +137,9 @@ pub(crate) fn load(model: &DomainModel) -> Result<(Retrieval, Option<String>)> {
                 Retrieval::Vector(Box::new(vector::IndexState {
                     rows,
                     model_id,
+                    embed_config: idx.embed_config.clone(),
                     embedder: std::cell::RefCell::new(None),
+                    space: std::cell::RefCell::new(None),
                 })),
                 indexed_commit(idx),
             ))
@@ -170,13 +203,32 @@ mod tests {
     /// The strings are a contract (`prelude/sdks/parity/mcp/tools.json`), not a diagnostic —
     /// a client branches on them. Pinning them here means a rename has to be a deliberate
     /// act that also touches the freeze.
+    ///
+    /// All three, now that `stale_contract` has an implementation (#536). It was in the
+    /// frozen set from the start and nothing produced it, so the one value describing an
+    /// index built in another vector space was the one value never asserted here — and a
+    /// fourth string invented for that state would have been a divergence the freeze
+    /// explicitly forbids.
     #[test]
-    #[cfg(not(feature = "vector-read"))]
-    fn the_two_degraded_reasons_are_distinct_and_stable() {
+    fn the_degraded_reasons_are_distinct_and_stable() {
         assert_eq!(Retrieval::NoIndex.degraded_reason(), Some("no_index"));
+        #[cfg(not(feature = "vector-read"))]
         assert_eq!(
             Retrieval::NoVectorSupport.degraded_reason(),
             Some("no_vector_support")
+        );
+        assert_eq!(super::STALE_CONTRACT, "stale_contract");
+
+        // Distinct, because each carries a different repair and a collision would collapse
+        // two of them into one.
+        let all = ["no_index", "no_vector_support", super::STALE_CONTRACT];
+        let mut unique = all.to_vec();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(
+            unique.len(),
+            all.len(),
+            "two degraded reasons share a string"
         );
     }
 
@@ -285,7 +337,12 @@ mod tests {
         let state = Retrieval::Vector(Box::new(vector::IndexState {
             rows,
             model_id: "m".to_string(),
+            // This index carries no contract, which is `Verdict::Unverifiable` and not a
+            // degradation: an index built before the block existed gave the query path
+            // nothing to check against, and failing those closed would break all of them.
+            embed_config: None,
             embedder: std::cell::RefCell::new(None),
+            space: std::cell::RefCell::new(None),
         }));
         assert_eq!(state.degraded_reason(), None);
         assert_eq!(state.repair(), None);
