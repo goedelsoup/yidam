@@ -32,6 +32,26 @@ pub(crate) fn capabilities(state: &ServerState) -> Value {
     let reason = state.retrieval.degraded_reason();
     json!({
         "contract": contract()["contract"].clone(),
+        // WHICH CORPUS, not what this server can do (contract 0.13.0). Every other key here
+        // answers the second question; this one answers the first, and it had no home in the
+        // protocol at all — it was a banner on stderr, which a stdio client can read and an
+        // HTTP client cannot, because the server is on another machine (#424).
+        //
+        // It matters most in the case it is hardest to diagnose from outside: `serve` locates
+        // the corpus by walking up from wherever it started, and a server launched from the
+        // wrong directory does not fail — it answers every tool with nothing. From the client
+        // side that is indistinguishable from an empty corpus, and `nodes: 0` is the tell.
+        //
+        // `stale` is a tri-state: see `ServerState::stale_index`.
+        "corpus": {
+            "domain": state.domain,
+            "commit": state.commit,
+            "nodes": state.nodes.len(),
+            "skills": state.skills.len(),
+            "decisions": state.decisions.len(),
+            "indexed_commit": state.indexed_commit,
+            "stale": state.stale_index(),
+        },
         // Not a tier: `retrieve` is core either way. This says whether the index is loaded,
         // which is the same fact `degraded` reports per call — so it is rendered from the
         // same source, and carries the same reason. A client that reads the handshake

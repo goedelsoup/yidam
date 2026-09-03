@@ -28,7 +28,6 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::Path;
 
-use crate::git::head_commit_short;
 use crate::model::{corpus_nodes, file_stem as stem, load_domain_model};
 use crate::paths::repo_root;
 
@@ -150,6 +149,25 @@ pub(crate) struct ServerState {
 }
 
 impl ServerState {
+    /// Whether the index is behind the working tree — `None` where this server cannot tell.
+    ///
+    /// Three states and not two, because a projected mirror carries no working git repository
+    /// and so cannot answer at all. `null` is the honest word for that, and it is the same
+    /// convention `degraded_reason` and `origin` already follow here: a client testing the key
+    /// must never have to distinguish "not stale" from "a server that could not say".
+    ///
+    /// `Some(false)` covers both *the index is current* and *there is no index* — neither is
+    /// behind anything, and `indexed_commit` is what tells those apart.
+    ///
+    /// One definition, read by both the banner and the handshake. They were two computations of
+    /// the same sentence, one of which re-ran `git rev-parse` for a value already in state.
+    pub(crate) fn stale_index(&self) -> Option<bool> {
+        if self.commit == crate::git::UNKNOWN_COMMIT {
+            return None;
+        }
+        Some(matches!(&self.indexed_commit, Some(i) if *i != self.commit))
+    }
+
     pub(crate) fn load(root: &Path) -> Result<Self> {
         let model = load_domain_model(root)?;
 
@@ -331,7 +349,7 @@ fn load_citations(root: &Path, nodes: &[Node]) -> std::collections::HashMap<Stri
 /// It is stderr on stdio because stdout carries JSON-RPC frames. It is stderr over HTTP for a
 /// weaker reason: a person at a terminal reads it, and **a remote client cannot see it at all**.
 /// That is #424, and this function is where its fix will land.
-fn banner(state: &ServerState, root: &Path) {
+fn banner(state: &ServerState) {
     eprintln!(
         "yidam MCP server — domain {:?}, {} node(s), {} skill(s), {} decision(s)",
         state.domain,
@@ -358,8 +376,8 @@ fn banner(state: &ServerState, root: &Path) {
         ),
     }
     if let Some(indexed) = &state.indexed_commit {
-        let head = head_commit_short(root);
-        if *indexed != head {
+        let head = &state.commit;
+        if state.stale_index() == Some(true) {
             // "serving the stale index" is only true of a build that is serving it. A
             // build that cannot read the index still owes the warning — the staleness is
             // real and worth knowing before installing one that can — but must not claim
@@ -380,7 +398,7 @@ fn banner(state: &ServerState, root: &Path) {
 pub fn serve_mcp() -> Result<()> {
     let root = repo_root()?;
     let state = ServerState::load(&root)?;
-    banner(&state, &root);
+    banner(&state);
     eprintln!("serving MCP over stdio");
 
     let stdin = std::io::stdin();
@@ -397,7 +415,7 @@ pub fn serve_mcp() -> Result<()> {
 pub fn serve_mcp_http(bind: &str, port: u16, allow_origin: Vec<String>) -> Result<()> {
     let root = repo_root()?;
     let state = ServerState::load(&root)?;
-    banner(&state, &root);
+    banner(&state);
     http::serve(state, bind, port, allow_origin)
 }
 
@@ -619,6 +637,90 @@ mod tests {
             // rather than left to read as "nothing matched".
             graph_across: None,
         }
+    }
+
+    /// The handshake says which corpus, not only what the server can do (#424).
+    ///
+    /// This is the fact that had no home in the protocol: it was a banner on stderr, which a
+    /// client that spawned the server can read and one that reached it by URL cannot.
+    #[test]
+    fn the_handshake_names_the_corpus_it_is_serving() {
+        let state = test_state();
+        let corpus = tools::capabilities(&state)["corpus"].clone();
+        assert_eq!(corpus["domain"], state.domain);
+        assert_eq!(corpus["commit"], state.commit);
+        assert_eq!(corpus["nodes"], state.nodes.len());
+        assert_eq!(corpus["skills"], state.skills.len());
+        assert_eq!(corpus["decisions"], state.decisions.len());
+        // Every key the contract requires is present, including the ones whose value is null.
+        // A client that has to test for each separately cannot tell a thin server from an old
+        // one, which is the ambiguity this block exists to close.
+        for key in [
+            "domain",
+            "commit",
+            "nodes",
+            "skills",
+            "decisions",
+            "indexed_commit",
+            "stale",
+        ] {
+            assert!(
+                corpus.get(key).is_some(),
+                "`corpus` is missing `{key}`: {corpus:#?}"
+            );
+        }
+    }
+
+    /// `stale` has three states, and the third is the one a bool could not carry.
+    #[test]
+    fn staleness_is_unknown_when_there_is_no_commit_to_compare_against() {
+        let mut state = test_state();
+
+        // No index: nothing is behind anything.
+        state.indexed_commit = None;
+        assert_eq!(state.stale_index(), Some(false));
+
+        // An index at this commit.
+        state.indexed_commit = Some(state.commit.clone());
+        assert_eq!(state.stale_index(), Some(false));
+
+        // An index at another commit.
+        state.indexed_commit = Some("0000000".into());
+        assert_eq!(state.stale_index(), Some(true));
+
+        // No repository to read a HEAD from — a projected mirror's honest answer, and the
+        // reason the field is null-able rather than a bool.
+        state.commit = crate::git::UNKNOWN_COMMIT.to_string();
+        assert_eq!(
+            state.stale_index(),
+            None,
+            "a server that cannot tell must say so rather than guess `false`"
+        );
+    }
+
+    /// The resource and the handshake are two renderings of one fact, not two facts.
+    #[test]
+    fn graph_summary_and_the_handshake_agree_about_staleness() {
+        let mut state = test_state();
+        state.indexed_commit = Some("0000000".into());
+
+        let capabilities = tools::capabilities(&state);
+        assert_eq!(capabilities["corpus"]["stale"], true);
+
+        let summary = resources::read(&state, "yidam://graph/summary").unwrap();
+        let text = summary["contents"][0]["text"].as_str().unwrap();
+        assert!(
+            text.contains("STALE"),
+            "the handshake says stale and the resource does not: {text}"
+        );
+
+        state.commit = crate::git::UNKNOWN_COMMIT.to_string();
+        let summary = resources::read(&state, "yidam://graph/summary").unwrap();
+        let text = summary["contents"][0]["text"].as_str().unwrap();
+        assert!(
+            text.contains("unknown"),
+            "a server that cannot tell must not render a verdict: {text}"
+        );
     }
 
     #[test]

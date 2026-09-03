@@ -141,7 +141,7 @@ fn graph_summary(state: &ServerState) -> String {
         .collect();
     format!(
         "Domain: {}\nCommit: {}\nNodes: {}\nOpen questions: {}\nSkills: {}\nDecisions: {}\n\
-         Vector index: {}\nClasses:\n{}",
+         Vector index: {}\nIndex freshness: {}\nClasses:\n{}",
         state.domain,
         state.commit,
         state.nodes.len(),
@@ -156,6 +156,17 @@ fn graph_summary(state: &ServerState) -> String {
             #[cfg(not(feature = "vector-read"))]
             super::Retrieval::NoVectorSupport =>
                 "present, unreadable by this build (no_vector_support)".to_string(),
+        },
+        // The same fact the handshake reports, from the same `stale_index()`. This resource
+        // and `capabilities.corpus` are two renderings of one answer to "which corpus is
+        // this", and the point of #424 is that they stop being two different answers.
+        match (state.stale_index(), &state.indexed_commit) {
+            (None, _) => "unknown — no working repository to compare against".to_string(),
+            (Some(true), Some(indexed)) => {
+                format!("STALE — index built at {indexed}, HEAD is {}", state.commit)
+            }
+            (Some(_), None) => "no index".to_string(),
+            (Some(false), Some(_)) => "current".to_string(),
         },
         class_lines.join("\n"),
     )

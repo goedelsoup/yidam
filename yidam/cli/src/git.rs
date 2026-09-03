@@ -33,6 +33,14 @@ pub fn genesis_date(root: &Path) -> String {
         .unwrap_or_else(|| "no commits".to_string())
 }
 
+/// What [`head_commit_short`] answers where there is no commit to name — no git repository,
+/// or one with no HEAD yet.
+///
+/// A named constant because two callers now branch on it: the MCP handshake reports staleness
+/// as `null` rather than `false` when this is the commit, and a string literal compared in two
+/// files is a contract nobody declared.
+pub const UNKNOWN_COMMIT: &str = "unknown";
+
 pub fn head_commit_short(root: &Path) -> String {
     let out = std::process::Command::new("git")
         .current_dir(root)
@@ -42,7 +50,7 @@ pub fn head_commit_short(root: &Path) -> String {
     out.and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "unknown".to_string())
+        .unwrap_or_else(|| UNKNOWN_COMMIT.to_string())
 }
 
 pub fn genesis_message(root: &Path) -> String {
