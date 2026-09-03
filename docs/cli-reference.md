@@ -535,6 +535,13 @@ is the reliable answer — two of the six are feature-gated:
 | `serve --mcp --http` | The same server over HTTP, for a client that takes a URL rather than spawning a process. `--bind` (loopback by default), `--port`, `--allow-origin` |
 | `serve --lsp` | LSP over stdio — the editor surface. See [Editor setup](editor-setup.md) |
 
+**`--root <DIR>` names the corpus**, on every transport. Without it `serve` finds one from
+wherever the client started the process, which is the working directory being load-bearing —
+the thing [Connecting an agent](mcp-server.md#the-working-directory-is-load-bearing) used to
+document a `sh -c 'cd … && exec …'` workaround for. It takes the corpus directory or any
+directory inside one, and refuses a directory that is not in a corpus rather than serving an
+empty one.
+
 **Both transports are in the light default build.** `--features index` upgrades MCP's
 `retrieve` from keyword to semantic search and adds nothing else; a default binary still serves
 every other tool, and says `degraded` on the calls where the difference shows.

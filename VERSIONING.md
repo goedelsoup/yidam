@@ -197,6 +197,20 @@ subset: the row above, the publish path in `editor.yml`, and the channel check i
 Cursor, Windsurf, Gitpod and code-server — so until then a VS Code user installs the `.vsix`
 from the GitHub release, which is why that asset is attached before either registry is tried.
 
+**The `.mcpb` bundle is not a layer, and does not earn a version.** #421 asked which, and the
+answer is neither: a bundle is the CLI binary in a different wrapper, cut on the same `cli/v*`
+tag by the same workflow step that cuts the tarballs, and its manifest carries the version of
+the binary inside it. Giving it a version of its own would put the CLI's version in a second
+place — the failure this document already argues at length about the Homebrew formula, and the
+reason `render-manifest.sh` renders the manifest rather than a file being hand-edited.
+
+It is a sixth channel and a third asset, not a fifth artifact. What it changes is *who* the
+CLI reaches: every other channel ends with a binary on a `PATH` and a client config file, and
+this one ends with a person dragging a downloaded file onto Claude Desktop. macOS only —
+Claude Desktop runs there and on Windows, and this repository cross-compiles no Windows
+target, which is why `release.yml`'s matrix carries `mcpb_platform` on two entries and not
+four.
+
 The CLI's five channels are one artifact reached five ways, and only the first is built:
 `.github/workflows/release.yml` cross-compiles the light `reports` build for four targets and
 publishes them as release assets. `install.sh`, the Homebrew formula, mise's `github:` backend

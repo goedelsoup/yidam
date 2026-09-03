@@ -146,6 +146,25 @@ const CHANNELS: &[Channel] = &[
         probe: "github:goedelsoup/yidam[version_prefix=cli/v]",
         version_probe: CLI_VERSION,
     },
+    // ── the bundle, which is a channel with no install command at all ──────────────────
+    //
+    // #421. Every other row here is a line someone types; this one is a file someone drags
+    // onto an application, which is the entire point of it — the audience is the person who
+    // cannot install a Rust binary. `open <file>` is what that gesture is in a shell, and it
+    // is documented as the alternative rather than the instruction.
+    //
+    // The channel is checked the way `editor-vsix` is, and for the same reason: the artifact
+    // is a zip, so the manifest inside it is this channel's `yidam --version` — an asset that
+    // downloads is not evidence it is the one that was cut. It goes further than the .vsix
+    // job can, because this archive carries an executable: the job runs the bundled binary
+    // and makes it say its own version, on a macOS runner, which is the only check here that
+    // exercises the bytes a Claude Desktop user actually runs.
+    Channel {
+        opener: "open yidam-",
+        marker: ".mcpb",
+        probe: "manifest.json",
+        version_probe: CLI_VERSION,
+    },
     // ── the extension is a channel too, and was exempt for as long as it was unlisted ──
     //
     // #313 asked for two things: document how the extension is obtained, and check that the
@@ -628,8 +647,15 @@ fn the_cross_compile_check_mirrors_the_release_build() {
 /// nothing about bumping a version forces the line to move, and a reader who follows it
 /// installs whatever was current when it was last edited.
 ///
-/// The other channels resolve "latest" at install time and cannot drift this way. This one
-/// buys reproducibility with a version in prose, and prose is the thing that rots.
+/// The `.mcpb` bundle is the second such pin and arrived later (#421). Its asset name
+/// *contains* the version — `yidam-0.9.0-aarch64-apple-darwin.mcpb` — so a documented line
+/// naming one is a filename that 404s the day after a release, handed to the one audience
+/// this project has that cannot diagnose it. Scanned here rather than in a test of its own,
+/// because "a version written into prose" is one hazard with two instances, and the loop
+/// that only knew about the first is how the second went uncovered while this test was green.
+///
+/// The other channels resolve "latest" at install time and cannot drift this way. These buy
+/// reproducibility with a version in prose, and prose is the thing that rots.
 ///
 /// Every document, not just the README. `release.sh` rewrites no prose at all — both pins
 /// this repository carries moved by hand in the release commit, and only one of them had a
@@ -658,11 +684,27 @@ fn every_pinned_tag_is_the_version_this_repository_declares() {
             );
             pinned += 1;
         }
+        for line in text.lines().filter(|l| l.contains(".mcpb")) {
+            // Only lines naming a release asset. `.mcpb` is also written about as a format
+            // — "an `.mcpb` is a zip holding a manifest" — and prose about the format
+            // carries no version to be wrong.
+            if !line.contains("yidam-") {
+                continue;
+            }
+            assert!(
+                line.contains(&format!("yidam-{declared}-")),
+                "{doc} names a bundle from a different release than yidam/cli/Cargo.toml \
+                 declares ({declared}):\n  {}\nThat filename is a 404 for the one channel \
+                 whose users cannot diagnose it.",
+                line.trim()
+            );
+            pinned += 1;
+        }
     }
     assert!(
         pinned > 0,
-        "no document pins a `cargo install --git … --tag cli/v…` line; if that channel was \
-         removed, remove this test with it"
+        "no document pins a `cargo install --git … --tag cli/v…` line or an `.mcpb` asset \
+         name; if those channels were removed, remove this test with them"
     );
 }
 
@@ -859,10 +901,23 @@ fn the_release_publishes_build_provenance_for_what_it_ships() {
          artifact attestations\" on every install of this binary and finds nothing there, \
          which reads to a user exactly as verification passing."
     );
+    // Scoped to the attest step's own subject list rather than matched against the whole
+    // job, because `gh release create` names the same glob and would answer for this. The
+    // spelling of the list is not pinned — it became a block scalar when the `.mcpb` bundles
+    // joined it (#421), and a test that fails on YAML style rather than on coverage is one
+    // that gets edited without being read.
+    let subjects = publish
+        .split("subject-path:")
+        .nth(1)
+        .expect("the attestation step names no subjects")
+        .split("\n      - ")
+        .next()
+        .unwrap();
     assert!(
-        publish.contains("subject-path: 'dist/*.tar.gz'"),
+        subjects.contains("dist/*.tar.gz"),
         "the attestation does not cover `dist/*.tar.gz` — the assets every channel actually \
-         downloads. An attestation over something else is the absence with extra steps."
+         downloads. An attestation over something else is the absence with extra steps. \
+         Subjects: {subjects:?}"
     );
     for permission in ["id-token: write", "attestations: write"] {
         assert!(

@@ -489,6 +489,20 @@ enum Command {
     },
     /// Serve the domain computer over a stdio protocol
     Serve {
+        /// The corpus to serve. Defaults to wherever this process was started (#421).
+        ///
+        /// Every other command is typed by a person standing in the repository they mean.
+        /// A server is spawned by a client, so its working directory is whatever that
+        /// client happened to use — which is why `docs/mcp-server.md` had to document
+        /// `sh -c 'cd … && exec …'` as the way to say which corpus you meant. This is that
+        /// sentence as a flag, and it is what the `.mcpb` bundle's directory picker fills
+        /// in.
+        ///
+        /// Resolved the same way the working directory is: `git rev-parse --show-toplevel`
+        /// from here, falling back to this directory. It must be a corpus — a directory
+        /// with no `.yidam/` is refused by name rather than served as an empty one (#549).
+        #[arg(long, value_name = "DIR")]
+        root: Option<std::path::PathBuf>,
         /// Serve MCP over stdio — the agent surface. In the light default; `--features
         /// index` upgrades `retrieve` from keyword to semantic.
         #[arg(long)]
@@ -902,6 +916,7 @@ fn main() -> Result<()> {
         // retrieval still needs `index`; every tool it serves does not, and the server
         // reports the difference on the handshake and on every `retrieve`.
         Command::Serve {
+            root,
             mcp,
             lsp,
             #[cfg(feature = "serve-http")]
@@ -916,15 +931,16 @@ fn main() -> Result<()> {
             if lsp && mcp {
                 anyhow::bail!("pick one transport — `--lsp` or `--mcp`")
             }
+            let root = root.as_deref();
             if lsp {
-                return yidam::serve_lsp();
+                return yidam::serve_lsp(root);
             }
             #[cfg(feature = "serve-http")]
             if mcp && http {
-                return yidam::serve_mcp_http(&bind, port, allow_origin);
+                return yidam::serve_mcp_http(root, &bind, port, allow_origin);
             }
             if mcp {
-                return yidam::serve_mcp();
+                return yidam::serve_mcp(root);
             }
             anyhow::bail!("name a transport — `yidam serve --lsp` or `yidam serve --mcp`")
         }
