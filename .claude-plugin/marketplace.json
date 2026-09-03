@@ -1,0 +1,22 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "yidam",
+  "description": "The yidam corpus plugin: the MCP server and the practice it enforces, installed together",
+  "owner": {
+    "name": "goedelsoup",
+    "url": "https://github.com/goedelsoup"
+  },
+  "plugins": [
+    {
+      "name": "yidam",
+      "source": "./yidam/plugin",
+      "description": "Reach a yidam corpus from Claude Code: thirteen MCP tools over the corpus, and five skills that call them at the point each decision is made.",
+      "category": "knowledge",
+      "author": {
+        "name": "goedelsoup",
+        "url": "https://github.com/goedelsoup"
+      },
+      "homepage": "https://goedelsoup.github.io/yidam/mcp-server/"
+    }
+  ]
+}

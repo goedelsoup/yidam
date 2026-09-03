@@ -54,7 +54,41 @@ installs a `--features full` binary into `.local/bin`.
 
 ## 2. Configure the client
 
-### Claude Code
+### Claude Code, as a plugin
+
+This is the one that gives you both halves. Four of the thirteen tools below exist because
+the practice is documented in the prelude and *an agent that has to hold that prose in
+context complies by having remembered* — and the plugin is what puts the prose and the tools
+in the same install.
+
+```
+/plugin marketplace add goedelsoup/yidam
+/plugin install yidam@yidam
+```
+
+What arrives: the MCP server, registered, plus five skills that fire at the point each
+decision is made — before a commit subject, before an evidence tag, before a link, before a
+`cites:`, and before answering a question from the corpus rather than from the model. Each
+one names the tool to call and points at the prelude for the reasoning; none of them restates
+a rule, because a second copy of a closed vocabulary is a second thing to hold in step. About
+680 tokens are always on; the rest is paid only when a skill fires.
+
+**The plugin carries no binary.** Install `yidam` first — any channel in
+[installation](installation.md) — and the plugin's launcher will find it. If it cannot, it
+says so with the install line rather than failing as a dead server, and if `yidam` lives
+somewhere off `PATH`, set `YIDAM_BIN` to it.
+
+**It refuses to serve a directory that is not a corpus.** A plugin is installed once and
+Claude Code starts its servers in every project you open; the launcher checks for `.yidam/`
+first, because a server that starts outside a corpus answers every tool with nothing and says
+so only in a banner nobody reads. That is the working-directory footgun below, closed rather
+than documented.
+
+`bootstrap.md` does not travel. It is the prelude skill for an *empty* repository and is
+actively wrong to load into a corpus that already exists — which is what the plugin installs
+into.
+
+### Claude Code, by hand
 
 Run this from inside the corpus repository:
 
@@ -64,7 +98,7 @@ claude mcp add yidam -- yidam serve --mcp
 
 `--scope project` writes it to `.mcp.json` in the repository instead of your local settings,
 which is what makes the server part of what a collaborator checks out rather than something
-each of them rediscovers.
+each of them rediscovers. You get the server and none of the skills.
 
 ### Any client that takes an `mcpServers` block
 

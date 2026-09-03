@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "yidam": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/serve.sh"
+    }
+  }
+}
