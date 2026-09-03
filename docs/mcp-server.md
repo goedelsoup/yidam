@@ -313,15 +313,34 @@ That first line is the check that matters. A domain you do not recognise, or `0 
 means the working directory was wrong — see above. It also warns when HEAD has advanced past
 the commit the index was built at, and keeps serving the stale index rather than refusing.
 
+**Over HTTP there is no banner to read.** The server is on another machine, so the same facts
+are in the handshake — see `capabilities.yidam.corpus` below. Nothing about the check changes;
+only where you look for it.
+
 **`capabilities`, on `initialize`.** The server declares what it backs under
 `capabilities.yidam` rather than letting a client discover the holes through
 tool-not-found errors:
 
 ```json
-{"contract": "0.12.0", "retrieve": {"vector": false, "reason": "no_index"},
+{"contract": "0.13.0",
+ "corpus": {"domain": "streamflow", "commit": "a1b2c3d",
+            "nodes": 8, "skills": 1, "decisions": 2,
+            "indexed_commit": null, "stale": false},
+ "retrieve": {"vector": false, "reason": "no_index"},
  "graph": true, "ontology": true, "dependencies": true,
  "phases": false, "sangha": false, "resources": true}
 ```
+
+`corpus` is the banner, in the protocol (contract 0.13.0). Every other key here says what this
+server *can do*; this one says *which corpus it is*, and until 0.13.0 that was only ever
+printed to stderr — which a client that spawned the server can read and one that reached it by
+URL cannot.
+
+`stale` has three states. `true` when the index was built at another commit; `false` when it
+was not, which covers both *current* and *no index at all* — `indexed_commit` distinguishes
+those; and **`null` when the server cannot tell**, which is the honest answer from a projected
+mirror with no working git repository behind it. Null rather than absent, so a client never has
+to tell "not stale" apart from "a server too old to say".
 
 `phases` and `sangha` are false and will stay false for this server: both read live `ma/*`
 and `rigpa/*` refs, and this one reads a built model on disk. `ontology` follows the corpus:
@@ -401,7 +420,8 @@ cross-corpus citation is and is not; an agent working a composed corpus should h
 
 In rough order of likelihood.
 
-**The working directory.** Check the banner's domain and node count first. Started outside a
+**The working directory.** Check the domain and node count first — in the banner over stdio, in
+`capabilities.yidam.corpus` over HTTP. Started outside a
 corpus, the server does not complain — it names the directory it landed in and serves
 nothing:
 

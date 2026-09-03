@@ -210,6 +210,57 @@ fn initialize_answers_over_http_with_the_capability_block() {
     assert_eq!(caps["ontology"], true, "the fixture corpus declares one");
 }
 
+/// The banner's content arrives over HTTP, where the banner itself cannot (#424).
+///
+/// This is the whole issue in one assertion. `serve` finds its corpus by walking up from
+/// wherever the process started; a server pointed at the wrong directory does not fail, it
+/// answers every tool with nothing, and `docs/mcp-server.md` §5 tells a reader to check the
+/// banner's domain and node count first. Over HTTP the server is on another machine and there
+/// is no stderr to check — so the fact has to be in the protocol or it is gone.
+#[test]
+fn the_handshake_names_the_corpus_because_there_is_no_stderr_to_read() {
+    let repo = fixture_repo();
+    let server = start(repo.path(), &[]);
+
+    let (status, body) = rpc(
+        &server.addr,
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let v: Value = serde_json::from_str(&body).unwrap();
+    let corpus = &v["result"]["capabilities"]["yidam"]["corpus"];
+
+    assert!(
+        corpus["nodes"].as_u64().unwrap_or(0) > 0,
+        "the tell for a server that found the wrong directory is `nodes: 0`, and this fixture \
+         has nodes: {corpus}"
+    );
+    assert!(corpus["domain"].is_string(), "{corpus}");
+    assert!(corpus["commit"].is_string(), "{corpus}");
+
+    // Present even where the value is null, so a client never has to tell a thin server from
+    // an old one.
+    for key in [
+        "domain",
+        "commit",
+        "nodes",
+        "skills",
+        "decisions",
+        "indexed_commit",
+        "stale",
+    ] {
+        assert!(
+            corpus.get(key).is_some(),
+            "`corpus` is missing `{key}` over HTTP: {corpus}"
+        );
+    }
+
+    // The fixture repository has a git checkout and no index, so this is the determinate
+    // `false` rather than the `null` a projected mirror would send.
+    assert_eq!(corpus["indexed_commit"], Value::Null, "{corpus}");
+    assert_eq!(corpus["stale"], false, "{corpus}");
+}
+
 /// The tool list over HTTP is the tool list, and `tools/call` answers from the same corpus.
 #[test]
 fn the_tools_are_the_frozen_ones_and_they_answer() {

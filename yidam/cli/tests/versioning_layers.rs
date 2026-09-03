@@ -236,10 +236,12 @@ fn both_tooling_artifacts_declare_a_version() {
 /// version nobody reads is a version nobody notices going stale, and the next hand-bump has
 /// even odds of touching one and not the other.
 ///
-/// It lives here rather than in `mcp_serve.rs` deliberately. That file is
-/// `#![cfg(feature = "index")]` and the full-feature job runs on main and the weekly
-/// schedule, never on a pull request — so a check placed there would first speak up after
-/// the merge that broke it. This file is in the default build.
+/// It lives here rather than in `mcp_serve.rs` for a reason that has since been fixed one
+/// directory over: that file used to open `#![cfg(feature = "index")]`, so a check placed
+/// there ran only in the full-feature job — main and the weekly schedule, never a pull
+/// request — and would first have spoken up after the merge that broke it. `serve` is no
+/// longer gated and neither is that file, so the argument no longer distinguishes them; this
+/// one stays here because it is about the parity layer's versioning, not about the server.
 #[test]
 fn the_mcp_contract_states_one_version() {
     let mcp = repo_root().join("yidam/prelude/sdks/parity/mcp");
