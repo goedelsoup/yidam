@@ -62,15 +62,29 @@ fn fixture_repo() -> tempfile::TempDir {
 }
 
 /// A server on a port the OS chose, and the address it chose.
+///
+/// `stderr` is the reason this struct exists rather than a tuple. The banner is read from the
+/// child's stderr to learn the port; dropping that reader would close the read end of the pipe,
+/// and the child's next write to stderr would then fail. `eprintln!` panics when it does, so a
+/// closed pipe here does not lose a log line — it kills the server, and the next request gets
+/// ECONNRESET with nothing anywhere saying why. The thread keeps the pipe open and drained for
+/// as long as the server is alive.
 struct Server {
     child: Child,
     addr: String,
+    stderr: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Drop for Server {
     fn drop(&mut self) {
+        // Kill first, then join. Killing closes the child's stderr, which is what ends the
+        // draining thread's read; joining is what stops nextest reporting the test as `leaky`,
+        // which is its name for a handle still open when the test returned.
         let _ = self.child.kill();
         let _ = self.child.wait();
+        if let Some(t) = self.stderr.take() {
+            let _ = t.join();
+        }
     }
 }
 
@@ -106,7 +120,18 @@ fn start(repo: &Path, extra: &[&str]) -> Server {
         let _ = child.kill();
         panic!("the server never announced an address")
     });
-    Server { child, addr }
+
+    // Keep reading, and keep the pipe open. See the note on `Server::stderr`.
+    let stderr = std::thread::spawn(move || {
+        let mut sink = String::new();
+        let _ = reader.read_to_string(&mut sink);
+    });
+
+    Server {
+        child,
+        addr,
+        stderr: Some(stderr),
+    }
 }
 
 /// One HTTP request, hand-written. No client dependency: the point is to send exactly the bytes
@@ -125,9 +150,32 @@ fn request(addr: &str, method: &str, path: &str, headers: &[(&str, &str)], body:
     stream.write_all(req.as_bytes()).unwrap();
     stream.flush().unwrap();
 
-    let mut response = String::new();
-    stream.read_to_string(&mut response).unwrap();
-    response
+    // Read to EOF, and treat a reset as the end of the stream rather than as a failure.
+    //
+    // A server that closes after answering can produce an RST instead of a FIN, and the last
+    // read then fails even though the whole response has arrived. Every real HTTP client
+    // treats a complete response that way; `read_to_string(..).unwrap()` was stricter than any
+    // of them, which is how this failed on Linux and passed on macOS while the response bytes
+    // were identical. Nothing is weakened: the assertions below still read the status line and
+    // the body, so a truncated or absent response fails exactly as before.
+    let mut response = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => response.extend_from_slice(&chunk[..n]),
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
+                ) =>
+            {
+                break
+            }
+            Err(e) => panic!("reading the response failed: {e}"),
+        }
+    }
+    String::from_utf8_lossy(&response).into_owned()
 }
 
 fn status_of(response: &str) -> u16 {

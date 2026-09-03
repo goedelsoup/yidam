@@ -27,6 +27,7 @@
 //! file's own unit tests rather than behind an integration harness that binds a port.
 
 use std::convert::Infallible;
+use std::io::Write;
 use std::net::SocketAddr;
 
 use anyhow::{Context, Result};
@@ -43,6 +44,11 @@ use super::ServerState;
 /// The one endpoint path. The spec asks for a single one, so there is a single one; a request
 /// to any other path is told which it wanted rather than 404'd blankly.
 pub(crate) const ENDPOINT: &str = "/mcp";
+
+/// How much of a refused request's body is read before closing, so the close is a FIN and not
+/// an RST. 64 KiB — larger than any legitimate JSON-RPC call this server takes, and small
+/// enough that reading it costs an unwelcome caller more than it costs the server.
+const DRAIN_LIMIT: usize = 64 * 1024;
 
 /// Why a request was refused, frozen the way the MCP contract's own reason strings are.
 ///
@@ -283,6 +289,21 @@ async fn serve_one(
         version.as_deref(),
         allowed_origins,
     ) {
+        // Read the body before answering, even though the answer does not depend on it.
+        //
+        // A server that responds to a `Connection: close` request without consuming the body
+        // closes a socket with unread data in its receive queue, and Linux answers that with
+        // an RST rather than a FIN — so a client that has the whole response still sees
+        // "connection reset by peer" on its last read. This is why nginx has
+        // `lingering_close`. The refusal is already decided; draining only makes the goodbye
+        // graceful.
+        //
+        // Bounded, because this runs before any check that the caller is welcome: hyper's
+        // `Limited` stops reading past the cap, and a body larger than that is an oversized
+        // request being refused, which has no claim on politeness.
+        let _ = http_body_util::Limited::new(req.into_body(), DRAIN_LIMIT)
+            .collect()
+            .await;
         return text(refusal.status(), refusal.message());
     }
 
@@ -386,11 +407,17 @@ pub(crate) fn serve(
                 });
                 // A connection that fails is that client's problem, not the server's: report
                 // it and keep serving, or one malformed request ends the process.
+                //
+                // `writeln!` and not `eprintln!`, and the result deliberately dropped. A
+                // client can provoke this line, and `eprintln!` PANICS if the write fails —
+                // so with stderr closed or a full pipe, a request from outside could take the
+                // server down through its logging. A server whose log can kill it is worse
+                // than one that loses a log line.
                 if let Err(e) = hyper::server::conn::http1::Builder::new()
                     .serve_connection(TokioIo::new(stream), service)
                     .await
                 {
-                    eprintln!("connection error: {e}");
+                    let _ = writeln!(std::io::stderr(), "connection error: {e}");
                 }
             });
         }
