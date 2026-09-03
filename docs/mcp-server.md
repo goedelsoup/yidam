@@ -107,6 +107,44 @@ directory. For one that does not, or when you are unsure, pin it:
 
 An absolute path and `exec` — the `exec` so signals reach the server rather than the shell.
 
+### Over HTTP, for a client that cannot spawn a process
+
+Every configuration above spawns `yidam` as a subprocess, which a client can only do on a
+machine it is running on. A hosted assistant reached through a browser cannot, and neither can
+the OpenAI Responses API: they take a URL.
+
+```sh
+yidam serve --mcp --http                       # http://127.0.0.1:8787/mcp
+yidam serve --mcp --http --port 0              # any free port; the banner says which
+yidam serve --mcp --http --bind 0.0.0.0 --port 8080
+```
+
+One endpoint, `POST /mcp`, carrying one JSON-RPC message per request. It answers with a single
+JSON object; a notification gets `202` and no body. `GET` returns `405` — this server sends no
+messages a client did not ask for, so it opens no event stream, which the MCP spec allows in as
+many words.
+
+**It is the same server.** The tools, the capability block, the `absence` and `degraded` fields
+are produced by the same code the stdio transport calls; only the framing differs.
+
+**Read-only, one corpus, and it authenticates nobody.** The defaults reflect that:
+
+| | |
+|---|---|
+| `--bind` | `127.0.0.1`. A server on `0.0.0.0` is reachable by anything on the network, and this one asks no one who they are. |
+| `--allow-origin` | Empty. A request carrying an `Origin` header is refused unless you name it; one carrying none — `curl`, and every server-to-server client — passes. |
+
+The `Origin` rule is the MCP spec's defence against DNS rebinding, where a page on some other
+site drives a server bound to your loopback. A browser always sends the header, so naming the
+origins that may reach it is what makes the check mean something:
+
+```sh
+yidam serve --mcp --http --allow-origin https://chat.example
+```
+
+To expose it beyond your machine, put it behind something that terminates TLS and supplies
+authentication. Neither is in this transport, and neither is planned for it.
+
 ---
 
 ## 3. The tools, and when an agent should reach for each

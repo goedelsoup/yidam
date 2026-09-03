@@ -111,7 +111,7 @@ jobs:
           # is what keeps this list and `[features] default` in step — it reads this line
           # and the manifest and requires them equal. (It used to say `light_build.rs`,
           # which never read this file.)
-          features: ${{ matrix.workspace == 'cli' && 'reports,tonpa,vault-s3,export-graph' || '' }}
+          features: ${{ matrix.workspace == 'cli' && 'reports,tonpa,vault-s3,export-graph,serve-http' || '' }}
 
   vscode:
     # The editor client. Separate from the Rust matrix because it shares no toolchain

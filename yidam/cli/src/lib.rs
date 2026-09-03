@@ -49,6 +49,12 @@ pub use cmd::{
     PolicyCommand, ProposeOptions, RdfFormat, VaultCommand,
 };
 
+/// The remote transport (#423). Gated because the feature is what pulls the server, and
+/// `--no-default-features --features reports` has no business linking one — see the note on
+/// `serve-http` in Cargo.toml for why it is nonetheless in the default set.
+#[cfg(feature = "serve-http")]
+pub use cmd::serve_mcp_http;
+
 /// The `kind` a samudaya seed file declares, or `None` where it declares none.
 ///
 /// Exposed for `tests/samudaya_examples.rs`, which validates the domain seed sets under
