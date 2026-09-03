@@ -217,3 +217,85 @@ fn findings_are_grouped_under_the_file_that_holds_them() {
     assert!(text.contains("  crates/a/src/lib.rs\n"), "{text}");
     assert!(text.contains("  crates/b/src/lib.rs\n"), "{text}");
 }
+
+/// #389 — what a bare `check-diff` compares, and where it refuses.
+///
+/// Every case here is a git position that costs a repository to reproduce and one line to
+/// describe, which is why [`default_range`] takes the position rather than reading it.
+mod default_range {
+    use super::*;
+
+    fn at(
+        base: Option<&str>,
+        base_tip: Option<&str>,
+        merge_base: Option<&str>,
+        head: &str,
+    ) -> Position {
+        Position {
+            base: base.map(str::to_string),
+            base_tip: base_tip.map(str::to_string),
+            merge_base: merge_base.map(str::to_string),
+            head: Some(head.to_string()),
+        }
+    }
+
+    /// The ordinary case: branched from `main`, which has not moved. The endpoint *is* the
+    /// merge-base, so the legible two-dot range is also the exactly correct one.
+    #[test]
+    fn a_branch_off_an_unmoved_baseline_reads_as_the_branch_name() {
+        let p = at(Some("main"), Some("aaa"), Some("aaa"), "bbb");
+        assert_eq!(default_range(&p).unwrap(), "main..HEAD");
+    }
+
+    /// Once the baseline moves on, `main..HEAD` and the merge-base are different commits and
+    /// a two-dot range would compare the wrong pair — it would report `main`'s own new work
+    /// as though this branch had introduced it. Only the sha states what is compared.
+    #[test]
+    fn a_baseline_that_moved_on_is_named_by_its_merge_base_and_not_by_the_branch() {
+        let p = at(Some("main"), Some("ccc"), Some("aaa"), "bbb");
+        assert_eq!(default_range(&p).unwrap(), "aaa..HEAD");
+    }
+
+    /// `master` is the baseline wherever `main` is not, exactly as `git::base_branch` decides
+    /// it, and the message has to name the one that was actually looked for.
+    #[test]
+    fn the_baseline_may_be_master() {
+        let p = at(Some("master"), Some("aaa"), Some("aaa"), "bbb");
+        assert_eq!(default_range(&p).unwrap(), "master..HEAD");
+    }
+
+    /// The case the measurement made load-bearing: 8 of 13 derived corpora sit here. An empty
+    /// report would be indistinguishable from *your branch introduced no types*.
+    #[test]
+    fn standing_on_the_baseline_refuses_rather_than_reporting_an_empty_range() {
+        let p = at(Some("main"), Some("aaa"), Some("aaa"), "aaa");
+        let e = default_range(&p).unwrap_err().to_string();
+        assert!(e.contains("you are on `main`"), "{e}");
+        assert!(e.contains("check-diff HEAD~5"), "{e}");
+    }
+
+    /// Pre-genesis. A repository mid-bootstrap has no baseline to have branched from.
+    #[test]
+    fn a_repository_with_no_baseline_says_so_and_does_not_guess() {
+        let p = at(None, None, None, "aaa");
+        let e = default_range(&p).unwrap_err().to_string();
+        assert!(e.contains("no baseline to compare against"), "{e}");
+    }
+
+    /// An unborn HEAD, or unrelated histories: git names no merge-base and neither does this.
+    #[test]
+    fn no_common_ancestor_is_refused_by_name() {
+        let p = at(Some("main"), Some("aaa"), None, "bbb");
+        let e = default_range(&p).unwrap_err().to_string();
+        assert!(e.contains("no common ancestor"), "{e}");
+    }
+
+    /// Detached HEAD is not a failure case, though #389 was filed believing it was:
+    /// `merge-base main HEAD` resolves there like anywhere else, and the position it produces
+    /// is the ordinary one. Pinned so the belief cannot come back as a special case.
+    #[test]
+    fn a_detached_head_is_an_ordinary_position_and_not_an_error() {
+        let p = at(Some("main"), Some("aaa"), Some("aaa"), "bbb");
+        assert!(default_range(&p).is_ok());
+    }
+}

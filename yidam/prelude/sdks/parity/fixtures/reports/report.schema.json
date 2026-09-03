@@ -504,7 +504,7 @@
     },
     "range": {
       "type": "string",
-      "description": "`diff` and `check-diff`. The git range reported on, exactly as it was given — unnormalised, so what the caller asked for is what the report says."
+      "description": "`diff` and `check-diff`. The git range reported on, unnormalised, so what was compared is what the report says. Usually exactly as the caller gave it; `check-diff` may be run with no range, and then this is the default it resolved to — the merge-base with the default branch — rather than a blank."
     },
     "vocabulary": {
       "type": "integer",

@@ -230,7 +230,7 @@ yidam pack 'a -rel-> b'   that query's answer filled to a token budget, and what
 yidam estimate '…'        what a query would cost before running it
 yidam neighbors <node>    one node's neighbourhood — the traversal `serve --mcp` performs
 yidam diff main..HEAD     node and edge changes between two refs
-yidam check-diff a..b     types a code diff introduces that the ontology does not name
+yidam check-diff          types this branch introduces that the ontology does not name
 yidam log                 commit history classified as testimony or pipeline work
 yidam replay              corpus health across the repository's whole history
 yidam phases              active inquiry branches

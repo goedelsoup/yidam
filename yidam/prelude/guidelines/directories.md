@@ -100,10 +100,11 @@ Found in a derived repository by a commit whose message says it exactly: *the fi
 being normalised, so the committed record was of what git did rather than what the register
 said.*
 
-**A type declared here is a claim about the domain, and `yidam check-diff a..b` asks about
-it.** The ontology is a contract that every check reads from the corpus side; this reads it
-from the code side, comparing the type and enum names a diff *adds* under `crates/` against
-the classes, properties and relationships `.ont.yml` declares. `RatingCurve` where nothing is
+**A type declared here is a claim about the domain, and `yidam check-diff` asks about it.**
+Run bare it reads this branch's work — the merge-base with `main` — and it takes an explicit
+range too. The ontology is a contract that every check reads from the corpus side; this reads
+it from the code side, comparing the type and enum names a diff *adds* under `crates/`
+against the classes, properties and relationships `.ont.yml` declares. `RatingCurve` where nothing is
 named `rating-curve` is a question — is this a concept the corpus should model, or a helper
 the ontology has no reason to know about? — and the answer is yours. It never gates and never
 will: the fix is a new class or a decision not to have one, and both are judgement.

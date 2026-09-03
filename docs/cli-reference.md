@@ -146,7 +146,7 @@ the read-only overview.
 | `pack <query>` | A query's full answer filled to a token budget, with an account of what did not fit |
 | `estimate <query>` | What a query would cost before you run it |
 | `diff <range>` | Node and edge changes between two git refs |
-| `check-diff <range>` | What a code diff names that the ontology does not ([RFC-0021](rfcs/0021-diff-alignment.md)) |
+| `check-diff [range]` | What a code diff names that the ontology does not ([RFC-0021](rfcs/0021-diff-alignment.md)). Defaults to the merge-base with `main` — this branch's work |
 | `log [range]` | Commit history classified as testimony or pipeline work. `--epistemic`, `--operational` |
 | `phases` | Active inquiry phases — `ma/*` and `rigpa/*` branches |
 | `replay` | Corpus health reconstructed across the repository's whole history. `--every` |

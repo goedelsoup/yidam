@@ -98,7 +98,11 @@ pub struct Finding {
 
 #[derive(Debug, serde::Serialize)]
 pub struct CheckDiffReport {
-    /// The range as given, unnormalised — what the user typed is what the report says.
+    /// The range reported on, unnormalised — what the user typed is what the report says.
+    ///
+    /// When `check-diff` was run bare it is the default this resolved to (#389), so a
+    /// consumer reading a range nobody typed is reading the one that was actually compared
+    /// rather than a blank.
     pub range: String,
     /// Names the ontology declares: classes, properties and relationships.
     pub vocabulary: usize,
@@ -218,9 +222,118 @@ fn build(
     }
 }
 
-pub fn check_diff(range: &str, format: crate::report::Format) -> Result<()> {
+/// Where HEAD sits relative to the baseline, as git answered it.
+///
+/// A struct rather than four arguments so [`default_range`] — which is all the judgement —
+/// is testable without building a repository per case. The four degenerate positions this
+/// command can be run from are cheap to write down and expensive to reproduce.
+#[derive(Debug, Clone)]
+struct Position {
+    /// `main`, `master`, or nothing in a repository that has neither yet.
+    base: Option<String>,
+    /// The tip of `base`.
+    base_tip: Option<String>,
+    /// `merge-base(base, HEAD)`, or nothing when git could name none — an unborn HEAD, or
+    /// histories with no common ancestor.
+    merge_base: Option<String>,
+    /// HEAD's commit.
+    head: Option<String>,
+}
+
+fn read_position(root: &Path) -> Position {
+    let git = |args: &[&str]| -> Option<String> {
+        let out = Command::new("git")
+            .current_dir(root)
+            .args(args)
+            .output()
+            .ok()?;
+        out.status
+            .success()
+            .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+    let base = crate::git::base_branch(root);
+    let head = git(&["rev-parse", "HEAD"]);
+    let (base_tip, merge_base) = match &base {
+        Some(b) => (git(&["rev-parse", b]), git(&["merge-base", b, "HEAD"])),
+        None => (None, None),
+    };
+    Position {
+        base,
+        base_tip,
+        merge_base,
+        head,
+    }
+}
+
+/// What a bare `yidam check-diff` compares.
+///
+/// #389 settled that the range is optional and that this is the default, on the argument the
+/// original explicit-range copy did not consider: `diff` compares two corpus states and
+/// neither is privileged, while this command asks *what did this branch's worth of work name
+/// that the ontology has not*, and that question has an obvious range. Measured over every
+/// branch the derived corpora have merged into their baseline, **250 of 381 touched
+/// `crates/`** — 90% and 88% in the two largest — so the default is asking about real code
+/// most times it fires.
+///
+/// # Why the degenerate positions are errors and not empty reports
+///
+/// The same measurement found 8 of 13 corpora sitting *on* their baseline at any given
+/// moment, where the merge-base is HEAD and the range is empty. An empty range renders as
+/// "No type declaration was introduced in `crates/` by main..HEAD", which is true and is a
+/// lie of omission: it is indistinguishable from the informative answer — *your branch
+/// introduced no types* — and it is the failure mode `example_corpus.rs` argues against from
+/// the other direction. So this refuses rather than reporting nothing.
+///
+/// Detached HEAD is **not** one of these cases, contrary to how the question was filed:
+/// `merge-base main HEAD` resolves normally there and the default is exactly right.
+fn default_range(p: &Position) -> Result<String> {
+    let Some(base) = &p.base else {
+        anyhow::bail!(
+            "no range given, and this repository has no baseline to compare against\n  \
+             A bare `yidam check-diff` compares your branch's work with the merge-base of \
+             `main` (or `master`), and neither branch exists here yet. Pass a range, e.g. \
+             `yidam check-diff HEAD~5`."
+        )
+    };
+    let (Some(merge_base), Some(head)) = (&p.merge_base, &p.head) else {
+        anyhow::bail!(
+            "no range given, and `{base}` and HEAD have no common ancestor to compare from\n  \
+             A bare `yidam check-diff` compares your branch's work with the merge-base of \
+             `{base}`. Pass a range, e.g. `yidam check-diff HEAD~5`."
+        )
+    };
+    if merge_base == head {
+        anyhow::bail!(
+            "no range given, and there is no branch's work to compare — you are on `{base}`\n  \
+             A bare `yidam check-diff` asks what the work on this branch named that the \
+             ontology has not, and the merge-base with `{base}` is HEAD itself, so that \
+             question is empty. Pass a range, e.g. `yidam check-diff HEAD~5`."
+        )
+    }
+    // `main..HEAD` whenever the baseline has not moved on since this branch left it, because
+    // a two-dot range compares endpoints and there the endpoint *is* the merge-base.
+    //
+    // Once `main` is ahead the two differ, and the merge-base is the correct one rather than
+    // the tidier one. Verified against a derived corpus: with a type that existed at the
+    // branch point and that `main` has since deleted, `main..HEAD` sees it present at HEAD
+    // and absent at the endpoint and reports it as newly introduced — a finding asking an
+    // author about a concept their branch never touched. From the merge-base it is unchanged
+    // and says nothing.
+    Ok(match &p.base_tip {
+        Some(tip) if tip == merge_base => format!("{base}..HEAD"),
+        _ => format!("{merge_base}..HEAD"),
+    })
+}
+
+pub fn check_diff(range: Option<String>, format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
     require_yidam_repo(&root)?;
+    let range = match range {
+        Some(r) => r,
+        None => default_range(&read_position(&root))?,
+    };
+    let range = range.as_str();
     let (before, after) = crate::cmd::diff::parse_range(range);
     let diff = read_diff(&root, &before, &after)?;
 
