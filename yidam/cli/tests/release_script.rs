@@ -25,7 +25,34 @@ fn read(rel: &str) -> String {
 ///
 /// Always `--dry-run`: these tests must never be able to create a tag, whatever else they
 /// get wrong.
+///
+/// **Memoised, because a dry run is expensive and nextest runs tests in parallel.** For the
+/// `cli` and `sdk/rust` layers release.sh verifies the packaged build with
+/// `cargo publish --dry-run`, so each distinct invocation is a full package build. Two of them
+/// at once contend on one target directory: the second test to call this took **63s against
+/// the first one's 10s**, making it the slowest test in the whole suite by six times and
+/// adding about a minute to `ci (cli)` — twice, since coverage runs the suite again.
+///
+/// A dry run has no side effects on the tree it reads, which is what makes one invocation
+/// answerable to several assertions. Every refusal is reported by one run rather than the
+/// first one stopping it, so a test asking about a different refusal asks the same output.
 fn release(args: &[&str]) -> (String, bool) {
+    use std::sync::{Mutex, OnceLock};
+    static RUNS: OnceLock<Mutex<std::collections::HashMap<String, (String, bool)>>> =
+        OnceLock::new();
+
+    let key = args.join(" ");
+    // The lock is held across the run on purpose: two threads reaching an unmemoised
+    // invocation are exactly the contention this exists to remove, and a dry run is fast
+    // enough that serialising them beats letting both build.
+    let mut runs = RUNS
+        .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+        .lock()
+        .expect("the release.sh memo is not poisoned");
+    if let Some(cached) = runs.get(&key) {
+        return cached.clone();
+    }
+
     let out = Command::new("./release.sh")
         .args(args)
         .arg("--dry-run")
@@ -34,7 +61,9 @@ fn release(args: &[&str]) -> (String, bool) {
         .expect("release.sh is executable");
     let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
     text.push_str(&String::from_utf8_lossy(&out.stderr));
-    (text, out.status.success())
+    let result = (text, out.status.success());
+    runs.insert(key, result.clone());
+    result
 }
 
 /// A version the manifest does not declare is refused, not tagged.
@@ -366,12 +395,11 @@ fn the_upgrade_notes_keep_the_heading_release_sh_reads() {
 /// would go green the moment the mechanism started mattering, or the moment it stopped.
 #[test]
 fn a_staged_upgrade_note_refuses_the_tag_and_an_empty_section_does_not() {
-    let declared = read("yidam/cli/Cargo.toml")
-        .lines()
-        .find_map(|l| l.strip_prefix("version = \"")?.strip_suffix('"'))
-        .expect("yidam/cli/Cargo.toml declares a version")
-        .to_string();
-    let (out, _) = release(&["cli", &declared]);
+    // The same arguments `a_version_the_manifest_does_not_declare_is_refused` uses, so the
+    // whole suite makes one release.sh invocation and one packaged-build check. The layer and
+    // version are irrelevant here: this refusal is raised before either is consulted, and a
+    // dry run reports every refusal rather than stopping at the first.
+    let (out, _) = release(&["sdk/rust", "9.9.9"]);
 
     let staged = upgrade_section("Unreleased");
     let refused = out.contains("staged-upgrade-note");
