@@ -150,32 +150,14 @@ fn request(addr: &str, method: &str, path: &str, headers: &[(&str, &str)], body:
     stream.write_all(req.as_bytes()).unwrap();
     stream.flush().unwrap();
 
-    // Read to EOF, and treat a reset as the end of the stream rather than as a failure.
-    //
-    // A server that closes after answering can produce an RST instead of a FIN, and the last
-    // read then fails even though the whole response has arrived. Every real HTTP client
-    // treats a complete response that way; `read_to_string(..).unwrap()` was stricter than any
-    // of them, which is how this failed on Linux and passed on macOS while the response bytes
-    // were identical. Nothing is weakened: the assertions below still read the status line and
-    // the body, so a truncated or absent response fails exactly as before.
-    let mut response = Vec::new();
-    let mut chunk = [0u8; 8192];
-    loop {
-        match stream.read(&mut chunk) {
-            Ok(0) => break,
-            Ok(n) => response.extend_from_slice(&chunk[..n]),
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
-                ) =>
-            {
-                break
-            }
-            Err(e) => panic!("reading the response failed: {e}"),
-        }
-    }
-    String::from_utf8_lossy(&response).into_owned()
+    // A strict read, deliberately. This was relaxed to tolerate ECONNRESET while the Linux
+    // failure was undiagnosed; bisecting it in a container showed the relaxation fixed nothing
+    // — the resets were the server dying, so the responses were absent rather than merely
+    // reset-terminated. A test that accepts a truncated response for no measured benefit is a
+    // test that catches less.
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    response
 }
 
 fn status_of(response: &str) -> u16 {

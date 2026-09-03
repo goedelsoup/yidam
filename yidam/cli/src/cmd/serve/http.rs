@@ -298,6 +298,10 @@ async fn serve_one(
         // `lingering_close`. The refusal is already decided; draining only makes the goodbye
         // graceful.
         //
+        // Measured, and stated precisely because it is NOT what fixed the Linux test failure
+        // this was first written for: bisected in a container, this change alone took that
+        // failure from three to two. It removes real resets; it was not the cause.
+        //
         // Bounded, because this runs before any check that the caller is welcome: hyper's
         // `Limited` stops reading past the cap, and a body larger than that is an oversized
         // request being refused, which has no claim on politeness.
