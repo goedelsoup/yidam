@@ -28,6 +28,8 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+## cli/v0.9.0
+
 ### `serve` refuses a directory that is not a corpus
 
 `yidam serve --mcp` and `serve --mcp --http` now fail at the command when started somewhere
