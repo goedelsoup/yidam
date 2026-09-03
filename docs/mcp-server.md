@@ -335,12 +335,21 @@ either way.
 
 **The vector path does not span dependencies.** `yidam embed` gathers text from
 `.yidam/corpus/` and `.yidam/catalog/` and nowhere else, so the index `index-build` writes
-holds this repository's own nodes; an indexed `retrieve` returns local results carrying
-neither `id` nor `origin`. Note that absent is not `null` here — a key that is missing
-means the search never looked outside this corpus, which is a different fact from a node
-being local. On a composed corpus, `degraded: true` is currently the *more* complete
-search. [sharing-derivations.md](sharing-derivations.md) has the history and why this is a
-gap rather than a boundary.
+holds this repository's own nodes; an indexed `retrieve` returns local results carrying no
+`origin`. Note that absent is not `null` here — a key that is missing means the search never
+looked outside this corpus, which is a different fact from a node being local. On a composed
+corpus, `degraded: true` is currently the *more* complete search.
+[sharing-derivations.md](sharing-derivations.md) has the history and why this is a gap rather
+than a boundary.
+
+**`id` is on both arms, and used not to be.** This paragraph read "carrying neither `id` nor
+`origin`" and stated the two absences as one fact. They are not one fact. A local node has an
+id under either arm, and the vector path simply did not emit it — so `retrieve` found nodes
+and `get_node` could not be handed them, on the arm a corpus gets *for having built an index*.
+The degraded keyword path was the followable one. Fixed in #425: the vector arm resolves each
+row through the same `find_node` that `get_node` resolves with, so an id it hands back is an
+id that fetches by construction, and it is `null` rather than absent for a row that resolves
+to no node — a catalog source, or an index built before a file moved.
 
 **An agent reading a foreign node is reading someone else's claim.** It is evidence to
 consult, not a commitment this repository has made — and it may never be an edge target.
