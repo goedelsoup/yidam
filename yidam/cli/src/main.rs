@@ -375,12 +375,20 @@ enum Command {
     /// Read-only, and it never gates: every finding is a question about the corpus, and
     /// the answer — a new class, or a decision not to have one — is an author's.
     ///
-    /// The range is explicit, exactly as `diff`'s is. What a CI default should be is an
-    /// open question in RFC-0021 and is not answered by picking one here.
+    /// The range is optional, as `log`'s is and unlike `diff`'s, and defaults to the
+    /// merge-base with `main` (or `master`) — this branch's worth of work. #389 settled
+    /// that on the argument the original copy of `diff`'s required range did not consider:
+    /// `diff` compares two corpus states and neither is privileged, while this asks what
+    /// *this branch* named that the ontology has not, and that has an obvious range.
+    ///
+    /// Where that range would be empty — on the baseline itself, or with no baseline at
+    /// all — it refuses rather than reporting nothing, because nothing is what it also
+    /// prints when your branch is genuinely clean.
     #[command(name = "check-diff")]
     CheckDiff {
-        /// Git range, e.g. `main..HEAD`, `HEAD~5`, `abc123..def456`
-        range: String,
+        /// Git range, e.g. `main..HEAD`, `HEAD~5`, `abc123..def456`. Defaults to the
+        /// merge-base with `main` (or `master`) — this branch's worth of work.
+        range: Option<String>,
         /// Output format. `json` emits the machine-readable report contract
         /// (RFC-0016); `text` is the default.
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
@@ -853,7 +861,7 @@ fn main() -> Result<()> {
         Command::GraphCheck { format } => yidam::graph_check(format),
         Command::DecisionsLog => yidam::decisions_log(),
         Command::Diff { range, format } => yidam::diff_corpus(&range, format),
-        Command::CheckDiff { range, format } => yidam::check_diff(&range, format),
+        Command::CheckDiff { range, format } => yidam::check_diff(range, format),
         Command::Bundle => yidam::bundle(),
         Command::Export {
             root,
