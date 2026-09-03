@@ -253,14 +253,54 @@ jobs:
         with:
           subject-path: 'dist/*.tar.gz'
 
+      # ── the notes carry the upgrade note, or they carry only titles ──────────
+      #
+      # `--generate-notes` produces a flat list of merged PR titles and there is
+      # nowhere in it for prose. So a change that breaks a working configuration
+      # arrived as one `fix(serve): …` line among twenty, indistinguishable from a
+      # docs fix — which is how a reader upgrading learns nothing until their
+      # server stops coming up (#549).
+      #
+      # The generated list is still the body. `docs/upgrading.md`'s section for
+      # THIS tag goes above it, because the person who needs it is reading the top
+      # of the page and stops there. A release with no section prepends nothing and
+      # looks exactly as it did before; `release.sh` is what refuses a note staged
+      # under `## Unreleased` rather than filed under the tag.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
+          gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+            -f tag_name="$GITHUB_REF_NAME" --jq .body > generated.md
+
+          # The lines under `## <tag>` up to the next `## ` heading. `-v` rather
+          # than interpolating the tag into the program: a tag holds `/` and `.`,
+          # and `cli/v0.9.0` as an awk regex would match `cli/v0X9Y0`.
+          awk -v tag="## $GITHUB_REF_NAME" '
+            $0 == tag { inside = 1; next }
+            /^## / { inside = 0 }
+            inside { print }
+          ' docs/upgrading.md > upgrade.md
+
+          if [ -s upgrade.md ]; then
+            {
+              echo "## Before you upgrade"
+              cat upgrade.md
+              echo
+              echo "---"
+              echo
+            } > notes.md
+            cat generated.md >> notes.md
+            echo "prepended $(wc -l < upgrade.md) line(s) of upgrade notes for $GITHUB_REF_NAME"
+          else
+            cp generated.md notes.md
+            echo "no upgrade-notes section for $GITHUB_REF_NAME; publishing the generated list alone"
+          fi
+
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
-            --generate-notes \
+            --notes-file notes.md \
             dist/*.tar.gz dist/*.sha256 dist/SHA256SUMS
 
   # ── The Homebrew tap ────────────────────────────────────────────────────────

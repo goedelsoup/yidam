@@ -49,6 +49,11 @@ const sidebar = [
       { slug: 'artifact-vaults', label: 'Artifact vaults' },
       { slug: 'sharing-derivations', label: 'Sharing a derivation' },
       { slug: 'troubleshooting', label: 'Troubleshooting' },
+      // Beside troubleshooting rather than under 'The project' with `versioning`.
+      // `versioning` explains why four layers move independently, which is read
+      // once; this is read when a working setup starts behaving differently, which
+      // is the same moment somebody opens Troubleshooting.
+      { slug: 'upgrading', label: 'Upgrade notes' },
     ],
   },
   {
