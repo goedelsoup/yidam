@@ -37,7 +37,7 @@ use std::path::{Path, PathBuf};
 use super::graph::{graph_data, GraphReport};
 use super::lint::{run_checks_with, Options, Overlay};
 use super::rename;
-use crate::paths::{repo_root, yidam_corpus_dir};
+use crate::paths::yidam_corpus_dir;
 
 /// LSP `DiagnosticSeverity`.
 const ERROR: u8 = 1;
@@ -541,8 +541,8 @@ impl Server {
 }
 
 /// Serve LSP over stdio until the client says `exit`.
-pub fn serve_lsp() -> Result<()> {
-    let root = repo_root()?;
+pub fn serve_lsp(root: Option<&Path>) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let stdin = std::io::stdin();
     let mut input = stdin.lock();
     let stdout = std::io::stdout();

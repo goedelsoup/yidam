@@ -54,6 +54,32 @@ installs a `--features full` binary into `.local/bin`.
 
 ## 2. Configure the client
 
+### Claude Desktop, as a bundle
+
+The one route with no terminal in it. Download the `.mcpb` for your Mac from the [latest CLI
+release](https://github.com/goedelsoup/yidam/releases) and drag it onto Claude Desktop's
+Extensions pane — or from a shell, if you have one open anyway:
+
+```sh
+open yidam-0.9.0-aarch64-apple-darwin.mcpb    # Apple silicon
+open yidam-0.9.0-x86_64-apple-darwin.mcpb     # Intel
+```
+
+An `.mcpb` is a zip holding a manifest and the `yidam` binary. Nothing is installed onto your
+`PATH`, no configuration file is written by hand, and **the installer asks which corpus to
+serve** — a directory picker, filled into `--root`, instead of the `cd` incantation two
+sections below. That question is the whole reason this channel exists: it is the one thing
+every other route leaves to the working directory.
+
+Two things to know. The bundle carries the **light build**, so `retrieve` is keyword search
+and says so on every call — §1 has the difference, and every other tool is identical. And it
+is **macOS only**, because that and Windows are where Claude Desktop runs and this repository
+cross-compiles no Windows target; a Linux user wants one of the routes below.
+
+The version is the CLI's own — `yidam-0.9.0-…` carries `yidam 0.9.0` — so a bundle installed
+six months ago is running a binary these docs may no longer describe. Reinstalling is
+dragging a newer file onto the same pane.
+
 ### Claude Code, as a plugin
 
 This is the one that gives you both halves. Four of the thirteen tools below exist because
@@ -137,22 +163,37 @@ A repository bootstrapped an hour ago with nothing written into it yet is still 
 test is `.yidam/`, not corpus content.
 
 The two blocks above are correct for a client that starts its servers in the project
-directory. For one that does not, or when you are unsure, pin it:
+directory. For one that does not, or when you are unsure, **say which corpus you mean**:
 
 ```json
 {
   "mcpServers": {
     "yidam": {
-      "command": "sh",
-      "args": ["-c", "cd /abs/path/to/my-corpus && exec yidam serve --mcp"]
+      "command": "yidam",
+      "args": ["serve", "--mcp", "--root", "/abs/path/to/my-corpus"]
     }
   }
 }
 ```
 
-An absolute path and `exec` — the `exec` so signals reach the server rather than the shell.
+`--root` takes the corpus directory, or any directory inside one — the nearest `.yidam/` at or
+above it wins, which is the same corpus `cd`-ing there would have found. It is not
+`git rev-parse --show-toplevel`, and the difference matters for a corpus that lives inside
+another repository: pointed at one of those, toplevel resolution answers with the *outer*
+repository, which is not a corpus at all.
 
-The [plugin](#claude-code-as-a-plugin) does this for you, and checks before it spawns.
+This replaces the shell form these docs used to prescribe:
+
+```json
+{"command": "sh", "args": ["-c", "cd /abs/path/to/my-corpus && exec yidam serve --mcp"]}
+```
+
+That still works and there is no reason to keep it. It needed an absolute path *and* `exec`,
+the second so signals reached the server rather than the shell — a detail with no bearing on
+corpora that a reader had to get right anyway.
+
+The [plugin](#claude-code-as-a-plugin) resolves the directory for you and checks before it
+spawns, and the [Claude Desktop bundle](#claude-desktop-as-a-bundle) asks at install time.
 
 ### Over HTTP, for a client that cannot spawn a process
 
@@ -474,7 +515,7 @@ start, read its stderr — the refusal names the directory it landed in and the 
 It used to connect. The banner said `domain "nowhere", 0 node(s)`, `list_nodes` answered
 `{"nodes": []}`, and from the client side that was indistinguishable from a corpus that was
 simply empty — so this entry was advice about reading a node count carefully. It is now a
-startup failure. Pin the directory with the `sh -c 'cd … && exec …'` form, or use the
+startup failure. Name the directory with `--root`, or use the
 [plugin](#claude-code-as-a-plugin), which asks at install time.
 
 **The corpus was never built out.** A repository that has been bootstrapped but not written

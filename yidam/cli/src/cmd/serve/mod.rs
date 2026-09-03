@@ -29,7 +29,7 @@ use std::io::{BufRead, Write};
 use std::path::Path;
 
 use crate::model::{corpus_nodes, file_stem as stem, load_domain_model};
-use crate::paths::repo_root;
+use crate::paths::resolve_root;
 
 /// One corpus instance, parsed for serving. The id (`<class>/<name>`) is
 /// what `get_node` and `neighbors` accept.
@@ -423,8 +423,11 @@ fn banner(state: &ServerState) {
 }
 
 /// Serve the domain computer over MCP stdio. Blocks until stdin closes.
-pub fn serve_mcp() -> Result<()> {
-    let root = repo_root()?;
+///
+/// `root` is the corpus directory, or `None` to resolve it from wherever the client started
+/// this process — see [`crate::paths::resolve_root`].
+pub fn serve_mcp(root: Option<&Path>) -> Result<()> {
+    let root = resolve_root(root)?;
     let state = ServerState::load(&root)?;
     banner(&state);
     eprintln!("serving MCP over stdio");
@@ -440,8 +443,13 @@ pub fn serve_mcp() -> Result<()> {
 /// fails at the command rather than at the first request — which over HTTP would be a 500 to
 /// whoever happened to connect first.
 #[cfg(feature = "serve-http")]
-pub fn serve_mcp_http(bind: &str, port: u16, allow_origin: Vec<String>) -> Result<()> {
-    let root = repo_root()?;
+pub fn serve_mcp_http(
+    root: Option<&Path>,
+    bind: &str,
+    port: u16,
+    allow_origin: Vec<String>,
+) -> Result<()> {
+    let root = resolve_root(root)?;
     let state = ServerState::load(&root)?;
     banner(&state);
     http::serve(state, bind, port, allow_origin)

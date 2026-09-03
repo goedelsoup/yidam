@@ -62,10 +62,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `mcpb_platform` is what makes a target eligible for an `.mcpb` bundle, and
+          # its two absences below are the fact rather than an omission: Claude Desktop
+          # runs on macOS and Windows only, so a Linux bundle would install nowhere, and
+          # this matrix builds no Windows target for one to be made from. It is carried as
+          # matrix data rather than an `if:` on the target name so that `mcpb_bundle.rs`
+          # can read which platforms are packaged instead of re-deriving the rule.
           - target: aarch64-apple-darwin
             os: macos-latest
+            mcpb_platform: darwin
           - target: x86_64-apple-darwin
             os: macos-latest
+            mcpb_platform: darwin
           # ── ubuntu-22.04, not ubuntu-latest ──────────────────────────
           #
           # A glibc binary runs on the glibc it was LINKED against or newer, and
@@ -163,6 +171,44 @@ jobs:
           tar -czf "$name.tar.gz" -C "$(dirname "$staging")" "$name"
           shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
           echo "name=$name" >> "$GITHUB_OUTPUT"
+          # The bundle step renders a manifest carrying this same version. Exported rather
+          # than re-derived there, so the two cannot come to disagree about what `dev` means.
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # ── the same binary, as a file a person double-clicks ────────────────────
+      #
+      # #421. Every other channel this workflow feeds ends with a binary on a PATH and a
+      # client config file to hand-write; `docs/mcp-server.md` spent a subsection on the
+      # `sh -c 'cd … && exec …'` form needed to say WHICH corpus you meant. An `.mcpb` is
+      # a zip holding a manifest and this binary, installed by dragging it onto Claude
+      # Desktop, and the manifest turns that shell incantation into a directory picker.
+      #
+      # A zip built with `zip`, not `mcpb pack`: the format is a zip with `manifest.json`
+      # at its root, and the official CLI is an npm install this workflow otherwise has no
+      # use for. What it would buy is manifest validation, which `mcpb_bundle.rs` does
+      # here — where a failure is a red test rather than a bad release.
+      - name: Package the MCPB bundle
+        id: mcpb
+        if: matrix.mcpb_platform != ''
+        run: |
+          set -eu
+          name="${{ steps.pkg.outputs.name }}"
+          staging="$(mktemp -d)/bundle"
+          mkdir -p "$staging/server"
+          cp "yidam/cli/target/${{ matrix.target }}/release/yidam" "$staging/server/"
+          cp LICENSE "$staging/"
+          ./render-manifest.sh "${{ steps.pkg.outputs.version }}" "${{ matrix.mcpb_platform }}" \
+            > "$staging/manifest.json"
+          out="$PWD/$name.mcpb"
+          # `-r` from inside the staging directory, never `-j`: flattening would put the
+          # binary at the archive root and break `entry_point`, and the paths inside the
+          # archive are part of the manifest's contract rather than an arrangement.
+          (cd "$staging" && zip -qr "$out" .)
+          # `if-no-files-found: error` on the upload cannot speak for this file: the
+          # tarball matches the pattern set on its own, so a bundle that was never written
+          # uploads a green step and a release missing the one asset #421 is about.
+          [ -s "$out" ] || { echo "::error::no bundle at $out"; exit 1; }
+          shasum -a 256 "$name.mcpb" > "$name.mcpb.sha256"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -170,6 +216,8 @@ jobs:
           path: |
             ${{ steps.pkg.outputs.name }}.tar.gz
             ${{ steps.pkg.outputs.name }}.tar.gz.sha256
+            ${{ steps.pkg.outputs.name }}.mcpb
+            ${{ steps.pkg.outputs.name }}.mcpb.sha256
           if-no-files-found: error
 
   publish:
@@ -248,10 +296,17 @@ jobs:
       # on answering the question they always answered for install.sh, the tap
       # and `[yidam-build]` — integrity, not origin. This step is the origin
       # half, and it is the half `gh attestation verify` and mise both want.
-      - name: Attest build provenance for the release tarballs
+      #
+      # The `.mcpb` bundles ARE subjects, on the same grounds the tarballs are:
+      # each carries a `yidam` binary, and it is the one channel whose installer
+      # is a person dragging a downloaded file onto an application. A checksum
+      # covers the bytes; only this covers where they came from.
+      - name: Attest build provenance for the release artifacts
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: 'dist/*.tar.gz'
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.mcpb
 
       # ── the notes carry the upgrade note, or they carry only titles ──────────
       #
@@ -321,7 +376,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
             --notes-file notes.md \
-            dist/*.tar.gz dist/*.sha256 dist/SHA256SUMS
+            dist/*.tar.gz dist/*.mcpb dist/*.sha256 dist/SHA256SUMS
 
   # ── The Homebrew tap ────────────────────────────────────────────────────────
   #

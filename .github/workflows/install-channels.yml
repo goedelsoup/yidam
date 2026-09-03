@@ -498,3 +498,108 @@ jobs:
             echo "::error::install line says goedelsoup.yidam-vscode"
             exit 1
           }
+
+  # ── the .mcpb bundle on the GitHub release ─────────────────────────────────
+  #
+  # #421's channel, and the only one here with no install command to run: a person
+  # downloads the file and drags it onto Claude Desktop. There is no way to drive
+  # that gesture on a runner, so this checks everything on the near side of it —
+  # the asset exists under the name the docs give, its checksum matches, the
+  # manifest inside declares the released version, and the binary it carries is
+  # that release and comes up when launched the way the manifest says to launch it.
+  #
+  # macos-latest, and not for convenience. This is the one channel whose artifact
+  # holds an executable the user runs directly, so a job that only unzipped it
+  # would be checking the packaging and not the thing packaged — and the runner is
+  # arm64, which is why it is the aarch64 bundle that gets exercised.
+  #
+  # `--root` is passed here because the manifest passes it. The corpus is a fresh
+  # `git init` plus a `.yidam/` directory: an empty corpus is a served one, so this
+  # asks whether the bundled binary comes up against a directory it was told about
+  # from a working directory that is not it — which is the whole repair.
+  mcpb-bundle:
+    name: .mcpb on the release
+    needs: released
+    runs-on: macos-latest
+    steps:
+      - name: The bundle a Claude Desktop user is told to download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          expected="${{ needs.released.outputs.version }}"
+          tag="${{ needs.released.outputs.tag }}"
+          bundle="yidam-${expected}-aarch64-apple-darwin.mcpb"
+
+          # `--repo` because this job checks out nothing, for `editor-vsix`'s reason.
+          gh api "repos/${{ github.repository }}/releases/tags/${tag}" \
+            --jq '.assets[].name' > names.txt
+          for want in "$bundle" "${bundle}.sha256"; do
+            grep -qxF "$want" names.txt || {
+              echo "::error::${tag} has no ${want}. docs/mcp-server.md tells a Claude Desktop"
+              echo "::error::user to download it, and it is the only route this project has"
+              echo "::error::that does not begin in a terminal. Assets present:"
+              sed 's/^/::error::  /' names.txt
+              exit 1
+            }
+          done
+
+          gh release download "$tag" --repo "${{ github.repository }}" \
+            --pattern "${bundle}*" --clobber
+
+          # The asset records `<hash>  dist/<name>`, a path that exists on the builder and
+          # not here, so `shasum -c` cannot be used. Compare the hashes themselves — and
+          # refuse an empty one, which compares equal to an empty `got` (editor-vsix).
+          want=$(cut -d' ' -f1 < "${bundle}.sha256")
+          got=$(shasum -a 256 "$bundle" | cut -d' ' -f1)
+          [ -n "$want" ] || { echo "::error::${bundle}.sha256 records no hash"; exit 1; }
+          [ "$want" = "$got" ] || {
+            echo "::error::${bundle} hashes ${got}; the release records ${want}"
+            exit 1
+          }
+
+          # The manifest inside the archive is this channel's `yidam --version`: an asset
+          # that downloads and unpacks is not evidence it is the one that was cut.
+          unzip -q "$bundle" -d unpacked
+          got_version=$(jq -r '.version // ""' unpacked/manifest.json)
+          echo "mcpb manifest: version=${got_version}  expected=${expected}"
+          [ "$got_version" = "$expected" ] || {
+            echo "::error::${bundle} declares version ${got_version}; ${tag} released ${expected}"
+            exit 1
+          }
+
+          # And the binary it carries must be that release too. A manifest can be right
+          # about a binary that is not — they are packaged by the same step and there is
+          # no reason for anyone to notice if they ever stop agreeing.
+          entry=$(jq -r '.server.entry_point // ""' unpacked/manifest.json)
+          [ -n "$entry" ] || { echo "::error::the manifest names no entry_point"; exit 1; }
+          chmod +x "unpacked/${entry}"
+          bin_version=$("unpacked/${entry}" --version)
+          echo "bundled binary: ${bin_version}"
+          case "$bin_version" in
+            "$expected"*) ;;
+            *)
+              echo "::error::the bundle's binary reports '${bin_version}'; ${tag} released ${expected}"
+              exit 1
+              ;;
+          esac
+
+          # Finally, launch it the way the manifest says to, against a corpus named rather
+          # than inherited, from a directory that is not it.
+          corpus="$PWD/corpus"
+          mkdir -p "$corpus/.yidam"
+          git init -q "$corpus"
+          mkdir -p elsewhere
+          cd elsewhere
+          handshake=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n' \
+            | "../unpacked/${entry}" serve --mcp --root "$corpus" 2>/dev/null | head -1)
+          echo "handshake: ${handshake}"
+          case "$handshake" in
+            *'"serverInfo"'*) echo "the bundle serves a corpus it was told about." ;;
+            *)
+              echo "::error::the bundle's own command line produced no handshake from a"
+              echo "::error::working directory that is not the corpus. That is the failure"
+              echo "::error::the manifest's directory picker exists to end."
+              exit 1
+              ;;
+          esac
