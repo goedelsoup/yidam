@@ -58,6 +58,10 @@ pub(crate) struct Standing {
     pub through: Option<String>,
     /// How many settlements the branch does not hold.
     pub behind: usize,
+    /// Resolutions this branch holds, did not take part in, and its declaration does not reach.
+    ///
+    /// Sorted as the line runs, so a reader gets them in the order they settled.
+    pub absorbed: Vec<String>,
 }
 
 // ── the checks ────────────────────────────────────────────────────────────────
@@ -132,8 +136,57 @@ pub(crate) fn baseline_undeclared(standings: &[Standing]) -> Check {
     )
 }
 
-pub(crate) fn checks(standings: &[Standing]) -> [Check; 2] {
-    [baseline_unmet(standings), baseline_undeclared(standings)]
+/// Holding a resolution you did not take part in and have not adopted.
+///
+/// **The rule this reports against was decided by measurement, and it went the other way from
+/// practice.** RFC-0011 asks whether a resolution produced by a subset binds the electors who sat
+/// it out. The documents cut both ways — Article VI's minimum authority and *"divergence is normal
+/// and expected; it is not a violation"* against PROTOCOL's *"the active baseline"* — and while
+/// they cut both ways, practice decided: in the repository that has run this protocol, **all nine
+/// partial resolutions are held by the elector who abstained**, absorbed through `merge main`,
+/// with no adoption act and nothing recording that it happened.
+///
+/// The settlement is that **the declaration binds, not the merge**. Merging `main` is how a corpus
+/// stays shared and step 3 requires it mid-loop, so it cannot be the thing that binds; the
+/// `Baseline:` trailer is the adoption act. Holding a settlement and being measured against one
+/// are two facts, and this check is what makes the gap between them visible.
+///
+/// Which is why it is Info. Every one of those nine is this finding today, and none of them is
+/// wrong — an elector who has absorbed a resolution and not declared it has done nothing the
+/// protocol forbids. It is a prompt to decide, not an accusation, and it clears by declaring.
+pub(crate) fn holds_unadopted(standings: &[Standing]) -> Check {
+    let violations = standings
+        .iter()
+        .filter(|s| !s.absorbed.is_empty())
+        .map(|s| {
+            // One finding per elector rather than per resolution. Before anybody declares a
+            // baseline every held resolution qualifies, and nine lines saying the same thing
+            // about two branches is a report nobody reads to the end.
+            let named = s.absorbed.join("`, `");
+            Violation::new(
+                s.branch.clone(),
+                format!(
+                    "holds {} resolution(s) it took no part in and has not adopted: `{named}`",
+                    s.absorbed.len()
+                ),
+            )
+        })
+        .collect();
+    Check::new(
+        "elector-holds-unadopted",
+        "Elector branch holds a resolution it took no part in and has not adopted",
+        Severity::Info,
+        "A resolution binds the electors whose tips it read. Everyone else may read it, cite it,          adopt it or build on it, and until they declare it as their baseline it is not what          their position is measured against — Article VI, which says the sangha exercises the          minimum authority needed and that divergence is not a violation. Merging `main` cannot          be what binds: it is how the corpus stays shared, and the protocol requires it mid-loop.          So this reports the gap between what a branch has absorbed and what it says it stands          on, at Info, because the gap is a legitimate state rather than a defect. What it is not          is invisible, which is what it was: nine of nine abstainers were bound in practice with          nothing recording it.",
+        violations,
+    )
+}
+
+pub(crate) fn checks(standings: &[Standing]) -> [Check; 3] {
+    [
+        baseline_unmet(standings),
+        baseline_undeclared(standings),
+        holds_unadopted(standings),
+    ]
 }
 
 // ── reading the repository ────────────────────────────────────────────────────
@@ -188,6 +241,12 @@ pub(crate) fn standings(root: &Path, records: &[Resolution]) -> Vec<Standing> {
         .filter_map(|r| Some((r.evolution.clone(), adds.get(&r.file)?.clone())))
         .collect();
     let base = crate::git::base_branch(root).unwrap_or_else(|| "HEAD".to_string());
+    let electors_md = crate::paths::yidam_sangha_dir(root)
+        .strip_prefix(root)
+        .unwrap_or(Path::new(".yidam/sangha"))
+        .join("electors.md")
+        .to_string_lossy()
+        .replace('\\', "/");
     let rank: HashMap<String, usize> = git(root, &["rev-list", "--topo-order", "--reverse", &base])
         .lines()
         .enumerate()
@@ -229,8 +288,62 @@ pub(crate) fn standings(root: &Path, records: &[Resolution]) -> Vec<Standing> {
                     &e.git_ref,
                 ],
             ));
+            // When this seat was registered — the commit that first put its branch in
+            // `electors.md`, which is what PROTOCOL defines becoming an elector as.
+            //
+            // **A resolution that settled before a seat existed is not one that seat sat out.**
+            // Without this the report conflates two states: `ma/advocate` reads as holding 13
+            // resolutions it "took no part in", and 8 of them predate its registration by days.
+            // An elector inherits the corpus as it stands when they join; what is worth
+            // reporting is what settled while they were there. Filtering on registration takes
+            // the measured repository from 13 and 4 to 5 and 4 — which is exactly its count of
+            // resolutions where a registered seat existed and was not read.
+            //
+            // A seat whose registration cannot be located reports everything, which fails
+            // toward saying too much rather than too little.
+            let seated_at = git(
+                root,
+                &[
+                    "log",
+                    "--reverse",
+                    "--format=%H",
+                    &format!("-S{}", e.name),
+                    "--",
+                    &electors_md,
+                ],
+            )
+            .lines()
+            .next()
+            .and_then(|sha| rank.get(sha))
+            .copied();
+
+            // Where the declaration reaches. A declaration binds its holder to the line up to
+            // and including that evolution; anything later is held and not adopted.
+            let declared_rank = declared
+                .as_ref()
+                .and_then(|d| settlement.get(d))
+                .and_then(|sha| rank.get(sha))
+                .copied();
+            let mut absorbed: Vec<(usize, String)> = records
+                .iter()
+                // A participant is an elector whose tip the record says was read. It is the
+                // crisp definition and, measured, the only available one: nothing records who
+                // was notified, so "notified and declined" cannot be told from "never asked".
+                .filter(|r| {
+                    !r.tips
+                        .iter()
+                        .any(|t| t.split('@').next().unwrap_or(t) == e.name)
+                })
+                .filter_map(|r| Some((r, settlement.get(&r.evolution)?)))
+                .filter(|(_, sha)| reachable.contains(*sha))
+                .filter_map(|(r, sha)| Some((*rank.get(sha)?, r.evolution.clone())))
+                .filter(|(at, _)| declared_rank.is_none_or(|d| d < *at))
+                .filter(|(at, _)| seated_at.is_none_or(|seated| seated < *at))
+                .collect();
+            absorbed.sort();
             Standing {
                 branch: e.name.clone(),
+                absorbed: absorbed.into_iter().map(|(_, e)| e).collect(),
                 known: declared
                     .as_ref()
                     .is_some_and(|d| settlement.contains_key(d)),
@@ -290,6 +403,7 @@ mod tests {
             held,
             through: through.map(str::to_string),
             behind,
+            absorbed: Vec::new(),
         }
     }
 
@@ -431,7 +545,7 @@ mod tests {
         tmp
     }
 
-    fn run(root: &Path) -> [Check; 2] {
+    fn run(root: &Path) -> [Check; 3] {
         let data = crate::cmd::sangha::sangha_data(root);
         checks(&standings(root, &data.resolutions))
     }
@@ -443,7 +557,7 @@ mod tests {
     #[test]
     fn an_undeclared_branch_is_told_the_settlement_it_stands_on() {
         let tmp = repo();
-        let [unmet, undeclared] = run(tmp.path());
+        let [unmet, undeclared, _] = run(tmp.path());
         assert!(unmet.passed(), "{unmet:?}");
         assert_eq!(undeclared.violations.len(), 1, "{undeclared:?}");
         let d = &undeclared.violations[0].detail;
@@ -462,7 +576,7 @@ mod tests {
         commit(root, "revise: my position\n\nBaseline: rigpa/first@0000000");
         git(root, &["switch", "-q", "main"]);
 
-        let [unmet, undeclared] = run(root);
+        let [unmet, undeclared, _] = run(root);
         assert!(unmet.passed(), "{unmet:?}");
         assert!(undeclared.passed(), "{undeclared:?}");
     }
@@ -477,7 +591,7 @@ mod tests {
         commit(root, "revise: my position\n\nBaseline: rigpa/third@0000000");
         git(root, &["switch", "-q", "main"]);
 
-        let [unmet, _] = run(root);
+        let [unmet, _, _] = run(root);
         assert_eq!(unmet.violations.len(), 1, "{unmet:?}");
         assert!(
             unmet.violations[0].detail.contains("does not contain"),
@@ -497,7 +611,7 @@ mod tests {
         );
         git(root, &["switch", "-q", "main"]);
 
-        let [unmet, _] = run(root);
+        let [unmet, _, _] = run(root);
         assert_eq!(unmet.violations.len(), 1, "{unmet:?}");
         assert!(
             unmet.violations[0]
@@ -522,7 +636,7 @@ mod tests {
         );
         git(root, &["switch", "-q", "main"]);
 
-        let [unmet, _] = run(root);
+        let [unmet, _, _] = run(root);
         assert!(
             unmet.passed(),
             "the superseded declaration still gates: {unmet:?}"
@@ -547,7 +661,7 @@ mod tests {
         );
         git(root, &["switch", "-q", "main"]);
 
-        let [unmet, _] = run(root);
+        let [unmet, _, _] = run(root);
         assert_eq!(
             unmet.violations.len(),
             1,
@@ -599,6 +713,201 @@ mod tests {
         assert_eq!(answers[0].as_deref(), Some("zeta"), "ties break by name");
     }
 
+    // ── holding without adopting ──────────────────────────────────────────────
+
+    fn absorbing(branch: &str, absorbed: &[&str]) -> Standing {
+        Standing {
+            branch: branch.into(),
+            absorbed: absorbed.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn an_elector_holding_what_it_never_adopted_is_reported() {
+        let c = holds_unadopted(&[absorbing("ma/one", &["alpha", "beta"])]);
+        assert_eq!(c.violations.len(), 1);
+        assert_eq!(c.severity, Severity::Info);
+        let d = &c.violations[0].detail;
+        assert!(d.contains("holds 2 resolution(s)"), "{d}");
+        assert!(d.contains("`alpha`, `beta`"), "{d}");
+    }
+
+    /// One finding per elector, not per resolution. Before anybody declares a baseline every
+    /// held resolution qualifies, and the measured repository would produce eight lines about
+    /// two branches.
+    #[test]
+    fn an_elector_is_named_once_however_much_it_holds() {
+        let c = holds_unadopted(&[absorbing("ma/one", &["a", "b", "c", "d"])]);
+        assert_eq!(c.violations.len(), 1, "{c:?}");
+    }
+
+    #[test]
+    fn an_elector_holding_nothing_unadopted_is_not_reported() {
+        assert!(holds_unadopted(&[absorbing("ma/one", &[])]).passed());
+        assert!(holds_unadopted(&[]).passed());
+    }
+
+    /// A sangha of two, where `two` is registered at the start and sits out the second
+    /// resolution. `electors.md` is written before either settles, so registration is not what
+    /// excludes anything here.
+    fn sangha() -> tempfile::TempDir {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        git(root, &["init", "-q", "-b", "main"]);
+        git(root, &["config", "user.email", "t@t.com"]);
+        git(root, &["config", "user.name", "T"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        let dir = root.join(".yidam/sangha");
+        std::fs::create_dir_all(dir.join("resolutions")).unwrap();
+        std::fs::write(
+            dir.join("electors.md"),
+            "| Name | Branch | Role |\n|---|---|---|\n\
+             | `one` | `ma/one` | Holds a position. |\n\
+             | `two` | `ma/two` | Holds another. |\n",
+        )
+        .unwrap();
+        commit(root, "genesis: the sangha");
+        tmp
+    }
+
+    fn resolution(root: &Path, evolution: &str, tips: &[&str]) {
+        let list: String = tips.iter().map(|t| format!("  - {t}@0000000\n")).collect();
+        std::fs::write(
+            root.join(".yidam/sangha/resolutions")
+                .join(format!("{evolution}.md")),
+            format!("---\nevolution: {evolution}\ndate: 2026-01-01\ntips:\n{list}---\n\n## What was resolved\n\nA thing.\n"),
+        )
+        .unwrap();
+        commit(root, &format!("synthesize: {evolution}"));
+    }
+
+    /// The nine-of-nine shape, end to end: an elector whose tip was not read, whose branch holds
+    /// the settlement anyway because it merged the baseline, and which has declared nothing.
+    #[test]
+    fn an_abstainer_that_merged_the_baseline_is_reported() {
+        let tmp = sangha();
+        let root = tmp.path();
+        resolution(root, "both", &["ma/one", "ma/two"]);
+        git(root, &["branch", "ma/one"]);
+        git(root, &["branch", "ma/two"]);
+        resolution(root, "without-two", &["ma/one"]);
+        // `two` merges the baseline, which is how all nine were absorbed.
+        git(root, &["switch", "-q", "ma/two"]);
+        git(root, &["merge", "--no-ff", "--no-edit", "-q", "main"]);
+        git(root, &["switch", "-q", "main"]);
+
+        let [_, _, unadopted] = run(root);
+        assert_eq!(unadopted.violations.len(), 1, "{unadopted:?}");
+        assert_eq!(unadopted.violations[0].node, "ma/two");
+        let d = &unadopted.violations[0].detail;
+        assert!(d.contains("`without-two`"), "{d}");
+        assert!(!d.contains("`both`"), "a participant's own resolution: {d}");
+    }
+
+    /// Declaring it is the adoption act, and it clears the finding. This is the whole content of
+    /// the rule: the declaration binds, the merge does not.
+    #[test]
+    fn declaring_the_baseline_adopts_what_the_branch_holds() {
+        let tmp = sangha();
+        let root = tmp.path();
+        resolution(root, "both", &["ma/one", "ma/two"]);
+        git(root, &["branch", "ma/one"]);
+        git(root, &["branch", "ma/two"]);
+        resolution(root, "without-two", &["ma/one"]);
+        git(root, &["switch", "-q", "ma/two"]);
+        git(root, &["merge", "--no-ff", "--no-edit", "-q", "main"]);
+        commit(
+            root,
+            "revise: my position\n\nBaseline: rigpa/without-two@0000000",
+        );
+        git(root, &["switch", "-q", "main"]);
+
+        let [unmet, _, unadopted] = run(root);
+        assert!(unmet.passed(), "{unmet:?}");
+        assert!(unadopted.passed(), "{unadopted:?}");
+    }
+
+    /// Absorbed resolutions come back in the order they settled, and the same order every time.
+    ///
+    /// The list is built by filtering a map, so without an explicit sort it is hash order — the
+    /// defect CI found in `through` (`c338a4d`), one field over. A single-element fixture cannot
+    /// see it, which is why this one holds two.
+    #[test]
+    fn what_a_branch_absorbed_comes_back_in_settlement_order_every_time() {
+        let tmp = sangha();
+        let root = tmp.path();
+        resolution(root, "both", &["ma/one", "ma/two"]);
+        git(root, &["branch", "ma/one"]);
+        git(root, &["branch", "ma/two"]);
+        resolution(root, "zeta-without-two", &["ma/one"]);
+        resolution(root, "alpha-without-two", &["ma/one"]);
+        git(root, &["switch", "-q", "ma/two"]);
+        git(root, &["merge", "--no-ff", "--no-edit", "-q", "main"]);
+        git(root, &["switch", "-q", "main"]);
+
+        let runs: Vec<Vec<String>> = (0..8)
+            .map(|_| {
+                let data = crate::cmd::sangha::sangha_data(root);
+                standings(root, &data.resolutions)
+                    .into_iter()
+                    .find(|s| s.branch == "ma/two")
+                    .unwrap()
+                    .absorbed
+            })
+            .collect();
+        assert!(
+            runs.iter().all(|r| r == &runs[0]),
+            "the order moved between runs: {runs:?}"
+        );
+        // Settlement order, not alphabetical: `zeta` settled first.
+        assert_eq!(runs[0], ["zeta-without-two", "alpha-without-two"]);
+    }
+
+    /// **A resolution that settled before a seat existed is not one that seat sat out.** In the
+    /// measured repository this is the difference between reporting 13 and reporting 4 for one
+    /// elector: eight of the thirteen predate its registration by days.
+    #[test]
+    fn a_resolution_older_than_the_seat_is_inherited_rather_than_abstained_from() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        git(root, &["init", "-q", "-b", "main"]);
+        git(root, &["config", "user.email", "t@t.com"]);
+        git(root, &["config", "user.name", "T"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        let dir = root.join(".yidam/sangha");
+        std::fs::create_dir_all(dir.join("resolutions")).unwrap();
+        std::fs::write(
+            dir.join("electors.md"),
+            "| Name | Branch | Role |\n|---|---|---|\n| `one` | `ma/one` | First. |\n",
+        )
+        .unwrap();
+        commit(root, "genesis: one elector");
+        resolution(root, "before-two", &["ma/one"]);
+        // `two` joins afterwards.
+        std::fs::write(
+            dir.join("electors.md"),
+            "| Name | Branch | Role |\n|---|---|---|\n\
+             | `one` | `ma/one` | First. |\n| `two` | `ma/two` | Joined later. |\n",
+        )
+        .unwrap();
+        commit(root, "open: two joins the sangha");
+        git(root, &["branch", "ma/two"]);
+        resolution(root, "after-two", &["ma/one"]);
+        git(root, &["switch", "-q", "ma/two"]);
+        git(root, &["merge", "--no-ff", "--no-edit", "-q", "main"]);
+        git(root, &["switch", "-q", "main"]);
+
+        let [_, _, unadopted] = run(root);
+        assert_eq!(unadopted.violations.len(), 1, "{unadopted:?}");
+        let d = &unadopted.violations[0].detail;
+        assert!(d.contains("`after-two`"), "{d}");
+        assert!(
+            !d.contains("`before-two`"),
+            "it could not have taken part: {d}"
+        );
+    }
+
     /// Only `ma/*` is an elector. `rigpa/*` is a settled evolution and `phase/*` a bounded
     /// investigation; neither has a position to be measured, and reporting one as an undeclared
     /// elector would be the same conflation that once had a derived repository reporting 26 active
@@ -610,7 +919,7 @@ mod tests {
         git(root, &["branch", "rigpa/third"]);
         git(root, &["branch", "phase/a-survey"]);
 
-        let [_, undeclared] = run(root);
+        let [_, undeclared, _] = run(root);
         let named: Vec<&str> = undeclared
             .violations
             .iter()

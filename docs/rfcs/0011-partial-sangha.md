@@ -8,6 +8,13 @@
   declaration
 - **Downstream reference case:** one derived repository, 29 resolutions — measured, see below.
 
+> **Decided 2026-09-04: the declaration binds, not the merge.** Proposal 1 is settled in the form
+> below and the rule now lives in `sangha/PROTOCOL.md`, enforced at Info by
+> `elector-holds-unadopted`. Every RFC in this repository carries `Status: Draft` and there is no
+> `Accepted` state to move to, so settlement is recorded here rather than in the field — inventing
+> a lifecycle for one RFC would say more about process than about this decision. The three
+> questions the amendment added are answered under **What this decides**, below.
+>
 > **Amended 2026-09-04.** The premise holds and is stronger than the original claimed: partial
 > resolutions are not merely permitted, they are **9 of 29** in the one repository running a sangha,
 > and the repository's owner is the abstainer in four of them. What does not hold is the closing
@@ -91,7 +98,38 @@ rule written today, and rewriting elector history to un-adopt them would breach 
 seriously than the silent adoption did. What the rule changes is what happens next, and the honest
 migration is that the declaration starts from where each branch is.
 
-## What this proposal has to answer, and did not
+## What this decides
+
+**Merging `main` binds nobody.** It is how the corpus stays shared and step 3 requires it mid-loop,
+so it cannot be the act that binds without making the ordinary workflow illegal. The `Baseline:`
+trailer from RFC-0010 is the adoption act, and it is the only thing that binds.
+
+That is what makes scoped binding enforceable in a repository with a shared `main`, and it costs
+the nine nothing: they hold what they hold, no history is rewritten, and the rule changes only what
+being *measured against* something means.
+
+**An abstainer's baseline is what they last declared.** A branch that holds a settlement it has not
+declared is measured against an older evolution while its tree carries a newer corpus. **That is an
+expected state, not a defect** — it is what every branch is in today, and saying so plainly is
+cheaper than leaving a reader to wonder.
+
+**Holding without adopting is reported, at Info.** `elector-holds-unadopted` names, per elector,
+the resolutions its branch holds, took no part in, and its declaration does not reach. Info because
+none of them is wrong: an elector who has absorbed a resolution and not declared it has done
+nothing the protocol forbids. It is a prompt to decide, and it clears by declaring.
+
+**And a resolution older than the seat is inherited, not abstained from.** An elector cannot have
+sat out a settlement that predates their registration, so the report is bounded by the commit that
+first put their branch in `electors.md`. Measured, this is not a rounding detail: it takes one
+elector from 13 reported resolutions to 4.
+
+One case the boundary decides that neither RFC anticipated. PROTOCOL allows registering an elector
+*in the first resolution they participate in*, and the measured repository did exactly that once —
+`ma/advocate`'s registration and the `electoral-purpose` settlement are **the same commit**. That
+resolution's `tips:` do not name the new seat, so a naive reading calls it an abstention. It is not:
+you cannot have sat out the resolution that seated you.
+
+## What this proposal had to answer, and did not
 
 The original treated scoped binding as the obviously-correct reading with no cost. Measurement says
 it has one, and the RFC is not ratifiable until it is answered:
@@ -140,11 +178,13 @@ exist)"* was written before any did.
   or a new synthesis like any other.
 - **Stale baselines.** Does a long-abstaining elector's baseline expire? Lean: no forced expiry —
   divergence is normal (Article VI), and staleness is visible from the declaration.
-- **Who counts as a participant?** Tips-read is the crisp definition. Measured, it is also the *only*
-  available one: nothing records who was notified, so "notified and declined" is indistinguishable
-  from "never asked". Confirm tips-read is the intended line, or accept that the distinction cannot be
-  drawn from the record as it stands.
-- **The vocabulary question this turned up.** `merge main — …` is used 72 times and is outside the
-  closed commit vocabulary. Either it wants a verb, or the adoption it performs wants to be an
-  `adopt:` commit as PROTOCOL says. That is a decision for this RFC because it decides what an
-  adoption *is*.
+- **Who counts as a participant?** *Decided: tips-read.* Measured, it is also the only available
+  definition — nothing records who was notified, so "notified and declined" is indistinguishable
+  from "never asked". The distinction cannot be drawn from the record as it stands, and inventing a
+  `notified:` field to draw it would be recording an act nobody performs.
+- **The vocabulary question this turned up.** *Decided: neither.* `merge main — …` is used 72 times
+  and is outside the closed vocabulary, and the reason it does not need a verb is the decision
+  above — that merge is not an adoption, so nothing about it wants naming. A baseline merge is
+  written with git's own subject, which the commit check already exempts, and carries the
+  `Baseline:` trailer that does the binding. The 72 existing commits stay as they are; no history
+  is rewritten to satisfy a rule written after them.
