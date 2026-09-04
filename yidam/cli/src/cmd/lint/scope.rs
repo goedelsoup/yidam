@@ -366,7 +366,10 @@ fn git_stdin(root: &Path, args: &[&str], input: &str) -> String {
 /// four.
 ///
 /// The *first* add wins. A record deleted and restored is one resolution that happened once.
-fn adding_commits(root: &Path) -> HashMap<String, String> {
+///
+/// Shared with [`super::lineage`], which needs the same commit to say which settlements a branch
+/// holds. Two readings of *when did this resolution happen* would be two answers.
+pub(super) fn adding_commits(root: &Path) -> HashMap<String, String> {
     let out = git(
         root,
         &[

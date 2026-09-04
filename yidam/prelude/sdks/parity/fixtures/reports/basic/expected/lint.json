@@ -369,6 +369,27 @@
       ]
     },
     {
+      "id": "elector-baseline-unmet",
+      "title": "Elector branch declares a baseline it does not stand on",
+      "severity": "error",
+      "rationale": "A declared baseline is a claim — *this position is measured against that evolution* — and a claim about the branch's own history is one the branch either satisfies or does not. There is no state of the world in which an elector is measured against a settlement their branch has never seen, so this gates. What it deliberately does not gate on is a baseline that is merely *old*: divergence from the baseline is what an elector's branch is for, and Article VI says so in as many words, so a position several resolutions behind is a position doing its job.",
+      "violations": []
+    },
+    {
+      "id": "elector-baseline-undeclared",
+      "title": "Elector branch does not say which evolution it is measured against",
+      "severity": "info",
+      "rationale": "Info, and it carries the answer rather than only the complaint: every branch is undeclared until somebody starts writing the trailer, so a finding that merely said *missing* would be one line of noise per elector forever. What the branch holds through is derivable from the settlements, so this reports it — which is both the useful half today and, exactly, the thing to write down. It is deliberately not the same fact: holding a settlement is what a `merge main` brings you, and being measured against one is a choice. An elector who has absorbed a resolution they abstained from holds it and may well not mean to stand on it.",
+      "violations": [
+        {
+          "node": "ma/hydrologist",
+          "detail": "no `Baseline:` trailer — it holds every settlement, through `tailwater-regime`",
+          "severity": "info",
+          "in_baseline": false
+        }
+      ]
+    },
+    {
       "id": "broken-prose-link",
       "title": "A markdown link in prose does not resolve",
       "severity": "error",
