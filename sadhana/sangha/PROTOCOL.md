@@ -33,6 +33,24 @@ Not every divergence warrants resolution. Call one when:
 - An axiom is contested and dependent nodes cannot be trusted until it is settled
 - A new phase of inquiry requires a common baseline
 
+## Who may execute one
+
+**Any recognized elector, whether or not they called it.** Calling was specified here from the
+start; executing was not, and the executor holds the one pen Articles III–V are written to bound —
+it decides what the collective understanding *is*, which tensions become open questions, and what
+the rigpa records.
+
+A standing designated-synthesizer role would be exactly the privilege Article II forbids: no
+elector's position is privileged "by identity, seniority, or the model that produced it." So
+execution authority is universal, and it is bounded by *what* the executor may do rather than by
+*who* they are. Holding the pen is not a tiebreaker. If the executor's own position is in tension
+with another's, that tension becomes an open-question node under step 5 like any other — never a
+claim the executor settles in their own favour because they were the one typing.
+
+The caller and the executor may differ, and often should: the elector who noticed a tension is not
+always the one best placed to synthesize it. Only the executor is recorded, in `synthesized-by`
+below.
+
 ## Resolution procedure
 
 Steps 1–3 are a loop. An elector who reads another's position and has something to say
@@ -144,6 +162,7 @@ A round that adds nothing ends the loop. Three things that are *not* reasons to 
 ---
 evolution: <name matching rigpa/<evolution> branch>
 date: <YYYY-MM-DD>
+synthesized-by: ma/<elector>
 rounds: <how many times the loop ran>
 tips:
   - ma/<elector>@<short-hash>
@@ -165,6 +184,18 @@ positions:
 
 ...
 ```
+
+`synthesized-by` names the elector who executed the resolution — one seat, or a list where a
+synthesis was genuinely joint. **It is a record, not a rank.** Article II governs weight and grants
+the executor none: being named here is no standing, no tiebreak, and no priority in any later
+resolution. Article III governs record, and the human or agent who did the reading is part of the
+ancestry it demands. The record already names which tips were read; omitting who read them left the
+most consequential actor in the event the one actor the provenance omits.
+
+It is also the field that makes a seat legible at all. In the repository that has run this protocol,
+all 126 commits across three elector branches carry one git author — the operator's. Nothing in git
+distinguishes the auditor's position from the owner's, and until this field exists nothing in the
+record does either.
 
 `rounds` and `positions` are what make Article III (Provenance) checkable rather than
 asserted. Ancestry is not only which commits were read; it is which claims were contested

@@ -758,6 +758,13 @@
           "branch_present": {
             "type": "boolean",
             "description": "Whether `rigpa/<evolution>` still exists. False is routine: the branch is often deleted once the resolution lands on the baseline."
+          },
+          "synthesized_by": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The `synthesized-by:` seats — the elector branch that executed the synthesis, and a list where it was joint. NOT REQUIRED, deliberately: a released CLI predates the field and emits records without it, and every record written before the field existed carries none, so a consumer that assumes it is present is wrong in two directions at once. Empty means the record does not say who executed it, which is a finding (`resolution-executor-unrecorded`) rather than a gap in this report."
           }
         }
       }

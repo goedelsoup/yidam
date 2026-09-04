@@ -110,6 +110,7 @@ rationale: |
 ---
 evolution: <name>
 date: <YYYY-MM-DD>
+synthesized-by: ma/<elector>
 tips:
   - ma/<elector>@<short-hash>
 ---

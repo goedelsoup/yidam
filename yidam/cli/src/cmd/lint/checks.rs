@@ -4457,6 +4457,202 @@ pub fn resolution_annotation_decides(annotations: &[Annotation]) -> Check {
     )
 }
 
+/// A `ma/*` reference a resolution makes that `electors.md` does not register.
+///
+/// Both directions of the record point at seats: `tips:` says whose positions were read, and
+/// `synthesized-by:` says who did the reading. Either naming a branch the registry does not
+/// carry is a resolution standing on an elector that does not exist, and it is decidable —
+/// set membership between a table and a frontmatter list, with no judgement in it.
+///
+/// Measured against the only derived repository running a sangha: 70 of 70 tips name a
+/// registered branch, so this lands green there. It is a guard rather than a finding, and the
+/// case it guards is a seat quietly leaving `electors.md` while the records that rest on it
+/// stay. A registry is expected to keep historical seats for exactly that reason.
+pub fn resolution_elector_unregistered(
+    records: &[crate::cmd::sangha::Resolution],
+    registered: &[String],
+) -> Check {
+    let mut violations = Vec::new();
+    for r in records {
+        // A tip is `ma/<elector>@<hash>`; the seat is the part before the `@`.
+        let named = r
+            .tips
+            .iter()
+            .map(|t| (t.split('@').next().unwrap_or(t), "read as a tip"))
+            .chain(
+                r.synthesized_by
+                    .iter()
+                    .map(|s| (s.as_str(), "named as the executor")),
+            );
+        for (branch, how) in named {
+            if branch.is_empty() || registered.iter().any(|b| b == branch) {
+                continue;
+            }
+            violations.push(Violation::new(
+                r.file.clone(),
+                format!("`{branch}` is {how} and `electors.md` registers no such branch"),
+            ));
+        }
+    }
+    Check::new(
+        "resolution-elector-unregistered",
+        "Resolution names a ma/* branch no elector row registers",
+        Severity::Error,
+        "A resolution's authority rests on the seats it names, so a name the registry does \
+         not carry is the one part of the record that cannot be read charitably — either the \
+         seat was never registered, or it was removed and the records resting on it were \
+         left behind. This gates where its sibling warns because it is set membership \
+         between two committed files rather than a judgement about a missing field: there is \
+         no state of the world in which the answer is arguable.",
+        violations,
+    )
+}
+
+/// A resolution record that does not say which seat executed it.
+///
+/// `synthesized-by` is the only field naming a *seat* rather than a branch that was read, and
+/// it is the only thing that can distinguish one elector from another in the record. Nothing
+/// in git can: in the repository that has run this protocol, all 126 commits across three
+/// elector branches carry the operator's git author, and none of the 1,070 commits in it is
+/// signed. The auditor's position and the owner's are told apart by a branch name and nothing
+/// else.
+///
+/// **Warn, and the condition for escalating is written down rather than left to taste.** Every
+/// record written before the field existed is this finding — 29 of 29 in that repository — and
+/// they cannot be fixed. A resolution record is a dated document; retrofitting one means
+/// somebody recalling which seat held the pen a month ago, and the corpus cannot recover it
+/// mechanically because the git author is the same for every seat. Gating on a debt that
+/// cannot be paid is how a gate gets switched off. This becomes an Error when that is no
+/// longer true — when `electors.md` binds a distinct signing key per seat (RFC-0012), the
+/// executor is recoverable from the commit and a missing field is a choice rather than an
+/// inheritance.
+pub fn resolution_executor_unrecorded(records: &[crate::cmd::sangha::Resolution]) -> Check {
+    let violations = records
+        .iter()
+        .filter(|r| r.synthesized_by.is_empty())
+        .map(|r| {
+            Violation::new(
+                r.file.clone(),
+                "no `synthesized-by:` — the record names which tips were read and not who \
+                 read them",
+            )
+        })
+        .collect();
+    Check::new(
+        "resolution-executor-unrecorded",
+        "Resolution record does not name the seat that executed it",
+        Severity::Warn,
+        "Article II governs weight and Article III governs record, and they answer different \
+         questions. Naming the executor grants it nothing — no standing, no tiebreak, no \
+         priority in any later resolution — which is why recording it costs the article \
+         nothing. What it buys is that the most consequential actor in the event stops being \
+         the one actor the provenance omits. The record already names the tips that were \
+         read; the reader was the gap.",
+        violations,
+    )
+}
+
+#[cfg(test)]
+mod resolution_record_tests {
+    use super::*;
+    use crate::cmd::sangha::Resolution;
+
+    fn record(file: &str, by: &[&str], tips: &[&str]) -> Resolution {
+        Resolution {
+            file: file.to_string(),
+            evolution: "e".to_string(),
+            date: "2026-01-01".to_string(),
+            tips: tips.iter().map(|t| t.to_string()).collect(),
+            synthesized_by: by.iter().map(|b| b.to_string()).collect(),
+            branch_present: true,
+        }
+    }
+
+    fn registered() -> Vec<String> {
+        vec!["ma/auditor".to_string(), "ma/advocate".to_string()]
+    }
+
+    #[test]
+    fn a_record_naming_registered_seats_passes_both() {
+        let r = [record(
+            "resolutions/e.md",
+            &["ma/auditor"],
+            &["ma/auditor@aaaaaaa", "ma/advocate@bbbbbbb"],
+        )];
+        assert!(resolution_elector_unregistered(&r, &registered()).passed());
+        assert!(resolution_executor_unrecorded(&r).passed());
+    }
+
+    /// The tip carries `@<hash>`; the seat is what precedes it. Comparing the whole string
+    /// would report every tip in every repository as unregistered.
+    #[test]
+    fn a_tip_is_matched_without_its_hash() {
+        let r = [record("resolutions/e.md", &[], &["ma/auditor@aaaaaaa"])];
+        let c = resolution_elector_unregistered(&r, &registered());
+        assert!(c.passed(), "{c:#?}");
+    }
+
+    #[test]
+    fn an_unregistered_executor_is_an_error() {
+        let r = [record(
+            "resolutions/e.md",
+            &["ma/stranger"],
+            &["ma/auditor@a"],
+        )];
+        let c = resolution_elector_unregistered(&r, &registered());
+        assert_eq!(c.violations.len(), 1, "{c:#?}");
+        assert!(c.violations[0].detail.contains("ma/stranger"), "{c:#?}");
+        assert!(
+            c.violations[0].detail.contains("executor"),
+            "the finding does not say which half named it: {:?}",
+            c.violations[0].detail
+        );
+    }
+
+    /// Both halves of the record point at seats, and a check that read only one would pass a
+    /// resolution standing on a position nobody registered.
+    #[test]
+    fn an_unregistered_tip_is_an_error_too() {
+        let r = [record("resolutions/e.md", &["ma/auditor"], &["ma/ghost@a"])];
+        let c = resolution_elector_unregistered(&r, &registered());
+        assert_eq!(c.violations.len(), 1, "{c:#?}");
+        assert!(c.violations[0].detail.contains("tip"), "{c:#?}");
+    }
+
+    /// A joint synthesis names every seat, and every one of them is checked.
+    #[test]
+    fn each_seat_of_a_joint_synthesis_is_checked() {
+        let r = [record(
+            "resolutions/e.md",
+            &["ma/auditor", "ma/stranger"],
+            &[],
+        )];
+        let c = resolution_elector_unregistered(&r, &registered());
+        assert_eq!(c.violations.len(), 1, "{c:#?}");
+        assert!(c.violations[0].detail.contains("ma/stranger"));
+    }
+
+    /// Every record written before the field existed. It warns and does not gate — see the
+    /// rationale on the check for the condition under which that changes.
+    #[test]
+    fn a_record_naming_no_executor_warns_and_does_not_gate() {
+        let r = [record("resolutions/e.md", &[], &["ma/auditor@a"])];
+        let c = resolution_executor_unrecorded(&r);
+        assert_eq!(c.violations.len(), 1, "{c:#?}");
+        assert_eq!(c.severity, Severity::Warn);
+        // …and the *other* check is silent about it: a record that names no seat has named
+        // no unregistered one, and reporting it twice would double-count one gap.
+        assert!(resolution_elector_unregistered(&r, &registered()).passed());
+    }
+
+    /// A repository with no sangha has no records, and both checks report that they ran.
+    #[test]
+    fn no_records_is_not_a_finding() {
+        assert!(resolution_elector_unregistered(&[], &[]).passed());
+        assert!(resolution_executor_unrecorded(&[]).passed());
+    }
+}
+
 #[cfg(test)]
 mod annotation_tests {
     use super::*;

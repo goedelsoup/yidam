@@ -10,7 +10,7 @@
   "root": "<ROOT>",
   "gate": {
     "passed": false,
-    "new_violations": 1,
+    "new_violations": 2,
     "baselined_violations": 0,
     "stale_baseline_entries": [],
     "expired_baseline_entries": []
@@ -309,6 +309,37 @@
       "severity": "warn",
       "rationale": "An annotation may say a question was proposed, retrieved, measured or superseded in fact; it may not say it was settled. Closing an open item is synthesis, and Article V puts synthesis in resolution events — so an annotation that decides something is a resolution performed by one elector, in one commit, in a file the protocol never routes through a resolution. Warn rather than Error because this is a heuristic over wording: it cannot see an outcome announced in words that are not on the list, and gating on it would make every false positive a blocked commit and the check would be switched off within a week.",
       "violations": []
+    },
+    {
+      "id": "resolution-elector-unregistered",
+      "title": "Resolution names a ma/* branch no elector row registers",
+      "severity": "error",
+      "rationale": "A resolution's authority rests on the seats it names, so a name the registry does not carry is the one part of the record that cannot be read charitably — either the seat was never registered, or it was removed and the records resting on it were left behind. This gates where its sibling warns because it is set membership between two committed files rather than a judgement about a missing field: there is no state of the world in which the answer is arguable.",
+      "violations": [
+        {
+          "node": ".yidam/sangha/resolutions/silt-budget.md",
+          "detail": "`ma/dredger` is read as a tip and `electors.md` registers no such branch",
+          "severity": "error",
+          "in_baseline": false,
+          "span": {
+            "line": 6
+          }
+        }
+      ]
+    },
+    {
+      "id": "resolution-executor-unrecorded",
+      "title": "Resolution record does not name the seat that executed it",
+      "severity": "warn",
+      "rationale": "Article II governs weight and Article III governs record, and they answer different questions. Naming the executor grants it nothing — no standing, no tiebreak, no priority in any later resolution — which is why recording it costs the article nothing. What it buys is that the most consequential actor in the event stops being the one actor the provenance omits. The record already names the tips that were read; the reader was the gap.",
+      "violations": [
+        {
+          "node": ".yidam/sangha/resolutions/silt-budget.md",
+          "detail": "no `synthesized-by:` — the record names which tips were read and not who read them",
+          "severity": "warn",
+          "in_baseline": false
+        }
+      ]
     },
     {
       "id": "broken-prose-link",
