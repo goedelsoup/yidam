@@ -38,7 +38,7 @@ re-deriving it.
 | [0005](0005-mcp-tool-contract.md) | I5 | One MCP tool contract across the Rust CLI, TS, and Python servers | Draft |
 | [0006](0006-correctness-reconciliation.md) | I6 | Correctness reconciliation — runtime-verifiable embeds + internal inconsistencies | Draft |
 | [0007](0007-python-index-layer.md) | I7 | The Python SDK index/feature layer — building what the README already promises | Draft |
-| [0008](0008-emergent-claims.md) | G1 | Emergent claims and the scope of synthesis — ratifying the strict reading of Article V | Draft |
+| [0008](0008-emergent-claims.md) | G1 | Emergent claims and the scope of synthesis — the strict reading of Article V, and what "the same claim" means | Draft |
 | [0009](0009-resolution-executor.md) | G2 | Resolution execution authority and the `synthesized-by` record | Draft |
 | [0010](0010-evolution-lineage.md) | G3 | Evolution lineage — forking, parentage, and explicit baselines | Draft |
 | [0011](0011-partial-sangha.md) | G4 | Partial-sangha resolutions and participant-scoped binding | Draft |

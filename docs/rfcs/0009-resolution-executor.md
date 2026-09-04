@@ -31,9 +31,9 @@ full authority Articles III–V are written to constrain: it decides what the co
 *is*, which tensions become open questions, and what the rigpa records.
 
 So the constitution bounds a resolution's **content** — it must preserve ancestry
-([`CONSTITUTION.md:29`](../../yidam/prelude/CONSTITUTION.md#L29)), must not silently discard tensions
-([`:32-33`](../../yidam/prelude/CONSTITUTION.md#L32-L33)), must read legibly
-([`:37-43`](../../yidam/prelude/CONSTITUTION.md#L37-L43)) — while saying nothing about the **identity**
+([`CONSTITUTION.md:37`](../../yidam/prelude/CONSTITUTION.md#L37)), must not silently discard tensions
+([`:40-41`](../../yidam/prelude/CONSTITUTION.md#L40-L41)), must read legibly
+([`:47-51`](../../yidam/prelude/CONSTITUTION.md#L47-L51)) — while saying nothing about the **identity**
 of its author. Two gaps follow:
 
 1. **May any elector execute, or is a designated / neutral synthesizer required?** Undefined.
@@ -47,7 +47,7 @@ of its author. Two gaps follow:
 
 **1 — Any elector may execute.** Add protocol commentary: any recognized elector may perform a
 resolution, whether or not they called it. Article II forbids privileging an elector "by identity,
-seniority, or the model that produced it" ([`CONSTITUTION.md:23`](../../yidam/prelude/CONSTITUTION.md#L23));
+seniority, or the model that produced it" ([`CONSTITUTION.md:31`](../../yidam/prelude/CONSTITUTION.md#L31));
 a standing designated-synthesizer role would manufacture precisely that privilege. Execution
 authority is therefore universal, and bounded — not by *who* the executor is, but by Articles III–V,
 which bind them the same regardless. Being the pen-holder is not a tiebreaker: if the executor's own
@@ -71,7 +71,7 @@ This is the Article II / III reconciliation stated as one field. Article II keep
 identity from conferring **weight** — being `synthesized-by` grants no standing, no tiebreak, no
 privilege in any future resolution. Article III demands the author be part of the **record** —
 "resolution must preserve the ancestry of synthesized knowledge"
-([`CONSTITUTION.md:29`](../../yidam/prelude/CONSTITUTION.md#L29)), and the human or agent who
+([`CONSTITUTION.md:37`](../../yidam/prelude/CONSTITUTION.md#L37)), and the human or agent who
 performed the synthesis is part of that ancestry. Recording who synthesized is the same ethic as
 recording which tips were read: the settlement becomes auditable without becoming authoritative.
 

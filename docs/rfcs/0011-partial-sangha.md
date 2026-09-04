@@ -23,16 +23,16 @@ for free. Two RFCs, one field.
 [`PROTOCOL.md:27`](../../sadhana/sangha/PROTOCOL.md#L27)); nothing requires the whole sangha. The
 "**participating** `ma/*` branches" phrasing throughout
 ([`PROTOCOL.md:38`](../../sadhana/sangha/PROTOCOL.md#L38),
-[`CONSTITUTION.md:47`](../../yidam/prelude/CONSTITUTION.md#L47)) presumes non-participants exist.
+[`CONSTITUTION.md:55`](../../yidam/prelude/CONSTITUTION.md#L55)) presumes non-participants exist.
 
 **Binding is unaddressed.** Does a rigpa produced by a subset become the baseline for electors who
 did not participate? The documents cut both ways and never decide:
 
 - *Against* global binding: Article VI — "the sangha exercises the minimum authority needed... Positions
   that do not conflict are inherited... Resolution focuses on genuine tensions, not on imposing
-  uniformity" ([`CONSTITUTION.md:51-58`](../../yidam/prelude/CONSTITUTION.md#L51-L58)) — and "an
+  uniformity" ([`CONSTITUTION.md:90-95`](../../yidam/prelude/CONSTITUTION.md#L90-L95)) — and "an
   elector's `ma/*` branch may diverge freely from `rigpa/*`... Divergence is normal and expected; it
-  is not a violation" ([`:57-58`](../../yidam/prelude/CONSTITUTION.md#L57-L58)).
+  is not a violation" ([`:94-95`](../../yidam/prelude/CONSTITUTION.md#L94-L95)).
 - *Toward* global binding: "The new `rigpa/<evolution>` is **the active baseline**"
   ([`PROTOCOL.md:87`](../../sadhana/sangha/PROTOCOL.md#L87)), read as a single global fact.
 
@@ -67,7 +67,7 @@ Template-layer protocol commentary; no new schema — it reuses RFC-0010's basel
 Reword PROTOCOL's "the active baseline" to "the active baseline **for participating electors**," and
 add an adoption note. Existing resolutions are unaffected (none exist). A domain wanting whole-sangha
 binding adds a **quorum extension** (below), an opt-in per Article's domain-extension mechanism
-([`CONSTITUTION.md:62-70`](../../yidam/prelude/CONSTITUTION.md#L62-L70)).
+([`CONSTITUTION.md:99-107`](../../yidam/prelude/CONSTITUTION.md#L99-L107)).
 
 ## Alternatives considered
 
@@ -79,7 +79,7 @@ binding adds a **quorum extension** (below), an opt-in per Article's domain-exte
   reaching the abstainers.
 - **Quorum makes binding global.** Not rejected — *offered as an opt-in*: a domain may add a quorum
   article so a resolution meeting quorum binds the whole sangha
-  ([`CONSTITUTION.md:68`](../../yidam/prelude/CONSTITUTION.md#L68) already names quorum as a valid
+  ([`CONSTITUTION.md:105`](../../yidam/prelude/CONSTITUTION.md#L105) already names quorum as a valid
   extension). Global binding should be a declared domain choice, never the silent default.
 
 ## Open questions

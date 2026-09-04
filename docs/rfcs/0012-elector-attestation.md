@@ -29,10 +29,10 @@ strings.
 
 **Article II is a rule about weight, not record.** "No elector's position is privileged by identity,
 seniority, or the model that produced it"
-([`CONSTITUTION.md:21-25`](../../yidam/prelude/CONSTITUTION.md#L21-L25)). This governs how much a
+([`CONSTITUTION.md:31`](../../yidam/prelude/CONSTITUTION.md#L31)). This governs how much a
 position *counts*. It is silent on whether the producing model is *recorded* — and the
 provenance-first ethic argues it must be: "resolution must preserve the ancestry of synthesized
-knowledge" ([`:29`](../../yidam/prelude/CONSTITUTION.md#L29)), and the scripture's whole claim is that
+knowledge" ([`:37`](../../yidam/prelude/CONSTITUTION.md#L37)), and the scripture's whole claim is that
 "every claim traces back to the conversation that produced it and the understanding that justified
 it" ([`SCRIPTURE.md:87`](../../yidam/prelude/SCRIPTURE.md#L87)). The one provenance the system omits is
 the provenance of its own actors.
