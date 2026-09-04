@@ -313,3 +313,27 @@ None of that makes merging `main` wrong. Step 3 requires it mid-loop, and a corp
 baseline is the point. It does mean that *which evolution this position is measured against* is a
 fact the branch does not currently state, and the recipe above is not the one producing the
 history.
+
+### Declaring the baseline
+
+Say it, rather than leaving it to be inferred. Put a trailer on the commit that adopts:
+
+```
+Baseline: rigpa/<evolution>@<short-hash>
+```
+
+The most recent one on a `ma/*` branch is the branch's declaration, and `yidam lint` reads it:
+`elector-baseline-unmet` gates when a branch declares an evolution no record carries, or one whose
+settlement the branch does not contain. **A baseline that is merely old is not a finding** —
+divergence from the baseline is what an elector's branch is for, and Article VI says so.
+
+*Holding* a settlement and *being measured against* it are two facts, and the trailer is the only
+place the second one is written. Merging `main` brings you every settlement on it, including
+resolutions you abstained from; that says what arrived, not what you mean to stand on. Whether the
+first should imply the second is the open question in
+[RFC-0011](https://github.com/goedelsoup/yidam/blob/main/docs/rfcs/0011-partial-sangha.md), and
+until it is settled the trailer is how an elector answers for themselves.
+
+Until a branch declares one, `elector-baseline-undeclared` reports at Info **and names the
+evolution the branch holds through** — which is derivable from the settlements, and is what to
+write in the trailer.

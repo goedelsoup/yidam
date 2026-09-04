@@ -11,6 +11,7 @@ pub(crate) mod citations;
 mod commits;
 pub(crate) mod history;
 pub mod json;
+pub(crate) mod lineage;
 pub(crate) mod model;
 pub(crate) mod scope;
 pub(crate) mod ttl;
@@ -230,6 +231,11 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     // A repository with no resolutions — every corpus not running a sangha — spawns nothing.
     let scope_audits = scope::audit(root, &sangha.resolutions);
 
+    // Where each elector branch stands in the settled line, and what it says about where it
+    // stands. Read here for the same reason the scope audit is: the checks stay pure, and the
+    // refs are the one thing they cannot be handed off disk.
+    let standings = lineage::standings(root, &sangha.resolutions);
+
     // ── Prose links ─────────────────────────────────────────────────────────────
     //
     // Authored markdown, and what counts as authored is declared rather than hard-coded:
@@ -354,6 +360,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     // the four keep their place in the report's order.
     let [unresolved, span_drift, pin_moved, unpinned] = citations::checks(&nodes, &deps);
     let [scope_unheld, scope_unverifiable] = scope::checks(&scope_audits);
+    let [baseline_unmet, baseline_undeclared] = lineage::checks(&standings);
 
     let mut all = vec![
         checks::missing_class(&nodes),
@@ -392,6 +399,8 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::resolution_executor_unrecorded(&sangha.resolutions),
         scope_unheld,
         scope_unverifiable,
+        baseline_unmet,
+        baseline_undeclared,
         checks::broken_prose_link(&prose_links),
         checks::unauthored_prose_link(&unauthored),
         checks::authorship_region_stale(&stale_regions),
@@ -795,7 +804,7 @@ decision := {"allow": true, "deny": []}
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 40);
+        assert_eq!(all.len(), 42);
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
@@ -969,7 +978,7 @@ decision := {"allow": true, "deny": []}
         assert!(crate::authorship::Authorship::load(tmp.path()).is_err());
         // …while the checks themselves keep answering, for the editor's sake.
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 40);
+        assert_eq!(all.len(), 42);
     }
 
     /// A class declaring an implementation, and a `crates/` tree that may or may not hold it.
@@ -1294,7 +1303,7 @@ decision := {"allow": true, "deny": []}
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 40, "every check still ran");
+        assert_eq!(all.len(), 42, "every check still ran");
         assert_eq!(errors(&all), 0);
     }
 
