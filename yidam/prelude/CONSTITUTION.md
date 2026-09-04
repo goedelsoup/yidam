@@ -56,6 +56,35 @@ Resolution may only synthesize knowledge present in the participating `ma/*` pos
 It may not introduce nodes, edges, or claims that were not held by at least one elector.
 Resolution is synthesis, not generation.
 
+**On entailment.** A claim is *held* only if it appears as committed content in some elector's
+`ma/*` position. A claim that merely *follows* from held positions by inference or entailment is
+not itself held, and introducing it at resolution is generation. Where held positions entail `C`,
+the sanctioned move is to commit `C` to a `ma/*` branch — as an `[inference]` claim, attributed to
+a voice — where a later evolution can recognize it. Entailment does not enter a rigpa anonymously.
+
+**On identity.** The three objects of this article are not alike, and only two of them can be
+decided. A node and an edge carry an identity of their own — a node id, and a subject, verb and
+object — so *held by at least one elector* is set membership across the participating tips, and a
+check may settle it. A claim carries no such identity: it is a statement in a node, held at a
+standing, and whether two sentences assert the same thing is a judgement. This article leaves that
+judgement with the synthesizer under Article II and does not delegate it to a checker.
+
+What binds the synthesizer for a claim is therefore the standing, which is a closed vocabulary
+rather than a matter of wording. A resolution may carry a claim at the standing an elector held it
+at, or lower it — `[verified]` to `[inference]` to `[open]` — because declining to assert
+introduces nothing. It may not raise one, and a claim asserted at a standing no participating
+elector held is a new claim, taking the entailment route above.
+
+**A class is not its instances.** A position arguing that a class should exist does not thereby
+hold the instances of it. The class is what was argued; each instance is a new node, and a
+resolution that seats instances alongside the class it adopts is introducing nodes no elector
+held. If they are to enter the corpus with the resolution, an elector commits them first.
+
+**One exception, and no others.** An open-question node standing for a tension that could not be
+resolved is required by Article III and is held by no elector by construction — it exists because
+the positions disagreed. Introducing it is not what this article forbids. No other exception is
+licensed, by this constitution or by a domain extension.
+
 ## Article VI — Minimal Authority
 
 The sangha exercises the minimum authority needed to produce a coherent shared baseline.

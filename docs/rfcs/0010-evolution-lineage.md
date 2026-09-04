@@ -37,7 +37,7 @@ are not deleted — they remain as provenance. The new `rigpa/<evolution>` is **
 only parses if there is one line.
 
 **Divergence-from-baseline is implicit.** "An elector's `ma/*` branch may diverge freely from
-`rigpa/*` after a resolution" ([`CONSTITUTION.md:57-58`](../../yidam/prelude/CONSTITUTION.md#L57-L58))
+`rigpa/*` after a resolution" ([`CONSTITUTION.md:94-95`](../../yidam/prelude/CONSTITUTION.md#L94-L95))
 — but from *which* `rigpa/*`? Today the answer is inferred by merge-base against the sole active
 baseline. With one baseline that works; the instant a fork exists, "which evolution does this branch
 diverge from" has no stated answer. And this is precisely the kind of fact yidam otherwise insists on
@@ -77,7 +77,7 @@ new file, greppable, updated by an explicit act). The declaration is a *stated f
 is measured against that evolution."
 
 **4 — Linearity is opt-in.** A domain that wants a single line declares it as a constitution
-extension or decision record ([`CONSTITUTION.md:62-70`](../../yidam/prelude/CONSTITUTION.md#L62-L70)),
+extension or decision record ([`CONSTITUTION.md:99-107`](../../yidam/prelude/CONSTITUTION.md#L99-L107)),
 so the constraint is visible and intentional — not an emergent property of an absent field.
 
 The explicit baseline is not only for forks: it is the field **RFC-0011** reuses to answer "which
