@@ -62,6 +62,13 @@ module YidamSangha {
   //
   // Every claim in the evolution was held by at least one elector.
   // This is the formal statement that resolution is synthesis, not generation.
+  //
+  // The predicate is stated over claims because that is what this module models. The
+  // *gatable* instance of the same predicate is over nodes and edges, and it lives in
+  // `yidam/cli/src/cmd/lint/scope.rs` (`resolution-scope-unheld`): the shape is identical —
+  // membership of an introduced item in the union of what the recorded tips held — and only
+  // the identity differs, which is the whole of why one of them can gate and the other
+  // cannot. See `Claim` above.
 
   predicate ArticleV(positions: seq<SanghaPosition>, evo: SanghaEvolution) {
     forall c :: c in evo.claims ==>

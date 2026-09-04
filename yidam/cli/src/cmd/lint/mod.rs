@@ -12,6 +12,7 @@ mod commits;
 pub(crate) mod history;
 pub mod json;
 pub(crate) mod model;
+pub(crate) mod scope;
 pub(crate) mod ttl;
 
 use std::collections::{HashMap, HashSet};
@@ -223,6 +224,12 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     let sangha = crate::cmd::sangha::sangha_data(root);
     let registered: Vec<String> = sangha.electors.iter().map(|e| e.branch.clone()).collect();
 
+    // Article V's node and edge clauses, decided against the tips each record names. The git
+    // reading happens here, where there is a repository; the two checks that consume it are
+    // pure, which is what lets the arm that has never fired in a real corpus be tested at all.
+    // A repository with no resolutions — every corpus not running a sangha — spawns nothing.
+    let scope_audits = scope::audit(root, &sangha.resolutions);
+
     // ── Prose links ─────────────────────────────────────────────────────────────
     //
     // Authored markdown, and what counts as authored is declared rather than hard-coded:
@@ -346,6 +353,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     // answers from over MCP (#357). Destructured here rather than pushed after the vec, so
     // the four keep their place in the report's order.
     let [unresolved, span_drift, pin_moved, unpinned] = citations::checks(&nodes, &deps);
+    let [scope_unheld, scope_unverifiable] = scope::checks(&scope_audits);
 
     let mut all = vec![
         checks::missing_class(&nodes),
@@ -382,6 +390,8 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::resolution_annotation_decides(&annotations),
         checks::resolution_elector_unregistered(&sangha.resolutions, &registered),
         checks::resolution_executor_unrecorded(&sangha.resolutions),
+        scope_unheld,
+        scope_unverifiable,
         checks::broken_prose_link(&prose_links),
         checks::unauthored_prose_link(&unauthored),
         checks::authorship_region_stale(&stale_regions),
@@ -785,7 +795,7 @@ decision := {"allow": true, "deny": []}
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 38);
+        assert_eq!(all.len(), 40);
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
@@ -959,7 +969,7 @@ decision := {"allow": true, "deny": []}
         assert!(crate::authorship::Authorship::load(tmp.path()).is_err());
         // …while the checks themselves keep answering, for the editor's sake.
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 38);
+        assert_eq!(all.len(), 40);
     }
 
     /// A class declaring an implementation, and a `crates/` tree that may or may not hold it.
@@ -1284,7 +1294,7 @@ decision := {"allow": true, "deny": []}
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 38, "every check still ran");
+        assert_eq!(all.len(), 40, "every check still ran");
         assert_eq!(errors(&all), 0);
     }
 
