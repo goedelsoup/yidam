@@ -17,3 +17,9 @@ WARN [catalog-used-by-drift] `used-by` list disagreeing with the citations — 1
 
 INFO [orphan-in] Node nothing points to — 1 finding(s)
   .yidam/corpus/concept/tailwater.yml: nothing links to this node — uncited since 2026-01-01, 2 commit(s)
+
+ERROR [resolution-elector-unregistered] Resolution names a ma/* branch no elector row registers — 1 finding(s)
+  .yidam/sangha/resolutions/silt-budget.md: `ma/dredger` is read as a tip and `electors.md` registers no such branch
+
+WARN [resolution-executor-unrecorded] Resolution record does not name the seat that executed it — 1 finding(s)
+  .yidam/sangha/resolutions/silt-budget.md: no `synthesized-by:` — the record names which tips were read and not who read them

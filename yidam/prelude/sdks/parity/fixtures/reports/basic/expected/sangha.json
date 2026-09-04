@@ -42,12 +42,26 @@
   ],
   "resolutions": [
     {
+      "file": ".yidam/sangha/resolutions/silt-budget.md",
+      "evolution": "silt-budget",
+      "date": "2026-01-02",
+      "tips": [
+        "ma/hydrologist@ccccccc",
+        "ma/dredger@ddddddd"
+      ],
+      "synthesized_by": [],
+      "branch_present": false
+    },
+    {
       "file": ".yidam/sangha/resolutions/tailwater-regime.md",
       "evolution": "tailwater-regime",
       "date": "2026-01-01",
       "tips": [
         "ma/hydrologist@aaaaaaa",
         "ma/gauge-reader@bbbbbbb"
+      ],
+      "synthesized_by": [
+        "ma/hydrologist"
       ],
       "branch_present": true
     }

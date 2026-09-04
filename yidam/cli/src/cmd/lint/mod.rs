@@ -216,6 +216,13 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         annotations.extend(checks::annotations_in(&rel, &overlay.read(&p)));
     }
 
+    // The seats the records name, and the seats the registry carries. Read through the
+    // sangha report rather than re-parsed here: a second reading of "who is an elector" is
+    // how a repository comes to be described two ways at once, and `electors.md` is a table
+    // whose column order is the kind of thing that drifts.
+    let sangha = crate::cmd::sangha::sangha_data(root);
+    let registered: Vec<String> = sangha.electors.iter().map(|e| e.branch.clone()).collect();
+
     // ── Prose links ─────────────────────────────────────────────────────────────
     //
     // Authored markdown, and what counts as authored is declared rather than hard-coded:
@@ -373,6 +380,8 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::class_asserts_purpose(&classes),
         checks::resolution_annotation_malformed(&annotations),
         checks::resolution_annotation_decides(&annotations),
+        checks::resolution_elector_unregistered(&sangha.resolutions, &registered),
+        checks::resolution_executor_unrecorded(&sangha.resolutions),
         checks::broken_prose_link(&prose_links),
         checks::unauthored_prose_link(&unauthored),
         checks::authorship_region_stale(&stale_regions),
@@ -776,7 +785,7 @@ decision := {"allow": true, "deny": []}
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 36);
+        assert_eq!(all.len(), 38);
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
@@ -789,6 +798,10 @@ decision := {"allow": true, "deny": []}
         // check that disappears when there is nothing to check cannot be told from one
         // that was never wired in.
         assert!(ids.contains("resolution-annotation-malformed"));
+        // Same reason, and the pair that reads the record's frontmatter rather than its
+        // prose: a repository with no `electors.md` at all still hears both answer.
+        assert!(ids.contains("resolution-elector-unregistered"));
+        assert!(ids.contains("resolution-executor-unrecorded"));
         assert!(ids.contains("resolution-annotation-decides"));
         assert!(ids.contains("broken-prose-link"));
         assert!(ids.contains("unauthored-prose-link"));
@@ -946,7 +959,7 @@ decision := {"allow": true, "deny": []}
         assert!(crate::authorship::Authorship::load(tmp.path()).is_err());
         // …while the checks themselves keep answering, for the editor's sake.
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 36);
+        assert_eq!(all.len(), 38);
     }
 
     /// A class declaring an implementation, and a `crates/` tree that may or may not hold it.
@@ -1271,7 +1284,7 @@ decision := {"allow": true, "deny": []}
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 36, "every check still ran");
+        assert_eq!(all.len(), 38, "every check still ran");
         assert_eq!(errors(&all), 0);
     }
 

@@ -1,5 +1,5 @@
-1ca03d09  [O]  regen: REGEN blocks refreshed
-3689a832  [E]  revise: the corpus carries a claim tag of each kind
-057378f9  [E]  genesis: reports fixture
+9410c4b3  [O]  regen: REGEN blocks refreshed
+e0deec6e  [E]  revise: the corpus carries a claim tag of each kind
+1ff145ac  [E]  genesis: reports fixture
 
 3 commit(s): 2 epistemic, 1 operational

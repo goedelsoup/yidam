@@ -1,7 +1,7 @@
 Date         Commit    Nodes   Uncited   Uncited%
 ──────────   ───────   ─────   ───────   ────────
-2026-01-01   057378f       4         1        25%
-2026-01-01   3689a83       4         1        25%
+2026-01-01   1ff145a       4         1        25%
+2026-01-01   e0deec6       4         1        25%
 
 Series excludes source classes — the classes whose instances nothing is meant to
 point at. The breakdown below counts every uncited node, those included.
