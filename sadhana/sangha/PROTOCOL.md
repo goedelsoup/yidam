@@ -286,3 +286,30 @@ by merging 23 times without being told to.
 
 Prior rigpa branches are not deleted — they remain as provenance. The new
 `rigpa/<evolution>` is the active baseline.
+
+**What electors actually do is merge `main`, and that is worth knowing before you follow the
+recipe above.** Measured across 126 commits on the three elector branches of the repository that
+has run this protocol: **one** `adopt:` commit, and **72** `merge main` commits. The settlement
+lands on the baseline branch, so merging `main` picks it up along with everything else settled
+since; merging `rigpa/<evolution>` picks up that evolution and nothing after it.
+
+Three consequences, none of them yet decided — see
+[RFC-0010](https://github.com/goedelsoup/yidam/blob/main/docs/rfcs/0010-evolution-lineage.md) and
+[RFC-0011](https://github.com/goedelsoup/yidam/blob/main/docs/rfcs/0011-partial-sangha.md), which
+is where the decision belongs rather than here:
+
+1. **Merge-base cannot tell you which evolution a branch is measured against.** Asked, it returns
+   the same evolution for all three electors — four to six resolutions stale — because it reads
+   `rigpa/*` refs that nobody merges.
+2. **Merging `main` adopts resolutions you did not participate in.** All nine partial resolutions
+   in that repository are held by the elector who sat them out, absorbed this way, with nothing
+   recording that it happened.
+3. **`merge main — …` is outside the closed commit vocabulary.** An authored merge subject is not
+   the git-generated form the commit check exempts, so `main..ma/<elector>` reports thirty of them
+   — and the default range never walks an elector branch, so a workflow used seventy-two times is
+   invisible to the gate.
+
+None of that makes merging `main` wrong. Step 3 requires it mid-loop, and a corpus with a shared
+baseline is the point. It does mean that *which evolution this position is measured against* is a
+fact the branch does not currently state, and the recipe above is not the one producing the
+history.
