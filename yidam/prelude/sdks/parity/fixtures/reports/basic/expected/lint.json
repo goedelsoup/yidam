@@ -342,6 +342,33 @@
       ]
     },
     {
+      "id": "resolution-scope-unheld",
+      "title": "Resolution seats a node or edge no elector held",
+      "severity": "error",
+      "rationale": "Article V confines a resolution to what the electors brought to it: it may not introduce nodes, edges or claims that were not held by at least one of them. A node and an edge carry an identity — a node id, and a subject, verb and object — so this is set membership across the tips the record itself names, and there is no state of the world in which the answer is arguable. That is why it gates where the claim clause cannot: a claim has no identity to compare, and the constitution leaves that judgement with the synthesizer rather than delegating it to a checker. The rule this most often catches is the one the commentary states: a class is not its instances, so a resolution that seats the first instances of a class alongside the class it adopts is introducing nodes no elector held.",
+      "violations": []
+    },
+    {
+      "id": "resolution-scope-unverifiable",
+      "title": "Resolution's scope fidelity could not be decided here",
+      "severity": "warn",
+      "rationale": "Whether Article V's node and edge clauses can be decided depends on what the clone holds. A `ma/*` tip need not be an ancestor of the baseline — transport copies a file and `adopt` merges the rigpa into the elector's branch, not the reverse — so 15 of the 70 tips measured are reachable only through the `ma/*` branches themselves, which a single-branch checkout does not fetch; and a depth-1 checkout cannot see what a resolution's own commit changed. That makes this a Warn: the record may be sound and the clone merely thin. What it must not do is pass silently. A gate that judges nothing while reporting nothing is indistinguishable from a gate that found nothing wrong, and this check is the difference.",
+      "violations": [
+        {
+          "node": ".yidam/sangha/resolutions/silt-budget.md",
+          "detail": "2 of 2 tip(s) name no commit here — ma/hydrologist@ccccccc, ma/dredger@ddddddd — this resolution's scope was not checked",
+          "severity": "warn",
+          "in_baseline": false
+        },
+        {
+          "node": ".yidam/sangha/resolutions/tailwater-regime.md",
+          "detail": "2 of 2 tip(s) name no commit here — ma/hydrologist@aaaaaaa, ma/gauge-reader@bbbbbbb — this resolution's scope was not checked",
+          "severity": "warn",
+          "in_baseline": false
+        }
+      ]
+    },
+    {
       "id": "broken-prose-link",
       "title": "A markdown link in prose does not resolve",
       "severity": "error",

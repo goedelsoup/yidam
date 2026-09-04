@@ -123,10 +123,31 @@ after one pass. The loop is not a quota.
    and edges present in at least one elector's position. Do not add content from outside
    the positions.
 
+   **A node or an edge here is decided rather than judged**, and `yidam lint` decides it —
+   `resolution-scope-unheld` reads the `tips:` this record names, resolves each one, and asks
+   whether the node stood in the corpus there or was named in a position filed there. Article
+   V's third object, a *claim*, is deliberately not checked: a node and an edge carry an
+   identity of their own and a claim does not, so that judgement stays with the synthesizer
+   under Article II. See the commentary under Article V in
+   [CONSTITUTION.md](../.vendor/prelude/CONSTITUTION.md).
+
+   The rule this most often catches is the one the commentary states: **a class is not its
+   instances.** A position arguing that a class should exist does not hold the instances of
+   it, so a resolution adopting the class and seating its first instances in the same commit
+   is introducing nodes no elector held. In the repository that has run this protocol that is
+   three of twenty-nine resolutions, and every one of them is that mistake.
+
 5. **Open tensions** — Any genuine disagreement that cannot be synthesized without
    choosing one elector's position over another must become an open-question node
    in the corpus. Title the node as the question. Do not silently collapse divergent
    positions into a single claim.
+
+   An open-question node is the one thing Article V lets a resolution introduce that no
+   elector held, and **it is licensed by this record and nothing else** — name the node under
+   `What remains open` below. Nothing in the corpus model marks such a node; there is no class
+   for it and no field. Tying the exception to the record is not a workaround for the missing
+   marker but the right place for it, because what makes the node legal is the resolution
+   saying the question is still open.
 
 6. **Commit** — Create the `rigpa/<evolution>` branch and commit the synthesis with the
    `resolve:` verb. The commit message must include:
