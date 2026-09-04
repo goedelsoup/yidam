@@ -390,6 +390,13 @@
       ]
     },
     {
+      "id": "elector-holds-unadopted",
+      "title": "Elector branch holds a resolution it took no part in and has not adopted",
+      "severity": "info",
+      "rationale": "A resolution binds the electors whose tips it read. Everyone else may read it, cite it,          adopt it or build on it, and until they declare it as their baseline it is not what          their position is measured against — Article VI, which says the sangha exercises the          minimum authority needed and that divergence is not a violation. Merging `main` cannot          be what binds: it is how the corpus stays shared, and the protocol requires it mid-loop.          So this reports the gap between what a branch has absorbed and what it says it stands          on, at Info, because the gap is a legitimate state rather than a defect. What it is not          is invisible, which is what it was: nine of nine abstainers were bound in practice with          nothing recording it.",
+      "violations": []
+    },
+    {
       "id": "broken-prose-link",
       "title": "A markdown link in prose does not resolve",
       "severity": "error",

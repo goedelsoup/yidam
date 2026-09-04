@@ -360,7 +360,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     // the four keep their place in the report's order.
     let [unresolved, span_drift, pin_moved, unpinned] = citations::checks(&nodes, &deps);
     let [scope_unheld, scope_unverifiable] = scope::checks(&scope_audits);
-    let [baseline_unmet, baseline_undeclared] = lineage::checks(&standings);
+    let [baseline_unmet, baseline_undeclared, holds_unadopted] = lineage::checks(&standings);
 
     let mut all = vec![
         checks::missing_class(&nodes),
@@ -401,6 +401,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         scope_unverifiable,
         baseline_unmet,
         baseline_undeclared,
+        holds_unadopted,
         checks::broken_prose_link(&prose_links),
         checks::unauthored_prose_link(&unauthored),
         checks::authorship_region_stale(&stale_regions),
@@ -804,7 +805,7 @@ decision := {"allow": true, "deny": []}
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 42);
+        assert_eq!(all.len(), 43);
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
@@ -978,7 +979,7 @@ decision := {"allow": true, "deny": []}
         assert!(crate::authorship::Authorship::load(tmp.path()).is_err());
         // …while the checks themselves keep answering, for the editor's sake.
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 42);
+        assert_eq!(all.len(), 43);
     }
 
     /// A class declaring an implementation, and a `crates/` tree that may or may not hold it.
@@ -1303,7 +1304,7 @@ decision := {"allow": true, "deny": []}
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 42, "every check still ran");
+        assert_eq!(all.len(), 43, "every check still ran");
         assert_eq!(errors(&all), 0);
     }
 

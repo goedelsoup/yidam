@@ -327,12 +327,44 @@ The most recent one on a `ma/*` branch is the branch's declaration, and `yidam l
 settlement the branch does not contain. **A baseline that is merely old is not a finding** —
 divergence from the baseline is what an elector's branch is for, and Article VI says so.
 
-*Holding* a settlement and *being measured against* it are two facts, and the trailer is the only
-place the second one is written. Merging `main` brings you every settlement on it, including
-resolutions you abstained from; that says what arrived, not what you mean to stand on. Whether the
-first should imply the second is the open question in
-[RFC-0011](https://github.com/goedelsoup/yidam/blob/main/docs/rfcs/0011-partial-sangha.md), and
-until it is settled the trailer is how an elector answers for themselves.
+### What binds, and what does not
+
+**A resolution binds the electors whose tips it read. The declaration binds everyone else, and the
+merge binds nobody.**
+
+*Holding* a settlement and *being measured against* it are two facts. Merging `main` brings you
+every settlement on it, including resolutions you took no part in — that is what arrived, not what
+you stand on, and it cannot be the act that binds without making the ordinary workflow illegal.
+Step 3 requires that merge mid-loop.
+
+So a partial resolution is baseline-of-record for its participants, and for everyone else only once
+they declare it. Article VI applied literally: the sangha exercises the minimum authority needed,
+and a subset does not move a position that was not in tension with it.
+
+Three consequences worth stating plainly, because each is a state a reader might otherwise mistake
+for a defect:
+
+- **Holding a settlement you have not declared is expected.** Every branch is in that state today.
+  Your position is measured against your last declaration; your tree carries whatever `main` has
+  settled. `elector-holds-unadopted` reports the gap at Info — it is a prompt to decide, and it
+  clears by declaring.
+- **A baseline several resolutions old is not stale.** Divergence is normal and expected; it is not
+  a violation.
+- **A resolution older than your seat is inherited, not abstained from.** You cannot have sat out a
+  settlement that predates your registration, including the resolution that registered you.
+
+Write the merge with git's own subject — which the commit check exempts — and put the declaration
+in a trailer:
+
+```
+git switch ma/<elector>
+git merge --no-ff --no-edit main
+git commit --amend --no-edit --trailer "Baseline: rigpa/<evolution>@<short-hash>"
+```
+
+The merge is not an adoption and wants no verb of its own; the trailer is the adoption, and it is
+what a later reader can check. See
+[RFC-0011](https://github.com/goedelsoup/yidam/blob/main/docs/rfcs/0011-partial-sangha.md).
 
 Until a branch declares one, `elector-baseline-undeclared` reports at Info **and names the
 evolution the branch holds through** — which is derivable from the settlements, and is what to
