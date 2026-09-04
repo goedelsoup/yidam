@@ -146,10 +146,12 @@ wrapping*, which no author is choosing and no rule should turn on. Schematically
   so the figure is computed from the cited document rather than supplied. [verified]
 ```
 
-One claim. Two extractions. (`statement_around`'s newline boundary is a defect in its own right —
-it is documented as returning "the sentence a marker sits in" and does not, for any corpus that
-hard-wraps, which also means the `claims` surface serves agents fragments. That is a separate bug
-from this one; the point here is only that claim text is not a key.)
+One claim. Two extractions. (`statement_around`'s newline boundary was a defect in its own right,
+filed as [#562](https://github.com/goedelsoup/yidam/issues/562) and since fixed: it is documented as
+returning "the sentence a marker sits in" and did not, for any corpus that hard-wraps. **Nothing in
+this finding turns on that fix.** A statement bounded by blocks rather than by line breaks is a
+whole sentence, which is a better answer to *what does this node assert* and still not an identity —
+finding 3 is measured on the wording, and synthesis restates.)
 
 **3. Nothing matches anyway.** Across the 29 resolutions, 22 claims entered the corpus in a
 resolution commit. **Not one** of them appears byte-identically at any participating tip — not in

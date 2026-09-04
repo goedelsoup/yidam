@@ -363,47 +363,222 @@ pub struct ServedClaim {
     at: usize,
 }
 
-/// The sentence a marker sits in, with the marker removed.
+/// The line `at` sits at the end of, and the one that follows it.
 ///
-/// Two shapes occur and both are in the corpus. A tag usually *follows* a completed
-/// sentence — `"…converted by a rating curve. [verified]"` — and sometimes sits inside one:
-/// `"Whether the money and the vote are connected is `[open]`"`. Reading only the first
-/// would truncate every mid-sentence claim to its opening clause.
-fn statement_around(text: &str, start: usize, end: usize) -> String {
-    let before = text[..start].trim_end();
-    // A terminator immediately before the marker belongs to the claim's own sentence, so the
-    // search for where that sentence began has to start behind it.
-    let terminated = before.ends_with(['.', '!', '?']);
-    let head_end = if terminated {
-        before.len() - 1
-    } else {
-        before.len()
-    };
-    let head_start = text[..head_end]
-        .rfind(['.', '!', '?', '\n'])
-        .map(|i| i + 1)
-        .unwrap_or(0);
-    let mut out = text[head_start..before.len()].trim().to_string();
-    if !terminated {
-        let after = &text[end..];
-        let stop = after
-            .find(['.', '!', '?', '\n'])
-            .map(|i| i + 1)
-            .unwrap_or(after.len());
-        out.push_str(&after[..stop]);
+/// `at` is the index of a `\n`, so `at + 1` is always a char boundary and always in range.
+fn line_before(text: &str, at: usize) -> &str {
+    let from = text[..at].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    &text[from..at]
+}
+
+fn line_after(text: &str, at: usize) -> &str {
+    let rest = &text[at + 1..];
+    rest.split('\n').next().unwrap_or(rest)
+}
+
+/// One bare word usable as a YAML key: `description`, `state_share`, `note.2`.
+fn is_key_token(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+}
+
+/// `description: |`, `notes: >-` — the line that *opens* a block scalar and holds none of it.
+///
+/// The prose starts on the next line, so the break after this one ends a statement even
+/// though what follows is ordinary wrapped prose. Without this arm a claim in the first
+/// sentence of a `description:` block reaches back over the header and serves `class: gage
+/// label: Riffle description: |` as part of what the corpus asserted.
+fn is_block_scalar_header(line: &str) -> bool {
+    line.trim().split_once(':').is_some_and(|(key, rest)| {
+        is_key_token(key) && matches!(rest.trim(), "|" | "|-" | "|+" | ">" | ">-" | ">+")
+    })
+}
+
+/// A list marker at the head of a line: `- `, `* `, `+ `.
+///
+/// **Numbered markers are not here, and were.** `1. ` is indistinguishable from a wrapped line
+/// beginning with a year, and the corpora are full of sentences that end in one: reading the
+/// marker cost 26 of 12,739 served claims, each truncated to the four digits and the stop —
+/// *"adopted 29 September\n2023. [verified]"* served as `2023.`. Nothing is lost by leaving them
+/// out, because `1. ` already ends the item above it as an ordinary full stop; the `1)` spelling
+/// occurs in none of the seven corpora measured.
+fn starts_with_list_marker(line: &str) -> bool {
+    line.strip_prefix(['-', '*', '+'])
+        .is_some_and(|rest| rest.starts_with(char::is_whitespace))
+}
+
+/// Whether `line` opens a new block rather than continuing the one above it.
+///
+/// **A heading, a table row and a block quote are deliberately not here.** They were, and
+/// measurement removed them: across seven derived corpora the arm changed 12 of 12,739 served
+/// claims, and in most of those it was wrong. A wrapped block quote prefixes *every* one of its
+/// lines with `>`, and a wrapped comment every line with `#`, so those characters mark a
+/// continuation at least as often as a start — the arm cut sentences in half mid-clause
+/// (`> and equipment sufficient for all students…`). What made it nearly inert is that a real
+/// heading or table almost always has a blank line above it, which the arm below already reads.
+fn starts_a_block(line: &str) -> bool {
+    starts_with_list_marker(line)
+        || line.split_once(':').is_some_and(|(key, rest)| {
+            is_key_token(key) && (rest.is_empty() || rest.starts_with(char::is_whitespace))
+        })
+}
+
+/// Where the sentence ends if the terminator at `at` ends one, and `None` if it does not.
+///
+/// A full stop only does when what follows it closes rather than continues. `agent-conduct.md)`
+/// and `3.5` are one token each, and reading the dot inside them as a boundary starts a served
+/// claim at `md) says it exists to catch …` — a fragment beginning mid-word. Rare while
+/// statements were clipped at every line break, because a nearer `\n` usually won; common once
+/// they are not.
+///
+/// Closing markup does not continue it. This prose ends emphasised sentences `**like this.**`
+/// and parenthesised ones `(like this.)`, and a rule that demanded whitespace immediately after
+/// the stop read a whole paragraph as one unterminated sentence — which is how a served claim
+/// reached 1,586 characters before this arm existed.
+fn sentence_end(text: &str, at: usize) -> Option<usize> {
+    let rest = &text[at + 1..];
+    let trimmed = rest.trim_start_matches(['*', '_', '`', ')', ']', '"', '\'']);
+    trimmed
+        .chars()
+        .next()
+        .is_none_or(char::is_whitespace)
+        // Past the markup, not merely past the stop: it closed the sentence before, and
+        // leaving it in front of the next one serves `** The gauge is read weekly.`
+        .then_some(at + 1 + (rest.len() - trimmed.len()))
+}
+
+/// Whether the line break at `at` ends the statement before it.
+///
+/// **A bare line break does not.** Corpus prose lives in `description: |` blocks and is hard
+/// wrapped at whatever column its author writes to, so a `\n` inside a paragraph is a soft
+/// wrap that no one chose the position of. Treating it as a sentence boundary — which this
+/// did — truncated **8,565 of 14,250 claims (60%)** across twelve derived corpora to whatever
+/// happened to fall on the tag's own line, and gave the same claim two different texts in two
+/// nodes that wrapped it differently. The tell is in the shape of the old distribution: its
+/// 95th percentile was 87 characters and its longest was 206, which is a wrap column and not
+/// a sentence length.
+///
+/// What ends a statement is a **block** boundary, in the sense markdown already means: a blank
+/// line, a new list item, a heading, a table row, a block quote, a new YAML key — or, looking
+/// backwards, the block-scalar header that opened the block this statement is in.
+fn ends_statement(text: &str, at: usize) -> bool {
+    if is_block_scalar_header(line_before(text, at)) {
+        return true;
     }
-    // Backticks that wrapped the marker are left behind by removing it from the middle.
-    let out = out.trim().trim_end_matches('`').trim();
+    let next = line_after(text, at).trim_start();
+    next.is_empty() || starts_a_block(next)
+}
+
+/// Drop what introduces a statement rather than being part of it.
+///
+/// The block boundary above stops *at* a list marker or a YAML key rather than skipping over
+/// it, which is what makes it a boundary; both then have to come off the front.
+/// One line of prose.
+///
+/// A statement that spans a wrapped paragraph carries the file's line breaks and its block
+/// indentation, and neither is part of what the corpus asserted — without this the same
+/// sentence wrapped at two columns is two different strings, which is the defect one layer
+/// down from the one this function exists to fix.
+fn collapse_whitespace(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut pending = false;
+    for c in s.chars() {
+        if c.is_whitespace() {
+            pending = !out.is_empty();
+        } else {
+            if pending {
+                out.push(' ');
+            }
+            pending = false;
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn strip_lead_in(out: &str) -> String {
+    let out = match out.strip_prefix(['-', '*', '+']) {
+        Some(rest) if rest.starts_with(char::is_whitespace) => rest.trim_start(),
+        _ => out,
+    };
     // A claim written on the same line as its YAML key — `description: Finding a node. [open]`
     // — starts at the line boundary, so the key comes with it. The key is not part of what
     // the corpus asserted. Stripped only for a real key: one token, no spaces, then `: `.
     let key_len = out
         .find(": ")
         .filter(|i| !out[..*i].contains(char::is_whitespace) && *i > 0);
-    match key_len {
-        Some(i) => out[i + 2..].trim().to_string(),
-        None => out.to_string(),
+    collapse_whitespace(match key_len {
+        Some(i) => out[i + 2..].trim(),
+        None => out,
+    })
+}
+
+/// The sentence a marker sits in, with the marker removed.
+///
+/// Two shapes occur and both are in the corpus. A tag usually *follows* a completed
+/// sentence — `"…converted by a rating curve. [verified]"` — and sometimes sits inside one:
+/// `"Whether the money and the vote are connected is `[open]`"`. Reading only the first
+/// would truncate every mid-sentence claim to its opening clause.
+///
+/// See [`ends_statement`] for what a sentence is bounded by, which is not the line it is
+/// written on.
+fn statement_around(text: &str, start: usize, end: usize) -> String {
+    // A tag is often written `[open]`, and *those* backticks belong to the marker rather than
+    // to the sentence. Both sides are required before either is taken: a lone backtick before
+    // the tag usually closes a code span — `the `reach` [verified]` — and eating it corrupts
+    // the text. Where the pair is real, taking it is what uncovers the full stop underneath;
+    // leaving it hidden made the sentence read as unterminated, and **191 of those 14,250
+    // claims were served as the empty string** because the only thing after the last full stop
+    // was the marker's own opening backtick.
+    let wrapped = text[..start].ends_with('`') && text[end..].starts_with('`');
+    let (start, end) = if wrapped {
+        (start - 1, end + 1)
+    } else {
+        (start, end)
+    };
+
+    let before = text[..start].trim_end();
+    // A terminator immediately before the marker belongs to the claim's own sentence, so the
+    // search for where that sentence began has to start behind it.
+    //
+    // **Under closing markup too.** This prose ends emphasised sentences `**like this.**`, and
+    // reading only the last byte of `before` called them unterminated — so the scan looked for
+    // the sentence's start *behind* a full stop it had already passed, landed just after the
+    // `**`, and returned nothing. 68 of 14,250 real claims came back as the empty string.
+    let stem = before
+        .trim_end_matches(['*', '_', '`', ')', ']', '"', '\''])
+        .trim_end();
+    let terminated = stem.ends_with(['.', '!', '?']);
+    // Only the *search* starts behind the stop. The text keeps the markup that closed it, or a
+    // statement opening `**` would be served without the `**` that shuts it.
+    let head_end = if terminated {
+        stem.len() - 1
+    } else {
+        before.len()
+    };
+    let head_start = text[..head_end]
+        .char_indices()
+        .rev()
+        .find_map(|(i, c)| match c {
+            '.' | '!' | '?' => sentence_end(text, i),
+            '\n' if ends_statement(text, i) => Some(i + 1),
+            _ => None,
+        })
+        .unwrap_or(0);
+    let mut out = text[head_start..before.len()].trim().to_string();
+    if !terminated {
+        let stop = text[end..]
+            .char_indices()
+            .find_map(|(i, c)| match c {
+                '.' | '!' | '?' => sentence_end(text, end + i).map(|e| e - end),
+                '\n' if ends_statement(text, end + i) => Some(i + 1),
+                _ => None,
+            })
+            .unwrap_or(text.len() - end);
+        out.push_str(&text[end..end + stop]);
     }
+    strip_lead_in(out.trim())
 }
 
 /// Every asserted marker in `text`, as a claim.
@@ -989,6 +1164,221 @@ mod tests {
             c[0].text.contains("nobody has checked"),
             "truncated at the tag: {:?}",
             c[0].text
+        );
+    }
+
+    /// **A line break inside a paragraph is a soft wrap and not a sentence end.**
+    ///
+    /// The case the whole rule exists for. Corpus prose is hard wrapped, so before this the
+    /// served text was whatever fell on the tag's own line — here, four words of a
+    /// twenty-word sentence. Measured across twelve derived corpora, 8,565 of 14,250 claims
+    /// were cut this way.
+    #[test]
+    fn a_claim_wrapped_across_lines_is_served_whole() {
+        let c = claims_in_node(
+            "description: |\n  The journal prints the whole membership beside both tallies, so the\n  \
+             figure is computed rather than supplied. [verified]\n",
+            &[],
+        );
+        assert_eq!(c.len(), 1, "{c:#?}");
+        assert_eq!(
+            c[0].text,
+            "The journal prints the whole membership beside both tallies, so the figure is \
+             computed rather than supplied."
+        );
+    }
+
+    /// The same claim, wrapped at two different columns, is the same text.
+    ///
+    /// This is the property that made claim *text* unusable as an identity — see RFC-0008 —
+    /// and the one a rule keyed on line breaks cannot have.
+    #[test]
+    fn where_the_line_breaks_fall_does_not_change_the_claim() {
+        let early = claims_in_node(
+            "description: |\n  The reach is regulated and the gauge\n  is read weekly. [verified]\n",
+            &[],
+        );
+        let late = claims_in_node(
+            "description: |\n  The reach is regulated\n  and the gauge is read weekly. [verified]\n",
+            &[],
+        );
+        assert_eq!(early[0].text, late[0].text, "wrapping changed the claim");
+        assert_eq!(
+            early[0].text,
+            "The reach is regulated and the gauge is read weekly."
+        );
+    }
+
+    /// A statement stops at the block above it, and never reaches into a sibling key.
+    ///
+    /// `description: |` holds none of the prose it opens, so the break after it bounds the
+    /// first sentence of the block. Without that arm the first claim in every node reached
+    /// back over the header and served the node's scalar fields as part of the assertion.
+    #[test]
+    fn a_statement_does_not_reach_past_the_key_that_opened_it() {
+        let c = claims_in_node(
+            "class: gage\nlabel: Riffle station\ndescription: |\n  A gauge sits at the riffle. [verified]\n",
+            &[],
+        );
+        assert_eq!(c.len(), 1, "{c:#?}");
+        assert_eq!(c[0].text, "A gauge sits at the riffle.");
+    }
+
+    /// A blank line ends a statement.
+    ///
+    /// **One boundary only.** An earlier version of this test put a blank line *and* a list
+    /// marker in front of the claim, so either arm could bound it and neither was pinned:
+    /// disabling one on purpose left the test green. The paragraph below is ordinary prose,
+    /// so the blank line is the only thing that can stop the scan.
+    #[test]
+    fn a_blank_line_ends_a_statement() {
+        let c = claims_in_node(
+            "description: |\n  An earlier paragraph runs on\n  for two lines\n\n  the gauge sits at the riffle [verified]\n",
+            &[],
+        );
+        assert_eq!(c.len(), 1, "{c:#?}");
+        assert_eq!(c[0].text, "the gauge sits at the riffle");
+    }
+
+    /// A new list item ends the one above it, and the marker is not part of what was
+    /// asserted. No blank line here, so the item boundary is the only one available.
+    #[test]
+    fn a_list_item_ends_the_item_above_it() {
+        let c = claims_in_node(
+            "description: |\n  - an earlier item with no full stop\n  - the gauge sits at the riffle [verified]\n",
+            &[],
+        );
+        assert_eq!(c.len(), 1, "{c:#?}");
+        assert_eq!(c[0].text, "the gauge sits at the riffle");
+    }
+
+    /// **A colon in prose is not a key.** `for that is simple: nobody funds…` splits on a colon
+    /// like any YAML line does, and a rule that took the left half for a key would end the
+    /// statement there — cutting a sentence in half at a piece of ordinary punctuation. What
+    /// distinguishes them is that a key is one bare token.
+    #[test]
+    fn a_colon_in_prose_does_not_end_a_statement() {
+        let c = claims_in_node(
+            "description: |\n  The gauge is read weekly and the reason\n  for that is simple: nobody funds a second visit. [verified]\n",
+            &[],
+        );
+        assert_eq!(c.len(), 1, "{c:#?}");
+        assert_eq!(
+            c[0].text,
+            "The gauge is read weekly and the reason for that is simple: nobody funds a second visit."
+        );
+    }
+
+    /// A sibling key ends the value above it. Neither line carries a full stop, so the key is
+    /// the only boundary in reach.
+    #[test]
+    fn a_sibling_key_ends_the_value_above_it() {
+        let c = claims_in_node(
+            "first: a gauge sits at the riffle\nsecond: the reach is regulated [verified]\n",
+            &[],
+        );
+        assert_eq!(c.len(), 1, "{c:#?}");
+        assert_eq!(c[0].text, "the reach is regulated");
+    }
+
+    /// **A backticked tag after a completed sentence used to serve nothing at all.**
+    ///
+    /// The opening backtick hid the full stop, so the statement read as unterminated and the
+    /// text became everything after the previous stop — which was the backtick, and then
+    /// nothing. 191 of 14,250 real claims were served as the empty string.
+    #[test]
+    fn a_backticked_tag_after_a_sentence_serves_the_sentence() {
+        let c = claims_in_node("description: The reach is regulated. `[verified]`\n", &[]);
+        assert_eq!(c.len(), 1, "{c:#?}");
+        assert_eq!(c[0].text, "The reach is regulated.");
+    }
+
+    /// Both sides or neither: a lone backtick before the tag is closing a code span, and
+    /// taking it corrupts the text rather than uncovering a full stop.
+    ///
+    /// The second case is the one that pins the rule. In the first the backtick is a word
+    /// away from the tag and no rule would reach it; in the second it is flush against the
+    /// marker, which is exactly where a one-sided rule would eat it.
+    #[test]
+    fn a_code_span_ending_beside_a_tag_keeps_its_backtick() {
+        let spaced = claims_in_node("description: The `reach` is regulated [verified]\n", &[]);
+        assert_eq!(spaced.len(), 1, "{spaced:#?}");
+        assert_eq!(spaced[0].text, "The `reach` is regulated");
+
+        let flush = claims_in_node("description: The gauge reads `stage`[verified] here\n", &[]);
+        assert_eq!(flush.len(), 1, "{flush:#?}");
+        assert_eq!(flush[0].text, "The gauge reads `stage` here");
+    }
+
+    /// **A sentence that ends under emphasis is terminated.**
+    ///
+    /// `…for seventy years.** [inference]` does not end with a stop as its last byte, so the
+    /// scan treated it as mid-sentence and looked for its start *behind* the stop it had
+    /// already passed — landing just after the `**` and serving nothing. 68 of 14,250 claims
+    /// in twelve corpora came back empty this way.
+    #[test]
+    fn a_sentence_ending_under_emphasis_is_terminated() {
+        let c = claims_in_node(
+            "description: |\n  The gauge is read weekly. **A place and its corporation can carry\n  different names for seventy years.** [inference]\n",
+            &[],
+        );
+        assert_eq!(c.len(), 1, "{c:#?}");
+        assert_eq!(
+            c[0].text,
+            "**A place and its corporation can carry different names for seventy years.**"
+        );
+    }
+
+    /// A numbered item is bounded by its own full stop rather than by a marker rule — which is
+    /// why there is no marker rule for it.
+    #[test]
+    fn a_numbered_list_item_ends_the_item_above_it() {
+        let c = claims_in_node(
+            "description: |\n  1. an earlier item\n  2. the gauge sits at the riffle [verified]\n",
+            &[],
+        );
+        assert_eq!(c.len(), 1, "{c:#?}");
+        assert_eq!(c[0].text, "the gauge sits at the riffle");
+    }
+
+    /// **A year at the head of a wrapped line is not a numbered list.**
+    ///
+    /// `2023. ` matches `<digits>. ` exactly, and reading it as a marker truncated 26 of the
+    /// 12,739 claims in seven corpora to the year and its full stop. The sentence below is the
+    /// shape that did it: a date carried onto the next line by the wrap, with the tag after it.
+    #[test]
+    fn a_year_ending_a_wrapped_line_is_not_a_list_marker() {
+        let c = claims_in_node(
+            "description: |\n  The district votes under the map now in force, adopted 29 September\n  2023. [verified]\n",
+            &[],
+        );
+        assert_eq!(c.len(), 1, "{c:#?}");
+        assert_eq!(
+            c[0].text,
+            "The district votes under the map now in force, adopted 29 September 2023."
+        );
+    }
+
+    /// A dot inside a token is not a sentence end, and a dot under closing markup is.
+    #[test]
+    fn a_terminator_is_read_by_what_follows_it() {
+        let filename = claims_in_node(
+            "description: |\n  The rule in agent-conduct.md says so, and this corpus follows it. [verified]\n",
+            &[],
+        );
+        assert!(
+            filename[0].text.starts_with("The rule in"),
+            "started mid-token: {:?}",
+            filename[0].text
+        );
+
+        let emphasised = claims_in_node(
+            "description: |\n  **The earlier finding stands.** The gauge is read weekly. [verified]\n",
+            &[],
+        );
+        assert_eq!(
+            emphasised[0].text, "The gauge is read weekly.",
+            "a stop under `**` did not end the sentence before it"
         );
     }
 
