@@ -29,4 +29,4 @@ WARN [resolution-scope-unverifiable] Resolution's scope fidelity could not be de
   .yidam/sangha/resolutions/tailwater-regime.md: 2 of 2 tip(s) name no commit here — ma/hydrologist@aaaaaaa, ma/gauge-reader@bbbbbbb — this resolution's scope was not checked
 
 INFO [elector-baseline-undeclared] Elector branch does not say which evolution it is measured against — 1 finding(s)
-  ma/hydrologist: no `Baseline:` trailer — it holds every settlement, through `silt-budget`
+  ma/hydrologist: no `Baseline:` trailer — it holds every settlement, through `tailwater-regime`

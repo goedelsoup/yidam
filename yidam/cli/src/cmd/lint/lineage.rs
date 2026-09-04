@@ -206,9 +206,16 @@ pub(crate) fn standings(root: &Path, records: &[Resolution]) -> Vec<Standing> {
                 .filter(|(_, sha)| reachable.contains(*sha))
                 .filter_map(|(evo, sha)| rank.get(sha).map(|r| (evo, *r)))
                 .collect();
+            // Ties broken by name, and a tie is not exotic: one commit in the measured
+            // repository added two resolution records, so two settlements genuinely share a
+            // position in the line. Ranking on position alone left the answer to hash order,
+            // which agreed with itself locally and disagreed in CI — the fixture's two records
+            // are both added by its genesis commit, and the golden picked a different one on
+            // each machine. Neither evolution is later than the other; what this owes a reader
+            // is the same answer twice.
             let through = held
                 .iter()
-                .max_by_key(|(_, r)| *r)
+                .max_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)))
                 .map(|(evo, _)| (*evo).clone());
             let declared = declared_evolution(&git(
                 root,
@@ -546,6 +553,50 @@ mod tests {
             1,
             "the earlier declaration masked it: {unmet:?}"
         );
+    }
+
+    /// Two settlements in one commit share a position in the line, and the answer must not
+    /// depend on hash order. This is the defect CI found and a local run could not: the report
+    /// fixture adds both its records in one commit, and the golden named a different one on each
+    /// machine.
+    #[test]
+    fn two_settlements_in_one_commit_resolve_the_same_way_every_time() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        git(root, &["init", "-q", "-b", "main"]);
+        git(root, &["config", "user.email", "t@t.com"]);
+        git(root, &["config", "user.name", "T"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(
+            {
+                let d = root.join(".yidam/sangha");
+                std::fs::create_dir_all(d.join("resolutions")).unwrap();
+                d.join("electors.md")
+            },
+            "| Name | Branch | Role |\n|---|---|---|\n| `one` | `ma/one` | Holds a position. |\n",
+        )
+        .unwrap();
+        for evolution in ["zeta", "alpha"] {
+            std::fs::write(
+                root.join(".yidam/sangha/resolutions").join(format!("{evolution}.md")),
+                format!("---\nevolution: {evolution}\ndate: 2026-01-01\ntips:\n  - ma/one@0000000\n---\n\n## What was resolved\n\nBoth at once.\n"),
+            )
+            .unwrap();
+        }
+        commit(root, "synthesize: two questions, one commit");
+        git(root, &["branch", "ma/one"]);
+
+        let answers: Vec<Option<String>> = (0..8)
+            .map(|_| {
+                let data = crate::cmd::sangha::sangha_data(root);
+                standings(root, &data.resolutions)[0].through.clone()
+            })
+            .collect();
+        assert!(
+            answers.iter().all(|a| a == &answers[0]),
+            "the answer moved between runs: {answers:?}"
+        );
+        assert_eq!(answers[0].as_deref(), Some("zeta"), "ties break by name");
     }
 
     /// Only `ma/*` is an elector. `rigpa/*` is a settled evolution and `phase/*` a bounded
