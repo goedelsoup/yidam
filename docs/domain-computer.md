@@ -2,7 +2,7 @@
 
 Connectors and calculators are the computational substrate agents use during phases.
 
-### Connectors
+## Connectors
 
 - External-facing async adapters
 - Fetch data from APIs, databases, external sources
@@ -13,26 +13,26 @@ Connectors and calculators are the computational substrate agents use during pha
 **Opportunistic retrieval threshold**: when 5+ instances share a missing property from a
 single connector source, invoke the connector inline rather than deferring.
 
-### Calculators
+## Calculators
 
 - Pure, deterministic transforms
 - No network, no filesystem; same input always produces same output
 - Named by what they compute: `lowflow`, `curve-number`, `et`
 - The right home for domain-specific math
 
-### Feature engineering
+## Feature engineering
 
 - Transforms corpus data into embeddings and feature vectors
 - Bridges corpus and the semantic index (e.g., LanceDB)
 - Distinct from calculators: outputs optimized for retrieval quality, not domain correctness
 
-### The index layer
+## The index layer
 
 A vector index over corpus embeddings enables semantic retrieval. The index is not the
 corpus — it is a derived representation. Maintaining a fresh index reduces token consumption
 by letting agents retrieve only relevant nodes rather than loading the full corpus.
 
-### Embedding reproducibility
+## Embedding reproducibility
 
 Every consumer that embeds a query against the index — the CLI, the browser agent, the MCP
 server — must produce vectors that live in the same space as the stored ones. A silent
@@ -69,7 +69,7 @@ section rather than silently widened.
 A consumer that cannot satisfy the contract — the model or weights file is unavailable in
 its runtime — must degrade to keyword search, not embed with different settings.
 
-### The web agent
+## The web agent
 
 `yidam export --format web [--out <dir>] [--webllm-model <id>]` produces a static,
 offline-capable browser agent (default output: `.yidam/web/`): `index.html`, assets, a
@@ -82,7 +82,7 @@ offers RAG-grounded generation via WebLLM after explicit download consent; witho
 the panel states the limitation plainly. The UI contract lives in
 `yidam/design/ui_kits/web-agent/DESIGN.md`.
 
-### Ontology interchange
+## Ontology interchange
 
 `yidam export --format rdf [--rdf-format turtle|jsonld]` serializes the corpus as RDF —
 Turtle (`corpus.ttl`) and JSON-LD (`corpus.jsonld`), both by default, carrying identical
@@ -102,7 +102,7 @@ for Gephi, Cytoscape, and yEd: one node per instance (stable `<class>/<name>` id
 and description attributes) and one directed edge per resolved link with the relationship
 as its `type`. Dangling links are warned and skipped, never fatal.
 
-### The portable vector DB
+## The portable vector DB
 
 `yidam export --format sqlite [--out corpus.db]` writes the vector index as a single-file
 SQLite database using the [sqlite-vec](https://github.com/asg017/sqlite-vec) extension: a
@@ -146,7 +146,7 @@ const rows = db.prepare(
 ).all(new Float32Array(queryVector));
 ```
 
-### The llms.txt context pack
+## The llms.txt context pack
 
 `yidam export --format llms [--out llms.txt] [--token-budget <tokens>]` flattens the corpus
 into a single plaintext file for dropping into any LLM's context window — the zero-dependency,
@@ -176,7 +176,7 @@ so header count always equals sections emitted plus omitted, and a budgeted pack
 mistakable for the whole corpus. The header reads `Nodes: 177 of 199` whenever it is a slice,
 and `yidam export` reports what it wrote rather than what it was given.
 
-### The MCP server
+## The MCP server
 
 `yidam serve --mcp` exposes the domain computer to any MCP-capable agent over stdio.
 Register it in the consuming project's `.mcp.json`:
