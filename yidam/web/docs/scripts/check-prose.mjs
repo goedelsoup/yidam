@@ -86,24 +86,33 @@ export function pages(root) {
 }
 
 /**
- * Prose paragraphs only.
+ * Prose paragraphs, and each list item as its own paragraph.
  *
- * Code fences, tables, headings, list items and block quotes are all excluded — a table row
- * and a bullet are not sentences, and counting them made an early version of this scan report
- * 155 run-ons that did not exist.
+ * Code fences, tables, headings and block quotes are excluded. **List items are not**, and the
+ * reason the first version excluded them does not survive contact: joining *adjacent* bullets
+ * into one block is what reported 155 run-ons that did not exist, and the fix for that is to
+ * start a new block at every marker — not to stop reading bullets. A bullet on a task page is
+ * an instruction, and "one instruction per sentence" is the rule it is most likely to break.
+ *
+ * Excluding them also only ever half-worked. The marker line was skipped and a wrapped item's
+ * continuation lines were not, so a two-line bullet was measured from its second line: one
+ * finding on `cli-reference` read `record says \`redistributable: true\`.** A default of…`,
+ * which is not a sentence anybody wrote. Reading the whole item costs 13 findings across
+ * `docs/` and adds 189 sentences, and closes the dodge of bulleting past the ceiling.
  */
 export function proseBlocks(md) {
   const noFence = md.replace(/```[\s\S]*?```/g, '\n\n').replace(/<!--[\s\S]*?-->/g, '\n\n');
   const blocks = [];
   let cur = [];
+  const flush = () => { if (cur.length) { blocks.push(cur.join(' ')); cur = []; } };
   for (const line of noFence.split('\n')) {
     const s = line.trim();
-    const skip = !s || /^[|>#]/.test(s) || /^[-*_]{3,}$/.test(s)
-      || /^\s*([-*+]\s|\d+\.\s)/.test(line) || /^ {4}/.test(line);
-    if (skip) { if (cur.length) { blocks.push(cur.join(' ')); cur = []; } }
-    else cur.push(s);
+    const marker = line.match(/^\s*([-*+]\s|\d+\.\s)/);
+    if (marker) { flush(); cur.push(s.slice(marker[1].length)); continue; }
+    if (!s || /^[|>#]/.test(s) || /^[-*_]{3,}$/.test(s) || /^ {4}/.test(line)) { flush(); continue; }
+    cur.push(s);
   }
-  if (cur.length) blocks.push(cur.join(' '));
+  flush();
   return blocks;
 }
 
@@ -113,9 +122,16 @@ export function proseBlocks(md) {
  * The lookahead admits `[`, `` ` `` and `*` as well as a capital: a sentence beginning with a
  * markdown link or inline code is still a sentence, and omitting them silently glued pairs
  * together and inflated every count on the page.
+ *
+ * The lookbehind lets closing emphasis sit between the full stop and the space, because the
+ * house style opens a paragraph with a bold claim — `**One instruction per sentence.** A step
+ * that does two things is two sentences.` Without it those are one 27-word sentence, and the
+ * page is charged for a run-on it does not contain: 22 of the 146 findings on `cli-reference`
+ * and `mcp-server` were this, and every one would have been "fixed" by rewriting prose that
+ * was already inside the ceiling.
  */
 export function sentences(block) {
-  return block.split(/(?<=[.!?])\s+(?=[A-Z"'*`[(—])/).map((s) => s.trim()).filter(Boolean);
+  return block.split(/(?<=[.!?][*`_"')\]]*)\s+(?=[A-Z"'*`[(—])/).map((s) => s.trim()).filter(Boolean);
 }
 
 /** Words, with inline code and link targets reduced to the token a reader actually reads. */

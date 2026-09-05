@@ -2,17 +2,17 @@
 
 *How to put a corpus behind an MCP server and point an agent at it. Five minutes.*
 
-`yidam serve --mcp` is the surface that makes a corpus reachable by an agent, which is close to
-the point of the whole system. [RFC-0005](rfcs/0005-mcp-tool-contract.md) specifies the tool
-contract — the names, the arguments, the response shapes — and that is what someone
-implementing a second server needs. This is the other document. It covers what to put in a
-client configuration, which tool to reach for, and how to tell what you are connected to.
+`yidam serve --mcp` is the surface that makes a corpus reachable by an agent. That is close to the
+point of the whole system. [RFC-0005](rfcs/0005-mcp-tool-contract.md) specifies the tool contract:
+the names, the arguments, the response shapes. That is what someone implementing a second server
+needs. This is the other document. It covers what to put in a client configuration. It says which
+tool to reach for, and how to tell what you are connected to.
 
 ---
 
 ## 1. Check which binary carries `serve`
 
-**Any of them.** `serve --mcp` is in the light default build — the one the install script,
+**Any of them.** `serve --mcp` is in the light default build. That is the one the install script,
 the Homebrew tap, mise and `cargo binstall` all give you. No protoc, no ONNX runtime, no C
 toolchain. Through mise, that is:
 
@@ -68,11 +68,11 @@ open yidam-0.9.0-x86_64-apple-darwin.mcpb     # Intel
 An `.mcpb` is a zip holding a manifest and the `yidam` binary. The bundle installs nothing onto
 your `PATH` and writes no configuration file by hand. **The installer asks which corpus to
 serve**: a directory picker fills `--root`, replacing the `cd` incantation two sections below.
-That question is the whole reason this channel exists: it is the one thing every other route
+That question is the whole reason this channel exists. It is the one thing every other route
 leaves to the working directory.
 
 Two things to know. The bundle carries the **light build**, so `retrieve` is keyword search and
-says so on every call. §1 has the difference; every other tool is identical. It is also **macOS
+says so on every call. The difference is in §1; every other tool is identical. It is also **macOS
 only**. Claude Desktop runs on macOS and Windows, and this repository cross-compiles no Windows
 target. A Linux user wants one of the routes below.
 
@@ -82,22 +82,21 @@ file onto the same pane.
 
 ### Claude Code, as a plugin
 
-This is the one that gives you both halves. Four of the thirteen tools below exist for one
-reason. The practice is documented in the prelude, and *an agent that has to hold that prose in
-context complies by having remembered*. The plugin puts the prose and the tools in the same
-install.
+This is the one that gives you both halves. Four of the thirteen tools below exist for one reason.
+The practice is documented in the prelude. But *an agent that has to hold that prose in context
+complies by having remembered*. The plugin puts the prose and the tools in the same install.
 
 ```
 /plugin marketplace add goedelsoup/yidam
 /plugin install yidam@yidam
 ```
 
-What arrives: the MCP server, registered, plus five skills. Each fires at the point a decision
-is made: before a commit subject, an evidence tag, a link, or a `cites:`. The fifth fires
-before answering from the corpus rather than the model. Each one names the tool to call and
-points at the prelude for the reasoning. None restates a rule: a second copy of a closed
-vocabulary is a second thing to hold in step. About 680 tokens are always on; the rest is paid
-only when a skill fires.
+What arrives: the MCP server, registered, plus five skills. Each fires at the point a decision is
+made. That is before a commit subject, an evidence tag, a link, or a `cites:`. The fifth fires
+before answering from the corpus rather than the model. Each one names the tool to call and points
+at the prelude for the reasoning. None restates a rule: a second copy of a closed vocabulary is a
+second thing to hold in step. About 680 tokens are always on; the rest is paid only when a skill
+fires.
 
 **The plugin carries no binary.** Install `yidam` first — any channel in
 [installation](installation.md) — and the plugin's launcher will find it. If it cannot, it
@@ -143,19 +142,19 @@ streams corrupts the protocol.
 
 ### The working directory is load-bearing
 
-`serve` locates the corpus with `git rev-parse --show-toplevel` from wherever the process was
-started, and falls back to the current directory when that fails.
+`serve` locates the corpus with `git rev-parse --show-toplevel`, from wherever the process was
+started. It falls back to the current directory when that fails.
 
 **It now refuses to serve a directory that is not a corpus.** Started somewhere with no
 `.yidam/`, it fails at the command and names the repair. On the HTTP transport it fails before
 the socket is bound. It does not start.
 
-That is a change, and worth knowing if you are upgrading. A client configuration pointing at
-the wrong directory used to produce a server that answered every tool with nothing. It now
-produces a server that does not come up. The second is the same misconfiguration, reported. The
-first was worse than it sounds. Its handshake matched a real corpus that was merely empty: the
-same `nodes: 0`, and a `domain` field derived from the directory's own name. An agent had no
-way to know a folder was answering it.
+That is a change, and worth knowing if you are upgrading. A client configuration pointing at the
+wrong directory used to produce a server that answered every tool with nothing. It now produces a
+server that does not come up. The second is the same misconfiguration, reported. The first was
+worse than it sounds. Its handshake matched a real corpus that was merely empty. It showed the
+same `nodes: 0`, and a `domain` field derived from the directory's own name. An agent had no way
+to know a folder was answering it.
 
 A repository bootstrapped an hour ago with nothing written into it yet is still served. The
 test is `.yidam/`, not corpus content.
@@ -190,14 +189,14 @@ That still works and there is no reason to keep it. It needed an absolute path *
 The `exec` made signals reach the server rather than the shell. That detail has no bearing on
 corpora, and a reader had to get it right anyway.
 
-The [plugin](#claude-code-as-a-plugin) resolves the directory for you and checks before it
-spawns, and the [Claude Desktop bundle](#claude-desktop-as-a-bundle) asks at install time.
+The [plugin](#claude-code-as-a-plugin) resolves the directory for you and checks before it spawns.
+The [Claude Desktop bundle](#claude-desktop-as-a-bundle) asks at install time.
 
 ### Over HTTP, for a client that cannot spawn a process
 
-Every configuration above spawns `yidam` as a subprocess, which a client can only do on a
-machine it is running on. A hosted assistant reached through a browser cannot, and neither can
-the OpenAI Responses API: they take a URL.
+Every configuration above spawns `yidam` as a subprocess. A client can only do that on a machine
+it is running on. A hosted assistant reached through a browser cannot, and neither can the OpenAI
+Responses API: they take a URL.
 
 ```sh
 yidam serve --mcp --http                       # http://127.0.0.1:8787/mcp
@@ -206,12 +205,12 @@ yidam serve --mcp --http --bind 0.0.0.0 --port 8080
 ```
 
 One endpoint, `POST /mcp`, carrying one JSON-RPC message per request. It answers with a single
-JSON object; a notification gets `202` and no body. `GET` returns `405` — this server sends no
-messages a client did not ask for, so it opens no event stream, which the MCP spec allows in as
+JSON object; a notification gets `202` and no body. `GET` returns `405`. This server sends no
+messages a client did not ask for, so it opens no event stream. The MCP spec allows that in as
 many words.
 
-**It is the same server.** The tools, the capability block, the `absence` and `degraded` fields
-are produced by the same code the stdio transport calls; only the framing differs.
+**It is the same server.** The same code the stdio transport calls produces the tools, the
+capability block, and the `absence` and `degraded` fields. Only the framing differs.
 
 **Read-only, one corpus, and it authenticates nobody.** The defaults reflect that:
 
@@ -220,8 +219,8 @@ are produced by the same code the stdio transport calls; only the framing differ
 | `--bind` | `127.0.0.1`. A server on `0.0.0.0` is reachable by anything on the network, and this one asks no one who they are. |
 | `--allow-origin` | Empty. A request carrying an `Origin` header is refused unless you name it; one carrying none — `curl`, and every server-to-server client — passes. |
 
-The `Origin` rule is the MCP spec's defence against DNS rebinding, where a page on some other
-site drives a server bound to your loopback. A browser always sends the header, so naming the
+The `Origin` rule is the MCP spec's defence against DNS rebinding. That is where a page on some
+other site drives a server bound to your loopback. A browser always sends the header. Naming the
 origins that may reach it is what makes the check mean something:
 
 ```sh
@@ -251,20 +250,19 @@ authentication. Neither is in this transport, and neither is planned for it.
 | `pack` | That path's answer as prose, filled to a token budget, with what did not fit | You are about to write from the corpus and have a budget |
 | `estimate` | What that would cost, in nodes and approximate tokens, before you pay for it | You have a budget and want to know what fits |
 
-**`claims` returns assertions; every other tool returns documents.** A node is 2–10 sentences
-by the model's own rule. Asking `get_node` what a corpus takes as verified pays node-sized
-tokens for a claim-sized answer, and leaves you reading the tags out of prose. `claims` gives
-you the statement and its standing, and `sources` names the catalog entries its node cites. It
-serves the tag or serves nothing — an untagged sentence is prose, and prose is what `get_node`
-is for.
+**`claims` returns assertions; every other tool returns documents.** A node is 2–10 sentences by
+the model's own rule. Asking `get_node` what a corpus takes as verified pays node-sized tokens for
+a claim-sized answer. It also leaves you reading the tags out of prose. `claims` gives you the
+statement and its standing, and `sources` names the catalog entries its node cites. It serves the
+tag or serves nothing — an untagged sentence is prose, and prose is what `get_node` is for.
 
 **`check_citation` is the one that cannot be answered by reading.** `retrieve` reaches a
-dependency, `get_node` reads a node out of one, and `query --across` walks them. None of them
-says whether leaning on what it returned would stand. The package may be installed at a
-different pin than the one you are about to write, and a `span:` is a claim about text that no
-read-tool checks. It answers with the check ids the gate would report, the installed set, and
-the pin each dependency actually carries. That pin is the value a correct `commit:` must hold,
-and this surface reaches it no other way.
+dependency, `get_node` reads a node out of one, and `query --across` walks them. None of them says
+whether leaning on what it returned would stand. The package may be installed at a different pin
+than the one you are about to write. A `span:` is a claim about text that no read-tool checks. It
+answers with the check ids the gate would report, the installed set, and the pin each dependency
+actually carries. That pin is the value a correct `commit:` must hold, and this surface reaches it
+no other way.
 
 **`check_subject`, `claim_tags` and `licensed_edges` are the practice, callable.** The commit
 vocabulary, the evidence tags and the edges a class licenses are all documented in the prelude.
@@ -272,32 +270,30 @@ An agent that has to hold that prose in context complies by having remembered. T
 cheap to ask instead, at the point in the loop where the decision is actually made. The prose
 stays: it carries the reasoning, which is what makes the rules arguable.
 
-**`query` walks by the types; `neighbors` floods.** `neighbors` chains outbound and inbound
-edges unconditionally, filtering on neither relationship nor direction. It carries both out as
-labels on the result and reads neither as an input. `query` takes the relationship and the
-direction as the question. The difference matters most where it is least visible. A misspelled
-relationship comes back from a flood as a plausible neighbourhood, and from `query` as a
-rejection naming the near miss.
+**`query` walks by the types; `neighbors` floods.** `neighbors` chains outbound and inbound edges
+unconditionally, filtering on neither relationship nor direction. It carries both out as labels on
+the result and reads neither as an input. `query` takes the relationship and the direction as the
+question. The difference matters most where it is least visible. A misspelled relationship comes
+back from a flood as a plausible neighbourhood. From `query` it comes back as a rejection naming
+the near miss.
 
-**Both say why an empty answer is empty.** Zero rows is otherwise indistinguishable from a bad
-embedding, a class nobody has written into, or a corpus that genuinely has no view. An agent
-that cannot tell those apart fills the gap from its own weights. `absence` carries a code read
-off what the corpus *states*: the class is declared and empty; it has instances and none has
-that value (and here are the values it does have); the relationship is declared and no instance
-authors it; the edges exist and go somewhere else. **An empty result is where an agent
-invents**, and this is the field that stops it. `absence.elsewhere` names installed packages
-holding what this corpus does not — a pointer, and whatever it names is that corpus's claim
-rather than this one's.
+**Both say why an empty answer is empty.** Zero rows could otherwise be a bad embedding. It could
+be a class nobody has written into, or a corpus that genuinely has no view. An agent that cannot
+tell those apart fills the gap from its own weights. `absence` carries a code read off what the
+corpus *states*. The class is declared and empty. It has instances and none has that value, and
+here are the values it does have. The relationship is declared and no instance authors it. The
+edges exist and go somewhere else. **An empty result is where an agent invents**, and this is the
+field that stops it. `absence.elsewhere` names installed packages holding what this corpus does
+not. It is a pointer, and whatever it names is that corpus's claim, not this one's.
 
 **Every tool answers from the corpus the server loaded at startup.** `retrieve`, `get_node`,
 `neighbors` and `query` all read the corpus and index built on disk when the process started.
-There are no live git operations and no per-request file reads. `query --select body` is
-included: it returns the node text as it was read then, not as the file reads now. A server
-left running while the corpus is edited keeps answering with the corpus it was started against,
-which is what the staleness banner at connect time is reporting. This is one snapshot on
-purpose. A `body` that read the working tree at request time would answer about a different
-corpus. It would be one field, on one tool, out of step with every field beside it. Restart to
-move the snapshot.
+There are no live git operations and no per-request file reads. `query --select body` is included:
+it returns the node text as it was read then, not as the file reads now. A server left running
+while the corpus is edited keeps answering with the corpus it was started against. That is what
+the staleness banner at connect time is reporting. This is one snapshot on purpose. A `body` that
+read the working tree at request time would answer about a different corpus. It would be one
+field, on one tool, out of step with every field beside it. Restart to move the snapshot.
 
 **A `query` response says what it is about.** `kind` is `query`, and the CLI's `--between`
 emits a series under the same envelope. A client must not tell the two apart by testing for an
@@ -306,80 +302,78 @@ It is present on rejected responses too: a refusal about a tag and a refusal abo
 different claims.
 
 **`pack` is `query` with a budget and a receipt.** `query` reports `matched` beside `returned`,
-which says how many nodes it dropped. `pack` says *what kind*, in `omitted_by_class`. That is
-the difference between knowing you are missing 28 nodes and knowing they were all `recording`
+which says how many nodes it dropped. `pack` says *what kind*, in `omitted_by_class`. That is the
+difference between knowing you are missing 28 nodes and knowing they were all `recording`
 instances. Only the second lets you decide between spending more budget and reporting that the
-corpus does not cover this. It is unbudgeted unless you ask for a budget, and the token figure
-is `chars / 4` and says so: an honest approximation beats a precise-looking number computed
-with the wrong tokenizer.
+corpus does not cover this. It is unbudgeted unless you ask for a budget. The token figure is
+`chars / 4` and says so. An honest approximation beats a precise-looking number computed with the
+wrong tokenizer.
 
-**`estimate` quotes; `pack` accounts.** An agent budgets in tokens and could otherwise only
-discover what a retrieval cost by paying for it — so the only strategy available was to ask
-for less than might be needed and hope. `estimate` runs the traversal, returns none of the
-prose, and prices the same match set at each projection with a `fits` verdict against your
-budget. `chars` is exact — it is the payload that would come back — and `~tokens` is
-`chars / 4` and says so; use `chars` if you have a real tokenizer. The decision it serves is
-not *whether* to ask but *how much of each node to ask for*, which is why it comes back as a
-table rather than a number.
+**`estimate` quotes; `pack` accounts.** An agent budgets in tokens. It could otherwise only
+discover what a retrieval cost by paying for it. The only strategy available was to ask for less
+than might be needed and hope. `estimate` runs the traversal and returns none of the prose. It
+prices the same match set at each projection, with a `fits` verdict against your budget. `chars`
+is exact: it is the payload that would come back. `~tokens` is `chars / 4` and says so. Use
+`chars` if you have a real tokenizer. The decision it serves is not *whether* to ask, but *how
+much of each node to ask for*. That is why it comes back as a table rather than a number.
 
-It is also the most speculative thing here, and the epic that asked for it says so: if agents
-do not act differently given a quote, this is the surface to drop. Nothing depends on it.
+It is also the most speculative thing here, and the epic that asked for it says so. If agents do
+not act differently given a quote, this is the surface to drop. Nothing depends on it.
 
-`licensed_edges`, `query`, `pack` and `estimate` are the four a server may not back — all of them need
-the class definitions, and a projected mirror can hold nodes and edges and no `.ont.yml`. Such a
-server declares `"ontology": false` in the handshake, which is a statement you can read rather
-than a hole you discover.
+`licensed_edges`, `query`, `pack` and `estimate` are the four a server may not back. All of them
+need the class definitions. A projected mirror can hold nodes and edges and no `.ont.yml`. Such a
+server declares `"ontology": false` in the handshake. That is a statement you can read, not a hole
+you discover.
 
-**A dependency is queryable, and only if you ask.** `query` takes `across: true`, which runs
-the query over every installed dependency's corpus as well — one execution per corpus, every
-result attributed by `origin`, foreign ids qualified `pkg::class/name.yml`. Without it you
+**A dependency is queryable, and only if you ask.** `query` takes `across: true`, which runs the
+query over every installed dependency's corpus as well. There is one execution per corpus, every
+result attributed by `origin`, and foreign ids qualified `pkg::class/name.yml`. Without it you
 cannot see a foreign node at all, which is the boundary rather than an oversight. A hop never
-crosses between corpora: two corpora sharing a class name is not agreement, so the walk stays
-inside whichever corpus it started in. `scope` on the response says what actually happened —
-asking to span a repository with no dependencies installed answers `local`, and that is not an
-error.
+crosses between corpora. Two corpora sharing a class name is not agreement, so the walk stays
+inside whichever corpus it started in. `scope` on the response says what actually happened. Asking
+to span a repository with no dependencies installed answers `local`, and that is not an error.
 
-`pack` and `estimate` have no `across`, deliberately. A pack is what you write *from*, and one
-mixing two corpora would put a dependency's prose under this repository's class names, where
-the `omitted_by_class` receipt would be arithmetic over a category nobody declared. Retrieve
+`pack` and `estimate` have no `across`, deliberately. A pack is what you write *from*. One mixing
+two corpora would put a dependency's prose under this repository's class names. The
+`omitted_by_class` receipt would then be arithmetic over a category nobody declared. Retrieve
 across, query across, then pack what you decided to keep.
 
-**`retrieve` finds; `get_node` reads.** The distinction is worth stating plainly because
-the gap is easy to miss: a `retrieve` result carries `label`, `class`, `path`, `score` and a
-`text` — the node's `description` on the keyword path, the indexed embedding text on the
-vector one. On a corpus that writes real prose into `description` that `text` is substantial,
-which is exactly what makes the omission quiet. It is still not the node. The raw YAML is in
-`get_node`'s `content`, and **the links are only there** — an agent that only ever retrieves
-sees the claims and never the edges between them, which on a knowledge graph is most of what
-it came for. Retrieval chooses what to read; `get_node` is the read.
+**`retrieve` finds; `get_node` reads.** The distinction is worth stating plainly, because the gap
+is easy to miss. A `retrieve` result carries `label`, `class`, `path`, `score` and a `text`. That
+`text` is the node's `description` on the keyword path, and the indexed embedding text on the
+vector one. On a corpus that writes real prose into `description`, that `text` is substantial.
+That is exactly what makes the omission quiet. It is still not the node. The raw YAML is in
+`get_node`'s `content`, and **the links are only there**. An agent that only ever retrieves sees
+the claims and never the edges between them. On a knowledge graph that is most of what it came
+for. Retrieval chooses what to read; `get_node` is the read.
 
-**An empty `retrieve` says which kind of empty it is.** `results: []` used to mean four
-different things at once, and an agent that cannot tell them apart fills the gap from its own
-weights under a claim that will be attributed to having worked in the corpus. Every response
-carries `rejected` and `absence`, both null on an answer that found something:
+**An empty `retrieve` says which kind of empty it is.** `results: []` used to mean four different
+things at once. An agent that cannot tell them apart fills the gap from its own weights. The claim
+will then be attributed to having worked in the corpus. Every response carries `rejected` and
+`absence`, both null on an answer that found something:
 
 - A `class` that names no declared class is **rejected** (`unknown-class`, with the near miss)
   rather than searched. A filter that cannot match cannot produce a true negative.
 - An empty answer carries `absence: {code, message, instances}`. `class-unpopulated` means the
-  class is declared and nothing has been written into it; `no-term-match` means keyword search
-  read every node and none of them uses these words, which is a statement about the words and
-  not about coverage; `class-unindexed` means the corpus has the nodes and the index predates
-  them, so re-embed. On a corpus with no `.ont.yml` the class rows cannot be derived at all,
-  and `class-undeclared` says exactly that instead of guessing.
+  class is declared and nothing has been written into it. `no-term-match` means keyword search
+  read every node and none of them uses these words. That is a statement about the words, not
+  about coverage. `class-unindexed` means the corpus has the nodes and the index predates them, so
+  re-embed. On a corpus with no `.ont.yml` the class rows cannot be derived at all.
+  `class-undeclared` says exactly that instead of guessing.
 
-`instances` is how many nodes the filter admitted to the search. *None of four* and *none of
-nine hundred* are different facts, and it is the difference between "nobody has written this"
-and "your words missed it".
+`instances` is how many nodes the filter admitted to the search. *None of four* and *none of nine
+hundred* are different facts. It is the difference between "nobody has written this" and "your
+words missed it".
 
-`neighbors` is the other half of that. Half the interesting connections into a node are
-inbound, and reading a node's own YAML shows you only the edges it asserts — the ones
-asserted *at* it are invisible from the file.
+`neighbors` is the other half of that. Half the interesting connections into a node are inbound.
+Reading a node's own YAML shows you only the edges it asserts. The ones asserted *at* it are
+invisible from the file.
 
 Alongside the tools, the server publishes MCP resources under a `yidam://` scheme:
 `yidam://graph/summary`, `yidam://corpus/<class>`, `yidam://corpus/<class>/<name>`,
-`yidam://skills/<name>`, `yidam://decisions/<name>`. `yidam://corpus/<class>` and
-`list_nodes` are required to answer identically; the resource channel exists for clients that
-prefer to browse rather than call.
+`yidam://skills/<name>`, `yidam://decisions/<name>`. `yidam://corpus/<class>` and `list_nodes` are
+required to answer identically. The resource channel exists for clients that prefer to browse
+rather than call.
 
 ---
 
@@ -395,9 +389,9 @@ vector index: absent (no_index) — `retrieve` degrades to keyword search; run `
 serving MCP over stdio
 ```
 
-That first line is the check that matters. A domain you do not recognise, or `0 node(s)`,
-means the working directory was wrong — see above. It also warns when HEAD has advanced past
-the commit the index was built at, and keeps serving the stale index rather than refusing.
+That first line is the check that matters. A domain you do not recognise, or `0 node(s)`, means
+the working directory was wrong — see above. It also warns when HEAD has advanced past the commit
+the index was built at. It keeps serving the stale index rather than refusing.
 
 **Over HTTP there is no banner to read.** The server is on another machine, so the same facts
 are in the handshake — see `capabilities.yidam.corpus` below. Nothing about the check changes;
@@ -418,41 +412,39 @@ tool-not-found errors:
 ```
 
 `corpus` is the banner, in the protocol (contract 0.13.0). Every other key here says what this
-server *can do*; this one says *which corpus it is*, and until 0.13.0 that was only ever
-printed to stderr — which a client that spawned the server can read and one that reached it by
-URL cannot.
+server *can do*. This one says *which corpus it is*. Until 0.13.0 that was only ever printed to
+stderr. A client that spawned the server can read stderr; one that reached it by URL cannot.
 
-`stale` has three states. `true` when the index was built at another commit; `false` when it
-was not, which covers both *current* and *no index at all* — `indexed_commit` distinguishes
-those; and **`null` when the server cannot tell**, which is the honest answer from a projected
-mirror with no working git repository behind it. Null rather than absent, so a client never has
-to tell "not stale" apart from "a server too old to say".
+`stale` has three states. `true` when the index was built at another commit. `false` when it was
+not, which covers both *current* and *no index at all*; `indexed_commit` distinguishes those. And
+**`null` when the server cannot tell**. That is the honest answer from a projected mirror with no
+working git repository behind it. The key is null rather than absent. A client never has to tell
+"not stale" apart from "a server too old to say".
 
-`phases` and `sangha` are false and will stay false for this server: both read live `ma/*`
-and `rigpa/*` refs, and this one reads a built model on disk. `ontology` follows the corpus:
-a repository with no `.ont.yml` has no class contract to back, and the four tools at that
-tier — `query`, `pack`, `estimate`, `licensed_edges` — are then neither listed nor callable.
+`phases` and `sangha` are false and will stay false for this server. Both read live `ma/*` and
+`rigpa/*` refs. This one reads a built model on disk. `ontology` follows the corpus. A repository
+with no `.ont.yml` has no class contract to back. The four tools at that tier — `query`, `pack`,
+`estimate`, `licensed_edges` — are then neither listed nor callable.
 
-`dependencies` follows the corpus the same way: it is true iff this server resolved at least
-one installed dependency, and `check_citation` is neither listed nor callable when it did not.
-A server with nothing installed *could* serve the tool and answer
-`external-citation-unresolved` to every citation put to it — correct every time, and a
-statement about a dependency set it does not have. That is the same thing the contract
-forbids one tier over, where a server with no `.ont.yml` must not call a class unpopulated.
+`dependencies` follows the corpus the same way. It is true iff this server resolved at least one
+installed dependency. `check_citation` is neither listed nor callable when it did not. A server
+with nothing installed *could* serve the tool and answer `external-citation-unresolved` to every
+citation put to it. That is correct every time, and a statement about a dependency set it does not
+have. That is the same thing the contract forbids one tier over. There, a server with no
+`.ont.yml` must not call a class unpopulated.
 
-**A tool this server does not back refuses by name.** Calling one returns an MCP tool error
-whose text begins `capability-not-supported`, naming the capability that is false, rather
-than `unknown tool`. The two are different repairs: one says you mistyped a name, the other
-says this server declines a name the contract froze. Before contract 0.11.1 an unbacked tool
-was merely absent from `tools/list` and answered anyway, which put the hole back where the
-capability block exists to close it.
+**A tool this server does not back refuses by name.** Calling one returns an MCP tool error whose
+text begins `capability-not-supported`, naming the capability that is false, rather than `unknown
+tool`. The two are different repairs. One says you mistyped a name. The other says this server
+declines a name the contract froze. Before contract 0.11.1 an unbacked tool was merely absent from
+`tools/list` and answered anyway. That put the hole back where the capability block exists to
+close it.
 
-**`degraded` and `degraded_reason`, on every `retrieve`.** Both are present on every
-response — there is no third state, and `degraded_reason` is `null` exactly when `degraded`
-is `false`. `true` means the answer came from case-insensitive term matching over label,
-description and body, scored by the fraction of query terms hit. That is a real answer and
-often a good one, but it is lexical: it will not find a node that says the same thing in
-different words.
+**`degraded` and `degraded_reason`, on every `retrieve`.** Both are present on every response —
+there is no third state, and `degraded_reason` is `null` exactly when `degraded` is `false`.
+`true` means the answer came from case-insensitive term matching over label, description and body.
+It is scored by the fraction of query terms hit. That is a real answer and often a good one, but
+it is lexical. It will not find a node that says the same thing in different words.
 
 The reason says which repair you need, and they are not the same repair:
 
@@ -461,44 +453,41 @@ The reason says which repair you need, and they are not the same repair:
 | `no_index` | This corpus has no vector index | `yidam embed && yidam index-build` |
 | `no_vector_support` | An index exists; this binary cannot read it | Reinstall with `--features index` |
 
-The distinction is why the field exists. Both answer keyword-degraded, and being told to
-build an index you already built is the kind of advice that costs an afternoon. Note the
-precedence: a light binary on a corpus with *no* index reports `no_index`, not
-`no_vector_support` — indexing is the repair under either build, so the reason names the
-nearer cause.
+The distinction is why the field exists. Both answer keyword-degraded. Being told to build an
+index you already built is the kind of advice that costs an afternoon. Note the precedence. A
+light binary on a corpus with *no* index reports `no_index`, not `no_vector_support`. Indexing is
+the repair under either build, so the reason names the nearer cause.
 
 `yidam index-status` says whether an index exists and how stale it is.
 
-**`origin`, on a degraded result and on every `get_node`.** Once a dependency is installed
-with `tonpa`, the keyword path spans it: results carry `id` and `origin` — the package name
-for a foreign node, `null` for a local one, and `null` rather than absent so a client testing
-the key never has to distinguish "local" from "an older server that never said." A foreign id
-is qualified as `pkg::class/name`, and `get_node` accepts that form and answers with `origin`
-either way.
+**`origin`, on a degraded result and on every `get_node`.** Once a dependency is installed with
+`tonpa`, the keyword path spans it. Results carry `id` and `origin`: the package name for a
+foreign node, `null` for a local one. It is `null` rather than absent. A client testing the key
+never has to distinguish "local" from "an older server that never said." A foreign id is qualified
+as `pkg::class/name`, and `get_node` accepts that form and answers with `origin` either way.
 
-**The vector path does not span dependencies.** `yidam embed` gathers text from
-`.yidam/corpus/` and `.yidam/catalog/` and nowhere else, so the index `index-build` writes
-holds this repository's own nodes; an indexed `retrieve` returns local results carrying no
-`origin`. Note that absent is not `null` here — a key that is missing means the search never
-looked outside this corpus, which is a different fact from a node being local. On a composed
-corpus, `degraded: true` is currently the *more* complete search.
-[sharing-derivations.md](sharing-derivations.md) has the history and why this is a gap rather
-than a boundary.
+**The vector path does not span dependencies.** `yidam embed` gathers text from `.yidam/corpus/`
+and `.yidam/catalog/` and nowhere else. So the index `index-build` writes holds this repository's
+own nodes. An indexed `retrieve` returns local results carrying no `origin`. Note that absent is
+not `null` here. A key that is missing means the search never looked outside this corpus. That is
+a different fact from a node being local. On a composed corpus, `degraded: true` is currently the
+*more* complete search. [sharing-derivations.md](sharing-derivations.md) has the history and why
+this is a gap rather than a boundary.
 
 **`id` is on both arms, and used not to be.** This paragraph read "carrying neither `id` nor
-`origin`" and stated the two absences as one fact. They are not one fact. A local node has an
-id under either arm, and the vector path simply did not emit it — so `retrieve` found nodes
-and `get_node` could not be handed them, on the arm a corpus gets *for having built an index*.
-The degraded keyword path was the followable one. Fixed in #425: the vector arm resolves each
-row through the same `find_node` that `get_node` resolves with, so an id it hands back is an
-id that fetches by construction, and it is `null` rather than absent for a row that resolves
-to no node — a catalog source, or an index built before a file moved.
+`origin`" and stated the two absences as one fact. They are not one fact. A local node has an id
+under either arm, and the vector path simply did not emit it. So `retrieve` found nodes and
+`get_node` could not be handed them. That was on the arm a corpus gets *for having built an
+index*. The degraded keyword path was the followable one. Fixed in #425. The vector arm resolves
+each row through the same `find_node` that `get_node` resolves with. An id it hands back is
+therefore an id that fetches, by construction. It is `null` rather than absent for a row that
+resolves to no node. That is a catalog source, or an index built before a file moved.
 
-**An agent reading a foreign node is reading someone else's claim.** It is evidence to
-consult, not a commitment this repository has made — and it may never be an edge target.
-`neighbors` refuses a qualified id for exactly that reason rather than pretending the node is
-missing. [sharing-derivations.md](sharing-derivations.md) is the document on what a
-cross-corpus citation is and is not; an agent working a composed corpus should have read it.
+**An agent reading a foreign node is reading someone else's claim.** It is evidence to consult,
+not a commitment this repository has made — and it may never be an edge target. `neighbors`
+refuses a qualified id for exactly that reason rather than pretending the node is missing.
+[sharing-derivations.md](sharing-derivations.md) is the document on what a cross-corpus citation
+is and is not. An agent working a composed corpus should have read it.
 
 ---
 
@@ -506,30 +495,31 @@ cross-corpus citation is and is not; an agent working a composed corpus should h
 
 In rough order of likelihood.
 
-**The working directory.** This one now announces itself: started outside a corpus, the
-server refuses rather than connecting. If your client reports that the server failed to
-start, read its stderr — the refusal names the directory it landed in and the repair.
+**The working directory.** This one now announces itself: started outside a corpus, the server
+refuses rather than connecting. If your client reports that the server failed to start, read its
+stderr. The refusal names the directory it landed in and the repair.
 
-It used to connect. The banner said `domain "nowhere", 0 node(s)`, `list_nodes` answered
-`{"nodes": []}`, and from the client side that was indistinguishable from a corpus that was
-simply empty — so this entry was advice about reading a node count carefully. It is now a
-startup failure. Name the directory with `--root`, or use the
-[plugin](#claude-code-as-a-plugin), which asks at install time.
+It used to connect. The banner said `domain "nowhere", 0 node(s)`, and `list_nodes` answered
+`{"nodes": []}`. From the client side that was indistinguishable from a corpus that was simply
+empty. So this entry was advice about reading a node count carefully. It is now a startup failure.
+Name the directory with `--root`, or use the [plugin](#claude-code-as-a-plugin), which asks at
+install time.
 
-**The corpus was never built out.** A repository that has been bootstrapped but not written
-into has `.yidam/` and no nodes in it. That is a legitimate empty corpus and it *is* served —
-the startup check tests `.yidam/`, not content — so `0 node(s)` on a connection that came up
-means this rather than the case above. `yidam status` in the repository confirms it.
+**The corpus was never built out.** A repository that has been bootstrapped but not written into
+has `.yidam/` and no nodes in it. That is a legitimate empty corpus and it *is* served, because
+the startup check tests `.yidam/`, not content. So `0 node(s)` on a connection that came up means
+this, not the case above. `yidam status` in the repository confirms it.
 
 **`retrieve` finds nothing and `list_nodes` finds plenty.** Almost always `degraded: true`
 plus a query phrased in words the corpus does not use — keyword search matches terms, not
 meanings. Try the corpus's own vocabulary, or read `degraded_reason` and do what it says.
 
-**`query` or `pack` finds nothing.** Read `absence` rather than guessing: it says whether the
-class is declared and empty, whether it has instances that all fail the predicate (and what
-values they do carry), whether the relationship is one the ontology promises and no instance
-has written, or whether the edges are there and land somewhere else. Each has a different
-repair, and only the first and third mean the corpus is genuinely quiet on the subject.
+**`query` or `pack` finds nothing.** Read `absence` rather than guessing. It says whether the
+class is declared and empty. It says whether the class has instances that all fail the predicate,
+and what values they do carry. It says whether the relationship is one the ontology promises and
+no instance has written. And it says whether the edges are there and land somewhere else. Each has
+a different repair, and only the first and third mean the corpus is genuinely quiet on the
+subject.
 
 **The client sees garbled frames.** Something is folding stderr into stdout. The banner is
 not protocol.
