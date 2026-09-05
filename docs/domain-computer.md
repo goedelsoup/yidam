@@ -86,8 +86,9 @@ the panel states the limitation plainly. The UI contract lives in
 
 `yidam export --format rdf [--rdf-format turtle|jsonld]` serializes the corpus as RDF —
 Turtle (`corpus.ttl`) and JSON-LD (`corpus.jsonld`), both by default, carrying identical
-triple sets. Classes become `owl:Class` (with `skos:exactMatch` when the `.ont.yml`
-declares a `bfo_anchor:` URI), instances are typed individuals at
+triple sets. Classes become `owl:Class`, carrying `yidam:foundationalOntology` and
+`yidam:foundationalType` when the `.ont.yml` declares a `foundational_type:`, plus
+`skos:exactMatch` when that declaration supplies an `iri:`. Instances are typed individuals at
 `yidam://corpus/<class>/<name>`, links are `yidam:linksTo` triples (named relationships
 become `rdfs:subPropertyOf yidam:linksTo` properties), and the `owl:Ontology` header
 carries provenance (`prov:generatedAtTime`, commit, genesis date). Example SPARQL:

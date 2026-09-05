@@ -163,7 +163,8 @@ as examples:
 time* or *unfold through time*?  Things that exist at a moment and have no temporal parts are
 **continuants** (material entities, qualities, dispositions, sites). Things that happen over
 an interval and have temporal parts are **occurrents** (processes, events, process boundaries).
-Each class gets a `bfo_type:` field in its `.ont.yml`. Best fit for scientific, empirical, and
+Each class gets a `foundational_type:` field in its `.ont.yml`, with `ontology: bfo`. Best fit
+for scientific, empirical, and
 physical-process domains where the object/event distinction carries analytical weight (e.g.,
 distinguishing a machine from the machining process it performs).
 
@@ -172,7 +173,8 @@ A **Kind** is what something necessarily is (if it stops being one it ceases to 
 thing). A **Role** is what something contingently plays in a relational context (the same entity
 may play different roles in different relationships). A **Relator** is a first-class node that
 mediates a relationship with its own identity and properties — rather than a bare edge, a
-relator carries the history and terms of the connection. Each class gets a `ufo_type:` field.
+relator carries the history and terms of the connection. Each class gets a `foundational_type:`
+field, with `ontology: ufo`.
 Best fit for institutional, enterprise, and process-modeling domains where the same entity plays
 different roles and where relationships themselves carry meaning worth querying.
 
@@ -356,6 +358,11 @@ foundational_type:           # omit this field entirely if alignment is "none"
   ontology: bfo | ufo
   type: <value>              # BFO: continuant | occurrent | quality | disposition | role | ...
                              # UFO: kind | subkind | role | phase | relator | mode | quality | event | situation
+  iri: <url>                 # optional — the IRI that type has in that ontology, e.g.
+                             #   BFO: http://purl.obolibrary.org/obo/BFO_0000002
+                             #   UFO: https://purl.org/nemo/gufo#Relator
+                             # `export-rdf` emits it as skos:exactMatch. Omit it if you have
+                             # not looked it up; the alignment still exports without it.
 description: |
   <one sentence — what this class of thing is and why it is irreducible>
 properties:

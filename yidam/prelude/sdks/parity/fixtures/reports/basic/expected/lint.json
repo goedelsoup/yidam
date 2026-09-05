@@ -117,7 +117,7 @@
       "id": "unimplemented-class",
       "title": "Class naming an implementation the code does not define",
       "severity": "error",
-      "rationale": "A class declaring `implemented_by:` has stated a fact about `crates/`, and a tree with no type of that name contradicts it — which is what this check's siblings gate on, and an omission is not. A class that declares nothing is not checked, and that silence is measured rather than timid: across twelve derived corpora 129 of 157 declared classes have no type bearing their name, and matching every language in the tree raises it to 88%. Their ontologies model a domain and their code models the pipeline that gathers evidence about it, so a class without a type is the normal case and reporting it would call four fifths of every ontology debt. A rename is invisible: the tree is scanned rather than a diff, so a class implemented under a new name is simply found.",
+      "rationale": "A class declaring `implemented_by:` has stated a fact about `crates/`,\n            foundational_type: None,\n            dead_alignment_fields: vec![], and a tree with no type of that name contradicts it — which is what this check's siblings gate on, and an omission is not. A class that declares nothing is not checked, and that silence is measured rather than timid: across twelve derived corpora 129 of 157 declared classes have no type bearing their name, and matching every language in the tree raises it to 88%. Their ontologies model a domain and their code models the pipeline that gathers evidence about it, so a class without a type is the normal case and reporting it would call four fifths of every ontology debt. A rename is invisible: the tree is scanned rather than a diff, so a class implemented under a new name is simply found.",
       "violations": []
     },
     {
@@ -294,6 +294,20 @@
       "title": "Class definition asserts a purpose rather than describing a kind",
       "severity": "warn",
       "rationale": "A claim tag attaches to a claim somebody makes on a node. A class definition is not that — it is the meaning every instance takes on by being filed under the class, asserted identically and untagged for each. So a class whose description states a reason ('deployed to obtain an outcome the ordinary path would not yield') puts that assertion beyond the reach of every other check here, which all run on tags. The case this was written from survived five resolutions and three arguments about its instances. Rewrite the description to say what an instance IS — the observable shape, the admission conditions — and move any characterization of why to a field that attributes it, or to `analytic_note`, which this check does not read.",
+      "violations": []
+    },
+    {
+      "id": "foundational-field-misspelled",
+      "title": "Class declares foundational alignment in a field nothing reads",
+      "severity": "error",
+      "rationale": "Foundational alignment is `foundational_type:`, carrying `ontology: bfo|ufo`, a `type:`, and optionally the `iri:` that type has in that ontology. `bfo_type:` and `ufo_type:` were never read by anything — they are what bootstrap's prose asked for while its own template asked for `foundational_type:`. `bfo_anchor:` was read by `export-rdf` and written by nothing, and was BFO-only besides, so a UFO-aligned corpus could not use it. A class carrying one of these has stated an alignment that no gate, query, or export can see, which is worse than stating none: the corpus believes it is aligned. See docs/vocabulary.md and RFC-0013.",
+      "violations": []
+    },
+    {
+      "id": "foundational-type-malformed",
+      "title": "Class declares a foundational alignment that cannot be resolved",
+      "severity": "error",
+      "rationale": "`foundational_type:` carries `ontology: bfo` or `ontology: ufo`, a non-empty `type:`, and optionally an `iri:` beginning `http://` or `https://`. An alignment outside that shape reaches RDF as a literal no consumer can follow, which leaves the corpus asserting an alignment nothing can check — the state #613 found across four field names. The `type:` itself is not checked against BFO or UFO: their term sets are theirs to revise, and a copy of them in this binary would start refusing terms a corpus is right to use.",
       "violations": []
     },
     {

@@ -523,6 +523,8 @@ mod tests {
             // This fixture builds classes for reachability, which no ceiling affects.
             max_lines: None,
             implemented_by: None,
+            foundational_type: None,
+            dead_alignment_fields: vec![],
         }
     }
 

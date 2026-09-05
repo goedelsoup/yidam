@@ -52,6 +52,7 @@ label: <Human-Readable Label>
 foundational_type:           # omit if alignment is "none"
   ontology: bfo | ufo
   type: <bfo or ufo type value>
+  iri: <url>                 # optional; exported as skos:exactMatch
 description: |
   <one sentence>
 properties:

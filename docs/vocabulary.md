@@ -30,7 +30,8 @@ senses, each sense is named separately below and the docs use the qualified form
 | **instance** | One node of a class, stored at `<class>/<instance>.yml` |
 | **BFO** | Basic Formal Ontology — foundational alignment organized around the continuant/occurrent axis |
 | **UFO** | Unified Foundational Ontology — foundational alignment organized around kinds, roles, and relators |
-| **foundational type** | The BFO or UFO type assigned to an ontology class; encoded in `foundational_type:` in `.ont.yml` |
+| **foundational type** | The BFO or UFO type assigned to an ontology class; encoded in `foundational_type:` in `.ont.yml`, carrying `ontology:`, `type:`, and an optional `iri:` |
+| **alignment IRI** | The `iri:` inside `foundational_type:` — the identifier that type has in BFO or gUFO. Optional; `export-rdf` emits it as `skos:exactMatch`. Replaces the retired `bfo_anchor:` |
 
 ## Governance
 
