@@ -22,7 +22,7 @@ reachable there is nothing to render. See [Installation](installation.md).
 
 ---
 
-## The language server
+## Set up the language server
 
 `serve --lsp` is in the **light default build** — the binary from any install channel already
 has it. `--features index` adds nothing to the LSP.
@@ -80,7 +80,7 @@ Beside `yaml-language-server` rather than instead of it: that one applies the JS
 `yidam schema` writes, and the two answer different questions. `yidam schema --settings` prints
 the `yaml.schemas` mapping to paste into an editor that wants one.
 
-## The VS Code extension
+## Install the VS Code extension
 
 Five views over the corpus, lint and `graph-check` verdicts as diagnostics, claim decoration,
 and the inherited mise tasks as editor tasks.
@@ -180,7 +180,7 @@ Sangha are bounded by how many branches a repository has, and nothing measured s
 Five of them, with defaults, in
 [Configuration](configuration.md#editor-settings).
 
-## Building the extension from a checkout
+## Build the extension from a checkout
 
 ```sh
 mise run ext-package -- dist/yidam-vscode.vsix   # packages, and checks what is in the package

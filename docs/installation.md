@@ -10,7 +10,7 @@ which runs the lines below verbatim in a container holding only the tools the li
 need and asserts that `yidam --version` answers with the latest release. A channel that stops
 working turns that job red, so a line documented here is a line somebody checked this week.
 
-## The script
+## The install script
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/goedelsoup/yidam/main/install.sh | sh
@@ -116,7 +116,7 @@ get something that merely resembles it.
 `Cargo.toml` while every gate built 1.88 and nothing compiled the floor — an unverified promise
 rather than a lower one — so #463 raised it to the pin, where every build verifies it.
 
-## Verifying
+## Verify the install
 
 ```console
 $ yidam --version
@@ -132,7 +132,7 @@ Inside a derived repository, [`yidam doctor`](troubleshooting.md) is the fuller 
 answers whether the running binary is the one the repository pins, whether `.yidam/bin` is
 ahead on `PATH`, and how stale the vendored prelude is.
 
-## Which build you have
+## Check which build you have
 
 The binary is partitioned by cargo feature so the common case stays cheap to install. Released
 artifacts — the script, the tap, binstall — carry the **default** set.
@@ -190,7 +190,7 @@ cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.9.0 --locke
 maintainer's build — see [Contributing](contributing.md), where `mise install` provisions all
 of it.
 
-## Upgrading
+## Upgrade
 
 Whichever channel installed it:
 
@@ -205,7 +205,7 @@ not by itself change what any repository inherits. `mise run yidam-vendor-update
 separate act that adopts a newer prelude; see [Versioning and releases](versioning.md) for why
 those are different layers with different lifetimes.
 
-## Uninstalling
+## Uninstall
 
 ```sh
 rm ~/.local/bin/yidam             # script (or "$YIDAM_BIN_DIR/yidam")

@@ -10,7 +10,7 @@ configuration, which tool to reach for, and how to tell what you are actually co
 
 ---
 
-## 1. Which binary carries `serve`
+## 1. Check which binary carries `serve`
 
 **Any of them.** `serve --mcp` is in the light default build — the one the install script,
 the Homebrew tap, mise and `cargo binstall` all give you. No protoc, no ONNX runtime, no C
@@ -235,7 +235,7 @@ authentication. Neither is in this transport, and neither is planned for it.
 
 ---
 
-## 3. The tools, and when an agent should reach for each
+## 3. Choose the right tool
 
 | Tool | Answers | Reach for it when |
 |---|---|---|
@@ -385,7 +385,7 @@ prefer to browse rather than call.
 
 ---
 
-## 4. Knowing what you are connected to
+## 4. Check what you are connected to
 
 Three signals, at three different moments.
 
