@@ -42,8 +42,11 @@ operational events, not epistemic events.
 
 ### Ontology class definitions
 
-During bootstrap, the schema layer is written to `.yidam/corpus/<class>.ont.yml`. If a
-foundational ontology was chosen (BFO or UFO), each class carries a `foundational_type` field;
+During bootstrap, the schema layer is written to `.yidam/corpus/<class>.ont.yml`.
+[What an ontology is](ontology/what-an-ontology-is.md) explains what a class declares and why. If
+a foundational ontology was chosen (BFO or UFO) — see
+[choosing an alignment](ontology/choosing-an-alignment.md) — each class carries a
+`foundational_type` field;
 omit it entirely for "none" alignment:
 
 ```yaml

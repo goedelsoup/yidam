@@ -398,7 +398,7 @@ why the measurement belongs in Phase 1 rather than Phase 4.
   island is written, not after. Lean: extend the list, since the next surface will have the
   same question.
 - **The design system's React components have never been hydrated.** No `client:*` directive
-  appears on any quality page — [`astro.config.mjs:231-234`](../../yidam/web/docs/astro.config.mjs#L231-L234):
+  appears on any quality page — [`astro.config.mjs:243-246`](../../yidam/web/docs/astro.config.mjs#L243-L246):
   *"this is a build-time renderer: React produces HTML and none of it is shipped to a reader."*
   This surface would be the first consumer to ship them to a browser. Whether they survive
   client bundling is unknown and is a Phase 1 spike, not an assumption.

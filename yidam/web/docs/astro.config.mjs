@@ -56,6 +56,18 @@ const sidebar = [
       { slug: 'upgrading', label: 'Upgrade notes' },
     ],
   },
+  // Before 'The model' rather than inside it. Every derived repository answers the alignment
+  // question during bootstrap, and until #613 there was no page to open when it was asked —
+  // the material existed in `prelude/skills/bootstrap.md`, which the site does not publish,
+  // and in a walkthrough labelled "(sketch)".
+  {
+    label: 'Ontology',
+    items: [
+      { slug: 'ontology/what-an-ontology-is', label: 'What an ontology is' },
+      { slug: 'ontology/choosing-an-alignment', label: 'Choosing an alignment' },
+      { slug: 'ontology/alignment-in-practice', label: 'Alignment in practice' },
+    ],
+  },
   {
     label: 'The model',
     items: [
