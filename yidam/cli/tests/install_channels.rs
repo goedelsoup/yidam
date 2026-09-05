@@ -702,7 +702,9 @@ fn every_pinned_tag_is_the_version_this_repository_declares() {
             // name would let exactly the 404 this test exists for through.
             for token in line
                 .split_whitespace()
-                .map(|t| t.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.' && c != '-'))
+                .map(|t| {
+                    t.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.' && c != '-')
+                })
                 .filter(|t| t.ends_with(".mcpb") && t.starts_with("yidam-"))
             {
                 assert!(
