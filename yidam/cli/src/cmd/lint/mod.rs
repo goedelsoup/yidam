@@ -5,6 +5,7 @@
 //! Conflating the two is what produces a gate that is either permanently red or
 //! permanently ignored; see [`baseline`].
 
+pub(crate) mod attest;
 pub(crate) mod baseline;
 pub(crate) mod checks;
 pub(crate) mod citations;
@@ -259,6 +260,12 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     let sangha = crate::cmd::sangha::sangha_data(root);
     let registered: Vec<String> = sangha.electors.iter().map(|e| e.branch.clone()).collect();
 
+    // RFC-0012's verification, and its condition is the registry's own declaration: a seat's
+    // tip is verified when, and only when, its row binds a key. Both are empty in a corpus
+    // that binds none — every corpus today — and neither touches git there.
+    let attestations = attest::attest(root, &sangha.electors);
+    let keys_bind_seats = attest::binds_distinct_key_per_seat(&sangha.electors);
+
     // Article V's node and edge clauses, decided against the tips each record names. The git
     // reading happens here, where there is a repository; the two checks that consume it are
     // pure, which is what lets the arm that has never fired in a real corpus be tested at all.
@@ -438,7 +445,8 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::resolution_annotation_malformed(&annotations),
         checks::resolution_annotation_decides(&annotations),
         checks::resolution_elector_unregistered(&sangha.resolutions, &registered),
-        checks::resolution_executor_unrecorded(&sangha.resolutions),
+        checks::resolution_executor_unrecorded(&sangha.resolutions, keys_bind_seats),
+        attest::elector_signature_unverified(&attestations),
         scope_unheld,
         scope_unverifiable,
         baseline_unmet,
@@ -883,6 +891,10 @@ decision := {"allow": true, "deny": []}
         // prose: a repository with no `electors.md` at all still hears both answer.
         assert!(ids.contains("resolution-elector-unregistered"));
         assert!(ids.contains("resolution-executor-unrecorded"));
+        // Same reason again, and this one is the most silent of all: RFC-0012's verification
+        // is vacuous until a registry row binds a signing key, so a check that vanished when
+        // it found no keys would be indistinguishable from one nobody wired in.
+        assert!(ids.contains("elector-signature-unverified"));
         assert!(ids.contains("resolution-annotation-decides"));
         assert!(ids.contains("broken-prose-link"));
         assert!(ids.contains("unauthored-prose-link"));

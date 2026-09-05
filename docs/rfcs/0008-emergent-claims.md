@@ -32,7 +32,7 @@ The governing text ([`CONSTITUTION.md:55-57`](../../yidam/prelude/CONSTITUTION.m
 > not introduce nodes, edges, or claims that were not held by at least one elector. Resolution is
 > synthesis, not generation.
 
-The protocol repeats it ([`PROTOCOL.md:122-123`](../../sadhana/sangha/PROTOCOL.md#L122-L123)):
+The protocol repeats it ([`PROTOCOL.md:137-138`](../../sadhana/sangha/PROTOCOL.md#L137-L138)):
 "introduce only nodes and edges present in at least one elector's position." Both sentences quantify
 over things that are *held*. Neither says whether a claim that is not held but *follows* from held
 claims counts as present, and neither says when two statements are the same claim.

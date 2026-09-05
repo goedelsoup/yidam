@@ -192,7 +192,7 @@ second MCP contract, and nothing here is reachable by an agent — an agent has 
 This is what makes the surface an editor rather than a viewer, and it costs nothing new.
 `Overlay` is already a `pub struct` in the lint module
 ([`lint/mod.rs:101`](../../yidam/cli/src/cmd/lint/mod.rs#L101)), and
-[`run_checks_with(&root, &opts, &overlay)`](../../yidam/cli/src/cmd/lint/mod.rs#L153) is the
+[`run_checks_with(&root, &opts, &overlay)`](../../yidam/cli/src/cmd/lint/mod.rs#L154) is the
 entry point the language server already calls on every change
 ([`lsp.rs:217`](../../yidam/cli/src/cmd/lsp.rs#L217)).
 

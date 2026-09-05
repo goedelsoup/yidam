@@ -20,6 +20,21 @@ A participant becomes a recognized elector by:
 
 The first elector registers themselves.
 
+### What a registration records
+
+An agent elector records what it is at registration — model, version, and a hash of its
+operative configuration — in the columns [electors.md](electors.md) describes. A material
+change is recorded as an update, so the ancestry of a position includes the state of the
+agent that held it; a model upgrade is material, and the config hash is what makes
+"material" detectable rather than a matter of opinion.
+
+A seat may also bind an SSH public key, and binding one is a declaration: `yidam lint`
+generates the allowed-signers file from `electors.md` and verifies that seat's branch tip
+against the key its own row carries. A seat that binds none is not in violation of
+anything — it has said its commits are unverifiable, which is the state every seat is in
+until somebody decides otherwise. Recording any of this grants a seat nothing; Article II
+governs weight and Article III governs record, and `electors.md` says so at the top.
+
 ## Calling a resolution
 
 Any elector may call a resolution by:

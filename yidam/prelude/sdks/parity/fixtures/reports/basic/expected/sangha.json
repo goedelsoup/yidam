@@ -14,12 +14,22 @@
       "name": "hydrologist",
       "branch": "ma/hydrologist",
       "role": "Holds the discharge position.",
+      "kind": "",
+      "model": "",
+      "version": "",
+      "config": "",
+      "key": "",
       "branch_present": true
     },
     {
       "name": "gauge-reader",
       "branch": "ma/gauge-reader",
       "role": "Registered ahead of the branch — reports as absent.",
+      "kind": "",
+      "model": "",
+      "version": "",
+      "config": "",
+      "key": "",
       "branch_present": false
     }
   ],

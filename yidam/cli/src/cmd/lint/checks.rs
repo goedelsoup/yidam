@@ -4918,7 +4918,17 @@ pub fn resolution_elector_unregistered(
 /// longer true — when `electors.md` binds a distinct signing key per seat (RFC-0012), the
 /// executor is recoverable from the commit and a missing field is a choice rather than an
 /// inheritance.
-pub fn resolution_executor_unrecorded(records: &[crate::cmd::sangha::Resolution]) -> Check {
+///
+/// **`keys_bind_seats` is that condition, decided rather than promised.** It is
+/// [`super::attest::binds_distinct_key_per_seat`] — every registered seat binds a key and no
+/// two bind the same one — so the escalation is an event with a commit that causes it, not a
+/// sentence in a doc comment. It is false in every repository that has not opted into
+/// collective mode, which is nearly all of them, and false in the measured one: the registry
+/// binds no keys, so the 29 records written before the field existed stay a warning.
+pub fn resolution_executor_unrecorded(
+    records: &[crate::cmd::sangha::Resolution],
+    keys_bind_seats: bool,
+) -> Check {
     let violations = records
         .iter()
         .filter(|r| r.synthesized_by.is_empty())
@@ -4933,7 +4943,11 @@ pub fn resolution_executor_unrecorded(records: &[crate::cmd::sangha::Resolution]
     Check::new(
         "resolution-executor-unrecorded",
         "Resolution record does not name the seat that executed it",
-        Severity::Warn,
+        if keys_bind_seats {
+            Severity::Error
+        } else {
+            Severity::Warn
+        },
         "Article II governs weight and Article III governs record, and they answer different \
          questions. Naming the executor grants it nothing — no standing, no tiebreak, no \
          priority in any later resolution — which is why recording it costs the article \
@@ -4972,7 +4986,7 @@ mod resolution_record_tests {
             &["ma/auditor@aaaaaaa", "ma/advocate@bbbbbbb"],
         )];
         assert!(resolution_elector_unregistered(&r, &registered()).passed());
-        assert!(resolution_executor_unrecorded(&r).passed());
+        assert!(resolution_executor_unrecorded(&r, false).passed());
     }
 
     /// The tip carries `@<hash>`; the seat is what precedes it. Comparing the whole string
@@ -5029,7 +5043,7 @@ mod resolution_record_tests {
     #[test]
     fn a_record_naming_no_executor_warns_and_does_not_gate() {
         let r = [record("resolutions/e.md", &[], &["ma/auditor@a"])];
-        let c = resolution_executor_unrecorded(&r);
+        let c = resolution_executor_unrecorded(&r, false);
         assert_eq!(c.violations.len(), 1, "{c:#?}");
         assert_eq!(c.severity, Severity::Warn);
         // …and the *other* check is silent about it: a record that names no seat has named
@@ -5037,11 +5051,27 @@ mod resolution_record_tests {
         assert!(resolution_elector_unregistered(&r, &registered()).passed());
     }
 
+    /// The escalation RFC-0012 arms: the same records, the same finding, and it gates once
+    /// the registry binds a distinct key per seat — because the executor is then recoverable
+    /// from the commit and a missing field is a choice rather than an inheritance.
+    ///
+    /// The condition is [`super::super::attest::binds_distinct_key_per_seat`]; this asserts
+    /// only that the severity follows it, which is the half that lives here.
+    #[test]
+    fn a_registry_binding_a_key_per_seat_makes_it_gate() {
+        let r = [record("resolutions/e.md", &[], &["ma/auditor@a"])];
+        let c = resolution_executor_unrecorded(&r, true);
+        assert_eq!(c.violations.len(), 1, "{c:#?}");
+        assert_eq!(c.severity, Severity::Error, "{c:#?}");
+    }
+
     /// A repository with no sangha has no records, and both checks report that they ran.
     #[test]
     fn no_records_is_not_a_finding() {
         assert!(resolution_elector_unregistered(&[], &[]).passed());
-        assert!(resolution_executor_unrecorded(&[]).passed());
+        assert!(resolution_executor_unrecorded(&[], false).passed());
+        // Escalated or not, a check with nothing to report reports nothing.
+        assert!(resolution_executor_unrecorded(&[], true).passed());
     }
 }
 
