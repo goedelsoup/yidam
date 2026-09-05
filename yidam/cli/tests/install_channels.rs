@@ -685,20 +685,34 @@ fn every_pinned_tag_is_the_version_this_repository_declares() {
             pinned += 1;
         }
         for line in text.lines().filter(|l| l.contains(".mcpb")) {
-            // Only lines naming a release asset. `.mcpb` is also written about as a format
-            // — "an `.mcpb` is a zip holding a manifest" — and prose about the format
-            // carries no version to be wrong.
-            if !line.contains("yidam-") {
-                continue;
+            // Only *filenames*, and this used to read `line.contains("yidam-")`.
+            //
+            // `.mcpb` is also written about as a format — "an `.mcpb` is a zip holding a
+            // manifest" — and prose about the format carries no version to be wrong, so the
+            // filter has always had to tell the two apart. A line-wide `yidam-` was a fine
+            // proxy while `yidam-` began exactly one thing. RFC-0030 adds a second
+            // (`yidam-edit`, the web editor surface), so a sentence contrasting the bundle
+            // with it — *"a `.mcpb` bundle contains the binary; `yidam-edit` contains no
+            // binary"* — matched, and was reported as a stale release filename.
+            //
+            // So the filter reads the token rather than the line: an asset name is a
+            // whitespace-delimited word ending in `.mcpb` and beginning `yidam-`. That is
+            // strictly narrower on prose and no weaker on filenames, which is the only
+            // direction this may safely move — a filter that stopped seeing a real asset
+            // name would let exactly the 404 this test exists for through.
+            for token in line
+                .split_whitespace()
+                .map(|t| t.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.' && c != '-'))
+                .filter(|t| t.ends_with(".mcpb") && t.starts_with("yidam-"))
+            {
+                assert!(
+                    token.starts_with(&format!("yidam-{declared}-")),
+                    "{doc} names a bundle from a different release than yidam/cli/Cargo.toml \
+                     declares ({declared}):\n  {token}\nThat filename is a 404 for the one \
+                     channel whose users cannot diagnose it."
+                );
+                pinned += 1;
             }
-            assert!(
-                line.contains(&format!("yidam-{declared}-")),
-                "{doc} names a bundle from a different release than yidam/cli/Cargo.toml \
-                 declares ({declared}):\n  {}\nThat filename is a 404 for the one channel \
-                 whose users cannot diagnose it.",
-                line.trim()
-            );
-            pinned += 1;
         }
     }
     assert!(
