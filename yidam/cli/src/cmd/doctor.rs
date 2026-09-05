@@ -102,6 +102,7 @@ impl Check {
     const CORPORA: &'static str = "corpora";
     const VAULT: &'static str = "vault";
     const POLICY: &'static str = "policy";
+    const GOVERNANCE: &'static str = "governance";
 
     fn new(
         id: &'static str,
@@ -541,6 +542,11 @@ pub(crate) fn diagnose(
                 why,
             ),
             Check::skipped(Check::VAULT, "Can this repository reach its vault?", why),
+            Check::skipped(
+                Check::GOVERNANCE,
+                "Is this repository's governance mode carrying its own weight?",
+                why,
+            ),
             check_build(),
         ];
     }
@@ -556,6 +562,7 @@ pub(crate) fn diagnose(
         check_corpora(root),
         check_vault(root),
         check_policy(root),
+        check_governance(root),
         check_build(),
     ]
 }
@@ -647,6 +654,106 @@ fn check_policy(root: &Path) -> Check {
         Some(
             "`yidam policy test` runs the inherited cases against your rules and reports which \
              expectations they no longer meet.",
+        ),
+    )
+}
+
+/// How many commits `HEAD` carries. `0` on anything that cannot be counted, which reads the
+/// same as "too early to tell" everywhere it is used.
+fn commit_count(root: &Path) -> usize {
+    std::process::Command::new("git")
+        .current_dir(root)
+        .args(["rev-list", "--count", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+/// How much history has to pass before "the sangha has never run a resolution" is worth
+/// saying rather than merely true. #581 measured three of four repositories that declared
+/// collective governance and never ran one; a repository ten commits past genesis has not
+/// had the chance yet, so this is well above the population's evolution-branch depths.
+const GOVERNANCE_HISTORY_THRESHOLD: usize = 20;
+
+/// Is this repository's declared governance mode carrying its own weight? (#581)
+///
+/// "Declaring collective" is read the way [`crate::cmd::sangha::sangha_data`] reads it — a
+/// registered elector, `ma/*` row and all, in `.yidam/sangha/electors.md` — not the
+/// `governance:` field bootstrap writes to a decision record, which nothing keeps in sync
+/// with what actually happens after genesis. Three of four repositories in the #581
+/// measurement chose `collective` in the decision record and never ran a resolution; the
+/// electors table is the artifact that would show it either way.
+///
+/// Informational only, and silent for a long time on purpose: a young repository with real
+/// electors and no resolution yet has done nothing wrong. This never fails — carrying
+/// unused scaffolding is a cost, not a corruption — and only warns once enough history has
+/// passed that "never" starts to mean something.
+fn check_governance(root: &Path) -> Check {
+    const Q: &str = "Is this repository's governance mode carrying its own weight?";
+    let electors_path = crate::paths::yidam_sangha_dir(root).join("electors.md");
+    let Ok(text) = std::fs::read_to_string(&electors_path) else {
+        return Check::new(
+            Check::GOVERNANCE,
+            Q,
+            Verdict::Ok,
+            "single-elector — no .yidam/sangha/electors.md",
+            None,
+        );
+    };
+    let electors = crate::cmd::sangha::parse_electors(&text);
+    if electors.is_empty() {
+        return Check::new(
+            Check::GOVERNANCE,
+            Q,
+            Verdict::Ok,
+            "electors.md present, but no ma/* elector is registered yet",
+            None,
+        );
+    }
+    let has_resolution = crate::git::phase_refs(root)
+        .iter()
+        .any(|r| r.kind == crate::git::RefKind::Evolution);
+    if has_resolution {
+        return Check::new(
+            Check::GOVERNANCE,
+            Q,
+            Verdict::Ok,
+            format!(
+                "{} elector(s) registered; at least one rigpa/* resolution exists",
+                electors.len()
+            ),
+            None,
+        );
+    }
+    let commits = commit_count(root);
+    if commits < GOVERNANCE_HISTORY_THRESHOLD {
+        return Check::new(
+            Check::GOVERNANCE,
+            Q,
+            Verdict::Ok,
+            format!(
+                "{} elector(s) registered, no resolution yet, {commits} commit(s) in — too \
+                 early to tell",
+                electors.len()
+            ),
+            None,
+        );
+    }
+    Check::new(
+        Check::GOVERNANCE,
+        Q,
+        Verdict::Warn,
+        format!(
+            "{} elector(s) registered under collective governance; zero rigpa/* resolutions \
+             in {commits} commits — the sangha scaffold is carrying no weight",
+            electors.len()
+        ),
+        Some(
+            "run a resolution, or drop to single-elector and remove .yidam/sangha/ (it can \
+             be re-scaffolded when a second elector actually appears)",
         ),
     )
 }
@@ -1310,6 +1417,15 @@ mod tests {
         assert!(!DoctorReport::new(checks, false).passed);
     }
 
+    fn git(dir: &Path, args: &[&str]) {
+        let status = std::process::Command::new("git")
+            .current_dir(dir)
+            .args(args)
+            .status()
+            .expect("git");
+        assert!(status.success(), "git {args:?} failed in {}", dir.display());
+    }
+
     // ── provenance ───────────────────────────────────────────────────────────
 
     #[test]
@@ -1499,6 +1615,108 @@ mod tests {
     fn no_vendored_prelude_warns() {
         let tmp = derived_repo();
         assert_eq!(check_prelude(tmp.path(), 20_000).verdict, Verdict::Warn);
+    }
+
+    // ── governance ───────────────────────────────────────────────────────────
+
+    const ELECTOR_TABLE: &str = "| Name | Branch | Role |\n|---|---|---|\n\
+                                  | `auditor` | `ma/auditor` | Holds a position. |\n";
+
+    /// The common case: no `.yidam/sangha/` at all. Single-elector, nothing to weigh.
+    #[test]
+    fn no_sangha_directory_is_fine() {
+        let tmp = derived_repo();
+        let c = check_governance(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok);
+        assert!(c.detail.contains("single-elector"));
+    }
+
+    /// `electors.md` exists — it ships with the collective scaffold — but carries only the
+    /// template's placeholder row. Not collective yet; nothing to weigh.
+    #[test]
+    fn an_electors_file_with_no_real_elector_is_fine() {
+        let tmp = derived_repo();
+        std::fs::create_dir_all(crate::paths::yidam_sangha_dir(tmp.path())).unwrap();
+        std::fs::write(
+            crate::paths::yidam_sangha_dir(tmp.path()).join("electors.md"),
+            "| Name | Branch | Role |\n|---|---|---|\n\
+             | *(no electors registered yet)* | | |\n",
+        )
+        .unwrap();
+        let c = check_governance(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok);
+    }
+
+    /// #581's actual measurement: electors registered, no `rigpa/*` resolution, and enough
+    /// history that "never" means something. This is the one case that should warn.
+    #[test]
+    fn collective_with_no_resolution_after_a_long_history_warns() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(crate::paths::yidam_sangha_dir(tmp.path())).unwrap();
+        std::fs::write(
+            crate::paths::yidam_sangha_dir(tmp.path()).join("electors.md"),
+            ELECTOR_TABLE,
+        )
+        .unwrap();
+        git(tmp.path(), &["init", "-q", "-b", "main"]);
+        git(tmp.path(), &["config", "user.email", "doctor@yidam.test"]);
+        git(tmp.path(), &["config", "user.name", "Doctor"]);
+        for i in 0..GOVERNANCE_HISTORY_THRESHOLD {
+            std::fs::write(tmp.path().join("marker"), i.to_string()).unwrap();
+            git(tmp.path(), &["add", "-A"]);
+            git(tmp.path(), &["commit", "-q", "-m", &format!("commit {i}")]);
+        }
+
+        let c = check_governance(tmp.path());
+        assert_eq!(c.verdict, Verdict::Warn, "detail was: {}", c.detail);
+        assert!(c.detail.contains("rigpa"), "{}", c.detail);
+        assert!(c.remedy.is_some());
+    }
+
+    /// The same shape, short of the threshold: a young repository has not had the chance to
+    /// run a resolution yet, and this must not read as a problem.
+    #[test]
+    fn collective_with_no_resolution_but_young_history_is_fine() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(crate::paths::yidam_sangha_dir(tmp.path())).unwrap();
+        std::fs::write(
+            crate::paths::yidam_sangha_dir(tmp.path()).join("electors.md"),
+            ELECTOR_TABLE,
+        )
+        .unwrap();
+        git(tmp.path(), &["init", "-q", "-b", "main"]);
+        git(tmp.path(), &["config", "user.email", "doctor@yidam.test"]);
+        git(tmp.path(), &["config", "user.name", "Doctor"]);
+        git(tmp.path(), &["commit", "-q", "--allow-empty", "-m", "genesis"]);
+
+        let c = check_governance(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok, "detail was: {}", c.detail);
+    }
+
+    /// A `rigpa/*` ref existing at all clears the finding, no matter how long the history —
+    /// this is the repository actually using what it declared.
+    #[test]
+    fn collective_with_a_resolution_branch_is_fine_regardless_of_history() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(crate::paths::yidam_sangha_dir(tmp.path())).unwrap();
+        std::fs::write(
+            crate::paths::yidam_sangha_dir(tmp.path()).join("electors.md"),
+            ELECTOR_TABLE,
+        )
+        .unwrap();
+        git(tmp.path(), &["init", "-q", "-b", "main"]);
+        git(tmp.path(), &["config", "user.email", "doctor@yidam.test"]);
+        git(tmp.path(), &["config", "user.name", "Doctor"]);
+        for i in 0..GOVERNANCE_HISTORY_THRESHOLD {
+            git(
+                tmp.path(),
+                &["commit", "-q", "--allow-empty", "-m", &format!("commit {i}")],
+            );
+        }
+        git(tmp.path(), &["branch", "rigpa/first-evolution"]);
+
+        let c = check_governance(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok, "detail was: {}", c.detail);
     }
 
     // ── report ───────────────────────────────────────────────────────────────
