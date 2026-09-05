@@ -43,16 +43,16 @@ pub use cmd::tonpa;
 pub use cmd::SAMUDAYA_KINDS;
 pub use cmd::{
     agents_index, backfill, bench, bundle, bundle_status, catalog_audit, check_diff,
-    citation_range_stated_twice, clone, collect_line_citations, corpus_index, crates_index,
-    dead_line_citation, decisions_log, diff_corpus, doctor, due, embed, estimate, export, graph,
-    graph_check, index_status, index_verify, label_range, lint, list_formats, log, migrate,
-    neighbors, open_questions, overlay, pack, packages_index, parse_bench_goals, phases, propose,
-    query, regen, relocate, rename, replay, run_export, run_kuten, run_policy, run_vault,
-    samudaya_audit, sangha, schema, serve_lsp, serve_mcp, skills_index, slid_line_citation, status,
-    unverified_line_citation, vault_status, vocabulary, BenchGoal, BenchGoalSet, EmbedOptions,
-    ExportFormat, ExportOptions, KutenCommand, LineCitation, LineFragment, LintCheck, LintOptions,
-    LintViolation, LogFilter, MigrateOperation, PolicyCommand, ProposeOptions, RdfFormat,
-    Relocation, VaultCommand,
+    citation_label_not_cited, citation_range_stated_twice, clone, collect_line_citations,
+    corpus_index, crates_index, dead_line_citation, decisions_log, diff_corpus, doctor, due, embed,
+    estimate, export, graph, graph_check, index_status, index_verify, label_range, label_symbols,
+    lint, list_formats, log, migrate, neighbors, open_questions, overlay, pack, packages_index,
+    parse_bench_goals, phases, propose, query, regen, relocate, rename, replay, run_export,
+    run_kuten, run_policy, run_vault, samudaya_audit, sangha, schema, serve_lsp, serve_mcp,
+    skills_index, slid_line_citation, status, unverified_line_citation, vault_status, vocabulary,
+    BenchGoal, BenchGoalSet, EmbedOptions, ExportFormat, ExportOptions, KutenCommand, LineCitation,
+    LineFragment, LintCheck, LintOptions, LintViolation, LogFilter, MigrateOperation,
+    PolicyCommand, ProposeOptions, RdfFormat, Relocation, VaultCommand,
 };
 
 /// The remote transport (#423). Gated because the feature is what pulls the server, and

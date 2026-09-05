@@ -24,8 +24,9 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 
 pub use line_citations::{
-    citation_range_stated_twice, dead_line_citation, label_range, relocate, slid_line_citation,
-    unverified_line_citation, LineCitation, LineFragment, Relocation,
+    citation_label_not_cited, citation_range_stated_twice, dead_line_citation, label_range,
+    label_symbols, relocate, slid_line_citation, unverified_line_citation, LineCitation,
+    LineFragment, Relocation,
 };
 pub use model::{Check, Severity, Violation};
 
@@ -455,6 +456,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::broken_prose_link(&prose_links),
         line_citations::dead_line_citation(&line_citations),
         line_citations::slid_line_citation(&line_citations),
+        line_citations::citation_label_not_cited(&line_citations),
         line_citations::unverified_line_citation(&line_citations),
         line_citations::citation_range_stated_twice(&line_citations),
         checks::unauthored_prose_link(&unauthored),

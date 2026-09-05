@@ -439,10 +439,17 @@
       "violations": []
     },
     {
+      "id": "citation-label-not-cited",
+      "title": "A citation's label names something its lines do not say",
+      "severity": "error",
+      "rationale": "The strong anchor is a quote, and 119 of this repository's 150 line citations carry none. Each of those was checked for existence and nothing else, which leaves the whole of the interesting failure uncovered: a range that slides onto lines that are neither blank nor quoted is invisible to `dead-line-citation` and `slid-line-citation` at once. Seven citations had already rotted through that gap when a person found them by hand while looking at something else (#627), and six of the seven were labelled with the very check they cited. The label is the anchor they were carrying all along: the house writes a citation of code with its symbol in the label and its coordinate in the fragment, so the label is a claim about the target's content that a check can decide. Read only where nothing quotes the passage — a quote is better evidence and decides alone — and only where the label names a symbol rather than restating the line number, which is the other house form and 104 of the 119. Matched on words exactly as a quote is, so wrapping, emphasis and an argument list cannot manufacture a drift, and any one `::` segment is enough. Error, under the baseline ratchet like every other citation defect a person here can fix: this is a latch on a population that is already correct, not a backlog.",
+      "violations": []
+    },
+    {
       "id": "unverified-line-citation",
-      "title": "A line citation with no quote to hold it to",
+      "title": "A line citation with nothing to hold it to",
       "severity": "info",
-      "rationale": "A citation that quotes nothing can only be checked for existence, and a range that slid onto the wrong lines still exists. Most such citations point at code, where the house style quotes nothing. Reported rather than passed, because a reader meeting a bare `file.rs:42` will assume somebody verified it; Info severity, because the fix — quote the passage, widen to a stable range, or drop the fragment — is a judgement about the document, not a defect in the corpus. Never gates, never baselined.",
+      "rationale": "A citation with neither anchor can only be checked for existence, and a range that slid onto the wrong lines still exists. Info is not the whole answer to that and was never meant to be — seven citations rotted through this exact gap and nothing found them (#632). What closes the part of it that the document can close is `citation-label-not-cited`, which reads the symbol a code citation labels as the anchor a quote would have been. What is left here is the residue: a citation whose label restates the line number and whose prose says nothing about the passage. There, the document holds no claim about the target at all, and only a recorded digest of the cited lines could tell a slide from an edit — an artifact with a staleness question of its own, weighed against this and declined (#632). So the severity stays Info, because the remedy — quote the passage, label the symbol, widen to a stable range, or drop the fragment — is a judgement about the document and not a defect in the corpus. Never gates, never baselined. The count is the thing to watch: it is how much of the citation surface is taken on trust.",
       "violations": []
     },
     {
