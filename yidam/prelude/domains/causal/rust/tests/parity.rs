@@ -59,7 +59,10 @@ fn parity_ate() {
 #[test]
 fn parity_confounding_score() {
     let fixtures = load_fixtures("causal.confounding_score");
-    assert!(!fixtures.is_empty(), "no causal.confounding_score fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no causal.confounding_score fixtures found"
+    );
 
     for fx in &fixtures {
         let input = &fx["input"];

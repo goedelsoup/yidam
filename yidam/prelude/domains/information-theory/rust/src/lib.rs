@@ -1,5 +1,6 @@
 pub fn entropy(probs: &[f64]) -> f64 {
-    probs.iter()
+    probs
+        .iter()
         .filter(|&&p| p > 0.0)
         .map(|&p| -p * p.log2())
         .sum()
