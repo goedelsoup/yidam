@@ -59,6 +59,7 @@ re-deriving it.
 | [0026](0026-orchestrator-layer.md) | I21 | A run is a commit somebody can refuse — the orchestrator layer | Draft |
 | [0027](0027-openai-profile.md) | I22 | A profile is a projection, not a second contract — the `openai` profile | Draft |
 | [0028](0028-kuten-layer.md) | I23 | The form a practice takes — the kuten layer | Draft |
+| [0029](0029-write-tier.md) | I24 | A write is a capability a server declares, not a transport it happens to have — the MCP write tier | Draft |
 
 ## Reading order
 

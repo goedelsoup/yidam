@@ -16,6 +16,15 @@
 - **Downstream reference case:** none yet — `examples/streamflow` under D1 (#428), by
   construction.
 
+> **Version coordination, 2026-09-04.** Migration below reserves contract `0.12.0 → 0.13.0` for
+> the `profiles` addition. That version is no longer available: commit 8b49753, landing the corpus
+> handshake block three hours after this RFC did, consumed 0.13.0, and cli/v0.9.0 released it —
+> live `tools.json` reads 0.13.0 with no `profiles` key. Per
+> [RFC-0029](0029-write-tier.md) §2.5, a contract version is now **claimed at landing, never
+> reserved in prose**: the `profiles` change takes the next free minor on the day it merges
+> (expected 0.14.0, ahead of RFC-0029's `act` tier at 0.15.0), and the two changes are two
+> separate minors, never one.
+
 ## Summary
 
 #426 was filed on a requirement that does not exist. The ChatGPT surfaces do **not** demand a

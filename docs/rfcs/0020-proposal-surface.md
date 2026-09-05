@@ -13,6 +13,19 @@
 - **Parent epic:** #252 (E4) — this RFC precedes #269, and the proposal halves of #270 and
   #271 are built against it
 
+> **Amended 2026-09-04, by [RFC-0029](0029-write-tier.md).** "What this does not touch" declines
+> an MCP `propose` tool: *"an agent that could call `propose` over MCP would be a tool proposing
+> to a tool, and the whole design turns on a person reading the branch."* The decline is
+> **amended, not overridden**, because the calculus changed after it was written. RFC-0026's run
+> invariant — a run authors operational commits directly, every epistemic commit goes to a
+> proposal branch, and nothing merges itself — enforces the person-reads-the-branch property on
+> the commits themselves, mechanically (`classify_commit` over a run's commits), rather than by
+> keeping the transport a shell; and RFC-0029's identity gate ensures a write-capable declaration
+> exists only where a git author does, so the caller is never "a tool" with nobody behind it.
+> What lapses is only the inference that the transport must therefore stay shell-only. The clause
+> this section actually protects — a person reading the branch, nothing merging itself — stands
+> in full and is restated by RFC-0029 §3.
+
 ## Summary
 
 Every gate this repository ships names a task and hands it to a human who may never come
