@@ -24,11 +24,14 @@ After bootstrap, a derived repository has two tiers:
 
 **Created on first use.** Bootstrap does not scaffold `agents/`, `docs/`, or `packages/`.
 An empty directory holding only a README that describes what it would contain is
-indistinguishable from an abandoned one — and it stays empty: across the two repositories
-derived from this template, `agents/` and `packages/` never received a single file and
-`docs/` received exactly one. Create each the day something goes in it. The conventions
-below say what belongs where when that day comes; the `yidam` CLI treats all three as
-optional and its index commands are no-ops when the directory is absent.
+indistinguishable from an abandoned one, which is the argument for deferral, not a claim
+that these directories go unused — measured across fifteen derived repositories, `agents/`
+received 11 domain agents across 4 repositories and `docs/` received 53 files across 6;
+only `packages/` stayed empty in 14 of 15. Create each the day something goes in it, the
+same argument `sadhana/skills/README.md` makes for skills: a repeatable need emerges from
+inquiry, not preemptively. The conventions below say what belongs where when that day
+comes; the `yidam` CLI treats all three as optional and its index commands are no-ops when
+the directory is absent.
 
 ---
 
