@@ -195,23 +195,28 @@ population, which is where people actually landed. The user may give a different
 press enter to accept the computed default. Record it as `corpus_depth` in the decision
 record — step 6 distributes instances across classes to reach this target.
 
-Finally, ask the governance question:
+Finally, ask the governance question — by name, not by count:
 
-> **Who will maintain this repository — one elector, or several?** [default: one]
+> **Name the people or independently-directed agents who will maintain this repository.**
 >
-> **One** — you (with agents acting on your behalf) are the sole elector. Phases run on
-> `phase/<name>` branches off the baseline. This is the common case.
+> If that's just you, with agents acting on your behalf, name yourself and stop — you are
+> the sole elector. Phases run on `phase/<name>` branches off the baseline. This is the
+> common case.
 >
-> **Several** — multiple humans or independently-directed agents hold positions that are
-> expected to diverge and must be reconciled. This activates the sangha: each elector keeps
-> a `ma/<elector>` branch, and resolution events synthesize them into `rigpa/<evolution>`
-> baselines under the constitution.
+> If you can name a second elector — someone who will actually hold and reconcile a
+> position that is expected to diverge from yours — name them too. This activates the
+> sangha: each named elector keeps a `ma/<elector>` branch, and resolution events synthesize
+> them into `rigpa/<evolution>` baselines under the constitution.
 
-Record the answer as `governance: single-elector | collective`. Do not choose `collective`
-because it sounds more capable — it is a real protocol with real overhead, and a repository
-that adopts it and never runs a resolution has paid for machinery it does not use. If the
-user is unsure, take the default; a single-elector repo can adopt the sangha later by
-scaffolding `.yidam/sangha/` when a second elector actually appears.
+A person who cannot name a second elector has answered the question: record
+`single-elector` and move on, rather than treating "one elector, or several?" as a choice
+between two modes of the same weight. Record the answer as `governance: single-elector |
+collective`, with the named electors listed under `electors:`. Do not choose `collective`
+because it sounds more capable — it is a real protocol with real overhead, scaffolded now
+(step 3 creates five files for it), and a repository that names one elector but adopts it
+anyway has paid for machinery it does not use. If only one name comes up, take
+`single-elector`; the sangha can be adopted later by scaffolding `.yidam/sangha/` when a
+second elector actually appears and can be named.
 
 Then write the ontology decision record, including the chosen alignment, corpus depth, and
 governance mode, before proceeding to step 3:
@@ -225,6 +230,7 @@ id: ontology
 summary: <one line — the domain, class count, and chosen foundational alignment>
 corpus_depth: 26              # target instance count; default is 2 per class, min 13; user-configurable
 governance: single-elector    # single-elector | collective
+electors: [<name>]            # the electors named when the governance question was asked
 context: |
   <what the ontology discovery dialogue surfaced; key choices made; examples used to explain
   the alignment options>
