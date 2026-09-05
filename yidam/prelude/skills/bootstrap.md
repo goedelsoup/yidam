@@ -274,11 +274,15 @@ web/README.md
 **Create on first use, not now:** `agents/`, `packages/`, and `docs/`. Their sadhana
 templates exist and are the right content — but scaffold them the day something goes in
 them, not at genesis. An empty directory with a README explaining what it would contain is
-indistinguishable from an abandoned one, and it stays that way: across the two repositories
-derived from this template, `agents/` and `packages/` never received a single file, and
-`docs/` received exactly one. Note them in step 9 instead, so the user knows they exist as
-conventions. The `yidam` CLI treats all three as optional — `agents-index` and
-`packages-index` are no-ops when the directory is absent.
+indistinguishable from an abandoned one, which is the argument for deferral — not the count
+of what arrived. Measured across fifteen derived repositories, `packages/` stayed empty in
+14 of 15, but `agents/` received 11 domain agents across 4 repositories and `docs/` received
+53 files across 6: the deferral does not mean these directories go unused, only that they
+are created the day a repeatable need for them emerges rather than speculatively at genesis
+— the same argument `sadhana/skills/README.md` already makes for skills ("Add skills when a
+repeatable procedure emerges from inquiry — not preemptively"). Note them in step 9 instead,
+so the user knows they exist as conventions. The `yidam` CLI treats all three as optional —
+`agents-index` and `packages-index` are no-ops when the directory is absent.
 
 **`.yidam/sangha/` — only if `governance: collective`.** Read the governance mode recorded
 in `.yidam/decisions/ontology.yml` in step 2:
