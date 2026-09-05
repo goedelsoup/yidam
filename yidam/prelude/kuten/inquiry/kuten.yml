@@ -99,3 +99,9 @@ policy:
 #   object            — the artifact outside the corpus, and the arrow's direction
 #   rubric            — the criteria a contribution is scored by
 #   question_pressure — what kind of question this corpus should be opening
+#
+# And one that is unpopulated for a different reason — not missing evidence, but no licence:
+#
+#   thresholds        — `[lint] escalate_after` and `[propose] withdraw_uncited_after`. A value
+#                       here would decide when a finding fails the build and when a deletion is
+#                       drafted, and a kuten reaches neither act.
