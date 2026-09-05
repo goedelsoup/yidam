@@ -39,7 +39,7 @@ re-deriving it.
 | [0006](0006-correctness-reconciliation.md) | I6 | Correctness reconciliation — runtime-verifiable embeds + internal inconsistencies | Implemented |
 | [0007](0007-python-index-layer.md) | I7 | The Python SDK index/feature layer — building what the README already promises | Implemented |
 | [0008](0008-emergent-claims.md) | G1 | Emergent claims and the scope of synthesis — the strict reading of Article V, and what "the same claim" means | Accepted |
-| [0009](0009-resolution-executor.md) | G2 | Resolution execution authority and the `synthesized-by` record | Draft |
+| [0009](0009-resolution-executor.md) | G2 | Resolution execution authority and the `synthesized-by` record | Accepted |
 | [0010](0010-evolution-lineage.md) | G3 | Evolution lineage — forking, parentage, and explicit baselines | Accepted |
 | [0011](0011-partial-sangha.md) | G4 | Partial-sangha resolutions and participant-scoped binding | Accepted |
 | [0012](0012-elector-attestation.md) | G5 | Elector identity and attestation — model/version/config + commit signing | Draft |

@@ -1,12 +1,55 @@
 # RFC-0009 — Resolution execution authority and the `synthesized-by` record
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Track:** G2 (governance)
 - **Relates to:** RFC-0008 (emergent claims), RFC-0012 (elector attestation), `CONSTITUTION.md`
   Articles II / III / VI, `sangha/PROTOCOL.md`, `docs/information-architecture.md`
 - **Versioning layers touched:** template (protocol commentary) + bootstrap protocol (resolution
   record schema)
 - **Downstream reference case:** none — sangha-layer, applies to every derived repo.
+
+> **Settled 2026-09-04.** Both proposals shipped in #565 (`b531d39`), the RFC-0009 half of #274,
+> measured against the one derived repository running a sangha before anything was built. The
+> protocol now answers the execution question in a section of its own, "Who may execute one":
+> "Any recognized elector, whether or not they called it" ([`PROTOCOL.md:38`](../../sadhana/sangha/PROTOCOL.md#L38)).
+> The record format carries the field ([`PROTOCOL.md:186`](../../sadhana/sangha/PROTOCOL.md#L186)),
+> mirrored in [`information-architecture.md:113`](../information-architecture.md#L113), with the
+> Article II / III reconciliation stated beside it as this RFC argued it:
+> "It is a record, not a rank" ([`PROTOCOL.md:209-214`](../../sadhana/sangha/PROTOCOL.md#L209-L214)).
+>
+> Two checks hold the field to the registry, and their split is the settlement's shape.
+> `resolution-elector-unregistered` (Error) fires on "a `ma/*` branch the record names, as a tip
+> or as the executor, that `electors.md` does not register" — set membership between two committed
+> files, green on the real corpus at 70 of 70 tips. `resolution-executor-unrecorded` (Warn) fires
+> on a record naming no executor — 29 of 29 existing records, where this RFC's compatibility
+> section expected none to exist. Verified against that corpus rather than predicted: 0 errors,
+> 29 warns.
+>
+> What shipped names a **seat**, never an identity. The field points at a `ma/*` row in
+> `electors.md`, and the commit's own subject names the gap it closed — "the record names which
+> tips were read and never who read them". It deliberately stops there. Measured, no identity is
+> recoverable behind a seat: all 126 commits across the three elector branches carry the
+> operator's git author, 0 of the repository's 1,070 commits are signed, and the co-author
+> trailers name one model for all three seats, "because a trailer names what produced a commit
+> rather than which seat held it". As the #274 split comment on #253 puts it: "The branch name is
+> not the weakest discriminator between them — it is the only one." Attestation that could change
+> that is the RFC-0012 half of #274, split to #566 on that same measurement.
+>
+> Three declines, each with its reason kept. Retrofitting the 29 records written before the field
+> existed: they "cannot be fixed", because recalling which seat held the pen is exactly what the
+> corpus cannot recover, and "Gating on a debt that cannot be paid is how a gate gets switched
+> off." So the executor check warns, and its escalation condition is written into the check rather
+> than left to taste: "when `electors.md` binds a distinct signing key per seat, the executor
+> becomes recoverable from the commit and a missing field is a choice rather than an inheritance"
+> (`b531d39`). Requiring `synthesized_by` in `report.schema.json`: declined, "a released CLI
+> predates the field, so a consumer that assumes it is present is wrong against old output and
+> against every record written before today". And a `called-by` field: declined as this RFC
+> leaned — "Only the executor is recorded" ([`PROTOCOL.md:51`](../../sadhana/sangha/PROTOCOL.md#L51)).
+>
+> With the settlement recorded here, the header moves per #598's convention: **Accepted**, not
+> `Implemented`, because `b531d39` is an ancestor of no released tag — not of `cli/v0.9.0`, not of
+> the template's `v0.3.0` — and the legend reserves `Implemented` for work "landed and referenced
+> by a released layer". Both open questions below are decided in place.
 
 ## Summary
 
@@ -105,7 +148,12 @@ required going forward; existing resolutions are unaffected (none exist — `ele
 
 - **Co-synthesis.** Should `synthesized-by` be a list, so a jointly authored resolution names all its
   authors? Lean: yes — a list, singular being the common case. Joint authorship is real and cheap to
-  represent.
+  represent. *Decided as leaned (#565): list-or-scalar —
+  "one seat, or a list where a synthesis was genuinely joint" ([`PROTOCOL.md:209-210`](../../sadhana/sangha/PROTOCOL.md#L209-L210))
+  — and a dropped seat is one of the mutations the tests hold, since downstream it reads exactly
+  like a record that never named one.*
 - **Caller vs. executor.** The caller (who named the branch and notified) and the executor may
   differ. Worth a distinct optional `called-by`, or is that ceremony the git history already carries?
-  Lean: omit for now; revisit if calling ever acquires obligations beyond notification.
+  Lean: omit for now; revisit if calling ever acquires obligations beyond notification. *Decided as
+  leaned (#565): omitted. The protocol says the two may differ, "and often should", and that
+  "Only the executor is recorded" ([`PROTOCOL.md:50-52`](../../sadhana/sangha/PROTOCOL.md#L50-L52)).*
