@@ -2,9 +2,12 @@
 
 - **Status:** Implemented
 - **Track:** I16
-- **Relates to:** RFC-0020 (the proposal surface a finding here becomes), RFC-0018 (the typed
-  query this matches against), RFC-0001 (the report contract it emits on), RFC-0003 (the light
-  binary it must run in), RFC-0016 (the severity table an editor renders it through)
+- **Relates to:**
+  - RFC-0020 (the proposal surface a finding here becomes)
+  - RFC-0018 (the typed query this matches against)
+  - RFC-0001 (the report contract it emits on)
+  - RFC-0003 (the light binary it must run in)
+  - RFC-0016 (the severity table an editor renders it through)
 - **Versioning layers touched:** tooling (`yidam` CLI) — **no parity-surface change, no
   template change, no MCP contract change**; see [What this does not
   touch](#what-this-does-not-touch)
@@ -101,7 +104,7 @@ does not need a general answer, because a diff-scoped check asks about each type
 the commit that introduces it**, with the author present. A corpus-scoped check would ask
 about `Cell` on every run forever.
 
-## Design
+## Proposal
 
 ### One finding
 

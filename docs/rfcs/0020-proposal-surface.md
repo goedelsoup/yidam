@@ -2,10 +2,13 @@
 
 - **Status:** Implemented
 - **Track:** I15
-- **Relates to:** RFC-0019 (whose movement questions this carries into commits), RFC-0008
-  (the strict reading of Article V this depends on), RFC-0009 (the resolution authority this
-  must stay below), RFC-0001 (the report contract the run emits on), RFC-0003 (the light
-  binary this must run in), RFC-0015 (the epistemic log these commits join)
+- **Relates to:**
+  - RFC-0019 (whose movement questions this carries into commits)
+  - RFC-0008 (the strict reading of Article V this depends on)
+  - RFC-0009 (the resolution authority this must stay below)
+  - RFC-0001 (the report contract the run emits on)
+  - RFC-0003 (the light binary this must run in)
+  - RFC-0015 (the epistemic log these commits join)
 - **Versioning layers touched:** tooling (`yidam` CLI) / template (`prelude/GRAPH.md` gains a
   ref namespace and one rule; `.yidam/config.toml` gains one declaration) — **no parity-surface
   change and no MCP contract change**; see [What this does not touch](#what-this-does-not-touch)
@@ -194,7 +197,7 @@ question is settled, which is the definition of a resolution.
 The acts that survive are the ones that assert nothing new: recording a question, retracting
 what nothing came back for, and retiring a question the tool itself raised.
 
-## Design
+## Proposal
 
 ### The test: carriage, not composition
 

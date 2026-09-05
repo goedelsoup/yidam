@@ -233,7 +233,7 @@ fifth character. `shared: "stat"` tells a reader at a glance that the lead is we
 fabricated 0.83 would have concealed; and lifting the floor would take `vote` and `case` with
 it. Recorded as evidence for the open question below rather than acted on.
 
-## Design
+## Proposal
 
 ### One field, not one pass
 

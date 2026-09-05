@@ -2,12 +2,12 @@
 
 - **Status:** Draft
 - **Track:** I24
-- **Relates to:** RFC-0005 (the frozen contract this changes on the record; `tools.json` is the
-  canonical list and this RFC's build bumps it), RFC-0020 (whose recorded decline of an MCP
-  `propose` tool this amends rather than overrides — see §7), RFC-0026 (whose open question 2 this
-  answers, and whose run invariant is what makes answering it safe), RFC-0027 (the projection this
-  must not collide with on a contract version, and the corrected form of the #426 constraint),
-  RFC-0017 / RFC-0018 (the precedent that a contract change is one RFC plus a `tools.json` bump)
+- **Relates to:**
+  - RFC-0005 (the frozen contract this changes on the record; `tools.json` is the canonical list and this RFC's build bumps it)
+  - RFC-0020 (whose recorded decline of an MCP `propose` tool this amends rather than overrides — see §7)
+  - RFC-0026 (whose open question 2 this answers, and whose run invariant is what makes answering it safe)
+  - RFC-0027 (the projection this must not collide with on a contract version, and the corrected form of the #426 constraint)
+  - RFC-0017 / RFC-0018 (the precedent that a contract change is one RFC plus a `tools.json` bump)
 - **Versioning layers touched:** **none in this PR — this is the decision, not the build.** Once
   accepted, the build under this RFC touches SDK+parity (`mcp/tools.json` gains the `act` tier and
   capability; new conformance cases) and tooling (the Rust CLI implements it). See §5 for the

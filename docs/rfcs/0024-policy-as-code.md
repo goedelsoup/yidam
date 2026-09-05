@@ -2,11 +2,12 @@
 
 - **Status:** Implemented
 - **Track:** I19
-- **Relates to:** RFC-0023 (the vault guards this re-expresses, and the store whose push is the
-  first egress channel yidam owns), RFC-0003 (the light binary this must run in), RFC-0001 (the
-  report contract `policy check --format json` emits on), RFC-0018 (the precedent that a new
-  language surface is a CLI surface and **not** a fourth parity function), RFC-0008 (Article V
-  — the second family this deliberately does not implement)
+- **Relates to:**
+  - RFC-0023 (the vault guards this re-expresses, and the store whose push is the first egress channel yidam owns)
+  - RFC-0003 (the light binary this must run in)
+  - RFC-0001 (the report contract `policy check --format json` emits on)
+  - RFC-0018 (the precedent that a new language surface is a CLI surface and **not** a fourth parity function)
+  - RFC-0008 (Article V — the second family this deliberately does not implement)
 - **Versioning layers touched:** template (the prelude gains `policy/`; `directories.md` gains
   a section) / tooling (`yidam` CLI implements it) — **no parity-surface change, no MCP
   contract change, no bootstrap-protocol change**
@@ -115,7 +116,7 @@ Four fields, four arguments, four releases — and every one of those arguments 
 missing is not another field. It is somewhere for a repository to write a rule about itself
 without waiting for a version of a binary it does not build.
 
-## Design
+## Proposal
 
 ### Rust computes facts; Rego decides
 

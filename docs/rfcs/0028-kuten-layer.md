@@ -2,13 +2,14 @@
 
 - **Status:** Draft
 - **Track:** I23
-- **Relates to:** RFC-0020 (the carriage lineage this extends a third step — from findings to
-  executions to conduct), RFC-0026 (the permission layer this composes with, and the two seams
-  on `cmd/phases.rs` and `classify_commit` decided here), RFC-0024 (the policy layer every
-  severity a kuten proposes must enter through, visibly), RFC-0019 (the citation contract the
-  object slot's coupling checks reuse rather than re-invent), RFC-0008 (the strict reading of
-  Article V the constitutional argument here extends), RFC-0001 (the report contract
-  `kuten check` emits on), RFC-0003 (the light binary it must run in)
+- **Relates to:**
+  - RFC-0020 (the carriage lineage this extends a third step — from findings to executions to conduct)
+  - RFC-0026 (the permission layer this composes with, and the two seams on `cmd/phases.rs` and `classify_commit` decided here)
+  - RFC-0024 (the policy layer every severity a kuten proposes must enter through, visibly)
+  - RFC-0019 (the citation contract the object slot's coupling checks reuse rather than re-invent)
+  - RFC-0008 (the strict reading of Article V the constitutional argument here extends)
+  - RFC-0001 (the report contract `kuten check` emits on)
+  - RFC-0003 (the light binary it must run in)
 - **Versioning layers touched:** template (the prelude gains `kuten/`, vendored at genesis into
   `.yidam/.vendor/prelude/kuten/`; the binding rule below joins the vendored text) / bootstrap
   protocol (the dialogue gains the selection; the scaffold gains `.yidam/decisions/kuten.yml`) /

@@ -2,13 +2,12 @@
 
 - **Status:** Draft
 - **Track:** I25
-- **Relates to:** RFC-0016 (the editor surface this is the third client of, and whose boundary
-  it inherits unchanged), RFC-0001 (the JSON report contract it renders), [RFC-0029](0029-write-tier.md) (the
-  write tier this defers its authoring path to rather than inventing a second one, and whose
-  identity gate this surface is the first hard case for), RFC-0005 (the
-  `handle` seam whose framing argument this repeats at a second transport), RFC-0025 (the
-  design system this consumes, and the adherence gate that does not yet see the file types it
-  would be written in)
+- **Relates to:**
+  - RFC-0016 (the editor surface this is the third client of, and whose boundary it inherits unchanged)
+  - RFC-0001 (the JSON report contract it renders)
+  - [RFC-0029](0029-write-tier.md) (the write tier this defers its authoring path to rather than inventing a second one, and whose identity gate this surface is the first hard case for)
+  - RFC-0005 (the `handle` seam whose framing argument this repeats at a second transport)
+  - RFC-0025 (the design system this consumes, and the adherence gate that does not yet see the file types it would be written in)
 - **Versioning layers touched:** none. The claim is argued in
   [§ Not a fifth artifact](#not-a-fifth-artifact) —
   [Layer 4](../../VERSIONING.md#layer-4--tooling)'s table is unchanged, deliberately.

@@ -2,10 +2,11 @@
 
 - **Status:** Accepted
 - **Track:** I20
-- **Relates to:** RFC-0001 (the report envelope this reuses rather than extends), RFC-0003 (the
-  feature split that constrains what a coverage number may claim), RFC-0023 (the read/build
-  split that created the middle build nobody's CI compiles), RFC-0024 (the guard-mirror
-  precedent, and the mutation discipline this automates without replacing)
+- **Relates to:**
+  - RFC-0001 (the report envelope this reuses rather than extends)
+  - RFC-0003 (the feature split that constrains what a coverage number may claim)
+  - RFC-0023 (the read/build split that created the middle build nobody's CI compiles)
+  - RFC-0024 (the guard-mirror precedent, and the mutation discipline this automates without replacing)
 - **Versioning layers touched:** **none released.** This is repository infrastructure and a docs
   deployment. Layer 4 is touched only incidentally — `export-web`'s stylesheet is rebuilt from
   the token source with no change to its output format. No new subcommand, no `format_version`
@@ -107,7 +108,7 @@ reader on `cli/v0.2.0` gets documentation for unreleased tooling with nothing on
 so — including `cli-reference`, which `cli_reference.rs` keeps faithful to `main`'s binary and to
 no other.
 
-## Design
+## Proposal
 
 ### The measurement contract is the existing envelope, reused as a type
 

@@ -86,7 +86,9 @@ Every RFC in this directory follows this shape:
 
 - **Status:** Draft
 - **Track:** I<n>
-- **Relates to:** RFC-000Y, RFC-000Z
+- **Relates to:**
+  - RFC-000Y (what this takes from it, in a clause)
+  - RFC-000Z (what this takes from it, in a clause)
 - **Versioning layers touched:** template / SDK+parity / bootstrap protocol
 - **Downstream reference case:** Project BOSC (watermark-directory)
 
@@ -98,7 +100,14 @@ The current shape, with concrete `file:line` evidence from the yidam tree and fr
 BOSC consumer. State the drift or friction precisely.
 
 ## Proposal
-The concrete design — schemas, command surface, fixture format, type changes.
+The concrete design — schemas, command surface, fixture format, type changes. Name it
+`Proposal`, not `Design`: six RFCs drifted to the latter and a reader looking for the
+design should not have to know which word this one chose.
+
+## What this does not touch
+The adjacent surfaces this deliberately leaves alone, and the reader who might expect
+otherwise. Optional, but ten RFCs found they needed it — a scope boundary stated once
+here is a paragraph nobody has to argue in review.
 
 ## Migration & compatibility
 Which versioning layer bumps; how existing derived repos and BOSC adopt; what breaks.

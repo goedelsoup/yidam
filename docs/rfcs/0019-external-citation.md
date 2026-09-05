@@ -2,10 +2,12 @@
 
 - **Status:** Implemented
 - **Track:** I14
-- **Relates to:** RFC-0018 (the query this must not silently widen), RFC-0002 (the node
-  model a citation is a field of), RFC-0001 (the report contract the checks emit on),
-  RFC-0003 (the light binary this must run in), RFC-0005 (the MCP surface that already
-  distinguishes foreign nodes by `origin`)
+- **Relates to:**
+  - RFC-0018 (the query this must not silently widen)
+  - RFC-0002 (the node model a citation is a field of)
+  - RFC-0001 (the report contract the checks emit on)
+  - RFC-0003 (the light binary this must run in)
+  - RFC-0005 (the MCP surface that already distinguishes foreign nodes by `origin`)
 - **Versioning layers touched:** template (the node model gains a field; `prelude/guidelines`
   gains a rule) / tooling (`yidam` CLI implements the checks) — **no parity-surface change and
   no MCP contract change**; see [What this does not touch](#what-this-does-not-touch)
