@@ -424,6 +424,69 @@ fn starts_a_block(line: &str) -> bool {
         })
 }
 
+/// Whether the stop at `at` is part of a word rather than the end of a sentence.
+///
+/// #562 recorded this residue as blocked: "fixing it means a word list." Measurement
+/// overturned that. Across 18 derived corpora — 16,096 served claims — 179 statements were
+/// truncated at a stop that ends no sentence, and **146 of the 179 (82%) are decidable from
+/// the text alone**, no dictionary of English abbreviations required. Four rules, in the
+/// order of how much each one bought:
+///
+/// - **A period between single letters is not a terminator.** `U.S.` and `A.B.L.E.` are
+///   `(letter .)+`: the letter before the stop is single — its own predecessor is a stop —
+///   so the stop closes the initialism, not the sentence. 129 of the 179, and it reads
+///   `e.g.` and `i.e.` for free because the shape carries no case.
+/// - **An ellipsis is not a terminator.** Three stops in a row are one mark; only the last
+///   ever sees following whitespace, so two stops behind this one veto it. 21 of 179.
+/// - **A stop inside a Markdown link target is not a terminator.** `](…/orc/3317.)` — the
+///   stop lives inside `](…)`. A target contains no whitespace, so scanning back to the
+///   nearest whitespace and finding `](` still open means the stop is part of the URL.
+///   9 of 179, and the same argument holds for a `?` in a query string.
+/// - **A single capital before the stop, and a capitalised word after it, is an initial in
+///   a name.** `Saul E. Allen`. 6 of 179.
+///
+/// The remaining 14 — `Supp.`, `Jr.`, `No.`, `Corp.` — are short capitalised abbreviations
+/// that **only a word list can tell from a sentence end, and there deliberately is none.**
+/// A word list is English compiled into the binary and applied to every corpus in every
+/// domain; it is wrong for the first corpus written in another register or another
+/// language. That residue is 0.09% of all served claims, is pinned by a test below as a
+/// recorded boundary, and stays.
+fn stop_is_lexical(text: &str, at: usize) -> bool {
+    let before = &text[..at];
+    if text.as_bytes()[at] == b'.' {
+        if before.ends_with("..") {
+            return true;
+        }
+        let mut rev = before.chars().rev();
+        let prev = rev.next();
+        let second = rev.next();
+        if prev.is_some_and(char::is_alphabetic) && second == Some('.') {
+            return true;
+        }
+        if prev.is_some_and(char::is_uppercase)
+            && second.is_none_or(|c| !c.is_alphanumeric())
+            && text[at + 1..]
+                .trim_start()
+                .starts_with(|c: char| c.is_uppercase())
+        {
+            return true;
+        }
+    }
+    // Backwards to the nearest whitespace: a `](` still open at the stop puts it inside a
+    // link target. A `)` on the way closes any target the token opened.
+    let bytes = before.as_bytes();
+    let mut i = before.len();
+    while i > 0 {
+        match bytes[i - 1] {
+            b')' => return false,
+            b'(' if i >= 2 && bytes[i - 2] == b']' => return true,
+            b if b.is_ascii_whitespace() => return false,
+            _ => i -= 1,
+        }
+    }
+    false
+}
+
 /// Where the sentence ends if the terminator at `at` ends one, and `None` if it does not.
 ///
 /// A full stop only does when what follows it closes rather than continues. `agent-conduct.md)`
@@ -436,13 +499,15 @@ fn starts_a_block(line: &str) -> bool {
 /// and parenthesised ones `(like this.)`, and a rule that demanded whitespace immediately after
 /// the stop read a whole paragraph as one unterminated sentence — which is how a served claim
 /// reached 1,586 characters before this arm existed.
+///
+/// And what follows is not the whole story: a stop that closes an abbreviation rather than a
+/// sentence — `U.S. Census` — is followed by exactly the whitespace this test asks for. See
+/// [`stop_is_lexical`] for the four shapes that veto it.
 fn sentence_end(text: &str, at: usize) -> Option<usize> {
     let rest = &text[at + 1..];
     let trimmed = rest.trim_start_matches(['*', '_', '`', ')', ']', '"', '\'']);
-    trimmed
-        .chars()
-        .next()
-        .is_none_or(char::is_whitespace)
+    let closes = trimmed.chars().next().is_none_or(char::is_whitespace);
+    (closes && !stop_is_lexical(text, at))
         // Past the markup, not merely past the stop: it closed the sentence before, and
         // leaving it in front of the next one serves `** The gauge is read weekly.`
         .then_some(at + 1 + (rest.len() - trimmed.len()))
@@ -1380,6 +1445,96 @@ mod tests {
             emphasised[0].text, "The gauge is read weekly.",
             "a stop under `**` did not end the sentence before it"
         );
+    }
+
+    /// **An initialism's period does not end a sentence.** `U.S.` is `(letter .)+`, and its
+    /// last stop is followed by exactly the whitespace a terminator wants — so before this
+    /// rule the claim below served as `Census count of each district.` 129 of the 179 false
+    /// terminators measured across 18 corpora were this one shape.
+    #[test]
+    fn an_initialisms_period_does_not_end_a_sentence() {
+        let c = claims_in_node(
+            "description: |\n  Funding follows the U.S. Census count of each district. [verified]\n",
+            &[],
+        );
+        assert_eq!(c.len(), 1, "{c:#?}");
+        assert_eq!(
+            c[0].text,
+            "Funding follows the U.S. Census count of each district."
+        );
+
+        let long = claims_in_node(
+            "description: |\n  The A.B.L.E. account shields the deposit from the asset test. [verified]\n",
+            &[],
+        );
+        assert_eq!(
+            long[0].text, "The A.B.L.E. account shields the deposit from the asset test.",
+            "an initialism longer than two letters was read as a sentence end"
+        );
+    }
+
+    /// **An ellipsis is not a terminator.** Three stops are one mark: only the last of them
+    /// sees whitespace, and reading it as a full stop served the claim below from
+    /// `exclusive` onward — the elision itself became a sentence boundary.
+    #[test]
+    fn an_ellipsis_is_not_a_terminator() {
+        let c = claims_in_node(
+            "description: |\n  The boundary of a county ... exclusive of islands follows the shore. [open]\n",
+            &[],
+        );
+        assert_eq!(c.len(), 1, "{c:#?}");
+        assert_eq!(
+            c[0].text,
+            "The boundary of a county ... exclusive of islands follows the shore."
+        );
+    }
+
+    /// **A stop inside a Markdown link target is not a terminator.** A target holds no
+    /// whitespace, so a stop with `](` still open behind it is part of the URL — here a
+    /// statute path that ends in its own citation dot, which the whitespace test alone
+    /// read as a sentence end and served `for the amounts.` as the whole claim.
+    #[test]
+    fn a_stop_inside_a_link_target_is_not_a_terminator() {
+        let c = claims_in_node(
+            "description: |\n  See [the funding statute](https://codes.ohio.gov/orc/3317.) for the amounts. [verified]\n",
+            &[],
+        );
+        assert_eq!(c.len(), 1, "{c:#?}");
+        assert_eq!(
+            c[0].text,
+            "See [the funding statute](https://codes.ohio.gov/orc/3317.) for the amounts."
+        );
+    }
+
+    /// **An initial in a personal name is not a terminator.** A single capital before the
+    /// stop and a capitalised word after it — `Saul E. Allen` — is the one shape where a
+    /// name reads as a sentence end, and it served `Allen sponsored the amendment.`
+    #[test]
+    fn an_initial_in_a_name_is_not_a_terminator() {
+        let c = claims_in_node(
+            "description: |\n  Senator Saul E. Allen sponsored the amendment. [verified]\n",
+            &[],
+        );
+        assert_eq!(c.len(), 1, "{c:#?}");
+        assert_eq!(c[0].text, "Senator Saul E. Allen sponsored the amendment.");
+    }
+
+    /// **A short capitalised abbreviation still ends the sentence, and that is the recorded
+    /// boundary.** `Supp.` and `No.` are multi-letter, lowercase after their capital, and
+    /// followed by whitespace — every structural rule passes them by, and only a word list
+    /// could catch them. There deliberately is none: a list of English abbreviations
+    /// compiled into the binary is wrong for the first corpus in another language or
+    /// register, and this residue is 14 of 16,096 served claims (0.09%). This test pins the
+    /// truncation so the boundary is a decision, not a surprise; whoever changes the served
+    /// text below is adding the word list and owes the argument #568 asked for.
+    #[test]
+    fn a_short_abbreviations_stop_still_ends_the_sentence() {
+        let c = claims_in_node(
+            "description: |\n  The rate table sits in Supp. No. 4 of the code. [verified]\n",
+            &[],
+        );
+        assert_eq!(c.len(), 1, "{c:#?}");
+        assert_eq!(c[0].text, "4 of the code.");
     }
 
     /// Narration is not assertion, and the four shapes are the counter's — not a fifth
