@@ -181,12 +181,19 @@ different roles and where relationships themselves carry meaning worth querying.
 **None** — no foundational alignment. Classes are typed by domain convention only. Choose this
 if foundational ontology alignment is not a goal of the corpus, or if you want to commit later.
 
-Ask the user to choose one. Then ask:
+Ask the user to choose one. Then compute a default seed count from the confirmed sketch:
+**two instances per class, with a floor of 13** — count the rows in the Nodes table
+confirmed above. State the computed number, not a fixed one, when you ask:
 
-> **How many seed instances should the initial corpus contain?** [default: 13]
+> **How many seed instances should the initial corpus contain?** [default: `<2 × class
+> count, minimum 13>`]
 
-The user may give a number or press enter to accept the default. Record it as `corpus_depth`
-in the decision record — step 6 distributes instances across classes to reach this target.
+A flat default of 13 was measured (#583, A0) against thirteen derived repositories that
+recorded a `corpus_depth`: it was accepted twice in thirteen, and the median chosen was 26
+— double it. "Two per class, minimum 13" would have produced 24–36 for most of that
+population, which is where people actually landed. The user may give a different number or
+press enter to accept the computed default. Record it as `corpus_depth` in the decision
+record — step 6 distributes instances across classes to reach this target.
 
 Finally, ask the governance question:
 
@@ -216,7 +223,7 @@ governance mode, before proceeding to step 3:
 ```yaml
 id: ontology
 summary: <one line — the domain, class count, and chosen foundational alignment>
-corpus_depth: 13              # target instance count for initial seeding; user-configurable
+corpus_depth: 26              # target instance count; default is 2 per class, min 13; user-configurable
 governance: single-elector    # single-elector | collective
 context: |
   <what the ontology discovery dialogue surfaced; key choices made; examples used to explain
@@ -463,7 +470,8 @@ rationale: |
 
 ### 6. Seed corpus objects
 
-Read `corpus_depth` from `.yidam/decisions/ontology.yml` (default 13 if absent). This is
+Read `corpus_depth` from `.yidam/decisions/ontology.yml` (if absent, default to two
+instances per class with a floor of 13, per step 2). This is
 the target total instance count for the genesis corpus. Create a class directory for each
 class, then distribute instances across classes to reach the target:
 
