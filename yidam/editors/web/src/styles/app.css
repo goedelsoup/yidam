@@ -1,0 +1,178 @@
+/* This surface's own layout, spending the design system's tokens and declaring none.
+ *
+ * The import below is the pattern `yidam/web/docs/src/styles/custom.css` set and is the same
+ * string: relative, resolved by Vite at build time, so the system travels inside `dist/` and
+ * costs no request. `_ds_manifest.json` decides the order inside it, which is not this file's
+ * to choose — `semantic.css` resolves `var(--text-…)` from the files above it.
+ *
+ * An earlier draft of this package concatenated the system into a committed copy here, to
+ * keep everything under the npm package root. That was wrong twice over. `design_tokens.rs`
+ * walks the repository and reads any `.css` outside `yidam/design/` as a *consumer*, so the
+ * copy failed the raw-colour gate for holding the palette it was copying — correctly, since
+ * a committed copy of the palette is exactly the thing that gate exists to stop. And the
+ * packing worry it answered does not apply: `files` publishes `bin` and `dist`, and Vite has
+ * already inlined this by the time either exists.
+ *
+ * Every colour below is a `var(--…)` and none is a literal. That keeps this surface inside
+ * the gate's scope whichever way #611 is decided — the scan's extension list is `css`,
+ * `astro`, `jsx`, and `tsx` is not on it.
+ */
+
+@import "../../../../design/tokens.css";
+
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  background: var(--surface-base);
+  line-height: var(--leading-normal);
+}
+
+code {
+  font-family: var(--font-mono);
+}
+
+main {
+  max-width: 68rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 4rem;
+}
+
+.shell-header {
+  border-bottom: 1px solid var(--border-ui-subtle);
+  background: var(--surface-raised);
+  padding: 0.75rem 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.shell-header nav {
+  display: flex;
+  gap: 1rem;
+}
+
+.shell-header a {
+  color: var(--text-primary);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+
+.shell-header a:hover,
+.shell-header a:focus-visible {
+  border-bottom-color: var(--border-accent);
+}
+
+/* Which corpus, and which binary answered for it. On every page rather than on a settings
+ * screen, because a person whose editor disagrees with CI needs this string more than they
+ * need any page behind it. */
+.shell-provenance {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.shell-binary {
+  white-space: nowrap;
+}
+
+/* Degrading loudly is the contract, so the degraded state is loud. Open-question colours,
+ * because that is what an unanswered handshake is. */
+.shell-unavailable {
+  margin: 0;
+  padding: 0.75rem 1.25rem;
+  background: var(--status-open-bg);
+  color: var(--status-open-fg);
+  border-bottom: 1px solid var(--status-open-border);
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1.25rem;
+  margin: 0;
+}
+
+.status-grid dt {
+  color: var(--text-secondary);
+}
+
+.status-grid dd {
+  margin: 0;
+}
+
+table.corpus {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+table.corpus th,
+table.corpus td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.5rem 0.75rem 0.5rem 0;
+  border-bottom: 1px solid var(--border-ui-subtle);
+}
+
+.node-label {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+ul.edges,
+ul.questions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.relationship {
+  color: var(--text-secondary);
+}
+
+/* A dangling edge is the binary's verdict, rendered. Nothing here decides it. */
+.dangling code {
+  color: var(--danger-text);
+  text-decoration: line-through;
+}
+
+.severity {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+}
+
+.rationale {
+  color: var(--text-secondary);
+  margin: 0.25rem 0 0.5rem;
+}
+
+/* Baseline membership outranks severity in both directions — inherited debt reads quieter,
+ * because `yidam lint` asks whether this change made the corpus less clean, not whether the
+ * corpus is clean. */
+.in-baseline {
+  color: var(--text-tertiary);
+}
+
+.tag {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+}
+
+/* The gate's own verdict, rendered. `yidam lint` asks whether this change made the corpus
+ * less clean, so "passed" is the answer to that question and not to "is the corpus clean". */
+.gate-passed {
+  color: var(--status-verified-fg);
+}
+
+.gate-failed {
+  color: var(--status-open-fg);
+  font-weight: 600;
+}

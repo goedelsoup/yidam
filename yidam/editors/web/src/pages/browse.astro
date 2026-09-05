@@ -1,0 +1,84 @@
+---
+/**
+ * Every node, and every edge the CLI resolved for it.
+ *
+ * `yidam graph --format json` reports each edge already resolved, with `exists` answered by
+ * the same test the gate uses — so a broken link renders as broken here because the binary
+ * said so, not because this page re-derived the rule. `graph.ts` states that boundary for the
+ * extension and it is the same boundary.
+ */
+import Shell from '../layouts/Shell.astro'
+import { session } from '../lib/session.ts'
+import { spawnReport } from '../lib/cli.ts'
+
+interface Link {
+  target: string
+  relationship: string
+  resolved?: string
+  exists?: boolean
+}
+/**
+ * `node`, not `id`.
+ *
+ * The field name came off `yidam graph --format json` and off the extension's `reports.ts`,
+ * not out of a guess — the first draft of this page read `id` and rendered a column of empty
+ * cells against a corpus with eight nodes in it.
+ */
+interface Node {
+  node: string
+  class?: string
+  label?: string
+  description?: string
+  links?: Link[]
+}
+interface GraphReport {
+  nodes?: Node[]
+}
+
+const { root, binary } = await session()
+const result =
+  binary.command === null
+    ? null
+    : await spawnReport<GraphReport>({ command: binary.command, root }, 'graph')
+
+const nodes = result && result.ok ? (result.report.nodes ?? []) : []
+---
+
+<Shell title="Browse">
+  {
+    nodes.length === 0 ? (
+      <p>No nodes to show — see the header.</p>
+    ) : (
+      <table class="corpus">
+        <thead>
+          <tr>
+            <th>Node</th>
+            <th>Class</th>
+            <th>Edges</th>
+          </tr>
+        </thead>
+        <tbody>
+          {nodes.map((node) => (
+            <tr>
+              <td>
+                <code>{node.node}</code>
+                {node.label && <div class="node-label">{node.label}</div>}
+              </td>
+              <td>{node.class ?? '—'}</td>
+              <td>
+                <ul class="edges">
+                  {(node.links ?? []).map((link) => (
+                    <li class={link.exists === false ? 'dangling' : undefined}>
+                      <span class="relationship">{link.relationship}</span>{' '}
+                      <code>{link.resolved || link.target}</code>
+                    </li>
+                  ))}
+                </ul>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )
+  }
+</Shell>

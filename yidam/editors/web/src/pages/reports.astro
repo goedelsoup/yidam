@@ -1,0 +1,142 @@
+---
+/**
+ * The findings, as the gate would report them.
+ *
+ * Two reports, in the order the extension settled: **lint owns the diagnostics, graph-check
+ * fills the gap.** A page that showed only lint would show a clean corpus for a class of
+ * finding that is not clean.
+ *
+ * The two have *different shapes*, and this page does not pretend otherwise. `lint` returns
+ * `gate` plus `checks[]`; `graph-check` returns `passed` plus `nodes_with_issues[]`. The
+ * first draft of this page assumed one shape for both and rendered nothing for the second —
+ * silently, against a corpus that had findings. The field names here are the extension's
+ * `reports.ts` types, which are the ones the binary actually prints.
+ *
+ * Severity is rendered from the envelope and never recomputed. Baseline membership is shown
+ * because `yidam lint` does not ask *is the corpus clean?* — it asks *did this change make it
+ * less clean?*, and a reader who cannot see which findings are inherited debt cannot read the
+ * answer. It is meaningful only at `error` severity, which is why it is shown beside one.
+ */
+import Shell from '../layouts/Shell.astro'
+import { session } from '../lib/session.ts'
+import { spawnReport } from '../lib/cli.ts'
+
+interface Violation {
+  node: string
+  detail: string
+  in_baseline: boolean
+}
+interface Check {
+  id: string
+  title: string
+  severity: 'error' | 'warn' | 'info'
+  rationale: string
+  violations: Violation[]
+}
+interface LintReport {
+  gate?: { passed: boolean; new_violations: number; baselined_violations: number }
+  checks?: Check[]
+}
+interface GraphCheckReport {
+  passed?: boolean
+  corpus_empty?: boolean
+  total_instances?: number
+  clean_instances?: number
+  nodes_with_issues?: { node: string; issues: string[] }[]
+  classes_without_instances?: string[]
+}
+
+const { root, binary } = await session()
+const input = binary.command === null ? null : { command: binary.command, root }
+
+const lint = input ? await spawnReport<LintReport>(input, 'lint') : null
+const graphCheck = input ? await spawnReport<GraphCheckReport>(input, 'graph-check') : null
+
+const gate = lint && lint.ok ? lint.report.gate : undefined
+const checks = (lint && lint.ok ? (lint.report.checks ?? []) : []).filter(
+  (check) => check.violations.length > 0,
+)
+const graph = graphCheck && graphCheck.ok ? graphCheck.report : null
+---
+
+<Shell title="Reports">
+  <section>
+    <h2>lint</h2>
+    {
+      !lint || !lint.ok ? (
+        <p>Unavailable — see the header.</p>
+      ) : (
+        <>
+          {gate && (
+            <p class={gate.passed ? 'gate-passed' : 'gate-failed'}>
+              Gate {gate.passed ? 'passed' : 'failed'} — {gate.new_violations} new,{' '}
+              {gate.baselined_violations} in baseline.
+            </p>
+          )}
+          {checks.length === 0 ? (
+            <p>No violations.</p>
+          ) : (
+            checks.map((check) => (
+              <article>
+                <h3>
+                  {check.title} <code>{check.id}</code>{' '}
+                  <span class="severity">{check.severity}</span>
+                </h3>
+                <p class="rationale">{check.rationale}</p>
+                <ul>
+                  {check.violations.map((v) => (
+                    <li class={v.in_baseline ? 'in-baseline' : undefined}>
+                      <code>{v.node}</code> — {v.detail}
+                      {/* Only meaningful at `error` severity: the baseline records
+                          error-severity violations and nothing else. */}
+                      {check.severity === 'error' && v.in_baseline && (
+                        <span class="tag"> baseline</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </article>
+            ))
+          )}
+        </>
+      )
+    }
+  </section>
+
+  <section>
+    <h2>graph-check</h2>
+    {
+      !graph ? (
+        <p>Unavailable — see the header.</p>
+      ) : (
+        <>
+          <p class={graph.passed ? 'gate-passed' : 'gate-failed'}>
+            {graph.passed ? 'Passed' : 'Failed'} — {graph.clean_instances ?? 0} of{' '}
+            {graph.total_instances ?? 0} instances clean.
+          </p>
+          {(graph.nodes_with_issues ?? []).length === 0 ? (
+            <p>No nodes with issues.</p>
+          ) : (
+            <ul>
+              {(graph.nodes_with_issues ?? []).map((n) => (
+                <li>
+                  <code>{n.node}</code>
+                  <ul>
+                    {n.issues.map((issue) => (
+                      <li>{issue}</li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          )}
+          {(graph.classes_without_instances ?? []).length > 0 && (
+            <p class="rationale">
+              Classes with no instances: {(graph.classes_without_instances ?? []).join(', ')}
+            </p>
+          )}
+        </>
+      )
+    }
+  </section>
+</Shell>

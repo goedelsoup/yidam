@@ -1,0 +1,40 @@
+---
+/**
+ * What this corpus is, right now.
+ *
+ * `yidam status` is the report `mise run status` prints, and this page is that report with
+ * the terminal taken out. Nothing is computed here: every number below came off an envelope.
+ */
+import Shell from '../layouts/Shell.astro'
+import { session } from '../lib/session.ts'
+import { spawnReport } from '../lib/cli.ts'
+
+const { root, binary } = await session()
+const result =
+  binary.command === null
+    ? null
+    : await spawnReport<Record<string, unknown>>({ command: binary.command, root }, 'status')
+
+const report = result && result.ok ? result.report : null
+const rows = report ? Object.entries(report).filter(([k]) => k !== 'yidam' && k !== 'format_version') : []
+---
+
+<Shell title="Status">
+  {
+    report ? (
+      <dl class="status-grid">
+        {rows.map(([key, value]) => (
+          <>
+            <dt>{key.replace(/_/g, ' ')}</dt>
+            <dd>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</dd>
+          </>
+        ))}
+      </dl>
+    ) : (
+      <p>
+        No status to show. The header says which yidam was found and why — that string is the
+        thing to act on, not this sentence.
+      </p>
+    )
+  }
+</Shell>
