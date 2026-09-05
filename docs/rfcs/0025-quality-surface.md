@@ -1,6 +1,6 @@
 # RFC-0025 — The instrument, turned around: measuring the repository that measures
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Track:** I20
 - **Relates to:** RFC-0001 (the report envelope this reuses rather than extends), RFC-0003 (the
   feature split that constrains what a coverage number may claim), RFC-0023 (the read/build

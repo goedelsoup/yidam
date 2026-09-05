@@ -1,6 +1,6 @@
 # RFC-0002 — Node-model unification
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I2
 - **Relates to:** RFC-0001 (report contract), RFC-0005 (MCP tool contract), RFC-0006 (correctness reconciliation)
 - **Versioning layers touched:** template / SDK+parity / bootstrap protocol

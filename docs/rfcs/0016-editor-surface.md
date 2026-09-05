@@ -1,6 +1,6 @@
 # RFC-0016 — An editor surface for derived repositories (`yidam` for VS Code)
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I11
 - **Relates to:** RFC-0001 (the report contract this consumes), RFC-0003 (the light binary it
   depends on), RFC-0004 (drift detection it surfaces), RFC-0005 (the sibling agent surface),

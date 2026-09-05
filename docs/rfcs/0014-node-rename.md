@@ -1,6 +1,6 @@
 # RFC-0014 — Node rename as a sanctioned operation
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I9
 - **Relates to:** RFC-0013 (node model; immutable IDs deferred), RFC-0001 (report contract — the
   gate's home), RFC-0003 (light binary — so a pre-commit hook can run it), RFC-0004 (CI enforcement)

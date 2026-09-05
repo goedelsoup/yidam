@@ -1,6 +1,6 @@
 # RFC-0021 — Code that names what the ontology has not (`yidam check-diff`)
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I16
 - **Relates to:** RFC-0020 (the proposal surface a finding here becomes), RFC-0018 (the typed
   query this matches against), RFC-0001 (the report contract it emits on), RFC-0003 (the light

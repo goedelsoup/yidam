@@ -1,6 +1,6 @@
 # RFC-0019 — Citing a corpus you cannot revise (`cites:`)
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I14
 - **Relates to:** RFC-0018 (the query this must not silently widen), RFC-0002 (the node
   model a citation is a field of), RFC-0001 (the report contract the checks emit on),

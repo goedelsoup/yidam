@@ -1,6 +1,6 @@
 # RFC-0010 — Evolution lineage: what a position is measured against
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Track:** G3 (governance)
 - **Relates to:** RFC-0009 (resolution record schema), RFC-0011 (partial-sangha binding),
   `CONSTITUTION.md` Article III, `sangha/PROTOCOL.md`, `prelude/GRAPH.md`, `sangha/README.md`

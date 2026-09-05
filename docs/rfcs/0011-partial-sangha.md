@@ -1,6 +1,6 @@
 # RFC-0011 — Partial-sangha resolutions and participant-scoped binding
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Track:** G4 (governance)
 - **Relates to:** RFC-0010 (explicit baselines), RFC-0009 (participants = tips read),
   `CONSTITUTION.md` Articles II / VI, `sangha/PROTOCOL.md`, `docs/sangha-resolution-flow.md`

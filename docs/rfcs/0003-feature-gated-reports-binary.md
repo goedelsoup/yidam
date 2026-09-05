@@ -1,6 +1,6 @@
 # RFC-0003 — Feature-gated builds and a publishable reports-only binary
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Track:** I3
 - **Relates to:** RFC-0001 (the report contract), RFC-0004 (drift detection), RFC-0007 (the Python index layer)
 - **Versioning layers touched:** template (the CLI ships in the template tree; its build + install story is template-owned)

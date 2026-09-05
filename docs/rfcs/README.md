@@ -31,31 +31,31 @@ re-deriving it.
 
 | RFC | Track | Title | Status |
 |---|---|---|---|
-| [0001](0001-report-contract.md) | I1 | The report contract — reports as versioned rules with golden fixtures | Draft |
-| [0002](0002-node-model-unification.md) | I2 | Node-model unification — one graph model the reports and SDKs share | Draft |
-| [0003](0003-feature-gated-reports-binary.md) | I3 | Feature-gated builds and a publishable reports-only binary | Draft |
+| [0001](0001-report-contract.md) | I1 | The report contract — reports as versioned rules with golden fixtures | Implemented |
+| [0002](0002-node-model-unification.md) | I2 | Node-model unification — one graph model the reports and SDKs share | Implemented |
+| [0003](0003-feature-gated-reports-binary.md) | I3 | Feature-gated builds and a publishable reports-only binary | Accepted |
 | [0004](0004-drift-detection.md) | I4 | Drift detection — making `.yidam.toml` enforceable (`yidam sync`) | Draft |
-| [0005](0005-mcp-tool-contract.md) | I5 | One MCP tool contract across the Rust CLI, TS, and Python servers | Draft |
-| [0006](0006-correctness-reconciliation.md) | I6 | Correctness reconciliation — runtime-verifiable embeds + internal inconsistencies | Draft |
-| [0007](0007-python-index-layer.md) | I7 | The Python SDK index/feature layer — building what the README already promises | Draft |
-| [0008](0008-emergent-claims.md) | G1 | Emergent claims and the scope of synthesis — the strict reading of Article V, and what "the same claim" means | Draft |
+| [0005](0005-mcp-tool-contract.md) | I5 | One MCP tool contract across the Rust CLI, TS, and Python servers | Implemented |
+| [0006](0006-correctness-reconciliation.md) | I6 | Correctness reconciliation — runtime-verifiable embeds + internal inconsistencies | Implemented |
+| [0007](0007-python-index-layer.md) | I7 | The Python SDK index/feature layer — building what the README already promises | Implemented |
+| [0008](0008-emergent-claims.md) | G1 | Emergent claims and the scope of synthesis — the strict reading of Article V, and what "the same claim" means | Accepted |
 | [0009](0009-resolution-executor.md) | G2 | Resolution execution authority and the `synthesized-by` record | Draft |
-| [0010](0010-evolution-lineage.md) | G3 | Evolution lineage — forking, parentage, and explicit baselines | Draft |
-| [0011](0011-partial-sangha.md) | G4 | Partial-sangha resolutions and participant-scoped binding | Draft |
+| [0010](0010-evolution-lineage.md) | G3 | Evolution lineage — forking, parentage, and explicit baselines | Accepted |
+| [0011](0011-partial-sangha.md) | G4 | Partial-sangha resolutions and participant-scoped binding | Accepted |
 | [0012](0012-elector-attestation.md) | G5 | Elector identity and attestation — model/version/config + commit signing | Draft |
-| [0013](0013-node-model-close.md) | I8 | Closing RFC-0002 — the node-model open questions | Draft |
-| [0014](0014-node-rename.md) | I9 | Node rename as a sanctioned operation — dangling-edge gate + atomic `yidam rename` | Draft |
-| [0015](0015-epistemic-log.md) | I10 | An epistemic-only history view (`yidam log --epistemic`) | Draft |
-| [0016](0016-editor-surface.md) | I11 | An editor surface for derived repositories (`yidam` for VS Code) | Draft |
-| [0017](0017-assertion-surface.md) | I12 | Serving assertions, not documents (`claims` and the practice tools) | Draft |
-| [0018](0018-query-surface.md) | I13 | The query surface — typed traversal bounded by the ontology (`yidam query`) | Draft |
-| [0019](0019-external-citation.md) | I14 | Citing a corpus you cannot revise (`cites:`) | Draft |
-| [0020](0020-proposal-surface.md) | I15 | Proposing what a finding already says (`yidam propose`) | Draft |
-| [0021](0021-diff-alignment.md) | I16 | Code that names what the ontology has not (`yidam check-diff`) | Draft |
-| [0022](0022-semantic-alignment.md) | I17 | What a tool may say about code it cannot read (`check-diff`, Phase B) | Draft |
-| [0023](0023-remote-vaults.md) | I18 | Bytes the catalog fetched and never kept — remote vaults | Draft |
-| [0024](0024-policy-as-code.md) | I19 | The rule a repository writes about itself — policy as code | Draft |
-| [0025](0025-quality-surface.md) | I20 | The instrument, turned around — measuring the repository that measures | Draft |
+| [0013](0013-node-model-close.md) | I8 | Closing RFC-0002 — the node-model open questions | Implemented |
+| [0014](0014-node-rename.md) | I9 | Node rename as a sanctioned operation — dangling-edge gate + atomic `yidam rename` | Implemented |
+| [0015](0015-epistemic-log.md) | I10 | An epistemic-only history view (`yidam log --epistemic`) | Implemented |
+| [0016](0016-editor-surface.md) | I11 | An editor surface for derived repositories (`yidam` for VS Code) | Implemented |
+| [0017](0017-assertion-surface.md) | I12 | Serving assertions, not documents (`claims` and the practice tools) | Implemented |
+| [0018](0018-query-surface.md) | I13 | The query surface — typed traversal bounded by the ontology (`yidam query`) | Implemented |
+| [0019](0019-external-citation.md) | I14 | Citing a corpus you cannot revise (`cites:`) | Implemented |
+| [0020](0020-proposal-surface.md) | I15 | Proposing what a finding already says (`yidam propose`) | Implemented |
+| [0021](0021-diff-alignment.md) | I16 | Code that names what the ontology has not (`yidam check-diff`) | Implemented |
+| [0022](0022-semantic-alignment.md) | I17 | What a tool may say about code it cannot read (`check-diff`, Phase B) | Implemented |
+| [0023](0023-remote-vaults.md) | I18 | Bytes the catalog fetched and never kept — remote vaults | Implemented |
+| [0024](0024-policy-as-code.md) | I19 | The rule a repository writes about itself — policy as code | Implemented |
+| [0025](0025-quality-surface.md) | I20 | The instrument, turned around — measuring the repository that measures | Accepted |
 | [0026](0026-orchestrator-layer.md) | I21 | A run is a commit somebody can refuse — the orchestrator layer | Draft |
 | [0027](0027-openai-profile.md) | I22 | A profile is a projection, not a second contract — the `openai` profile | Draft |
 
