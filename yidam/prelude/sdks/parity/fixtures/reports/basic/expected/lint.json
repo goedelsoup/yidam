@@ -103,7 +103,7 @@
       "id": "node-too-long",
       "title": "Instance longer than its class allows",
       "severity": "warn",
-      "rationale": "A long node is usually two nodes, or a node carrying quoted source that belongs in the catalog entry it cites. The ceiling is the class's own — a class that declares no `max_lines:` is not checked, because the length an instance should be is a question about that class and not about corpora in general. Measured before choosing: a fixed ceiling of 40, which the bootstrap rubric uses at genesis, is exceeded by 335 of 410 nodes across five real corpora once they have grown.",
+      "rationale": "A long node is usually two nodes, or a node carrying quoted source that belongs in the catalog entry it cites. The ceiling is the class's own — a class that declares no `max_lines:` is not checked, because the length an instance should be is a question about that class and not about corpora in general. What is counted is the `description` block and not the file: the argument is about prose, and a node that records where each of its edges comes from should not pay for that provenance out of a budget written to stop descriptions sprawling. A corpus that raised `max_lines:` to absorb structural lines can lower it again.",
       "violations": []
     },
     {

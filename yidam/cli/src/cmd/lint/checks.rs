@@ -84,8 +84,14 @@ pub struct Class {
     pub edges: Vec<ClassEdge>,
     /// Whether [`Self::edges`] is a bound or a description. See [`EdgePolicy`].
     pub edge_policy: EdgePolicy,
-    /// The longest an instance of this class may be, in lines. `None` when the class has
+    /// The longest an instance's `description` may be, in lines. `None` when the class has
     /// not said, which is every class written before the field existed — and no check runs.
+    ///
+    /// **Lines of prose, not lines of file.** `node-too-long` counted the bytes as read until
+    /// #588 showed what that charges for: frontmatter, properties, and a `claim_tag` and
+    /// `source` on every link, so a node documenting where its edges come from paid for the
+    /// provenance out of a budget written to stop descriptions sprawling. A corpus that
+    /// raised this number to absorb structural lines can lower it again.
     ///
     /// **There is no default, and that is a measurement rather than a shrug.** The bootstrap
     /// rubric's S7 fixes 40 lines, and across 410 nodes in five real corpora **335 of them
@@ -1062,6 +1068,27 @@ pub fn undeclared_property(
 /// that says nothing is not reported against, for the reason [`EdgePolicy::Unstated`] gives
 /// one field over: gating there would enforce a contract nobody wrote.
 ///
+/// **And the unit is the `description`, not the file.** This counted `n.text` — the bytes as
+/// read, frontmatter, properties and links included — while its own rationale argues about
+/// prose. The two came apart as soon as a corpus started recording where its edges come from:
+/// a `claim_tag` and a `source` on each link costs about a line and a half per edge, so a
+/// node that documents its provenance paid for it out of a budget written to stop
+/// *descriptions* sprawling. One derived corpus reported 212 findings, 207 of them one class
+/// whose fixed structure — frontmatter, two properties, three tagged links — is 18 lines
+/// before a word of prose, against a ceiling of 25. Its `max_lines` was raised 42 → 60 and
+/// the share over it went *up*, from 11 of 40 to 207 of 238, which is the evidence that the
+/// number was never what was wrong.
+///
+/// A node with no description is skipped rather than falling back to the file. There is
+/// nothing to be too long, and falling back would charge structure to a node that wrote no
+/// prose at all — the defect, reintroduced for the nodes it hits hardest.
+///
+/// The harness's S7 still counts the file, and this no longer claims to agree with it. #595
+/// made S7 explicitly a genesis-only number, scored once against a corpus a bootstrap has
+/// just produced and never re-run; structure overhead is small there. `max_lines:` is a
+/// steady-state contract a class keeps for its whole life, and structure overhead is exactly
+/// what grows over one.
+///
 /// Warn rather than Error even when declared. Length is editorial, the ratchet in
 /// [`super::baseline`] already distinguishes inherited from new, and a node one line over is
 /// not a corpus that has stopped being true.
@@ -1075,15 +1102,21 @@ pub fn node_too_long(nodes: &[Node], classes: &[Class]) -> Check {
         let Some(max) = class.max_lines else {
             continue;
         };
-        // The bytes as read, so this counts what a reader scrolls past — the same thing the
-        // harness's S7 counts, and the reason `Node::text` is kept after parsing.
-        let lines = n.text.lines().count();
+        // The parsed prose block, which `CorpusInstance` already holds apart from
+        // `properties` and `links` — so the thing measured is the thing the ceiling is about.
+        let Some(description) = n.inst.description.as_deref() else {
+            continue;
+        };
+        let lines = description.lines().count();
         if lines <= max {
             continue;
         }
         violations.push(Violation::new(
             &n.rel,
-            format!("{lines} lines; `{}` declares `max_lines: {max}`", class.rel),
+            format!(
+                "{lines} lines of `description`; `{}` declares `max_lines: {max}`",
+                class.rel
+            ),
         ));
     }
     Check::new(
@@ -1093,9 +1126,11 @@ pub fn node_too_long(nodes: &[Node], classes: &[Class]) -> Check {
         "A long node is usually two nodes, or a node carrying quoted source that belongs in \
          the catalog entry it cites. The ceiling is the class's own — a class that declares \
          no `max_lines:` is not checked, because the length an instance should be is a \
-         question about that class and not about corpora in general. Measured before \
-         choosing: a fixed ceiling of 40, which the bootstrap rubric uses at genesis, is \
-         exceeded by 335 of 410 nodes across five real corpora once they have grown.",
+         question about that class and not about corpora in general. What is counted is the \
+         `description` block and not the file: the argument is about prose, and a node that \
+         records where each of its edges comes from should not pay for that provenance out \
+         of a budget written to stop descriptions sprawling. A corpus that raised \
+         `max_lines:` to absorb structural lines can lower it again.",
         violations,
     )
 }
@@ -3872,11 +3907,21 @@ mod tests {
     /// An instance of `class` that is `lines` lines long.
     fn sized(rel: &str, class: &str, lines: usize) -> Node {
         let mut yaml = format!("class: {class}\nlabel: L\ndescription: |\n");
-        for _ in 3..lines {
+        for _ in 0..lines {
             yaml.push_str("  filler\n");
         }
-        assert_eq!(yaml.lines().count(), lines);
-        node(rel, &yaml)
+        let n = node(rel, &yaml);
+        assert_eq!(
+            n.inst
+                .description
+                .as_deref()
+                .unwrap_or_default()
+                .lines()
+                .count(),
+            lines,
+            "the helper sizes the description, which is what the check counts"
+        );
+        n
     }
 
     /// A class that declares no ceiling is not checked, however long its instances are.
@@ -3903,9 +3948,9 @@ mod tests {
         assert_eq!(c.violations.len(), 1, "only the long one is over");
         assert_eq!(c.violations[0].node, "person/long.yml");
         assert!(
-            c.violations[0].detail.contains("52 lines")
+            c.violations[0].detail.contains("52 lines of `description`")
                 && c.violations[0].detail.contains("max_lines: 40"),
-            "the finding must carry both numbers, not just a verdict: {}",
+            "the finding must carry both numbers and name the unit, not just a verdict: {}",
             c.violations[0].detail
         );
         assert_eq!(
@@ -3931,6 +3976,60 @@ mod tests {
             node_too_long(&nodes, &classes).passed(),
             "statute declared nothing; person's number is not corpus-wide"
         );
+    }
+
+    /// The reported defect: a node paid for its own provenance out of its prose allowance.
+    ///
+    /// The description here is four lines and the ceiling is six. What made this node long
+    /// is frontmatter, two properties and three links carrying a `claim_tag` and a `source`
+    /// apiece — the structure a corpus grows when it records where its edges come from, and
+    /// exactly what a budget written against sprawling *prose* has no business charging for.
+    #[test]
+    fn structure_is_not_charged_against_the_prose_budget() {
+        let yaml = "class: tenure\n\
+                    label: A holder\n\
+                    description: |\n  \
+                      Who held the office, from when, and until when.\n  \
+                      The dates are those recorded in the minute book.\n  \
+                      Two predecessors are named in the same entry.\n  \
+                      The ending is recorded as a resignation.\n\
+                    properties:\n  \
+                      began: 1913-04-02\n  \
+                      ended: 1919-11-30\n\
+                    links:\n\
+                    - rel: held\n  \
+                      target: ../office/registrar.yml\n  \
+                      claim_tag: verified\n  \
+                      source: ../../catalog/minute-book-1913.md\n\
+                    - rel: succeeded\n  \
+                      target: ../tenure/prior.yml\n  \
+                      claim_tag: verified\n  \
+                      source: ../../catalog/minute-book-1913.md\n\
+                    - rel: recorded_in\n  \
+                      target: ../document/minutes.yml\n  \
+                      claim_tag: verified\n  \
+                      source: ../../catalog/minute-book-1913.md\n";
+        let n = node("tenure/a.yml", yaml);
+        assert!(
+            n.text.lines().count() > 20,
+            "the file is long, which is the point of the fixture"
+        );
+        assert!(
+            node_too_long(&[n], &[capped("tenure", Some(6))]).passed(),
+            "four lines of prose is under a six-line ceiling, whatever the file weighs"
+        );
+    }
+
+    /// A node with no description is skipped, not measured against its file.
+    ///
+    /// Falling back to `text` would reintroduce the defect precisely where it bites hardest:
+    /// a node that is all structure and no prose.
+    #[test]
+    fn a_node_with_no_description_is_not_reported() {
+        let yaml = "class: person\nlabel: A\nlinks:\n- rel: knows\n  target: ../person/b.yml\n";
+        let n = node("person/a.yml", yaml);
+        assert!(n.inst.description.is_none());
+        assert!(node_too_long(&[n], &[capped("person", Some(1))]).passed());
     }
 
     // ── unimplemented-class ───────────────────────────────────────────────────
