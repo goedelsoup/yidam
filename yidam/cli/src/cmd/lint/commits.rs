@@ -80,7 +80,7 @@ fn verb_of(subject: &str) -> String {
 /// a merge is where two inquiry threads join. So: a merge whose subject still looks
 /// git-generated is exempt, and a merge whose author wrote something is checked like any
 /// other commit.
-fn is_merge(subject: &str, parents: usize) -> bool {
+pub(crate) fn is_merge(subject: &str, parents: usize) -> bool {
     parents >= 2 && subject.starts_with("Merge ")
 }
 
