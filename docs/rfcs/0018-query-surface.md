@@ -462,7 +462,7 @@ that marks the ten commands which write.
 ### The report carries its own cost
 
 `bench` must not instrument a second traversal. The rule `graph.rs` states for edge resolution
-([`graph.rs:12`](../../yidam/cli/src/cmd/graph.rs#L12)) — *"a consumer resolving edges itself
+([`graph.rs:12-14`](../../yidam/cli/src/cmd/graph.rs#L12-L14)) — *"a consumer resolving edges itself
 would be re-deriving it — and would disagree with the gate … silently, in the direction of
 'looks fine here'"* — applies with equal force to counting: two cost accountings will disagree,
 and the one that flatters the thesis is the one that gets published.

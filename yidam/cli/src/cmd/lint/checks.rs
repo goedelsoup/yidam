@@ -4791,6 +4791,14 @@ pub struct ProseLink {
     /// reader's markdown client does, and the whole reason a repo-root-relative link in
     /// a nested file is broken.
     pub resolved: PathBuf,
+    /// A `#L<n>` / `#L<n>-L<m>` fragment, when the link carries one. A heading anchor
+    /// is `None`: the file is what exists, the heading is not ours to verify. A line
+    /// range is ours — see [`super::line_citations`].
+    pub fragment: Option<super::line_citations::LineFragment>,
+    /// Byte columns of the whole `[label](target)` on its line, for finding the quoted
+    /// passage beside it. Valid into the raw line: the mask that found the link keeps
+    /// byte offsets.
+    pub span: (usize, usize),
 }
 
 /// Whether a link target points outside the filesystem and is therefore not ours to check.
@@ -4805,15 +4813,26 @@ fn is_external(target: &str) -> bool {
         || target.starts_with('/')
 }
 
-/// Strip a markdown title and any angle-bracket wrapper: `<a b> "title"` → `a b`.
-fn link_path(raw: &str) -> String {
+/// Strip a markdown title and any angle-bracket wrapper: `<a b> "title"` → `a b`, and
+/// split off the fragment.
+///
+/// A heading anchor is dropped — the file is what exists, the heading is not ours to
+/// verify. A `#L<n>` line fragment is different in kind: it names lines in a file this
+/// repository owns and is decidable, so it is kept for the line-citation checks rather
+/// than falling with the anchors (#563).
+fn link_parts(raw: &str) -> (String, Option<super::line_citations::LineFragment>) {
     let t = raw.trim();
     let t = match (t.strip_prefix('<'), t.find('>')) {
         (Some(_), Some(end)) => &t[1..end],
         _ => t.split_whitespace().next().unwrap_or(t),
     };
-    // Drop an anchor: the file is what exists, the heading is not ours to verify.
-    t.split('#').next().unwrap_or(t).trim().to_string()
+    match t.split_once('#') {
+        Some((path, frag)) => (
+            path.trim().to_string(),
+            super::line_citations::parse_fragment(frag),
+        ),
+        None => (t.trim().to_string(), None),
+    }
 }
 
 /// Every checkable markdown link in one file.
@@ -4855,7 +4874,27 @@ pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
             };
             let target_raw = &line[j..j + close_rel];
             j += close_rel + 1;
-            let target = link_path(target_raw);
+            // Walk back to the `[` that opens the label, for the link's full extent.
+            let label_start = {
+                let mut depth = 1usize;
+                let mut k = at;
+                loop {
+                    let Some(prev) = line[..k].rfind(['[', ']']) else {
+                        break at;
+                    };
+                    k = prev;
+                    match bytes[k] {
+                        b']' => depth += 1,
+                        _ => {
+                            depth -= 1;
+                            if depth == 0 {
+                                break k;
+                            }
+                        }
+                    }
+                }
+            };
+            let (target, fragment) = link_parts(target_raw);
             if is_external(&target) {
                 continue;
             }
@@ -4864,6 +4903,8 @@ pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
                 line: i + 1,
                 target: target.clone(),
                 resolved: dir.join(&target),
+                fragment,
+                span: (label_start, j),
             });
         }
     }

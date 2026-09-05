@@ -33,7 +33,7 @@ seniority, or the model that produced it"
 position *counts*. It is silent on whether the producing model is *recorded* — and the
 provenance-first ethic argues it must be: "resolution must preserve the ancestry of synthesized
 knowledge" ([`:37`](../../yidam/prelude/CONSTITUTION.md#L37)), and the scripture's whole claim is that
-"every claim traces back to the conversation that produced it and the understanding that justified
+"every node traces back to the conversation that produced it and the understanding that justified
 it" ([`SCRIPTURE.md:87`](../../yidam/prelude/SCRIPTURE.md#L87)). The one provenance the system omits is
 the provenance of its own actors.
 
@@ -41,7 +41,7 @@ the provenance of its own actors.
 an elector is an agent, a reader auditing the ancestry (Article III) cannot tell whether a position
 was held by `claude-opus-4-8` under configuration X or something else entirely — the exact provenance
 the system otherwise obsesses over. Meanwhile the signing infrastructure already exists: release tags
-are signed (`git tag -s`, [`VERSIONING.md:118`](../../VERSIONING.md#L118)). It simply is not wired to
+are signed (`git tag -s`, [`release.sh:341`](../../release.sh#L341)). It simply is not wired to
 elector commits.
 
 ## Proposal

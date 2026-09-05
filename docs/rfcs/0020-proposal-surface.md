@@ -38,7 +38,7 @@ epistemic commit written outside a resolution event, and licenses it on exactly 
 > It is carriage and not synthesis, which is what makes it legal outside a resolution event:
 > Article V confines synthesis to resolutions, and copying a file verbatim introduces no node,
 > edge or claim that its author did not hold.
-> — [`GRAPH.md:386-389`](../../yidam/prelude/GRAPH.md#L386-L389), on `transport`
+> — [`GRAPH.md:459-461`](../../yidam/prelude/GRAPH.md#L459-L461), on `transport`
 
 `propose` inherits that test and this RFC makes it mechanical: **a proposal's commit body must
 contain the finding's own words, verbatim.** That is the constitutional rule expressed as

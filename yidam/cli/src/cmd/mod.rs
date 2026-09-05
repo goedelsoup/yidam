@@ -77,7 +77,10 @@ pub use graph::{graph, neighbors};
 #[cfg(feature = "index")]
 pub use index_build::index_build;
 pub use index_verify::index_verify;
-pub use lint::{lint, Options as LintOptions};
+pub use lint::{
+    collect_line_citations, dead_line_citation, lint, slid_line_citation, unverified_line_citation,
+    Check as LintCheck, LineCitation, Options as LintOptions, Violation as LintViolation,
+};
 pub use lsp::serve_lsp;
 
 pub use log::{log, Filter as LogFilter};
