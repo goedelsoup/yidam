@@ -46,8 +46,18 @@ max_lines: 40
 Four things are being said, and each one is what some check reads later.
 
 **`description`** says what an instance *is*. Not what it is for. A class whose description
-states a purpose puts that claim beyond the reach of every check here, because the checks run
-on claim tags and a class description carries none. `class-asserts-purpose` reports it.
+states a purpose states it where no claim tag attributes it, so the checks that run on tags
+read past it. `class-asserts-purpose` reports it.
+
+That is a rule about what those checks read, not a fact about corpora. Class prose *does* carry
+evidence tags — measured over seventeen corpora, three classes in three of them do. Two checks
+make that visible. `claim-tag-malformed` reads every field of a class file, so a folded tag like
+`[verified — a source]` is reported wherever it is written. `class-claim-uncounted` reports, at
+`Info`, how many well-formed tags a class asserts.
+
+Neither one counts them. `yidam status` counts claims in nodes, and Article V defines a claim as
+a statement in a node — see [constitutional governance](../constitutional-governance.md). If a
+class is arguing something that needs counting, the argument belongs in a node.
 
 **`properties`** are the typed fields an instance may carry. `required: true` makes an absent one
 a finding. A property typed `claim` marks a field whose value *is* an evidence tag rather than

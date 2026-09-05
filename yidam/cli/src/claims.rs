@@ -1002,6 +1002,31 @@ fn tally(text: &str, counts: &mut ClaimCounts) {
 /// Reads the raw YAML rather than the parsed struct so that markers in property values are
 /// seen regardless of how the property is shaped — the corpus puts them in scalars, lists,
 /// and nested maps, and a typed walk would have to anticipate each.
+///
+/// # An **instance** file, and that is a decision (#603)
+///
+/// Every caller that *counts* — `yidam status`, `corpus`, `verified-unsourced` — passes a node.
+/// A class file is not counted, and until #603 that was an accident: `claim-tag-malformed` took
+/// `&[Node]` because the check was written for nodes, `yidam status` counts what nodes say, and
+/// nobody had asked whether a class's own prose was in scope. A reader downstream could only
+/// find the boundary by porting the matcher and noticing which files had to be excluded for the
+/// numbers to agree. The one caller that passes a class — `class-claim-uncounted` — reports the
+/// number and adds it to nothing, which is the distinction this section is about.
+///
+/// The scan widened; the count did not. **Measured before deciding**: taking this rule to the
+/// 26 class files this repository tracks finds 6 tags in 2 of the 4 example corpora
+/// (`examples/incidents/…/remediation.ont.yml`, `examples/journalism/…/finding.ont.yml`), and
+/// all six are a class explaining its own vocabulary — *"`[verified]` means somebody confirmed
+/// the change shipped and held"*. They survive [`is_narrated`] because it is past-tense-only
+/// and the word after every one of them is "means". Widening the counter would therefore
+/// publish six claims nobody made, on a front page, which is the failure mode this module's
+/// header opens with in the other direction.
+///
+/// Article V is the reason it stays that way rather than being tuned until it works. A claim
+/// is "a statement in a node, held at a standing", and whether a sentence asserts a thing is
+/// left with the synthesizer and explicitly *not* delegated to a checker. So the boundary is
+/// reported instead of moved: `class-claim-uncounted` shows the tags a class file asserts, at
+/// `Info`, gating on nothing.
 pub fn count_in_source(text: &str) -> ClaimCounts {
     let mut counts = ClaimCounts::default();
     tally(&crate::markdown::mask_fenced(text), &mut counts);
