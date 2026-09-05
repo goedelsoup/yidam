@@ -30,10 +30,10 @@ has it. `--features index` adds nothing to the LSP.
 ### What it serves
 
 - **Diagnostics**, live. The checks read the working tree, which is right for a gate and wrong
-  for an editor: the file you are typing into is the one whose findings you want, and it is the
-  one on disk that is stale. An overlay closes that — every check reads through it without
-  knowing it exists, so the findings are about the buffer and are still computed by the
-  functions `yidam lint` runs.
+for an editor: the file you are typing into is the one whose findings you want, and it is the
+one on disk that is stale. An overlay closes that. Every check reads through it without knowing
+it exists. The findings are about the buffer, and are still computed by the functions `yidam
+lint` runs.
 - **Definition, references, hover** on `target:` scalars.
 - **Rename** over [`yidam rename`](rfcs/0014-node-rename.md). F2 on a node, every inbound
   `target:` rewritten, the file moved, all in one `WorkspaceEdit` the *client* applies — which
@@ -43,8 +43,8 @@ has it. `--features index` adds nothing to the LSP.
 ### Severity, and the rule that outranks it
 
 Severity follows RFC-0016's table, and **baseline membership outranks check severity in both
-directions**. Inherited debt renders as a Hint however severe the check is, because `yidam lint`
-does not ask *is the corpus clean?* — it asks *did this change make it less clean?*
+directions**. Inherited debt renders as a Hint however severe the check is. `yidam lint` does
+not ask *is the corpus clean?* — it asks *did this change make it less clean?*
 
 ### Neovim
 
@@ -59,8 +59,8 @@ vim.api.nvim_create_autocmd('FileType', {
 })
 ```
 
-`root_dir` matters: the server takes the workspace from `rootUri` when the client sends one, and
-otherwise falls back to `git rev-parse --show-toplevel` from its own cwd — which is not
+`root_dir` matters. The server takes the workspace from `rootUri` when the client sends one,
+and otherwise falls back to `git rev-parse --show-toplevel` from its own cwd. That is not
 necessarily the corpus you meant.
 
 ### Helix
@@ -124,15 +124,15 @@ In this order, and it never downloads or builds one:
 4. The workspace's mise shims
 
 The repository's own build outranks `PATH` deliberately. `mise run yidam-build` installs to
-`.yidam/bin/`, beside the pin it was built from; a location like `~/.cargo/bin/yidam` is one per
-*machine* while the pin is one per *repository*, so on a machine with two yidam repositories it
-is whichever built last. Preferring `PATH` would let one repository's pinned binary answer for
-another's corpus. An explicit `yidam.path` still wins — that is somebody's decision, and the
-rest is a default.
+`.yidam/bin/`, beside the pin it was built from. A location like `~/.cargo/bin/yidam` is one
+per *machine*, while the pin is one per *repository*. On a machine with two yidam repositories,
+it is whichever built last. Preferring `PATH` would let one repository's pinned binary answer
+for another's corpus. An explicit `yidam.path` still wins — that is somebody's decision, and
+the rest is a default.
 
-If the binary it finds speaks a report contract this build does not understand, verdict features
-are disabled and the status bar says so, rather than the extension guessing at an envelope it
-cannot read. `yidam: Show binary and contract status` reports which binary answered.
+If the binary it finds speaks a report contract this build does not understand, verdict
+features are disabled and the status bar says so. The extension does not guess at an envelope
+it cannot read. `yidam: Show binary and contract status` reports which binary answered.
 
 ### What a node rests on
 
@@ -157,15 +157,15 @@ remedy is stated in a tooltip and never offered as a click.
 ### Narrowing a view
 
 The views were built against a four-node fixture. A real derived corpus is 90 nodes across 13
-classes, which is thirteen collapsed groups and a long scroll inside whichever one you open,
-and an Open questions view that is a flat list of sixty-four.
+classes. That is thirteen collapsed groups, and a long scroll inside whichever one you open.
+The Open questions view is a flat list of sixty-four.
 
 VS Code already narrows a tree — focus one and start typing. It matches the rendered label and
-nothing else, so it cannot ask *which class is this in* or *which of these carry an open claim*.
-`yidam: Filter the Corpus and Open questions views`, on the funnel in either view's title bar,
-asks both by reading `corpus-index` and `open-questions` rather than the screen: free text
-matches a label or a node path, `class:<name>` restricts by class, `is:open` keeps the nodes
-the report names.
+nothing else, so it cannot ask *which class is this in* or *which of these carry an open
+claim*. `yidam: Filter the Corpus and Open questions views`, on the funnel in either view's
+title bar, asks both by reading `corpus-index` and `open-questions` rather than the screen.
+Free text matches a label or a node path, `class:<name>` restricts by class, and `is:open`
+keeps the nodes the report names.
 
 The filter lives in memory and is gone with the window — deliberately not a setting, because a
 committed one would hide part of a corpus in a window whose reader did not narrow anything. A

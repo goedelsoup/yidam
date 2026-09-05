@@ -1,14 +1,14 @@
 # CLI reference
 
 Every command `yidam` carries, grouped as `yidam --help` groups them. This page is the map;
-`yidam <command> --help` is the detail, and is generated from the same source as the behaviour,
-so it cannot disagree with the binary you have.
+`yidam <command> --help` is the detail. That help is generated from the same source as the
+behaviour, so it cannot disagree with the binary you have.
 
 Two conventions run through the whole surface.
 
 **A `*` means the command rewrites files in the repository it is run against.** Twenty-three
 do. That was previously visible only in each command's long help, where you had to already
-suspect it to go looking — which is the wrong way round for a tool people point at a checkout
+suspect it to go looking. That is the wrong way round for a tool people point at a checkout
 they only meant to inspect.
 
 **`--format json` is available on most commands** and emits the machine-readable report
@@ -64,9 +64,9 @@ weekly ritual, or the start of a session.
 
 **A corpus with three expired sources is not unhealthy. It is owed.** Nothing about it is
 broken, no traversal will lie, and the gate is green. Folding that into `doctor`'s warnings
-would tell a reader that a repository doing exactly what it is meant to do has a problem, and
-the reader would learn to skip the line. So the two reports are separate, `due` has its own
-verdicts — `due`, `ok`, `undeclared`, `unmeasurable` — and it exits zero unless you pass
+would tell a reader that a repository doing exactly what it is meant to do has a problem. The
+reader would learn to skip the line. So the two reports are separate. `due` has its own
+verdicts — `due`, `ok`, `undeclared`, `unmeasurable` — and exits zero unless you pass
 `--strict` to ask for a signal.
 
 ### Every interval is declared, and a clock nobody set never comes due
@@ -82,16 +82,17 @@ corpus said about itself, never a number in the binary — the reasoning is
 | `questions` | How long a question has gone unanswered | `[due] questions_after` | corpus commits |
 | `phases` | How long a bounded inquiry has been in flight | `[due] phases_after` | days |
 
-The catalog clock reads the interval [where it already lived](configuration.md#catalog-ttl_days)
-rather than restating it under `[due]`: a source's TTL is a statement about the source, and two
-places to set one number means one of them is wrong.
+The catalog clock reads the interval [where it already
+lived](configuration.md#catalog-ttl_days) rather than restating it under `[due]`. A source's
+TTL is a statement about the source, and two places to set one number means one of them is
+wrong.
 
 A clock with no interval reports what it measured and is never due — with the key that would
 set it as its remedy. That is the state of every repository that has not opted in, and it is
 the design rather than a degraded mode.
 
 Two of the four count days and two do not, which is deliberate. How long a question has gone
-unanswered is a fact about the repository, so its clock is `HEAD`: a corpus that has not
+unanswered is a fact about the repository, so its clock is `HEAD`. A corpus that has not
 committed has not ignored anything. A source's TTL and a phase's time in flight are facts about
 the world, which does not stop moving because nobody committed.
 
@@ -195,8 +196,8 @@ write a record of what they touched.
 
 ### `propose` is deliberately small
 
-Three acts only. `open` records a finding's question against the node it is about; `withdraw`
-deletes a node this corpus declared over-collected via `[propose] withdraw_uncited_after`;
+Three acts only. `open` records a finding's question against the node it is about. `withdraw`
+deletes a node this corpus declared over-collected via `[propose] withdraw_uncited_after`.
 `close` retires a question this command opened whose finding is gone.
 
 Nothing merges itself and nothing synthesizes — no edge is drawn, no claim is re-tagged, no
@@ -212,16 +213,16 @@ argument for why the surface is this small.
 | `index-build` * | Build the LanceDB vector index and export Arrow IPC for the web shell. `--model`. **Needs `--features index`** |
 
 `embed` walks `.yidam/catalog/` by default. In a real derived corpus the catalog was 51.3% of
-the indexable text against the corpus's 41.9%, and leaving it out had been a scope decision
-nobody made on purpose.
+the indexable text, against the corpus's 41.9%. Leaving it out had been a scope decision nobody
+made on purpose.
 
 ## Artifacts
 
 Bytes a corpus rests on or produces — a fetched source, a built index — are large, derived, or
-licensed, and git is the wrong place for all three. A **vault** holds them; the repository holds
-the record of which bytes. RFC-0023 states the constraint: *a vault stores bytes, git stores the
-record of them*, so every pointer into a vault is a committed file and losing a vault costs no
-knowledge claim, only the time to re-fetch.
+licensed, and git is the wrong place for all three. A **vault** holds them; the repository
+holds the record of which bytes. RFC-0023 states the constraint: *a vault stores bytes, git
+stores the record of them*, . So every pointer into a vault is a committed file, and losing a
+vault costs no knowledge claim — only the time to re-fetch.
 
 | Command | What it does |
 |---|---|
@@ -275,8 +276,8 @@ holds    = ["catalog"]
 ```
 
 The kinds are `catalog`, `index`, `embeddings` and `bundle`. Only `catalog` artifacts exist
-today; the others are named so a corpus can declare their routes before #417 and #418 start
-writing them, rather than reorganising storage on the release that does.
+today. The others are named so a corpus can declare their routes before #417 and #418 start
+writing them. That avoids reorganising storage on the release that does.
 
 | | |
 |---|---|
@@ -288,7 +289,7 @@ writing them, rather than reorganising storage on the release that does.
 | a record's own `vault:` | overrides the route its kind would take |
 
 A kind nobody claims is refused **at the artifact** rather than when the config is read. The
-alternative would make the list of kinds a compatibility surface: adding one in a later release
+alternative would make the list of kinds a compatibility surface. Adding one in a later release
 would turn every multi-vault config red for a kind those corpora have none of.
 
 `--vault <name>` on `push`, `pull` and `status` is a **narrowing** flag — useful where one store
