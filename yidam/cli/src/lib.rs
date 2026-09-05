@@ -39,15 +39,16 @@ pub use cmd::tonpa;
 /// The seed kinds `yidam samudaya-audit` accepts. See [`samudaya_seed_kind`].
 pub use cmd::SAMUDAYA_KINDS;
 pub use cmd::{
-    agents_index, backfill, bench, bundle, bundle_status, catalog_audit, check_diff, clone,
-    collect_line_citations, corpus_index, crates_index, dead_line_citation, decisions_log,
-    diff_corpus, doctor, due, embed, estimate, export, graph, graph_check, index_status,
-    index_verify, lint, list_formats, log, migrate, neighbors, open_questions, overlay, pack,
-    packages_index, parse_bench_goals, phases, propose, query, regen, rename, replay, run_export,
-    run_policy, run_vault, samudaya_audit, sangha, schema, serve_lsp, serve_mcp, skills_index,
-    slid_line_citation, status, unverified_line_citation, vault_status, vocabulary, BenchGoal,
-    BenchGoalSet, EmbedOptions, ExportFormat, ExportOptions, LineCitation, LintCheck, LintOptions,
-    LintViolation, LogFilter, MigrateOperation, PolicyCommand, ProposeOptions, RdfFormat,
+    agents_index, backfill, bench, bundle, bundle_status, catalog_audit, check_diff,
+    citation_range_stated_twice, clone, collect_line_citations, corpus_index, crates_index,
+    dead_line_citation, decisions_log, diff_corpus, doctor, due, embed, estimate, export, graph,
+    graph_check, index_status, index_verify, label_range, lint, list_formats, log, migrate,
+    neighbors, open_questions, overlay, pack, packages_index, parse_bench_goals, phases, propose,
+    query, regen, relocate, rename, replay, run_export, run_policy, run_vault, samudaya_audit,
+    sangha, schema, serve_lsp, serve_mcp, skills_index, slid_line_citation, status,
+    unverified_line_citation, vault_status, vocabulary, BenchGoal, BenchGoalSet, EmbedOptions,
+    ExportFormat, ExportOptions, LineCitation, LineFragment, LintCheck, LintOptions, LintViolation,
+    LogFilter, MigrateOperation, PolicyCommand, ProposeOptions, RdfFormat, Relocation,
     VaultCommand,
 };
 

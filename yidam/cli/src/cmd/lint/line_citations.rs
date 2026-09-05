@@ -22,6 +22,32 @@
 //!   existence can be checked. Reported rather than passed, at Info, because a reader
 //!   meeting `file.rs:42` will assume somebody verified it and nobody can.
 //!
+//! A fourth check stands outside that partition because it never opens the target file.
+//! The house style states the range twice — `[`file.rs:12-19`](../file.rs#L12-L19)` — and
+//! **`citation-range-stated-twice`** holds the two copies to each other. 134 of the 149
+//! line citations this repository's own gate can see write both; nothing had ever read
+//! the left-hand one, so half a repair would have shipped silently (#622).
+//!
+//! # Naming the repair
+//!
+//! A slid citation is reported with the range its passage moved to, when that range is
+//! decidable. Deciding it is the same word-matching that found the slide, run over every
+//! window of the target instead of the cited one — see [`relocate`]. The suggestion is
+//! withheld unless exactly one window matches: a passage that now appears twice, or not
+//! at all, is a judgement about the document.
+//!
+//! **The range named is where the quoted words are, and nothing wider.** A citation often
+//! spans a whole comment block while quoting two of its lines, and the tight window is
+//! the only part of that a check can measure — the extra lines were the author's
+//! judgement and are not recoverable from the file. So the suggestion is a floor: take it
+//! as written, or widen it back out to whatever the citation was covering.
+//!
+//! This is the whole reason the check exists in the form it does. RFC-0030 cites a
+//! comment in `astro.config.mjs` whose `const sidebar` array sits 180 lines above it, and
+//! adding an entry there is a required step for every new docs page. The citation slid
+//! three times in five days, and three times the answer was re-derived by hand from
+//! information the check already held.
+//!
 //! # What counts as a quote
 //!
 //! The citations are written in one house style: the document quotes the passage and then
@@ -97,18 +123,41 @@ pub struct LineCitation {
     pub range: String,
     /// Quote candidates found beside the link. Empty means unverifiable.
     pub quotes: Vec<String>,
+    /// The link's label exactly as written, `astro.config.mjs:243-246` backticks and all.
+    /// The house style states the cited range here as well as in the fragment, and
+    /// [`citation_range_stated_twice`] is what holds the two together.
+    pub label: String,
+    /// Where the quoted passage actually is now, for a citation that no longer holds it.
+    ///
+    /// `None` covers three different situations and deliberately does not distinguish
+    /// them, because the advice is the same in all three: the citation is fine, the
+    /// passage is gone, or the passage now appears more than once. Only a single
+    /// unambiguous window earns a suggestion — see [`relocate`].
+    pub moved_to: Option<LineFragment>,
+}
+
+/// `L4` / `L4-L7`, the fragment without its file.
+fn render_fragment(f: LineFragment) -> String {
+    match f.start == f.end {
+        true => format!("L{}", f.start),
+        false => format!("L{}-L{}", f.start, f.end),
+    }
 }
 
 impl LineCitation {
     /// `path#L4` / `path#L4-L7`, as a reader would write it.
     fn anchor(&self) -> String {
-        if self.fragment.start == self.fragment.end {
-            format!("{}#L{}", self.target, self.fragment.start)
-        } else {
-            format!(
-                "{}#L{}-L{}",
-                self.target, self.fragment.start, self.fragment.end
-            )
+        format!("{}#{}", self.target, render_fragment(self.fragment))
+    }
+
+    /// ` — the passage is now at L255-L258`, or nothing when it cannot be located.
+    ///
+    /// Written as a clause so a message reads the same with and without it: the check
+    /// says what is wrong first, and where to put it only when it knows.
+    fn moved_clause(&self) -> String {
+        match self.moved_to {
+            Some(f) => format!(" — the passage is now at {}", render_fragment(f)),
+            None => String::new(),
         }
     }
 
@@ -171,9 +220,24 @@ pub fn collect(
                     .collect()
             })
             .clone();
+        let on_line = match link.line >= 1 && link.line <= citing.len() {
+            true => citing[link.line - 1].as_str(),
+            false => "",
+        };
         let quotes = match link.line >= 1 && link.line <= citing.len() {
             true => quotes_beside(&citing, link.line - 1, link.span),
             false => Vec::new(),
+        };
+        // The passage is looked for only when it is not where the citation says it is:
+        // relocation reads every window of the target, and the overwhelming majority of
+        // citations are correct and cost nothing.
+        let adrift = !quotes.is_empty() && !quotes.iter().any(|q| quote_matches(q, &range));
+        let moved_to = match adrift {
+            true => quotes.iter().find_map(|q| match relocate(q, &target_text) {
+                Relocation::Found(f) => Some(f),
+                Relocation::Absent | Relocation::Ambiguous => None,
+            }),
+            false => None,
         };
         out.push(LineCitation {
             file: link.file.clone(),
@@ -183,9 +247,29 @@ pub fn collect(
             target_lines: total,
             range,
             quotes,
+            label: label_of(on_line, link.span),
+            moved_to,
         });
     }
     out
+}
+
+/// The `[label]` of the link occupying `span` on `line`, brackets stripped.
+///
+/// The span is the whole `[label](target)`, measured on the masked copy of the line that
+/// found the link; masking preserves byte offsets, so it slices the raw line unchanged —
+/// which matters, because the label's own backticks are exactly what masking removes.
+fn label_of(line: &str, span: (usize, usize)) -> String {
+    let Some(whole) = line.get(span.0..span.1) else {
+        return String::new();
+    };
+    let Some(rest) = whole.strip_prefix('[') else {
+        return String::new();
+    };
+    match rest.rfind("](") {
+        Some(i) => rest[..i].to_string(),
+        None => String::new(),
+    }
 }
 
 // ── Finding the quote ────────────────────────────────────────────────────────
@@ -350,7 +434,15 @@ fn words(s: &str) -> String {
 /// Whether the quoted words appear in the cited lines — each elided piece in order, on
 /// word boundaries.
 fn quote_matches(quote: &str, range: &str) -> bool {
-    let hay = format!(" {} ", words(range));
+    quote_matches_words(quote, &words(range))
+}
+
+/// [`quote_matches`] against a haystack already reduced to words.
+///
+/// Split out for [`relocate`], which tests one quote against every window of a file and
+/// would otherwise re-normalise the same lines a few thousand times.
+fn quote_matches_words(quote: &str, hay_words: &str) -> bool {
+    let hay = format!(" {hay_words} ");
     let mut pos = 0;
     for piece in quote.split("...").flat_map(|p| p.split('…')) {
         let p = words(piece);
@@ -366,14 +458,114 @@ fn quote_matches(quote: &str, range: &str) -> bool {
     true
 }
 
-// ── The three checks ─────────────────────────────────────────────────────────
+// ── Where it went ────────────────────────────────────────────────────────────
+
+/// The outcome of looking for a quoted passage in the file that was supposed to hold it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Relocation {
+    /// Exactly one window of the file holds the quote. This is the only outcome that
+    /// names a line range, and the only one a person can act on without re-reading.
+    Found(LineFragment),
+    /// The quote is nowhere in the file. The passage was reworded or deleted, and no
+    /// number is the answer.
+    Absent,
+    /// More than one window holds it. A suggestion here would be a guess dressed as a
+    /// measurement.
+    Ambiguous,
+}
+
+/// The widest a relocated passage may be, in lines.
+///
+/// The widest range holding a quote in this repository is 19 lines and the median is 2,
+/// so the cap is about three times the measured maximum. It is what keeps the search
+/// linear in the file rather than quadratic, and what stops a quote of common words from
+/// matching a window the size of the file.
+const RELOCATE_SPAN: usize = 60;
+
+/// Where `quote` now lives in `target_text`, by the same word-matching that decided it
+/// had moved.
+///
+/// Every window up to [`RELOCATE_SPAN`] lines is tried. For each start line only the
+/// first end line that completes the quote is kept: adding lines to the front of a window
+/// can never break a match, so that minimum end is non-decreasing as the start advances,
+/// and distinct occurrences of the passage are exactly the distinct ends. The tightest
+/// window for an occurrence is then the *last* start that reaches its end.
+pub fn relocate(quote: &str, target_text: &str) -> Relocation {
+    let per_line: Vec<String> = target_text.lines().map(words).collect();
+    let n = per_line.len();
+    // Keyed by end line; the value is the largest start that still completes the quote.
+    let mut tightest: BTreeMap<usize, usize> = BTreeMap::new();
+    for s in 0..n {
+        let mut hay = String::new();
+        for (e, line_words) in per_line.iter().enumerate().skip(s).take(RELOCATE_SPAN) {
+            if !line_words.is_empty() {
+                if !hay.is_empty() {
+                    hay.push(' ');
+                }
+                hay.push_str(line_words);
+            }
+            if quote_matches_words(quote, &hay) {
+                tightest.insert(e, s);
+                break;
+            }
+        }
+        // Two occurrences are enough to be ambiguous; a third changes no advice.
+        if tightest.len() > 1 {
+            return Relocation::Ambiguous;
+        }
+    }
+    match tightest.iter().next() {
+        Some((&e, &s)) => Relocation::Found(LineFragment {
+            start: s + 1,
+            end: e + 1,
+        }),
+        None => Relocation::Absent,
+    }
+}
+
+// ── The range, stated twice ──────────────────────────────────────────────────
+
+/// The line range a link's label states, when it states one.
+///
+/// The house style writes the range in the label as well as the fragment —
+/// `` `astro.config.mjs:243-246` `` beside `#L243-L246` — and the label is the copy a
+/// reader's eye lands on. Labels vary in what precedes the colon (a filename, an RFC
+/// number, nothing at all), so only the trailing `:<n>` or `:<n>-<m>` is read.
+pub fn label_range(label: &str) -> Option<LineFragment> {
+    let s = label.trim().trim_end_matches('`').trim_end();
+    let digits_from = |s: &str| s.len() - s.chars().rev().take_while(char::is_ascii_digit).count();
+    let at = digits_from(s);
+    if at == s.len() {
+        return None;
+    }
+    let end: usize = s[at..].parse().ok()?;
+    let head = &s[..at];
+    let (head, start) = match head.chars().next_back() {
+        Some('-' | '\u{2013}') => {
+            let head = &head[..head.len() - head.chars().next_back()?.len_utf8()];
+            let at = digits_from(head);
+            if at == head.len() {
+                return None;
+            }
+            (&head[..at], head[at..].parse().ok()?)
+        }
+        _ => (head, end),
+    };
+    match head.ends_with(':') {
+        true => Some(LineFragment { start, end }),
+        false => None,
+    }
+}
+
+// ── The checks ───────────────────────────────────────────────────────────────
 
 pub fn dead_line_citation(citations: &[LineCitation]) -> Check {
     let violations = citations
         .iter()
         .filter_map(|c| {
-            c.dead_reason()
-                .map(|why| Violation::new(format!("{}:{}", c.file, c.line), why))
+            c.dead_reason().map(|why| {
+                Violation::new(format!("{}:{}", c.file, c.line), why + &c.moved_clause())
+            })
         })
         .collect();
     Check::new(
@@ -401,8 +593,9 @@ pub fn slid_line_citation(citations: &[LineCitation]) -> Check {
             Violation::new(
                 format!("{}:{}", c.file, c.line),
                 format!(
-                    "the quoted words beside `{}` do not appear in the cited lines",
-                    c.anchor()
+                    "the quoted words beside `{}` do not appear in the cited lines{}",
+                    c.anchor(),
+                    c.moved_clause()
                 ),
             )
         })
@@ -417,7 +610,12 @@ pub fn slid_line_citation(citations: &[LineCitation]) -> Check {
          at once, silently, and two came to point at words written long after the \
          arguments that cite them. Where the document quotes the passage it cites — the \
          house style — the quote decides. Matched on words, in order, elisions honoured, \
-         so wrapping, emphasis and comment markers cannot manufacture a drift.",
+         so wrapping, emphasis and comment markers cannot manufacture a drift. Where the \
+         passage is still in the file and in exactly one place, the finding names the \
+         range it moved to: the same matching that found the drift decides it, and \
+         re-deriving that by hand was the whole recurring cost. That range is where the \
+         quoted words are and nothing wider, so a citation that deliberately spanned more \
+         than it quoted is widened back out by hand.",
         violations,
     )
 }
@@ -448,6 +646,41 @@ pub fn unverified_line_citation(citations: &[LineCitation]) -> Check {
          severity, because the fix — quote the passage, widen to a stable range, or drop \
          the fragment — is a judgement about the document, not a defect in the corpus. \
          Never gates, never baselined.",
+        violations,
+    )
+}
+
+pub fn citation_range_stated_twice(citations: &[LineCitation]) -> Check {
+    let violations = citations
+        .iter()
+        .filter_map(|c| {
+            let stated = label_range(&c.label)?;
+            if stated == c.fragment {
+                return None;
+            }
+            Some(Violation::new(
+                format!("{}:{}", c.file, c.line),
+                format!(
+                    "the label says `{}` and the link points at `{}`",
+                    render_fragment(stated),
+                    render_fragment(c.fragment)
+                ),
+            ))
+        })
+        .collect();
+    Check::new(
+        "citation-range-stated-twice",
+        "A citation's label and its link name different lines",
+        Severity::Error,
+        "The house style states the cited range twice — `[`file.rs:12-19`](../file.rs#L12-L19)` \
+         — and 134 of the 149 line citations in this repository write both copies. Until \
+         #622 nothing read the left-hand one, so the two could disagree indefinitely: the \
+         scan sees the fragment, and the label is what a reader's eye lands on. The failure \
+         this forecloses is half a repair. A citation that slid is fixed by editing a \
+         number, and editing the one number that resolves leaves the other one lying. No \
+         citation disagreed on the day this landed, which is the point — it is a latch on a \
+         population that is already correct, not a backlog. A label that names no range is \
+         the other house form and not a finding: most citations of code label a symbol.",
         violations,
     )
 }
@@ -517,6 +750,15 @@ a trailing line
         assert_eq!(check.violations.len(), 1);
         assert!(
             check.violations[0].detail.contains("target.md#L2"),
+            "{}",
+            check.violations[0].detail
+        );
+        // And it says where the passage went, which is the repair (#622).
+        assert_eq!(c[0].moved_to, Some(LineFragment { start: 3, end: 3 }));
+        assert!(
+            check.violations[0]
+                .detail
+                .contains("the passage is now at L3"),
             "{}",
             check.violations[0].detail
         );
@@ -702,5 +944,185 @@ a trailing line
         assert!(dead_line_citation(&[]).passed());
         assert!(slid_line_citation(&[]).passed());
         assert!(unverified_line_citation(&[]).passed());
+        assert!(citation_range_stated_twice(&[]).passed());
+    }
+
+    // ── Where it went (#622) ────────────────────────────────────────────────
+
+    fn moved(quote: &str, text: &str) -> Relocation {
+        relocate(quote, text)
+    }
+
+    #[test]
+    fn a_passage_that_moved_is_found_at_its_new_lines() {
+        let text = "alpha\nbeta\nthe passage worth citing\ngamma\n";
+        assert_eq!(
+            moved("the passage worth citing", text),
+            Relocation::Found(LineFragment { start: 3, end: 3 })
+        );
+    }
+
+    /// The window is the passage, not everything above it. Every start line before the
+    /// passage also completes the quote; the last one is the answer.
+    #[test]
+    fn the_tightest_window_is_the_one_reported() {
+        let text = "filler\nfiller\nfiller\nthe passage worth citing\n";
+        assert_eq!(
+            moved("the passage worth citing", text),
+            Relocation::Found(LineFragment { start: 4, end: 4 })
+        );
+    }
+
+    #[test]
+    fn a_passage_spanning_lines_relocates_as_a_range() {
+        let text = "one\ntwo\nthe passage worth citing runs on\nacross a second line\nlast\n";
+        assert_eq!(
+            moved(
+                "the passage worth citing runs on across a second line",
+                text
+            ),
+            Relocation::Found(LineFragment { start: 3, end: 4 })
+        );
+    }
+
+    /// Comment markers and wrapping are the quotation's own voice on this side too —
+    /// relocation and drift-detection must agree about what a match is, or a citation
+    /// could be called slid and then relocated onto the very lines it already cited.
+    #[test]
+    fn relocation_reads_words_the_way_the_drift_check_does() {
+        let text = "//! - **Path** — a sibling repository read where it sits. Not fetched,\n                    //!   not hashed, not locked.\n";
+        assert_eq!(
+            moved("not fetched, not hashed, not locked", text),
+            Relocation::Found(LineFragment { start: 1, end: 2 })
+        );
+    }
+
+    /// Two copies of the passage, and no number is the answer. Guessing the first would
+    /// be a measurement's shape on a coin flip.
+    #[test]
+    fn a_passage_appearing_twice_is_ambiguous_not_the_first_one() {
+        let text = "the passage worth citing\nfiller\nthe passage worth citing\n";
+        assert_eq!(
+            moved("the passage worth citing", text),
+            Relocation::Ambiguous
+        );
+    }
+
+    #[test]
+    fn a_passage_that_is_gone_is_absent() {
+        let text = "alpha\nbeta\ngamma\n";
+        assert_eq!(moved("the passage worth citing", text), Relocation::Absent);
+    }
+
+    /// Absent and Ambiguous both mean silence: a slid citation still goes red, and the
+    /// message simply stops after saying so.
+    #[test]
+    fn an_unlocatable_passage_reports_the_slide_and_suggests_nothing() {
+        let (_tmp, c) = cite(
+            "the passage was rewritten entirely\n",
+            "\"The graph does not merely contain knowledge\" ([`t:1`](../target.md#L1)).\n",
+        );
+        let check = slid_line_citation(&c);
+        assert_eq!(check.violations.len(), 1);
+        assert_eq!(c[0].moved_to, None);
+        assert!(
+            !check.violations[0].detail.contains("now at"),
+            "{}",
+            check.violations[0].detail
+        );
+    }
+
+    /// A citation past the end of the file can still be relocated, and a reader fixing it
+    /// wants the same sentence a slide gives them.
+    #[test]
+    fn a_dead_citation_names_the_repair_when_its_quote_still_locates_it() {
+        let (_tmp, c) = cite(
+            TARGET,
+            "\"it holds the life of the knowing\" ([`t:9`](../target.md#L9)).\n",
+        );
+        let check = dead_line_citation(&c);
+        assert_eq!(check.violations.len(), 1);
+        assert!(
+            check.violations[0]
+                .detail
+                .contains("the passage is now at L2"),
+            "{}",
+            check.violations[0].detail
+        );
+    }
+
+    /// A correct citation is never searched for: relocation is the expensive path and it
+    /// must stay on the failing branch.
+    #[test]
+    fn a_citation_that_still_holds_its_passage_is_not_relocated() {
+        let (_tmp, c) = cite(
+            TARGET,
+            "\"The graph does not merely contain knowledge\" ([`t:2`](../target.md#L2)).\n",
+        );
+        assert_eq!(c[0].moved_to, None);
+    }
+
+    // ── The range, stated twice (#622) ──────────────────────────────────────
+
+    fn lr(s: &str) -> Option<(usize, usize)> {
+        label_range(s).map(|f| (f.start, f.end))
+    }
+
+    #[test]
+    fn the_label_forms_this_repository_writes_all_parse() {
+        assert_eq!(lr("`astro.config.mjs:243-246`"), Some((243, 246)));
+        assert_eq!(lr("`t:1`"), Some((1, 1)));
+        assert_eq!(
+            lr("`0002:139-142`"),
+            Some((139, 142)),
+            "an RFC number, not a file"
+        );
+        assert_eq!(lr("`:40-41`"), Some((40, 41)), "the file is understood");
+        assert_eq!(lr("`checks.rs:12\u{2013}19`"), Some((12, 19)), "an en dash");
+    }
+
+    /// A label that names no range is the other house form and not a finding — most
+    /// citations of code label the symbol, not the line.
+    #[test]
+    fn a_label_naming_no_range_yields_nothing_to_compare() {
+        assert_eq!(lr("unknown-class"), None);
+        assert_eq!(lr("RFC-0002"), None, "trailing digits, but no colon");
+        assert_eq!(lr("the identity gate"), None);
+        assert_eq!(lr("`Class::new`"), None);
+        assert_eq!(lr(""), None);
+    }
+
+    #[test]
+    fn a_label_agreeing_with_its_fragment_is_clean() {
+        let (_tmp, c) = cite(
+            TARGET,
+            "See [`target.md:2`](../target.md#L2) for the rule.\n",
+        );
+        assert_eq!(c[0].label, "`target.md:2`");
+        assert!(citation_range_stated_twice(&c).passed());
+    }
+
+    /// Half a repair: the fragment was re-pointed and the label was left behind. Nothing
+    /// read the label until #622, so this shipped silently.
+    #[test]
+    fn a_label_disagreeing_with_its_fragment_is_a_finding() {
+        let (_tmp, c) = cite(
+            TARGET,
+            "See [`target.md:2`](../target.md#L3) for the rule.\n",
+        );
+        let check = citation_range_stated_twice(&c);
+        assert_eq!(check.violations.len(), 1);
+        assert!(
+            check.violations[0].detail.contains("`L2`")
+                && check.violations[0].detail.contains("`L3`"),
+            "{}",
+            check.violations[0].detail
+        );
+    }
+
+    #[test]
+    fn a_range_label_disagreeing_at_one_end_is_a_finding() {
+        let (_tmp, c) = cite(TARGET, "See [`target.md:1-2`](../target.md#L1-L3).\n");
+        assert_eq!(citation_range_stated_twice(&c).violations.len(), 1);
     }
 }
