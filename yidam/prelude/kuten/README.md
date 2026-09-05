@@ -16,8 +16,10 @@ through which an oracle speaks. Read it as **"the form a practice takes"**, neve
 ## The binding rule
 
 This is the rule itself, and every profile document under this directory opens with it
-verbatim. The argument for it is upstream, in RFC-0028, "Article V and the kuten"; the rule
-lands here because it binds a repository that will never read an RFC.
+verbatim. The argument for it is upstream, in
+[RFC-0028](https://github.com/goedelsoup/yidam/blob/main/docs/rfcs/0028-kuten-layer.md),
+"Article V and the kuten"; the rule lands here because it binds a repository that will never
+read an RFC.
 
 > A kuten declares what this corpus's practice is aimed at. It narrows and parameterizes the
 > loop; it may not widen the model: it may not add a commit verb, add or alter a claim
