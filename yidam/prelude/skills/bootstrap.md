@@ -662,6 +662,16 @@ Two of the seven are conditional and the rest are not. `establish:` and `impleme
 skipped when step 5 approved nothing of that kind — that is a corpus with no implied edges
 and no stubs, not a deviation.
 
+**If this step is interrupted before `genesis:` is committed** — the session ends, the
+agent is stopped, anything short of the commit landing — the repository is left with a
+full corpus on disk, everything staged or ready to stage, and `HEAD` still unborn. That
+state is silent: it looks identical to a directory nobody has touched yet, right up until
+someone opens it and finds twenty files `doctor` cannot see because there is no commit to
+run it against (#579). To resume, run `yidam doctor` first — it names this state as
+"bootstrapped but never committed" — then re-enter this step at the top and write the
+commit sequence above from `genesis:` forward; nothing before this step needs to be redone,
+since steps 2–7 only wrote files and this step has not yet committed any of them.
+
 `establish:` and `implement:` come *after* `genesis:` and not before, which is the opposite
 of the order their steps appear in. A root commit has no parent; there is nowhere to put
 them. Step 7 does the work and step 8 records it.

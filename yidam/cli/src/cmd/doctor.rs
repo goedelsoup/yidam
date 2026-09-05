@@ -159,8 +159,33 @@ impl DoctorReport {
 /// The test is `.yidam/`, not corpus content — the same test [`crate::paths::require_yidam_repo`]
 /// makes, and for the same reason: a repository bootstrapped an hour ago has the directory
 /// and no nodes in it, and that is a legitimately empty corpus rather than an absent one.
+///
+/// One more state lives at this same test: `.yidam/` holding real corpus content — class
+/// definitions or decision records, not just an empty scaffold — with git's `HEAD` unborn
+/// (#579): a bootstrap that ran the ontology dialogue, wrote class definitions and decision
+/// records, and stopped before step 8's genesis commit. The whole model rests on git history
+/// being the graph, so this is not a lesser version of "bootstrapped" — there is no graph
+/// yet, only a directory that looks like one, and it is silent in exactly the way that
+/// matters: indistinguishable from an empty directory to anyone who does not already know to
+/// check. Reported distinctly so it reads as neither "not started" nor "done".
+///
+/// Gated on corpus content, not merely on `.yidam/` existing with an unborn `HEAD`, because
+/// a git-initialized-but-uncommitted `.yidam/` with nothing under it is also what a good
+/// many tests in this workspace use as an isolated sandbox for an unrelated check —
+/// `vault.rs`'s `repo()` helper among them. Only a directory that actually looks like a
+/// stopped bootstrap should read as one.
 fn check_repository(root: &Path) -> Check {
     if root.join(".yidam").is_dir() {
+        if has_corpus_content(root) && head_is_unborn(root) {
+            return Check::new(
+                Check::REPOSITORY,
+                "Am I in a derived repository?",
+                Verdict::Fail,
+                "bootstrapped but never committed — .yidam/ holds corpus content and HEAD \
+                 has no commits yet",
+                Some("finish bootstrap step 8: write the genesis commit"),
+            );
+        }
         return Check::new(
             Check::REPOSITORY,
             "Am I in a derived repository?",
@@ -192,6 +217,51 @@ fn check_repository(root: &Path) -> Check {
         detail,
         Some(remedy),
     )
+}
+
+/// Does `.yidam/` hold anything a bootstrap actually writes — a class definition or a
+/// decision record — rather than being an empty scaffold?
+///
+/// This is the discriminator between a stopped bootstrap (#579) and the many test fixtures
+/// in this workspace that create an empty, uncommitted `.yidam/` purely for isolation. A
+/// real interrupted run leaves class files under `.yidam/corpus/` and records under
+/// `.yidam/decisions/` — the twelve class definitions and two decision records the reporting
+/// repository actually had.
+fn has_corpus_content(root: &Path) -> bool {
+    for dir in [".yidam/corpus", ".yidam/decisions"] {
+        let has_entry = std::fs::read_dir(root.join(dir))
+            .map(|mut entries| entries.next().is_some())
+            .unwrap_or(false);
+        if has_entry {
+            return true;
+        }
+    }
+    false
+}
+
+/// Is git's `HEAD` unborn — no commit made on the current branch yet?
+///
+/// Answerable offline, from local git alone, which `doctor` already shells to. Errs toward
+/// `false` (assume born) on anything ambiguous — no git binary, not a work tree at all — so
+/// an environment where the question cannot be answered does not manufacture a false
+/// "never committed".
+fn head_is_unborn(root: &Path) -> bool {
+    let in_work_tree = std::process::Command::new("git")
+        .current_dir(root)
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !in_work_tree {
+        return false;
+    }
+    let head_resolves = std::process::Command::new("git")
+        .current_dir(root)
+        .args(["rev-parse", "--verify", "-q", "HEAD"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(true);
+    !head_resolves
 }
 
 /// The pin a derived repository is upgradable from.
@@ -516,9 +586,16 @@ pub(crate) fn diagnose(
     let repository = check_repository(root);
     // Every remaining check asks something *about* a derived repository. Answering them
     // against a directory that is not one produces confident nonsense — "no index", "no
-    // provenance" — that reads as a list of things to fix rather than as one thing.
+    // provenance" — that reads as a list of things to fix rather than as one thing. A
+    // `.yidam/` with an unborn HEAD (#579) fails the same test for a different reason, and
+    // the remaining checks are just as unanswerable — most of them read git history, which
+    // does not exist yet either.
     if repository.verdict == Verdict::Fail {
-        let why = "not a yidam repository";
+        let why = if root.join(".yidam").is_dir() {
+            "bootstrapped but never committed"
+        } else {
+            "not a yidam repository"
+        };
         return vec![
             repository,
             Check::skipped(
@@ -1415,6 +1492,71 @@ mod tests {
         // debugging "it says this is not a repository" needs to see.
         assert_eq!(find(&checks, Check::BUILD).verdict, Verdict::Ok);
         assert!(!DoctorReport::new(checks, false).passed);
+    }
+
+    /// #579: `.yidam/` present, class definitions on disk, and `HEAD` unborn — a bootstrap
+    /// that stopped before step 8's genesis commit. This must read as its own state, not as
+    /// "not a repository" (which would tell someone to run `yidam overlay .` and destroy
+    /// what is actually there) and not as `Ok` (there is no graph — history is the graph).
+    #[test]
+    fn a_dot_yidam_with_an_unborn_head_is_its_own_state() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".yidam/corpus")).unwrap();
+        std::fs::write(
+            tmp.path().join(".yidam/corpus/thing.ont.yml"),
+            "class: thing\n",
+        )
+        .unwrap();
+        git(tmp.path(), &["init", "-q", "-b", "main"]);
+        // Deliberately no `git add`, no commit: HEAD stays unborn.
+
+        let c = check_repository(tmp.path());
+        assert_eq!(c.verdict, Verdict::Fail, "detail was: {}", c.detail);
+        assert!(
+            c.detail.contains("never committed"),
+            "detail should name the state, not just fail: {}",
+            c.detail
+        );
+        assert!(
+            c.remedy.as_deref().unwrap_or_default().contains("genesis"),
+            "remedy should point at the genesis commit: {:?}",
+            c.remedy
+        );
+
+        // And the rest of the checks are skipped for the same reason as "not a repository"
+        // — most of them read git history that does not exist yet either — but the *why*
+        // must not claim there is no `.yidam/` here, since there plainly is one.
+        let checks = diagnose(tmp.path(), None, None, 20_000);
+        let regen = find(&checks, Check::REGEN);
+        assert_eq!(regen.verdict, Verdict::Skipped);
+        assert!(!DoctorReport::new(checks, false).passed);
+    }
+
+    /// The committed sibling of the test above: a real genesis commit resolves `HEAD`, and
+    /// the repository check goes back to answering the question it always answered.
+    #[test]
+    fn a_dot_yidam_with_a_born_head_is_ok() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".yidam")).unwrap();
+        std::fs::write(tmp.path().join(".yidam/marker"), "").unwrap();
+        git(tmp.path(), &["init", "-q", "-b", "main"]);
+        git(tmp.path(), &["config", "user.email", "doctor@yidam.test"]);
+        git(tmp.path(), &["config", "user.name", "Doctor"]);
+        git(tmp.path(), &["add", "-A"]);
+        git(tmp.path(), &["commit", "-q", "-m", "genesis: test"]);
+
+        let c = check_repository(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok, "detail was: {}", c.detail);
+    }
+
+    /// [`derived_repo`] is a bare directory with no git at all — not the unborn-HEAD case,
+    /// which requires an actual git work tree. `head_is_unborn` must say `false` here rather
+    /// than misreading "no git" as "never committed".
+    #[test]
+    fn a_derived_repo_fixture_with_no_git_is_not_reported_as_unborn() {
+        let tmp = derived_repo();
+        assert!(!head_is_unborn(tmp.path()));
+        assert_eq!(check_repository(tmp.path()).verdict, Verdict::Ok);
     }
 
     fn git(dir: &Path, args: &[&str]) {
