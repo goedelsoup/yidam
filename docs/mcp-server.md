@@ -2,11 +2,11 @@
 
 *How to put a corpus behind an MCP server and point an agent at it. Five minutes.*
 
-`yidam serve --mcp` is the surface that makes a corpus reachable by an agent, which is close
-to the point of the whole system. [RFC-0005](rfcs/0005-mcp-tool-contract.md) specifies the
-tool contract — the names, the arguments, the response shapes — and that is what someone
-implementing a second server needs. This is the other document: what to put in a client
-configuration, which tool to reach for, and how to tell what you are actually connected to.
+`yidam serve --mcp` is the surface that makes a corpus reachable by an agent, which is close to
+the point of the whole system. [RFC-0005](rfcs/0005-mcp-tool-contract.md) specifies the tool
+contract — the names, the arguments, the response shapes — and that is what someone
+implementing a second server needs. This is the other document. It covers what to put in a
+client configuration, which tool to reach for, and how to tell what you are connected to.
 
 ---
 
@@ -57,61 +57,60 @@ installs a `--features full` binary into `.local/bin`.
 ### Claude Desktop, as a bundle
 
 The one route with no terminal in it. Download the `.mcpb` for your Mac from the [latest CLI
-release](https://github.com/goedelsoup/yidam/releases) and drag it onto Claude Desktop's
-Extensions pane — or from a shell, if you have one open anyway:
+release](https://github.com/goedelsoup/yidam/releases) . Drag it onto Claude Desktop's
+Extensions pane, or use a shell:
 
 ```sh
 open yidam-0.9.0-aarch64-apple-darwin.mcpb    # Apple silicon
 open yidam-0.9.0-x86_64-apple-darwin.mcpb     # Intel
 ```
 
-An `.mcpb` is a zip holding a manifest and the `yidam` binary. Nothing is installed onto your
-`PATH`, no configuration file is written by hand, and **the installer asks which corpus to
-serve** — a directory picker, filled into `--root`, instead of the `cd` incantation two
-sections below. That question is the whole reason this channel exists: it is the one thing
-every other route leaves to the working directory.
+An `.mcpb` is a zip holding a manifest and the `yidam` binary. The bundle installs nothing onto
+your `PATH` and writes no configuration file by hand. **The installer asks which corpus to
+serve**: a directory picker fills `--root`, replacing the `cd` incantation two sections below.
+That question is the whole reason this channel exists: it is the one thing every other route
+leaves to the working directory.
 
-Two things to know. The bundle carries the **light build**, so `retrieve` is keyword search
-and says so on every call — §1 has the difference, and every other tool is identical. And it
-is **macOS only**, because that and Windows are where Claude Desktop runs and this repository
-cross-compiles no Windows target; a Linux user wants one of the routes below.
+Two things to know. The bundle carries the **light build**, so `retrieve` is keyword search and
+says so on every call. §1 has the difference; every other tool is identical. It is also **macOS
+only**. Claude Desktop runs on macOS and Windows, and this repository cross-compiles no Windows
+target. A Linux user wants one of the routes below.
 
-The version is the CLI's own — `yidam-0.9.0-…` carries `yidam 0.9.0` — so a bundle installed
-six months ago is running a binary these docs may no longer describe. Reinstalling is
-dragging a newer file onto the same pane.
+The version is the CLI's own: `yidam-0.9.0-…` carries `yidam 0.9.0`. A bundle installed six
+months ago runs a binary these docs may no longer describe. Reinstalling is dragging a newer
+file onto the same pane.
 
 ### Claude Code, as a plugin
 
-This is the one that gives you both halves. Four of the thirteen tools below exist because
-the practice is documented in the prelude and *an agent that has to hold that prose in
-context complies by having remembered* — and the plugin is what puts the prose and the tools
-in the same install.
+This is the one that gives you both halves. Four of the thirteen tools below exist for one
+reason. The practice is documented in the prelude, and *an agent that has to hold that prose in
+context complies by having remembered*. The plugin puts the prose and the tools in the same
+install.
 
 ```
 /plugin marketplace add goedelsoup/yidam
 /plugin install yidam@yidam
 ```
 
-What arrives: the MCP server, registered, plus five skills that fire at the point each
-decision is made — before a commit subject, before an evidence tag, before a link, before a
-`cites:`, and before answering a question from the corpus rather than from the model. Each
-one names the tool to call and points at the prelude for the reasoning; none of them restates
-a rule, because a second copy of a closed vocabulary is a second thing to hold in step. About
-680 tokens are always on; the rest is paid only when a skill fires.
+What arrives: the MCP server, registered, plus five skills. Each fires at the point a decision
+is made: before a commit subject, an evidence tag, a link, or a `cites:`. The fifth fires
+before answering from the corpus rather than the model. Each one names the tool to call and
+points at the prelude for the reasoning. None restates a rule: a second copy of a closed
+vocabulary is a second thing to hold in step. About 680 tokens are always on; the rest is paid
+only when a skill fires.
 
 **The plugin carries no binary.** Install `yidam` first — any channel in
 [installation](installation.md) — and the plugin's launcher will find it. If it cannot, it
-says so with the install line rather than failing as a dead server, and if `yidam` lives
-somewhere off `PATH`, set `YIDAM_BIN` to it.
+prints the install line rather than failing as a dead server. If `yidam` lives off `PATH`, set
+`YIDAM_BIN` to it.
 
-**It refuses to serve a directory that is not a corpus.** A plugin is installed once and
-Claude Code starts its servers in every project you open, so the launcher checks for
-`.yidam/` before spawning anything. `serve` itself refuses too — the launcher is there to say
-it in terms of the plugin, and to not pay for starting a binary to be told no.
+**It refuses to serve a directory that is not a corpus.** A plugin is installed once, and
+Claude Code starts its servers in every project you open. So the launcher checks for `.yidam/`
+before spawning anything. `serve` itself refuses too. The launcher says it in the plugin's
+terms, and avoids starting a binary just to be told no.
 
-`bootstrap.md` does not travel. It is the prelude skill for an *empty* repository and is
-actively wrong to load into a corpus that already exists — which is what the plugin installs
-into.
+`bootstrap.md` does not travel. It is the prelude skill for an *empty* repository. Loading it
+into a corpus that already exists is wrong, and that is what the plugin installs into.
 
 ### Claude Code, by hand
 
@@ -121,9 +120,9 @@ Run this from inside the corpus repository:
 claude mcp add yidam -- yidam serve --mcp
 ```
 
-`--scope project` writes it to `.mcp.json` in the repository instead of your local settings,
-which is what makes the server part of what a collaborator checks out rather than something
-each of them rediscovers. You get the server and none of the skills.
+`--scope project` writes it to `.mcp.json` in the repository instead of your local settings.
+The server then becomes part of what a collaborator checks out, rather than something each of
+them rediscovers. You get the server and none of the skills.
 
 ### Any client that takes an `mcpServers` block
 
@@ -139,8 +138,8 @@ each of them rediscovers. You get the server and none of the skills.
 ```
 
 Transport is stdio. The server reads newline-delimited JSON-RPC on stdin and writes frames to
-stdout; **the startup banner and every warning go to stderr**, so a client that merges the two
-streams will corrupt the protocol.
+stdout. **The startup banner and every warning go to stderr.** A client that merges the two
+streams corrupts the protocol.
 
 ### The working directory is load-bearing
 
@@ -148,16 +147,15 @@ streams will corrupt the protocol.
 started, and falls back to the current directory when that fails.
 
 **It now refuses to serve a directory that is not a corpus.** Started somewhere with no
-`.yidam/`, it fails at the command — before the socket is bound, on the HTTP transport — and
-names the repair. It does not start.
+`.yidam/`, it fails at the command and names the repair. On the HTTP transport it fails before
+the socket is bound. It does not start.
 
-That is a change, and worth knowing if you are upgrading: a client configuration that was
-quietly pointing at the wrong directory used to produce a server that answered every tool
-with nothing, and now produces a server that does not come up. The second is the same
-misconfiguration, reported. What made the first worse than it sounds is that the handshake
-could not be told apart from a real corpus that was merely empty — same `nodes: 0`, and a
-`domain` field derived from the directory's own name — so an agent had no way to know it was
-being answered by a folder.
+That is a change, and worth knowing if you are upgrading. A client configuration pointing at
+the wrong directory used to produce a server that answered every tool with nothing. It now
+produces a server that does not come up. The second is the same misconfiguration, reported. The
+first was worse than it sounds. Its handshake matched a real corpus that was merely empty: the
+same `nodes: 0`, and a `domain` field derived from the directory's own name. An agent had no
+way to know a folder was answering it.
 
 A repository bootstrapped an hour ago with nothing written into it yet is still served. The
 test is `.yidam/`, not corpus content.
@@ -176,11 +174,11 @@ directory. For one that does not, or when you are unsure, **say which corpus you
 }
 ```
 
-`--root` takes the corpus directory, or any directory inside one — the nearest `.yidam/` at or
-above it wins, which is the same corpus `cd`-ing there would have found. It is not
-`git rev-parse --show-toplevel`, and the difference matters for a corpus that lives inside
-another repository: pointed at one of those, toplevel resolution answers with the *outer*
-repository, which is not a corpus at all.
+`--root` takes the corpus directory, or any directory inside one. The nearest `.yidam/` at or
+above it wins — the same corpus `cd`-ing there would have found. This is not `git rev-parse
+--show-toplevel`, and the difference matters for a corpus inside another repository. Pointed at
+one of those, toplevel resolution answers with the *outer* repository, which is no corpus at
+all.
 
 This replaces the shell form these docs used to prescribe:
 
@@ -188,9 +186,9 @@ This replaces the shell form these docs used to prescribe:
 {"command": "sh", "args": ["-c", "cd /abs/path/to/my-corpus && exec yidam serve --mcp"]}
 ```
 
-That still works and there is no reason to keep it. It needed an absolute path *and* `exec`,
-the second so signals reached the server rather than the shell — a detail with no bearing on
-corpora that a reader had to get right anyway.
+That still works and there is no reason to keep it. It needed an absolute path *and* `exec`.
+The `exec` made signals reach the server rather than the shell. That detail has no bearing on
+corpora, and a reader had to get it right anyway.
 
 The [plugin](#claude-code-as-a-plugin) resolves the directory for you and checks before it
 spawns, and the [Claude Desktop bundle](#claude-desktop-as-a-bundle) asks at install time.
@@ -253,67 +251,67 @@ authentication. Neither is in this transport, and neither is planned for it.
 | `pack` | That path's answer as prose, filled to a token budget, with what did not fit | You are about to write from the corpus and have a budget |
 | `estimate` | What that would cost, in nodes and approximate tokens, before you pay for it | You have a budget and want to know what fits |
 
-**`claims` returns assertions; every other tool returns documents.** A node is 2–10
-sentences by the model's own rule, so asking `get_node` what a corpus takes as verified means
-paying node-sized tokens for a claim-sized answer and reading the tags out of prose yourself.
-`claims` gives you the statement and its standing, and `sources` names the catalog entries
-its node cites. It serves the tag or serves nothing — an untagged sentence is prose, and
-prose is what `get_node` is for.
+**`claims` returns assertions; every other tool returns documents.** A node is 2–10 sentences
+by the model's own rule. Asking `get_node` what a corpus takes as verified pays node-sized
+tokens for a claim-sized answer, and leaves you reading the tags out of prose. `claims` gives
+you the statement and its standing, and `sources` names the catalog entries its node cites. It
+serves the tag or serves nothing — an untagged sentence is prose, and prose is what `get_node`
+is for.
 
 **`check_citation` is the one that cannot be answered by reading.** `retrieve` reaches a
-dependency, `get_node` reads a node out of one, and `query --across` walks them — and none of
-them says whether leaning on what it returned would stand. The package may be installed at a
+dependency, `get_node` reads a node out of one, and `query --across` walks them. None of them
+says whether leaning on what it returned would stand. The package may be installed at a
 different pin than the one you are about to write, and a `span:` is a claim about text that no
 read-tool checks. It answers with the check ids the gate would report, the installed set, and
-the pin each dependency actually carries — which is the value a correct `commit:` must hold and
-is reachable no other way on this surface.
+the pin each dependency actually carries. That pin is the value a correct `commit:` must hold,
+and this surface reaches it no other way.
 
 **`check_subject`, `claim_tags` and `licensed_edges` are the practice, callable.** The commit
-vocabulary, the evidence tags and the edges a class licenses are all documented in the prelude, and an agent that has to hold
-that prose in context complies by having remembered. These make it cheap to ask instead, at
-the point in the loop where the decision is actually made. The prose stays: it carries the
-reasoning, which is what makes the rules arguable.
+vocabulary, the evidence tags and the edges a class licenses are all documented in the prelude.
+An agent that has to hold that prose in context complies by having remembered. These make it
+cheap to ask instead, at the point in the loop where the decision is actually made. The prose
+stays: it carries the reasoning, which is what makes the rules arguable.
 
 **`query` walks by the types; `neighbors` floods.** `neighbors` chains outbound and inbound
-edges unconditionally and filters on neither relationship nor direction — it carries both out
-as labels on the result and reads neither as an input. `query` takes the relationship and the
-direction as the question. The difference matters most where it is least visible: a
-misspelled relationship comes back from a flood as a plausible neighbourhood and from `query`
-as a rejection naming the near miss.
+edges unconditionally, filtering on neither relationship nor direction. It carries both out as
+labels on the result and reads neither as an input. `query` takes the relationship and the
+direction as the question. The difference matters most where it is least visible. A misspelled
+relationship comes back from a flood as a plausible neighbourhood, and from `query` as a
+rejection naming the near miss.
 
-**Both say why an empty answer is empty.** Zero rows is otherwise indistinguishable from a
-bad embedding, a class nobody has written into, and a corpus that genuinely has no view — and
-an agent that cannot tell those apart fills the gap from its own weights. `absence` carries a
-code read off what the corpus *states*: the class is declared and empty; it has instances and
-none has that value (and here are the values it does have); the relationship is declared and
-no instance authors it; the edges exist and go somewhere else. **An empty result is where an
-agent invents**, and this is the field that stops it. `absence.elsewhere` names installed
-packages holding what this corpus does not — a pointer, and whatever it names is that corpus's
-claim rather than this one's.
+**Both say why an empty answer is empty.** Zero rows is otherwise indistinguishable from a bad
+embedding, a class nobody has written into, or a corpus that genuinely has no view. An agent
+that cannot tell those apart fills the gap from its own weights. `absence` carries a code read
+off what the corpus *states*: the class is declared and empty; it has instances and none has
+that value (and here are the values it does have); the relationship is declared and no instance
+authors it; the edges exist and go somewhere else. **An empty result is where an agent
+invents**, and this is the field that stops it. `absence.elsewhere` names installed packages
+holding what this corpus does not — a pointer, and whatever it names is that corpus's claim
+rather than this one's.
 
 **Every tool answers from the corpus the server loaded at startup.** `retrieve`, `get_node`,
-`neighbors` and `query` all read the corpus and index built on disk when the process started —
-there are no live git operations and no per-request file reads. `query --select body` is
+`neighbors` and `query` all read the corpus and index built on disk when the process started.
+There are no live git operations and no per-request file reads. `query --select body` is
 included: it returns the node text as it was read then, not as the file reads now. A server
-left running while the corpus is edited keeps answering with the corpus it was started
-against, which is what the staleness banner at connect time is reporting. This is one
-snapshot on purpose: a `body` that reached for the working tree at request time would be the
-one field, on the one tool, answering about a different corpus than every other field beside
-it. Restart to move the snapshot.
+left running while the corpus is edited keeps answering with the corpus it was started against,
+which is what the staleness banner at connect time is reporting. This is one snapshot on
+purpose. A `body` that read the working tree at request time would answer about a different
+corpus. It would be one field, on one tool, out of step with every field beside it. Restart to
+move the snapshot.
 
 **A `query` response says what it is about.** `kind` is `query`, and the CLI's `--between`
-emits a series under the same envelope — a client must not tell the two apart by testing for
-an absent key. `at` is the commit the answer is about, null for the corpus the server holds,
-and present on rejected responses too: a refusal about a tag and a refusal about now are
+emits a series under the same envelope. A client must not tell the two apart by testing for an
+absent key. `at` is the commit the answer is about, and null for the corpus the server holds.
+It is present on rejected responses too: a refusal about a tag and a refusal about now are
 different claims.
 
-**`pack` is `query` with a budget and a receipt.** `query` reports `matched` beside
-`returned`, which says how many nodes it dropped; `pack` says *what kind* — `omitted_by_class`
-— and that is the difference between knowing you are missing 28 nodes and knowing they were
-all `recording` instances. Only the second lets you decide between spending more budget and
-reporting that the corpus does not cover this. It is unbudgeted unless you ask for a budget,
-and the token figure is `chars / 4` and says so: an honest approximation beats a
-precise-looking number computed with the wrong tokenizer.
+**`pack` is `query` with a budget and a receipt.** `query` reports `matched` beside `returned`,
+which says how many nodes it dropped. `pack` says *what kind*, in `omitted_by_class`. That is
+the difference between knowing you are missing 28 nodes and knowing they were all `recording`
+instances. Only the second lets you decide between spending more budget and reporting that the
+corpus does not cover this. It is unbudgeted unless you ask for a budget, and the token figure
+is `chars / 4` and says so: an honest approximation beats a precise-looking number computed
+with the wrong tokenizer.
 
 **`estimate` quotes; `pack` accounts.** An agent budgets in tokens and could otherwise only
 discover what a retrieval cost by paying for it — so the only strategy available was to ask
