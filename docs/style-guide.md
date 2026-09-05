@@ -125,3 +125,28 @@ too. Do not keep a second list of pages anywhere — an ungated copy drifts, and
 Internal links are checked. `scripts/check-anchors.mjs` resolves every link to a page *and* to
 the heading it names, so renaming a heading breaks any link that targets it. Rename headings
 deliberately, and run `mise run docs-test` before pushing.
+
+## Citing a line
+
+A link may name lines in a file this repository owns:
+
+```markdown
+"the words the passage says" ([`checks.rs:12-19`](../checks.rs#L12-L19))
+```
+
+Three rules hold, and `cargo test --test line_citations` gates all three.
+
+**Quote the passage.** The quoted words go immediately beside the link. Put them before it in
+quotation marks, after it behind a colon, or above it in a blockquote the link attributes.
+Nothing may sit between the quote and the link but punctuation.
+
+**A quoteless citation is weaker than it looks.** Only its existence can be checked. It still
+resolves after sliding onto the wrong lines, and 119 of this repository's 149 citations are in
+that state. Add a quote where the target is prose.
+
+**State the range twice.** The label says `checks.rs:12-19` and the fragment says `#L12-L19`. The
+two are compared, so a repair must edit both.
+
+Line numbers move. When the gate goes red, the finding names the range the passage moved to —
+copy it. That range is only as wide as the quote, so widen it back out if your citation covered
+more.

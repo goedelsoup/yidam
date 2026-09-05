@@ -12,14 +12,20 @@
 //!
 //! - **dead**: every cited range exists and holds text;
 //! - **slid**: every citation written in the quoting house style still quotes what the
-//!   cited lines say.
+//!   cited lines say;
+//! - **stated twice**: where the label names the range as well as the fragment, the two
+//!   copies agree.
 //!
-//! The third — a citation carrying no quote — is Info by design and not gated on; most
-//! point at code, where the house style quotes nothing.
+//! The remaining one — a citation carrying no quote — is Info by design and not gated on;
+//! most point at code, where the house style quotes nothing. It is by far the largest
+//! group: 119 of 149, checked for existence and nothing else. Closing that gap means
+//! writing quotes into the prose, and is #622's out-of-scope half.
 //!
 //! When this goes red after an innocent edit, the edit moved a cited passage: re-point
-//! the citation at the passage's new lines. That friction is the feature — it is the
-//! moment the twelve rotted through, made visible.
+//! the citation at the passage's new lines. **The finding names them** when the passage
+//! is still in the file and in one place, so the repair is a transcription rather than a
+//! search (#622). That friction is the feature — it is the moment the twelve rotted
+//! through, made visible.
 
 use std::path::PathBuf;
 
@@ -73,5 +79,37 @@ fn no_quoted_line_citation_has_slid() {
         "citations whose quoted passage is no longer in the cited lines — the target \
          moved; re-point the citation:\n{}",
         render(&check.violations)
+    );
+}
+
+/// The label and the fragment are two statements of one range, and a repair that edits
+/// only the resolving copy leaves the other lying. Green on the day it landed, and a
+/// latch from then on (#622).
+#[test]
+fn no_citation_states_two_different_ranges() {
+    let cites = yidam::collect_line_citations(&repo_root());
+    let check = yidam::citation_range_stated_twice(&cites);
+    assert!(
+        check.passed(),
+        "citations whose label and link name different lines — a half-finished repair:\n{}",
+        render(&check.violations)
+    );
+}
+
+/// The floor under the check above. It reports only on citations whose label states a
+/// range, so a label parser that quietly stopped recognising the house form would leave
+/// it passing over nothing at all.
+#[test]
+fn the_labels_this_repository_writes_are_still_read_as_ranges() {
+    let cites = yidam::collect_line_citations(&repo_root());
+    let labelled = cites
+        .iter()
+        .filter(|c| yidam::label_range(&c.label).is_some())
+        .count();
+    assert!(
+        labelled * 2 > cites.len(),
+        "only {labelled} of {} citations have a label naming a range — the house style \
+         states it in both places, so the parser is what changed, not the docs",
+        cites.len()
     );
 }
