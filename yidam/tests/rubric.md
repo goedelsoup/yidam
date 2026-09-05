@@ -35,11 +35,16 @@ a test pins the two together, so a check whose description drifts from its row f
 build; `docs/quality-rubric.md` is pinned the same way. The harness runs no check this table
 does not state, and states no check the harness does not run.
 
-S7's 40 lines is a **genesis** number and is measured as one: across five real corpora the
-median node at genesis is 35 and 40 fits three of the four, while at their current tips 335 of
-410 nodes exceed it. Growing past it is what a corpus doing its job looks like, so the rule is
-not ported into `yidam lint` as a fixed ceiling — there it is `node-too-long`, read from a
-class's own `max_lines:`, and a class that declares none is not checked.
+S7's 40 lines is a **genesis** number, checked once against the corpus a bootstrap has just
+produced — it is not re-run against a corpus later in its life, and is not a target one is
+expected to keep meeting. Measured at genesis across five real corpora, the median node is 35
+lines and 40 fits three of the four. Measured across seventeen derived corpora at whatever
+state each had reached, the median instance node runs 14 to 118 lines and **exceeds 40 in 11 of
+the 17** — restricted to the nine whose vendored prelude is current, so this is not a vintage
+effect, the median still ranges 35 to 118. Growing past 40 is what a corpus doing its job looks
+like, which is what the wider measurement confirms rather than revises, so the rule is not
+ported into `yidam lint` as a fixed ceiling — there it is `node-too-long`, read from a class's
+own `max_lines:`, and a class that declares none is not checked.
 
 Every node-scoped check (S2, S3, S7) fails when the corpus walk finds no instances. It is not
 a violation-free corpus and must not report as one — see [check.rs](harness/yidam-harness/src/check.rs)
