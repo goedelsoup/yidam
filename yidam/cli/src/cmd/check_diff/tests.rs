@@ -6,6 +6,7 @@ use crate::cmd::lint::checks::{Class, ClassEdge, ClassProperty};
 fn class(name: &str, properties: &[&str], edges: &[&str]) -> Class {
     Class {
         rel: format!(".yidam/corpus/{name}.ont.yml"),
+        text: String::new(),
         description: String::new(),
         name: name.to_string(),
         properties: properties

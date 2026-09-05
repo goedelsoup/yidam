@@ -403,6 +403,10 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         }
     };
 
+    // Nodes and classes both: a malformed evidence tag is a defect of prose, and a class file
+    // carries prose. Bound here rather than inline because the view borrows from both.
+    let tag_prose = checks::prose_views(&nodes, &classes);
+
     // One walk of the citations, four readings of it — the same predicate `check_citation`
     // answers from over MCP (#357). Destructured here rather than pushed after the vec, so
     // the four keep their place in the report's order.
@@ -431,7 +435,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::catalog_unobtained_but_cited(&sources, &cites),
         checks::missing_label(&nodes),
         checks::missing_description(&nodes),
-        checks::claim_tag_malformed(&nodes),
+        checks::claim_tag_malformed(&tag_prose),
         checks::catalog_used_by_drift(&sources, &cites),
         checks::catalog_location_malformed(&sources),
         checks::catalog_artifact_malformed(&sources),
@@ -441,6 +445,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         orphan_in_dated(root, &nodes, &classes).escalating_after(escalate_after),
         checks::catalog_uncited(&sources, &cites),
         checks::class_asserts_purpose(&classes),
+        checks::class_claim_uncounted(&classes),
         checks::foundational_field_misspelled(&classes),
         checks::foundational_type_malformed(&classes),
         checks::resolution_annotation_malformed(&annotations),

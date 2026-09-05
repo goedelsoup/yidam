@@ -493,39 +493,17 @@ mod tests {
 
     /// A class from literal YAML.
     ///
-    /// `load_classes` reads files; these tests want literals, so the struct is built here
-    /// from the same shape the loader parses. The fields are the loader's, so a change to
-    /// `Class` breaks this rather than letting the tests drift onto a stale model.
+    /// `load_classes` reads files; these tests want literals, so the bytes are handed to the
+    /// loader's own builder. This used to assemble the struct here and transcribe the
+    /// `edge_policy` match by hand — a fourth answer to what a class is, of exactly the kind
+    /// [`Class::parse`] exists to prevent, and one field behind the real one for as long as it
+    /// stood.
     fn class(text: &str) -> Class {
-        #[derive(Default, serde::Deserialize)]
-        struct Fields {
-            #[serde(default)]
-            class: String,
-            #[serde(default)]
-            properties: Vec<crate::cmd::lint::checks::ClassProperty>,
-            #[serde(default)]
-            edges: Vec<crate::cmd::lint::checks::ClassEdge>,
-            #[serde(default)]
-            edge_policy: Option<String>,
-        }
-        let f: Fields = serde_yaml::from_str(text).unwrap();
-        Class {
-            rel: format!("{}.ont.yml", f.class),
-            description: String::new(),
-            name: f.class,
-            properties: f.properties,
-            edges: f.edges,
-            edge_policy: match f.edge_policy.as_deref() {
-                Some("characteristic") => EdgePolicy::Characteristic,
-                Some("exhaustive") => EdgePolicy::Exhaustive,
-                _ => EdgePolicy::Unstated,
-            },
-            // This fixture builds classes for reachability, which no ceiling affects.
-            max_lines: None,
-            implemented_by: None,
-            foundational_type: None,
-            dead_alignment_fields: vec![],
-        }
+        let name = serde_yaml::from_str::<serde_yaml::Value>(text)
+            .ok()
+            .and_then(|v| v.get("class")?.as_str().map(str::to_string))
+            .unwrap_or_default();
+        Class::parse(format!("{name}.ont.yml"), text)
     }
 
     const REACH: &str = "class: reach\nproperties:\n  - name: regulated\n    type: string\n  \
