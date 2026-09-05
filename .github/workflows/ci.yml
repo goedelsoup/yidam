@@ -113,6 +113,28 @@ jobs:
           # which never read this file.)
           features: ${{ matrix.workspace == 'cli' && 'reports,tonpa,vault-s3,export-graph,serve-http' || '' }}
 
+  domains:
+    # #590: `cargo fmt --all` in a derived repo reaches these crates too, by path, because
+    # that is where the prelude vendors them — and nothing upstream formatted them. This is
+    # the fix: format them here, on what gets vendored, so a derived repo's gate never
+    # depends on whether the pin it is on happens to be clean.
+    #
+    # `mise run ci-domains` glob-discovers `yidam/prelude/domains/*/rust/Cargo.toml` rather
+    # than naming the 14 crates, so a fifteenth domain is covered the day it lands.
+    #
+    # Its own job, not a leg of the `ci` matrix above: these are 14 standalone crates with no
+    # shared workspace and no clippy/test wiring here (that is `domain-parity`'s job), so
+    # there is no JUnit for the summary step to read — just fmt-check, like `design` and
+    # `supply-chain` below.
+    name: ci (domains)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - name: Ensure rustfmt for the pinned toolchain
+        run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component rustfmt
+      - run: mise run ci-domains
+
   vscode:
     # The editor client. Separate from the Rust matrix because it shares no toolchain
     # with it, and because it needs a yidam BINARY rather than a cargo workspace: the
