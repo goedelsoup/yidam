@@ -652,6 +652,13 @@ run = "yidam phases"
 description = "What is due? Four clocks read together: index staleness, catalog TTL, unanswered questions, phases in flight. Read-only, exits zero — being owed is not being broken."
 run = "yidam due"
 
+# Beside `due` and deliberately not in `ci`. Divergence from a kuten is a question for a
+# person, and a question wired into the gate becomes a defect the next person learns to
+# silence. Exits zero however far a corpus has drifted; a repository holding no kuten says so.
+[kuten-check]
+description = "Where has this corpus drifted from the practice it declared? Read-only, exits zero — a divergence is a question, not a defect."
+run = "yidam kuten check"
+
 [sangha]
 description = "Report the sangha: registered electors, their positions, and settled resolutions."
 run = "yidam sangha"
