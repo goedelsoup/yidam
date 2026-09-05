@@ -2,11 +2,11 @@
 
 - **Status:** Implemented
 - **Track:** I18
-- **Relates to:** RFC-0003 (the light binary this must run in, and the feature gate it argues
-  about), RFC-0001 and RFC-0016 (the report contract the new checks and the new report emit
-  on), RFC-0019 (which established that a `.yiz` bundle is a tarball with no object store
-  behind it — this is the object store), RFC-0005 (the MCP contract this deliberately does
-  not touch)
+- **Relates to:**
+  - RFC-0003 (the light binary this must run in, and the feature gate it argues about)
+  - RFC-0001 and RFC-0016 (the report contract the new checks and the new report emit on)
+  - RFC-0019 (which established that a `.yiz` bundle is a tarball with no object store behind it — this is the object store)
+  - RFC-0005 (the MCP contract this deliberately does not touch)
 - **Versioning layers touched:** template (catalog frontmatter gains an optional field;
   `prelude/guidelines` gains a rule) / tooling (`yidam` CLI implements it) — **no
   parity-surface change and no MCP contract change**; see [What this does not
@@ -116,7 +116,7 @@ a build where `cmd::tonpa` does not exist — the feature buys the *network*, an
 and hashing it are not network operations. This RFC adopts that split from its first commit
 rather than rediscovering it.
 
-## Design
+## Proposal
 
 ### The vault stores bytes; git stores the record
 

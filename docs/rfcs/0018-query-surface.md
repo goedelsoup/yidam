@@ -2,10 +2,12 @@
 
 - **Status:** Implemented
 - **Track:** I13
-- **Relates to:** RFC-0016 (the report JSON contract results are emitted on), RFC-0005 (the
-  MCP contract the anchored form joins), RFC-0001 (report conventions and golden fixtures),
-  RFC-0003 (the light binary this must run in), RFC-0017 (which draws the same distinction
-  between the markdown node model and the YAML corpus instances this walks)
+- **Relates to:**
+  - RFC-0016 (the report JSON contract results are emitted on)
+  - RFC-0005 (the MCP contract the anchored form joins)
+  - RFC-0001 (report conventions and golden fixtures)
+  - RFC-0003 (the light binary this must run in)
+  - RFC-0017 (which draws the same distinction between the markdown node model and the YAML corpus instances this walks)
 - **Versioning layers touched:** tooling (`yidam` CLI) — no parity-surface change and no
   ontology change; see [Is this a CLI surface or a parity function?](#is-this-a-cli-surface-or-a-parity-function)
 - **Downstream reference case:** Project BOSC (watermark-directory)

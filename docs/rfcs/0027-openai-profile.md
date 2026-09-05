@@ -2,12 +2,12 @@
 
 - **Status:** Draft
 - **Track:** I22
-- **Relates to:** RFC-0005 (the contract this puts a second vocabulary beside — whose
-  one-operation-one-name rule turns out to be the argument *for* a profile rather than
-  against one, and whose 0.11.1 refusal clause this extends), RFC-0002 (the node model
-  `fetch` renders), RFC-0019 (the rule that decides what a dependency node's `url` may
-  say), RFC-0003 (the light binary this must run in), RFC-0018 (the precedent that a new
-  surface is a surface and **not** a fourth parity function)
+- **Relates to:**
+  - RFC-0005 (the contract this puts a second vocabulary beside — whose one-operation-one-name rule turns out to be the argument *for* a profile rather than against one, and whose 0.11.1 refusal clause this extends)
+  - RFC-0002 (the node model `fetch` renders)
+  - RFC-0019 (the rule that decides what a dependency node's `url` may say)
+  - RFC-0003 (the light binary this must run in)
+  - RFC-0018 (the precedent that a new surface is a surface and **not** a fourth parity function)
 - **Versioning layers touched:** SDK+parity (`mcp/tools.json` gains a `profiles` section
   and one frozen refusal token; new conformance cases) / tooling (the Rust CLI implements
   `serve --mcp --profile openai`) — **no template change, no node-model change**

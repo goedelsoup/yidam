@@ -2,13 +2,15 @@
 
 - **Status:** Draft
 - **Track:** I21
-- **Relates to:** RFC-0020 (the carriage rule this extends from findings to executions), RFC-0023
-  (the store whose bytes a receipt records, and the sentence this design is a second application
-  of), RFC-0024 (the policy layer, and the constitutional-family question it deliberately left
-  open — this RFC is what needs it settled), RFC-0019 (the citation contract a cross-corpus gather
-  is bound by), RFC-0003 (the light binary this must run in), RFC-0001 (the report contract it
-  emits on), RFC-0018 (the precedent that a new surface is a CLI surface and **not** a fourth
-  parity function), RFC-0009 (the execution authority this must not claim)
+- **Relates to:**
+  - RFC-0020 (the carriage rule this extends from findings to executions)
+  - RFC-0023 (the store whose bytes a receipt records, and the sentence this design is a second application of)
+  - RFC-0024 (the policy layer, and the constitutional-family question it deliberately left open — this RFC is what needs it settled)
+  - RFC-0019 (the citation contract a cross-corpus gather is bound by)
+  - RFC-0003 (the light binary this must run in)
+  - RFC-0001 (the report contract it emits on)
+  - RFC-0018 (the precedent that a new surface is a CLI surface and **not** a fourth parity function)
+  - RFC-0009 (the execution authority this must not claim)
 - **Versioning layers touched:** template (the prelude gains a capability-manifest section;
   `directories.md` gains one) / bootstrap protocol (the scaffold gains
   `.yidam/capabilities.toml`) / tooling (`yidam` CLI implements it) — **no parity-surface change,
