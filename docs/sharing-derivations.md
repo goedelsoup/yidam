@@ -22,9 +22,8 @@ for making it happen or a limit on what it is allowed to mean.
 ## What a bundle is
 
 A `.yiz` file is a gzipped tar archive. It is a **corpus**, laid out the way the repository
-that produced it lays out its own — which is why the code that reads an installed dependency
-is the same code that reads local instances, and why a change to instance parsing cannot
-apply to one and not the other.
+that produced it lays out its own. So the code that reads an installed dependency is the code
+that reads local instances. A change to instance parsing cannot apply to one and not the other.
 
 ```text
 manifest.yml               provenance and counts
@@ -55,9 +54,9 @@ against. That absence is load-bearing and the section on citation returns to it.
 field, renaming a field, changing a field's type, or removing a file from the archive
 layout. Adding a field or a new archive entry is not breaking.
 
-The obligation this places on a consumer is the usual one and it is not optional: **ignore
+The obligation this places on a consumer is the usual one, and it is not optional: **ignore
 unknown fields and unknown archive paths.** A consumer that fails on an unrecognized entry
-converts every additive change into a breaking one, and the version number stops meaning
+converts every additive change into a breaking one. The version number then stops meaning
 anything.
 
 The authority for this is [`cmd/bundle.rs`](../yidam/cli/src/cmd/bundle.rs)'s
@@ -101,16 +100,16 @@ point:
 > material as long as the repository is private. That is the right rule for a checkout and
 > the wrong one for an artifact. **The artifact outlives the access.**
 
-So `.yidam/private-paths` is read again at release time against the directories that actually
-enter a bundle, and a match fails the release *whether or not the repository is private*.
-Private material inside a published bundle is one download away from anywhere.
+So `.yidam/private-paths` is read again at release time, against the directories that actually
+enter a bundle. A match fails the release *whether or not the repository is private*. Private
+material inside a published bundle is one download away from anywhere.
 
 Three of those directories the archive carries as files: `.yidam/corpus`, `.yidam/skills`,
-`.yidam/decisions`. The fourth is `.yidam/catalog`, and it is not obvious — **no catalog file is
-in a bundle at all.** A bundle carries `index/corpus.arrow`, that index has a `text` column, and
-the embedding step composes that text from the catalog as well as the corpus. So a private
-catalog entry's prose ships inside the archive while no catalog file does. It was missing from
-the guard until issue #443, for exactly that reason: the omission looked correct.
+`.yidam/decisions`. The fourth is `.yidam/catalog`, and it is not obvious — **no catalog file
+is in a bundle at all.** A bundle carries `index/corpus.arrow`, and that index has a `text`
+column. The embedding step composes that text from the catalog as well as the corpus. So a
+private catalog entry's prose ships inside the archive while no catalog file does. It was
+missing from the guard until issue #443, for exactly that reason: the omission looked correct.
 
 The list is duplicated in the workflow, and a test compares it against
 `vault::derived_sources(Derived::Bundle)` — the same question asked by `yidam vault push
@@ -119,10 +118,10 @@ matching; that is what happened here.
 
 ### An index is opt-in, by omission
 
-The workflow installs the light build. `export --format bundle` includes a vector index
-**only when one is already built and committed**, so publishing never needs protoc or an
-ONNX runtime. A corpus is useful to a consumer without an index; requiring the ML stack in
-order to publish would put sharing behind a toolchain nobody needs to read Markdown.
+The workflow installs the light build. `export --format bundle` includes a vector index **only
+when one is already built and committed**, so publishing never needs protoc or an ONNX runtime.
+A corpus is useful to a consumer without an index. Requiring the ML stack in order to publish
+would put sharing behind a toolchain nobody needs to read Markdown.
 
 ## Consume a bundle
 
@@ -166,17 +165,17 @@ A sibling repository, read where it sits:
 yidam tonpa add ../sibling-corpus
 ```
 
-Nothing is fetched, hashed, or locked — **hashing a working tree that changes under you
-records nothing.** `tonpa status` reports it as `[linked]` and unpinned; `install` skips it;
+Nothing is fetched, hashed, or locked — **hashing a working tree that changes under you records
+nothing.** `tonpa status` reports it as `[linked]` and unpinned. `install` skips it, and
 `update` declines it and says why.
 
-This is the only form that supports a development loop. An edit in the producer is visible
-in the consumer without cutting a release, which is how you find out whether the ontologies
-actually meet before either side commits to a version.
+This is the only form that supports a development loop. An edit in the producer is visible in
+the consumer without cutting a release. That is how you find out whether the ontologies
+actually meet, before either side commits to a version.
 
 A name declared as a path dependency **wins over an unpacked bundle of the same name**. The
-path form is the one someone is actively editing, and silently preferring a stale unpacked
-copy would make an edit appear to have no effect — the one failure a development loop must
+path form is the one someone is actively editing. Silently preferring a stale unpacked copy
+would make an edit appear to have no effect. That is the one failure a development loop must
 not have.
 
 ## What changes once a dependency is installed

@@ -26,8 +26,8 @@ graph *is* the git history:
 ## The default: no vault configured
 
 A corpus with no vault keeps its artifacts in a machine-wide cache and nowhere else. That is
-every corpus until somebody configures a store, and it is not degraded — `yidam vault put`,
-`path` and `verify` all work against the cache with no repository and no configuration at all.
+every corpus until somebody configures a store, and it is not degraded. `yidam vault put`,
+`path` and `verify` all work against the cache, with no repository and no configuration at all.
 
 ```sh
 yidam vault put ~/Downloads/pearl-2009.pdf   # prints the content address
@@ -47,7 +47,7 @@ audience = "Who can read this store, and why that is acceptable."
 ```
 
 `audience` is required and nothing can check it. That is `.yidam/publishable`'s argument
-applied to a store: it is not a security control, it is a statement of intent that lives in the
+applied to a store. It is a statement of intent, not a security control — one that lives in the
 repository and outlasts the person who made it. What is enforced is that somebody wrote one.
 
 `s3://bucket/prefix` works too, with `region`, `endpoint` and `path_style` for anything
@@ -73,12 +73,12 @@ holds    = ["catalog"]
 ```
 
 With more than one vault, **every** vault declares `holds`. A vault claiming nothing would have
-to be the catch-all for whatever the others did not take, and routing by default is how a
-licensed document ends up in the store meant for public output.
+to be the catch-all for whatever the others did not take. Routing by default is how a licensed
+document ends up in the store meant for public output.
 
-A record's own `vault:` overrides the route its kind would take, and `vault: none` is a route —
-the local cache and nowhere else — spelled rather than omitted, so that *nobody has decided* and
-*decided to keep it here* are different states.
+A record's own `vault:` overrides the route its kind would take. `vault: none` is a route — the
+local cache and nowhere else — spelled rather than omitted. That keeps *nobody has decided* and
+*decided to keep it here* as different states.
 
 ## What `vault push` refuses to send
 
@@ -100,12 +100,12 @@ verbatim. So `push --index` asks whether *everything it was derived from* may le
 | `bundle` | those, plus `.yidam/skills`, `.yidam/decisions` |
 
 A path `.yidam/private-paths` declares private that intersects one of those refuses the push
-and names it — the same rule the release workflow applies to a bundle, for the reason it gives:
-*the artifact outlives the access.*
+and names it. That is the same rule the release workflow applies to a bundle, for the reason it
+gives: *the artifact outlives the access.*
 
-**`.yidam/private-paths` applies over the top of both**, and is checked first: it is a statement
-about this repository that the person running the command can act on, while a licence is a fact
-about a third party they may not be able to change at all.
+**`.yidam/private-paths` applies over the top of both**, and is checked first. It is a
+statement about this repository that the person running the command can act on. A licence is a
+fact about a third party they may not be able to change at all.
 
 ## Share the vector index through a vault
 
@@ -120,8 +120,8 @@ yidam vault pull --index                     # anywhere else
 ```
 
 `.yidam/index.lock` names **the store as well as the hash**. A pull reads the store from there
-rather than re-deriving it from `holds`, because a routing edit made after the push would
-otherwise send it somewhere the bytes are not — a mutable ref wearing a lock file's clothes.
+rather than re-deriving it from `holds`. A routing edit made after the push would otherwise
+send it somewhere the bytes are not — a mutable ref wearing a lock file's clothes.
 
 An index is a directory and a vault stores one object, so it is packed into a single
 deterministic archive and hashed as a whole. A `corpus.arrow` from one build beside a
