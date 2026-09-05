@@ -1,0 +1,17 @@
+# One of the six — the largest, at 1,123 commits, and on the high endpoint of every band.
+note = "the high end of the cluster: 26% phases, 1.11 nodes/commit, a 62-line median"
+cluster = true
+
+[measurement]
+commits = 1123
+phase_commits = 291
+off_vocabulary_commits = 0
+nodes = 1246
+median_node_lines = 62.0
+
+[vintage]
+has_phase_verb = true
+vocabulary_is_closed = true
+graph_present = true
+
+[expect]

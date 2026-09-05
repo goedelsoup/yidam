@@ -374,6 +374,12 @@ ci-report = { path = "../tests/harness/ci-report" }
 # order it was written in and `replay` has a history to reconstruct. Costs no package: it is
 # already a dependency above, and naming it here is what lets a test use it.
 toml = "1.1"
+# Parses the shipped kuten profiles in `kuten_prohibitions.rs`. The five prohibitions are
+# guarded against the *tree* a profile declares and never against its text, because a guard
+# that greps a whole file is satisfied by that file's own comments — which is precisely what
+# a profile explaining the prohibition it is breaking would do. Costs no package: already a
+# dependency above, and naming it here is what lets a test use it.
+serde_yaml = "0.9"
 quick-xml = "0.42"
 tempfile = "3"
 jsonschema = { version = "0.52.1", default-features = false }

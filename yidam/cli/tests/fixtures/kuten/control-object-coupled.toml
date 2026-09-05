@@ -1,0 +1,23 @@
+# NOT one of the six. One of the two object-coupled repositories, at 25% off-vocabulary.
+#
+# Of the nine repositories whose vendored prelude closes the list, seven are at exactly 0%.
+# The two that are not are the two with an artifact outside the corpus, and their `feat:` and
+# `test:` commits are reported here as being outside the vocabulary — which they are, until
+# the register split lands and scopes recognition to the corpus register.
+note = "object coupling is an axis crossing both shapes, and it shows up here as divergence"
+cluster = false
+
+[measurement]
+commits = 400
+phase_commits = 80
+off_vocabulary_commits = 100
+nodes = 320
+median_node_lines = 48.0
+
+[vintage]
+has_phase_verb = true
+vocabulary_is_closed = true
+graph_present = true
+
+[expect]
+off-vocabulary-share = "divergent"

@@ -1,0 +1,101 @@
+# The `inquiry` kuten — the declaration a tool reads.
+#
+# KUTEN.md beside this file is the document a person reads, and it opens with the binding
+# rule this profile is held to. Every band here was measured over eighteen derived corpora
+# before it was written down; none was chosen.
+#
+# A comment in this file satisfies nothing. The guards upstream parse the document, so what
+# is asserted is the tree below and never the prose around it.
+kuten: inquiry
+revision: 1
+gloss: the corpus grows through sustained inquiry — questions opened, and settled
+
+# Where the numbers came from, so a reader can ask whether they still hold.
+measured:
+  population: eighteen derived corpora, 6,900 commits, 3,300 instance nodes
+  cluster: six repositories, six unrelated domains, 73 to 1,123 commits
+  controls: [vendored-prelude vintage, repository maturity]
+
+# The four phase types PHASES.md has always carried, and the share of commits that settle
+# one. Measured across the nine repositories whose vendored prelude has the `phase` verb;
+# six of the nine use it, and those six are this cluster.
+phases:
+  types: [Investigation, Extraction, Synthesis, Assessment]
+  commit_share: {low: 0.13, high: 0.26}
+
+# The closed vocabulary as it stands. A kuten may declare a subset and gloss it; it may not
+# add a verb, and the guard holds this list to GRAPH.md's.
+vocabulary:
+  verbs:
+    - establish
+    - revise
+    - assess
+    - scope
+    - synthesize
+    - withdraw
+    - open
+    - close
+    - transport
+    - resolve
+    - adopt
+    - decide
+    - phase
+    - genesis
+    - overlay
+    - extract
+    - refresh
+    - compute
+    - index
+    - bundle
+    - reconcile
+    - regen
+    - build
+    - implement
+    - scaffold
+    - catalog
+    - migrate
+    - fix
+    - vendor
+    - consume
+  # Exactly 0% in all six. The two repositories that were not at zero were the two coupled
+  # to an artifact, and that is an axis crossing both shapes rather than a property of this
+  # one — which is why the band is zero rather than widened to admit them.
+  off_vocabulary_share: {low: 0.0, high: 0.0}
+
+# The shape of corpus this practice accretes. Both bands are read at matched maturity:
+# nodes per commit halves over a repository's life, so an unmatched comparison measures age.
+classes:
+  nodes_per_commit: {low: 0.50, high: 1.11}
+  median_node_lines: {low: 35, high: 62}
+
+# What the bootstrap asks. One question, and it is the one the loop is built around.
+dialogue:
+  central_question: What is the central question or problem this corpus exists to investigate?
+
+# What the practice routes through.
+skills: [bootstrap]
+
+# A proposal with values, not a permission with blanks. Config was empty in seventeen of
+# eighteen corpora, so there is no measured interval; these are the values yidam's own
+# configuration documentation puts in a reader's hands. `due` reads only `[due]` keys — a
+# corpus holds these by writing them into its config, or declines them by not.
+clocks:
+  proposed:
+    due.questions_after: 100
+    due.phases_after: 60
+    due.index_after: 25
+    catalog.ttl_days: 180
+
+# Severities this profile proposes. Every one enters through the policy layer and is visible
+# as an override; a severity anywhere else in this file is a gate loosened quietly, and the
+# guard reports it as one. Empty is a value: not one of the eighteen carried an override.
+policy:
+  proposes_overrides: []
+
+# ── named, and deliberately unpopulated ──────────────────────────────────────
+# A slot with no values names the state a repository is in. Inventing one ahead of its
+# evidence produces a number that is believed because it is written down.
+#
+#   object            — the artifact outside the corpus, and the arrow's direction
+#   rubric            — the criteria a contribution is scored by
+#   question_pressure — what kind of question this corpus should be opening

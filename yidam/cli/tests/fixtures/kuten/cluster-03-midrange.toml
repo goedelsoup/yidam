@@ -1,0 +1,17 @@
+# One of the six, in the middle of every band.
+note = "the interior of the cluster: 20% phases, 0.80 nodes/commit, a 48-line median"
+cluster = true
+
+[measurement]
+commits = 400
+phase_commits = 78
+off_vocabulary_commits = 0
+nodes = 320
+median_node_lines = 48.0
+
+[vintage]
+has_phase_verb = true
+vocabulary_is_closed = true
+graph_present = true
+
+[expect]

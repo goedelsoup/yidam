@@ -1,0 +1,17 @@
+# One of the six, read at a mature maturity — the same practice, accreting more slowly.
+note = "mature: 23% phases, 0.55 nodes/commit, a 55-line median"
+cluster = true
+
+[measurement]
+commits = 560
+phase_commits = 130
+off_vocabulary_commits = 0
+nodes = 308
+median_node_lines = 55.0
+
+[vintage]
+has_phase_verb = true
+vocabulary_is_closed = true
+graph_present = true
+
+[expect]

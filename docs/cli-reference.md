@@ -51,11 +51,50 @@ baseline is what makes that the question. — see
 
 ## The practice
 
-One command, and it is not a gate. Read-only, offline, and it exits zero however much is owed.
+Two commands, and neither is a gate. Both exit zero however much is owed. Both exit zero
+however far a corpus has drifted.
 
 | Command | What it answers |
 |---|---|
 | `due` | What is due? Four clocks read together — index staleness, catalog TTL, unanswered questions, phases in flight. `--strict` exits nonzero on a due clock |
+| `kuten` * | What is this corpus's practice aimed at? Writes the declaration into `AGENTS.md`. `kuten check` reads the history against it |
+
+### A kuten declares what the work is for
+
+A repository declares what it is *about* — in its ontology, its classes, its central question.
+It had no way to say what its work is **for**. A kuten is that declaration.
+
+It is vendored with the prelude, and it carries a revision. A decision record in
+`.yidam/decisions/kuten.yml` adopts it. `yidam kuten` writes it into `AGENTS.md`, so an agent
+meets it at session start.
+
+**A kuten narrows the loop and may not widen the model.** Five things it may not do:
+
+- add a commit verb — it may declare a subset of the closed list and gloss it;
+- add or alter a claim standing;
+- contradict Articles I–VI;
+- change the graph encoding;
+- loosen a gate, except as a visible policy override.
+
+**A repository holding no kuten is a supported state.** It reports as one.
+
+### `kuten check` asks a question and never fails
+
+It reads the declaration and the repository's own history. Then it says where they disagree —
+*you declared `inquiry` and have settled no phase in two hundred commits.*
+
+That is a question for a person, not a defect. `due`'s argument applies verbatim: a corpus that
+has drifted is owed a look. So the command writes nothing and exits zero. Anything that refuses
+arrives through [the policy layer](#the-rules-this-repository-writes-about-itself), visible as
+an override.
+
+**Vintage is never reported as divergence.** Every consumer reads the kuten and the prelude
+this repository *vendored*, not the current ones. A repository whose vendored `GRAPH.md` has no
+`phase` verb has not stopped running phases. It never could, and the check says so.
+
+**A comparison across revisions is annotated, never silently made.** The vendored profile may
+have moved past the revision the decision record names. The report says so, and the numbers
+stay readable.
 
 ### `due` is not `doctor`, and the difference is the point
 

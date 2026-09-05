@@ -1,0 +1,24 @@
+# NOT one of the six. A repository bootstrapped an hour ago.
+#
+# Nothing to measure is not divergence: a corpus with no commits and no nodes has not stopped
+# doing anything. Reporting it as drift would make every new repository open with four
+# findings it can do nothing about.
+note = "an empty corpus is unmeasurable, never divergent"
+cluster = false
+
+[measurement]
+commits = 0
+phase_commits = 0
+off_vocabulary_commits = 0
+nodes = 0
+
+[vintage]
+has_phase_verb = true
+vocabulary_is_closed = true
+graph_present = true
+
+[expect]
+phase-commit-share = "unmeasurable"
+off-vocabulary-share = "unmeasurable"
+nodes-per-commit = "unmeasurable"
+median-node-lines = "unmeasurable"

@@ -43,6 +43,10 @@ const GENERATORS: &[Generator] = &[
     ("crates-index", super::crates_index),
     ("packages-index", super::packages_index),
     ("bundle-status", super::bundle_status),
+    // The declaration a corpus makes about its own practice, into the file an agent reads
+    // at session start. Regenerated rather than hand-copied: a hand-copied declaration is
+    // one re-vendor away from being silently wrong.
+    ("kuten", super::kuten::block),
 ];
 
 /// The names of every generator this command runs, in order.
@@ -146,6 +150,7 @@ mod tests {
             "corpus-index",
             "crates-index",
             "index-status",
+            "kuten",
             "open-questions",
             "packages-index",
             "skills-index",

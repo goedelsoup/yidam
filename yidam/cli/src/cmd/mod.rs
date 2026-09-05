@@ -28,6 +28,7 @@ pub(crate) mod graph;
 // caught this on a pull request does not exist: PR CI never compiles `--features index`.
 pub(crate) mod index_build;
 mod index_verify;
+pub(crate) mod kuten;
 pub(crate) mod lint;
 mod log;
 mod lsp;
@@ -77,6 +78,7 @@ pub use graph::{graph, neighbors};
 #[cfg(feature = "index")]
 pub use index_build::index_build;
 pub use index_verify::index_verify;
+pub use kuten::{run as run_kuten, KutenCommand};
 pub use lint::{
     citation_range_stated_twice, collect_line_citations, dead_line_citation, label_range, lint,
     relocate, slid_line_citation, unverified_line_citation, Check as LintCheck, LineCitation,
