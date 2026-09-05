@@ -261,7 +261,8 @@ Then read each template file in `sadhana/`:
 - `sadhana/web/README.md`
 - `sadhana/root/README.md`, `sadhana/root/AGENTS.md`, `sadhana/root/CLAUDE.md`, `sadhana/root/mise.toml`,
   `sadhana/root/gitattributes`, `sadhana/root/gitignore`
-- `sadhana/github/workflows/ci.yml`, `sadhana/github/workflows/release.yml`
+- every file in `sadhana/github/workflows/` — run `ls sadhana/github/workflows/` and read
+  each one; do not assume a fixed list (#589)
 - `sadhana/sangha/README.md` (and PROTOCOL.md, electors.md, resolutions/, positions/) —
   **only if `governance: collective`**; skip these five reads entirely in single-elector mode
 
@@ -306,8 +307,8 @@ in `.yidam/decisions/ontology.yml` in step 2:
 - **`collective`** — create `.yidam/sangha/` with all files from `sadhana/sangha/`, and fill
   `electors.md` with the participants the user named.
 
-Repository-root files. `sadhana/root/` and `sadhana/github/` are not directory mirrors —
-each file installs to a specific path, **overwriting yidam's own copy**:
+Repository-root files. `sadhana/root/` is not a directory mirror — each file installs to a
+specific path, **overwriting yidam's own copy**:
 
 ```
 sadhana/root/README.md            → README.md            (overwrites yidam's)
@@ -316,17 +317,38 @@ sadhana/root/CLAUDE.md            → .claude/CLAUDE.md    (overwrites yidam's)
 sadhana/root/mise.toml            → mise.toml            (overwrites yidam's)
 sadhana/root/gitattributes        → .gitattributes       (overwrites yidam's)
 sadhana/root/gitignore            → .gitignore           (overwrites yidam's)
-sadhana/github/workflows/ci.yml   → .github/workflows/ci.yml  (overwrites yidam's)
-sadhana/github/workflows/release.yml → .github/workflows/release.yml (overwrites yidam's)
 ```
 
-Yidam's copies of these eight files describe yidam — its harness, its CLI workspace, its
-bootstrap-mode entry check. Left in place they are wrong the moment genesis is written, and
-yidam's `ci.yml` is worse than wrong: it builds `yidam/cli` and `yidam/tests/harness`, paths
-that step 8 removes, so it goes green having compiled nothing. Yidam's `release.yml` is
-wrong in a louder way: it publishes the yidam CLI's binaries on a `cli/v*` tag, from a
-repository that has no CLI to publish. Overwrite all eight now. Do not merge yidam's content
-into them.
+Yidam's copies of these six files describe yidam — its harness, its CLI workspace, its
+bootstrap-mode entry check. Left in place they are wrong the moment genesis is written.
+Overwrite all six now. Do not merge yidam's content into them.
+
+**`.github/workflows/` — replace the directory, do not overwrite files inside it.** `yidam
+clone` copies all of yidam's own workflows into the new repository (`EXCLUDE_DIRS` does not
+name `.github/`), and every one of them names a layout that does not survive genesis:
+`ci.yml` builds `yidam/cli` and `yidam/tests/harness`, paths step 8 deletes, so it would go
+green having compiled nothing; `release.yml` publishes the yidam CLI's binaries from a
+repository that has no CLI to publish; `docs.yml`, `editor.yml`, `install-channels.yml`,
+`publish-crates.yml`, and `tap.yml` each reference a directory or a publishing target this
+repository does not have. Naming and overwriting only two of them, as this step used to,
+leaves the rest behind — nothing here objects to correct YAML naming a path that used to
+exist, and the first push a derived repository makes to a remote is the moment one of them
+runs and fails (#589).
+
+Delete the directory entirely and replace it wholesale:
+
+```
+rm -rf .github/workflows/
+mkdir -p .github/workflows/
+cp sadhana/github/workflows/*.yml .github/workflows/
+```
+
+**Enumerate `sadhana/github/workflows/`; do not name its files in prose.** `ls
+sadhana/github/workflows/` is the source of truth for what belongs at genesis — naming files
+here is exactly the drift that left `index.yml` uninstalled for as long as it existed
+alongside `ci.yml` and `release.yml`, its own header claiming an install this step never
+performed. Whatever the directory holds when this step runs is what the derived repository
+gets, in full, and nothing of yidam's own remains beside it.
 
 `gitattributes` and `gitignore` are spelled without their dots for the same reason `root/`
 and `github/` are: `ls sadhana/` is a step in this skill and a dotfile would not appear in
@@ -334,7 +356,7 @@ it. `.gitattributes` arrives holding only comments — the rule about connector 
 line endings, which costs nothing until the first connector lands and is unrecoverable
 advice afterwards.
 
-`.gitignore` is the one of the eight most easily mistaken for generic, and it is not.
+`.gitignore` is the one of the six most easily mistaken for generic, and it is not.
 Yidam's own ignores `.local/` — where *its* binary installs — and a path under
 `yidam/tests/`, which the vendor step in step 8 deletes; the rule outlives the directory it
 names by the length of the repository's life. What this file needs instead is organized
@@ -786,9 +808,9 @@ Keep `domains/README.md` when any domain is kept: it is the index that says what
 and how a domain is wired into `crates/Cargo.toml` when the domain computer exists.
 
 **Then delete the template's own top-level files.** These describe yidam, not this repository.
-`README.md`, `AGENTS.md`, `.claude/CLAUDE.md`, `mise.toml`, `.gitattributes`, `.gitignore`,
-`.github/workflows/ci.yml`, and `.github/workflows/release.yml` were already overwritten in
-step 3; what remains is:
+`README.md`, `AGENTS.md`, `.claude/CLAUDE.md`, `mise.toml`, `.gitattributes`, and
+`.gitignore` were already overwritten in step 3, and `.github/workflows/` was already
+replaced wholesale from `sadhana/github/workflows/`; what remains is:
 
 ```
 rm -f BOOTSTRAP.md VERSIONING.md
