@@ -1,6 +1,6 @@
 # RFC-0029 — A write is a capability a server declares, not a transport it happens to have (the MCP write tier)
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Track:** I24
 - **Relates to:**
   - RFC-0005 (the frozen contract this changes on the record; `tools.json` is the canonical list and this RFC's build bumps it)
@@ -17,6 +17,17 @@
   **#429**'s consolidation (§2).
 - **Downstream reference case:** none yet — `examples/streamflow`, by construction, when the build
   lands.
+
+> **Amended 2026-09-05.** §2.2 states a criterion — *does a git author identity exist* — and then
+> uses a transport as its proxy: *stdio, not HTTP*. #608 is the first surface where the two come
+> apart, and it shows §6's supporting claim to be false as written: the two readings do not
+> "license identical surfaces" until #427 lands, because `yidam edit`
+> ([RFC-0030](0030-standalone-editor.md)) divides them today with no #427 anywhere in it. **The
+> criterion governs; the transport was evidence for it, never the rule.** A loopback server
+> started by the corpus's owner MAY declare `act`; a server reachable from another machine MAY
+> NOT, and that arm of §2.2 is unchanged — #427 remains the shared prerequisite of #429 and the
+> remote arm. The four clauses an implementer checks, three of them detectable and the fourth
+> honestly not, are in §2.2 under **The criterion, not the transport**.
 
 ## Summary
 
@@ -124,6 +135,68 @@ taken up, and it belongs to #427.
 Reversing this at review means either opening HTTP writes with the server as author — which #429
 rules out on the system's own terms (*"authorship is not metadata in this system"*) — or
 re-blocking the whole tier on #427, which parks stdio-local writes on a question they do not have.
+
+#### The criterion, not the transport *(decided 2026-09-05)*
+
+The decision above states a criterion and, in the same breath, a proxy for it. The criterion is
+*does a git author identity exist*. The proxy is *stdio, not HTTP*. §6 declines a transport gate
+on exactly this ground — it *"hard-codes today's accident (stdio implies a local person) into the
+contract"* — and then rests on the claim that the two readings *"license identical surfaces"*
+until #427 lands. **That claim is false, and #608 is the counterexample.** `yidam edit`
+(RFC-0030) is HTTP, and it is also a process a person started from their own shell, inside their
+own checkout, bound to loopback, serving a page to a browser on the same machine. Every clause of
+the stdio justification holds and only the socket differs — so the two readings diverge here,
+today, with no #427 in the picture.
+
+**Decision: `act` is gated on the criterion; the transport is evidence for the criterion, never
+the rule.** A loopback server started by the corpus's owner MAY declare `act`. A server reachable
+from another machine MAY NOT until #427 supplies an author, exactly as written above.
+
+This RFC already argues this way about the neighbouring case, which is why the amendment is a
+sharpening rather than a reversal: both the paragraph above and §6's third alternative decline to
+re-block the tier on #427 because that *"parks stdio-local writes on a question they do not
+have"* — and a loopback editor does not have that question either. Reading the proxy as the rule
+parks it there anyway, one transport later.
+
+**What an implementer checks.** Four clauses, of which the fourth is the honest one:
+
+1. **A git author identity resolves** for the serving process, in the corpus it serves —
+   `user.name` and `user.email`, the same values the commit would take. Detectable, and it is
+   the criterion stated literally rather than by proxy. A checkout with no configured identity
+   cannot declare `act` on *any* transport, stdio included: the clause §2.2 always meant and
+   never wrote as a check.
+2. **The declaration is configuration, never inference** — §2.1's rule, unchanged and
+   load-bearing here. A server that satisfies clause 1 and was not told to write declares
+   `false`.
+3. **Every listening socket the `act`-declaring server holds is loopback** — `127.0.0.1` or
+   `::1`, and nothing else. Detectable at bind time. This is what separates *this machine* from
+   *another machine* without inventing an authenticator, and a server that declares `act` on a
+   wider bind fails at startup, in the shape §5 already specifies for the HTTP arm: an error,
+   not a silent downgrade. A server that declares no `act` binds as it does today; this clause
+   constrains the declaration, not the transport.
+4. **That the peer is the person clauses 1–3 describe is a declaration the operator makes, not
+   something the server detects.** This is worth stating plainly, because clause 3 reads like a
+   security boundary and is not one. Over stdio there is no gap to declare across: the transport
+   has exactly one peer and it is the process that started the server, so *who is calling* has
+   no second answer. Every socket transport has an unbounded peer set — anything on the host
+   reaches loopback, and the CLI's own help for `serve --mcp --http` instructs an operator to
+   *"put it behind a tunnel or a proxy that supplies one"*
+   ([`main.rs:534`](../../yidam/cli/src/main.rs#L534)), which republishes a loopback port
+   off-machine by design. So a socket server's `act` declaration asserts something about its
+   deployment that it cannot verify from inside. That is not a defect introduced here — it is
+   what clause 2 already was. `act` is configuration precisely because the fact being declared
+   is not observable.
+
+**What this does not license.** Not an `act` declaration standing in for #427's answer: a tunnel
+in front of a loopback server is the remote case wearing clause 3's clothes, and an operator who
+builds one and declares `act` is asserting something false. Not a new authenticator either —
+this decision adds none, and clause 3 is the whole of what the server can see. And not a second
+route into the tier: the loopback surface serves the same operations through the same
+`super::handle` seam, per RFC-0030.
+
+Reversing this at review means the proxy binds as written, `yidam edit`'s Phase 3 blocks on #427,
+and a loopback editor waits on a remote-authorisation question it does not raise. RFC-0030's open
+question and #608's schedule table both name that cost.
 
 ### 2.3 `cycle` joins the `act` tier
 

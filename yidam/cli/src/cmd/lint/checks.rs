@@ -84,8 +84,14 @@ pub struct Class {
     pub edges: Vec<ClassEdge>,
     /// Whether [`Self::edges`] is a bound or a description. See [`EdgePolicy`].
     pub edge_policy: EdgePolicy,
-    /// The longest an instance of this class may be, in lines. `None` when the class has
+    /// The longest an instance's `description` may be, in lines. `None` when the class has
     /// not said, which is every class written before the field existed — and no check runs.
+    ///
+    /// **Lines of prose, not lines of file.** `node-too-long` counted the bytes as read until
+    /// #588 showed what that charges for: frontmatter, properties, and a `claim_tag` and
+    /// `source` on every link, so a node documenting where its edges come from paid for the
+    /// provenance out of a budget written to stop descriptions sprawling. A corpus that
+    /// raised this number to absorb structural lines can lower it again.
     ///
     /// **There is no default, and that is a measurement rather than a shrug.** The bootstrap
     /// rubric's S7 fixes 40 lines, and across 410 nodes in five real corpora **335 of them
@@ -1062,6 +1068,27 @@ pub fn undeclared_property(
 /// that says nothing is not reported against, for the reason [`EdgePolicy::Unstated`] gives
 /// one field over: gating there would enforce a contract nobody wrote.
 ///
+/// **And the unit is the `description`, not the file.** This counted `n.text` — the bytes as
+/// read, frontmatter, properties and links included — while its own rationale argues about
+/// prose. The two came apart as soon as a corpus started recording where its edges come from:
+/// a `claim_tag` and a `source` on each link costs about a line and a half per edge, so a
+/// node that documents its provenance paid for it out of a budget written to stop
+/// *descriptions* sprawling. One derived corpus reported 212 findings, 207 of them one class
+/// whose fixed structure — frontmatter, two properties, three tagged links — is 18 lines
+/// before a word of prose, against a ceiling of 25. Its `max_lines` was raised 42 → 60 and
+/// the share over it went *up*, from 11 of 40 to 207 of 238, which is the evidence that the
+/// number was never what was wrong.
+///
+/// A node with no description is skipped rather than falling back to the file. There is
+/// nothing to be too long, and falling back would charge structure to a node that wrote no
+/// prose at all — the defect, reintroduced for the nodes it hits hardest.
+///
+/// The harness's S7 still counts the file, and this no longer claims to agree with it. #595
+/// made S7 explicitly a genesis-only number, scored once against a corpus a bootstrap has
+/// just produced and never re-run; structure overhead is small there. `max_lines:` is a
+/// steady-state contract a class keeps for its whole life, and structure overhead is exactly
+/// what grows over one.
+///
 /// Warn rather than Error even when declared. Length is editorial, the ratchet in
 /// [`super::baseline`] already distinguishes inherited from new, and a node one line over is
 /// not a corpus that has stopped being true.
@@ -1075,15 +1102,21 @@ pub fn node_too_long(nodes: &[Node], classes: &[Class]) -> Check {
         let Some(max) = class.max_lines else {
             continue;
         };
-        // The bytes as read, so this counts what a reader scrolls past — the same thing the
-        // harness's S7 counts, and the reason `Node::text` is kept after parsing.
-        let lines = n.text.lines().count();
+        // The parsed prose block, which `CorpusInstance` already holds apart from
+        // `properties` and `links` — so the thing measured is the thing the ceiling is about.
+        let Some(description) = n.inst.description.as_deref() else {
+            continue;
+        };
+        let lines = description.lines().count();
         if lines <= max {
             continue;
         }
         violations.push(Violation::new(
             &n.rel,
-            format!("{lines} lines; `{}` declares `max_lines: {max}`", class.rel),
+            format!(
+                "{lines} lines of `description`; `{}` declares `max_lines: {max}`",
+                class.rel
+            ),
         ));
     }
     Check::new(
@@ -1093,9 +1126,11 @@ pub fn node_too_long(nodes: &[Node], classes: &[Class]) -> Check {
         "A long node is usually two nodes, or a node carrying quoted source that belongs in \
          the catalog entry it cites. The ceiling is the class's own — a class that declares \
          no `max_lines:` is not checked, because the length an instance should be is a \
-         question about that class and not about corpora in general. Measured before \
-         choosing: a fixed ceiling of 40, which the bootstrap rubric uses at genesis, is \
-         exceeded by 335 of 410 nodes across five real corpora once they have grown.",
+         question about that class and not about corpora in general. What is counted is the \
+         `description` block and not the file: the argument is about prose, and a node that \
+         records where each of its edges comes from should not pay for that provenance out \
+         of a budget written to stop descriptions sprawling. A corpus that raised \
+         `max_lines:` to absorb structural lines can lower it again.",
         violations,
     )
 }
@@ -1563,12 +1598,52 @@ pub fn claim_tag_malformed(nodes: &[Node]) -> Check {
          from reading as an open claim. The cost is that a tag with its citation folded \
          inside the brackets matches nothing and is silently counted as untagged — a node \
          that looks tagged to a reader and reads as bare assertion to every counter. This \
-         reports the near miss rather than guessing at it.",
+         reports the near miss rather than guessing at it. Brackets are matched by depth \
+         over the block rather than to the first `]` on the line, because a citation that is \
+         itself a link both nests a `]` and wraps: measured on one derived corpus, the line \
+         scan found 234 of 445 such tags and none of the 179 that wrapped. The block is the \
+         bound, so an unbalanced `[` in quoted source costs one bracket rather than every \
+         tag below it.",
         violations,
     )
 }
 
+/// The `]` that closes the `[` at `open`, matched by depth and never past `bound`.
+///
+/// Depth rather than the first `]`, because the first one may be a nested link's. Bounded,
+/// because an unbalanced `[` must cost the check one bracket and not the rest of the file.
+fn matching_bracket(text: &str, open: usize, bound: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    text[open..bound].char_indices().find_map(|(rel, c)| {
+        match c {
+            '[' => depth += 1,
+            ']' => depth = depth.saturating_sub(1),
+            _ => return None,
+        }
+        (depth == 0 && c == ']').then_some(open + rel)
+    })
+}
+
 /// `(line, text)` for each bracketed near miss. Links are not near misses.
+///
+/// **Bracket depth over the block, not the first `]` on the line.** The line-scoped scan this
+/// replaces reported 234 of 445 tags of exactly this shape in one derived corpus, and the
+/// 211 it missed had two causes that share this one fix:
+///
+/// - *A tag that wraps was never closed.* `line[at..].find(']')` cannot find a `]` that is on
+///   the next line, and wrapping is not an edge case — it is what happens whenever the
+///   citation is a markdown link, because links are long. **Not one of 179 wrapped tags was
+///   reported.**
+/// - *A tag whose citation is a link closed on the wrong bracket.* In
+///   `[verified — [`x`](x.yml)]` the first `]` is the inner link's; the character after it is
+///   `(`, so the guard that exists to keep `[open questions](…)` from reading as a claim fired
+///   on the tag it was meant to protect. The guard is right and its subject was wrong: it is
+///   tested against the **outer** `]` here.
+///
+/// The bound is [`crate::claims::block_end`] — the boundary already measured for
+/// `statement_around`. It is load-bearing rather than tidy: an unbounded depth scan drops
+/// every tag below the corpus's first unbalanced `[` (one corpus has one, inside quoted source
+/// text) and does it silently, with the finding count falling as the corpus grows.
 fn near_miss_tags(text: &str) -> Vec<(usize, String)> {
     let tags = [
         crate::claims::VERIFIED,
@@ -1576,40 +1651,49 @@ fn near_miss_tags(text: &str) -> Vec<(usize, String)> {
         crate::claims::OPEN,
     ];
     let mut out = Vec::new();
-    for (i, line) in text.lines().enumerate() {
-        let bytes = line.as_bytes();
-        let mut j = 0;
-        while j < bytes.len() {
-            let Some(open) = line[j..].find('[') else {
-                break;
-            };
-            let at = j + open;
-            let Some(close_rel) = line[at..].find(']') else {
-                break;
-            };
-            let close = at + close_rel;
-            j = close + 1;
-            // `[text](target)` and `[text][ref]` are links; their label is not a claim.
-            if matches!(line[j..].chars().next(), Some('(') | Some('[')) {
-                continue;
+    let bytes = text.as_bytes();
+    let mut line = 1;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\n' {
+            line += 1;
+            i += 1;
+            continue;
+        }
+        if bytes[i] != b'[' {
+            i += 1;
+            continue;
+        }
+        let Some(close) = matching_bracket(text, i, crate::claims::block_end(text, i)) else {
+            // Unbalanced within its block: this bracket opens nothing, and the next one is
+            // still worth asking about.
+            i += 1;
+            continue;
+        };
+        // `[text](target)` and `[text][ref]` are links; their label is not a claim.
+        if matches!(text[close + 1..].chars().next(), Some('(') | Some('[')) {
+            i += 1;
+            continue;
+        }
+        // A tag's text may carry the wrap it was written across; what is reported should not.
+        let inner = crate::claims::collapse_whitespace(&text[i + 1..close]);
+        let hit = tags.iter().any(|tag| {
+            let word = tag.trim_matches(|c| c == '[' || c == ']');
+            if inner == word {
+                return false; // the tag itself, exactly as intended
             }
-            let inner = &line[at + 1..close];
-            for tag in tags {
-                let word = tag.trim_matches(|c| c == '[' || c == ']');
-                if inner == word {
-                    break; // the tag itself, exactly as intended
-                }
-                let Some(rest) = inner.strip_prefix(word) else {
-                    continue;
-                };
-                if rest
-                    .trim_start()
+            inner.strip_prefix(word).is_some_and(|rest| {
+                rest.trim_start()
                     .starts_with(|c: char| TAG_SEPARATORS.contains(&c))
-                {
-                    out.push((i + 1, line[at..=close].to_string()));
-                    break;
-                }
-            }
+            })
+        });
+        if hit {
+            out.push((line, format!("[{inner}]")));
+            // Anything nested inside a reported tag is part of it, not a second finding.
+            line += text[i..close].matches('\n').count();
+            i = close + 1;
+        } else {
+            i += 1;
         }
     }
     out
@@ -3017,6 +3101,82 @@ mod tests {
         );
     }
 
+    /// The shape that made 179 of 445 tags invisible: the citation is a link, so it is long,
+    /// so the tag wraps and its `]` is never on the line that holds its `[`.
+    #[test]
+    fn a_tag_that_wraps_a_line_is_still_a_near_miss() {
+        let text = "  A resolution stands. [verified —\n    \
+                    [the audit reports](../catalog/auditor-district-audits.md)]\n";
+        let found = near_miss_tags(text);
+        assert_eq!(found.len(), 1, "a wrapped tag is one tag: {found:?}");
+        assert_eq!(found[0].0, 1, "reported where the tag opens");
+        assert_eq!(
+            found[0].1, "[verified — [the audit reports](../catalog/auditor-district-audits.md)]",
+            "the wrap is the file's, not the tag's, so the finding does not carry it"
+        );
+    }
+
+    /// The link guard, tested against the outer `]` rather than the inner one. Single-line,
+    /// and reported by nothing before this: `find(']')` returned the *link's* bracket, the
+    /// next character was `(`, and the guard fired on the tag it exists to protect.
+    #[test]
+    fn a_tag_whose_citation_is_a_link_is_a_near_miss() {
+        let found = near_miss_tags(
+            "The share follows [verified — [`bridge-formula`](bridge-formula.yml)].",
+        );
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(
+            found[0].1,
+            "[verified — [`bridge-formula`](bridge-formula.yml)]"
+        );
+    }
+
+    /// The bound is the point of the bound. An unbalanced `[` in quoted source — this one is
+    /// verbatim from a derived corpus — must cost the check that bracket and nothing else; an
+    /// unbounded depth scan swallows every tag below it and the finding count *falls* as the
+    /// corpus grows.
+    #[test]
+    fn an_unbalanced_bracket_does_not_blind_the_rest_of_the_file() {
+        let text = "properties:\n  as_written: \"against 37 on the [Cupp\"\n  \
+                    note: A later count. [verified — Cupp 2019]\n";
+        let found = near_miss_tags(text);
+        assert_eq!(
+            found.len(),
+            1,
+            "the tag below the stray `[` survives: {found:?}"
+        );
+        assert_eq!(found[0], (3, "[verified — Cupp 2019]".to_string()));
+    }
+
+    /// A tag may cross a soft wrap and may not cross into the next YAML key, list item or
+    /// paragraph — the same boundary `statement_around` is measured against, for the same
+    /// reason.
+    ///
+    /// Each case here is written so the *separator* is inside the unclosed bracket: without
+    /// the bound the scan runs on to a `]` in the next block, folds two blocks into one
+    /// "tag", and reports it. That is the false positive an unbounded depth scan buys, and
+    /// it is why these are three cases and not one.
+    #[test]
+    fn the_scan_stops_at_the_block_it_started_in() {
+        for (label, text) in [
+            (
+                "a new YAML key",
+                "description: The rate rose. [verified —\nsource: ../s.md]\n",
+            ),
+            ("a new list item", "- first [verified —\n- second later]\n"),
+            (
+                "a blank line",
+                "The rate rose. [verified —\n\nA later paragraph entirely]\n",
+            ),
+        ] {
+            assert!(
+                near_miss_tags(text).is_empty(),
+                "{label} ends the block, so nothing here is one tag: {:?}",
+                near_miss_tags(text)
+            );
+        }
+    }
+
     #[test]
     fn several_separators_all_read_as_a_folded_citation() {
         for inner in [
@@ -3747,11 +3907,21 @@ mod tests {
     /// An instance of `class` that is `lines` lines long.
     fn sized(rel: &str, class: &str, lines: usize) -> Node {
         let mut yaml = format!("class: {class}\nlabel: L\ndescription: |\n");
-        for _ in 3..lines {
+        for _ in 0..lines {
             yaml.push_str("  filler\n");
         }
-        assert_eq!(yaml.lines().count(), lines);
-        node(rel, &yaml)
+        let n = node(rel, &yaml);
+        assert_eq!(
+            n.inst
+                .description
+                .as_deref()
+                .unwrap_or_default()
+                .lines()
+                .count(),
+            lines,
+            "the helper sizes the description, which is what the check counts"
+        );
+        n
     }
 
     /// A class that declares no ceiling is not checked, however long its instances are.
@@ -3778,9 +3948,9 @@ mod tests {
         assert_eq!(c.violations.len(), 1, "only the long one is over");
         assert_eq!(c.violations[0].node, "person/long.yml");
         assert!(
-            c.violations[0].detail.contains("52 lines")
+            c.violations[0].detail.contains("52 lines of `description`")
                 && c.violations[0].detail.contains("max_lines: 40"),
-            "the finding must carry both numbers, not just a verdict: {}",
+            "the finding must carry both numbers and name the unit, not just a verdict: {}",
             c.violations[0].detail
         );
         assert_eq!(
@@ -3806,6 +3976,60 @@ mod tests {
             node_too_long(&nodes, &classes).passed(),
             "statute declared nothing; person's number is not corpus-wide"
         );
+    }
+
+    /// The reported defect: a node paid for its own provenance out of its prose allowance.
+    ///
+    /// The description here is four lines and the ceiling is six. What made this node long
+    /// is frontmatter, two properties and three links carrying a `claim_tag` and a `source`
+    /// apiece — the structure a corpus grows when it records where its edges come from, and
+    /// exactly what a budget written against sprawling *prose* has no business charging for.
+    #[test]
+    fn structure_is_not_charged_against_the_prose_budget() {
+        let yaml = "class: tenure\n\
+                    label: A holder\n\
+                    description: |\n  \
+                      Who held the office, from when, and until when.\n  \
+                      The dates are those recorded in the minute book.\n  \
+                      Two predecessors are named in the same entry.\n  \
+                      The ending is recorded as a resignation.\n\
+                    properties:\n  \
+                      began: 1913-04-02\n  \
+                      ended: 1919-11-30\n\
+                    links:\n\
+                    - rel: held\n  \
+                      target: ../office/registrar.yml\n  \
+                      claim_tag: verified\n  \
+                      source: ../../catalog/minute-book-1913.md\n\
+                    - rel: succeeded\n  \
+                      target: ../tenure/prior.yml\n  \
+                      claim_tag: verified\n  \
+                      source: ../../catalog/minute-book-1913.md\n\
+                    - rel: recorded_in\n  \
+                      target: ../document/minutes.yml\n  \
+                      claim_tag: verified\n  \
+                      source: ../../catalog/minute-book-1913.md\n";
+        let n = node("tenure/a.yml", yaml);
+        assert!(
+            n.text.lines().count() > 20,
+            "the file is long, which is the point of the fixture"
+        );
+        assert!(
+            node_too_long(&[n], &[capped("tenure", Some(6))]).passed(),
+            "four lines of prose is under a six-line ceiling, whatever the file weighs"
+        );
+    }
+
+    /// A node with no description is skipped, not measured against its file.
+    ///
+    /// Falling back to `text` would reintroduce the defect precisely where it bites hardest:
+    /// a node that is all structure and no prose.
+    #[test]
+    fn a_node_with_no_description_is_not_reported() {
+        let yaml = "class: person\nlabel: A\nlinks:\n- rel: knows\n  target: ../person/b.yml\n";
+        let n = node("person/a.yml", yaml);
+        assert!(n.inst.description.is_none());
+        assert!(node_too_long(&[n], &[capped("person", Some(1))]).passed());
     }
 
     // ── unimplemented-class ───────────────────────────────────────────────────
@@ -4694,7 +4918,17 @@ pub fn resolution_elector_unregistered(
 /// longer true — when `electors.md` binds a distinct signing key per seat (RFC-0012), the
 /// executor is recoverable from the commit and a missing field is a choice rather than an
 /// inheritance.
-pub fn resolution_executor_unrecorded(records: &[crate::cmd::sangha::Resolution]) -> Check {
+///
+/// **`keys_bind_seats` is that condition, decided rather than promised.** It is
+/// [`super::attest::binds_distinct_key_per_seat`] — every registered seat binds a key and no
+/// two bind the same one — so the escalation is an event with a commit that causes it, not a
+/// sentence in a doc comment. It is false in every repository that has not opted into
+/// collective mode, which is nearly all of them, and false in the measured one: the registry
+/// binds no keys, so the 29 records written before the field existed stay a warning.
+pub fn resolution_executor_unrecorded(
+    records: &[crate::cmd::sangha::Resolution],
+    keys_bind_seats: bool,
+) -> Check {
     let violations = records
         .iter()
         .filter(|r| r.synthesized_by.is_empty())
@@ -4709,7 +4943,11 @@ pub fn resolution_executor_unrecorded(records: &[crate::cmd::sangha::Resolution]
     Check::new(
         "resolution-executor-unrecorded",
         "Resolution record does not name the seat that executed it",
-        Severity::Warn,
+        if keys_bind_seats {
+            Severity::Error
+        } else {
+            Severity::Warn
+        },
         "Article II governs weight and Article III governs record, and they answer different \
          questions. Naming the executor grants it nothing — no standing, no tiebreak, no \
          priority in any later resolution — which is why recording it costs the article \
@@ -4748,7 +4986,7 @@ mod resolution_record_tests {
             &["ma/auditor@aaaaaaa", "ma/advocate@bbbbbbb"],
         )];
         assert!(resolution_elector_unregistered(&r, &registered()).passed());
-        assert!(resolution_executor_unrecorded(&r).passed());
+        assert!(resolution_executor_unrecorded(&r, false).passed());
     }
 
     /// The tip carries `@<hash>`; the seat is what precedes it. Comparing the whole string
@@ -4805,7 +5043,7 @@ mod resolution_record_tests {
     #[test]
     fn a_record_naming_no_executor_warns_and_does_not_gate() {
         let r = [record("resolutions/e.md", &[], &["ma/auditor@a"])];
-        let c = resolution_executor_unrecorded(&r);
+        let c = resolution_executor_unrecorded(&r, false);
         assert_eq!(c.violations.len(), 1, "{c:#?}");
         assert_eq!(c.severity, Severity::Warn);
         // …and the *other* check is silent about it: a record that names no seat has named
@@ -4813,11 +5051,27 @@ mod resolution_record_tests {
         assert!(resolution_elector_unregistered(&r, &registered()).passed());
     }
 
+    /// The escalation RFC-0012 arms: the same records, the same finding, and it gates once
+    /// the registry binds a distinct key per seat — because the executor is then recoverable
+    /// from the commit and a missing field is a choice rather than an inheritance.
+    ///
+    /// The condition is [`super::super::attest::binds_distinct_key_per_seat`]; this asserts
+    /// only that the severity follows it, which is the half that lives here.
+    #[test]
+    fn a_registry_binding_a_key_per_seat_makes_it_gate() {
+        let r = [record("resolutions/e.md", &[], &["ma/auditor@a"])];
+        let c = resolution_executor_unrecorded(&r, true);
+        assert_eq!(c.violations.len(), 1, "{c:#?}");
+        assert_eq!(c.severity, Severity::Error, "{c:#?}");
+    }
+
     /// A repository with no sangha has no records, and both checks report that they ran.
     #[test]
     fn no_records_is_not_a_finding() {
         assert!(resolution_elector_unregistered(&[], &[]).passed());
-        assert!(resolution_executor_unrecorded(&[]).passed());
+        assert!(resolution_executor_unrecorded(&[], false).passed());
+        // Escalated or not, a check with nothing to report reports nothing.
+        assert!(resolution_executor_unrecorded(&[], true).passed());
     }
 }
 

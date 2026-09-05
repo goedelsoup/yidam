@@ -1,6 +1,6 @@
 # RFC-0028 — The form a practice takes (the kuten layer)
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Track:** I23
 - **Relates to:**
   - RFC-0020 (the carriage lineage this extends a third step — from findings to executions to conduct)
@@ -194,15 +194,19 @@ The slot inventory, with A0's verdicts as #572 records them:
 | **skills** — what the practice routes through | real | A2 |
 | **rubric** — the criteria a contribution is scored by | real | **A5, co-designed with #286** (scope decision 3): a rubric built alone would be `escalate_after`'s argument violated at rubric scale — *"a value compiled into the binary would be one corpus's answer imposed on every other"* ([`config.rs:52-53`](../../yidam/cli/src/config.rs#L52-L53)) |
 | **clocks** — proposed `[due]` values | premature: config empty in 17 of 18 — ships as a **proposal with values**, not a permission with blanks | A2, §9 |
+| **thresholds** — proposed `[lint]`/`[propose]` values: `escalate_after`, `withdraw_uncited_after` ([`configuration.md`](../configuration.md)) | premature on `clocks`' evidence, and — unlike `clocks` — not a kuten's to propose either: escalating a finding to a build failure is a gate change that enters through RFC-0024's layer (§7, row 5), and drafting a withdrawal is authorship §8 declines. Ships **named and unpopulated** | A2 |
 | **policy** — proposed severities and overrides | premature: no `.rego` in eighteen — ships as a **proposal with values**, through RFC-0024's layer, visible as an override | A2, §7 row 5 |
 | **question-pressure** — what kind of question this corpus should open | not measurable (nothing existing creates it); settled in #572's negotiation | A3, §5 |
 
 The verdict sentences are #572's verbatim: six varied and are real (phases, rubric, classes,
 object, dialogue, skills); one is real and was specified wrongly (vocabulary); two are premature
-rather than absent (the config values and the policy overrides). Where A0's working notes
-enumerate slots this table folds together — #572 counts eleven — the working notes are
-authoritative for the count; the verdicts and their assignments are not in question. Flagged in
-Open questions.
+rather than absent (the config values and the policy overrides). The table carries **eleven
+rows**, which is A0's working count: the config-values verdict covers two families that differ in
+what a kuten may say about them, not merely in which file holds them, and separating them is what
+the earlier fold to ten lost. `clocks` proposes values because `due` is advisory —
+it says a corpus is *owed*, and exits zero. `thresholds` cannot, because `escalate_after` decides
+when a finding fails the build and `withdraw_uncited_after` licenses a drafted deletion; a kuten
+reaches neither act except through the doors §8 names for them. Settled in Open questions 1.
 
 ### 2 — The revision model
 
@@ -544,10 +548,18 @@ an interval, and this RFC adds no second one — the same sentence RFC-0026 wrot
 
 ## Open questions
 
-1. **The slot count.** §1's table folds slots A0's working notes may enumerate separately
-   (interval values and threshold values both live in `config.toml`; severities ride the policy
-   slot). #572 counts eleven; the working enumeration is authoritative for the count and should
-   be reconciled into the table when A2 extracts the profile.
+1. ~~**The slot count.**~~ **Settled 2026-09-05, reviewing A2 (#574).** The count is **eleven**,
+   and §1's table now says so. The fold to ten combined the config values with the policy
+   overrides and lost the `[lint]`/`[propose]` threshold family — `escalate_after`,
+   `withdraw_uncited_after` — on the reasoning that both families live in `config.toml`. Which
+   file holds a value is not what the slot table is enumerating: it enumerates what a kuten may
+   say, and the two answer differently. `due` is advisory, so a kuten proposes intervals; the
+   thresholds decide a build failure and a drafted deletion, so a kuten names the slot and
+   populates nothing. Undoing the fold also stops the layer disowning the one quote it is built
+   on — `escalate_after`'s *"a value compiled into the binary would be one corpus's answer
+   imposed on every other"* ([`config.rs:52-53`](../../yidam/cli/src/config.rs#L52-L53)) is the
+   argument for the kuten existing, and it was the only slot with no row. `inquiry` leaves it
+   unpopulated, as it leaves `object`, `rubric` and `question_pressure`.
 2. **Where the vendored binding rule lands.** §8 fixes the text and its destination class
    (vendored prelude, at the head of the kuten profile document); whether a one-line pointer
    also belongs in `GRAPH.md` or `CONSTITUTION.md`'s commentary is A2's placement call.

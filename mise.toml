@@ -720,8 +720,62 @@ fi
 "$code" --extensionDevelopmentPath="$PWD/yidam/editors/vscode" "$PWD/.local/ext-fixture"
 """
 
-# Composite for local use (`mise run ci`); CI runs ci-harness and ci-cli as
-# separate parallel jobs (see .github/workflows/ci.yml).
+# ── domain crate formatting (prelude/domains/) ────────────────────────────
+# #590: `cargo fmt --all` is documented as formatting "all packages, and also
+# their local path-based dependencies". A derived repository depends on a
+# domain crate by path — that is where the prelude vendors it, under
+# `.yidam/.vendor/` — so a derived repo's OWN formatting gate reaches these
+# crates. `directories.md` marks `.yidam/.vendor/` read-only, so there is no
+# legal repair downstream: whether that gate is green depends on whether the
+# vendored copy happens to be rustfmt-clean at the pin, which is not
+# something a derived repo controls. The fix runs here instead, on what gets
+# vendored, so it is clean by construction.
+#
+# Glob-discovered, not a named crate list: a hardcoded list is exactly the
+# rot #590 itself warns about in its own workaround — a crate added later is
+# not reported as missed, it is just never formatted or checked. Both tasks
+# below walk `*/rust/Cargo.toml` for whatever domains actually exist and
+# assert a non-zero count, so a glob that stops matching (a rename, a moved
+# directory) fails loudly instead of passing by finding nothing.
+[tasks.domain-fmt]
+description = "Format every domain crate under yidam/prelude/domains/*/rust/ (glob-discovered)."
+run = """
+set -eu
+count=0
+for manifest in yidam/prelude/domains/*/rust/Cargo.toml; do
+  [ -f "$manifest" ] || continue
+  cargo fmt --all --manifest-path "$manifest"
+  count=$((count + 1))
+done
+if [ "$count" -eq 0 ]; then
+  echo "ERROR: no domain crates found under yidam/prelude/domains/*/rust/Cargo.toml"
+  echo "       the glob matched nothing — fix the pattern before trusting this task"
+  exit 1
+fi
+echo "domain-fmt: formatted $count crates"
+"""
+
+[tasks.ci-domains]
+description = "CI for the domain crates under yidam/prelude/domains/*/rust/: fmt-check, glob-discovered."
+run = """
+set -eu
+count=0
+for manifest in yidam/prelude/domains/*/rust/Cargo.toml; do
+  [ -f "$manifest" ] || continue
+  cargo fmt --all --manifest-path "$manifest" -- --check
+  count=$((count + 1))
+done
+if [ "$count" -eq 0 ]; then
+  echo "ERROR: no domain crates found under yidam/prelude/domains/*/rust/Cargo.toml"
+  echo "       a gate that discovers nothing passes silently, which is the failure"
+  echo "       mode this task exists to avoid — fix the glob before trusting it"
+  exit 1
+fi
+echo "ci-domains: fmt-checked $count crates"
+"""
+
+# Composite for local use (`mise run ci`); CI runs ci-harness, ci-cli and
+# ci-domains as separate parallel jobs (see .github/workflows/ci.yml).
 # ── release ───────────────────────────────────────────────────────────────
 # Cutting a release is order-dependent and the order is not visible from a
 # shell about to run `git tag`. ./release.sh does the ordering rather than
@@ -732,8 +786,8 @@ description = "Cut a release tag for one layer, checking its preconditions. Usag
 run = "./release.sh"
 
 [tasks.ci]
-description = "Full CI pass: harness + yidam CLI fmt-check, clippy, and test."
-depends = ["ci-harness", "ci-cli"]
+description = "Full CI pass: harness + yidam CLI fmt-check, clippy, test; domain crate fmt-check."
+depends = ["ci-harness", "ci-cli", "ci-domains"]
 
 # ── docs site (yidam/web/docs/) ───────────────────────────────────────────
 # Astro/Starlight docs server. Content is loaded live from docs/ at the repo

@@ -279,6 +279,12 @@ const COMMANDS: &[(&str, &[&str])] = &[
             "vendor(yidam): the prelude at 4e1a2b0",
         ],
     ),
+    // The fixture declares no kuten, so this golden pins the arm every repository is in
+    // today: holding none is a supported state and reports as one rather than as a finding.
+    // The held arm cannot be a golden here — giving the fixture a kuten would move the
+    // other twenty goldens — and is covered by `kuten_cluster.rs` against the six shapes
+    // that defined the profile.
+    ("kuten-check", &["kuten", "check"]),
 ];
 
 /// Reports checked by running them, because they cannot have a golden.

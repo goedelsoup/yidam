@@ -33,7 +33,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
 
-use common::{materialize, repo_root};
+use common::{materialize, repo_root, tracked_under};
 
 /// A derived repository, freshly bootstrapped in single-elector mode.
 struct Derived {
@@ -323,6 +323,54 @@ fn the_materialized_repository_carries_no_build_output() {
         "{} build artifact(s) reached the derived repository, e.g. {}",
         junk.len(),
         junk[0]
+    );
+}
+
+/// A derived repository's `.github/workflows/` is exactly the scaffold's set — no fewer,
+/// no more (#589).
+///
+/// Both sides are discovered from `git ls-files`, never named here: the scaffold's set
+/// because a fourth workflow added to `sadhana/github/workflows/` must not need this test
+/// edited to be covered, and the installed set because the defect this guards was silent
+/// installation of a *subset* — `ci.yml` and `release.yml` named and overwritten, `index.yml`
+/// shipped with a header claiming genesis installs it and never reached, and none of yidam's
+/// own five other workflows (`docs.yml`, `editor.yml`, `install-channels.yml`,
+/// `publish-crates.yml`, `tap.yml`) ever removed.
+#[test]
+fn the_installed_workflows_are_exactly_the_scaffold_set() {
+    let root = repo_root();
+    let scaffold: BTreeSet<String> = tracked_under(&root, "sadhana/github/workflows/")
+        .into_iter()
+        .map(|p| {
+            p.strip_prefix("sadhana/github/workflows/")
+                .unwrap_or(&p)
+                .to_string()
+        })
+        .collect();
+    assert!(
+        scaffold.len() >= 2,
+        "sadhana/github/workflows/ discovered {} file(s) — the walk is broken, not the \
+         scaffold",
+        scaffold.len()
+    );
+
+    let repo = Derived::bootstrap();
+    let installed_dir = repo.path().join(".github/workflows");
+    let installed: BTreeSet<String> = std::fs::read_dir(&installed_dir)
+        .unwrap_or_else(|e| {
+            panic!(
+                "{} must exist in a bootstrapped repository: {e}",
+                installed_dir.display()
+            )
+        })
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+
+    assert_eq!(
+        installed, scaffold,
+        "a derived repository's .github/workflows/ must be exactly what \
+         sadhana/github/workflows/ ships — installed {installed:?}, scaffold has {scaffold:?}"
     );
 }
 

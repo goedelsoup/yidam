@@ -11,10 +11,10 @@ do. That was previously visible only in each command's long help, where you had 
 suspect it to go looking. That is the wrong way round for a tool people point at a checkout
 they only meant to inspect.
 
-**`--format json` is available on most commands** and emits the machine-readable report
-contract of [RFC-0016](rfcs/0016-editor-surface.md). `text` is the default and is byte-stable:
-the editor surface and CI both consume the JSON, so the prose is free to stay prose. Commands
-below that take no options at all are marked *(no flags)*.
+**`--format json` is available on most commands** and emits the machine-readable report contract
+of [RFC-0016](rfcs/0016-editor-surface.md). `text` is the default and is byte-stable. The editor
+surface and CI both consume the JSON, so the prose is free to stay prose. Commands below that take
+no options at all are marked *(no flags)*.
 
 Some commands need a build carrying the matching cargo feature. Those are marked, and
 [Installation](installation.md#check-which-build-you-have) has the table. `yidam --version` prints
@@ -45,34 +45,73 @@ Read-only, and they exit nonzero on a problem — which is what makes them usabl
 | `--bless` | Rewrite `.yidam/lint-baseline.yml` from this run instead of gating on it |
 | `--init-baseline` | Write the baseline only if absent, then exit — safe to run unconditionally |
 
-The baseline is what makes `lint` answer *did this change make the corpus less clean?* rather
-than *is the corpus clean?* — see [Configuration](configuration.md#yidamlint-baselineyml).
+`lint` answers *did this change make the corpus less clean?* — not *is the corpus clean?* The
+baseline is what makes that the question. — see
+[Configuration](configuration.md#yidamlint-baselineyml).
 
 ## The practice
 
-One command, and it is not a gate. Read-only, offline, and it exits zero however much is owed.
+Two commands, and neither is a gate. Both exit zero however much is owed. Both exit zero
+however far a corpus has drifted.
 
 | Command | What it answers |
 |---|---|
 | `due` | What is due? Four clocks read together — index staleness, catalog TTL, unanswered questions, phases in flight. `--strict` exits nonzero on a due clock |
+| `kuten` * | What is this corpus's practice aimed at? Writes the declaration into `AGENTS.md`. `kuten check` reads the history against it |
+
+### A kuten declares what the work is for
+
+A repository declares what it is *about* — in its ontology, its classes, its central question.
+It had no way to say what its work is **for**. A kuten is that declaration.
+
+It is vendored with the prelude, and it carries a revision. A decision record in
+`.yidam/decisions/kuten.yml` adopts it. `yidam kuten` writes it into `AGENTS.md`, so an agent
+meets it at session start.
+
+**A kuten narrows the loop and may not widen the model.** Five things it may not do:
+
+- add a commit verb — it may declare a subset of the closed list and gloss it;
+- add or alter a claim standing;
+- contradict Articles I–VI;
+- change the graph encoding;
+- loosen a gate, except as a visible policy override.
+
+**A repository holding no kuten is a supported state.** It reports as one.
+
+### `kuten check` asks a question and never fails
+
+It reads the declaration and the repository's own history. Then it says where they disagree —
+*you declared `inquiry` and have settled no phase in two hundred commits.*
+
+That is a question for a person, not a defect. `due`'s argument applies verbatim: a corpus that
+has drifted is owed a look. So the command writes nothing and exits zero. Anything that refuses
+arrives through [the policy layer](#the-rules-this-repository-writes-about-itself), visible as
+an override.
+
+**Vintage is never reported as divergence.** Every consumer reads the kuten and the prelude
+this repository *vendored*, not the current ones. A repository whose vendored `GRAPH.md` has no
+`phase` verb has not stopped running phases. It never could, and the check says so.
+
+**A comparison across revisions is annotated, never silently made.** The vendored profile may
+have moved past the revision the decision record names. The report says so, and the numbers
+stay readable.
 
 ### `due` is not `doctor`, and the difference is the point
 
 `doctor` answers *is this setup sound now*. It is read under suspicion, and it exits nonzero on
-what is wrong. `due` answers *is it time*, and it is read on a cadence — from a cron job, a
-weekly ritual, or the start of a session.
+what is wrong. `due` answers *is it time*, and it is read on a cadence. That might be a cron job,
+a weekly ritual, or the start of a session.
 
-**A corpus with three expired sources is not unhealthy. It is owed.** Nothing about it is
-broken, no traversal will lie, and the gate is green. Folding that into `doctor`'s warnings
-would tell a reader that a repository doing exactly what it is meant to do has a problem. The
-reader would learn to skip the line. So the two reports are separate. `due` has its own
-verdicts — `due`, `ok`, `undeclared`, `unmeasurable` — and exits zero unless you pass
-`--strict` to ask for a signal.
+**A corpus with three expired sources is not unhealthy. It is owed.** Nothing about it is broken,
+no traversal will lie, and the gate is green. Fold that into `doctor`'s warnings and it reads as a
+problem. The repository is doing exactly what it is meant to do. The reader would learn to skip
+the line. So the two reports are separate. `due` has its own verdicts: `due`, `ok`, `undeclared`,
+`unmeasurable`. It exits zero unless you pass `--strict` to ask for a signal.
 
 ### Every interval is declared, and a clock nobody set never comes due
 
-A clock is an age and an interval. The age is measured; the interval is always something the
-corpus said about itself, never a number in the binary — the reasoning is
+A clock is an age and an interval. The age is measured. The interval is always something the
+corpus said about itself, never a number in the binary. The reasoning is
 [`escalate_after`](configuration.md#lint-escalate_after)'s.
 
 | Clock | Measures | Interval | Unit |
@@ -82,19 +121,18 @@ corpus said about itself, never a number in the binary — the reasoning is
 | `questions` | How long a question has gone unanswered | `[due] questions_after` | corpus commits |
 | `phases` | How long a bounded inquiry has been in flight | `[due] phases_after` | days |
 
-The catalog clock reads the interval [where it already
-lived](configuration.md#catalog-ttl_days) rather than restating it under `[due]`. A source's
-TTL is a statement about the source, and two places to set one number means one of them is
-wrong.
+The catalog clock reads the interval [where it already lived](configuration.md#catalog-ttl_days)
+rather than restating it under `[due]`. A source's TTL is a statement about the source. Two places
+to set one number means one of them is wrong.
 
-A clock with no interval reports what it measured and is never due — with the key that would
-set it as its remedy. That is the state of every repository that has not opted in, and it is
-the design rather than a degraded mode.
+A clock with no interval reports what it measured and is never due. Its remedy is the key that
+would set it. That is the state of every repository that has not opted in. It is the design, not a
+degraded mode.
 
 Two of the four count days and two do not, which is deliberate. How long a question has gone
-unanswered is a fact about the repository, so its clock is `HEAD`. A corpus that has not
-committed has not ignored anything. A source's TTL and a phase's time in flight are facts about
-the world, which does not stop moving because nobody committed.
+unanswered is a fact about the repository, so its clock is `HEAD`. A corpus that has not committed
+has not ignored anything. A source's TTL and a phase's time in flight are facts about the world.
+The world does not stop moving because nobody committed.
 
 ### What discharges a clock
 
@@ -108,8 +146,8 @@ the world, which does not stop moving because nobody committed.
 | `questions` | A person. Deciding a question is answered is a resolution event, and Article V confines those to a sangha |
 | `phases` | A person. Settling a phase or abandoning it is not a mechanical consequence of a finding |
 
-Each clock names its own remedy in the report, so the distinction is visible where it matters
-rather than only here.
+Each clock names its own remedy in the report. The distinction is visible where it matters, not
+only here.
 
 ## README blocks
 
@@ -130,8 +168,8 @@ That is their purpose, and it is why every one carries a `*`.
 | `packages-index` * | The domain-computer packages in `packages/` *(no flags)* |
 | `bundle-status` * | Freshness of `.yidam/bundle.yiz` against the corpus it was built from *(no flags)* |
 
-In a derived repository a stale REGEN block is a failing build, so `mise run regen` before
-committing is the ordinary loop and `yidam regen --check` is what CI runs.
+In a derived repository a stale REGEN block is a failing build. Run `mise run regen` before
+committing; `yidam regen --check` is what CI runs.
 
 **These are the commands to be careful with against a checkout you only mean to read.**
 `yidam status` sounds read-only and is not — it rewrites the README block. `yidam doctor` is
@@ -168,9 +206,9 @@ yidam query 'reach -measured-by-> gage'
 yidam query 'concept~"hydropeaking" <-exhibits- reach'
 ```
 
-**Whitespace around a hop is required.** `-rel->` and `<-rel-` are single tokens, and that is
-what lets a hyphenated relationship name be unambiguous. `~"…"` is a similarity anchor, which
-opens on `--anchor-k` entry nodes (default 1) — an anchor is a starting point, not an answer.
+**Whitespace around a hop is required.** `-rel->` and `<-rel-` are single tokens, and that is what
+lets a hyphenated relationship name be unambiguous. `~"…"` is a similarity anchor. It opens on
+`--anchor-k` entry nodes (default 1). An anchor is a starting point, not an answer.
 
 | Flag | Applies to | Effect |
 |---|---|---|
@@ -183,9 +221,9 @@ opens on `--anchor-k` entry nodes (default 1) — an anchor is a starting point,
 
 ### `migrate` subcommands
 
-A class definition cannot be corrected in place once the class contract gates: editing it puts
-every instance in violation until each is fixed by hand. These do both halves together and
-write a record of what they touched.
+A class definition cannot be corrected in place once the class contract gates. Editing it puts
+every instance in violation until each is fixed by hand. These do both halves together and write a
+record of what they touched.
 
 | Subcommand | Changes |
 |---|---|
@@ -200,8 +238,8 @@ Three acts only. `open` records a finding's question against the node it is abou
 deletes a node this corpus declared over-collected via `[propose] withdraw_uncited_after`.
 `close` retires a question this command opened whose finding is gone.
 
-Nothing merges itself and nothing synthesizes — no edge is drawn, no claim is re-tagged, no
-node is authored. It writes git objects and one ref: the working tree, the index and `HEAD` are
+Nothing merges itself and nothing synthesizes — no edge is drawn, no claim is re-tagged, no node
+is authored. It writes git objects and one ref. The working tree, the index and `HEAD` are
 untouched, so it is safe to run mid-edit. [RFC-0020](rfcs/0020-proposal-surface.md) has the
 argument for why the surface is this small.
 
@@ -218,11 +256,11 @@ made on purpose.
 
 ## Artifacts
 
-Bytes a corpus rests on or produces — a fetched source, a built index — are large, derived, or
-licensed, and git is the wrong place for all three. A **vault** holds them; the repository
-holds the record of which bytes. RFC-0023 states the constraint: *a vault stores bytes, git
-stores the record of them*, . So every pointer into a vault is a committed file, and losing a
-vault costs no knowledge claim — only the time to re-fetch.
+Bytes a corpus rests on or produces are large, derived, or licensed — a fetched source, a built
+index. Git is the wrong place for all three. A **vault** holds them; the repository holds the
+record of which bytes. RFC-0023 states the constraint: *a vault stores bytes, git stores the
+record of them*, . So every pointer into a vault is a committed file. Losing a vault costs no
+knowledge claim, only the time to re-fetch.
 
 | Command | What it does |
 |---|---|
@@ -240,8 +278,8 @@ vault costs no knowledge claim — only the time to re-fetch.
 
 Every artifact is named by the SHA-256 of its bytes, in lowercase hex. The cache is
 **machine-wide** — `$XDG_CACHE_HOME/yidam/vault`, or `YIDAM_VAULT_CACHE` — so two repositories
-citing the same source store it once. It is deliberately **not** partitioned by vault: a cache
-hit answers *do I have these bytes*, never *may I send them*.
+citing the same source store it once. It is deliberately **not** partitioned by vault. A cache hit
+answers *do I have these bytes*, never *may I send them*.
 
 `list`, `get`, `push`, `pull` and `status` read `.yidam/config.toml` and need a repository.
 `put`, `path` and `verify` touch only the cache and work anywhere.
@@ -292,12 +330,12 @@ A kind nobody claims is refused **at the artifact** rather than when the config 
 alternative would make the list of kinds a compatibility surface. Adding one in a later release
 would turn every multi-vault config red for a kind those corpora have none of.
 
-`--vault <name>` on `push`, `pull` and `status` is a **narrowing** flag — useful where one store
-is reachable from a runner and another is not. It never re-routes. An artifact routed to
-`sources` is not pushed to `default` because somebody typed a flag; moving an artifact between
-stores is an edit to its record, in a commit, like every other assertion the repository makes.
-Stores are opened lazily, one per vault that has work, so a vault whose credentials are absent
-does not block a push to one whose are present.
+`--vault <name>` on `push`, `pull` and `status` is a **narrowing** flag. It is useful where one
+store is reachable from a runner and another is not. It never re-routes. An artifact routed to
+`sources` is not pushed to `default` because somebody typed a flag. Moving an artifact between
+stores is an edit to its record, in a commit. That is how every other assertion the repository
+makes is done. Stores are opened lazily, one per vault that has work. A vault whose credentials
+are absent does not block a push to one whose are present.
 
 ### S3-compatible stores
 
@@ -320,18 +358,18 @@ never carry one:
 | `YIDAM_VAULT_<NAME>_SESSION_TOKEN` | temporary credentials |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | **the vault named `default`, and no other** |
 
-That last asymmetry is deliberate. An ordinary AWS environment is plausibly already configured
-for the store a repository publishes its own output to. A *second* vault exists because its
-readership differs — that is the only reason to declare one — so letting it inherit whatever
-happens to be exported is the failure the boundary was drawn to prevent.
+That last asymmetry is deliberate. An ordinary AWS environment is plausibly already configured for
+the store a repository publishes its own output to. A *second* vault exists because its readership
+differs. That is the only reason to declare one. Letting it inherit whatever happens to be
+exported is the failure the boundary was drawn to prevent.
 
-A single `PUT` caps at 5 GiB and multipart upload is not built; over the cap the upload is
-refused with a message that says so, rather than failing at the server as `EntityTooLarge`.
+A single `PUT` caps at 5 GiB, and multipart upload is not built. Over the cap the upload is
+refused with a message that says so. It does not fail at the server as `EntityTooLarge`.
 
 ### The artifacts this repository computes
 
-`.yidam/index/` is built only by a binary compiled `--features index` — protoc 31 plus an ONNX
-runtime — and nothing keeps it in git. So the index exists on whichever machine could build it
+`.yidam/index/` is built only by a binary compiled `--features index`, which needs protoc 31 and
+an ONNX runtime. Nothing keeps it in git. So the index exists on whichever machine could build it
 and nowhere else. The same vault carries it:
 
 ```sh
@@ -343,15 +381,15 @@ yidam vault pull --index      # anywhere else; unpacks into .yidam/index/
 `--embeddings` and `--bundle` do the same for `.yidam/embeddings/` and `.yidam/bundle.yiz`.
 
 **These flags are an either/or, not an addition.** `vault push` alone sends what the catalog
-names; `vault push --index` sends the index and nothing else. An index is hundreds of megabytes
-and `--index` quietly also uploading a corpus of papers would be a surprise in the direction
-nobody wants.
+names; `vault push --index` sends the index and nothing else. An index is hundreds of megabytes.
+`--index` quietly also uploading a corpus of papers would be a surprise in the direction nobody
+wants.
 
-An index is a directory and a vault stores one object, so a directory is packed into a single
-archive and hashed as a whole — a `corpus.arrow` from one build beside a `meta.json` from
-another is a corrupt index that nothing would notice. The archive is deterministic (sorted
-entries, zeroed mtimes), so pushing an unchanged index does nothing. A `.yiz` is already one
-object and is stored verbatim.
+An index is a directory and a vault stores one object. So a directory is packed into a single
+archive and hashed as a whole. A `corpus.arrow` from one build beside a `meta.json` from another
+is a corrupt index that nothing would notice. The archive is deterministic (sorted entries, zeroed
+mtimes), so pushing an unchanged index does nothing. A `.yiz` is already one object and is stored
+verbatim.
 
 #### `.yidam/index.lock`
 
@@ -366,10 +404,10 @@ bytes  = 41943040
 vault  = "default"
 ```
 
-It names **the store as well as the hash**, and a pull reads the store from *there* rather than
+It names **the store as well as the hash**. A pull reads the store from *there*, not by
 re-deriving it from `holds`. A `holds` edit made after the push would otherwise send the pull to
-somewhere the bytes are not — which is a mutable ref wearing a lock file's clothes, and the one
-thing this whole design exists to avoid.
+somewhere the bytes are not. That is a mutable ref wearing a lock file's clothes — the one thing
+this design exists to avoid.
 
 #### What `push --index` refuses
 
@@ -388,29 +426,28 @@ direction — refuses the push, naming the path. This is the rule
 *the artifact outlives the access.* A declared directory holding only a `README.md` or a
 `.gitkeep` is intent rather than material and does not refuse.
 
-Unlike a catalog artifact, a repository's own output is pushed **by default** — there is no
+Unlike a catalog artifact, a repository's own output is pushed **by default**. There is no
 `redistributable` to set, because there is no third party whose licence it could be.
 
 ### Reclaiming space, and opening a file
 
-`yidam vault gc` reports cached artifacts that no committed file names — the live set is
-exactly computable, because every pointer into a vault is a committed file. It deletes nothing
-until `--yes`.
+`yidam vault gc` reports cached artifacts that no committed file names. The live set is exactly
+computable, because every pointer into a vault is a committed file. It deletes nothing until
+`--yes`.
 
 **Read the list before you pass it.** The cache is machine-wide and shared by every yidam
-repository on this machine, so an artifact another one names looks exactly like an orphan from
-here. Usually deleting one costs a re-fetch; the exception is an artifact recorded
-`vault: none`, which is in a cache and nowhere else *by decision*, and for which the cache is
-the only copy.
+repository on this machine. An artifact another one names looks exactly like an orphan from here.
+Usually deleting one costs a re-fetch. The exception is an artifact recorded `vault: none`, which
+is in a cache and nowhere else *by decision*. For that one the cache is the only copy.
 
-`yidam vault materialize` hardlinks cached artifacts to `.yidam/vault/<entry slug>/<slug>.<ext>`
-— content addressing is right for storage and useless for opening, and nobody wants to hand a
-colleague `9f2c8e…` with no extension. The extension comes from the record's `media_type`, and
-an unlisted type becomes `.bin` rather than a guess. A hardlink shares the bytes; a copy is the
-fallback when the cache is on another filesystem.
+`yidam vault materialize` hardlinks cached artifacts to `.yidam/vault/<entry slug>/<slug>.<ext>`.
+Content addressing is right for storage and useless for opening. Nobody wants to hand a colleague
+`9f2c8e…` with no extension. The extension comes from the record's `media_type`, and an unlisted
+type becomes `.bin` rather than a guess. A hardlink shares the bytes; a copy is the fallback when
+the cache is on another filesystem.
 
-It **refuses to write until `.yidam/vault/` is ignored**, asking `git check-ignore` rather than
-grepping `.gitignore` so a repository ignoring it some other way is not reported as broken. A
+It **refuses to write until `.yidam/vault/` is ignored**. It asks `git check-ignore` rather than
+grepping `.gitignore`. A repository ignoring it some other way is not reported as broken. A
 licensed document in a tracked path is the leak `push` refuses, arriving through `git add -A`
 instead.
 
@@ -422,31 +459,29 @@ independent checks, and neither implies the other:
 - **`.yidam/private-paths`** — about *this repository*. An artifact whose record sits under a
   declared path is never uploaded, whatever its licence says. Same rule the release workflow
   applies to a bundle, for the reason it gives: *the artifact outlives the access.*
-- **`redistributable`** — about *the source*. A catalog artifact is **not pushed unless its
-  record says `redistributable: true`.** A default of "upload unless told otherwise" would
-  make the first push anybody runs a redistribution nobody chose, and a catalog is full of
-  papers.
+- **`redistributable`** — about *the source*. A catalog artifact is **not pushed unless its record
+  says `redistributable: true`.** A default of "upload unless told otherwise" would make the first
+  push anybody runs a redistribution nobody chose. A catalog is full of papers.
 
 **Both checks are [policy](#the-rules-this-repository-writes-about-itself)**, not code in this
-binary — `disclose/record` for an artifact the catalog names, `disclose/derived` for one this
-repository computed. What they say is unchanged, and a repository may state its own rule in
-`.yidam/policy/`; `yidam policy check` names it if it has.
+binary. `disclose/record` covers an artifact the catalog names, `disclose/derived` one this
+repository computed. What they say is unchanged. A repository may state its own rule in
+`.yidam/policy/`, and `yidam policy check` names it if it has.
 
-Refusals are grouped by the store they were headed for, each under that store's own
-`audience`, so the reader learns what they were about to publish to and — with several vaults —
-which boundary held. `--artifact` and `--vault` narrow what is sent and never bypass either
-check: a digest the corpus does not record is refused, because it carries no `redistributable`
-and no path to check.
+Refusals are grouped by the store they were headed for, each under that store's own `audience`.
+The reader learns what they were about to publish to, and with several vaults, which boundary
+held. `--artifact` and `--vault` narrow what is sent and never bypass either check. A digest the
+corpus does not record is refused, because it carries no `redistributable` and no path to check.
 
-`yidam doctor` warns when two vaults resolve to the same credentials. That is legal — one
-account can own two buckets — and it is also what a half-finished isolation setup looks like;
-the two are indistinguishable from outside, so it reports the shape and lets the reader decide.
+`yidam doctor` warns when two vaults resolve to the same credentials. That is legal, since one
+account can own two buckets. It is also what a half-finished isolation setup looks like. The two
+are indistinguishable from outside, so it reports the shape and lets the reader decide.
 
 ## The rules this repository writes about itself
 
-A gate's refusals are rules, and a rule compiled into this binary is one the corpus it governs
-cannot argue with. RFC-0024 makes the rule a committed file instead: **git stores the rule, and
-`yidam` evaluates it.** The rules are [Rego](https://www.openpolicyagent.org/docs/policy-language),
+A gate's refusals are rules. A rule compiled into this binary is one the corpus it governs cannot
+argue with. RFC-0024 makes the rule a committed file instead: **git stores the rule, and `yidam`
+evaluates it.** The rules are [Rego](https://www.openpolicyagent.org/docs/policy-language),
 evaluated in-process — there is no daemon, no sidecar, and no network.
 
 | Command | What it does |
@@ -455,8 +490,8 @@ evaluated in-process — there is no daemon, no sidecar, and no network.
 | `policy eval --decision <name>` | Ask one decision about one situation. Reads the input as JSON from `--input <file>` or stdin; `--explain` names the rule that fired |
 | `policy test` | Run every `test_*` rule in every `*_test.rego` |
 
-None of these needs a repository: the default policy is compiled in, so a person working out
-why a push was refused can ask without a checkout.
+None of these needs a repository. The default policy is compiled in. Somebody working out why a
+push was refused can ask without a checkout.
 
 ### The decisions
 
@@ -468,15 +503,15 @@ The first family is **disclosure** — what this repository may let leave.
 | `disclose/record` | May these bytes be uploaded, given what their catalog record says? |
 | `disclose/derived` | May this computed artifact — an index, an embedding set, a bundle — be uploaded, given what it was built from? |
 
-`disclose/record` and `disclose/derived` are separate because their evidence is: a record-bearing
-artifact is judged by what its record says, and a computed one has no record, so it is judged by
-what it encodes. Neither consults whether the repository is private, and `at_rest` does —
-*the artifact outlives the access*.
+`disclose/record` and `disclose/derived` are separate because their evidence is. A record-bearing
+artifact is judged by what its record says. A computed one has no record, so it is judged by what
+it encodes. Neither consults whether the repository is private, and `at_rest` does — *the artifact
+outlives the access*.
 
-**Routing is not a policy decision.** Which vault an artifact goes to is
-[`vault list`](#artifacts)'s question. Whether it may go at all is this one, and the two are kept
-apart because they fail differently: a route is edited casually by somebody reorganising storage,
-and a licence is not something that edit is allowed to undo.
+**Routing is not a policy decision.** Which vault an artifact goes to is [`vault
+list`](#artifacts)'s question. Whether it may go at all is this one. The two are kept apart
+because they fail differently. A route is edited casually by somebody reorganising storage. A
+licence is not something that edit is allowed to undo.
 
 ### Overriding a rule
 
@@ -484,8 +519,8 @@ Write `.yidam/policy/<name>.rego` declaring the same package. **That rule then d
 including by being more permissive than the default. RFC-0024 records the argument for and
 against that.
 
-An override is never silent. `policy check` names it and the file it came from; `policy test`
-runs the *inherited* cases against your rule and reports which expectations it no longer meets:
+An override is never silent. `policy check` names it and the file it came from. `policy test` runs
+the *inherited* cases against your rule, and reports which expectations it no longer meets:
 
 ```
 $ yidam policy test
@@ -496,17 +531,17 @@ $ yidam policy test
 10 passed, 0 failed, 5 changed by an override
 ```
 
-Those are not failures — a repository is entitled to decide — but they are the list to read
-before concluding the override says what you meant. `policy check` compares *text*; whether a
-rule is more permissive than the one it replaced is a question about every possible input, and
-nothing here claims to have answered it. The `changed` list is the closest thing to an answer.
+Those are not failures; a repository is entitled to decide. They are the list to read before
+concluding the override says what you meant. `policy check` compares *text*. Whether a rule is
+more permissive than the one it replaced is a question about every possible input. Nothing here
+claims to have answered it. The `changed` list is the closest thing to an answer.
 
 A repository's *own* `*_test.rego` failing is a failure, and it exits nonzero.
 
-An override is also reported by `yidam lint` as `policy-override` at `Info` — so it reaches the
-JSON report and the editor — and by `yidam doctor`, which is additionally where a policy that
-does not compile is caught, as a `fail`. Neither gates: the repository decided. What neither
-permits is deciding *quietly*.
+An override is also reported by `yidam lint` as `policy-override` at `Info`. It therefore reaches
+the JSON report and the editor. `yidam doctor` reports it too, and is where a policy that does not
+compile is caught, as a `fail`. Neither gates: the repository decided. What neither permits is
+deciding *quietly*.
 
 ## Export
 
@@ -516,8 +551,8 @@ permits is deciding *quietly*.
 | `bundle` * | Alias for `export --format bundle`, kept for compatibility *(no flags)* |
 | `schema` * | Emit JSON Schema for the corpus shapes into `.yidam/schemas/`. `--settings` prints the editor `yaml.schemas` mapping instead |
 
-`yidam export --list` reports each format and its implementation status in *your* build, which
-is the reliable answer — two of the six are feature-gated:
+`yidam export --list` reports each format and its implementation status in *your* build. That is
+the reliable answer, because two of the six are feature-gated:
 
 | Format | Produces | Needs |
 |---|---|---|
@@ -537,15 +572,14 @@ is the reliable answer — two of the six are feature-gated:
 | `serve --lsp` | LSP over stdio — the editor surface. See [Editor setup](editor-setup.md) |
 
 **`--root <DIR>` names the corpus**, on every transport. Without it `serve` finds one from
-wherever the client started the process, which is the working directory being load-bearing —
-the thing [Connecting an agent](mcp-server.md#the-working-directory-is-load-bearing) used to
-document a `sh -c 'cd … && exec …'` workaround for. It takes the corpus directory or any
-directory inside one, and refuses a directory that is not in a corpus rather than serving an
-empty one.
+wherever the client started the process. That makes the working directory load-bearing, which
+[Connecting an agent](mcp-server.md#the-working-directory-is-load-bearing) used to document a `sh
+-c 'cd … && exec …'` workaround for. It takes the corpus directory or any directory inside one. A
+directory that is not in a corpus is refused, not served empty.
 
-**Both transports are in the light default build.** `--features index` upgrades MCP's
-`retrieve` from keyword to semantic search and adds nothing else; a default binary still serves
-every other tool, and says `degraded` on the calls where the difference shows.
+**Both transports are in the light default build.** `--features index` upgrades MCP's `retrieve`
+from keyword to semantic search, and adds nothing else. A default binary still serves every other
+tool. It says `degraded` on the calls where the difference shows.
 
 ## Measuring the corpus
 
@@ -553,9 +587,9 @@ every other tool, and says `degraded` on the calls where the difference shows.
 |---|---|
 | `bench` | The committed goal set: anchored traversal against flat retrieval. `--budget`, `--scaling` |
 
-`--scaling` measures the arms that are functions of N over generated corpora rather than this
-repository's own, and needs no index — the flat arm is constant in N and is excluded by
-argument rather than by omission.
+`--scaling` measures the arms that are functions of N, over generated corpora rather than this
+repository's own. It needs no index. The flat arm is constant in N, and is excluded by argument
+rather than by omission.
 
 ## Deriving and maintaining a repository
 
@@ -566,11 +600,11 @@ argument rather than by omission.
 | `backfill` * | Write a decision record for each epistemic commit in history. `--since` |
 | `tonpa <sub>` * | Manage bundle dependencies in `.yidam/tonpa/`. **Needs `tonpa`** (a default) |
 
-`clone` copies everything except `docs/` and `examples/` — yidam's own documentation describes
-yidam, and an example is a whole foreign corpus that a new repository should not be born
-holding. `overlay` refuses a target that already has a `.yidam/`, and adds `yidam/`,
-`sadhana/`, `BOOTSTRAP.md`, `mise.yidam.toml` and the `.yidam.toml` pin without touching the
-repository's own content.
+`clone` copies everything except `docs/` and `examples/`. The documentation here describes yidam
+itself. An example is a whole foreign corpus that a new repository should not be born holding.
+`overlay` refuses a target that already has a `.yidam/`. It adds `yidam/`, `sadhana/`,
+`BOOTSTRAP.md`, `mise.yidam.toml` and the `.yidam.toml` pin, without touching the repository's own
+content.
 
 `backfill`'s classification is **heuristic** — it reads leading verbs. It does not extract
 corpus nodes, and the records it writes are a starting point for a person, not testimony.

@@ -1,4 +1,4 @@
-use yidam_domain_similarity::{cosine, jaccard, edit_distance};
+use yidam_domain_similarity::{cosine, edit_distance, jaccard};
 
 fn fixture_dir(function: &str) -> std::path::PathBuf {
     // CARGO_MANIFEST_DIR = prelude/domains/similarity/rust/
@@ -63,8 +63,18 @@ fn parity_jaccard() {
 
     for fx in &fixtures {
         let input = &fx["input"];
-        let a_strings: Vec<String> = input["a"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
-        let b_strings: Vec<String> = input["b"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
+        let a_strings: Vec<String> = input["a"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        let b_strings: Vec<String> = input["b"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
         let a_refs: Vec<&str> = a_strings.iter().map(|s| s.as_str()).collect();
         let b_refs: Vec<&str> = b_strings.iter().map(|s| s.as_str()).collect();
         let result = jaccard(&a_refs, &b_refs);
@@ -78,7 +88,10 @@ fn parity_jaccard() {
 #[test]
 fn parity_edit_distance() {
     let fixtures = load_fixtures("similarity.edit_distance");
-    assert!(!fixtures.is_empty(), "no similarity.edit_distance fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no similarity.edit_distance fixtures found"
+    );
 
     for fx in &fixtures {
         let input = &fx["input"];

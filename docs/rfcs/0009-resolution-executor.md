@@ -11,11 +11,11 @@
 > **Settled 2026-09-04.** Both proposals shipped in #565 (`b531d39`), the RFC-0009 half of #274,
 > measured against the one derived repository running a sangha before anything was built. The
 > protocol now answers the execution question in a section of its own, "Who may execute one":
-> "Any recognized elector, whether or not they called it" ([`PROTOCOL.md:38`](../../sadhana/sangha/PROTOCOL.md#L38)).
-> The record format carries the field ([`PROTOCOL.md:186`](../../sadhana/sangha/PROTOCOL.md#L186)),
+> "Any recognized elector, whether or not they called it" ([`PROTOCOL.md:53`](../../sadhana/sangha/PROTOCOL.md#L53)).
+> The record format carries the field ([`PROTOCOL.md:201`](../../sadhana/sangha/PROTOCOL.md#L201)),
 > mirrored in [`information-architecture.md:113`](../information-architecture.md#L113), with the
 > Article II / III reconciliation stated beside it as this RFC argued it:
-> "It is a record, not a rank" ([`PROTOCOL.md:209-214`](../../sadhana/sangha/PROTOCOL.md#L209-L214)).
+> "It is a record, not a rank" ([`PROTOCOL.md:224-229`](../../sadhana/sangha/PROTOCOL.md#L224-L229)).
 >
 > Two checks hold the field to the registry, and their split is the settlement's shape.
 > `resolution-elector-unregistered` (Error) fires on "a `ma/*` branch the record names, as a tip
@@ -44,7 +44,7 @@
 > (`b531d39`). Requiring `synthesized_by` in `report.schema.json`: declined, "a released CLI
 > predates the field, so a consumer that assumes it is present is wrong against old output and
 > against every record written before today". And a `called-by` field: declined as this RFC
-> leaned — "Only the executor is recorded" ([`PROTOCOL.md:51`](../../sadhana/sangha/PROTOCOL.md#L51)).
+> leaned — "Only the executor is recorded" ([`PROTOCOL.md:66`](../../sadhana/sangha/PROTOCOL.md#L66)).
 >
 > With the settlement recorded here, the header moves per #598's convention: **Accepted**, not
 > `Implemented`, because `b531d39` is an ancestor of no released tag — not of `cli/v0.9.0`, not of
@@ -65,7 +65,7 @@ RFC-0012's attestation hangs on.
 ## Problem
 
 Calling a resolution is specified. Executing one is not.
-[`PROTOCOL.md:23-29`](../../sadhana/sangha/PROTOCOL.md#L23-L29): "Any elector may call a resolution
+[`PROTOCOL.md:40-44`](../../sadhana/sangha/PROTOCOL.md#L40-L44): "Any elector may call a resolution
 by — identifying a question or tension... naming the `rigpa/<evolution>` branch... notifying
 participating electors." But the procedure that follows — Read, Synthesize, Open tensions, Commit
 ([`PROTOCOL.md:36-58`](../../sadhana/sangha/PROTOCOL.md#L36-L58)) — never names who performs it. The
@@ -149,11 +149,11 @@ required going forward; existing resolutions are unaffected (none exist — `ele
 - **Co-synthesis.** Should `synthesized-by` be a list, so a jointly authored resolution names all its
   authors? Lean: yes — a list, singular being the common case. Joint authorship is real and cheap to
   represent. *Decided as leaned (#565): list-or-scalar —
-  "one seat, or a list where a synthesis was genuinely joint" ([`PROTOCOL.md:209-210`](../../sadhana/sangha/PROTOCOL.md#L209-L210))
+  "one seat, or a list where a synthesis was genuinely joint" ([`PROTOCOL.md:224-225`](../../sadhana/sangha/PROTOCOL.md#L224-L225))
   — and a dropped seat is one of the mutations the tests hold, since downstream it reads exactly
   like a record that never named one.*
 - **Caller vs. executor.** The caller (who named the branch and notified) and the executor may
   differ. Worth a distinct optional `called-by`, or is that ceremony the git history already carries?
   Lean: omit for now; revisit if calling ever acquires obligations beyond notification. *Decided as
   leaned (#565): omitted. The protocol says the two may differ, "and often should", and that
-  "Only the executor is recorded" ([`PROTOCOL.md:50-52`](../../sadhana/sangha/PROTOCOL.md#L50-L52)).*
+  "Only the executor is recorded" ([`PROTOCOL.md:65-67`](../../sadhana/sangha/PROTOCOL.md#L65-L67)).*

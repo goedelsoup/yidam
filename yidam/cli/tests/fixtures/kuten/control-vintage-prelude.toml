@@ -1,0 +1,24 @@
+# NOT one of the six. One of the three candidates A0 retracted.
+#
+# Zero phase commits and 43% off-vocabulary, against a vendored prelude that has neither the
+# `phase` verb nor a closed list. Both numbers are properties of the template this repository
+# holds, and reporting either as divergence is the error that produced a second cluster which
+# was not there. Node shape is measurable at any vintage and is reported normally.
+note = "a vintage prelude: neither vintage-gated metric may be reported as divergence"
+cluster = false
+
+[measurement]
+commits = 300
+phase_commits = 0
+off_vocabulary_commits = 129
+nodes = 200
+median_node_lines = 45.0
+
+[vintage]
+has_phase_verb = false
+vocabulary_is_closed = false
+graph_present = true
+
+[expect]
+phase-commit-share = "vintage"
+off-vocabulary-share = "vintage"

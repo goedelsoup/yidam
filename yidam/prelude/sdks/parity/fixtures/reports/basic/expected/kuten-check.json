@@ -1,0 +1,33 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "kuten": {
+    "held": false,
+    "name": null,
+    "declared_revision": null,
+    "vendored_revision": null,
+    "revision_skew": false,
+    "unresolved": null,
+    "vintage": {
+      "has_phase_verb": false,
+      "vocabulary_is_closed": false,
+      "graph_present": false
+    },
+    "measurement": {
+      "commits": 3,
+      "phase_commits": 0,
+      "off_vocabulary_commits": 0,
+      "nodes": 4,
+      "median_node_lines": 10.0
+    },
+    "findings": [],
+    "conforming": true
+  }
+}

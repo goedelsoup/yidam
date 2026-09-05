@@ -11,6 +11,9 @@ pub mod embed_config;
 #[cfg(feature = "vector-read")]
 pub mod embedding;
 mod git;
+/// What a corpus declares its practice is aimed at (RFC-0028). Public so the guards over
+/// the shipped profiles can parse them the way the binary does, rather than a second way.
+pub mod kuten;
 mod markdown;
 mod parse;
 mod paths;
@@ -39,16 +42,17 @@ pub use cmd::tonpa;
 /// The seed kinds `yidam samudaya-audit` accepts. See [`samudaya_seed_kind`].
 pub use cmd::SAMUDAYA_KINDS;
 pub use cmd::{
-    agents_index, backfill, bench, bundle, bundle_status, catalog_audit, check_diff, clone,
-    collect_line_citations, corpus_index, crates_index, dead_line_citation, decisions_log,
-    diff_corpus, doctor, due, embed, estimate, export, graph, graph_check, index_status,
-    index_verify, lint, list_formats, log, migrate, neighbors, open_questions, overlay, pack,
-    packages_index, parse_bench_goals, phases, propose, query, regen, rename, replay, run_export,
-    run_policy, run_vault, samudaya_audit, sangha, schema, serve_lsp, serve_mcp, skills_index,
-    slid_line_citation, status, unverified_line_citation, vault_status, vocabulary, BenchGoal,
-    BenchGoalSet, EmbedOptions, ExportFormat, ExportOptions, LineCitation, LintCheck, LintOptions,
-    LintViolation, LogFilter, MigrateOperation, PolicyCommand, ProposeOptions, RdfFormat,
-    VaultCommand,
+    agents_index, backfill, bench, bundle, bundle_status, catalog_audit, check_diff,
+    citation_label_not_cited, citation_range_stated_twice, clone, collect_line_citations,
+    corpus_index, crates_index, dead_line_citation, decisions_log, diff_corpus, doctor, due, embed,
+    estimate, export, graph, graph_check, index_status, index_verify, label_range, label_symbols,
+    lint, list_formats, log, migrate, neighbors, open_questions, overlay, pack, packages_index,
+    parse_bench_goals, phases, propose, query, regen, relocate, rename, replay, run_export,
+    run_kuten, run_policy, run_vault, samudaya_audit, sangha, schema, serve_lsp, serve_mcp,
+    skills_index, slid_line_citation, status, unverified_line_citation, vault_status, vocabulary,
+    BenchGoal, BenchGoalSet, EmbedOptions, ExportFormat, ExportOptions, KutenCommand, LineCitation,
+    LineFragment, LintCheck, LintOptions, LintViolation, LogFilter, MigrateOperation,
+    PolicyCommand, ProposeOptions, RdfFormat, Relocation, VaultCommand,
 };
 
 /// The remote transport (#423). Gated because the feature is what pulls the server, and

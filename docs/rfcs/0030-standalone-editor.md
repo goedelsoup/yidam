@@ -5,7 +5,7 @@
 - **Relates to:**
   - RFC-0016 (the editor surface this is the third client of, and whose boundary it inherits — no longer unbreakable, and therefore guarded)
   - RFC-0001 (the JSON report contract it renders, and now the contract it negotiates on)
-  - [RFC-0029](0029-write-tier.md) (the write tier this defers its authoring path to rather than inventing a second one, and whose identity gate this surface is the first hard case for)
+  - [RFC-0029](0029-write-tier.md) (the write tier this defers its authoring path to rather than inventing a second one; this surface was the case that made its identity gate read on the criterion rather than the transport, settled 2026-09-05)
   - RFC-0005 (the `handle` seam whose framing argument this repeats at a second transport)
   - RFC-0025 (the design system this consumes, and the adherence gate that does not yet see the file types it would be written in)
 - **Versioning layers touched:** **Layer 4.** This surface is a third artifact in the tooling
@@ -297,7 +297,7 @@ The server spawns the pinned binary per request and parses the envelope. Nothing
 | `GET /api/corpus` | `yidam graph --format json`, whose nodes and resolved edges come from [`model::corpus_nodes()`](../../yidam/cli/src/model.rs#L400) — the function `serve`, `graphml` and `rdf` already share |
 | `GET /api/reports` | `lint` and `graph-check` as the RFC-0001 envelope, byte-identical to `--format json` |
 | `GET /api/overlay` (SSE) | Diagnostics from a supervised `yidam serve --lsp` — see below |
-| `POST /api/act/*` | Deferred to RFC-0029. Absent until it settles. |
+| `POST /api/act/*` | Deferred to RFC-0029's build. The decision is Accepted; the tier does not exist yet. |
 
 **Binary resolution is the extension's, and this is the one place the reversal is free.**
 [`binary.ts`](../../yidam/editors/vscode/src/binary.ts) and
@@ -325,14 +325,13 @@ most expensive thing in the document. The original said so, about this design, a
 > rather than from a Node process that would have to bridge stdio LSP to a WebSocket to get the
 > same answer.
 
-That bridge is now the plan. `Overlay` is a `pub struct` in the lint module
-([`lint/mod.rs:101`](../../yidam/cli/src/cmd/lint/mod.rs#L101)), and
-[`run_checks_with(&root, &opts, &overlay)`](../../yidam/cli/src/cmd/lint/mod.rs#L153) is the
-entry point the language server calls on every change
-([`lsp.rs:217`](../../yidam/cli/src/cmd/lsp.rs#L217)) — but it is reachable only through
-`serve --lsp`. `yidam lint` has no overlay flag, and the extension is no prior art here: it
-carries no LSP client and no dependencies at all, running `lint --format json` against the tree
-and building diagnostics itself.
+That bridge is now the plan. [`Overlay`](../../yidam/cli/src/cmd/lint/mod.rs#L104) is a
+`pub struct` in the lint module, and
+[`run_checks_with`](../../yidam/cli/src/cmd/lint/mod.rs#L156) is the entry point the language
+server calls on every change ([`lsp.rs:217`](../../yidam/cli/src/cmd/lsp.rs#L217)) — but it is
+reachable only through `serve --lsp`. `yidam lint` has no overlay flag, and the extension is no
+prior art here: it carries no LSP client and no dependencies at all, running `lint --format json`
+against the tree and building diagnostics itself.
 
 So the server supervises **one `yidam serve --lsp` child per corpus**, sends buffer text as
 `textDocument/didChange`, and relays `publishDiagnostics` to the browser over server-sent
@@ -414,11 +413,13 @@ lifecycle; class-driven node forms with the relationship rule above; claim tags 
 Still no writes to disk. This phase absorbed the reversal's cost and should be planned as the
 largest of the four, not the second-cheapest.
 
-**Phase 3 — writes.** Gated on [RFC-0029](0029-write-tier.md). If `act` lands, the editor's
-writes are its operations behind a second framing, for the reason
-[`http.rs:9`](../../yidam/cli/src/cmd/serve/http.rs#L9) gives about the first: *"Not a second
-contract. `super::handle` is the seam RFC-0005 left for exactly this."* If RFC-0029 settles the
-other way, this phase needs its own argument and does not get to assume one.
+**Phase 3 — writes.** Gated on [RFC-0029](0029-write-tier.md)'s **build**. The decision half is
+Accepted, and its identity gate reaches this surface — see
+[§ The identity gate, answered](#the-identity-gate-answered--and-what-the-reversal-does-to-the-answer),
+which is why #427 is not in this phase's dependencies. The editor's writes are `act`'s operations
+behind a second framing, for the reason [`http.rs:9`](../../yidam/cli/src/cmd/serve/http.rs#L9)
+gives about the first: *"Not a second contract. `super::handle` is the seam RFC-0005 left for
+exactly this."*
 
 **Phase 4 — the artifact, and the gates.** The Layer 4 row, the `npm publish` path and the
 `install-channels.yml` check, landing as one change. A `ci-editor-web` mise task and a CI job
@@ -426,40 +427,45 @@ mirroring `vscode`; a Dependabot npm group; a row in [`editor-setup.md`](../edit
 in [`yidam/editors/README.md`](../../yidam/editors/README.md); a sidebar entry, without which
 `astro build` fails.
 
-### The identity gate, and the case that got weaker
+### The identity gate, answered — and what the reversal does to the answer
 
-RFC-0029 §2.2 gates the write tier on authorship rather than on sequencing:
+This section used to argue a case and decline to settle it. It has been settled, elsewhere and
+in this surface's favour: [RFC-0029](0029-write-tier.md) was amended on 2026-09-05 and moved to
+Accepted, naming this surface as the counterexample that forced the question.
 
-> The `act` capability is declarable only where a git author identity exists. Over stdio that
-> identity exists today: the server is a subprocess of a person's shell inside their checkout …
-> Over HTTP no author exists until #427 lands in a shape that yields a **stable subject claim**
-> mapped onto a committer identity — so an HTTP server MUST NOT declare `act` until then.
+> **Decision: `act` is gated on the criterion; the transport is evidence for the criterion, never
+> the rule.** A loopback server started by the corpus's owner MAY declare `act`. A server
+> reachable from another machine MAY NOT until #427 supplies an author, exactly as written above.
 
-`yidam-edit` is the first case where that rule's criterion and its proxy come apart. The
-criterion is *does a git author identity exist*; the proxy is *stdio, not HTTP*. This surface is
-HTTP — and it is also a process a person started from their own shell, inside their own checkout,
-bound to loopback, serving the page to the browser on the same machine.
+So Phase 3 does **not** wait on #427. Its dependency is RFC-0029's build and nothing else.
 
-Two honest readings, and this RFC does not pick one:
+The reversal happened after that argument was made and before it was written down, so the honest
+thing is to check the settlement against the shape that actually ships rather than the shape it
+was argued about. RFC-0029 gives four clauses an implementer checks. Three are decidable and this
+surface meets them; the fourth was already honest about what no server can see.
 
-- **The sentence binds as written.** An HTTP server may not declare `act`, so Phase 3 waits on
-  #427 — a question about remote authorisation that a loopback editor does not raise. RFC-0029
-  names this cost itself, about the neighbouring case: re-blocking on #427 *"parks stdio-local
-  writes on a question they do not have."*
-- **The criterion binds, and the transport was its proxy.** A loopback server started by the
-  corpus's owner is in the stdio position, and the gate should say so in terms of the author
-  rather than the socket.
+1. **A git author identity resolves for the serving process, in the corpus it serves.** Met, and
+   the Node process does not weaken it. `yidam-edit` writes nothing itself: a write is the
+   spawned binary's, and that binary is a child of the Node process, which is a child of the
+   person's shell, running in their checkout. The identity the commit takes is the one `git`
+   resolves there. **This is the clause the reversal was most likely to break and does not** —
+   the earlier draft of this section supposed the author would be *resolved by* the Node process
+   rather than inherited through it, and that is not how the spawn works.
+2. **The declaration is configuration, never inference.** Met by not being reached yet: nothing
+   in Phase 1 or Phase 2 declares `act`, and Phase 3 must be told to.
+3. **Every listening socket the `act`-declaring server holds is loopback.** Met by construction
+   and more strictly than required — this surface has no `--bind` at all
+   ([§ The command surface](#the-command-surface)), so there is no configuration under which it
+   binds wider and no startup check to write.
+4. **That the peer is that person is a declaration the operator makes, not something the server
+   detects.** Unchanged, and RFC-0029 states it plainly: every socket transport has an unbounded
+   peer set, and `act` is configuration precisely because the fact being declared is not
+   observable. This surface adds no authenticator and claims none.
 
-**The reversal weakens the second reading, and the amendment says so rather than leaving the
-case as it stood.** Under the embedded shape the argument was that only the socket differed from
-the stdio justification. That is no longer true: a Node process now sits between the person and
-the binary, and the git author the write would be attributed to is resolved by that process
-rather than inherited by it. The reading is still arguable — the process is still a child of the
-person's shell — but it is no longer the near-identity it was, and RFC-0029 should be asked with
-that difference on the table.
-
-It remains **not this RFC's to settle**: RFC-0029 is where that sentence lives, and sharpening it
-is an amendment to RFC-0029 with a dated block, not a paragraph here.
+What the reversal does change is **which process the declaration attaches to**, and that is a
+Phase 3 question rather than an open one: the capability is declared by whatever speaks the MCP
+contract, and under RFC-0029's own rule this surface reaches the tier *through* `super::handle`
+rather than beside it. It is not a second route into the write tier, and RFC-0029 says so.
 
 ### How it is tested
 
@@ -569,11 +575,11 @@ does not propose to move it.
   *"this is a build-time renderer: React produces HTML and none of it is shipped to a reader."*
   This surface would be the first consumer to ship them to a browser. Whether they survive
   client bundling is unknown and is a Phase 1 spike, not an assumption.
-- **Does RFC-0029's identity gate reach a loopback editor with a Node process in it?** The case
-  is argued in [§ The identity gate, and the case that got weaker](#the-identity-gate-and-the-case-that-got-weaker)
-  and belongs to RFC-0029, as an amendment with a dated block. Until it is answered, Phase 3's
-  dependency is *either* RFC-0029's build *or* RFC-0029's build plus #427, and those are very
-  different schedules.
+- ~~**Does RFC-0029's identity gate reach a loopback editor?**~~ **Answered 2026-09-05** by
+  RFC-0029's own amendment, which names this surface as the counterexample that forced it: the
+  criterion governs, and a loopback server started by the corpus's owner MAY declare `act`.
+  Phase 3's dependency is RFC-0029's build alone. Checked against the shape that actually ships
+  in [§ The identity gate, answered](#the-identity-gate-answered--and-what-the-reversal-does-to-the-answer).
 - **Does Phase 2 write at all?** A form whose output cannot be saved is a strange object. The
   alternative is a small, editor-only write path that does not wait for RFC-0029 — which is a
   second answer to "how does something outside the corpus write into it", and is the thing this

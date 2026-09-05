@@ -50,7 +50,14 @@ const LONG = '# Page\n\n## A section\n\n'
 // ── the units ────────────────────────────────────────────────────────────────
 console.error('a table row and a bullet are not sentences…');
 check('a table is not prose', proseBlocks('| a | b |\n|---|---|\n| 1 | 2 |').length === 0);
-check('a list is not prose', proseBlocks('- one thing\n- another thing').length === 0);
+check('adjacent bullets are separate blocks',
+  proseBlocks('- one thing\n- another thing').length === 2,
+  'joining them is what reported 155 run-ons that did not exist');
+check('a wrapped bullet is one block',
+  proseBlocks('- one thing that runs\n  onto a second line').length === 1,
+  'the marker line was skipped and the continuation was not, so items were measured from their tails');
+check('a bullet block drops its marker',
+  proseBlocks('- one thing')[0] === 'one thing');
 check('a fence is not prose', proseBlocks('```\nlet x = 1;\n```').join('') === '');
 check('a paragraph is prose', proseBlocks('Hello there.\nSecond line.').length === 1);
 
@@ -59,6 +66,15 @@ check('splits before a markdown link',
   sentences('One thing. [Two](x.md) is another.').length === 2,
   'the lookahead must admit "[", or pairs glue together and every count inflates');
 check('splits before inline code', sentences('One thing. `code` follows.').length === 2);
+
+console.error('a bold claim that ends in a full stop is a sentence, not a lead-in…');
+check('splits after a bold sentence',
+  sentences('**One instruction per sentence.** A step that does two is two sentences.').length === 2,
+  'the house style opens a paragraph this way; gluing them charges the page for a run-on it does not contain');
+check('splits after an italic sentence',
+  sentences('It gives the reason: *the artifact outlives the access.* A directory is intent.').length === 2);
+check('a full stop inside emphasis mid-sentence does not split',
+  sentences('The flag is **required.**').length === 1);
 
 console.error('a link counts as the words a reader reads, not its target…');
 check('link target is not counted', wordCount('[a b](https://example.com/very/long/path) c') === 3);

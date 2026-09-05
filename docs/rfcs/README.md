@@ -42,7 +42,7 @@ re-deriving it.
 | [0009](0009-resolution-executor.md) | G2 | Resolution execution authority and the `synthesized-by` record | Accepted |
 | [0010](0010-evolution-lineage.md) | G3 | Evolution lineage — forking, parentage, and explicit baselines | Accepted |
 | [0011](0011-partial-sangha.md) | G4 | Partial-sangha resolutions and participant-scoped binding | Accepted |
-| [0012](0012-elector-attestation.md) | G5 | Elector identity and attestation — model/version/config + commit signing | Draft |
+| [0012](0012-elector-attestation.md) | G5 | Elector identity and attestation — model/version/config + commit signing | Accepted |
 | [0013](0013-node-model-close.md) | I8 | Closing RFC-0002 — the node-model open questions | Implemented |
 | [0014](0014-node-rename.md) | I9 | Node rename as a sanctioned operation — dangling-edge gate + atomic `yidam rename` | Implemented |
 | [0015](0015-epistemic-log.md) | I10 | An epistemic-only history view (`yidam log --epistemic`) | Implemented |
@@ -58,8 +58,8 @@ re-deriving it.
 | [0025](0025-quality-surface.md) | I20 | The instrument, turned around — measuring the repository that measures | Accepted |
 | [0026](0026-orchestrator-layer.md) | I21 | A run is a commit somebody can refuse — the orchestrator layer | Draft |
 | [0027](0027-openai-profile.md) | I22 | A profile is a projection, not a second contract — the `openai` profile | Draft |
-| [0028](0028-kuten-layer.md) | I23 | The form a practice takes — the kuten layer | Draft |
-| [0029](0029-write-tier.md) | I24 | A write is a capability a server declares, not a transport it happens to have — the MCP write tier | Draft |
+| [0028](0028-kuten-layer.md) | I23 | The form a practice takes — the kuten layer | Accepted |
+| [0029](0029-write-tier.md) | I24 | A write is a capability a server declares, not a transport it happens to have — the MCP write tier | Accepted |
 | [0030](0030-standalone-editor.md) | I25 | The surface is beside the binary, and earns a version (`yidam-edit`) | Draft |
 
 ## Reading order

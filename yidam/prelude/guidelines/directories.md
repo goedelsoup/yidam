@@ -24,11 +24,14 @@ After bootstrap, a derived repository has two tiers:
 
 **Created on first use.** Bootstrap does not scaffold `agents/`, `docs/`, or `packages/`.
 An empty directory holding only a README that describes what it would contain is
-indistinguishable from an abandoned one — and it stays empty: across the two repositories
-derived from this template, `agents/` and `packages/` never received a single file and
-`docs/` received exactly one. Create each the day something goes in it. The conventions
-below say what belongs where when that day comes; the `yidam` CLI treats all three as
-optional and its index commands are no-ops when the directory is absent.
+indistinguishable from an abandoned one, which is the argument for deferral, not a claim
+that these directories go unused — measured across fifteen derived repositories, `agents/`
+received 11 domain agents across 4 repositories and `docs/` received 53 files across 6;
+only `packages/` stayed empty in 14 of 15. Create each the day something goes in it, the
+same argument `sadhana/skills/README.md` makes for skills: a repeatable need emerges from
+inquiry, not preemptively. The conventions below say what belongs where when that day
+comes; the `yidam` CLI treats all three as optional and its index commands are no-ops when
+the directory is absent.
 
 ---
 
@@ -377,7 +380,10 @@ or anything that describes how the repo operates rather than what it knows.
   well. Do not include dates in filenames; the git history has dates.
 - Size: 2–10 sentences is often right. If a node grows beyond a screen, decompose it. A
   class may make that checkable by declaring `max_lines:` in its `.ont.yml`, and
-  `node-too-long` then reports an instance over it. No class carries a default, and that is
+  `node-too-long` then reports an instance whose `description` runs over it. The
+  `description` and not the file: a node that records where each of its edges comes from —
+  a `claim_tag` and a `source` per link — should not pay for that provenance out of a budget
+  written to stop prose sprawling. No class carries a default, and that is
   measured rather than timid: the bootstrap rubric caps a node at 40 lines, and across five
   real corpora 335 of 410 nodes exceed it — 86%, 86% and 97% in the three mature ones — while
   the same corpora at their genesis commits run to a median of 35, where 40 is right for

@@ -181,30 +181,42 @@ different roles and where relationships themselves carry meaning worth querying.
 **None** — no foundational alignment. Classes are typed by domain convention only. Choose this
 if foundational ontology alignment is not a goal of the corpus, or if you want to commit later.
 
-Ask the user to choose one. Then ask:
+Ask the user to choose one. Then compute a default seed count from the confirmed sketch:
+**two instances per class, with a floor of 13** — count the rows in the Nodes table
+confirmed above. State the computed number, not a fixed one, when you ask:
 
-> **How many seed instances should the initial corpus contain?** [default: 13]
+> **How many seed instances should the initial corpus contain?** [default: `<2 × class
+> count, minimum 13>`]
 
-The user may give a number or press enter to accept the default. Record it as `corpus_depth`
-in the decision record — step 6 distributes instances across classes to reach this target.
+A flat default of 13 was measured (#583, A0) against thirteen derived repositories that
+recorded a `corpus_depth`: it was accepted twice in thirteen, and the median chosen was 26
+— double it. "Two per class, minimum 13" would have produced 24–36 for most of that
+population, which is where people actually landed. The user may give a different number or
+press enter to accept the computed default. Record it as `corpus_depth` in the decision
+record — step 6 distributes instances across classes to reach this target.
 
-Finally, ask the governance question:
+Finally, ask the governance question — by name, not by count:
 
-> **Who will maintain this repository — one elector, or several?** [default: one]
+> **Name the people or independently-directed agents who will maintain this repository.**
 >
-> **One** — you (with agents acting on your behalf) are the sole elector. Phases run on
-> `phase/<name>` branches off the baseline. This is the common case.
+> If that's just you, with agents acting on your behalf, name yourself and stop — you are
+> the sole elector. Phases run on `phase/<name>` branches off the baseline. This is the
+> common case.
 >
-> **Several** — multiple humans or independently-directed agents hold positions that are
-> expected to diverge and must be reconciled. This activates the sangha: each elector keeps
-> a `ma/<elector>` branch, and resolution events synthesize them into `rigpa/<evolution>`
-> baselines under the constitution.
+> If you can name a second elector — someone who will actually hold and reconcile a
+> position that is expected to diverge from yours — name them too. This activates the
+> sangha: each named elector keeps a `ma/<elector>` branch, and resolution events synthesize
+> them into `rigpa/<evolution>` baselines under the constitution.
 
-Record the answer as `governance: single-elector | collective`. Do not choose `collective`
-because it sounds more capable — it is a real protocol with real overhead, and a repository
-that adopts it and never runs a resolution has paid for machinery it does not use. If the
-user is unsure, take the default; a single-elector repo can adopt the sangha later by
-scaffolding `.yidam/sangha/` when a second elector actually appears.
+A person who cannot name a second elector has answered the question: record
+`single-elector` and move on, rather than treating "one elector, or several?" as a choice
+between two modes of the same weight. Record the answer as `governance: single-elector |
+collective`, with the named electors listed under `electors:`. Do not choose `collective`
+because it sounds more capable — it is a real protocol with real overhead, scaffolded now
+(step 3 creates five files for it), and a repository that names one elector but adopts it
+anyway has paid for machinery it does not use. If only one name comes up, take
+`single-elector`; the sangha can be adopted later by scaffolding `.yidam/sangha/` when a
+second elector actually appears and can be named.
 
 Then write the ontology decision record, including the chosen alignment, corpus depth, and
 governance mode, before proceeding to step 3:
@@ -216,8 +228,9 @@ governance mode, before proceeding to step 3:
 ```yaml
 id: ontology
 summary: <one line — the domain, class count, and chosen foundational alignment>
-corpus_depth: 13              # target instance count for initial seeding; user-configurable
+corpus_depth: 26              # target instance count; default is 2 per class, min 13; user-configurable
 governance: single-elector    # single-elector | collective
+electors: [<name>]            # the electors named when the governance question was asked
 context: |
   <what the ontology discovery dialogue surfaced; key choices made; examples used to explain
   the alignment options>
@@ -248,7 +261,8 @@ Then read each template file in `sadhana/`:
 - `sadhana/web/README.md`
 - `sadhana/root/README.md`, `sadhana/root/AGENTS.md`, `sadhana/root/CLAUDE.md`, `sadhana/root/mise.toml`,
   `sadhana/root/gitattributes`, `sadhana/root/gitignore`
-- `sadhana/github/workflows/ci.yml`, `sadhana/github/workflows/release.yml`
+- every file in `sadhana/github/workflows/` — run `ls sadhana/github/workflows/` and read
+  each one; do not assume a fixed list (#589)
 - `sadhana/sangha/README.md` (and PROTOCOL.md, electors.md, resolutions/, positions/) —
   **only if `governance: collective`**; skip these five reads entirely in single-elector mode
 
@@ -274,11 +288,15 @@ web/README.md
 **Create on first use, not now:** `agents/`, `packages/`, and `docs/`. Their sadhana
 templates exist and are the right content — but scaffold them the day something goes in
 them, not at genesis. An empty directory with a README explaining what it would contain is
-indistinguishable from an abandoned one, and it stays that way: across the two repositories
-derived from this template, `agents/` and `packages/` never received a single file, and
-`docs/` received exactly one. Note them in step 9 instead, so the user knows they exist as
-conventions. The `yidam` CLI treats all three as optional — `agents-index` and
-`packages-index` are no-ops when the directory is absent.
+indistinguishable from an abandoned one, which is the argument for deferral — not the count
+of what arrived. Measured across fifteen derived repositories, `packages/` stayed empty in
+14 of 15, but `agents/` received 11 domain agents across 4 repositories and `docs/` received
+53 files across 6: the deferral does not mean these directories go unused, only that they
+are created the day a repeatable need for them emerges rather than speculatively at genesis
+— the same argument `sadhana/skills/README.md` already makes for skills ("Add skills when a
+repeatable procedure emerges from inquiry — not preemptively"). Note them in step 9 instead,
+so the user knows they exist as conventions. The `yidam` CLI treats all three as optional —
+`agents-index` and `packages-index` are no-ops when the directory is absent.
 
 **`.yidam/sangha/` — only if `governance: collective`.** Read the governance mode recorded
 in `.yidam/decisions/ontology.yml` in step 2:
@@ -289,8 +307,8 @@ in `.yidam/decisions/ontology.yml` in step 2:
 - **`collective`** — create `.yidam/sangha/` with all files from `sadhana/sangha/`, and fill
   `electors.md` with the participants the user named.
 
-Repository-root files. `sadhana/root/` and `sadhana/github/` are not directory mirrors —
-each file installs to a specific path, **overwriting yidam's own copy**:
+Repository-root files. `sadhana/root/` is not a directory mirror — each file installs to a
+specific path, **overwriting yidam's own copy**:
 
 ```
 sadhana/root/README.md            → README.md            (overwrites yidam's)
@@ -299,17 +317,38 @@ sadhana/root/CLAUDE.md            → .claude/CLAUDE.md    (overwrites yidam's)
 sadhana/root/mise.toml            → mise.toml            (overwrites yidam's)
 sadhana/root/gitattributes        → .gitattributes       (overwrites yidam's)
 sadhana/root/gitignore            → .gitignore           (overwrites yidam's)
-sadhana/github/workflows/ci.yml   → .github/workflows/ci.yml  (overwrites yidam's)
-sadhana/github/workflows/release.yml → .github/workflows/release.yml (overwrites yidam's)
 ```
 
-Yidam's copies of these eight files describe yidam — its harness, its CLI workspace, its
-bootstrap-mode entry check. Left in place they are wrong the moment genesis is written, and
-yidam's `ci.yml` is worse than wrong: it builds `yidam/cli` and `yidam/tests/harness`, paths
-that step 8 removes, so it goes green having compiled nothing. Yidam's `release.yml` is
-wrong in a louder way: it publishes the yidam CLI's binaries on a `cli/v*` tag, from a
-repository that has no CLI to publish. Overwrite all eight now. Do not merge yidam's content
-into them.
+Yidam's copies of these six files describe yidam — its harness, its CLI workspace, its
+bootstrap-mode entry check. Left in place they are wrong the moment genesis is written.
+Overwrite all six now. Do not merge yidam's content into them.
+
+**`.github/workflows/` — replace the directory, do not overwrite files inside it.** `yidam
+clone` copies all of yidam's own workflows into the new repository (`EXCLUDE_DIRS` does not
+name `.github/`), and every one of them names a layout that does not survive genesis:
+`ci.yml` builds `yidam/cli` and `yidam/tests/harness`, paths step 8 deletes, so it would go
+green having compiled nothing; `release.yml` publishes the yidam CLI's binaries from a
+repository that has no CLI to publish; `docs.yml`, `editor.yml`, `install-channels.yml`,
+`publish-crates.yml`, and `tap.yml` each reference a directory or a publishing target this
+repository does not have. Naming and overwriting only two of them, as this step used to,
+leaves the rest behind — nothing here objects to correct YAML naming a path that used to
+exist, and the first push a derived repository makes to a remote is the moment one of them
+runs and fails (#589).
+
+Delete the directory entirely and replace it wholesale:
+
+```
+rm -rf .github/workflows/
+mkdir -p .github/workflows/
+cp sadhana/github/workflows/*.yml .github/workflows/
+```
+
+**Enumerate `sadhana/github/workflows/`; do not name its files in prose.** `ls
+sadhana/github/workflows/` is the source of truth for what belongs at genesis — naming files
+here is exactly the drift that left `index.yml` uninstalled for as long as it existed
+alongside `ci.yml` and `release.yml`, its own header claiming an install this step never
+performed. Whatever the directory holds when this step runs is what the derived repository
+gets, in full, and nothing of yidam's own remains beside it.
 
 `gitattributes` and `gitignore` are spelled without their dots for the same reason `root/`
 and `github/` are: `ls sadhana/` is a step in this skill and a dotfile would not appear in
@@ -317,7 +356,7 @@ it. `.gitattributes` arrives holding only comments — the rule about connector 
 line endings, which costs nothing until the first connector lands and is unrecoverable
 advice afterwards.
 
-`.gitignore` is the one of the eight most easily mistaken for generic, and it is not.
+`.gitignore` is the one of the six most easily mistaken for generic, and it is not.
 Yidam's own ignores `.local/` — where *its* binary installs — and a path under
 `yidam/tests/`, which the vendor step in step 8 deletes; the rule outlives the directory it
 names by the length of the repository's life. What this file needs instead is organized
@@ -459,7 +498,8 @@ rationale: |
 
 ### 6. Seed corpus objects
 
-Read `corpus_depth` from `.yidam/decisions/ontology.yml` (default 13 if absent). This is
+Read `corpus_depth` from `.yidam/decisions/ontology.yml` (if absent, default to two
+instances per class with a floor of 13, per step 2). This is
 the target total instance count for the genesis corpus. Create a class directory for each
 class, then distribute instances across classes to reach the target:
 
@@ -644,6 +684,16 @@ Two of the seven are conditional and the rest are not. `establish:` and `impleme
 skipped when step 5 approved nothing of that kind — that is a corpus with no implied edges
 and no stubs, not a deviation.
 
+**If this step is interrupted before `genesis:` is committed** — the session ends, the
+agent is stopped, anything short of the commit landing — the repository is left with a
+full corpus on disk, everything staged or ready to stage, and `HEAD` still unborn. That
+state is silent: it looks identical to a directory nobody has touched yet, right up until
+someone opens it and finds twenty files `doctor` cannot see because there is no commit to
+run it against (#579). To resume, run `yidam doctor` first — it names this state as
+"bootstrapped but never committed" — then re-enter this step at the top and write the
+commit sequence above from `genesis:` forward; nothing before this step needs to be redone,
+since steps 2–7 only wrote files and this step has not yet committed any of them.
+
 `establish:` and `implement:` come *after* `genesis:` and not before, which is the opposite
 of the order their steps appear in. A root commit has no parent; there is nowhere to put
 them. Step 7 does the work and step 8 records it.
@@ -758,9 +808,9 @@ Keep `domains/README.md` when any domain is kept: it is the index that says what
 and how a domain is wired into `crates/Cargo.toml` when the domain computer exists.
 
 **Then delete the template's own top-level files.** These describe yidam, not this repository.
-`README.md`, `AGENTS.md`, `.claude/CLAUDE.md`, `mise.toml`, `.gitattributes`, `.gitignore`,
-`.github/workflows/ci.yml`, and `.github/workflows/release.yml` were already overwritten in
-step 3; what remains is:
+`README.md`, `AGENTS.md`, `.claude/CLAUDE.md`, `mise.toml`, `.gitattributes`, and
+`.gitignore` were already overwritten in step 3, and `.github/workflows/` was already
+replaced wholesale from `sadhana/github/workflows/`; what remains is:
 
 ```
 rm -f BOOTSTRAP.md VERSIONING.md

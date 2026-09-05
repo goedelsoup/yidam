@@ -1,4 +1,4 @@
-use yidam_domain_hydrology::{rational_product, manning_velocity, return_period};
+use yidam_domain_hydrology::{manning_velocity, rational_product, return_period};
 
 const EPSILON: f64 = 1e-9;
 
@@ -30,7 +30,10 @@ fn load_fixtures(function: &str) -> Vec<toml::Value> {
 #[test]
 fn parity_rational_product() {
     let fixtures = load_fixtures("hydrology.rational_product");
-    assert!(!fixtures.is_empty(), "no hydrology.rational_product fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no hydrology.rational_product fixtures found"
+    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let result = rational_product(
@@ -49,7 +52,10 @@ fn parity_rational_product() {
 #[test]
 fn parity_manning_velocity() {
     let fixtures = load_fixtures("hydrology.manning_velocity");
-    assert!(!fixtures.is_empty(), "no hydrology.manning_velocity fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no hydrology.manning_velocity fixtures found"
+    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let result = manning_velocity(
@@ -68,7 +74,10 @@ fn parity_manning_velocity() {
 #[test]
 fn parity_return_period() {
     let fixtures = load_fixtures("hydrology.return_period");
-    assert!(!fixtures.is_empty(), "no hydrology.return_period fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no hydrology.return_period fixtures found"
+    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let result = return_period(

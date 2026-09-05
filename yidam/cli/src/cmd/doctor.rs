@@ -102,6 +102,8 @@ impl Check {
     const CORPORA: &'static str = "corpora";
     const VAULT: &'static str = "vault";
     const POLICY: &'static str = "policy";
+    const GOVERNANCE: &'static str = "governance";
+    const KUTEN: &'static str = "kuten";
 
     fn new(
         id: &'static str,
@@ -158,8 +160,33 @@ impl DoctorReport {
 /// The test is `.yidam/`, not corpus content — the same test [`crate::paths::require_yidam_repo`]
 /// makes, and for the same reason: a repository bootstrapped an hour ago has the directory
 /// and no nodes in it, and that is a legitimately empty corpus rather than an absent one.
+///
+/// One more state lives at this same test: `.yidam/` holding real corpus content — class
+/// definitions or decision records, not just an empty scaffold — with git's `HEAD` unborn
+/// (#579): a bootstrap that ran the ontology dialogue, wrote class definitions and decision
+/// records, and stopped before step 8's genesis commit. The whole model rests on git history
+/// being the graph, so this is not a lesser version of "bootstrapped" — there is no graph
+/// yet, only a directory that looks like one, and it is silent in exactly the way that
+/// matters: indistinguishable from an empty directory to anyone who does not already know to
+/// check. Reported distinctly so it reads as neither "not started" nor "done".
+///
+/// Gated on corpus content, not merely on `.yidam/` existing with an unborn `HEAD`, because
+/// a git-initialized-but-uncommitted `.yidam/` with nothing under it is also what a good
+/// many tests in this workspace use as an isolated sandbox for an unrelated check —
+/// `vault.rs`'s `repo()` helper among them. Only a directory that actually looks like a
+/// stopped bootstrap should read as one.
 fn check_repository(root: &Path) -> Check {
     if root.join(".yidam").is_dir() {
+        if has_corpus_content(root) && head_is_unborn(root) {
+            return Check::new(
+                Check::REPOSITORY,
+                "Am I in a derived repository?",
+                Verdict::Fail,
+                "bootstrapped but never committed — .yidam/ holds corpus content and HEAD \
+                 has no commits yet",
+                Some("finish bootstrap step 8: write the genesis commit"),
+            );
+        }
         return Check::new(
             Check::REPOSITORY,
             "Am I in a derived repository?",
@@ -191,6 +218,51 @@ fn check_repository(root: &Path) -> Check {
         detail,
         Some(remedy),
     )
+}
+
+/// Does `.yidam/` hold anything a bootstrap actually writes — a class definition or a
+/// decision record — rather than being an empty scaffold?
+///
+/// This is the discriminator between a stopped bootstrap (#579) and the many test fixtures
+/// in this workspace that create an empty, uncommitted `.yidam/` purely for isolation. A
+/// real interrupted run leaves class files under `.yidam/corpus/` and records under
+/// `.yidam/decisions/` — the twelve class definitions and two decision records the reporting
+/// repository actually had.
+fn has_corpus_content(root: &Path) -> bool {
+    for dir in [".yidam/corpus", ".yidam/decisions"] {
+        let has_entry = std::fs::read_dir(root.join(dir))
+            .map(|mut entries| entries.next().is_some())
+            .unwrap_or(false);
+        if has_entry {
+            return true;
+        }
+    }
+    false
+}
+
+/// Is git's `HEAD` unborn — no commit made on the current branch yet?
+///
+/// Answerable offline, from local git alone, which `doctor` already shells to. Errs toward
+/// `false` (assume born) on anything ambiguous — no git binary, not a work tree at all — so
+/// an environment where the question cannot be answered does not manufacture a false
+/// "never committed".
+fn head_is_unborn(root: &Path) -> bool {
+    let in_work_tree = std::process::Command::new("git")
+        .current_dir(root)
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !in_work_tree {
+        return false;
+    }
+    let head_resolves = std::process::Command::new("git")
+        .current_dir(root)
+        .args(["rev-parse", "--verify", "-q", "HEAD"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(true);
+    !head_resolves
 }
 
 /// The pin a derived repository is upgradable from.
@@ -515,9 +587,16 @@ pub(crate) fn diagnose(
     let repository = check_repository(root);
     // Every remaining check asks something *about* a derived repository. Answering them
     // against a directory that is not one produces confident nonsense — "no index", "no
-    // provenance" — that reads as a list of things to fix rather than as one thing.
+    // provenance" — that reads as a list of things to fix rather than as one thing. A
+    // `.yidam/` with an unborn HEAD (#579) fails the same test for a different reason, and
+    // the remaining checks are just as unanswerable — most of them read git history, which
+    // does not exist yet either.
     if repository.verdict == Verdict::Fail {
-        let why = "not a yidam repository";
+        let why = if root.join(".yidam").is_dir() {
+            "bootstrapped but never committed"
+        } else {
+            "not a yidam repository"
+        };
         return vec![
             repository,
             Check::skipped(
@@ -541,6 +620,12 @@ pub(crate) fn diagnose(
                 why,
             ),
             Check::skipped(Check::VAULT, "Can this repository reach its vault?", why),
+            Check::skipped(
+                Check::GOVERNANCE,
+                "Is this repository's governance mode carrying its own weight?",
+                why,
+            ),
+            Check::skipped(Check::KUTEN, KUTEN_QUESTION, why),
             check_build(),
         ];
     }
@@ -556,8 +641,84 @@ pub(crate) fn diagnose(
         check_corpora(root),
         check_vault(root),
         check_policy(root),
+        check_governance(root),
+        check_kuten(root),
         check_build(),
     ]
+}
+
+/// The question `doctor` asks about the kuten, in one place so the skipped arm and the
+/// answered arm cannot ask two different things.
+const KUTEN_QUESTION: &str = "Which kuten does this repository hold, and at what revision?";
+
+/// Which declaration this repository adopted, and whether the vendored profile still matches
+/// it — RFC-0028 §9.
+///
+/// **Holding none is `Ok`.** That was every one of the eighteen corpora A0 measured, and a
+/// state eighteen repositories are in is not a fault to be listed under things to fix.
+///
+/// What warns is a declaration that cannot be honoured: a record naming a profile nothing
+/// vendored, or one whose revision has moved out from under it. Without the revision, `score`
+/// would score a repository against a kuten it may not hold and `fit` would compare two
+/// holding different ones — A0's own confound designed into A0's deliverable.
+fn check_kuten(root: &Path) -> Check {
+    let declaration = match crate::kuten::read_declaration(root) {
+        Ok(d) => d,
+        Err(e) => {
+            return Check::new(
+                Check::KUTEN,
+                KUTEN_QUESTION,
+                Verdict::Warn,
+                e.to_string(),
+                Some("fix the decision record, or delete it to hold no kuten"),
+            )
+        }
+    };
+    let Some(declaration) = declaration else {
+        return Check::new(
+            Check::KUTEN,
+            KUTEN_QUESTION,
+            Verdict::Ok,
+            "none — the loop runs on the template's defaults",
+            None,
+        );
+    };
+    match crate::kuten::read_profile(root, &declaration.name) {
+        Err(e) => Check::new(
+            Check::KUTEN,
+            KUTEN_QUESTION,
+            Verdict::Warn,
+            e.to_string(),
+            Some("re-vendor the prelude"),
+        ),
+        Ok(None) => Check::new(
+            Check::KUTEN,
+            KUTEN_QUESTION,
+            Verdict::Warn,
+            format!(
+                "`{}` is declared and no profile is vendored for it",
+                declaration.name
+            ),
+            Some("mise run yidam-vendor-update"),
+        ),
+        Ok(Some(profile)) if profile.revision != declaration.revision => Check::new(
+            Check::KUTEN,
+            KUTEN_QUESTION,
+            Verdict::Warn,
+            format!(
+                "`{}` at revision {}, vendored at revision {}",
+                declaration.name, declaration.revision, profile.revision
+            ),
+            Some("re-vendor, or record a superseding `decide:` decision"),
+        ),
+        Ok(Some(profile)) => Check::new(
+            Check::KUTEN,
+            KUTEN_QUESTION,
+            Verdict::Ok,
+            format!("`{}`, revision {}", profile.name, profile.revision),
+            None,
+        ),
+    }
 }
 
 /// Do this repository's rules compile, and which of them are its own?
@@ -647,6 +808,106 @@ fn check_policy(root: &Path) -> Check {
         Some(
             "`yidam policy test` runs the inherited cases against your rules and reports which \
              expectations they no longer meet.",
+        ),
+    )
+}
+
+/// How many commits `HEAD` carries. `0` on anything that cannot be counted, which reads the
+/// same as "too early to tell" everywhere it is used.
+fn commit_count(root: &Path) -> usize {
+    std::process::Command::new("git")
+        .current_dir(root)
+        .args(["rev-list", "--count", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+/// How much history has to pass before "the sangha has never run a resolution" is worth
+/// saying rather than merely true. #581 measured three of four repositories that declared
+/// collective governance and never ran one; a repository ten commits past genesis has not
+/// had the chance yet, so this is well above the population's evolution-branch depths.
+const GOVERNANCE_HISTORY_THRESHOLD: usize = 20;
+
+/// Is this repository's declared governance mode carrying its own weight? (#581)
+///
+/// "Declaring collective" is read the way [`crate::cmd::sangha::sangha_data`] reads it — a
+/// registered elector, `ma/*` row and all, in `.yidam/sangha/electors.md` — not the
+/// `governance:` field bootstrap writes to a decision record, which nothing keeps in sync
+/// with what actually happens after genesis. Three of four repositories in the #581
+/// measurement chose `collective` in the decision record and never ran a resolution; the
+/// electors table is the artifact that would show it either way.
+///
+/// Informational only, and silent for a long time on purpose: a young repository with real
+/// electors and no resolution yet has done nothing wrong. This never fails — carrying
+/// unused scaffolding is a cost, not a corruption — and only warns once enough history has
+/// passed that "never" starts to mean something.
+fn check_governance(root: &Path) -> Check {
+    const Q: &str = "Is this repository's governance mode carrying its own weight?";
+    let electors_path = crate::paths::yidam_sangha_dir(root).join("electors.md");
+    let Ok(text) = std::fs::read_to_string(&electors_path) else {
+        return Check::new(
+            Check::GOVERNANCE,
+            Q,
+            Verdict::Ok,
+            "single-elector — no .yidam/sangha/electors.md",
+            None,
+        );
+    };
+    let electors = crate::cmd::sangha::parse_electors(&text);
+    if electors.is_empty() {
+        return Check::new(
+            Check::GOVERNANCE,
+            Q,
+            Verdict::Ok,
+            "electors.md present, but no ma/* elector is registered yet",
+            None,
+        );
+    }
+    let has_resolution = crate::git::phase_refs(root)
+        .iter()
+        .any(|r| r.kind == crate::git::RefKind::Evolution);
+    if has_resolution {
+        return Check::new(
+            Check::GOVERNANCE,
+            Q,
+            Verdict::Ok,
+            format!(
+                "{} elector(s) registered; at least one rigpa/* resolution exists",
+                electors.len()
+            ),
+            None,
+        );
+    }
+    let commits = commit_count(root);
+    if commits < GOVERNANCE_HISTORY_THRESHOLD {
+        return Check::new(
+            Check::GOVERNANCE,
+            Q,
+            Verdict::Ok,
+            format!(
+                "{} elector(s) registered, no resolution yet, {commits} commit(s) in — too \
+                 early to tell",
+                electors.len()
+            ),
+            None,
+        );
+    }
+    Check::new(
+        Check::GOVERNANCE,
+        Q,
+        Verdict::Warn,
+        format!(
+            "{} elector(s) registered under collective governance; zero rigpa/* resolutions \
+             in {commits} commits — the sangha scaffold is carrying no weight",
+            electors.len()
+        ),
+        Some(
+            "run a resolution, or drop to single-elector and remove .yidam/sangha/ (it can \
+             be re-scaffolded when a second elector actually appears)",
         ),
     )
 }
@@ -1310,6 +1571,80 @@ mod tests {
         assert!(!DoctorReport::new(checks, false).passed);
     }
 
+    /// #579: `.yidam/` present, class definitions on disk, and `HEAD` unborn — a bootstrap
+    /// that stopped before step 8's genesis commit. This must read as its own state, not as
+    /// "not a repository" (which would tell someone to run `yidam overlay .` and destroy
+    /// what is actually there) and not as `Ok` (there is no graph — history is the graph).
+    #[test]
+    fn a_dot_yidam_with_an_unborn_head_is_its_own_state() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".yidam/corpus")).unwrap();
+        std::fs::write(
+            tmp.path().join(".yidam/corpus/thing.ont.yml"),
+            "class: thing\n",
+        )
+        .unwrap();
+        git(tmp.path(), &["init", "-q", "-b", "main"]);
+        // Deliberately no `git add`, no commit: HEAD stays unborn.
+
+        let c = check_repository(tmp.path());
+        assert_eq!(c.verdict, Verdict::Fail, "detail was: {}", c.detail);
+        assert!(
+            c.detail.contains("never committed"),
+            "detail should name the state, not just fail: {}",
+            c.detail
+        );
+        assert!(
+            c.remedy.as_deref().unwrap_or_default().contains("genesis"),
+            "remedy should point at the genesis commit: {:?}",
+            c.remedy
+        );
+
+        // And the rest of the checks are skipped for the same reason as "not a repository"
+        // — most of them read git history that does not exist yet either — but the *why*
+        // must not claim there is no `.yidam/` here, since there plainly is one.
+        let checks = diagnose(tmp.path(), None, None, 20_000);
+        let regen = find(&checks, Check::REGEN);
+        assert_eq!(regen.verdict, Verdict::Skipped);
+        assert!(!DoctorReport::new(checks, false).passed);
+    }
+
+    /// The committed sibling of the test above: a real genesis commit resolves `HEAD`, and
+    /// the repository check goes back to answering the question it always answered.
+    #[test]
+    fn a_dot_yidam_with_a_born_head_is_ok() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".yidam")).unwrap();
+        std::fs::write(tmp.path().join(".yidam/marker"), "").unwrap();
+        git(tmp.path(), &["init", "-q", "-b", "main"]);
+        git(tmp.path(), &["config", "user.email", "doctor@yidam.test"]);
+        git(tmp.path(), &["config", "user.name", "Doctor"]);
+        git(tmp.path(), &["add", "-A"]);
+        git(tmp.path(), &["commit", "-q", "-m", "genesis: test"]);
+
+        let c = check_repository(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok, "detail was: {}", c.detail);
+    }
+
+    /// [`derived_repo`] is a bare directory with no git at all — not the unborn-HEAD case,
+    /// which requires an actual git work tree. `head_is_unborn` must say `false` here rather
+    /// than misreading "no git" as "never committed".
+    #[test]
+    fn a_derived_repo_fixture_with_no_git_is_not_reported_as_unborn() {
+        let tmp = derived_repo();
+        assert!(!head_is_unborn(tmp.path()));
+        assert_eq!(check_repository(tmp.path()).verdict, Verdict::Ok);
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let status = std::process::Command::new("git")
+            .current_dir(dir)
+            .args(args)
+            .status()
+            .expect("git");
+        assert!(status.success(), "git {args:?} failed in {}", dir.display());
+    }
+
     // ── provenance ───────────────────────────────────────────────────────────
 
     #[test]
@@ -1499,6 +1834,117 @@ mod tests {
     fn no_vendored_prelude_warns() {
         let tmp = derived_repo();
         assert_eq!(check_prelude(tmp.path(), 20_000).verdict, Verdict::Warn);
+    }
+
+    // ── governance ───────────────────────────────────────────────────────────
+
+    const ELECTOR_TABLE: &str = "| Name | Branch | Role |\n|---|---|---|\n\
+                                  | `auditor` | `ma/auditor` | Holds a position. |\n";
+
+    /// The common case: no `.yidam/sangha/` at all. Single-elector, nothing to weigh.
+    #[test]
+    fn no_sangha_directory_is_fine() {
+        let tmp = derived_repo();
+        let c = check_governance(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok);
+        assert!(c.detail.contains("single-elector"));
+    }
+
+    /// `electors.md` exists — it ships with the collective scaffold — but carries only the
+    /// template's placeholder row. Not collective yet; nothing to weigh.
+    #[test]
+    fn an_electors_file_with_no_real_elector_is_fine() {
+        let tmp = derived_repo();
+        std::fs::create_dir_all(crate::paths::yidam_sangha_dir(tmp.path())).unwrap();
+        std::fs::write(
+            crate::paths::yidam_sangha_dir(tmp.path()).join("electors.md"),
+            "| Name | Branch | Role |\n|---|---|---|\n\
+             | *(no electors registered yet)* | | |\n",
+        )
+        .unwrap();
+        let c = check_governance(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok);
+    }
+
+    /// #581's actual measurement: electors registered, no `rigpa/*` resolution, and enough
+    /// history that "never" means something. This is the one case that should warn.
+    #[test]
+    fn collective_with_no_resolution_after_a_long_history_warns() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(crate::paths::yidam_sangha_dir(tmp.path())).unwrap();
+        std::fs::write(
+            crate::paths::yidam_sangha_dir(tmp.path()).join("electors.md"),
+            ELECTOR_TABLE,
+        )
+        .unwrap();
+        git(tmp.path(), &["init", "-q", "-b", "main"]);
+        git(tmp.path(), &["config", "user.email", "doctor@yidam.test"]);
+        git(tmp.path(), &["config", "user.name", "Doctor"]);
+        for i in 0..GOVERNANCE_HISTORY_THRESHOLD {
+            std::fs::write(tmp.path().join("marker"), i.to_string()).unwrap();
+            git(tmp.path(), &["add", "-A"]);
+            git(tmp.path(), &["commit", "-q", "-m", &format!("commit {i}")]);
+        }
+
+        let c = check_governance(tmp.path());
+        assert_eq!(c.verdict, Verdict::Warn, "detail was: {}", c.detail);
+        assert!(c.detail.contains("rigpa"), "{}", c.detail);
+        assert!(c.remedy.is_some());
+    }
+
+    /// The same shape, short of the threshold: a young repository has not had the chance to
+    /// run a resolution yet, and this must not read as a problem.
+    #[test]
+    fn collective_with_no_resolution_but_young_history_is_fine() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(crate::paths::yidam_sangha_dir(tmp.path())).unwrap();
+        std::fs::write(
+            crate::paths::yidam_sangha_dir(tmp.path()).join("electors.md"),
+            ELECTOR_TABLE,
+        )
+        .unwrap();
+        git(tmp.path(), &["init", "-q", "-b", "main"]);
+        git(tmp.path(), &["config", "user.email", "doctor@yidam.test"]);
+        git(tmp.path(), &["config", "user.name", "Doctor"]);
+        git(
+            tmp.path(),
+            &["commit", "-q", "--allow-empty", "-m", "genesis"],
+        );
+
+        let c = check_governance(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok, "detail was: {}", c.detail);
+    }
+
+    /// A `rigpa/*` ref existing at all clears the finding, no matter how long the history —
+    /// this is the repository actually using what it declared.
+    #[test]
+    fn collective_with_a_resolution_branch_is_fine_regardless_of_history() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(crate::paths::yidam_sangha_dir(tmp.path())).unwrap();
+        std::fs::write(
+            crate::paths::yidam_sangha_dir(tmp.path()).join("electors.md"),
+            ELECTOR_TABLE,
+        )
+        .unwrap();
+        git(tmp.path(), &["init", "-q", "-b", "main"]);
+        git(tmp.path(), &["config", "user.email", "doctor@yidam.test"]);
+        git(tmp.path(), &["config", "user.name", "Doctor"]);
+        for i in 0..GOVERNANCE_HISTORY_THRESHOLD {
+            git(
+                tmp.path(),
+                &[
+                    "commit",
+                    "-q",
+                    "--allow-empty",
+                    "-m",
+                    &format!("commit {i}"),
+                ],
+            );
+        }
+        git(tmp.path(), &["branch", "rigpa/first-evolution"]);
+
+        let c = check_governance(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok, "detail was: {}", c.detail);
     }
 
     // ── report ───────────────────────────────────────────────────────────────

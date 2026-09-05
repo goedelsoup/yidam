@@ -29,15 +29,15 @@ has it. `--features index` adds nothing to the LSP.
 
 ### What it serves
 
-- **Diagnostics**, live. The checks read the working tree, which is right for a gate and wrong
-for an editor: the file you are typing into is the one whose findings you want, and it is the
-one on disk that is stale. An overlay closes that. Every check reads through it without knowing
-it exists. The findings are about the buffer, and are still computed by the functions `yidam
-lint` runs.
+- **Diagnostics**, live. The checks read the working tree, which is right for a gate and wrong for
+  an editor. The file you are typing into is the one whose findings you want. It is the one on
+  disk that is stale. An overlay closes that. Every check reads through it without knowing it
+  exists. The findings are about the buffer, and are still computed by the functions `yidam lint`
+  runs.
 - **Definition, references, hover** on `target:` scalars.
 - **Rename** over [`yidam rename`](rfcs/0014-node-rename.md). F2 on a node, every inbound
-  `target:` rewritten, the file moved, all in one `WorkspaceEdit` the *client* applies — which
-  is what keeps undo working. Refused outright, as an LSP error rather than an empty edit, if
+  `target:` rewritten, the file moved, all in one `WorkspaceEdit` the *client* applies. That is
+  what keeps undo working. Refused outright, as an LSP error rather than an empty edit, if
   anything would dangle.
 
 ### Severity, and the rule that outranks it

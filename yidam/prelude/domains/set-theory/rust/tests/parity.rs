@@ -1,4 +1,4 @@
-use yidam_domain_set_theory::{union, intersection, difference, is_subset};
+use yidam_domain_set_theory::{difference, intersection, is_subset, union};
 
 fn fixture_dir(function: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -26,7 +26,11 @@ fn load_fixtures(function: &str) -> Vec<toml::Value> {
 }
 
 fn to_i64_vec(val: &toml::Value) -> Vec<i64> {
-    val.as_array().unwrap().iter().map(|v| v.as_integer().unwrap()).collect()
+    val.as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_integer().unwrap())
+        .collect()
 }
 
 #[test]
@@ -44,7 +48,10 @@ fn parity_union() {
 #[test]
 fn parity_intersection() {
     let fixtures = load_fixtures("set_theory.intersection");
-    assert!(!fixtures.is_empty(), "no set_theory.intersection fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no set_theory.intersection fixtures found"
+    );
     for fx in &fixtures {
         let a = to_i64_vec(&fx["input"]["a"]);
         let b = to_i64_vec(&fx["input"]["b"]);
@@ -56,7 +63,10 @@ fn parity_intersection() {
 #[test]
 fn parity_difference() {
     let fixtures = load_fixtures("set_theory.difference");
-    assert!(!fixtures.is_empty(), "no set_theory.difference fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no set_theory.difference fixtures found"
+    );
     for fx in &fixtures {
         let a = to_i64_vec(&fx["input"]["a"]);
         let b = to_i64_vec(&fx["input"]["b"]);
@@ -68,7 +78,10 @@ fn parity_difference() {
 #[test]
 fn parity_is_subset() {
     let fixtures = load_fixtures("set_theory.is_subset");
-    assert!(!fixtures.is_empty(), "no set_theory.is_subset fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no set_theory.is_subset fixtures found"
+    );
     for fx in &fixtures {
         let a = to_i64_vec(&fx["input"]["a"]);
         let b = to_i64_vec(&fx["input"]["b"]);

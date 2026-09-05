@@ -80,7 +80,12 @@ pub const GROUPS: &[Group] = &[
         // nonzero on a problem" would teach a reader that being owed is a defect, which is
         // the one reading this report exists to prevent.
         title: "The practice — what is owed, which is not what is wrong",
-        commands: &[r("due")],
+        // `kuten` belongs here and not with the README generators, though it writes one of
+        // their blocks. What it reports is the same kind of thing `due` reports: a question
+        // for a person about how the practice is going. `kuten check` exits zero however far
+        // a corpus has drifted, and filing it under the gates would teach a reader that
+        // having drifted is a defect — which is the one reading it exists to prevent.
+        commands: &[r("due"), w("kuten")],
     },
     Group {
         title: "README blocks — each rewrites its <!-- REGEN --> block where it is run",
