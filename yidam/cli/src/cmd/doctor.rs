@@ -1829,7 +1829,10 @@ mod tests {
         git(tmp.path(), &["init", "-q", "-b", "main"]);
         git(tmp.path(), &["config", "user.email", "doctor@yidam.test"]);
         git(tmp.path(), &["config", "user.name", "Doctor"]);
-        git(tmp.path(), &["commit", "-q", "--allow-empty", "-m", "genesis"]);
+        git(
+            tmp.path(),
+            &["commit", "-q", "--allow-empty", "-m", "genesis"],
+        );
 
         let c = check_governance(tmp.path());
         assert_eq!(c.verdict, Verdict::Ok, "detail was: {}", c.detail);
@@ -1852,7 +1855,13 @@ mod tests {
         for i in 0..GOVERNANCE_HISTORY_THRESHOLD {
             git(
                 tmp.path(),
-                &["commit", "-q", "--allow-empty", "-m", &format!("commit {i}")],
+                &[
+                    "commit",
+                    "-q",
+                    "--allow-empty",
+                    "-m",
+                    &format!("commit {i}"),
+                ],
             );
         }
         git(tmp.path(), &["branch", "rigpa/first-evolution"]);
