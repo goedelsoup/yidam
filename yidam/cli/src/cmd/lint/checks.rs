@@ -1563,12 +1563,52 @@ pub fn claim_tag_malformed(nodes: &[Node]) -> Check {
          from reading as an open claim. The cost is that a tag with its citation folded \
          inside the brackets matches nothing and is silently counted as untagged — a node \
          that looks tagged to a reader and reads as bare assertion to every counter. This \
-         reports the near miss rather than guessing at it.",
+         reports the near miss rather than guessing at it. Brackets are matched by depth \
+         over the block rather than to the first `]` on the line, because a citation that is \
+         itself a link both nests a `]` and wraps: measured on one derived corpus, the line \
+         scan found 234 of 445 such tags and none of the 179 that wrapped. The block is the \
+         bound, so an unbalanced `[` in quoted source costs one bracket rather than every \
+         tag below it.",
         violations,
     )
 }
 
+/// The `]` that closes the `[` at `open`, matched by depth and never past `bound`.
+///
+/// Depth rather than the first `]`, because the first one may be a nested link's. Bounded,
+/// because an unbalanced `[` must cost the check one bracket and not the rest of the file.
+fn matching_bracket(text: &str, open: usize, bound: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    text[open..bound].char_indices().find_map(|(rel, c)| {
+        match c {
+            '[' => depth += 1,
+            ']' => depth = depth.saturating_sub(1),
+            _ => return None,
+        }
+        (depth == 0 && c == ']').then_some(open + rel)
+    })
+}
+
 /// `(line, text)` for each bracketed near miss. Links are not near misses.
+///
+/// **Bracket depth over the block, not the first `]` on the line.** The line-scoped scan this
+/// replaces reported 234 of 445 tags of exactly this shape in one derived corpus, and the
+/// 211 it missed had two causes that share this one fix:
+///
+/// - *A tag that wraps was never closed.* `line[at..].find(']')` cannot find a `]` that is on
+///   the next line, and wrapping is not an edge case — it is what happens whenever the
+///   citation is a markdown link, because links are long. **Not one of 179 wrapped tags was
+///   reported.**
+/// - *A tag whose citation is a link closed on the wrong bracket.* In
+///   `[verified — [`x`](x.yml)]` the first `]` is the inner link's; the character after it is
+///   `(`, so the guard that exists to keep `[open questions](…)` from reading as a claim fired
+///   on the tag it was meant to protect. The guard is right and its subject was wrong: it is
+///   tested against the **outer** `]` here.
+///
+/// The bound is [`crate::claims::block_end`] — the boundary already measured for
+/// `statement_around`. It is load-bearing rather than tidy: an unbounded depth scan drops
+/// every tag below the corpus's first unbalanced `[` (one corpus has one, inside quoted source
+/// text) and does it silently, with the finding count falling as the corpus grows.
 fn near_miss_tags(text: &str) -> Vec<(usize, String)> {
     let tags = [
         crate::claims::VERIFIED,
@@ -1576,40 +1616,49 @@ fn near_miss_tags(text: &str) -> Vec<(usize, String)> {
         crate::claims::OPEN,
     ];
     let mut out = Vec::new();
-    for (i, line) in text.lines().enumerate() {
-        let bytes = line.as_bytes();
-        let mut j = 0;
-        while j < bytes.len() {
-            let Some(open) = line[j..].find('[') else {
-                break;
-            };
-            let at = j + open;
-            let Some(close_rel) = line[at..].find(']') else {
-                break;
-            };
-            let close = at + close_rel;
-            j = close + 1;
-            // `[text](target)` and `[text][ref]` are links; their label is not a claim.
-            if matches!(line[j..].chars().next(), Some('(') | Some('[')) {
-                continue;
+    let bytes = text.as_bytes();
+    let mut line = 1;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\n' {
+            line += 1;
+            i += 1;
+            continue;
+        }
+        if bytes[i] != b'[' {
+            i += 1;
+            continue;
+        }
+        let Some(close) = matching_bracket(text, i, crate::claims::block_end(text, i)) else {
+            // Unbalanced within its block: this bracket opens nothing, and the next one is
+            // still worth asking about.
+            i += 1;
+            continue;
+        };
+        // `[text](target)` and `[text][ref]` are links; their label is not a claim.
+        if matches!(text[close + 1..].chars().next(), Some('(') | Some('[')) {
+            i += 1;
+            continue;
+        }
+        // A tag's text may carry the wrap it was written across; what is reported should not.
+        let inner = crate::claims::collapse_whitespace(&text[i + 1..close]);
+        let hit = tags.iter().any(|tag| {
+            let word = tag.trim_matches(|c| c == '[' || c == ']');
+            if inner == word {
+                return false; // the tag itself, exactly as intended
             }
-            let inner = &line[at + 1..close];
-            for tag in tags {
-                let word = tag.trim_matches(|c| c == '[' || c == ']');
-                if inner == word {
-                    break; // the tag itself, exactly as intended
-                }
-                let Some(rest) = inner.strip_prefix(word) else {
-                    continue;
-                };
-                if rest
-                    .trim_start()
+            inner.strip_prefix(word).is_some_and(|rest| {
+                rest.trim_start()
                     .starts_with(|c: char| TAG_SEPARATORS.contains(&c))
-                {
-                    out.push((i + 1, line[at..=close].to_string()));
-                    break;
-                }
-            }
+            })
+        });
+        if hit {
+            out.push((line, format!("[{inner}]")));
+            // Anything nested inside a reported tag is part of it, not a second finding.
+            line += text[i..close].matches('\n').count();
+            i = close + 1;
+        } else {
+            i += 1;
         }
     }
     out
@@ -3015,6 +3064,82 @@ mod tests {
             crate::claims::count_in_source("The estimate is [verified — Pearl 2009].").total(),
             0
         );
+    }
+
+    /// The shape that made 179 of 445 tags invisible: the citation is a link, so it is long,
+    /// so the tag wraps and its `]` is never on the line that holds its `[`.
+    #[test]
+    fn a_tag_that_wraps_a_line_is_still_a_near_miss() {
+        let text = "  A resolution stands. [verified —\n    \
+                    [the audit reports](../catalog/auditor-district-audits.md)]\n";
+        let found = near_miss_tags(text);
+        assert_eq!(found.len(), 1, "a wrapped tag is one tag: {found:?}");
+        assert_eq!(found[0].0, 1, "reported where the tag opens");
+        assert_eq!(
+            found[0].1, "[verified — [the audit reports](../catalog/auditor-district-audits.md)]",
+            "the wrap is the file's, not the tag's, so the finding does not carry it"
+        );
+    }
+
+    /// The link guard, tested against the outer `]` rather than the inner one. Single-line,
+    /// and reported by nothing before this: `find(']')` returned the *link's* bracket, the
+    /// next character was `(`, and the guard fired on the tag it exists to protect.
+    #[test]
+    fn a_tag_whose_citation_is_a_link_is_a_near_miss() {
+        let found = near_miss_tags(
+            "The share follows [verified — [`bridge-formula`](bridge-formula.yml)].",
+        );
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(
+            found[0].1,
+            "[verified — [`bridge-formula`](bridge-formula.yml)]"
+        );
+    }
+
+    /// The bound is the point of the bound. An unbalanced `[` in quoted source — this one is
+    /// verbatim from a derived corpus — must cost the check that bracket and nothing else; an
+    /// unbounded depth scan swallows every tag below it and the finding count *falls* as the
+    /// corpus grows.
+    #[test]
+    fn an_unbalanced_bracket_does_not_blind_the_rest_of_the_file() {
+        let text = "properties:\n  as_written: \"against 37 on the [Cupp\"\n  \
+                    note: A later count. [verified — Cupp 2019]\n";
+        let found = near_miss_tags(text);
+        assert_eq!(
+            found.len(),
+            1,
+            "the tag below the stray `[` survives: {found:?}"
+        );
+        assert_eq!(found[0], (3, "[verified — Cupp 2019]".to_string()));
+    }
+
+    /// A tag may cross a soft wrap and may not cross into the next YAML key, list item or
+    /// paragraph — the same boundary `statement_around` is measured against, for the same
+    /// reason.
+    ///
+    /// Each case here is written so the *separator* is inside the unclosed bracket: without
+    /// the bound the scan runs on to a `]` in the next block, folds two blocks into one
+    /// "tag", and reports it. That is the false positive an unbounded depth scan buys, and
+    /// it is why these are three cases and not one.
+    #[test]
+    fn the_scan_stops_at_the_block_it_started_in() {
+        for (label, text) in [
+            (
+                "a new YAML key",
+                "description: The rate rose. [verified —\nsource: ../s.md]\n",
+            ),
+            ("a new list item", "- first [verified —\n- second later]\n"),
+            (
+                "a blank line",
+                "The rate rose. [verified —\n\nA later paragraph entirely]\n",
+            ),
+        ] {
+            assert!(
+                near_miss_tags(text).is_empty(),
+                "{label} ends the block, so nothing here is one tag: {:?}",
+                near_miss_tags(text)
+            );
+        }
     }
 
     #[test]
