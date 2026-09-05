@@ -1,8 +1,11 @@
 # The `inquiry` kuten — the declaration a tool reads.
 #
 # KUTEN.md beside this file is the document a person reads, and it opens with the binding
-# rule this profile is held to. Every band here was measured over eighteen derived corpora
-# before it was written down; none was chosen.
+# rule this profile is held to. Every *band* here — the four `{low, high}` pairs, under
+# `phases`, `vocabulary` and `classes` — was measured over eighteen derived corpora before it
+# was written down; not one of those four was chosen. That claim covers the bands and nothing
+# else in this file. The scalars under `clocks` were chosen, from yidam's own configuration
+# documentation, and the comment above them says so.
 #
 # A comment in this file satisfies nothing. The guards upstream parse the document, so what
 # is asserted is the tree below and never the prose around it.
