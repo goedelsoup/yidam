@@ -506,13 +506,16 @@ pub fn read_profile(root: &Path, name: &str) -> anyhow::Result<Option<Profile>> 
 
 /// Measure a repository: its authored history, and the corpus it has accreted.
 ///
-/// The commit half goes through the same reader `lint --commits` uses, so the two cannot
-/// disagree about what a verb is or which merges git wrote.
+/// The commit half goes through the same reader **and the same merge predicate** that
+/// `lint --commits` uses, so the two cannot disagree about what a verb is or which merge
+/// subjects git wrote rather than a person. A second copy of `is_merge` here would be a
+/// second answer to a question the model already settled — a bare `Merge <ref>` is
+/// git-generated and a `phase: …` merge is not, and one repository wrote ten of the first.
 pub fn measure(root: &Path) -> Measurement {
     let subjects = crate::cmd::lint::commits::read_subjects(root, None);
     let authored: Vec<&crate::cmd::lint::commits::Subject> = subjects
         .iter()
-        .filter(|s| !(s.parents >= 2 && s.text.starts_with("Merge ")))
+        .filter(|s| !crate::cmd::lint::commits::is_merge(&s.text, s.parents))
         .collect();
 
     let mut lines: Vec<usize> =
