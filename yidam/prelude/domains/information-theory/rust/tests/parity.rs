@@ -32,7 +32,10 @@ fn load_fixtures(function: &str) -> Vec<toml::Value> {
 #[test]
 fn parity_entropy() {
     let fixtures = load_fixtures("information_theory.entropy");
-    assert!(!fixtures.is_empty(), "no information_theory.entropy fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no information_theory.entropy fixtures found"
+    );
 
     for fx in &fixtures {
         let inp = &fx["input"];
@@ -53,7 +56,10 @@ fn parity_entropy() {
 #[test]
 fn parity_kl_divergence() {
     let fixtures = load_fixtures("information_theory.kl_divergence");
-    assert!(!fixtures.is_empty(), "no information_theory.kl_divergence fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no information_theory.kl_divergence fixtures found"
+    );
 
     for fx in &fixtures {
         let inp = &fx["input"];

@@ -1,4 +1,4 @@
-use yidam_domain_finance::{present_value, future_value, simple_interest, sharpe_ratio};
+use yidam_domain_finance::{future_value, present_value, sharpe_ratio, simple_interest};
 
 const EPSILON: f64 = 1e-9;
 
@@ -30,7 +30,10 @@ fn load_fixtures(function: &str) -> Vec<toml::Value> {
 #[test]
 fn parity_present_value() {
     let fixtures = load_fixtures("finance.present_value");
-    assert!(!fixtures.is_empty(), "no finance.present_value fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no finance.present_value fixtures found"
+    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let result = present_value(
@@ -49,7 +52,10 @@ fn parity_present_value() {
 #[test]
 fn parity_future_value() {
     let fixtures = load_fixtures("finance.future_value");
-    assert!(!fixtures.is_empty(), "no finance.future_value fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no finance.future_value fixtures found"
+    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let result = future_value(
@@ -68,7 +74,10 @@ fn parity_future_value() {
 #[test]
 fn parity_simple_interest() {
     let fixtures = load_fixtures("finance.simple_interest");
-    assert!(!fixtures.is_empty(), "no finance.simple_interest fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no finance.simple_interest fixtures found"
+    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let result = simple_interest(
@@ -87,7 +96,10 @@ fn parity_simple_interest() {
 #[test]
 fn parity_sharpe_ratio() {
     let fixtures = load_fixtures("finance.sharpe_ratio");
-    assert!(!fixtures.is_empty(), "no finance.sharpe_ratio fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no finance.sharpe_ratio fixtures found"
+    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let result = sharpe_ratio(

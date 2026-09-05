@@ -5,8 +5,7 @@ pub fn haversine_km(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     let dlon = (lon2 - lon1).to_radians();
     let lat1r = lat1.to_radians();
     let lat2r = lat2.to_radians();
-    let a = (dlat / 2.0).sin().powi(2)
-        + lat1r.cos() * lat2r.cos() * (dlon / 2.0).sin().powi(2);
+    let a = (dlat / 2.0).sin().powi(2) + lat1r.cos() * lat2r.cos() * (dlon / 2.0).sin().powi(2);
     let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
     R * c
 }
