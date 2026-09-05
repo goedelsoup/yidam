@@ -211,7 +211,7 @@
       "id": "claim-tag-malformed",
       "title": "Evidence tag that counts as nothing",
       "severity": "warn",
-      "rationale": "The three tokens are matched exactly, which is what keeps `[open questions](…)` from reading as an open claim. The cost is that a tag with its citation folded inside the brackets matches nothing and is silently counted as untagged — a node that looks tagged to a reader and reads as bare assertion to every counter. This reports the near miss rather than guessing at it.",
+      "rationale": "The three tokens are matched exactly, which is what keeps `[open questions](…)` from reading as an open claim. The cost is that a tag with its citation folded inside the brackets matches nothing and is silently counted as untagged — a node that looks tagged to a reader and reads as bare assertion to every counter. This reports the near miss rather than guessing at it. Brackets are matched by depth over the block rather than to the first `]` on the line, because a citation that is itself a link both nests a `]` and wraps: measured on one derived corpus, the line scan found 234 of 445 such tags and none of the 179 that wrapped. The block is the bound, so an unbalanced `[` in quoted source costs one bracket rather than every tag below it.",
       "violations": []
     },
     {

@@ -535,6 +535,31 @@ fn ends_statement(text: &str, at: usize) -> bool {
     next.is_empty() || starts_a_block(next)
 }
 
+/// Where the block containing `from` ends: the first line break that closes it, or the end
+/// of the text.
+///
+/// **The bound a forward scan needs, in the same terms as the backward one.** A scanner that
+/// crosses lines to find a construct's end has to stop somewhere, and an unbounded scan is a
+/// worse bug than the line-scoped one it replaces: a single unbalanced `[` anywhere in a file
+/// then blinds the scanner for everything below it, with the finding count going *down* as a
+/// corpus grows. One derived corpus has exactly that, in quoted source text —
+/// `as_written: "against 37 on the [Cupp"`.
+///
+/// The boundary is [`ends_statement`]'s, unchanged and for the same measured reasons, so a
+/// construct may cross a soft wrap and may not cross into the next list item, YAML key or
+/// paragraph. [`super::cmd::lint::checks`] is the second caller.
+pub(crate) fn block_end(text: &str, from: usize) -> usize {
+    let mut at = from;
+    while let Some(rel) = text[at..].find('\n') {
+        let nl = at + rel;
+        if ends_statement(text, nl) {
+            return nl;
+        }
+        at = nl + 1;
+    }
+    text.len()
+}
+
 /// Drop what introduces a statement rather than being part of it.
 ///
 /// The block boundary above stops *at* a list marker or a YAML key rather than skipping over
@@ -545,7 +570,7 @@ fn ends_statement(text: &str, at: usize) -> bool {
 /// indentation, and neither is part of what the corpus asserted — without this the same
 /// sentence wrapped at two columns is two different strings, which is the defect one layer
 /// down from the one this function exists to fix.
-fn collapse_whitespace(s: &str) -> String {
+pub(crate) fn collapse_whitespace(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut pending = false;
     for c in s.chars() {
