@@ -1,6 +1,6 @@
 # RFC-0005 — One MCP tool contract across the Rust CLI, TS, and Python servers
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I5
 - **Relates to:** RFC-0002 (node-model unification), RFC-0001 (report contract), RFC-0006 (correctness reconciliation), RFC-0003 (feature-gated builds)
 - **Versioning layers touched:** SDK+parity (the contract) / template (the Rust CLI implements it)

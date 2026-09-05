@@ -1,6 +1,6 @@
 # RFC-0007 — The Python SDK index/feature layer
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I7
 - **Relates to:** RFC-0002 (node-model unification), RFC-0005 (MCP tool contract), RFC-0006 (correctness reconciliation), RFC-0003 (feature-gated builds)
 - **Versioning layers touched:** SDK + parity (`yidam-core` minor bump; the `embed_config` parity runner)

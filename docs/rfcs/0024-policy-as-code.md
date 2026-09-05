@@ -1,6 +1,6 @@
 # RFC-0024 — The rule a repository writes about itself (policy as code)
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I19
 - **Relates to:** RFC-0023 (the vault guards this re-expresses, and the store whose push is the
   first egress channel yidam owns), RFC-0003 (the light binary this must run in), RFC-0001 (the

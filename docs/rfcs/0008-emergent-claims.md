@@ -1,6 +1,6 @@
 # RFC-0008 — Emergent claims and the scope of synthesis
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Track:** G1 (governance)
 - **Relates to:** RFC-0009 (resolution execution authority), `CONSTITUTION.md` Article V, `sangha/PROTOCOL.md`
 - **Versioning layers touched:** template (constitutional commentary)

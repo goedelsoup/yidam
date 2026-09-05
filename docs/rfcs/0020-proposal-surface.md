@@ -1,6 +1,6 @@
 # RFC-0020 — Proposing what a finding already says (`yidam propose`)
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I15
 - **Relates to:** RFC-0019 (whose movement questions this carries into commits), RFC-0008
   (the strict reading of Article V this depends on), RFC-0009 (the resolution authority this

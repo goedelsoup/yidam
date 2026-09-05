@@ -1,6 +1,6 @@
 # RFC-0022 — What a tool may say about code it cannot read (`check-diff`, Phase B)
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I17
 - **Relates to:** RFC-0021 (Phase A, which this continues), RFC-0020 (the carriage rule it
   inherits), RFC-0003 (the light binary it must run in), RFC-0016 (the severity table an
