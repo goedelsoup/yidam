@@ -166,6 +166,7 @@ const sidebar = [
       { slug: 'rfcs/0027-openai-profile', label: '0027 · The openai profile' },
       { slug: 'rfcs/0028-kuten-layer', label: '0028 · The kuten layer' },
       { slug: 'rfcs/0029-write-tier', label: '0029 · The write tier' },
+      { slug: 'rfcs/0030-standalone-editor', label: '0030 · The standalone editor' },
     ],
   },
 ];
