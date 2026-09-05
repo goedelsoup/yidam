@@ -250,7 +250,7 @@ caller, and neither is an error.
 
 [Sharing a derivation](sharing-derivations.md) covers what a cross-corpus citation is and is not.
 
-## The ontology, and what it licenses
+## `.yidam/corpus/<class>.ont.yml`
 
 Class definitions live at `.yidam/corpus/<class>.ont.yml` and are configuration in the sense
 that matters most: they decide what the gate will and will not accept.

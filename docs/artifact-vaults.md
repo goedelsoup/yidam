@@ -23,7 +23,7 @@ graph *is* the git history:
 - **Garbage collection is exactly computable**, because the live set is the set the working
   tree names.
 
-## Nothing is configured, and that is a working state
+## The default: no vault configured
 
 A corpus with no vault keeps its artifacts in a machine-wide cache and nowhere else. That is
 every corpus until somebody configures a store, and it is not degraded — `yidam vault put`,
@@ -38,7 +38,7 @@ The cache lives at `$XDG_CACHE_HOME/yidam/vault` (or `YIDAM_VAULT_CACHE`) and is
 **not** partitioned by vault or by repository — two corpora citing the same paper store it
 once. A cache hit answers *do I have these bytes*, never *may I send them*.
 
-## Declaring a store
+## Declare a store
 
 ```toml
 [vault.default]
@@ -55,7 +55,7 @@ S3-compatible. **Credentials come from the environment only** — `.yidam/config
 committed and must never carry one. See [CLI reference](cli-reference.md#s3-compatible-stores)
 for the variables.
 
-## Two audiences need two stores
+## Use two stores for two audiences
 
 A repository's own index and a licensed PDF it obtained have different readerships, and one
 store cannot express both. Each vault declares what it `holds`:
@@ -80,7 +80,7 @@ A record's own `vault:` overrides the route its kind would take, and `vault: non
 the local cache and nowhere else — spelled rather than omitted, so that *nobody has decided* and
 *decided to keep it here* are different states.
 
-## What refuses to leave
+## What `vault push` refuses to send
 
 `vault push` is the first egress channel yidam itself opens, and two independent rules gate it.
 Neither implies the other; an artifact clears both or neither.
@@ -107,7 +107,7 @@ and names it — the same rule the release workflow applies to a bundle, for the
 about this repository that the person running the command can act on, while a licence is a fact
 about a third party they may not be able to change at all.
 
-## The index, which the binary you installed cannot build
+## Share the vector index through a vault
 
 `.yidam/index/` is built only by a binary compiled `--features index` — protoc plus an ONNX
 runtime — and nothing keeps it in git. So the index exists on whichever machine could build it
@@ -135,9 +135,9 @@ inexpressible is better than checking for it.
 >
 > `--features vector-read` is the build that completes it. It reads an index and answers over
 > it, and it needs **no protoc** — that is `lancedb`'s requirement, and `lancedb` is only ever
-> used to *write* an index. See [Installation](installation.md#which-build-you-have).
+> used to *write* an index. See [Installation](installation.md#check-which-build-you-have).
 
-## Opening a file, and reclaiming the space
+## Materialize a file, and reclaim the space
 
 Content addressing is right for storage and useless for opening. `yidam vault materialize`
 hardlinks cached artifacts into `.yidam/vault/<entry slug>/<slug>.<ext>` so a person, a

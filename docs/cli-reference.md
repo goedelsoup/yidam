@@ -17,7 +17,7 @@ the editor surface and CI both consume the JSON, so the prose is free to stay pr
 below that take no options at all are marked *(no flags)*.
 
 Some commands need a build carrying the matching cargo feature. Those are marked, and
-[Installation](installation.md#which-build-you-have) has the table. `yidam --version` prints
+[Installation](installation.md#check-which-build-you-have) has the table. `yidam --version` prints
 the feature list of the binary in your hand.
 
 ---

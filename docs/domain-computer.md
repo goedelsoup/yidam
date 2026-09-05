@@ -199,7 +199,7 @@ Register it in the consuming project's `.mcp.json`:
 
 **Tools** — the list is frozen in
 [`prelude/sdks/parity/mcp/tools.json`](../yidam/prelude/sdks/parity/mcp/tools.json) and
-described in [the MCP server guide](mcp-server.md#3-the-tools-and-when-an-agent-should-reach-for-each);
+described in [the MCP server guide](mcp-server.md#3-choose-the-right-tool);
 it is not restated here, because the copy that used to be had already lost `list_nodes`.
 Briefly: retrieval and node reads, the graph walk — undirected, and typed — the corpus's
 assertions at claim granularity, a context pack for one goal with an account of what did not

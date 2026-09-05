@@ -10,7 +10,7 @@ repository that built it and is read somewhere that did not.
 That crossing is the whole subject of this document. Everything below is either a mechanism
 for making it happen or a limit on what it is allowed to mean.
 
-## The shape of it
+## Producer and consumer, side by side
 
 | | Producer | Consumer |
 |---|---|---|
@@ -64,7 +64,7 @@ The authority for this is [`cmd/bundle.rs`](../yidam/cli/src/cmd/bundle.rs)'s
 `render_bundle` doc comment, which is where the layout is actually defined. If this document
 and that comment disagree, the comment is right and this document is stale.
 
-## Publishing
+## Publish a bundle
 
 ### 1. Opt in, in the repository
 
@@ -124,7 +124,7 @@ The workflow installs the light build. `export --format bundle` includes a vecto
 ONNX runtime. A corpus is useful to a consumer without an index; requiring the ML stack in
 order to publish would put sharing behind a toolchain nobody needs to read Markdown.
 
-## Consuming
+## Consume a bundle
 
 `tonpa` is in the CLI's default feature set, so every published binary carries it.
 
