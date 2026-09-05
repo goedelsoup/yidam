@@ -1,6 +1,6 @@
 # RFC-0012 — Elector identity and attestation
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Track:** G5 (governance)
 - **Relates to:** RFC-0009 (`synthesized-by` points at the attested elector), `CONSTITUTION.md`
   Articles II / III, `sangha/electors.md`, `sangha/PROTOCOL.md`, `VERSIONING.md`
@@ -24,6 +24,21 @@
 > E8 by name, under **Deferred to E8** below, so that E8's amendment extends this one rather than
 > reworking it.
 
+> **Built 2026-09-05** ([#566](https://github.com/goedelsoup/yidam/issues/566)). All four
+> proposals ship against the amendment above, and nothing in them was re-argued. `electors.md`
+> carries `Kind | Model | Version | Config | Key`, read by header rather than by position, so a
+> registry written before the columns is read exactly as it was. The registry generates the
+> allowed-signers file at verification time — one principal per keyed seat, the principal being
+> the seat's `ma/*` branch rather than a committer email, which is what gives a per-seat answer
+> in a repository whose seats share one git identity — and `elector-signature-unverified` gates
+> on it. The `Key` column holds the public key, not the fingerprint the original table printed:
+> a fingerprint is a record nothing consults, and the check says so when it finds one.
+> `resolution-executor-unrecorded` now takes its severity from the condition written into it:
+> every seat keyed, no two keys the same. A shared key is legitimate and does not arm it, which
+> is the amendment's own point about one operator restated as a predicate. Every check is
+> vacuous where no row binds a key, which is every corpus today, and a test asserts that the
+> silence is the check running rather than the check missing.
+
 ## Summary
 
 `electors.md` records only `Name | Branch | Role`. An agent elector's registration records nothing
@@ -38,8 +53,8 @@ produced a position grants it nothing.
 
 ## Problem
 
-**The registry is minimal.** `electors.md` is a three-column table
-([`electors.md:8-10`](../../sadhana/sangha/electors.md#L8-L10)): `Name | Branch | Role`. Registration
+**The registry is minimal.** `electors.md` was a three-column table — `Name | Branch | Role`,
+and the columns below are what it carries since this RFC was built. Registration
 ([`PROTOCOL.md:15-21`](../../sadhana/sangha/PROTOCOL.md#L15-L21)) is: open a `ma/<name>` branch, be
 added to `electors.md`, be included in a first resolution. Nothing records what an agent elector is,
 and nothing binds a commit to an identity — a `ma/<name>` branch and a table row are both forgeable
@@ -70,14 +85,19 @@ elector commits.
 what produced it:
 
 ```markdown
-| Name    | Branch      | Role       | Kind  | Model            | Version | Config    | Key (fpr)    |
-|---------|-------------|------------|-------|------------------|---------|-----------|--------------|
-| aria    | ma/aria     | investigator | agent | claude-opus-4-8 | 4.8     | sha256:…  | SHA256:…     |
-| j. okafor | ma/okafor | domain lead  | human | —                | —       | —         | SHA256:…     |
+| Name    | Branch      | Role       | Kind  | Model            | Version | Config    | Key                |
+|---------|-------------|------------|-------|------------------|---------|-----------|--------------------|
+| aria    | ma/aria     | investigator | agent | claude-opus-4-8 | 4.8     | sha256:…  | ssh-ed25519 AAAA…  |
+| j. okafor | ma/okafor | domain lead  | human | —                | —       | —         | ssh-ed25519 AAAA…  |
 ```
 
 Human electors leave the agent fields blank. `Config` is a hash of the agent's operative
 configuration, not the config itself (see open questions).
+
+`Key` holds the public key, in `authorized_keys` form. *(Corrected 2026-09-05; this column read
+`Key (fpr)` with a `SHA256:…` example, which the amendment's own trust-root design cannot use — an
+allowed-signers file needs the key, and a fingerprint is exactly the column nothing consults that
+the amendment replaced.)*
 
 **2 — Sign elector commits, for what a signature establishes.** *(Revised 2026-09-04; the original
 claimed attribution, and the measurement retracted it.)* Each elector's `ma/*` commits are signed

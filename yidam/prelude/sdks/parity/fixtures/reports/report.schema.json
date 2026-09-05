@@ -692,6 +692,26 @@
             "type": "string",
             "description": "The Role cell verbatim, markdown and all — it is prose written for a reader."
           },
+          "kind": {
+            "type": "string",
+            "description": "`agent`, `human`, or empty. RFC-0012 attestation. NOT REQUIRED, and neither is any other attestation field: a released CLI predates the columns and a registry written before them fills none of them in, so empty means the registry does not say."
+          },
+          "model": {
+            "type": "string",
+            "description": "What produced this seat's positions, for an agent elector. Recorded, never privileged — Article II governs weight and Article III governs record."
+          },
+          "version": {
+            "type": "string",
+            "description": "The model's version, where the model name does not carry it."
+          },
+          "config": {
+            "type": "string",
+            "description": "A hash of the agent's operative configuration, never the configuration itself."
+          },
+          "key": {
+            "type": "string",
+            "description": "The seat's SSH public key in `authorized_keys` form — the key, not a fingerprint. `yidam lint` generates the `gpg.ssh.allowedSignersFile` from this column at verification time, so the registry is the trust root and a key it does not carry verifies nothing. Empty means the seat declares its commits unverifiable."
+          },
           "branch_present": {
             "type": "boolean",
             "description": "Whether the branch exists, local or remote-tracking. A registered elector whose branch is gone is a state to report, not an error."

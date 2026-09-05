@@ -356,6 +356,13 @@
       ]
     },
     {
+      "id": "elector-signature-unverified",
+      "title": "Elector branch tip does not verify against the key its row binds",
+      "severity": "error",
+      "rationale": "RFC-0012, amended: a signature buys integrity and third-party verification, and it is worth having for those and claimed for nothing more — under one operator it does not distinguish seats from one another, and `electors.md` says so. This gates rather than warns because the repository decided it: the check is vacuous until a row binds a key, and binding one is a declaration that this seat's commits verify against it. The allowed-signers file is generated from the registry at verification time and never committed, so the trust anchor cannot drift from the record, and a key the registry does not carry verifies nothing.",
+      "violations": []
+    },
+    {
       "id": "resolution-scope-unheld",
       "title": "Resolution seats a node or edge no elector held",
       "severity": "error",
