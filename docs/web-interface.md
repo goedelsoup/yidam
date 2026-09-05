@@ -11,7 +11,7 @@ access to the domain computer is insufficient. It may serve:
 
 Data source: corpus directly, or a bundled export feed with a versioned contract.
 
-### Generated status fields (from CLI)
+## Generated status fields (from CLI)
 
 The corpus README template includes machine-regenerated sections:
 

@@ -99,6 +99,11 @@ const sidebar = [
     label: 'The project',
     items: [
       { slug: 'contributing', label: 'Contributing' },
+      // Beside `contributing` rather than under 'The model': this is a rule set for somebody
+      // about to write a page, which is the same moment they open Contributing. It states the
+      // tier every page belongs to, so it is also what `aesthetic-direction` is measured
+      // against — the register that page commits to is Tier 3's whole justification.
+      { slug: 'style-guide', label: 'Documentation style guide' },
       { slug: 'versioning', label: 'Versioning and releases' },
       { slug: 'aesthetic-direction', label: 'Aesthetic direction' },
     ],

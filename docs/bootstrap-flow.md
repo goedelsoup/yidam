@@ -3,7 +3,7 @@
 This is the onboarding flow for a new derived repository. It is the most interaction-dense
 surface in the system.
 
-### Overview
+## Overview
 
 1. **Check for samudaya** — read pre-placed seed files if present
 2. **Internalize the prelude** — output a single confirmation message; wait for acknowledgment
@@ -16,7 +16,7 @@ surface in the system.
 9. **Write genesis commit and consume transient layers** — commit, then delete samudaya/ and sadhana/
 10. **Report and offer continuation** — structured handoff with next steps
 
-### Samudaya seed kinds
+## Samudaya seed kinds
 
 Pre-placed seed files shape the bootstrap before dialogue begins:
 
@@ -27,7 +27,7 @@ Pre-placed seed files shape the bootstrap before dialogue begins:
 | `constraint` | Hard scope boundary; enforced during scaffolding |
 | `augmentation` | Additional prelude content; constitutional augmentations persist permanently |
 
-### Ontology discovery sketch format
+## Ontology discovery sketch format
 
 The bootstrap confirms the ontology with the user in this format before writing any files:
 
@@ -43,14 +43,14 @@ The bootstrap confirms the ontology with the user in this format before writing 
 source →[relationship]→ target
 ```
 
-### Prelude internalized checkpoint
+## Prelude internalized checkpoint
 
 Before questions begin, the bootstrap outputs a standalone message:
 
 > **Prelude internalized.** Graph model: [one sentence]. Key constraints I'll honor:
 > [two or three bullet points]. Directory layout: [one sentence].
 
-### Genesis commit quality criteria
+## Genesis commit quality criteria
 
 The genesis commit message must:
 - Name the domain
@@ -59,7 +59,7 @@ The genesis commit message must:
 
 A boilerplate message or a list of filenames fails.
 
-### Continuation offer
+## Continuation offer
 
 After the genesis commit, the bootstrap asks:
 
