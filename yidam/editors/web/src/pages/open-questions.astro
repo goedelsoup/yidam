@@ -1,0 +1,53 @@
+---
+/**
+ * What the corpus does not know yet.
+ *
+ * `yidam open-questions` is the command `mise run open-questions` runs, so this page and the
+ * terminal agree by construction rather than by care. Nothing here decides what counts as an
+ * open question — the `?` title and the `[open]` claim tag are the binary's rule.
+ */
+import Shell from '../layouts/Shell.astro'
+import { session } from '../lib/session.ts'
+import { spawnReport } from '../lib/cli.ts'
+
+interface Question {
+  node: string
+  label: string
+}
+
+/**
+ * `open_questions`, not `questions`.
+ *
+ * The field name came off the binary rather than out of a guess, and the guess was wrong:
+ * the first version of this page read `questions` and rendered an empty list against a corpus
+ * that had them. A field a consumer invents is a field that is always absent.
+ */
+interface OpenQuestionsReport {
+  open_questions?: Question[]
+}
+
+const { root, binary } = await session()
+const result =
+  binary.command === null
+    ? null
+    : await spawnReport<OpenQuestionsReport>({ command: binary.command, root }, 'open-questions')
+
+const questions = result && result.ok ? (result.report.open_questions ?? []) : []
+---
+
+<Shell title="Open questions">
+  {
+    questions.length === 0 ? (
+      <p>Nothing open, or nothing readable — the header says which.</p>
+    ) : (
+      <ul class="questions">
+        {questions.map((q) => (
+          <li>
+            <code>{q.node}</code>
+            <p>{q.label}</p>
+          </li>
+        ))}
+      </ul>
+    )
+  }
+</Shell>

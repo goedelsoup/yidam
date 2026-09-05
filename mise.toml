@@ -654,6 +654,27 @@ run = [
   "npm run test:unit",
 ]
 
+# The web editor surface (RFC-0030, #606). Same shape as `ci-vscode` and for the same reason:
+# `mise run ci` compiles neither the extension nor the docs site and does not compile this
+# either, so the CI job is the only gate this package has.
+#
+# Build before test, deliberately: a build error is a worse signal to receive from a test
+# runner than from a builder, and the build is what proves the design system still resolves
+# through `app.css`'s relative import. `test` carries the RFC-0016 boundary gates — the ones
+# the embedded shape would have got for free — so this task is what stops a verdict being
+# computed in TypeScript.
+#
+# `design_tokens.rs` covers this surface too, and separately: it walks the repository and
+# reads `src/styles/app.css` as a consumer, so a raw hex here fails `cargo test` rather than
+# this task. Two gates, two failure sites, on purpose.
+[tasks.ci-editor-web]
+description = "CI for the web editor surface: build, RFC-0016 boundary gates, and unit tests."
+dir = "yidam/editors/web"
+run = [
+  "npm run build",
+  "npm run test",
+]
+
 # The packaging gate. Not in `ci-vscode`: it needs `out/` built and it runs vsce, which
 # is a minute this repository's PR loop should not spend on every editor change. The
 # publish workflow runs it, which is where a wrong package would actually reach someone.

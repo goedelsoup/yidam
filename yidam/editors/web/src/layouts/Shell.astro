@@ -1,0 +1,82 @@
+---
+/**
+ * The frame every page sits in: which corpus, which binary, and what to do when there is
+ * neither.
+ *
+ * The header is not decoration. `binary.ts` resolves in a documented order and records *why*
+ * it ended where it did, and a person whose editor disagrees with CI needs that string more
+ * than they need any page behind it. So it is on every page rather than on a settings screen.
+ */
+import { session } from '../lib/session.ts'
+import { describeBinary, describeFailure, describeRootMismatch } from '../lib/messages.ts'
+import { spawnReport } from '../lib/cli.ts'
+import '../styles/app.css'
+
+interface Props {
+  title: string
+}
+const { title } = Astro.props
+
+const { root, binary } = await session()
+const probe =
+  binary.command === null
+    ? null
+    : await spawnReport({ command: binary.command, root }, 'status')
+
+const unavailable =
+  binary.command === null
+    ? binary.reason
+    : probe && !probe.ok
+      ? describeFailure(probe.handshake)
+      : null
+
+// A wrong corpus and an empty corpus render identically, so the difference is stated rather
+// than left for the reader to infer from a page with nothing on it.
+const mismatch = probe && probe.ok ? describeRootMismatch(root, probe.resolvedRoot) : null
+
+const label =
+  probe && probe.ok ? describeBinary(probe.handshake, binary.reason) : 'yidam: unavailable'
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} — yidam-edit</title>
+  </head>
+  <body>
+    <header class="shell-header">
+      <nav>
+        <a href="/">Status</a>
+        <a href="/browse">Browse</a>
+        <a href="/reports">Reports</a>
+        <a href="/open-questions">Open questions</a>
+      </nav>
+      <p class="shell-provenance">
+        <code>{root}</code>
+        <span class="shell-binary">{label}</span>
+      </p>
+    </header>
+
+    {
+      unavailable && (
+        <p class="shell-unavailable" role="alert">
+          {unavailable}
+        </p>
+      )
+    }
+
+    {
+      mismatch && (
+        <p class="shell-unavailable" role="alert">
+          {mismatch}
+        </p>
+      )
+    }
+
+    <main>
+      <h1>{title}</h1>
+      <slot />
+    </main>
+  </body>
+</html>
