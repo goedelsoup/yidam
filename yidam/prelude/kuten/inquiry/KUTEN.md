@@ -47,7 +47,8 @@ against a 1,123-commit one manufactures a difference that is only age.
 ## What this profile does not declare
 
 Three slots are named by the layer and left empty here, because the evidence for them is not
-in yet and a value invented now would be believed later.
+in yet and a value invented now would be believed later. A fourth is empty for a reason
+evidence will never change, and it is listed after them.
 
 - **`object`** — the artifact outside the corpus, and whether the arrow runs corpus → object
   or object → corpus. Object coupling is an axis crossing both shapes rather than a property
@@ -56,6 +57,13 @@ in yet and a value invented now would be believed later.
   corpus's answer imposed on every other, which is the argument `escalate_after` already
   makes about compiling a threshold into a binary.
 - **`question_pressure`** — what kind of question this corpus should be opening.
+
+And **`thresholds`** — `[lint] escalate_after` and `[propose] withdraw_uncited_after` — which no
+kuten populates, whatever it measures. `escalate_after` decides when a finding fails the build,
+and `withdraw_uncited_after` licenses `propose` to draft a deletion. A kuten reaches neither act:
+the first is a gate change and arrives as a visible policy override, the second is authorship and
+arrives through `propose`'s own licence. The slot is named so that emptiness is a state a reader
+can see, rather than a family the layer forgot.
 
 `clocks` and `policy` are populated but are **proposals with values, not permissions with
 blanks**. `.yidam/config.toml` was empty in seventeen of the eighteen corpora measured and

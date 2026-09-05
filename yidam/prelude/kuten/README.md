@@ -53,14 +53,18 @@ reads; `KUTEN.md` is the document a person reads, and it opens with the binding 
 | `dialogue` | What the bootstrap asks |
 | `skills` | What the practice routes through |
 | `clocks` | Proposed `[due]` intervals — a proposal the corpus's own config holds or declines |
+| `thresholds` | The `[lint]`/`[propose]` values — `escalate_after`, `withdraw_uncited_after`. Named, and proposed by no kuten: one decides when a finding fails the build, the other licenses a drafted deletion, and a kuten reaches neither act |
 | `policy` | Proposed severity overrides, which enter through the policy layer and are visible as overrides |
 | `object` | The artifact outside the corpus, and the direction of the arrow between them |
 | `rubric` | The criteria a contribution is scored by |
 | `question_pressure` | What kind of question this corpus should be opening |
 
-The last three are named here and populated by no profile yet. A slot with no values says
-which state a repository is in; a slot invented ahead of its evidence says nothing and is
-believed anyway.
+Four of these — `thresholds`, `object`, `rubric` and `question_pressure` — are named here and
+populated by no profile yet, and they are named rather than counted so the list cannot lose one
+by being reordered. A slot with no values says which state a repository is in; a slot invented
+ahead of its evidence says nothing and is believed anyway. `thresholds` is the one that stays
+empty on principle rather than on evidence: the other three await a measurement, and a value
+under this one would be a gate decided outside `policy:` and a deletion drafted with no licence.
 
 ## Holding one
 
