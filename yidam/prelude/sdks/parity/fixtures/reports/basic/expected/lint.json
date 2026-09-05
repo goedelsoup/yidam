@@ -404,6 +404,27 @@
       "violations": []
     },
     {
+      "id": "dead-line-citation",
+      "title": "A citation names lines that are not there",
+      "severity": "error",
+      "rationale": "A `#L` fragment names a line range in a file this repository owns, and unlike a heading anchor it is decidable: the range either exists and holds text or it does not. The founding instance cited a blank line — the passage had moved and the number kept pointing at where it used to be. Error severity, under the baseline ratchet like every other citation defect a person here can fix.",
+      "violations": []
+    },
+    {
+      "id": "slid-line-citation",
+      "title": "The quoted passage is not in the cited lines",
+      "severity": "error",
+      "rationale": "An edit above a cited range moves the range off its passage without breaking anything a file-level check can see: the citation still resolves, the lines still hold text, and the text is now something else. Twelve citations rotted that way at once, silently, and two came to point at words written long after the arguments that cite them. Where the document quotes the passage it cites — the house style — the quote decides. Matched on words, in order, elisions honoured, so wrapping, emphasis and comment markers cannot manufacture a drift.",
+      "violations": []
+    },
+    {
+      "id": "unverified-line-citation",
+      "title": "A line citation with no quote to hold it to",
+      "severity": "info",
+      "rationale": "A citation that quotes nothing can only be checked for existence, and a range that slid onto the wrong lines still exists. Most such citations point at code, where the house style quotes nothing. Reported rather than passed, because a reader meeting a bare `file.rs:42` will assume somebody verified it; Info severity, because the fix — quote the passage, widen to a stable range, or drop the fragment — is a judgement about the document, not a defect in the corpus. Never gates, never baselined.",
+      "violations": []
+    },
+    {
       "id": "unauthored-prose-link",
       "title": "A broken prose link in material this repository did not author",
       "severity": "info",

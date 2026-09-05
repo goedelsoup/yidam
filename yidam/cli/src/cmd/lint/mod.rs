@@ -11,6 +11,7 @@ pub(crate) mod citations;
 mod commits;
 pub(crate) mod history;
 pub mod json;
+pub(crate) mod line_citations;
 pub(crate) mod lineage;
 pub(crate) mod model;
 pub(crate) mod scope;
@@ -21,7 +22,39 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
-pub use model::{Check, Severity};
+pub use line_citations::{
+    dead_line_citation, slid_line_citation, unverified_line_citation, LineCitation,
+};
+pub use model::{Check, Severity, Violation};
+
+/// Every line-anchored citation in `root`'s prose surfaces (`docs/`, `.yidam/`), read
+/// from disk.
+///
+/// Exposed so this repository can hold its own documentation to the line-citation checks
+/// from a test: the lint gate walks a *corpus*, the template repository is not one, and
+/// that gap is exactly how twelve citations rotted with every build green (#563).
+/// Authorship regions are honoured the way the gate honours them — a file in a declared
+/// region is not plainly this repository's, and its citations are not held here.
+pub fn collect_line_citations(root: &Path) -> Vec<LineCitation> {
+    let overlay = Overlay::default();
+    let authorship = crate::authorship::Authorship::load_or_default(root);
+    let mut paths = walk_linkable_files(&root.join(".yidam"));
+    paths.extend(walk_linkable_files(&root.join("docs")));
+    let mut links = Vec::new();
+    for p in &paths {
+        let rel = p
+            .strip_prefix(root)
+            .unwrap_or(p)
+            .to_string_lossy()
+            .to_string();
+        if authorship.covering(&rel).is_some() {
+            continue;
+        }
+        let dir = p.parent().unwrap_or(root);
+        links.extend(checks::prose_links(&rel, dir, &overlay.read(p)));
+    }
+    line_citations::collect(root, &links, &|p| overlay.read(p))
+}
 
 /// The severity `unrecognized-verb` reports at.
 ///
@@ -307,6 +340,12 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     }
     let stale_regions = crate::authorship::stale(root, &authorship);
 
+    // The links that also name a line, decided against the cited files — through the
+    // overlay, so the buffer someone is editing a passage out of is the one the citation
+    // is held to. Authored links only: a line citation in vendored or generated prose is
+    // somebody else's to fix, the same judgement `unauthored-prose-link` records.
+    let line_citations = line_citations::collect(root, &prose_links, &|p| overlay.read(p));
+
     // What this corpus has declared about its own gate. Absent — the common case, and the
     // case for every repository that has not yet argued about a number — escalates nothing.
     //
@@ -403,6 +442,9 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         baseline_undeclared,
         holds_unadopted,
         checks::broken_prose_link(&prose_links),
+        line_citations::dead_line_citation(&line_citations),
+        line_citations::slid_line_citation(&line_citations),
+        line_citations::unverified_line_citation(&line_citations),
         checks::unauthored_prose_link(&unauthored),
         checks::authorship_region_stale(&stale_regions),
         checks::policy_override(&policy_overrides),
@@ -805,7 +847,7 @@ decision := {"allow": true, "deny": []}
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 43);
+        assert_eq!(all.len(), 46);
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
@@ -979,7 +1021,7 @@ decision := {"allow": true, "deny": []}
         assert!(crate::authorship::Authorship::load(tmp.path()).is_err());
         // …while the checks themselves keep answering, for the editor's sake.
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 43);
+        assert_eq!(all.len(), 46);
     }
 
     /// A class declaring an implementation, and a `crates/` tree that may or may not hold it.
@@ -1304,7 +1346,7 @@ decision := {"allow": true, "deny": []}
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 43, "every check still ran");
+        assert_eq!(all.len(), 46, "every check still ran");
         assert_eq!(errors(&all), 0);
     }
 
