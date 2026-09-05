@@ -119,7 +119,7 @@ people what good looks like, and that has to be said here.
 
 **(c) `orphan-in` is the only check that carries an age.** `Violation::age` is `None` for every
 finding except those `orphan_in_dated` decorates
-([`mod.rs:289-311`](../../yidam/cli/src/cmd/lint/mod.rs#L289-L311),
+([`orphan_in_dated`](../../yidam/cli/src/cmd/lint/mod.rs#L492-L514),
 [`model.rs:58`](../../yidam/cli/src/cmd/lint/model.rs#L58)). "Past its residence threshold" is
 therefore well-defined for exactly one check today. That is not a problem to fix here — it is a
 bound on how much of the corpus `propose` can speak about, and the command should say so rather

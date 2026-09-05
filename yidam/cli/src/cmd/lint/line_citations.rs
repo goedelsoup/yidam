@@ -10,23 +10,45 @@
 //! written *that morning* as if it were the passage they were arguing about. Nothing went
 //! red at any point.
 //!
-//! Three checks, one partition — every line citation lands in exactly one:
+//! Four checks, one partition — every line citation lands in exactly one, and which one it
+//! lands in is decided by what the document says about the target beside the link:
 //!
 //! - **`dead-line-citation`** — the range is past the end of the file, backwards, or
-//!   entirely blank. The cheapest strength, and the only one a quoteless citation gets.
+//!   entirely blank. The cheapest strength, and the only one an unanchored citation gets.
 //! - **`slid-line-citation`** — the document quotes the passage beside the citation, and
 //!   the quoted words do not appear in the cited lines. This is the strength worth having:
 //!   a citation that slid ten lines still lands on *some* text, and only the quote can
 //!   tell that it is the wrong text.
-//! - **`unverified-line-citation`** — the citation carries no quote, so nothing beyond
+//! - **`citation-label-not-cited`** — nothing quotes the passage, but the label names a
+//!   symbol — `[`unknown-class`](checks.rs#L749)`, the house form for citing code — and the
+//!   cited lines do not say it. The weaker anchor, read only where there is no quote.
+//! - **`unverified-line-citation`** — neither anchor is present, so nothing beyond
 //!   existence can be checked. Reported rather than passed, at Info, because a reader
 //!   meeting `file.rs:42` will assume somebody verified it and nobody can.
 //!
-//! A fourth check stands outside that partition because it never opens the target file.
+//! A fifth check stands outside that partition because it never opens the target file.
 //! The house style states the range twice — `[`file.rs:12-19`](../file.rs#L12-L19)` — and
 //! **`citation-range-stated-twice`** holds the two copies to each other. 134 of the 149
 //! line citations this repository's own gate can see write both; nothing had ever read
 //! the left-hand one, so half a repair would have shipped silently (#622).
+//!
+//! # The anchor, and why the label is one
+//!
+//! A quote is the strong anchor and most citations do not carry one: 119 of this
+//! repository's 150 line citations quote nothing, and for as long as that was the whole
+//! story every one of them was checked for existence and nothing else. A range that slides
+//! onto lines that are neither blank nor quoted is invisible to the two enforcing halves
+//! at once — it exists, so it is not dead; nothing quotes it, so nothing can say it slid.
+//! Seven citations had already rotted through that gap when a person found them by hand
+//! while looking at something else (#627, #632).
+//!
+//! Six of the seven were labelled with the check they cited. That is the second anchor, and
+//! it was there all along: the house writes a citation of code with its symbol as the label
+//! and the coordinate in the fragment, so the label is a claim about the target that a
+//! check can decide. It is read only where nothing quotes the passage, because a quote is
+//! better evidence and should decide alone. See [`label_symbols`] for what counts, and what
+//! deliberately does not — 104 of the 119 label a line number rather than a symbol, and a
+//! label that restates the coordinate anchors nothing.
 //!
 //! # Naming the repair
 //!
@@ -107,7 +129,7 @@ pub fn parse_fragment(frag: &str) -> Option<LineFragment> {
     })
 }
 
-/// One line-anchored citation, with everything the three checks need to decide it.
+/// One line-anchored citation, with everything the four checks need to decide it.
 ///
 /// Built by [`collect`], which does the reading; the checks stay pure.
 pub struct LineCitation {
@@ -121,8 +143,11 @@ pub struct LineCitation {
     pub target_lines: usize,
     /// The cited lines, joined; empty when the range is out of bounds.
     pub range: String,
-    /// Quote candidates found beside the link. Empty means unverifiable.
+    /// Quote candidates found beside the link. Empty means no strong anchor.
     pub quotes: Vec<String>,
+    /// The symbols the label names, when it names any — the weak anchor, and the only one
+    /// most citations of code carry. See [`label_symbols`].
+    pub symbols: Vec<String>,
     /// The link's label exactly as written, `astro.config.mjs:243-246` backticks and all.
     /// The house style states the cited range here as well as in the fragment, and
     /// [`citation_range_stated_twice`] is what holds the two together.
@@ -228,15 +253,26 @@ pub fn collect(
             true => quotes_beside(&citing, link.line - 1, link.span),
             false => Vec::new(),
         };
+        let label = label_of(on_line, link.span);
+        let symbols = label_symbols(&label, &link.target);
+        // The quote decides alone where there is one; the label is consulted only in its
+        // absence, so a citation carrying both is judged exactly as it was before the label
+        // became readable.
+        let anchors: &[String] = match quotes.is_empty() {
+            true => &symbols,
+            false => &quotes,
+        };
         // The passage is looked for only when it is not where the citation says it is:
         // relocation reads every window of the target, and the overwhelming majority of
         // citations are correct and cost nothing.
-        let adrift = !quotes.is_empty() && !quotes.iter().any(|q| quote_matches(q, &range));
+        let adrift = !anchors.is_empty() && !anchors.iter().any(|q| quote_matches(q, &range));
         let moved_to = match adrift {
-            true => quotes.iter().find_map(|q| match relocate(q, &target_text) {
-                Relocation::Found(f) => Some(f),
-                Relocation::Absent | Relocation::Ambiguous => None,
-            }),
+            true => anchors
+                .iter()
+                .find_map(|q| match relocate(q, &target_text) {
+                    Relocation::Found(f) => Some(f),
+                    Relocation::Absent | Relocation::Ambiguous => None,
+                }),
             false => None,
         };
         out.push(LineCitation {
@@ -247,7 +283,8 @@ pub fn collect(
             target_lines: total,
             range,
             quotes,
-            label: label_of(on_line, link.span),
+            symbols,
+            label,
             moved_to,
         });
     }
@@ -557,6 +594,75 @@ pub fn label_range(label: &str) -> Option<LineFragment> {
     }
 }
 
+// ── The label, as an anchor ──────────────────────────────────────────────────
+
+/// The symbols a label names, or nothing when it names none.
+///
+/// The label is the only thing most citations of code say about their target, and it says
+/// it in one of two house forms. `[`checks.rs:1109`](…#L1109)` restates the coordinate,
+/// which [`label_range`] already holds to the fragment and which anchors nothing: a line
+/// number that agrees with itself is still a line number. `[`unknown-class`](…#L749)` names
+/// the thing the line is supposed to declare, and that is a claim about the target's
+/// *content* — the same kind of claim a quote makes, weaker, and present on citations no
+/// quote will ever reach.
+///
+/// What is refused, and why each refusal is a measured false positive rather than caution:
+///
+/// - **A label that is not a code span.** `[the identity gate](…#L42)` is prose about the
+///   argument, not a name from the file. The backticks are the house's own mark for "this
+///   is written in the target's language".
+/// - **A label [`label_range`] reads**, and a bare `[`356`]` — the continuation form when
+///   three lines of one file are cited in a row. Both restate the coordinate.
+/// - **A label that is a path suffix of the target.** `[`lint/mod.rs`]` names the file it
+///   links to; requiring a file to name itself on the cited line would report every one.
+/// - **Segments under three characters**, which `quote_matches` would ignore anyway and
+///   which would otherwise let a one-letter generic vouch for a whole citation.
+///
+/// An argument list is dropped and `::` splits, so `[`report::YidamBlock::current()`]`
+/// offers three chances to match a signature line that spells only the last of them. Any
+/// one segment is enough: the alternative — every segment must appear — reports a citation
+/// of `current()` for not repeating its module path, which is a fact about Rust and not
+/// about the citation.
+pub fn label_symbols(label: &str, target: &str) -> Vec<String> {
+    if label_range(label).is_some() {
+        return Vec::new();
+    }
+    let Some(inner) = label
+        .trim()
+        .strip_prefix('`')
+        .and_then(|s| s.strip_suffix('`'))
+        .map(str::trim)
+    else {
+        return Vec::new();
+    };
+    if inner.is_empty() {
+        return Vec::new();
+    }
+    // A bare line number, or a bare range of them.
+    if inner
+        .chars()
+        .all(|c| c.is_ascii_digit() || c == '-' || c == '\u{2013}')
+    {
+        return Vec::new();
+    }
+    // The file, named as the label of a link to it.
+    fn seg(s: &str) -> Vec<&str> {
+        s.split('/').filter(|p| !p.is_empty()).collect()
+    }
+    let (l, t) = (seg(inner), seg(target));
+    if !l.is_empty() && l.len() <= t.len() && t[t.len() - l.len()..] == l[..] {
+        return Vec::new();
+    }
+    let head = match inner.find('(') {
+        Some(i) => &inner[..i],
+        None => inner,
+    };
+    head.split("::")
+        .map(words)
+        .filter(|s| s.len() >= 3)
+        .collect()
+}
+
 // ── The checks ───────────────────────────────────────────────────────────────
 
 pub fn dead_line_citation(citations: &[LineCitation]) -> Check {
@@ -620,16 +726,62 @@ pub fn slid_line_citation(citations: &[LineCitation]) -> Check {
     )
 }
 
-pub fn unverified_line_citation(citations: &[LineCitation]) -> Check {
+pub fn citation_label_not_cited(citations: &[LineCitation]) -> Check {
     let violations = citations
         .iter()
-        .filter(|c| c.dead_reason().is_none() && c.quotes.is_empty())
+        .filter(|c| {
+            c.dead_reason().is_none()
+                && c.quotes.is_empty()
+                && !c.symbols.is_empty()
+                && !c.symbols.iter().any(|s| quote_matches(s, &c.range))
+        })
         .map(|c| {
             Violation::new(
                 format!("{}:{}", c.file, c.line),
                 format!(
-                    "`{}` names lines but quotes nothing beside the link, so only their \
-                     existence was checked",
+                    "the label {} names something the lines `{}` cites do not say{}",
+                    c.label,
+                    c.anchor(),
+                    c.moved_clause()
+                ),
+            )
+        })
+        .collect();
+    Check::new(
+        "citation-label-not-cited",
+        "A citation's label names something its lines do not say",
+        Severity::Error,
+        "The strong anchor is a quote, and 119 of this repository's 150 line citations \
+         carry none. Each of those was checked for existence and nothing else, which \
+         leaves the whole of the interesting failure uncovered: a range that slides onto \
+         lines that are neither blank nor quoted is invisible to `dead-line-citation` and \
+         `slid-line-citation` at once. Seven citations had already rotted through that gap \
+         when a person found them by hand while looking at something else (#627), and six \
+         of the seven were labelled with the very check they cited. The label is the anchor \
+         they were carrying all along: the house writes a citation of code with its symbol \
+         in the label and its coordinate in the fragment, so the label is a claim about the \
+         target's content that a check can decide. Read only where nothing quotes the \
+         passage — a quote is better evidence and decides alone — and only where the label \
+         names a symbol rather than restating the line number, which is the other house \
+         form and 104 of the 119. Matched on words exactly as a quote is, so wrapping, \
+         emphasis and an argument list cannot manufacture a drift, and any one `::` segment \
+         is enough. Error, under the baseline ratchet like every other citation defect a \
+         person here can fix: this is a latch on a population that is already correct, not \
+         a backlog.",
+        violations,
+    )
+}
+
+pub fn unverified_line_citation(citations: &[LineCitation]) -> Check {
+    let violations = citations
+        .iter()
+        .filter(|c| c.dead_reason().is_none() && c.quotes.is_empty() && c.symbols.is_empty())
+        .map(|c| {
+            Violation::new(
+                format!("{}:{}", c.file, c.line),
+                format!(
+                    "`{}` names lines but nothing beside the link quotes them or names what \
+                     they say, so only their existence was checked",
                     c.anchor()
                 ),
             )
@@ -637,15 +789,22 @@ pub fn unverified_line_citation(citations: &[LineCitation]) -> Check {
         .collect();
     Check::new(
         "unverified-line-citation",
-        "A line citation with no quote to hold it to",
+        "A line citation with nothing to hold it to",
         Severity::Info,
-        "A citation that quotes nothing can only be checked for existence, and a range \
-         that slid onto the wrong lines still exists. Most such citations point at code, \
-         where the house style quotes nothing. Reported rather than passed, because a \
-         reader meeting a bare `file.rs:42` will assume somebody verified it; Info \
-         severity, because the fix — quote the passage, widen to a stable range, or drop \
-         the fragment — is a judgement about the document, not a defect in the corpus. \
-         Never gates, never baselined.",
+        "A citation with neither anchor can only be checked for existence, and a range that \
+         slid onto the wrong lines still exists. Info is not the whole answer to that and \
+         was never meant to be — seven citations rotted through this exact gap and nothing \
+         found them (#632). What closes the part of it that the document can close is \
+         `citation-label-not-cited`, which reads the symbol a code citation labels as the \
+         anchor a quote would have been. What is left here is the residue: a citation whose \
+         label restates the line number and whose prose says nothing about the passage. \
+         There, the document holds no claim about the target at all, and only a recorded \
+         digest of the cited lines could tell a slide from an edit — an artifact with a \
+         staleness question of its own, weighed against this and declined (#632). So the \
+         severity stays Info, because the remedy — quote the passage, label the symbol, \
+         widen to a stable range, or drop the fragment — is a judgement about the document \
+         and not a defect in the corpus. Never gates, never baselined. The count is the \
+         thing to watch: it is how much of the citation surface is taken on trust.",
         violations,
     )
 }
@@ -707,9 +866,19 @@ mod tests {
     // ── Fixture plumbing: a citing document and a target in one tempdir ──────
 
     fn cite(target_text: &str, doc: &str) -> (tempfile::TempDir, Vec<LineCitation>) {
+        cite_named("target.md", target_text, doc)
+    }
+
+    /// As [`cite`], with the target under a name of the caller's choosing — the citations
+    /// of code this module exists for do not live in `.md` files.
+    fn cite_named(
+        name: &str,
+        target_text: &str,
+        doc: &str,
+    ) -> (tempfile::TempDir, Vec<LineCitation>) {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(tmp.path().join("docs")).unwrap();
-        std::fs::write(tmp.path().join("target.md"), target_text).unwrap();
+        std::fs::write(tmp.path().join(name), target_text).unwrap();
         std::fs::write(tmp.path().join("docs/doc.md"), doc).unwrap();
         let links = super::super::checks::prose_links("docs/doc.md", &tmp.path().join("docs"), doc);
         let read = |p: &Path| std::fs::read_to_string(p).unwrap_or_default();
@@ -1124,5 +1293,278 @@ a trailing line
     fn a_range_label_disagreeing_at_one_end_is_a_finding() {
         let (_tmp, c) = cite(TARGET, "See [`target.md:1-2`](../target.md#L1-L3).\n");
         assert_eq!(citation_range_stated_twice(&c).violations.len(), 1);
+    }
+
+    // ── The label, as an anchor (#632) ──────────────────────────────────────
+
+    fn syms(label: &str, target: &str) -> Vec<String> {
+        label_symbols(label, target)
+    }
+
+    #[test]
+    fn a_backticked_label_that_is_not_a_coordinate_names_a_symbol() {
+        assert_eq!(syms("`unknown-class`", "../checks.rs"), ["unknown class"]);
+        assert_eq!(
+            syms("`report::YidamBlock::current()`", "../report.rs"),
+            ["report", "yidamblock", "current"]
+        );
+        assert_eq!(
+            syms("`run_checks_with(&root, &opts, &overlay)`", "../mod.rs"),
+            ["run checks with"],
+            "the argument list is the call site's, not the file's"
+        );
+    }
+
+    /// Four refusals, each a measured false positive rather than caution. A label that
+    /// restates the coordinate, or names the file, says nothing about what the lines hold.
+    #[test]
+    fn a_label_that_states_no_symbol_anchors_nothing() {
+        assert!(
+            syms("`checks.rs:1109`", "../checks.rs").is_empty(),
+            "a range"
+        );
+        assert!(
+            syms("`356`", "../due.rs").is_empty(),
+            "the continuation form, three lines of one file cited in a row"
+        );
+        assert!(
+            syms("the identity gate", "../checks.rs").is_empty(),
+            "prose about the argument, not a name from the file"
+        );
+        assert!(
+            syms("`lint/mod.rs`", "../../yidam/cli/src/cmd/lint/mod.rs").is_empty(),
+            "the label is the file it links to"
+        );
+        assert!(syms("``", "../checks.rs").is_empty());
+    }
+
+    #[test]
+    fn a_symbol_label_the_cited_lines_do_not_say_is_a_finding() {
+        let target = "fn unrelated() {}\npub fn unknown_class(nodes: &[Node]) -> Check {\n";
+        let (_tmp, c) = cite_named(
+            "checks.rs",
+            target,
+            "the class an instance belongs to ([`unknown-class`](../checks.rs#L1), Error).\n",
+        );
+        let check = citation_label_not_cited(&c);
+        assert_eq!(check.violations.len(), 1);
+        assert!(
+            check.violations[0].detail.contains("`unknown-class`")
+                && check.violations[0].detail.contains("checks.rs#L1"),
+            "{}",
+            check.violations[0].detail
+        );
+        // The slide the two enforcing halves cannot see: the line exists and holds text.
+        assert!(dead_line_citation(&c).passed());
+        assert!(slid_line_citation(&c).passed());
+        // And it is no longer merely reported — the partition moved it.
+        assert!(unverified_line_citation(&c).passed());
+    }
+
+    #[test]
+    fn a_symbol_label_the_cited_lines_do_say_is_clean() {
+        let target = "fn unrelated() {}\npub fn unknown_class(nodes: &[Node]) -> Check {\n";
+        let (_tmp, c) = cite_named(
+            "checks.rs",
+            target,
+            "the class an instance belongs to ([`unknown-class`](../checks.rs#L2), Error).\n",
+        );
+        assert!(
+            citation_label_not_cited(&c).passed(),
+            "{:?}",
+            citation_label_not_cited(&c).violations
+        );
+        assert!(unverified_line_citation(&c).passed());
+    }
+
+    /// The quote is the better evidence and decides alone. A citation carrying both is
+    /// judged exactly as it was before the label became readable — otherwise every
+    /// symbol-labelled citation of a *passage* would be asked to repeat its own label.
+    #[test]
+    fn a_quote_beside_the_link_decides_and_the_label_is_not_consulted() {
+        let target = "The graph does not merely contain knowledge.\n";
+        let (_tmp, c) = cite_named(
+            "checks.rs",
+            target,
+            "\"The graph does not merely contain knowledge\" ([`some_symbol_absent_here`](../checks.rs#L1)).\n",
+        );
+        assert!(!c[0].quotes.is_empty(), "{:?}", c[0].quotes);
+        assert!(slid_line_citation(&c).passed());
+        assert!(
+            citation_label_not_cited(&c).passed(),
+            "{:?}",
+            citation_label_not_cited(&c).violations
+        );
+    }
+
+    /// One partition, four checks: a dead range is dead, and is not additionally blamed
+    /// for what its label says.
+    #[test]
+    fn a_dead_citation_is_not_also_a_label_finding() {
+        let (_tmp, c) = cite_named(
+            "checks.rs",
+            "pub fn unknown_class() {}\n",
+            "([`unknown-class`](../checks.rs#L9)).\n",
+        );
+        assert_eq!(dead_line_citation(&c).violations.len(), 1);
+        assert!(citation_label_not_cited(&c).passed());
+        assert!(unverified_line_citation(&c).passed());
+    }
+
+    /// Any one `::` segment is enough. The alternative reports a citation of `current()`
+    /// for not repeating its module path, which is a fact about Rust and not about the
+    /// citation.
+    #[test]
+    fn one_segment_of_a_qualified_label_is_enough() {
+        let (_tmp, c) = cite_named(
+            "report.rs",
+            "impl YidamBlock {\n    pub fn current() -> Self {\n",
+            "the fields [`report::YidamBlock::current()`](../report.rs#L2) already assembles\n",
+        );
+        assert!(
+            citation_label_not_cited(&c).passed(),
+            "{:?}",
+            citation_label_not_cited(&c).violations
+        );
+    }
+
+    // ── The seven (#627, reconstructed) ─────────────────────────────────────
+
+    /// The six RFC-0018 citations #627 repointed by hand, as the diff's two sides write
+    /// them: `(label, line before the repair, line after it)`.
+    const REPOINTED: &[(&str, usize, usize)] = &[
+        ("unknown-class", 472, 749),
+        ("undeclared-property", 823, 988),
+        ("missing-property", 881, 1138),
+        ("property-type", 1032, 1383),
+        ("unlicensed-edge", 1098, 1443),
+        ("edge-target-class", 1164, 1508),
+    ];
+
+    /// `checks.rs` as it stood when the seven were repointed, at every line either side of
+    /// the repair cites. Filler elsewhere — non-blank filler, because a citation of a blank
+    /// line is the one case `dead-line-citation` already had.
+    fn checks_rs_at_the_repair() -> String {
+        // The real content at each cited line, read out of the tree at 5a0249e.
+        let real: &[(usize, &str)] = &[
+            (472, "/// shape `analytic_note` is exempted for, one field over. Deciding automatically which"),
+            (749, "pub fn unknown_class(nodes: &[Node], defined: &HashSet<String>) -> Check {"),
+            (823, "         it is not in the graph at all.\","),
+            (988, "pub fn undeclared_property("),
+            // 881 is the one the #600 gate did catch: the repair above it left it blank.
+            (881, ""),
+            (1138, "pub fn missing_property(nodes: &[Node], classes: &[Class]) -> Check {"),
+            (1032, "/// the others reports a statement the ontology actually made being contradicted: a property"),
+            (1383, "pub fn property_type("),
+            (1098, "    for n in nodes {"),
+            (1443, "pub fn unlicensed_edge(nodes: &[Node], classes: &[Class]) -> Check {"),
+            (1164, "                    class.rel,"),
+            (1508, "pub fn edge_target_class(nodes: &[Node], classes: &[Class]) -> Check {"),
+            // RFC-0019's citation, the one carrying a quote.
+            (1460, "            }"),
+            (1461, "            let v = Violation::new("),
+            (1462, "                &n.rel,"),
+            (1495, "         its own never claimed to be complete. Only links landing on another instance are \\"),
+            (1496, "         read: a link to the class file or into the catalog is a citation, not a \\"),
+            (1497, "         relationship. A class that declares no `edges:` has said nothing and is not \\"),
+        ];
+        let mut lines = vec!["    // a line of some other check entirely".to_string(); 1600];
+        for (n, text) in real {
+            lines[n - 1] = (*text).to_string();
+        }
+        lines.join("\n") + "\n"
+    }
+
+    /// RFC-0018's sentence and RFC-0019's, with the line numbers each side of 5a0249e
+    /// writes. `at` picks the tuple element that supplies the fragment.
+    fn the_seven_doc(before: bool) -> String {
+        let pick = |i: usize| match before {
+            true => REPOINTED[i].1,
+            false => REPOINTED[i].2,
+        };
+        let mut s = String::from(
+            "`.ont.yml` now declares, and lint now enforces: the class an instance belongs to\n",
+        );
+        for (i, (label, _, _)) in REPOINTED.iter().enumerate() {
+            s.push_str(&format!(
+                "([`{label}`](../checks.rs#L{}), Error), and\n",
+                pick(i)
+            ));
+        }
+        let (a, b) = match before {
+            true => (1460, 1462),
+            false => (1495, 1497),
+        };
+        s.push_str(&format!(
+            "\n`unlicensed-edge`'s own rationale draws this line already \
+             ([`checks.rs:{a}-{b}`](../checks.rs#L{a}-L{b})): *a link to the class file or \
+             into the catalog is a citation, not a relationship.*\n"
+        ));
+        s
+    }
+
+    /// #632's proof obligation. Seven citations had already slid when a person found them
+    /// by hand (#627); **five were invisible to every gate**, and those five are what this
+    /// check exists for. The other two are the shapes the gate already had: one range went
+    /// blank, and one carried a quote.
+    #[test]
+    fn the_seven_citations_627_repointed_by_hand_are_all_reported() {
+        let (_tmp, c) = cite_named(
+            "checks.rs",
+            &checks_rs_at_the_repair(),
+            &the_seven_doc(true),
+        );
+        assert_eq!(c.len(), 7, "the fixture must hold all seven");
+
+        let label = citation_label_not_cited(&c);
+        assert_eq!(
+            label.violations.len(),
+            5,
+            "the five nothing could see:\n{:?}",
+            label.violations
+        );
+        for (name, _, _) in REPOINTED.iter().filter(|(_, old, _)| *old != 881) {
+            assert!(
+                label
+                    .violations
+                    .iter()
+                    .any(|v| v.detail.contains(&format!("`{name}`"))),
+                "{name} is not among the findings: {:?}",
+                label.violations
+            );
+        }
+        assert_eq!(
+            dead_line_citation(&c).violations.len(),
+            1,
+            "`missing-property` cited L881, which the repair above it had left blank"
+        );
+        assert_eq!(
+            slid_line_citation(&c).violations.len(),
+            1,
+            "RFC-0019's citation quoted its passage, so the gate already had it"
+        );
+        // Seven citations, seven findings, no citation counted twice.
+        assert!(unverified_line_citation(&c).passed());
+    }
+
+    /// The same seven, repointed as #627 repointed them, against the same file: silent for
+    /// the right reason. Without this the test above passes on a check that reports
+    /// everything.
+    #[test]
+    fn the_seven_go_quiet_once_repointed() {
+        let (_tmp, c) = cite_named(
+            "checks.rs",
+            &checks_rs_at_the_repair(),
+            &the_seven_doc(false),
+        );
+        assert_eq!(c.len(), 7);
+        for check in [
+            citation_label_not_cited(&c),
+            dead_line_citation(&c),
+            slid_line_citation(&c),
+            citation_range_stated_twice(&c),
+        ] {
+            assert!(check.passed(), "{}: {:?}", check.id, check.violations);
+        }
     }
 }
