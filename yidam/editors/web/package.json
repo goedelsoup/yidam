@@ -35,8 +35,8 @@
     "dev": "astro dev",
     "preview": "node ./bin/yidam-edit.mjs --no-open",
     "check": "astro check",
-    "test:unit": "node --test test/*.mjs",
-    "test": "node --test test/*.mjs"
+    "test:unit": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=junit.xml test/*.mjs",
+    "test": "npm run test:unit"
   },
   "dependencies": {
     "@astrojs/node": "^9.0.0",

@@ -175,6 +175,39 @@ jobs:
           artifact: test-results-vscode
           json: "true"
 
+  editor-web:
+    # The web editor surface (RFC-0030, #606). Separate from `vscode` above for the reason
+    # that job is separate from the Rust matrix — no shared toolchain — and separate from the
+    # docs site because that one is built and deployed by `docs.yml`.
+    #
+    # It needs **no yidam binary**, unlike `vscode`. Everything this package asserts is a
+    # property of the package: the RFC-0016 boundary gates read its own import graph, the
+    # parity test compares its two copied modules against the extension's, and the flag and
+    # origin tests are pure functions. That is deliberate rather than lucky — a gate that
+    # needed a corpus to run is a gate that gets skipped on the day it matters.
+    #
+    # `ci-editor-web` builds before it tests. The build is what proves `app.css`'s relative
+    # `@import` of `yidam/design/` still resolves, which no unit test here can see.
+    name: ci (editor-web)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - run: npm install
+        working-directory: yidam/editors/web
+      - run: mise run ci-editor-web
+      # No `manifest`, for the reason the extension gives one job up: node's JUnit reporter
+      # writes no `<system-out>`, so a runtime skip would be invisible to the census however
+      # it were counted. This package has no environment-gated suite, and every test in it is
+      # meant to run everywhere.
+      - uses: ./.github/actions/test-summary
+        if: always()
+        with:
+          gate: ci (editor-web)
+          junit: yidam/editors/web/junit.xml
+          artifact: test-results-editor-web
+          json: "true"
+
   parity:
     # The cross-language parity suites, which nothing ran. `ci-cli` builds only the CLI's
     # own test targets — there is no [workspace] table joining yidam/cli to
@@ -541,7 +574,7 @@ jobs:
     # failed.
     name: ci (quality report)
     if: always()
-    needs: [ci, vscode, parity, cli-full]
+    needs: [ci, vscode, editor-web, parity, cli-full]
     # Declared rather than inherited. The repository's default is read-all today, which grants
     # the jobs API by accident; a settings change to "restricted" would take it away and the
     # step that reads conclusions would fail with a report that still merges — quietly losing
