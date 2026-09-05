@@ -29,6 +29,8 @@ fn class(name: &str, properties: &[&str], edges: &[&str]) -> Class {
         edge_policy: Default::default(),
         max_lines: None,
         implemented_by: None,
+        foundational_type: None,
+        dead_alignment_fields: vec![],
     }
 }
 

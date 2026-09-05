@@ -96,7 +96,7 @@ is authoring an edge, and an edge is a claim.
 
 **(b) In the worked example the check cannot fire at all.** `is_source_class` reads only the
 class's *own* edge list, and is true when that list is non-empty and holds no `direction: in`
-entry ([`checks.rs:125-132`](../../yidam/cli/src/cmd/lint/checks.rs#L125-L132)). Every class in
+entry ([`checks.rs:132-139`](../../yidam/cli/src/cmd/lint/checks.rs#L132-L139)). Every class in
 `examples/streamflow` declares outbound edges only, so all three derive as source classes and
 every instance is exempt.
 

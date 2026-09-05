@@ -432,6 +432,8 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         orphan_in_dated(root, &nodes, &classes).escalating_after(escalate_after),
         checks::catalog_uncited(&sources, &cites),
         checks::class_asserts_purpose(&classes),
+        checks::foundational_field_misspelled(&classes),
+        checks::foundational_type_malformed(&classes),
         checks::resolution_annotation_malformed(&annotations),
         checks::resolution_annotation_decides(&annotations),
         checks::resolution_elector_unregistered(&sangha.resolutions, &registered),
@@ -847,7 +849,22 @@ decision := {"allow": true, "deny": []}
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 46);
+
+        // Against a repository that *has* findings, rather than against a number written
+        // here. The invariant is that a passing run reports the same checks a failing one
+        // does; the literal was 46 and only ever recorded how many existed the day it was
+        // typed.
+        let dirty = repo_with_an_aged_orphan(6);
+        let dirty_ids: HashSet<&str> = run_checks(dirty.path(), &Options::default())
+            .iter()
+            .map(|c| c.id)
+            .collect();
+        let clean_ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
+        assert_eq!(
+            clean_ids, dirty_ids,
+            "a passing run reports fewer checks than a failing one"
+        );
+        assert_eq!(all.len(), clean_ids.len(), "a check id was reported twice");
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
@@ -1019,9 +1036,15 @@ decision := {"allow": true, "deny": []}
             "imported:\n  - path: docs/x\n    from: a\n    why: b\n",
         );
         assert!(crate::authorship::Authorship::load(tmp.path()).is_err());
-        // …while the checks themselves keep answering, for the editor's sake.
+        // …while the checks themselves keep answering, for the editor's sake. Compared
+        // against a repository whose manifest reads, so the number is derived rather than
+        // written: the literal here was 46 and said nothing about the manifest.
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 46);
+        let sound = clean_repo();
+        assert_eq!(
+            all.len(),
+            run_checks(sound.path(), &Options::default()).len()
+        );
     }
 
     /// A class declaring an implementation, and a `crates/` tree that may or may not hold it.
@@ -1346,7 +1369,13 @@ decision := {"allow": true, "deny": []}
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 46, "every check still ran");
+
+        // Compared against the same repository with a config that parses, rather than against
+        // a number written here. The literal was 46 and went stale the next time a check was
+        // added — which says nothing about escalation, and is the one thing this test is for.
+        let sound = repo_with_an_aged_orphan(6);
+        let expected = run_checks(sound.path(), &Options::default()).len();
+        assert_eq!(all.len(), expected, "every check still ran");
         assert_eq!(errors(&all), 0);
     }
 

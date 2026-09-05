@@ -119,6 +119,13 @@ pub struct Class {
     /// contradicted rather than an omission, which is why [`unimplemented_class`] gates
     /// where `missing-property` does not.
     pub implemented_by: Option<String>,
+    /// The declared foundational alignment, or `None` when the corpus chose none — which is
+    /// every corpus this repository ships, and a legitimate answer the bootstrap dialogue
+    /// offers by name.
+    pub foundational_type: Option<FoundationalType>,
+    /// Dead alignment spellings this class file carries, as written. Empty for almost every
+    /// class; [`foundational_field_misspelled`] is the only reader.
+    pub dead_alignment_fields: Vec<&'static str>,
 }
 
 /// One typed field a class declares.
@@ -258,6 +265,37 @@ pub(crate) struct ClassFields {
     max_lines: Option<usize>,
     #[serde(default)]
     implemented_by: Option<String>,
+    #[serde(default)]
+    foundational_type: Option<FoundationalType>,
+    /// The three spellings that were never read by anything. Deserialized only so
+    /// [`foundational_field_misspelled`] can see them — `bootstrap.md` told authors to write
+    /// `bfo_type:` for its whole life, and `additionalProperties: true` on the class body
+    /// meant a corpus that believed it never heard otherwise. See #613.
+    #[serde(default)]
+    bfo_type: Option<serde_yaml::Value>,
+    #[serde(default)]
+    ufo_type: Option<serde_yaml::Value>,
+    #[serde(default)]
+    bfo_anchor: Option<String>,
+}
+
+/// A class's foundational alignment: which upper ontology, which type in it, and optionally
+/// the IRI that type has there.
+///
+/// `iri` is optional because the alignment is worth stating even when nobody has looked the
+/// IRI up, and because deriving one from `type` would mean shipping a BFO and gUFO term table
+/// in the binary — a second copy of somebody else's vocabulary, wrong the moment they revise
+/// it. When it is present `export-rdf` emits `skos:exactMatch`; when it is absent the
+/// ontology and type still reach RDF as literals, which is what `bfo_anchor:` never did for
+/// a UFO-aligned corpus.
+#[derive(Default, Clone, serde::Deserialize)]
+pub struct FoundationalType {
+    #[serde(default)]
+    pub ontology: String,
+    #[serde(default, rename = "type")]
+    pub ty: String,
+    #[serde(default)]
+    pub iri: Option<String>,
 }
 
 impl Class {
@@ -287,6 +325,15 @@ impl Class {
                 .implemented_by
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty()),
+            foundational_type: fields.foundational_type,
+            dead_alignment_fields: [
+                fields.bfo_type.is_some().then_some("bfo_type"),
+                fields.ufo_type.is_some().then_some("ufo_type"),
+                fields.bfo_anchor.is_some().then_some("bfo_anchor"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
         }
     }
 }
@@ -576,6 +623,105 @@ fn elide(sentence: &str, hit: &str) -> String {
 }
 
 // ── corpus structure ──────────────────────────────────────────────────────────
+
+/// A class file naming foundational alignment in a spelling nothing reads.
+///
+/// `foundational_type:` is the field: `yidam schema` validates it, the bootstrap template
+/// writes it, and `export-rdf` reads it. Three other spellings existed. `bfo_type:` and
+/// `ufo_type:` were what `bootstrap.md` told authors to write, in prose, one hundred and
+/// ninety lines above its own template writing the correct one — so an agent following the
+/// dialogue produced a field no part of the toolchain had ever read. `bfo_anchor:` was read
+/// by `export-rdf` and written by nothing, which is the same bug from the other end: the RDF
+/// export looked for a field bootstrap never produced, so a corpus that declared an alignment
+/// exported no `skos:exactMatch` at all.
+///
+/// None of it went red. The class body is `additionalProperties: true`, so an undeclared key
+/// validates, and no corpus this repository ships declares an alignment — the path was never
+/// exercised. This check is the thing that would have said so. It gates rather than warns,
+/// because a silently-ignored alignment field is indistinguishable from an alignment.
+pub fn foundational_field_misspelled(classes: &[Class]) -> Check {
+    let violations = classes
+        .iter()
+        .flat_map(|c| {
+            c.dead_alignment_fields.iter().map(move |f| {
+                let fix = if *f == "bfo_anchor" {
+                    "move the URI to `foundational_type.iri`"
+                } else {
+                    "write `foundational_type:` with `ontology:` and `type:`"
+                };
+                Violation::new(&c.rel, format!("`{f}:` is read by nothing — {fix}"))
+            })
+        })
+        .collect();
+    Check::new(
+        "foundational-field-misspelled",
+        "Class declares foundational alignment in a field nothing reads",
+        Severity::Error,
+        "Foundational alignment is `foundational_type:`, carrying `ontology: bfo|ufo`, a \
+         `type:`, and optionally the `iri:` that type has in that ontology. `bfo_type:` and \
+         `ufo_type:` were never read by anything — they are what bootstrap's prose asked for \
+         while its own template asked for `foundational_type:`. `bfo_anchor:` was read by \
+         `export-rdf` and written by nothing, and was BFO-only besides, so a UFO-aligned \
+         corpus could not use it. A class carrying one of these has stated an alignment that \
+         no gate, query, or export can see, which is worse than stating none: the corpus \
+         believes it is aligned. See docs/vocabulary.md and RFC-0013.",
+        violations,
+    )
+}
+
+/// A class that declared an alignment the vocabulary does not have.
+///
+/// `foundational_type` is validated by `yidam schema` for shape — that `ontology` and `type`
+/// are present strings — but a schema cannot say that `bfo-2` is not an ontology or that
+/// `BFO_0000002` is not an IRI. Both produce an alignment that exports as a literal nobody
+/// can resolve, which is the failure `foundational_field_misspelled` exists for wearing a
+/// valid field name.
+///
+/// The `type` is deliberately unchecked. BFO and UFO both have large term sets that their
+/// maintainers revise, and a list of them compiled into this binary would be a second copy of
+/// somebody else's vocabulary — wrong the moment they revise it, and refusing terms a corpus
+/// is right to use. `ontology` is checkable because it is two values and they are ours.
+pub fn foundational_type_malformed(classes: &[Class]) -> Check {
+    let violations = classes
+        .iter()
+        .filter_map(|c| {
+            let ft = c.foundational_type.as_ref()?;
+            let problem = if !matches!(ft.ontology.as_str(), "bfo" | "ufo") {
+                format!(
+                    "`ontology: {}` — the values are `bfo` and `ufo`",
+                    ft.ontology
+                )
+            } else if ft.ty.trim().is_empty() {
+                format!("`ontology: {}` with no `type:`", ft.ontology)
+            } else if ft
+                .iri
+                .as_deref()
+                .is_some_and(|i| !i.starts_with("http://") && !i.starts_with("https://"))
+            {
+                format!(
+                    "`iri: {}` is not an absolute IRI",
+                    ft.iri.as_deref().unwrap_or_default()
+                )
+            } else {
+                return None;
+            };
+            Some(Violation::new(&c.rel, problem))
+        })
+        .collect();
+    Check::new(
+        "foundational-type-malformed",
+        "Class declares a foundational alignment that cannot be resolved",
+        Severity::Error,
+        "`foundational_type:` carries `ontology: bfo` or `ontology: ufo`, a non-empty \
+         `type:`, and optionally an `iri:` beginning `http://` or `https://`. An alignment \
+         outside that shape reaches RDF as a literal no consumer can follow, which leaves \
+         the corpus asserting an alignment nothing can check — the state #613 found across \
+         four field names. The `type:` itself is not checked against BFO or UFO: their term \
+         sets are theirs to revise, and a copy of them in this binary would start refusing \
+         terms a corpus is right to use.",
+        violations,
+    )
+}
 
 pub fn missing_class(nodes: &[Node]) -> Check {
     let violations = nodes
@@ -1079,7 +1225,9 @@ pub fn unimplemented_class(classes: &[Class], types: &TypeIndex) -> Check {
         "unimplemented-class",
         "Class naming an implementation the code does not define",
         Severity::Error,
-        "A class declaring `implemented_by:` has stated a fact about `crates/`, and a tree \
+        "A class declaring `implemented_by:` has stated a fact about `crates/`,
+            foundational_type: None,
+            dead_alignment_fields: vec![], and a tree \
          with no type of that name contradicts it — which is what this check's siblings \
          gate on, and an omission is not. A class that declares nothing is not checked, and \
          that silence is measured rather than timid: across twelve derived corpora 129 of \
@@ -2689,6 +2837,8 @@ mod tests {
             edge_policy: EdgePolicy::default(),
             max_lines: None,
             implemented_by: None,
+            foundational_type: None,
+            dead_alignment_fields: vec![],
         };
         let node = |class: &str, file: &str| Node {
             path: PathBuf::from(format!("corpus/{class}/{file}.yml")),
@@ -2730,6 +2880,8 @@ mod tests {
             edge_policy: EdgePolicy::default(),
             max_lines: None,
             implemented_by: None,
+            foundational_type: None,
+            dead_alignment_fields: vec![],
         };
         let concept = Class {
             rel: ".yidam/corpus/concept.ont.yml".into(),
@@ -2740,6 +2892,8 @@ mod tests {
             edge_policy: EdgePolicy::default(),
             max_lines: None,
             implemented_by: None,
+            foundational_type: None,
+            dead_alignment_fields: vec![],
         };
         let classes = [gage, concept];
         let sources = source_classes(&edge_views(&classes));
@@ -2770,6 +2924,8 @@ mod tests {
             edge_policy: EdgePolicy::default(),
             max_lines: None,
             implemented_by: None,
+            foundational_type: None,
+            dead_alignment_fields: vec![],
         };
         let classes = [reach];
         assert!(source_classes(&edge_views(&classes)).contains("reach"));
@@ -2792,6 +2948,8 @@ mod tests {
             edge_policy: EdgePolicy::default(),
             max_lines: None,
             implemented_by: None,
+            foundational_type: None,
+            dead_alignment_fields: vec![],
         };
         let b = Class {
             rel: ".yidam/corpus/b.ont.yml".into(),
@@ -2802,6 +2960,8 @@ mod tests {
             edge_policy: EdgePolicy::default(),
             max_lines: None,
             implemented_by: None,
+            foundational_type: None,
+            dead_alignment_fields: vec![],
         };
         let classes = [a, b];
         assert!(source_classes(&edge_views(&classes)).is_empty());
@@ -2822,6 +2982,8 @@ mod tests {
             edge_policy: EdgePolicy::default(),
             max_lines: None,
             implemented_by: None,
+            foundational_type: None,
+            dead_alignment_fields: vec![],
         };
         assert!(
             source_classes(&edge_views(std::slice::from_ref(&silent))).is_empty(),
@@ -3393,6 +3555,8 @@ mod tests {
             edge_policy: EdgePolicy::default(),
             max_lines: None,
             implemented_by: None,
+            foundational_type: None,
+            dead_alignment_fields: vec![],
         }
     }
 
@@ -3575,6 +3739,8 @@ mod tests {
             edge_policy: EdgePolicy::default(),
             max_lines: max,
             implemented_by: None,
+            foundational_type: None,
+            dead_alignment_fields: vec![],
         }
     }
 
@@ -3655,6 +3821,8 @@ mod tests {
             edge_policy: EdgePolicy::default(),
             max_lines: None,
             implemented_by: impl_by.map(str::to_string),
+            foundational_type: None,
+            dead_alignment_fields: vec![],
         }
     }
 
@@ -5131,5 +5299,104 @@ After [it](there.md).
     #[test]
     fn no_links_is_clean() {
         assert!(broken_prose_link(&[]).passed());
+    }
+}
+
+/// #613 — foundational alignment had four field names and the export read the one nothing
+/// wrote. These cover the two checks that make that state visible.
+#[cfg(test)]
+mod foundational_alignment_tests {
+    use super::*;
+
+    /// Build a class from its file's actual bytes, so these exercise the deserialization the
+    /// bug lived in rather than a struct literal that cannot reproduce it.
+    fn ont(rel: &str, yaml: &str) -> Class {
+        Class::from_fields(rel, serde_yaml::from_str(yaml).unwrap())
+    }
+
+    #[test]
+    fn the_field_bootstrap_asked_for_is_read_by_nothing_and_says_so() {
+        // `bootstrap.md` told authors to write this for the whole life of the field, in prose
+        // 190 lines above its own template writing the correct one. #613.
+        for dead in ["bfo_type: continuant", "ufo_type: relator"] {
+            let c =
+                foundational_field_misspelled(&[ont("x.ont.yml", &format!("class: x\n{dead}\n"))]);
+            assert!(!c.passed(), "{dead} must not pass");
+            assert!(
+                c.violations[0].detail.contains("foundational_type"),
+                "the finding must name the field that works, got: {}",
+                c.violations[0].detail
+            );
+        }
+    }
+
+    #[test]
+    fn the_field_the_rdf_export_used_to_read_is_named_too() {
+        let c = foundational_field_misspelled(&[ont(
+            "x.ont.yml",
+            "class: x\nbfo_anchor: http://purl.obolibrary.org/obo/BFO_0000002\n",
+        )]);
+        assert!(!c.passed());
+        assert!(
+            c.violations[0].detail.contains("iri"),
+            "a bfo_anchor holds a URI, so the repair is where the URI now goes: {}",
+            c.violations[0].detail
+        );
+    }
+
+    #[test]
+    fn a_correct_alignment_passes_both_checks() {
+        let good = ont(
+            "x.ont.yml",
+            "class: x\nfoundational_type:\n  ontology: ufo\n  type: relator\n  iri: https://purl.org/nemo/gufo#Relator\n",
+        );
+        assert!(foundational_field_misspelled(std::slice::from_ref(&good)).passed());
+        assert!(foundational_type_malformed(&[good]).passed());
+    }
+
+    #[test]
+    fn an_alignment_with_no_iri_is_complete() {
+        // The IRI is optional on purpose: the alignment is worth stating without one, and
+        // requiring it would mean shipping a BFO/gUFO term table to derive it.
+        let c = ont(
+            "x.ont.yml",
+            "class: x\nfoundational_type:\n  ontology: bfo\n  type: continuant\n",
+        );
+        assert!(foundational_type_malformed(&[c]).passed());
+    }
+
+    #[test]
+    fn a_class_with_no_alignment_at_all_passes() {
+        // Every corpus this repository ships is here, and "none" is an answer the bootstrap
+        // dialogue offers by name.
+        let c = ont("x.ont.yml", "class: x\ndescription: A thing.\n");
+        assert!(foundational_field_misspelled(std::slice::from_ref(&c)).passed());
+        assert!(foundational_type_malformed(&[c]).passed());
+    }
+
+    #[test]
+    fn an_ontology_outside_the_two_is_malformed() {
+        for bad in [
+            "  ontology: bfo-2\n  type: continuant",
+            "  ontology: bfo\n  type: \"\"",
+            "  ontology: bfo\n  type: continuant\n  iri: BFO_0000002",
+        ] {
+            let c = foundational_type_malformed(&[ont(
+                "x.ont.yml",
+                &format!("class: x\nfoundational_type:\n{bad}\n"),
+            )]);
+            assert!(!c.passed(), "must not pass: {bad}");
+        }
+    }
+
+    #[test]
+    fn the_type_itself_is_not_checked_against_a_term_list() {
+        // A list of BFO/UFO terms in this binary would start refusing terms a corpus is right
+        // to use the first time either ontology is revised.
+        let c = ont(
+            "x.ont.yml",
+            "class: x\nfoundational_type:\n  ontology: bfo\n  type: a-term-invented-today\n",
+        );
+        assert!(foundational_type_malformed(&[c]).passed());
     }
 }
