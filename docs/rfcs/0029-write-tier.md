@@ -1,6 +1,6 @@
 # RFC-0029 — A write is a capability a server declares, not a transport it happens to have (the MCP write tier)
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Track:** I24
 - **Relates to:**
   - RFC-0005 (the frozen contract this changes on the record; `tools.json` is the canonical list and this RFC's build bumps it)
