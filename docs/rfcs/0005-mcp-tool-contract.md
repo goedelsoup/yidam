@@ -6,6 +6,17 @@
 - **Versioning layers touched:** SDK+parity (the contract) / template (the Rust CLI implements it)
 - **Downstream reference case:** Project BOSC (watermark-directory)
 
+> **Pointer, 2026-09-04.** The prose below describes the contract at freeze time — four core
+> tools, a capability example at contract 0.4.0 — and is left as written. The canonical list is
+> `yidam/prelude/sdks/parity/mcp/tools.json`, which says of itself that it is the only place the
+> list lives; the contract has since grown to thirteen tools at 0.13.0, **on the record, through
+> later RFCs rather than edits here**: RFC-0017 (0.4.0 → 0.5.0; `pack`, `absence`, `estimate` at
+> 0.7.0–0.9.0), RFC-0018 (0.5.0 → 0.6.0), RFC-0019 (`check_citation` at 0.12.0), with the
+> issue-level bumps between them documented in `parity/mcp/README.md`. Extending it next:
+> [RFC-0027](0027-openai-profile.md) (the `profiles` projection) and
+> [RFC-0029](0029-write-tier.md) (the `act` tier — the first write-capable surface, and the RFC
+> that decides how this frozen contract changes rather than quietly grows).
+
 ## Summary
 
 yidam exposes its corpus over MCP in three mutually incompatible forms — the TypeScript

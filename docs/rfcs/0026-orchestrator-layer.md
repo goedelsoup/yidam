@@ -17,6 +17,14 @@
 - **Downstream reference case:** none yet. The first consumer is `examples/streamflow`, by
   construction — see "Why the first thing built is not the manifest".
 
+> **Noted 2026-09-04.** Open question 2 — does a write-capable MCP tool live in the existing tier
+> or a new one — is answered by [RFC-0029](0029-write-tier.md): the same tier mechanism, with an
+> opt-in declaration and an identity gate (declarable only where a git author identity exists).
+> The question's #426 clause is discharged rather than carried: RFC-0027 corrected the premise —
+> a profile is a projection of the canonical list, so a new tier changes nothing a profile
+> serves — and RFC-0029 §2.4 restates the constraint in that corrected form. The invariant this
+> RFC states is what made the answer safe to give; RFC-0029 §3 says how.
+
 ## Summary
 
 `prelude/GRAPH.md:477-494` closes the commit vocabulary, and seven of its operational verbs name
