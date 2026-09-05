@@ -1,6 +1,6 @@
 # RFC-0028 — The form a practice takes (the kuten layer)
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Track:** I23
 - **Relates to:**
   - RFC-0020 (the carriage lineage this extends a third step — from findings to executions to conduct)
