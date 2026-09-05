@@ -191,7 +191,7 @@ The slot inventory, with A0's verdicts as #572 records them:
 | **object** — the artifact outside the corpus, and its direction | real — the one axis that breaks conformance | A3 §6, A6 |
 | **dialogue** — what the bootstrap asks | real | A2 |
 | **skills** — what the practice routes through | real | A2 |
-| **rubric** — the criteria a contribution is scored by | real | **A5, co-designed with #286** (scope decision 3): a rubric built alone would be `escalate_after`'s argument violated at rubric scale — *"a value compiled into the binary would be one corpus's answer imposed on every other"* ([`config.rs:52`](../../yidam/cli/src/config.rs#L52)) |
+| **rubric** — the criteria a contribution is scored by | real | **A5, co-designed with #286** (scope decision 3): a rubric built alone would be `escalate_after`'s argument violated at rubric scale — *"a value compiled into the binary would be one corpus's answer imposed on every other"* ([`config.rs:52-53`](../../yidam/cli/src/config.rs#L52-L53)) |
 | **clocks** — proposed `[due]` values | premature: config empty in 17 of 18 — ships as a **proposal with values**, not a permission with blanks | A2, §9 |
 | **policy** — proposed severities and overrides | premature: no `.rego` in eighteen — ships as a **proposal with values**, through RFC-0024's layer, visible as an override | A2, §7 row 5 |
 | **question-pressure** — what kind of question this corpus should open | not measurable (nothing existing creates it); settled in #572's negotiation | A3, §5 |
@@ -269,11 +269,11 @@ makes the architectural call it deferred. The argument for feeding rather than r
    26-vs-1 count on a repository that reproduces it; tearing the mechanism out to re-earn the
    number from a record is work the restatement on #473 already struck.
 3. **The two sources answer different questions, and the shipped code says so.**
-   [`git.rs:244`](../../yidam/cli/src/git.rs#L244)'s `ref_state` is documented as *"the single
-   classifier — `yidam status` counts these and `yidam phases` prints them, and they must not be
-   able to disagree."* `RefKind` answers *what is this ref*; the run record answers *what
-   happened in this run*. Collapsing them recreates #272's actual defect — two surfaces free to
-   disagree — one level up.
+   `ref_state` is documented as *"the single classifier. `yidam status` counts these and
+   `yidam phases` prints them, and they must not be able to disagree"*
+   ([`git.rs:241-244`](../../yidam/cli/src/git.rs#L241-L244)). `RefKind` answers *what is
+   this ref*; the run record answers *what happened in this run*. Collapsing them recreates
+   #272's actual defect — two surfaces free to disagree — one level up.
 
 Concretely: `RefKind` remains the namespace classifier. Where a run record exists for a ref, the
 record is authoritative for **state** (active, interrupted, settled) and carries the declared
