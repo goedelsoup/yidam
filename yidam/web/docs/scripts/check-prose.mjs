@@ -55,6 +55,8 @@ export const TIER2 = new Set([
   'domain-computer.md', 'web-interface.md', 'sangha-resolution-flow.md',
   'constitutional-governance.md', 'conduct-norms.md', 'quality-rubric.md', 'test-harness.md',
   'post-genesis-measurement.md', 'style-guide.md',
+  'ontology/what-an-ontology-is.md', 'ontology/choosing-an-alignment.md',
+  'ontology/alignment-in-practice.md',
 ]);
 
 /** Tier 3 — argument and narrative. No ceiling; the register is deliberate. */
