@@ -67,13 +67,13 @@ at depth 2 and all of it at depth 3.
 ### E1 typed the graph and no traversal reads the types
 
 `.ont.yml` now declares, and lint now enforces: the class an instance belongs to
-([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L472), Error), the properties it may
-and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L823),
-[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L881)), the type of each value
-([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1032)), which relationships a class
-licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1098)), and which class
+([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L749), Error), the properties it may
+and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L988),
+[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1138)), the type of each value
+([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1383)), which relationships a class
+licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1443)), and which class
 each relationship may land on
-([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1164), Error).
+([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1508), Error).
 
 `unlicensed-edge`'s own rationale states the gap in as many words
 ([`checks.rs:1109`](../../yidam/cli/src/cmd/lint/checks.rs#L1109)):
