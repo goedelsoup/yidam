@@ -103,6 +103,7 @@ impl Check {
     const VAULT: &'static str = "vault";
     const POLICY: &'static str = "policy";
     const GOVERNANCE: &'static str = "governance";
+    const KUTEN: &'static str = "kuten";
 
     fn new(
         id: &'static str,
@@ -624,6 +625,7 @@ pub(crate) fn diagnose(
                 "Is this repository's governance mode carrying its own weight?",
                 why,
             ),
+            Check::skipped(Check::KUTEN, KUTEN_QUESTION, why),
             check_build(),
         ];
     }
@@ -640,8 +642,83 @@ pub(crate) fn diagnose(
         check_vault(root),
         check_policy(root),
         check_governance(root),
+        check_kuten(root),
         check_build(),
     ]
+}
+
+/// The question `doctor` asks about the kuten, in one place so the skipped arm and the
+/// answered arm cannot ask two different things.
+const KUTEN_QUESTION: &str = "Which kuten does this repository hold, and at what revision?";
+
+/// Which declaration this repository adopted, and whether the vendored profile still matches
+/// it — RFC-0028 §9.
+///
+/// **Holding none is `Ok`.** That was every one of the eighteen corpora A0 measured, and a
+/// state eighteen repositories are in is not a fault to be listed under things to fix.
+///
+/// What warns is a declaration that cannot be honoured: a record naming a profile nothing
+/// vendored, or one whose revision has moved out from under it. Without the revision, `score`
+/// would score a repository against a kuten it may not hold and `fit` would compare two
+/// holding different ones — A0's own confound designed into A0's deliverable.
+fn check_kuten(root: &Path) -> Check {
+    let declaration = match crate::kuten::read_declaration(root) {
+        Ok(d) => d,
+        Err(e) => {
+            return Check::new(
+                Check::KUTEN,
+                KUTEN_QUESTION,
+                Verdict::Warn,
+                e.to_string(),
+                Some("fix the decision record, or delete it to hold no kuten"),
+            )
+        }
+    };
+    let Some(declaration) = declaration else {
+        return Check::new(
+            Check::KUTEN,
+            KUTEN_QUESTION,
+            Verdict::Ok,
+            "none — the loop runs on the template's defaults",
+            None,
+        );
+    };
+    match crate::kuten::read_profile(root, &declaration.name) {
+        Err(e) => Check::new(
+            Check::KUTEN,
+            KUTEN_QUESTION,
+            Verdict::Warn,
+            e.to_string(),
+            Some("re-vendor the prelude"),
+        ),
+        Ok(None) => Check::new(
+            Check::KUTEN,
+            KUTEN_QUESTION,
+            Verdict::Warn,
+            format!(
+                "`{}` is declared and no profile is vendored for it",
+                declaration.name
+            ),
+            Some("mise run yidam-vendor-update"),
+        ),
+        Ok(Some(profile)) if profile.revision != declaration.revision => Check::new(
+            Check::KUTEN,
+            KUTEN_QUESTION,
+            Verdict::Warn,
+            format!(
+                "`{}` at revision {}, vendored at revision {}",
+                declaration.name, declaration.revision, profile.revision
+            ),
+            Some("re-vendor, or record a superseding `decide:` decision"),
+        ),
+        Ok(Some(profile)) => Check::new(
+            Check::KUTEN,
+            KUTEN_QUESTION,
+            Verdict::Ok,
+            format!("`{}`, revision {}", profile.name, profile.revision),
+            None,
+        ),
+    }
 }
 
 /// Do this repository's rules compile, and which of them are its own?

@@ -181,6 +181,7 @@ fn the_json_report_carries_the_envelope_and_every_check() {
         "vault",
         "policy",
         "governance",
+        "kuten",
         "build",
     ];
     let mut got = ids.clone();

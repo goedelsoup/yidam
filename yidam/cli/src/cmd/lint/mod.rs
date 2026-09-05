@@ -9,7 +9,7 @@ pub(crate) mod attest;
 pub(crate) mod baseline;
 pub(crate) mod checks;
 pub(crate) mod citations;
-mod commits;
+pub(crate) mod commits;
 pub(crate) mod history;
 pub mod json;
 pub(crate) mod line_citations;

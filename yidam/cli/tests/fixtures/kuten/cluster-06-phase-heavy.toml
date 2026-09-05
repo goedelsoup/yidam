@@ -1,0 +1,21 @@
+# One of the six, at the top of the phase band and the bottom of the accretion band.
+#
+# The bands are read independently, and this fixture is why: a repository can sit at one
+# band's ceiling and another's floor and still be inside the cluster. A composite score would
+# call it an outlier.
+note = "phase-heavy: 25% phases, 0.63 nodes/commit, a 38-line median"
+cluster = true
+
+[measurement]
+commits = 96
+phase_commits = 24
+off_vocabulary_commits = 0
+nodes = 60
+median_node_lines = 38.0
+
+[vintage]
+has_phase_verb = true
+vocabulary_is_closed = true
+graph_present = true
+
+[expect]

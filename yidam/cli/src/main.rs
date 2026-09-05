@@ -666,6 +666,18 @@ enum Command {
         #[command(subcommand)]
         sub: yidam::PolicyCommand,
     },
+    /// Declare what this corpus's practice is aimed at, and read the corpus against it
+    ///
+    /// A repository declares what it is *about* and, until now, never what its work is
+    /// *for*. A kuten is that declaration: vendored with the prelude, adopted by a decision
+    /// record, and narrowing the loop without widening the model.
+    ///
+    /// With no subcommand it writes the `AGENTS.md` REGEN block — the one path a
+    /// declaration has into what an agent reads at session start. `check` reads.
+    Kuten {
+        #[command(subcommand)]
+        sub: Option<yidam::KutenCommand>,
+    },
 }
 
 /// The ontology migrations, each naming exactly what it changes.
@@ -995,5 +1007,6 @@ fn main() -> Result<()> {
         // putting one in the signature of the ungated half. See `vault/store.rs`.
         Command::Vault { sub } => yidam::run_vault(sub),
         Command::Policy { sub } => yidam::run_policy(sub),
+        Command::Kuten { sub } => yidam::run_kuten(sub),
     }
 }

@@ -11,6 +11,9 @@ pub mod embed_config;
 #[cfg(feature = "vector-read")]
 pub mod embedding;
 mod git;
+/// What a corpus declares its practice is aimed at (RFC-0028). Public so the guards over
+/// the shipped profiles can parse them the way the binary does, rather than a second way.
+pub mod kuten;
 mod markdown;
 mod parse;
 mod paths;
@@ -44,12 +47,12 @@ pub use cmd::{
     dead_line_citation, decisions_log, diff_corpus, doctor, due, embed, estimate, export, graph,
     graph_check, index_status, index_verify, label_range, lint, list_formats, log, migrate,
     neighbors, open_questions, overlay, pack, packages_index, parse_bench_goals, phases, propose,
-    query, regen, relocate, rename, replay, run_export, run_policy, run_vault, samudaya_audit,
-    sangha, schema, serve_lsp, serve_mcp, skills_index, slid_line_citation, status,
+    query, regen, relocate, rename, replay, run_export, run_kuten, run_policy, run_vault,
+    samudaya_audit, sangha, schema, serve_lsp, serve_mcp, skills_index, slid_line_citation, status,
     unverified_line_citation, vault_status, vocabulary, BenchGoal, BenchGoalSet, EmbedOptions,
-    ExportFormat, ExportOptions, LineCitation, LineFragment, LintCheck, LintOptions, LintViolation,
-    LogFilter, MigrateOperation, PolicyCommand, ProposeOptions, RdfFormat, Relocation,
-    VaultCommand,
+    ExportFormat, ExportOptions, KutenCommand, LineCitation, LineFragment, LintCheck, LintOptions,
+    LintViolation, LogFilter, MigrateOperation, PolicyCommand, ProposeOptions, RdfFormat,
+    Relocation, VaultCommand,
 };
 
 /// The remote transport (#423). Gated because the feature is what pulls the server, and

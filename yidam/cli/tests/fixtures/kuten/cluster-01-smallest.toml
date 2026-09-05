@@ -1,0 +1,23 @@
+# One of the six repositories that defined `inquiry` — the smallest, at 73 commits.
+#
+# The shape, not the corpus. A0 published the cluster as four ranges over six repositories in
+# six unrelated domains; it did not publish a per-repository table, and inventing one here
+# would be the thing #574 forbids. What these fixtures pin is that a repository sitting
+# anywhere inside the published cluster — including on an endpoint — is recognized as one of
+# the six, and that the arithmetic between a raw count and a band does not lose it.
+note = "the low end of the cluster: 14% phases, 0.51 nodes/commit, a 35-line median"
+cluster = true
+
+[measurement]
+commits = 73
+phase_commits = 10
+off_vocabulary_commits = 0
+nodes = 37
+median_node_lines = 35.0
+
+[vintage]
+has_phase_verb = true
+vocabulary_is_closed = true
+graph_present = true
+
+[expect]

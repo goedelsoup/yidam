@@ -1,0 +1,22 @@
+# NOT one of the six. A repository that CAN run phases and does not.
+#
+# The pair to `control-vintage-prelude`: identical zero, opposite reading. This one's vendored
+# prelude carries the verb, so the zero is about the practice rather than about the template,
+# and the whole point of the vintage control is that these two are told apart.
+note = "declared inquiry, opened no phase in two hundred commits — a question, not a defect"
+cluster = false
+
+[measurement]
+commits = 200
+phase_commits = 0
+off_vocabulary_commits = 0
+nodes = 150
+median_node_lines = 44.0
+
+[vintage]
+has_phase_verb = true
+vocabulary_is_closed = true
+graph_present = true
+
+[expect]
+phase-commit-share = "divergent"

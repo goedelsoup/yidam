@@ -1,0 +1,21 @@
+# One of the six, read at a young maturity — which is where nodes per commit runs high.
+#
+# Maturity is the second of A0's two controls: nodes per commit halves over a repository's
+# life (2.07 at commit 69, 0.98 at 250, 0.54 at head). A young repository near the top of the
+# band and an old one near the bottom are the same practice, and both must be recognized.
+note = "young: 14% phases, 1.05 nodes/commit, a 41-line median"
+cluster = true
+
+[measurement]
+commits = 210
+phase_commits = 30
+off_vocabulary_commits = 0
+nodes = 220
+median_node_lines = 41.0
+
+[vintage]
+has_phase_verb = true
+vocabulary_is_closed = true
+graph_present = true
+
+[expect]

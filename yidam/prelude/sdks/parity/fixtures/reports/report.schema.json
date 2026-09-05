@@ -1271,6 +1271,159 @@
           }
         }
       }
+    },
+    "kuten": {
+      "type": "object",
+      "description": "`kuten check` only. What this corpus declared its practice is aimed at (RFC-0028), and where its own history disagrees. Advisory by construction: the command exits zero however far a corpus has drifted, so a consumer MUST NOT read a divergence as a gate failure.",
+      "required": [
+        "held",
+        "revision_skew",
+        "vintage",
+        "measurement",
+        "findings",
+        "conforming"
+      ],
+      "properties": {
+        "held": {
+          "type": "boolean",
+          "description": "Whether this repository declares a kuten at all. `false` is a supported state and not a finding — it was all eighteen corpora the layer was measured over."
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The kuten named by `.yidam/decisions/kuten.yml`."
+        },
+        "declared_revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "The revision the decision record names."
+        },
+        "vendored_revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "The revision of the profile actually vendored under `.yidam/.vendor/prelude/kuten/`."
+        },
+        "revision_skew": {
+          "type": "boolean",
+          "description": "Whether those two disagree. A comparison across revisions is annotated rather than silently made, on the same rule that refuses a cross-PROTOCOL_VERSION diff."
+        },
+        "unresolved": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Why there is nothing to compare, when a kuten is declared and cannot be read."
+        },
+        "vintage": {
+          "type": "object",
+          "description": "What the repository's VENDORED prelude could have produced. A metric that prelude could not have produced is reported as `vintage` and never as divergence — a repository whose GRAPH.md has no `phase` verb has not stopped running phases.",
+          "required": [
+            "has_phase_verb",
+            "vocabulary_is_closed",
+            "graph_present"
+          ],
+          "properties": {
+            "has_phase_verb": {
+              "type": "boolean"
+            },
+            "vocabulary_is_closed": {
+              "type": "boolean"
+            },
+            "graph_present": {
+              "type": "boolean",
+              "description": "Whether a vendored GRAPH.md was found at all. False is absence, not age."
+            }
+          }
+        },
+        "measurement": {
+          "type": "object",
+          "description": "What this repository's own history and working tree show.",
+          "required": [
+            "commits",
+            "phase_commits",
+            "off_vocabulary_commits",
+            "nodes"
+          ],
+          "properties": {
+            "commits": {
+              "type": "integer",
+              "description": "Commits with an authored subject; git-generated merge subjects are excluded, because nobody chose their verb."
+            },
+            "phase_commits": {
+              "type": "integer"
+            },
+            "off_vocabulary_commits": {
+              "type": "integer"
+            },
+            "nodes": {
+              "type": "integer"
+            },
+            "median_node_lines": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Null where the corpus has no instance nodes."
+            }
+          }
+        },
+        "findings": {
+          "type": "array",
+          "description": "One entry per band the kuten declares, including the ones that conform: a metric that vanishes when it agrees cannot be told from one that was never read. A slot the profile leaves unpopulated produces no entry.",
+          "items": {
+            "type": "object",
+            "required": [
+              "slot",
+              "metric",
+              "verdict",
+              "declared",
+              "measured"
+            ],
+            "properties": {
+              "slot": {
+                "type": "string",
+                "description": "The kuten slot the band belongs to."
+              },
+              "metric": {
+                "type": "string",
+                "description": "Stable identifier; the prose is free to change."
+              },
+              "verdict": {
+                "enum": [
+                  "conforming",
+                  "divergent",
+                  "vintage",
+                  "unmeasurable"
+                ],
+                "description": "`divergent` is a question for a person, never a defect. `vintage` means the vendored prelude could not have produced the metric. `unmeasurable` means there was nothing to measure."
+              },
+              "declared": {
+                "type": "string"
+              },
+              "measured": {
+                "type": "string"
+              },
+              "question": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The question a person is asked, where there is one. Absent on a conforming metric."
+              }
+            }
+          }
+        },
+        "conforming": {
+          "type": "boolean",
+          "description": "Whether every measured metric is inside its band. NOT an exit code: this command exits zero either way."
+        }
+      }
     }
   }
 }
