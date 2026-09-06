@@ -108,7 +108,7 @@ jobs:
       # three `@stable` steps left in install-channels.yml are the deliberate opposite:
       # they simulate a user, who has whatever stable is, and pinning them would test a
       # channel nobody uses. `toolchain_pins.rs` asserts both halves.
-      - uses: dtolnay/rust-toolchain@1.120.0
+      - uses: dtolnay/rust-toolchain@1.88.0
         with:
           targets: ${{ matrix.target }}
 
