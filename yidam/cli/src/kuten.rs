@@ -121,6 +121,12 @@ impl Declaration {
     }
 }
 
+/// Every run of whitespace — newlines included — as a single space, so a phrase can be
+/// matched without knowing where the paragraph it sits in was wrapped.
+fn collapse_whitespace(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// What the *vendored* prelude could have produced.
 ///
 /// Read from the vendored `GRAPH.md` rather than from upstream's current one, and read
@@ -151,13 +157,24 @@ impl Vintage {
     /// Read a vendored `GRAPH.md`.
     ///
     /// The `phase` row is matched as a table cell — `| `phase` |` — and not as the bare word,
-    /// which appears in this document's prose dozens of times in every vintage. The closed
-    /// list is matched on the sentence that declares it closed.
+    /// which appears in this document's prose dozens of times in every vintage. A GFM table
+    /// row is one line by construction, so that match cannot be broken by reflowing the
+    /// document; it would be broken by a formatter that drops the leading pipe, or by a
+    /// column inserted before `Verb`, and neither has ever happened here.
+    ///
+    /// The closed list is matched on the sentence that declares it closed, but against the
+    /// document with its whitespace collapsed rather than line by line. Matching the raw text
+    /// was the shipped behaviour and it read `false` against this template's own prelude and
+    /// all eighteen derived corpora: the sentence had been rewrapped so that `This` ended one
+    /// line and `list is closed:` began the next, and `contains` sees the newline. The
+    /// sentence is prose and will be rewrapped again, so nothing that treats a line break as
+    /// significant can hold. Collapsing first makes the match indifferent to where the
+    /// paragraph happens to break.
     pub fn read(graph_md: &str) -> Self {
         let has_phase_verb = graph_md
             .lines()
             .any(|l| l.trim_start().starts_with("| `phase`"));
-        let vocabulary_is_closed = graph_md.contains("This list is closed");
+        let vocabulary_is_closed = collapse_whitespace(graph_md).contains("This list is closed");
         Self {
             has_phase_verb,
             vocabulary_is_closed,
