@@ -28,7 +28,7 @@
       "claims_verified": 0,
       "claims_inference": 0,
       "claims_open": 0,
-      "lines": 9
+      "lines": 13
     },
     {
       "node": "concept/tailwater.yml",
@@ -38,7 +38,7 @@
       "claims_verified": 0,
       "claims_inference": 1,
       "claims_open": 0,
-      "lines": 15
+      "lines": 18
     },
     {
       "node": "gauge/riffle-station.yml",

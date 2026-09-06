@@ -42,9 +42,15 @@ has it. `--features index` adds nothing to the LSP.
 
 ### Severity, and the rule that outranks it
 
-Severity follows RFC-0016's table, and **baseline membership outranks check severity in both
-directions**. Inherited debt renders as a Hint however severe the check is. `yidam lint` does
+Severity follows RFC-0016's table, and **baseline membership outranks severity in both
+directions**. Inherited debt renders as a Hint however severe the finding is. `yidam lint` does
 not ask *is the corpus clean?* — it asks *did this change make it less clean?*
+
+The severity it reads is the **finding's**, which is not always its check's. A check is
+declared at a level and a finding can be raised past it: `missing-property` is declared `warn`
+and raises the omission of a property a class marked `required: true` to `error`, and a
+corpus-state finding that has outlived `escalate_after` escalates on age. The raised finding is
+the one that fails CI, so it is the one that renders as an Error.
 
 ### Neovim
 

@@ -12,31 +12,23 @@
  * silently, against a corpus that had findings. The field names here are the extension's
  * `reports.ts` types, which are the ones the binary actually prints.
  *
- * Severity is rendered from the envelope and never recomputed. Baseline membership is shown
- * because `yidam lint` does not ask *is the corpus clean?* — it asks *did this change make it
- * less clean?*, and a reader who cannot see which findings are inherited debt cannot read the
- * answer. It is meaningful only at `error` severity, which is why it is shown beside one.
+ * Severity is rendered from the envelope and never recomputed — and it is the *violation's*,
+ * which is not always its check's. `missing-property` is declared `warn` and raises the one
+ * property a class marked `required: true` to `error`, so the finding whose whole purpose is
+ * to fail CI is the one this page called advisory while it read `check.severity` (#655).
+ *
+ * Baseline membership is shown because `yidam lint` does not ask *is the corpus clean?* — it
+ * asks *did this change make it less clean?*, and a reader who cannot see which findings are
+ * inherited debt cannot read the answer. It is meaningful only at `error` severity, which is
+ * why it is shown beside one — beside a *finding* at `error`, not beside a check declared
+ * there, which is the same mistake in its second spelling and hid the tag on every escalated
+ * finding.
  */
 import Shell from '../layouts/Shell.astro'
 import { session } from '../lib/session.ts'
 import { spawnReport } from '../lib/cli.ts'
+import { escalated, severityOf, type LintReport } from '../lib/lint.ts'
 
-interface Violation {
-  node: string
-  detail: string
-  in_baseline: boolean
-}
-interface Check {
-  id: string
-  title: string
-  severity: 'error' | 'warn' | 'info'
-  rationale: string
-  violations: Violation[]
-}
-interface LintReport {
-  gate?: { passed: boolean; new_violations: number; baselined_violations: number }
-  checks?: Check[]
-}
 interface GraphCheckReport {
   passed?: boolean
   corpus_empty?: boolean
@@ -87,9 +79,17 @@ const graph = graphCheck && graphCheck.ok ? graphCheck.report : null
                   {check.violations.map((v) => (
                     <li class={v.in_baseline ? 'in-baseline' : undefined}>
                       <code>{v.node}</code> — {v.detail}
+                      {/* Its own severity, and only where it disagrees with the heading
+                          above — what `yidam lint`'s text report does, and for the same
+                          reason: a tag on every line buries the one line that differs. */}
+                      {escalated(v, check) && (
+                        <span class="severity escalated"> {severityOf(v, check)}</span>
+                      )}
                       {/* Only meaningful at `error` severity: the baseline records
-                          error-severity violations and nothing else. */}
-                      {check.severity === 'error' && v.in_baseline && (
+                          error-severity violations and nothing else. The finding's
+                          severity, never the check's — a check declared `warn` can hold an
+                          error-severity finding, and this tag was hidden on every one. */}
+                      {severityOf(v, check) === 'error' && v.in_baseline && (
                         <span class="tag"> baseline</span>
                       )}
                     </li>

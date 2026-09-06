@@ -138,9 +138,11 @@ repository's own build (`.yidam/bin`) over `PATH` precisely because a machine-wi
 per machine while the pin is one per repository. `yidam doctor` answers this directly — the
 `binary` and `path` checks exist for it.
 
-**Findings look too mild.** Baseline membership outranks check severity: inherited debt renders
-as a Hint however severe the check is. `yidam.lint.showBaselined` controls whether they appear
-at all.
+**Findings look too mild.** Baseline membership outranks severity: inherited debt renders as a
+Hint however severe the finding is. `yidam.lint.showBaselined` controls whether they appear at
+all. If a finding that fails CI renders as a Warning and is *not* baselined, the extension is
+older than the fix in #655 — it read the check's declared severity rather than the finding's,
+and a `missing-property` finding on a `required: true` property is raised past its check.
 
 ## `serve --mcp` returns `degraded`
 

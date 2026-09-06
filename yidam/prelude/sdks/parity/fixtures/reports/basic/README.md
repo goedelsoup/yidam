@@ -18,22 +18,33 @@ golden nobody reads.
 | `concept/tailwater.yml` | `orphan-in` — nothing points at it | info |
 | `gauge/riffle-station.yml` | `orphan-in` — the ontology declares no edge into a gauge | info |
 | `gauge/riffle-station.yml` | `verified-unsourced` — it asserts `[verified]` and links no catalog entry | warn |
-| every `concept` | `missing-property` — `concept` declares `datum` and no instance carries it | warn |
-| `concept/mixing-zone.yml`, `concept/tailwater.yml` | `missing-property` — and no `claim_tag` either | warn |
+| `concept/low-flow.yml` | `missing-property` — `concept` declares `datum` as `required: true` and this instance omits it | **error, from a `warn` check** |
+| `concept/mixing-zone.yml`, `concept/tailwater.yml` | `missing-property` — no `claim_tag` | warn |
 | everything else | nothing — the control | — |
 
-The error is the one that matters: it makes `gate.passed` false with an empty baseline, so
-the golden pins the failing verdict as well as the shape.
+The errors are the ones that matter: they make `gate.passed` false with an empty baseline,
+so the golden pins the failing verdict as well as the shape.
 
-The `missing-property` findings are the reason that check does not gate, and they are not
-fixture drift. Two of the three concepts deliberately carry no `claim_tag` — one is open by
-its label instead, one is the control that trips nothing — and a node making no tagged
-claim is a real state rather than a defect. The property declaration has no `required`
-field to tell *every instance has this* from *an instance may have this*, so gating on
-omission would fail this corpus for being exactly what it was written to be. Its sibling
-checks gate on the ontology being contradicted — `unlicensed-edge` among them only where a
-class declared `edge_policy: exhaustive`, since a non-empty `edges:` on its own never
-claimed to be the complete vocabulary.
+**The `missing-property` block is deliberately mixed, and that is the point of it.** The
+check is declared `warn`; one of its three findings is `error`, because `Check::severity_of`
+raises an omitted `required: true` property past the level its check is declared at. A
+consumer reading `check.severity` where it must read `violation.severity` renders that
+finding as advisory while it fails CI — which is what all four of them did, undetected,
+until #655. Every violation in this fixture carried its check's level, so the wrong field
+gave the right answer everywhere.
+
+The escalated finding sits on `concept/low-flow.yml` on purpose: that node already carries
+the `dangling-edge`, so the fixture gains a gating *finding* without gaining a gating
+*node*, and the control nodes stay controls.
+
+The two `claim_tag` findings are not fixture drift. Two of the three concepts deliberately
+carry no evidence tag — one is open by its label instead, one is the control that trips
+nothing — and a node making no tagged claim is a real state rather than a defect. The
+declaration says nothing about requiring it, so the omission is reported and forgiven,
+which is the arm `datum` no longer covers. Its sibling checks gate on the ontology being
+contradicted — `unlicensed-edge` among them only where a class declared
+`edge_policy: exhaustive`, since a non-empty `edges:` on its own never claimed to be the
+complete vocabulary.
 
 ## What it is built to reach
 
@@ -44,6 +55,7 @@ present.
 | Property | What it makes reachable |
 |---|---|
 | **Two classes** | Grouping in the corpus tree, above the arity at which any grouping implementation looks correct. |
+| **One `required: true` property, omitted once and carried twice** | A violation whose severity is not its check's. `missing-property` is `warn` and this omission is `error`, so a client reading the check-level field renders a finding that fails CI as advisory — the defect #655 fixes at four call sites, none of which any golden or extension test could see while every violation in the corpus carried its check's level. Carried by two instances so the satisfied arm is pinned too, and so the report names one node rather than every concept. |
 | **Both open-question arms** | `concept/low-flow.yml` is open through a declared `claim` property; `concept/mixing-zone.yml` is open through a `?` label. A corpus using one arm alone cannot tell an implementation reading both from one reading either — the defect the MCP cases were split to expose. |
 | **A claim tag of each kind** | `[verified]`, `[inference]`, and a structural `open`, so `status`'s three counters are each non-zero. |
 | **A mention that is not a use** | `concept/tailwater.yml` names `[open]` and `[verified]` in backticks. The counters and the open-question predicate must both ignore them. A corpus that never discusses its own vocabulary cannot tell a scanner reading claims from one reading bytes — and the byte reader published a verified claim against a true zero, inside a `REGEN` block, for four commits. |

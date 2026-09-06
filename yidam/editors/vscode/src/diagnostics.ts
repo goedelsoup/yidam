@@ -9,13 +9,15 @@
  * A Problems panel permanently full of inherited debt is a Problems panel nobody reads —
  * and the debt is exactly what the ratchet exists to hold still rather than to shout about.
  *
- * So **severity is a function of baseline membership, not of check severity alone.**
+ * So **the level is a function of baseline membership and of the violation's own severity —
+ * never of its check's.** A check is declared at a level; a finding can be raised past it,
+ * and the raised one is the one that fails CI.
  *
  * No `vscode` import: the mapping is decided here and rendered elsewhere, so the part worth
  * getting right is exercised by plain node.
  */
 
-import type { GraphCheckReport, LintReport } from './reports.ts'
+import type { Check, GraphCheckReport, LintReport, Violation } from './reports.ts'
 
 /** Editor-neutral severity. Mapped to `vscode.DiagnosticSeverity` at the boundary. */
 export type Level = 'error' | 'warning' | 'information' | 'hint'
@@ -78,11 +80,13 @@ export const DEFAULT_OPTIONS: Options = { showBaselined: true }
  * `prelude/sdks/parity/fixtures/diagnostic_severity/` rather than to their own restatements
  * of the table, because two transcriptions each pinned only by their own test can be
  * independently right about different tables.
+ *
+ * The severity it takes is the **violation's**, computed by the CLI and transcribed here —
+ * see `violationSeverity` below. Which finding gates is not a question about its check.
  */
 function levelFor(severity: 'error' | 'warn' | 'info', inBaseline: boolean): Level {
-  // Baseline membership outranks check severity. An inherited error is not news; it is the
-  // state the ratchet was installed to hold, and the thing that fails CI is a *change* to
-  // it.
+  // Baseline membership outranks severity. An inherited error is not news; it is the state
+  // the ratchet was installed to hold, and the thing that fails CI is a *change* to it.
   if (inBaseline) return 'hint'
   switch (severity) {
     case 'error':
@@ -92,6 +96,20 @@ function levelFor(severity: 'error' | 'warn' | 'info', inBaseline: boolean): Lev
     case 'info':
       return 'information'
   }
+}
+
+/**
+ * The severity to render a finding at: **its own**, and its check's only as a fallback.
+ *
+ * Nothing is decided here. `Check::severity_of` in the CLI already answered — an override a
+ * check declared for one finding, or an age escalation — and `violation.severity` is what it
+ * returned. This function transcribes that answer and names the one case where the field is
+ * missing: a binary older than #645, whose gate did read the check's level. Choosing the
+ * check's field where both exist is how a `missing-property` finding on a `required: true`
+ * property, which fails CI, reached the Problems panel as a Warning.
+ */
+export function violationSeverity(v: Violation, check: Check): 'error' | 'warn' | 'info' {
+  return v.severity ?? check.severity
 }
 
 /**
@@ -116,7 +134,7 @@ export function fromLint(report: LintReport, opts: Options = DEFAULT_OPTIONS): M
       findings.push({
         file,
         line,
-        level: levelFor(check.severity, v.in_baseline),
+        level: levelFor(violationSeverity(v, check), v.in_baseline),
         code: check.id,
         message: v.detail,
         rationale: check.rationale,

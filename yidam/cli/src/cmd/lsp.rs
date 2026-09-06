@@ -129,9 +129,14 @@ pub(crate) fn frame(value: &Value) -> String {
 
 /// RFC-0016's severity table, in one place.
 ///
-/// **Baseline membership outranks check severity in both directions.** `yidam lint` does not
-/// ask *is the corpus clean?* — it asks *did this change make it less clean?* — so inherited
-/// debt is a Hint however severe the check is, and a fresh `info` is still only Information.
+/// **Baseline membership outranks severity in both directions.** `yidam lint` does not ask
+/// *is the corpus clean?* — it asks *did this change make it less clean?* — so inherited debt
+/// is a Hint however severe the finding is, and a fresh `info` is still only Information.
+///
+/// The severity this takes is the **violation's**, which is not always its check's: a
+/// property a class declared `required: true` and a finding that has outlived
+/// `escalate_after` both raise one past the level its check is declared at. Callers pass
+/// `violation.severity`; `Check::severity_of` is what computed it.
 ///
 /// The VS Code extension carries the same table in TypeScript for its own providers, because
 /// the alternative is an editor that cannot render a diagnostic without a subprocess per
@@ -227,7 +232,14 @@ impl Server {
                 let line = v.span.map(|s| s.line).unwrap_or(1);
                 by_uri.entry(path_to_uri(&path)).or_default().push(json!({
                     "range": line_range(line),
-                    "severity": severity_of(check.severity, v.in_baseline),
+                    // The *violation's* severity, never the check's. `Check::severity_of`
+                    // has already run — `v.severity` is what it returned — and a finding
+                    // raised past its check's level by a `required: true` property or by
+                    // residence time is exactly the finding that gates. Reading
+                    // `check.severity` here published a Warning for something failing CI —
+                    // `missing-property` is declared `warn`, and the one omission it raises
+                    // to `error` is the one the ontology wrote a contract about.
+                    "severity": severity_of(v.severity, v.in_baseline),
                     "code": check.id,
                     "source": if v.in_baseline { "yidam (baseline)" } else { "yidam" },
                     "message": format!("{}\n\n{}", v.detail, check.rationale),
@@ -744,6 +756,53 @@ mod tests {
         );
         // The file on disk is fine, so nothing but the buffer could have produced this.
         assert!(root.join(".yidam/corpus/concept/b.yml").exists());
+    }
+
+    /// A finding is published at *its* severity, not at its check's.
+    ///
+    /// `missing-property` is declared `warn` and raises the one omission a class wrote
+    /// `required: true` about to `error`, so the two disagree — and the finding they
+    /// disagree about is the one that fails CI. Reading `check.severity` here published it
+    /// as a Warning: an editor telling a reader that the thing breaking their build is
+    /// advisory. The second assertion is the load-bearing one; without it the first passes
+    /// on a server that reads either field, since `claim_tag` is `warn` either way.
+    #[test]
+    fn a_finding_escalated_past_its_check_publishes_at_its_own_severity() {
+        let (_t, root) = fixture();
+        let corpus = root.join(".yidam/corpus");
+        // One property the class demands and one it merely declares, so the check's own
+        // findings disagree with each other about severity.
+        std::fs::write(
+            corpus.join("concept.ont.yml"),
+            "class: concept\nlabel: Concept\ndescription: A unit of understanding.\nproperties:\n  - name: datum\n    type: string\n    required: true\n  - name: claim_tag\n    type: claim\n",
+        )
+        .unwrap();
+        let out = exchange(
+            &root,
+            vec![open(
+                &root,
+                "concept/a.yml",
+                &std::fs::read_to_string(corpus.join("concept/a.yml")).unwrap(),
+            )],
+        );
+
+        let mine = out
+            .iter()
+            .filter(|m| m["method"] == "textDocument/publishDiagnostics")
+            .find(|m| m["params"]["uri"] == uri(&root, "concept/a.yml"))
+            .expect("diagnostics for the open file");
+        let diagnostics = mine["params"]["diagnostics"].as_array().unwrap();
+        let of = |property: &str| {
+            diagnostics
+                .iter()
+                .find(|d| {
+                    d["code"] == "missing-property"
+                        && d["message"].as_str().unwrap_or("").contains(property)
+                })
+                .unwrap_or_else(|| panic!("no `{property}` finding in {diagnostics:#?}"))
+        };
+        assert_eq!(of("`datum`")["severity"], ERROR, "{diagnostics:#?}");
+        assert_eq!(of("`claim_tag`")["severity"], WARNING, "{diagnostics:#?}");
     }
 
     /// A finding that stays on screen after it is fixed is worse than one that never

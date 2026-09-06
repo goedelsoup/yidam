@@ -2,11 +2,9 @@
 ERROR [dangling-edge] Edge pointing at nothing — 1 finding(s)
   .yidam/corpus/concept/low-flow.yml: target does not exist: ../concept/assimilative-capacit.yml
 
-WARN [missing-property] Declared property the instance omits — 5 finding(s)
-  .yidam/corpus/concept/low-flow.yml: `datum` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it
-  .yidam/corpus/concept/mixing-zone.yml: `datum` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it
+ERROR [missing-property] Declared property the instance omits — 3 finding(s)
+  .yidam/corpus/concept/low-flow.yml: `datum` is declared by `.yidam/corpus/concept.ont.yml` as `required: true` and this instance does not carry it [ERROR]
   .yidam/corpus/concept/mixing-zone.yml: `claim_tag` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it
-  .yidam/corpus/concept/tailwater.yml: `datum` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it
   .yidam/corpus/concept/tailwater.yml: `claim_tag` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it
 
 WARN [verified-unsourced] A claim asserted at `[verified]` that rests on nothing — 1 finding(s)

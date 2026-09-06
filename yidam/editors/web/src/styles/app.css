@@ -187,6 +187,15 @@ ul.questions {
   letter-spacing: var(--tracking-caps);
 }
 
+/* A finding whose severity is not its check's, which is only ever an escalation — every
+ * override in `checks.rs` raises or matches, none lowers. Same weight as `.gate-failed`,
+ * because it is the same verdict: this finding is what fails the build. Quiet secondary text
+ * here would restate the heading it exists to contradict. */
+.severity.escalated {
+  color: var(--status-open-fg);
+  font-weight: 600;
+}
+
 .rationale {
   color: var(--text-secondary);
   margin: 0.25rem 0 0.5rem;
