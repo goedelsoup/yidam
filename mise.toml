@@ -702,7 +702,41 @@ dir = "yidam/editors/vscode"
 # The same corpus the goldens and the extension's tests assert against, staged
 # through the same `stage.toml` they read — so what you see by hand and what CI
 # checks are one repository rather than two that drift.
-run = "node --experimental-strip-types scripts/stage-fixture.ts"
+#
+# The install guard is not tidiness. `stage-fixture.ts` reaches `test/stage.ts`, which needs
+# `smol-toml`, so on a checkout that has not run `npm install` in this package the task fails
+# with a bare `ERR_MODULE_NOT_FOUND` naming a transitive dependency — which reads as the
+# script being broken rather than as a missing install, and was written up that way on #606.
+# CI installs explicitly (`ci.yml`'s `vscode` job), so this is a no-op there and a working
+# task everywhere else.
+run = """
+set -eu
+[ -d node_modules ] || npm install
+node --experimental-strip-types scripts/stage-fixture.ts
+"""
+
+# The web editor's equivalent of `ext-dev`, and #606's definition of done asks for it by name:
+# "`mise run ext-fixture` stages the reports golden corpus; the app is driven against that
+# tree, so what CI checks and what a person sees stay one repository."
+#
+# Until this existed the second half was done by hand, against a hand-staged copy of
+# `examples/streamflow` — which is a different corpus from the one the goldens certify, so the
+# two halves of that sentence were about two repositories.
+#
+# It builds rather than running `astro dev`, because `bin/yidam-edit.mjs` is the entry point
+# `npx @yidam/edit` runs and the dev server is not. Driving the surface a person gets means
+# driving the one with the flag parsing, the port claim and the built `dist/` in it.
+[tasks.edit-dev]
+description = "Stage the reports fixture and serve it with the web editor, as `npx @yidam/edit` would."
+depends = ["ext-fixture"]
+run = """
+set -eu
+fixture="$PWD/.local/ext-fixture"
+cd yidam/editors/web
+[ -d node_modules ] || npm install
+npm run build
+exec node ./bin/yidam-edit.mjs --root "$fixture" ${YIDAM_EDIT_PORT:+--port "$YIDAM_EDIT_PORT"}
+"""
 
 [tasks.ext-dev]
 description = "Compile the extension, stage the fixture, and open both in an Extension Development Host."
