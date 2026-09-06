@@ -32,11 +32,10 @@ const BIN = path.join(pkg, 'bin')
 /**
  * The one directory outside this package that `src/` may reach, and why.
  *
- * `yidam/design/` is the design system, imported for its stylesheet the way
- * `yidam/web/docs/src/styles/custom.css` imports it — relative, resolved by Vite, inlined
- * into `dist/` at build time. It is a build input rather than a runtime dependency, so the
- * packing rule below does not reach it: by the time `npm publish` packs `dist/`, the bytes
- * are already in there.
+ * `yidam/design/` is the design system, imported the way `yidam/web/docs` imports it —
+ * relative, resolved by Vite, inlined into `dist/` at build time. It is a build input rather
+ * than a runtime dependency, so the packing rule below does not reach it: by the time
+ * `npm publish` packs `dist/`, the bytes are already in there.
  *
  * Copying it under this root instead was tried and was worse. `design_tokens.rs` walks the
  * repository and reads any `.css` outside `yidam/design/` as a *consumer*, so a committed
@@ -44,6 +43,30 @@ const BIN = path.join(pkg, 'bin')
  * palette is the exact failure that gate exists to stop.
  */
 const BUILD_TIME_ALLOWED = path.resolve(pkg, '..', '..', 'design')
+
+/**
+ * What may be imported from there: the stylesheet, and the component entry point.
+ *
+ * This was `.css` alone until #606's hydration spike, on the argument that "a JavaScript
+ * module from there would be a shared runtime this package has not argued for". The spike is
+ * the argument. RFC-0030 asks Phase 1 to find out whether the design system's React
+ * components survive client bundling — they had never been hydrated anywhere, `yidam/web/docs`
+ * renders them at build time with no `client:*` directive on any of them — and Phase 2's forms
+ * are specified in terms of those components. There is no way to answer that question without
+ * importing one, and answering it in a throwaway tree answers it once, for a build nobody
+ * runs again.
+ *
+ * The runtime worry the old rule named does not survive contact with how this ships. Vite
+ * inlines the component into `dist/client/`, the same pass and the same `dist/` the stylesheet
+ * already travels in, so there is no second copy of anything at runtime and nothing extra to
+ * pack. What would be a shared runtime is a *published* dependency on the design system, and
+ * that is `package.json`'s to grant — the gate below on `@yidam/core` is the one that reads it.
+ *
+ * `index.js` and never `components/<group>/**`: the design system's own adherence lint
+ * (`_adherence.oxlintrc.json`) has forbidden reaching component internals since it was
+ * written, and this package has no standing to be the first consumer to ignore it.
+ */
+const DESIGN_ENTRY = path.join(BUILD_TIME_ALLOWED, 'index.js')
 
 /** Every source file under a directory, discovered rather than listed. */
 function sources(dir = SRC, found = []) {
@@ -158,9 +181,10 @@ test('src/ escapes the package root only for the design system', () => {
           'yidam/design/. Only the design system may be reached at build time.',
       )
       assert.ok(
-        spec.endsWith('.css'),
-        `${rel} imports ${spec} from yidam/design/. Only stylesheets: a JavaScript module ` +
-          'from there would be a shared runtime this package has not argued for.',
+        spec.endsWith('.css') || resolved === DESIGN_ENTRY,
+        `${rel} imports ${spec} from yidam/design/. Only its stylesheets and its ` +
+          '`index.js` entry point — never `components/<group>/**`, which the design ' +
+          "system's own adherence lint has forbidden since before it had a consumer.",
       )
     }
   }

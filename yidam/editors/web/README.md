@@ -103,22 +103,54 @@ exactly what that gate exists to stop. And the packing worry did not apply: `fil
 
 So the escape rule is two rules, and [`test/boundary.mjs`](test/boundary.mjs) states both:
 `bin/` ships unbundled and may not reach outside the package root at all; `src/` may reach
-`yidam/design/` for stylesheets and nowhere else.
+`yidam/design/` for its stylesheets and its `index.js`, and nowhere else — never
+`components/<group>/**`, which the design system's own adherence lint has forbidden since
+before it had a consumer.
 
-Every colour in `app.css` is a `var(--…)` and none is a literal. That keeps this surface inside
-`design_tokens.rs`'s scan whichever way #611 is decided: the scan's extension list is `css`,
-`astro`, `jsx`, and `tsx` is not on it.
+Every colour in `app.css` and in the island is a `var(--…)` and none is a literal. That keeps
+this surface inside `design_tokens.rs`'s scan: its extension list is `css`, `astro`, `jsx`, and
+`tsx` is not on it, which is why the island is `.jsx`. #611 is still open — that choice covers
+this surface and not the next one.
+
+## The hydration spike, and its answer
+
+RFC-0030 made Phase 1 answer a question before Phase 2 could depend on it: **the design
+system's React components had never been hydrated anywhere.** `yidam/web/docs` renders them at
+build time with no `client:*` directive on any page, so React produced HTML and none of it was
+ever shipped to a browser. Phase 2's forms are written against those components.
+
+**They survive client bundling.** [`src/islands/NodeTable.jsx`](src/islands/NodeTable.jsx) is
+the island — the browse table, filtered in the browser through the design system's `Input`,
+chosen because it is from the forms group Phase 2 needs and because it is *stateful*, so a page
+where hydration silently failed would look identical until you focused the field. Verified by
+running it: `mise run edit-dev`, driven with headless Chrome over the DevTools protocol. The
+island hydrated, `onChange` reached React and narrowed the table, the `useState` focus ring
+resolved `--border-focus` and `--shadow-focus-gold` in the client bundle, and the console
+was clean.
+
+[`test/hydration.mjs`](test/hydration.mjs) holds the half a browserless CI job can hold: that
+the island is still *shipped*, and that `Input`'s own code is in the chunk the browser
+downloads. Hydration working is a fact about React and Vite that does not silently change; an
+island ceasing to exist is one word deleted from `browse.astro`.
+
+Filtering is an affordance, not a verdict. Every row was resolved by the binary before the
+component saw it, and substring-matching a list decides what is on a screen rather than
+anything about the corpus.
 
 ## Working on it
 
 ```
 npm install
 npm run build      # produces dist/server/entry.mjs, which bin/yidam-edit.mjs starts
-npm test           # boundary gates, graph traversal, origin rule, parity, flags, root
+npm test           # boundary gates, hydration, graph traversal, origin, parity, flags, root
 npm run dev        # astro dev
 ```
 
-Or `mise run ci-editor-web` from the repository root, which is what CI runs.
+Or `mise run ci-editor-web` from the repository root, which is what CI runs. It builds before
+it tests, and that order is now load-bearing twice over: the build is what proves `app.css`'s
+relative import still resolves, and `test/hydration.mjs` reads `dist/client/` to check the
+island still ships. Running `npm test` on its own against no build fails loudly and says so,
+rather than skipping.
 
 `npm test` needs no binary and no corpus: everything it asserts is a property of this package.
 

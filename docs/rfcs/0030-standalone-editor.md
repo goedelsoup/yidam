@@ -570,11 +570,27 @@ does not propose to move it.
   blind spot arriving a third time, and it should be closed by choosing one before the first
   island is written, not after. Lean: extend the list, since the next surface will have the
   same question.
-- **The design system's React components have never been hydrated.** No `client:*` directive
-  appears on any quality page — [`astro.config.mjs:243-246`](../../yidam/web/docs/astro.config.mjs#L243-L246):
-  *"this is a build-time renderer: React produces HTML and none of it is shipped to a reader."*
-  This surface would be the first consumer to ship them to a browser. Whether they survive
-  client bundling is unknown and is a Phase 1 spike, not an assumption.
+  **Chosen 2026-09-06, in the narrow direction only.** Phase 1's one island —
+  [`src/islands/NodeTable.jsx`](../../yidam/editors/web/src/islands/NodeTable.jsx) — is `.jsx`,
+  so it is inside the raw-colour gate today. That settles this surface and settles nothing
+  else: the list is still three extensions long and the next `.tsx` island anywhere is still
+  invisible to it. #611 keeps the general question.
+- ~~**The design system's React components have never been hydrated.**~~ **Answered 2026-09-06:
+  they survive.** No `client:*` directive appeared on any quality page —
+  [`astro.config.mjs:243-246`](../../yidam/web/docs/astro.config.mjs#L243-L246): *"this is a
+  build-time renderer: React produces HTML and none of it is shipped to a reader."* This surface
+  is now the first consumer to ship them to a browser, and the spike was run rather than
+  reasoned about: `mise run edit-dev` against the reports golden corpus, driven with headless
+  Chrome over the DevTools protocol. The island hydrated (Astro's runtime cleared its `ssr`
+  marker); the design system's `Input` is a *controlled* component and its `onChange` reached
+  React — typing narrowed the table from 4 rows to 1; its `useState` focus ring worked under a
+  real click, with `--border-focus` and `--shadow-focus-gold` resolving in the client bundle;
+  the console was clean. **Phase 2's forms may be built on these components.**
+  The half of that a browserless CI job can hold is held —
+  [`test/hydration.mjs`](../../yidam/editors/web/test/hydration.mjs) asserts the island is still
+  *shipped* and that `Input`'s own code is in the chunk the browser downloads, because hydration
+  working is a fact about React and Vite that does not silently change, while an island ceasing
+  to exist is a one-character edit.
 - ~~**Does RFC-0029's identity gate reach a loopback editor?**~~ **Answered 2026-09-05** by
   RFC-0029's own amendment, which names this surface as the counterexample that forced it: the
   criterion governs, and a loopback server started by the corpus's owner MAY declare `act`.

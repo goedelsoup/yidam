@@ -149,6 +149,13 @@ main a {
   color: var(--text-secondary);
 }
 
+/* The filter above the browse table. Narrow, because it is a control and not a field somebody
+ * is composing in — and the design system's `Input` is width-hungry by default. */
+.node-filter {
+  max-width: 22rem;
+  margin-bottom: 1rem;
+}
+
 ul.edges,
 ul.questions {
   list-style: none;
