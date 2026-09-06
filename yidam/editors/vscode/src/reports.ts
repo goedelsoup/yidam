@@ -20,11 +20,29 @@ export interface Violation {
   node: string
   detail: string
   /**
+   * This finding's own severity, and the one that decides whether it **gates**.
+   *
+   * Normally the check's, and not always: `Check::severity_of` in the CLI returns an
+   * override or an age escalation before falling back to the check's level, so
+   * `missing-property` is declared `warn` and raises the one property a class marked
+   * `required: true` to `error`. Read it here and never from the check — a client that read
+   * `check.severity` rendered the one finding whose whole purpose is to gate as advisory,
+   * in this extension, the web editor and the LSP alike (#655).
+   *
+   * **Optional because a binary older than #645 does not emit it, not because a violation
+   * may lack one.** `report.schema.json` makes it required, and adding a field does not
+   * raise `format_version`, so the handshake cannot tell the two apart. A repository pins
+   * its binary while this extension auto-updates, so the drift is a normal state. Absent
+   * means *this binary predates the field* — fall back to the check's severity, which is
+   * what that binary's own gate used.
+   */
+  severity?: 'error' | 'warn' | 'info'
+  /**
    * Whether the committed baseline already records this violation.
    *
-   * **Only meaningful when the check's severity is `error`** — the baseline records
+   * **Only meaningful when this violation's severity is `error`** — the baseline records
    * error-severity violations and nothing else, so a warn or info violation is always
-   * `false`. Read with `severity`, never alone.
+   * `false`. Read with `severity` above, never alone, and never with the check's.
    */
   in_baseline: boolean
   span?: Span
@@ -33,6 +51,12 @@ export interface Violation {
 export interface Check {
   id: string
   title: string
+  /**
+   * The severity the check is *declared* at, which is what the check is **for**.
+   *
+   * Not the severity of its findings — see `Violation.severity`, which is what happened.
+   * Read this to describe a check; read that one to render a finding.
+   */
   severity: 'error' | 'warn' | 'info'
   rationale: string
   violations: Violation[]

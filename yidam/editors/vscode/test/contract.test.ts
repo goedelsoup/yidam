@@ -12,7 +12,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import { fromLint } from '../src/diagnostics.ts'
 import { hasFeature, readHandshake } from '../src/handshake.ts'
+import type { LintReport } from '../src/reports.ts'
 import { captureStreams, contractBinary, SKIP, stageFixture } from './stage.ts'
 
 
@@ -86,4 +88,39 @@ test('a gating command still yields a readable envelope', async (t) => {
   const doc = JSON.parse(stdout)
   assert.equal(doc.gate.passed, false, 'the fixture carries a deliberate error')
   assert.equal(typeof doc.gate.new_violations, 'number')
+})
+
+test('a finding that fails CI reaches the panel as an Error, whatever its check is declared at', async (t) => {
+  const dir = stageFixture('yidam-ext-')
+  const bin = await contractBinary(dir)
+  if (!bin) {
+    t.skip(SKIP)
+    return
+  }
+  // The fixture's `missing-property` block is the case: the check is declared `warn` and
+  // one of its three findings is `error`, because `concept` declares `datum` as
+  // `required: true` and `low-flow.yml` omits it. That finding fails CI. While this reader
+  // took the level from `check.severity` it rendered as a Warning — the whole of #655, and
+  // invisible until the fixture carried a violation whose severity was not its check's.
+  //
+  // Driven through `fromLint` rather than by reading the JSON: the assertion is about what
+  // the Problems panel shows, and the mapping is the thing that was wrong.
+  const { stdout } = captureStreams(bin, ['lint', '--format', 'json'], dir)
+  const report = JSON.parse(stdout) as LintReport
+
+  const missing = report.checks.find((c) => c.id === 'missing-property')
+  assert.ok(missing, 'the fixture trips missing-property')
+  assert.equal(missing.severity, 'warn', 'the check is declared warn — that is the premise')
+
+  const findings = fromLint(report).findings.filter((f) => f.code === 'missing-property')
+  const required = findings.filter((f) => /required: true/.test(f.message))
+  assert.equal(required.length, 1, JSON.stringify(findings, null, 2))
+  assert.equal(required[0].level, 'error', JSON.stringify(required[0], null, 2))
+
+  // And the check's other findings are still Warnings. Without this, a mapping that read
+  // `violation.severity` and one that ignored severity entirely and always said `error`
+  // would both pass.
+  const rest = findings.filter((f) => !/required: true/.test(f.message))
+  assert.ok(rest.length > 0, JSON.stringify(findings, null, 2))
+  assert.deepEqual([...new Set(rest.map((f) => f.level))], ['warning'])
 })

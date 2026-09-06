@@ -4,6 +4,10 @@ description: >-
   Open by its label rather than by a tag. The predicate has two arms and a corpus
   implementing either one alone answers identically on a fixture that uses only the other —
   which is the defect the MCP cases were split to expose.
+# Carried: the `required: true` declaration must report on one instance, not on every
+# concept, and its satisfied arm belongs in a golden too. See the README.
+properties:
+  datum: navd88
 links:
   - target: ../concept/low-flow.yml
     relationship: relates-to

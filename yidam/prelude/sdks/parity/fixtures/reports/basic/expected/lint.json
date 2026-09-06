@@ -10,7 +10,7 @@
   "root": "<ROOT>",
   "gate": {
     "passed": false,
-    "new_violations": 2,
+    "new_violations": 3,
     "baselined_violations": 0,
     "stale_baseline_entries": [],
     "expired_baseline_entries": []
@@ -69,25 +69,13 @@
       "violations": [
         {
           "node": ".yidam/corpus/concept/low-flow.yml",
-          "detail": "`datum` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it",
-          "severity": "warn",
-          "in_baseline": false
-        },
-        {
-          "node": ".yidam/corpus/concept/mixing-zone.yml",
-          "detail": "`datum` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it",
-          "severity": "warn",
+          "detail": "`datum` is declared by `.yidam/corpus/concept.ont.yml` as `required: true` and this instance does not carry it",
+          "severity": "error",
           "in_baseline": false
         },
         {
           "node": ".yidam/corpus/concept/mixing-zone.yml",
           "detail": "`claim_tag` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it",
-          "severity": "warn",
-          "in_baseline": false
-        },
-        {
-          "node": ".yidam/corpus/concept/tailwater.yml",
-          "detail": "`datum` is declared by `.yidam/corpus/concept.ont.yml` and this instance does not carry it",
           "severity": "warn",
           "in_baseline": false
         },

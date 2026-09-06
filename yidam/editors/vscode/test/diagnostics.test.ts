@@ -128,6 +128,45 @@ test('severity is per violation, not per check', () => {
   assert.deepEqual(levels(r), ['hint', 'error'])
 })
 
+test('a violation escalated past its check renders at its own severity', () => {
+  // `missing-property` is declared `warn` and raises the one property a class marked
+  // `required: true` to `error`. The escalated finding fails CI, and this panel called it a
+  // Warning for as long as it read `check.severity` — the one finding whose whole purpose
+  // is to gate, rendered as advice. Both violations are here because a mapping reading the
+  // check's field gets the second one right, so an assertion on the first alone would pass
+  // against a check declared `error` and prove nothing about which field was read.
+  const r = fromLint(
+    lint([
+      check('missing-property', 'warn', [
+        { node: 'a.yml', detail: '`datum` … as `required: true`', severity: 'error', in_baseline: false },
+        { node: 'b.yml', detail: '`claim_tag` …', severity: 'warn', in_baseline: false },
+      ]),
+    ]),
+  )
+  assert.deepEqual(levels(r), ['error', 'warning'])
+})
+
+test('an escalated violation the baseline records is still a Hint', () => {
+  // The escalation decides *whether* the finding gates; the baseline decides whether it is
+  // news. An error the ratchet already holds is inherited debt however it got to `error`.
+  const r = fromLint(
+    lint([
+      check('missing-property', 'warn', [
+        { node: 'a.yml', detail: 'd', severity: 'error', in_baseline: true },
+      ]),
+    ]),
+  )
+  assert.deepEqual(levels(r), ['hint'])
+})
+
+test('a violation with no severity falls back to its check, for a binary older than #645', () => {
+  // Absent does not mean `info`, and it does not mean the check declared no override. It
+  // means this binary predates the field — and that binary's own gate read the check's
+  // level, so the check's level is the answer it would have given.
+  const r = fromLint(lint([check('orphan-in', 'info', [{ node: 'a.yml', detail: 'd', in_baseline: false }])]))
+  assert.deepEqual(levels(r), ['information'])
+})
+
 // ── Stale baseline entries ───────────────────────────────────────────────────
 
 test('a stale baseline entry is a repo condition, never a diagnostic', () => {

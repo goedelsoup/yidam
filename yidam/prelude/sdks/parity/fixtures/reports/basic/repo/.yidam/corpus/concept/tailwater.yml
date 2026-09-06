@@ -8,6 +8,9 @@ description: >-
   claim on [the gauge](../gauge/riffle-station.yml) is backticked too. It draws on
   [the stage–discharge relation](../../catalog/stage-discharge.md), which is a citation
   that entry's `used-by` list omits.
+# Carried: this is the control node, and a `required: true` it omitted would make it gate.
+properties:
+  datum: navd88
 links:
   - target: ../concept/low-flow.yml
     relationship: relates-to

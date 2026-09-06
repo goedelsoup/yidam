@@ -83,7 +83,7 @@
           "name": "datum",
           "type": "string",
           "description": "Which vertical datum the values are read against.",
-          "required": false
+          "required": true
         },
         {
           "name": "claim_tag",

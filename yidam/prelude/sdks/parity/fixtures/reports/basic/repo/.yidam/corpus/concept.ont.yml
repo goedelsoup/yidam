@@ -2,8 +2,19 @@ class: concept
 label: Concept
 description: A unit of understanding in this fixture corpus.
 properties:
+  # The one `required: true` in this fixture, and the reason it is here: `missing-property`
+  # is declared `warn` and raises this omission to `error`, so a finding's severity and its
+  # check's disagree. Without that, every violation in the goldens carries its check's level
+  # — and a consumer reading `check.severity` where the contract says `violation.severity`
+  # gets the right answer anyway, which is how four of them passed for as long as they did
+  # (#655).
+  #
+  # `concept/low-flow.yml` is the instance that omits it, and it is the node that already
+  # carries this fixture's `dangling-edge`. So the escalation adds a gating *finding*
+  # without adding a gating *node*: the control nodes stay controls.
   - name: datum
     type: string
+    required: true
     description: Which vertical datum the values are read against.
   # A typed evidence tag. Declaring it is what lets a value like `claim_tag: open` be
   # counted at all — without the declaration only a bracketed token in the serialized

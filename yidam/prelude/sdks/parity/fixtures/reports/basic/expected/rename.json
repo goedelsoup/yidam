@@ -23,13 +23,13 @@
   "edits": [
     {
       "file": ".yidam/corpus/concept/mixing-zone.yml",
-      "line": 8,
+      "line": 12,
       "from": "../concept/low-flow.yml",
       "to": "../concept/base-flow.yml"
     },
     {
       "file": ".yidam/corpus/concept/tailwater.yml",
-      "line": 12,
+      "line": 15,
       "from": "../concept/low-flow.yml",
       "to": "../concept/base-flow.yml"
     },

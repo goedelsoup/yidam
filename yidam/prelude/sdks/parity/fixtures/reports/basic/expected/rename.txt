@@ -1,7 +1,7 @@
 Would rename concept/low-flow.yml → concept/base-flow.yml
 3 link(s) rewritten across 3 file(s)
-  .yidam/corpus/concept/mixing-zone.yml:8  ../concept/low-flow.yml → ../concept/base-flow.yml
-  .yidam/corpus/concept/tailwater.yml:12  ../concept/low-flow.yml → ../concept/base-flow.yml
+  .yidam/corpus/concept/mixing-zone.yml:12  ../concept/low-flow.yml → ../concept/base-flow.yml
+  .yidam/corpus/concept/tailwater.yml:15  ../concept/low-flow.yml → ../concept/base-flow.yml
   .yidam/corpus/gauge/riffle-station.yml:9  ../concept/low-flow.yml → ../concept/base-flow.yml
 
 1 prose reference(s) NOT rewritten — check these by hand:
