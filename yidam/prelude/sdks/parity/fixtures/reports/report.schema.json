@@ -936,6 +936,10 @@
                 },
                 "description": {
                   "type": "string"
+                },
+                "required": {
+                  "type": "boolean",
+                  "description": "Whether every instance of the class must carry this property. `missing-property` GATES on a property declared true and reports the rest, so this is the difference between a finding that fails CI and one that does not — and until #606 this report did not carry it, which made `yidam schema`'s claim that one declaration decides both, 'so the editor and the gate cannot disagree', false along this route. Always emitted, including when false: a client is versioned independently of the binary it talks to, so an absent field would be ambiguous between 'this property is optional' and 'this binary predates the field', and it was the second reading that produced a page claiming every property in a corpus was optional. Absent therefore means the binary is older than the field, never that the property is optional."
                 }
               }
             }
