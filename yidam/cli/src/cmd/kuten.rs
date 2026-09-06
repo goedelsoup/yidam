@@ -36,16 +36,26 @@ pub enum KutenCommand {
         #[arg(long, value_enum, default_value_t = Format::Text)]
         format: Format,
     },
+    /// Adopt a vendored kuten, writing `.yidam/decisions/kuten.yml`
+    ///
+    /// The retrofit path for a corpus that already exists. The bootstrap writes this record
+    /// at genesis and nothing else did, so a repository that re-vendored a prelude carrying
+    /// the layer held the profile and could not declare it.
+    Adopt {
+        /// The profile to adopt, by its directory name under the vendored `kuten/`
+        name: String,
+    },
 }
 
 /// `yidam kuten`, with or without a subcommand.
 ///
 /// No subcommand writes the `AGENTS.md` block, which is what puts `kuten` in the generator
-/// list beside the other ten. The subcommand reads.
+/// list beside the other ten. `check` reads; `adopt` writes the decision record.
 pub fn run(sub: Option<KutenCommand>) -> Result<()> {
     match sub {
         None => block(),
         Some(KutenCommand::Check { format }) => check(format),
+        Some(KutenCommand::Adopt { name }) => adopt(&name),
     }
 }
 
@@ -67,9 +77,15 @@ pub fn render_block(
             .to_string();
     };
 
+    // A colon, not a full stop. Every profile's `gloss:` is a sentence fragment in the
+    // profile's own words and opens lower-case — the shipped one is "the corpus grows through
+    // sustained inquiry — questions opened, and settled" — so a full stop in front of it
+    // renders as a typo in the one document an agent reads at session start.
     let mut out = format!(
-        "**This corpus's practice is `{}`, at revision {}.** {}\n",
-        profile.name, declaration.revision, profile.gloss
+        "**This corpus's practice is `{}`, at revision {}:** {}\n",
+        profile.name,
+        declaration.revision,
+        stopped(&profile.gloss)
     );
     if declaration.revision != profile.revision {
         out.push_str(&format!(
@@ -96,7 +112,7 @@ pub fn render_block(
     }
     if let Some(vocabulary) = &profile.vocabulary {
         out.push_str(&format!(
-            "- **Vocabulary** — {} verbs, and {} of commits outside them.\n",
+            "- **Vocabulary** — {} verbs, and between {} of commits outside them.\n",
             vocabulary.verbs.len(),
             share_band(vocabulary.off_vocabulary_share)
         ));
@@ -173,17 +189,222 @@ fn share_band(b: kuten::Band) -> String {
     format!("{:.0}% and {:.0}%", b.low * 100.0, b.high * 100.0)
 }
 
+/// A profile's `gloss:` with a terminal stop, added only if it wrote none.
+///
+/// One answer, because both surfaces that quote a gloss — the `AGENTS.md` block and the
+/// decision record `adopt` writes — join it to a sentence of their own, and a gloss is
+/// written as a fragment. Two copies of "add a period unless there is one" is how the two
+/// documents come to punctuate the same sentence differently.
+fn stopped(gloss: &str) -> String {
+    let gloss = gloss.trim();
+    if gloss.is_empty() || gloss.ends_with(['.', '!', '?']) {
+        gloss.to_string()
+    } else {
+        format!("{gloss}.")
+    }
+}
+
 /// Write the `AGENTS.md` REGEN block. The generator `yidam regen` runs.
 pub fn block() -> Result<()> {
     let root = crate::paths::repo_root()?;
-    let declaration = kuten::read_declaration(&root)?;
+    let content = block_content(&root)?;
+    crate::regen::emit(&content);
+    write_block(&root, &content)
+}
+
+/// The block's text for this repository, held or unheld.
+fn block_content(root: &std::path::Path) -> Result<String> {
+    let declaration = kuten::read_declaration(root)?;
     let profile = match &declaration {
-        Some(d) => kuten::read_profile(&root, &d.name)?,
+        Some(d) => kuten::read_profile(root, &d.name)?,
         None => None,
     };
-    let content = render_block(declaration.as_ref(), profile.as_ref());
-    crate::regen::emit(&content);
-    crate::regen::update_file_regen(&root.join("AGENTS.md"), "yidam kuten", &content)
+    Ok(render_block(declaration.as_ref(), profile.as_ref()))
+}
+
+/// Put the text in the file, without echoing it.
+///
+/// Split from [`block`] because `adopt` writes this block too, and a generator's job is to
+/// print what it generated while `adopt`'s is to say what it did. Running the whole generator
+/// there would print the block's full text in the middle of a four-line report.
+fn write_block(root: &std::path::Path, content: &str) -> Result<()> {
+    crate::regen::update_file_regen(&root.join("AGENTS.md"), "yidam kuten", content)
+}
+
+// ── adopting one ──────────────────────────────────────────────────────────────
+
+/// The `AGENTS.md` section carrying the kuten REGEN block.
+///
+/// **A second copy of `sadhana/root/AGENTS.md`'s section, held equal by a test.** The
+/// scaffold is consumed and deleted at genesis, so a repository that already exists cannot be
+/// handed the marker the way a new one is — and a marker is not something to ask a person to
+/// hand-write, since `update_file_regen` silently does nothing when it is absent or malformed.
+/// The copy is the cost of that; [`the_inserted_section_is_the_scaffold_s`] is what keeps the
+/// two from drifting.
+const AGENTS_SECTION: &str = "\
+## What this corpus's practice is aimed at
+
+<!-- REGEN: yidam kuten
+Regenerated by: `yidam kuten`
+Fields: the kuten this corpus adopted, its revision, and the bands it declares — phase
+        types and phase-commit share, nodes per commit and median node length, the
+        vocabulary size and the off-vocabulary share it expects.
+Reads: `.yidam/decisions/kuten.yml` and the profile it names under
+       `.yidam/.vendor/prelude/kuten/`. Holding no kuten is a supported state and is
+       reported as one.
+-->
+_Run `yidam kuten` to populate._
+<!-- /REGEN -->
+
+The declaration narrows the loop and may not widen the model, and **it binds nobody**:
+divergence from it is a question for a person, not a defect. `yidam kuten check` reports
+where this repository's history and its declaration disagree, writes nothing, and exits zero.
+Change it by a `decide:` commit carrying a superseding decision record — never by editing the
+vendored profile, which is discarded on the next re-vendor.
+";
+
+/// The marker `update_file_regen` looks for. Absent, it writes nothing and says nothing.
+const AGENTS_MARKER: &str = "<!-- REGEN: yidam kuten";
+
+/// The decision record `adopt` writes, from a profile it read.
+///
+/// # What this may write, and what it may not
+///
+/// Four fields are facts about the act: which profile, at which revision, and the profile's
+/// own `gloss:` quoted back. The revision is **copied from the vendored profile**, which is
+/// the whole reason this is a command. `bootstrap.md` states the rule as *"that profile's own
+/// `revision:`, copied — not typed from memory"*, and a retrofit performed by hand is exactly
+/// the transcription the revision model exists to survive.
+///
+/// It does not write `rationale:`. Why *this* corpus adopts *this* practice is the adopter's
+/// reasoning and nobody else's, and a placeholder shipped unfilled reads as an answer. The
+/// command says so on the way out instead of inventing one.
+fn record(name: &str, revision: u32, gloss: &str) -> String {
+    let mut out = String::new();
+    out.push_str("id: kuten\n");
+    out.push_str(&format!(
+        "summary: the `{name}` kuten, adopted at revision {revision}\n"
+    ));
+    out.push_str(&format!("kuten: {name}\n"));
+    out.push_str(&format!("revision: {revision}\n"));
+    out.push_str("decision: |\n");
+    let gloss = stopped(gloss);
+    if gloss.is_empty() {
+        out.push_str(&format!("  This corpus's practice is `{name}`.\n"));
+    } else {
+        out.push_str(&format!("  This corpus's practice is `{name}`: {gloss}\n"));
+    }
+    out.push_str("\n  Adopted with `yidam kuten adopt` against the profile vendored at\n");
+    out.push_str(&format!(
+        "  `{}/{name}/kuten.yml`, at revision {revision}.\n",
+        kuten::VENDORED_DIR
+    ));
+    out.push_str("  The revision is copied from that profile, and every consumer reads the\n");
+    out.push_str("  kuten at the vintage this repository holds rather than at upstream's\n");
+    out.push_str("  current one.\n");
+    out
+}
+
+/// Give `AGENTS.md` the kuten REGEN block if it has none. Returns the path it wrote.
+///
+/// Appended rather than placed: the scaffold puts the section near the top of a file it also
+/// wrote, and this is editing a document somebody else has been keeping. Appending cannot
+/// land inside another generator's block or split a section, and where it sits matters less
+/// than that it is there — `yidam regen` fills it wherever it is.
+///
+/// A repository with no `AGENTS.md` at all gets none written. That file is the derived
+/// repository's own, and conjuring one from a command that was asked to record a decision
+/// would be reaching well past what was asked.
+fn ensure_agents_section(root: &std::path::Path) -> Result<Option<String>> {
+    let path = root.join("AGENTS.md");
+    if !path.exists() {
+        return Ok(None);
+    }
+    let text = std::fs::read_to_string(&path)?;
+    if text.contains(AGENTS_MARKER) {
+        return Ok(None);
+    }
+    let mut updated = text;
+    if !updated.ends_with('\n') {
+        updated.push('\n');
+    }
+    updated.push('\n');
+    updated.push_str(AGENTS_SECTION);
+    std::fs::write(&path, updated)?;
+    Ok(Some("AGENTS.md".to_string()))
+}
+
+/// `yidam kuten adopt <name>` — declare a vendored profile as this corpus's practice.
+///
+/// Every refusal exits non-zero and names the repair. A refusal is not an adoption, and one
+/// that exits quietly is a corpus believing it declared something it did not.
+pub fn adopt(name: &str) -> Result<()> {
+    let root = crate::paths::repo_root()?;
+
+    let vendored = kuten::vendored_profiles(&root);
+    if vendored.is_empty() {
+        anyhow::bail!(
+            "no kuten profile is vendored at {}/. Re-vendor the prelude first — \
+             `mise run yidam-vendor-update` — and the layer arrives with it.",
+            kuten::VENDORED_DIR
+        );
+    }
+    let Some(profile) = kuten::read_profile(&root, name)? else {
+        anyhow::bail!(
+            "no profile named `{name}` is vendored here. This repository holds: {}",
+            vendored.join(", ")
+        );
+    };
+
+    // A kuten may change after genesis, and #572's scope decision 4 says how: a `decide:`
+    // commit carrying a superseding record, so `replay` marks the discontinuity and `score`
+    // refuses a range spanning it. Overwriting the record in place would erase the very
+    // discontinuity those two exist to report, so this refuses rather than offering a flag.
+    let path = root.join(kuten::DECISION_PATH);
+    if path.exists() {
+        let held = kuten::read_declaration(&root)?;
+        let naming = held
+            .map(|d| format!("`{}` at revision {}", d.name, d.revision))
+            .unwrap_or_else(|| "a record this command cannot read".to_string());
+        anyhow::bail!(
+            "{} already holds {naming}. Changing a kuten is a `decide:` commit carrying a \
+             superseding record, not an overwrite — `replay` marks the discontinuity and \
+             `score` refuses a range spanning it.",
+            kuten::DECISION_PATH
+        );
+    }
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, record(name, profile.revision, &profile.gloss))?;
+
+    println!("wrote {}", kuten::DECISION_PATH);
+    println!("  kuten: {name}");
+    println!(
+        "  revision: {} — copied from the vendored profile",
+        profile.revision
+    );
+
+    // A declaration the agent never reads is this epic's own diagnosed failure aimed at its
+    // centrepiece. The scaffold puts this section in a new repository's AGENTS.md and is then
+    // deleted, so a corpus that already existed has no marker — and `update_file_regen` on a
+    // file with no marker writes nothing and reports nothing.
+    if let Some(added) = ensure_agents_section(&root)? {
+        println!("added the kuten section to {added}");
+    }
+    // And fill it, rather than leaving the repository one step from done. An adopted kuten
+    // whose block still reads "Run `yidam kuten` to populate" is a repository that has
+    // declared a practice its agent cannot see, and `regen --check` reports it stale — which
+    // makes adoption something that breaks the gate until a second command is remembered.
+    write_block(&root, &block_content(&root)?)?;
+
+    println!();
+    println!("The record carries no `rationale:`. Why this corpus adopts this practice is");
+    println!("yours to write, and a placeholder would read as an answer.");
+    println!();
+    println!("`yidam kuten check` now reads this corpus against what it just declared.");
+    Ok(())
 }
 
 // ── the check ─────────────────────────────────────────────────────────────────
@@ -270,6 +491,66 @@ pub fn check(format: Format) -> Result<()> {
 mod tests {
     use super::*;
     use crate::kuten::{Declaration, Measurement, Profile, Verdict, Vintage};
+
+    /// **The section `adopt` inserts is the scaffold's, character for character.**
+    ///
+    /// Two copies exist because they must: the scaffold is deleted at genesis, so a
+    /// repository that already exists can only be handed the marker by the binary. This is
+    /// what stops them drifting — and drift here is silent in the worst way, because
+    /// `update_file_regen` writes nothing at all when the marker it looks for is absent or
+    /// malformed, so a mangled copy would leave the block permanently unfilled and say
+    /// nothing about it.
+    #[test]
+    fn the_inserted_section_is_the_scaffolds() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../sadhana/root/AGENTS.md");
+        let scaffold = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{} is unreadable ({e})", path.display()));
+        assert!(
+            scaffold.contains(AGENTS_SECTION),
+            "`sadhana/root/AGENTS.md` no longer contains the section `kuten adopt` inserts. \
+             A new repository would get one wording and a retrofitted one another, and the \
+             two are the same document."
+        );
+        assert!(
+            AGENTS_SECTION.contains(AGENTS_MARKER),
+            "the inserted section carries no `{AGENTS_MARKER}` marker, so `yidam kuten` \
+             would write nothing into it — silently, which is how it fails"
+        );
+    }
+
+    /// A gloss is a fragment, and both surfaces that quote one join it to a sentence.
+    #[test]
+    fn a_gloss_is_stopped_once_and_never_twice() {
+        assert_eq!(stopped("questions opened"), "questions opened.");
+        assert_eq!(stopped("questions opened."), "questions opened.");
+        assert_eq!(stopped("  spaced  "), "spaced.");
+        assert_eq!(stopped(""), "");
+    }
+
+    /// The record carries the two fields a tool reads, and no rationale.
+    ///
+    /// The revision is asserted against a profile declaring something other than 1, because a
+    /// `record` that ignored its argument and wrote the shipped profile's revision would pass
+    /// against 1 forever — which is the transcription error this command exists to remove.
+    #[test]
+    fn the_record_copies_the_revision_and_invents_no_rationale() {
+        let text = record("inquiry", 7, "the corpus grows through sustained inquiry");
+        assert!(text.contains("kuten: inquiry\n"), "{text}");
+        assert!(text.contains("revision: 7\n"), "{text}");
+        assert!(
+            text.contains("`inquiry`: the corpus grows through sustained inquiry."),
+            "the gloss is quoted, joined with a colon and stopped once: {text}"
+        );
+        assert!(
+            !text.contains("rationale"),
+            "why this corpus adopts this practice is the adopter's, and a placeholder reads \
+             as an answer: {text}"
+        );
+        let parsed = Declaration::parse(&text).expect("the record parses as a declaration");
+        assert_eq!(parsed.name, "inquiry");
+        assert_eq!(parsed.revision, 7);
+    }
 
     fn profile() -> Profile {
         Profile::parse(

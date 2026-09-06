@@ -115,3 +115,23 @@ template rather than the practice.
 **A repository holding no kuten is a supported state.** `yidam kuten check` says so and exits
 zero. A kuten changes after genesis by a `decide:` commit carrying a superseding decision
 record, and a comparison spanning two revisions is annotated rather than quietly made.
+
+### Adopting one after genesis
+
+A repository older than this layer holds no record, because the step that writes one runs at
+genesis and runs once. Re-vendor the prelude, which is what brings this directory, and then
+declare the profile:
+
+```sh
+YIDAM_REF=<template tag> mise run yidam-vendor-update
+yidam kuten adopt inquiry
+```
+
+`adopt` reads the revision out of the vendored profile rather than asking for it. That is the
+same rule the bootstrap states — *copied, not typed from memory* — and it is mechanical here
+because the vintage rule above is only as good as the number recorded beside the name.
+
+It also gives `AGENTS.md` the kuten section when that file has none, since the scaffold that
+carries it into a new repository is consumed at genesis. And it refuses when a record already
+exists: overwriting one in place would erase the discontinuity that `replay` marks and
+`score` refuses to read across.
