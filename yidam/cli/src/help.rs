@@ -80,7 +80,16 @@ pub const GROUPS: &[Group] = &[
         // nonzero on a problem" would teach a reader that being owed is a defect, which is
         // the one reading this report exists to prevent.
         title: "The practice — what is owed, which is not what is wrong",
-        commands: &[r("due")],
+        // `kuten` belongs here and not with the README generators, though it writes one of
+        // their blocks. What it reports is the same kind of thing `due` reports: a question
+        // for a person about how the practice is going. `kuten check` exits zero however far
+        // a corpus has drifted, and filing it under the gates would teach a reader that
+        // having drifted is a defect — which is the one reading it exists to prevent.
+        // `score` belongs here for the same reason, one unit of work in. It reads a range
+        // against declared criteria and reports a row each; it has no verdict to give and
+        // exits zero however it reads, so filing it under the gates would teach a reader
+        // that a low reading is a defect — which is the one thing it must not say.
+        commands: &[r("due"), w("kuten"), r("score")],
     },
     Group {
         title: "README blocks — each rewrites its <!-- REGEN --> block where it is run",

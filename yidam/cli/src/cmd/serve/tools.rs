@@ -32,6 +32,26 @@ pub(crate) fn capabilities(state: &ServerState) -> Value {
     let reason = state.retrieval.degraded_reason();
     json!({
         "contract": contract()["contract"].clone(),
+        // WHICH CORPUS, not what this server can do (contract 0.13.0). Every other key here
+        // answers the second question; this one answers the first, and it had no home in the
+        // protocol at all — it was a banner on stderr, which a stdio client can read and an
+        // HTTP client cannot, because the server is on another machine (#424).
+        //
+        // It matters most in the case it is hardest to diagnose from outside: `serve` locates
+        // the corpus by walking up from wherever it started, and a server launched from the
+        // wrong directory does not fail — it answers every tool with nothing. From the client
+        // side that is indistinguishable from an empty corpus, and `nodes: 0` is the tell.
+        //
+        // `stale` is a tri-state: see `ServerState::stale_index`.
+        "corpus": {
+            "domain": state.domain,
+            "commit": state.commit,
+            "nodes": state.nodes.len(),
+            "skills": state.skills.len(),
+            "decisions": state.decisions.len(),
+            "indexed_commit": state.indexed_commit,
+            "stale": state.stale_index(),
+        },
         // Not a tier: `retrieve` is core either way. This says whether the index is loaded,
         // which is the same fact `degraded` reports per call — so it is rendered from the
         // same source, and carries the same reason. A client that reads the handshake
@@ -223,14 +243,48 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
 
     #[cfg(feature = "vector-read")]
     if let Retrieval::Vector(index) = &state.retrieval {
-        let hits = crate::retrieval::vector::search(index, query, k, |r| {
+        let searched = crate::retrieval::vector::search(index, query, k, |r| {
             class_filter.is_none_or(|c| r.class == c)
         })?;
+        // The index was built in a different vector space than this binary embeds into, so
+        // scoring against its rows would return plausible, wrong rankings. Keyword search is
+        // the same answer this tool gives a corpus with no index, under its own reason.
+        let crate::retrieval::vector::Searched::Hits(hits) = searched else {
+            return Ok(keyword_retrieve(
+                state,
+                query,
+                k,
+                class_filter,
+                Some(crate::retrieval::STALE_CONTRACT),
+            ));
+        };
         let results: Vec<Value> = hits
             .iter()
             .map(|(r, score)| {
                 json!({
+                    // Present on both arms now. `retrieve` finds and `get_node` reads, and
+                    // the handle between them was on the DEGRADED path and absent from the
+                    // good one — a corpus that built an index got results it could not
+                    // follow (#425). `find_node` tolerating a full repo path made it work by
+                    // accident; that is a tolerance in the resolver, not a promise of this
+                    // shape, and no case asserted it.
+                    //
+                    // Null rather than absent when a row resolves to no node — a catalog
+                    // source, or an index built before a file moved — following the
+                    // convention `origin` sets one arm over: a client testing the key must
+                    // not have to distinguish "unfollowable" from "a server too old to say".
+                    //
+                    // Resolved through `find_node`, which is what `get_node` resolves with.
+                    // That is the point: an id produced by one and rejected by the other is
+                    // the affordance this fixes, so they answer from one function rather
+                    // than from two that agree today. It already tolerates this exact path
+                    // form — the tolerance #425 notes was doing the work by accident, now
+                    // load-bearing on purpose and asserted below.
+                    "id": find_node(state, &r.path).map(|n| n.qualified_id()),
                     "path": r.path,
+                    // No `origin` here, and that asymmetry is deliberate and documented:
+                    // `yidam embed` gathers this repository only, so its absence says the
+                    // search never looked outside this corpus.
                     "class": r.class,
                     "label": r.label,
                     "text": r.text,
@@ -851,6 +905,42 @@ fn claim_tags() -> Value {
 mod tests {
     use super::super::tests::test_state;
     use super::*;
+
+    /// The id the vector arm hands back is the id `get_node` takes.
+    ///
+    /// `retrieve` finds and `get_node` reads; the handle between them was on the degraded
+    /// keyword path and absent from the semantic one, so a corpus that had done the work of
+    /// building an index got results it could not follow (#425).
+    ///
+    /// This asserts the resolution, not the wiring: the vector arm is `--features
+    /// vector-read` and its search loads model weights, so an end-to-end call is neither
+    /// compiled by a pull request nor runnable without a download. What the arm now does is
+    /// hand `VectorRow::path` to `find_node` and take `qualified_id`, and `find_node` is what
+    /// `get_node` resolves with — so the round trip holds if this path form resolves at all.
+    /// That tolerance existed and was undeclared; #425 is what made it load-bearing.
+    #[test]
+    fn an_index_row_path_resolves_to_the_id_get_node_takes() {
+        let state = test_state();
+        let node = state.nodes.first().expect("the fixture corpus has a node");
+        let id = node.id.clone();
+
+        // The shape `index_rows` yields, which is what the vector arm passes in.
+        let row_path = format!(".yidam/corpus/{id}.yml");
+        let resolved = find_node(&state, &row_path).map(|n| n.qualified_id());
+        assert_eq!(
+            resolved.as_deref(),
+            Some(id.as_str()),
+            "an index row path did not resolve; the vector arm would emit a null id"
+        );
+
+        // And what it resolves to is fetchable, which is the whole affordance.
+        let fetched = call_ok(
+            &state,
+            "get_node",
+            serde_json::json!({"id": resolved.unwrap()}),
+        );
+        assert_eq!(fetched["id"], id);
+    }
 
     fn call_ok(state: &ServerState, name: &str, args: Value) -> Value {
         let result = call(state, name, &args);

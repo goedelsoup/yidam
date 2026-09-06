@@ -102,7 +102,16 @@ pub fn corpus_ontology_schema() -> Value {
                 "description": "Omitted entirely when the corpus chose no foundational alignment.",
                 "properties": {
                     "ontology": { "type": "string", "enum": ["bfo", "ufo"] },
-                    "type": non_empty_string()
+                    "type": non_empty_string(),
+                    "iri": {
+                        "type": "string",
+                        "description": "The IRI this type has in that ontology, when the \
+                                        corpus has looked it up — `export-rdf` emits it as \
+                                        `skos:exactMatch`. Optional: the alignment is worth \
+                                        stating without it, and deriving one from `type` \
+                                        would mean a BFO and gUFO term table in the binary, \
+                                        wrong the moment either is revised."
+                    }
                 },
                 "required": ["ontology", "type"],
                 "additionalProperties": false

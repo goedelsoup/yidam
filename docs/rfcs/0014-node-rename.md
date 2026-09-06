@@ -1,6 +1,6 @@
 # RFC-0014 — Node rename as a sanctioned operation
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I9
 - **Relates to:** RFC-0013 (node model; immutable IDs deferred), RFC-0001 (report contract — the
   gate's home), RFC-0003 (light binary — so a pre-commit hook can run it), RFC-0004 (CI enforcement)
@@ -21,7 +21,7 @@ free because the detection it enforces already exists.
 ## Problem
 
 The hazard is documented with no operational remedy:
-[`directories.md:149-150`](../../yidam/prelude/guidelines/directories.md#L149-L150) — "renaming a node
+[`directories.md:379-380`](../../yidam/prelude/guidelines/directories.md#L379-L380) — "renaming a node
 severs edges, so choose well"; [`information-architecture.md:27`](../information-architecture.md#L27) —
 "renaming severs edges." Edges are path-based (`links[].target` on an instance; `[label](path)` in
 Markdown), so renaming `a/old.yml` → `a/new.yml` silently invalidates every inbound

@@ -1,0 +1,15 @@
+{
+  "rust-suites": {
+    "yidam::example_corpus": {
+      "testcases": {
+        "the_streamflow_example_still_bootstraps": { "ignored": true }
+      }
+    },
+    "yidam::design_tokens": {
+      "testcases": {
+        "no_consumer_declares_a_raw_colour": { "ignored": false },
+        "every_token_a_consumer_uses_is_declared_at_the_source": { "ignored": false }
+      }
+    }
+  }
+}

@@ -18,6 +18,15 @@ module YidamSangha {
   datatype Option<T> = None | Some(value: T)
 
   // A claim held by a sangha position (simplified — full claim type in graph.dfy).
+  //
+  // `text` is the whole of a claim's identity here, so `ArticleV` below is decided by string
+  // equality. That is a modelling choice, not a rule a checker may inherit: measured against a
+  // derived repository's 29 resolutions, no claim a resolution introduced appears byte-identically
+  // at any participating tip, and the corpus's own extractor returns a different string for one
+  // claim depending on where the source line-wraps. The theorems still hold — they are about a
+  // sequence of values with decidable equality — but `Claim(text)` is not a claim identity for
+  // real commits. CONSTITUTION.md Article V ("On identity") puts that judgement with the
+  // synthesizer and leaves the gatable half to nodes and edges; see docs/rfcs/0008-emergent-claims.md.
   datatype Claim = Claim(text: string)
 
   // A sangha position: one elector's current branch-tip view.
@@ -53,6 +62,13 @@ module YidamSangha {
   //
   // Every claim in the evolution was held by at least one elector.
   // This is the formal statement that resolution is synthesis, not generation.
+  //
+  // The predicate is stated over claims because that is what this module models. The
+  // *gatable* instance of the same predicate is over nodes and edges, and it lives in
+  // `yidam/cli/src/cmd/lint/scope.rs` (`resolution-scope-unheld`): the shape is identical —
+  // membership of an introduced item in the union of what the recorded tips held — and only
+  // the identity differs, which is the whole of why one of them can gate and the other
+  // cannot. See `Claim` above.
 
   predicate ArticleV(positions: seq<SanghaPosition>, evo: SanghaEvolution) {
     forall c :: c in evo.claims ==>

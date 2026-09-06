@@ -395,3 +395,90 @@ fn nothing_restates_what_the_default_set_is() {
         offenders.join("\n")
     );
 }
+
+// ── the per-row `*(default)*` markers (#532) ─────────────────────────────────
+//
+// `nothing_restates_what_the_default_set_is` catches a *gloss* — prose naming the set. It
+// does not catch a feature table that marks its rows one at a time, and both
+// `docs/installation.md` and `README.md` do. Both were wrong: `vault-s3` joined `default` and
+// appeared in neither table, so a reader saw a light build of `reports + tonpa` and had done
+// since #482. Exactly the drift `light_build.rs`'s own header describes, in the one shape its
+// detector was not looking for.
+//
+// Both sides discovered: the marked rows come from walking the documents, the truth from the
+// manifest. Neither is a list in this file.
+
+/// A feature table row: the feature it names, and whether it is marked as default.
+fn marked_rows(text: &str) -> Vec<(String, bool)> {
+    text.lines()
+        .filter(|l| l.trim_start().starts_with('|'))
+        .filter_map(|l| {
+            let first = l.trim_start().trim_start_matches('|').split('|').next()?;
+            let name = first.split('`').nth(1)?.trim().to_string();
+            Some((name, first.contains("*(default)*")))
+        })
+        .collect()
+}
+
+/// Every feature table agrees with the manifest about which features are default.
+#[test]
+fn a_feature_table_marks_exactly_the_default_features() {
+    let default = feature_body("default");
+    let declared = declared_features();
+    let mut problems: Vec<String> = Vec::new();
+    let mut tables = 0;
+
+    for doc in ["README.md", "docs/installation.md"] {
+        let path = repo_root().join(doc);
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{} unreadable: {e}", path.display()));
+        let rows: Vec<(String, bool)> = marked_rows(&text)
+            .into_iter()
+            .filter(|(name, _)| declared.contains(name))
+            .collect();
+        // A document with no feature rows is not a document this test is about; one with a
+        // handful is, and losing them silently is how the check stops checking.
+        if rows.len() < 3 {
+            continue;
+        }
+        tables += 1;
+
+        for (name, marked) in &rows {
+            match (default.contains(name), marked) {
+                (true, false) => problems.push(format!(
+                    "  {doc}: `{name}` is in the default set and its row is not marked \
+                     *(default)*"
+                )),
+                (false, true) => problems.push(format!(
+                    "  {doc}: `{name}` is marked *(default)* and is not in the default set"
+                )),
+                _ => {}
+            }
+        }
+
+        // And the other direction: a default feature with no row at all is the way
+        // `vault-s3` went missing — a table cannot mark a row it does not have.
+        let listed: BTreeSet<&String> = rows.iter().map(|(n, _)| n).collect();
+        for f in &default {
+            if !listed.contains(f) {
+                problems.push(format!(
+                    "  {doc}: `{f}` is in the default set and the table has no row for it"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        tables >= 2,
+        "{tables} feature table(s) found; this test is reading the wrong documents or the \
+         row parser stopped recognising one"
+    );
+    assert!(
+        problems.is_empty(),
+        "{} feature table row(s) disagree with `[features] default`:\n{}\n\n\
+         The default set is what `cargo install yidam` resolves and what the release ships. \
+         A table that names a different one sends a reader to build something else.",
+        problems.len(),
+        problems.join("\n")
+    );
+}

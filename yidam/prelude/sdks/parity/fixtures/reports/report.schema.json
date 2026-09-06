@@ -52,7 +52,8 @@
         "passed",
         "new_violations",
         "baselined_violations",
-        "stale_baseline_entries"
+        "stale_baseline_entries",
+        "expired_baseline_entries"
       ],
       "properties": {
         "passed": {
@@ -85,28 +86,73 @@
               }
             }
           }
+        },
+        "expired_baseline_entries": {
+          "type": "array",
+          "description": "Entries that have outlived the expiry the baseline declares, and so no longer forgive the violation they list. These fail CI. Separate from `new_violations` although both fail: an introduced violation is something this change did, an expired one is something the repository agreed to deal with and has not — and a consumer telling somebody they introduced a finding that has sat in their baseline for two hundred commits would be wrong.",
+          "items": {
+            "type": "object",
+            "required": [
+              "check",
+              "node",
+              "commits"
+            ],
+            "properties": {
+              "check": {
+                "type": "string"
+              },
+              "node": {
+                "type": "string"
+              },
+              "commits": {
+                "type": "integer",
+                "description": "Corpus-touching commits it has stood for."
+              }
+            }
+          }
         }
       }
     },
     "checks": {
       "type": "array",
-      "description": "`lint` only. Every check that ran, including those that found nothing — a check that vanishes when it passes cannot be told from one that never ran.",
+      "description": "`lint` AND `doctor`, and the two emit different item shapes under this one key — which went unstated until #645's recursive gate read it. `lint`'s check carries `title`, `severity`, `rationale` and `violations`; `doctor`'s carries `question`, `verdict`, `detail` and `remedy`. Both carry `id`, which is the only field required here for the same reason the envelope requires only three at the top level: this schema is a flat union across commands, and a `required` naming one command's shape would declare the other command's output invalid. Consumers key on `id` and read the fields their command emits. In both, every check that ran is present including those that found nothing — a check that vanishes when it passes cannot be told from one that never ran.",
       "items": {
         "type": "object",
         "required": [
-          "id",
-          "title",
-          "severity",
-          "rationale",
-          "violations"
+          "id"
         ],
         "properties": {
           "id": {
             "type": "string",
-            "description": "Stable identifier; half of a violation's identity in the baseline."
+            "description": "Stable identifier. A consumer keys on this; the prose is free to change. In `lint` it is also half of a violation's identity in the baseline."
           },
           "title": {
-            "type": "string"
+            "type": "string",
+            "description": "`lint` only."
+          },
+          "question": {
+            "type": "string",
+            "description": "`doctor` only. The question in the form a person would ask it."
+          },
+          "verdict": {
+            "enum": [
+              "ok",
+              "warn",
+              "fail",
+              "skipped"
+            ],
+            "description": "`doctor` only. `warn` is actionable and a normal state to be in, and does not affect the exit code without `--strict`; `fail` is wrong now and exits nonzero; `skipped` is not answerable, almost always because the repository check already failed and there is nothing to answer about. A consumer MUST NOT read `skipped` as `ok`."
+          },
+          "detail": {
+            "type": "string",
+            "description": "`doctor` only. What was actually found."
+          },
+          "remedy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`doctor` only. The command or edit that resolves it. NOT null-iff-healthy: two checks emit a remedy alongside `verdict: ok` — the prelude and policy checks name one on both verdicts deliberately. The text renderer prints a remedy only for `warn` and `fail`, so the invariant a reader might infer holds for the prose and has never held for this field. #656 tracks whether that is the JSON's bug or the renderer's."
           },
           "severity": {
             "enum": [
@@ -114,20 +160,22 @@
               "warn",
               "info"
             ],
-            "description": "Only `error` gates, and only `error` is ever baselined."
+            "description": "`lint` only. The severity the check is DECLARED at — not necessarily the severity of its findings, which is `violations[].severity` below. A consumer filtering gate-relevant findings on this field drops every escalated one: `missing-property` is declared `warn` and gates the properties a class marked `required: true`, and any corpus-state check can escalate on age. This said 'Only `error` gates, and only `error` is ever baselined' until #650, which contradicted the field 30 lines down and is how the consumers named there came to read the wrong one."
           },
           "rationale": {
             "type": "string",
-            "description": "Why the check exists."
+            "description": "`lint` only. Why the check exists."
           },
           "violations": {
             "type": "array",
+            "description": "`lint` only. Every finding the check raised, including none — a check that vanishes when it passes cannot be told from one that never ran.",
             "items": {
               "type": "object",
               "required": [
                 "node",
                 "detail",
-                "in_baseline"
+                "in_baseline",
+                "severity"
               ],
               "properties": {
                 "node": {
@@ -140,6 +188,37 @@
                 "in_baseline": {
                   "type": "boolean",
                   "description": "Whether the committed baseline already records this violation. ONLY MEANINGFUL WHEN severity IS error — the baseline records error-severity violations and nothing else, so a warn or info violation is always false here. Read this together with `severity`, never alone."
+                },
+                "severity": {
+                  "enum": [
+                    "error",
+                    "warn",
+                    "info"
+                  ],
+                  "description": "This violation's effective severity, and the one that decides whether it GATES. Normally the check's, and not always: `Check::severity_of` returns the finding's own override or an age escalation before falling back to the check's level, so `missing-property` is declared `warn` and raises the one property a class marked `required: true` to `error`. Read it here and never from the check — that is also what `in_baseline` above means by 'together with `severity`'. NOTE, so nobody reads this as settled: as of #650 no consumer does. The VS Code extension, the web editor and the LSP all read the check-level field, so a finding that fails CI renders as a warning in all three; #655 tracks it. This field went undeclared until #645 because the contract gate compared only the envelope's top level."
+                },
+                "age": {
+                  "type": "object",
+                  "description": "How long a corpus-state finding has held. Present only on the checks that measure it; absent is the normal case and means the finding has no age, not that it is new.",
+                  "required": [
+                    "first_commit",
+                    "first_day",
+                    "commits"
+                  ],
+                  "properties": {
+                    "first_commit": {
+                      "type": "string",
+                      "description": "Full sha of the commit at which the condition began, so a consumer can `git show` it."
+                    },
+                    "first_day": {
+                      "type": "string",
+                      "description": "The `YYYY-MM-DD` of that commit — the same day the text report prints."
+                    },
+                    "commits": {
+                      "type": "integer",
+                      "description": "Corpus-touching commits it has held for, counting the one at HEAD. Commits rather than days, deliberately: a day count is a function of when the report was run, so the same corpus answers differently tomorrow and no consumer can cache or pin it."
+                    }
+                  }
                 },
                 "span": {
                   "type": "object",
@@ -162,7 +241,7 @@
     },
     "passed": {
       "type": "boolean",
-      "description": "`graph-check`, `regen --check` and `index-verify`. The gate verdict. A consumer MUST NOT recompute it. On `due` it is true unless `--strict` was passed and a clock is due — being owed is not a failure, and this field is here so a consumer does not infer one."
+      "description": "`graph-check`, `regen --check`, `index-verify` and `doctor`. The gate verdict. A consumer MUST NOT recompute it. On `due` it is true unless `--strict` was passed and a clock is due — being owed is not a failure, and this field is here so a consumer does not infer one."
     },
     "failed": {
       "type": "integer",
@@ -399,11 +478,104 @@
         "array",
         "integer"
       ],
-      "description": "An array in `corpus-index` (index rows), `graph` (nodes with their resolved edges) and `diff` (changed nodes); an integer in `status` (how many there are). Two shapes under one name, which the field-presence check cannot see and a validating consumer would have tripped over."
+      "description": "An array in `corpus-index` (index rows), `graph` (nodes with their resolved edges) and `diff` (changed nodes); an integer in `status` (how many there are). Two shapes under one name, which the field-presence check could not see until #650 gave this file a validating reader — the hazard this description named while nothing enforced it.",
+      "items": {
+        "type": "object",
+        "description": "A flat union across the emitting commands, for the reason `checks` above is one: `graph` carries `description` and `links`, `corpus-index` carries the counts and `lines`, and `required` therefore names only what both carry. `diff`'s shape is unexercised — its array is empty in the fixture — so nothing here is invented for it.",
+        "required": [
+          "node"
+        ],
+        "properties": {
+          "node": {
+            "type": "string",
+            "description": "Corpus-relative path. A node's identity throughout, in every report that names one."
+          },
+          "class": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "description": "`graph` only."
+          },
+          "links": {
+            "type": "array",
+            "description": "`graph` only. Every edge this node declares, already resolved.",
+            "items": {
+              "type": "object",
+              "required": [
+                "target",
+                "relationship",
+                "resolved",
+                "exists"
+              ],
+              "properties": {
+                "target": {
+                  "type": "string",
+                  "description": "Exactly as written, so a consumer can find it in the file."
+                },
+                "relationship": {
+                  "type": "string"
+                },
+                "resolved": {
+                  "type": "string",
+                  "description": "Corpus-relative path of the resolved target, or empty when it lands outside the corpus. Resolution is `normalize(dir.join(target))` — the rule `dangling-edge` and `orphan-in` apply."
+                },
+                "exists": {
+                  "type": "boolean",
+                  "description": "Whether that path is a file. This is the gate's own test, and a consumer MUST NOT recompute it: an editor that decided for itself would disagree with `lint` about which edges are broken."
+                }
+              }
+            }
+          },
+          "links_out": {
+            "type": "integer",
+            "description": "`corpus-index` only. How many edges the node declares."
+          },
+          "claims_verified": {
+            "type": "integer",
+            "description": "`corpus-index` only."
+          },
+          "claims_inference": {
+            "type": "integer",
+            "description": "`corpus-index` only."
+          },
+          "claims_open": {
+            "type": "integer",
+            "description": "`corpus-index` only."
+          },
+          "lines": {
+            "type": "integer",
+            "description": "`corpus-index` only. Length of the node file."
+          }
+        }
+      }
     },
     "open_questions": {
-      "type": "array",
-      "description": "`open-questions` only."
+      "type": [
+        "array",
+        "integer"
+      ],
+      "description": "An array in `open-questions` (the nodes carrying one); an integer in `status` (how many there are). Two shapes under one name, the same hazard `nodes` above records — and the same one that went unseen while this contract was checked by field presence alone.",
+      "items": {
+        "type": "object",
+        "required": [
+          "node",
+          "label"
+        ],
+        "properties": {
+          "node": {
+            "type": "string",
+            "description": "Corpus-relative path."
+          },
+          "label": {
+            "type": "string",
+            "description": "The node's label, which for a `?`-titled node is the question itself."
+          }
+        }
+      }
     },
     "sources": {
       "type": "array",
@@ -490,13 +662,110 @@
                 "description": "Basenames of nodes that cite this entry, that the list omits."
               }
             }
+          },
+          "artifacts": {
+            "type": "array",
+            "description": "The entry's fetched artifacts, as its record declares them. Empty when the record declares no `artifacts:` key at all — NOT when it names no bytes, a different condition this file stated wrongly until #650, since `catalog.rs` reserves 'names bytes' for an artifact carrying a non-empty `sha256`. A catalog entry is a record about a source and does not have to have fetched one.",
+            "items": {
+              "type": "object",
+              "description": "Every field is optional so that a malformed record parses and is REPORTED rather than making the whole entry unreadable: an entry that fails to load takes its citations, its TTL and its `used-by` down with it, which is a large penalty for one bad field.",
+              "properties": {
+                "sha256": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The content address — 64 lowercase hex characters."
+                },
+                "bytes": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "Size in bytes, as fetched."
+                },
+                "media_type": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "So a reader knows what the artifact is without fetching it."
+                },
+                "retrieved": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "When these bytes were obtained. Distinct from the entry's own `retrieved:`, which is about the record — an entry can be revised without re-fetching anything."
+                },
+                "from": {
+                  "type": [
+                    "integer",
+                    "string",
+                    "null"
+                  ],
+                  "description": "Where it came from: an index into this entry's `location` list, or a literal URL. An untagged enum over the two, so a consumer branches on the JSON type. Declared with a description and no `type` until #650, which under draft 2020-12 is the empty schema and asserts nothing — `yidam schema` has always been stricter about the same field."
+                },
+                "vault": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Which vault these bytes may be stored in. `none` means the local cache and nowhere else. Routing, and not permission — `redistributable` is the other question and overrides this one."
+                },
+                "redistributable": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ],
+                  "description": "Whether these bytes may leave this machine at all — the licensing bit, which overrides `vault` above. Declared with no `type` until #650, and it is the field where an unasserted contract costs the most."
+                }
+              }
+            }
           }
         }
       }
     },
     "phases": {
       "type": "array",
-      "description": "`phases` only."
+      "description": "`phases` only. One row per inquiry ref backed by a `ma/*`, `rigpa/*` or `phase/*` branch. Every ref is listed and each says what it is, rather than the table filtering to what it calls active.",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "state",
+          "ref_name",
+          "owner",
+          "started",
+          "commits"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "settled",
+              "position"
+            ],
+            "description": "A column rather than a filter: a table listing settled evolutions beside standing positions and calling the lot `active phases` is what this replaced."
+          },
+          "ref_name": {
+            "type": "string",
+            "description": "The git ref to read, which is not the phase's name when the phase lives only on a remote."
+          },
+          "owner": {
+            "type": "string"
+          },
+          "started": {
+            "type": "string"
+          },
+          "commits": {
+            "type": "integer"
+          }
+        }
+      }
     },
     "edges": {
       "type": "array",
@@ -504,7 +773,7 @@
     },
     "range": {
       "type": "string",
-      "description": "`diff` and `check-diff`. The git range reported on, exactly as it was given — unnormalised, so what the caller asked for is what the report says."
+      "description": "`diff`, `check-diff`, `log` and `log-epistemic`. The git range reported on, unnormalised, so what was compared is what the report says. Usually exactly as the caller gave it; `check-diff` may be run with no range, and then this is the default it resolved to — the merge-base with the default branch — rather than a blank."
     },
     "vocabulary": {
       "type": "integer",
@@ -520,7 +789,81 @@
     },
     "findings": {
       "type": "array",
-      "description": "`check-diff` only. Types the diff introduces that the ontology does not name. Every one carries `severity` (`warn`, or `info` where the file sits in a declared `generated` or `imported` region) and `question` — phrased as a question deliberately, because matching is by name and cannot tell a gap in the ontology from a helper it has no reason to know about. A finding may also carry `nearest`, an object of `name` (a declared name sharing a root with this one) and `shared` (that root). It is a lead and never a verdict: two names sharing a four-character prefix is a fact about two strings, arrived at without a model, and the finding exists whether or not a candidate was found — so a consumer must not render `nearest` as a confidence, a score, or a proposed fix. This report never gates: a consumer must not read a non-empty array as a failure."
+      "description": "`check-diff` only. Types the diff introduces that the ontology does not name. This report never gates: a consumer must not read a non-empty array as a failure. The item shape below was prose here until #650 — a description of a shape is not a declaration of it, and nothing could check the difference.",
+      "items": {
+        "type": "object",
+        "required": [
+          "check",
+          "severity",
+          "concept",
+          "name",
+          "file",
+          "span",
+          "question"
+        ],
+        "properties": {
+          "check": {
+            "type": "string",
+            "description": "Stable id. One check in Phase A, named anyway so a consumer branches on a token rather than on prose."
+          },
+          "severity": {
+            "enum": [
+              "warn",
+              "info"
+            ],
+            "description": "`info` where the file sits in a declared `generated` or `imported` region, `warn` otherwise. Never `error`: this report does not gate."
+          },
+          "concept": {
+            "type": "string",
+            "description": "As written in the code: `AgendaItem`."
+          },
+          "name": {
+            "type": "string",
+            "description": "What the ontology would have to name for this to match: `agenda-item`."
+          },
+          "nearest": {
+            "type": "object",
+            "description": "A declared name this one shares a root with, when the vocabulary holds one. A LEAD AND NEVER A VERDICT: two names sharing a four-character prefix is a fact about two strings, arrived at without a model, and the finding exists whether or not a candidate was found — so a consumer must not render this as a confidence, a score, or a proposed fix. Absent when nothing shares a root.",
+            "required": [
+              "name",
+              "shared"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "The declared name, kebab-cased as the vocabulary holds it: `sponsored-by`."
+              },
+              "shared": {
+                "type": "string",
+                "description": "The root the two names have in common: `sponsor`. Evidence, not a score."
+              }
+            }
+          },
+          "file": {
+            "type": "string"
+          },
+          "span": {
+            "type": "object",
+            "required": [
+              "line"
+            ],
+            "properties": {
+              "line": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "question": {
+            "type": "string",
+            "description": "Phrased as a question, deliberately — the answer is a person's. Matching is by name, so a type that matches nothing may be a genuine gap in the ontology or a helper the ontology has no reason to know about. The check cannot tell, and must not phrase itself as though it could."
+          },
+          "region": {
+            "type": "string",
+            "description": "Why a finding here is not this repository's to fix, and whose it is. Present only inside a `generated` or `imported` region."
+          }
+        }
+      }
     },
     "blessed": {
       "type": "object",
@@ -537,10 +880,6 @@
     "settled_phases": {
       "type": "integer",
       "description": "`status` only. Bounded work already merged whose ref still exists; PHASES.md prescribes deleting these."
-    },
-    "positions": {
-      "type": "integer",
-      "description": "`status` only. Standing `ma/*` elector positions, which are neither active work nor drift — divergence from the baseline is what a position is for."
     },
     "state": {
       "type": "string",
@@ -583,7 +922,10 @@
               "type": "object",
               "required": [
                 "nodes",
-                "orphans"
+                "orphans",
+                "uncited",
+                "expectation",
+                "meets_expectation"
               ],
               "properties": {
                 "nodes": {
@@ -591,6 +933,25 @@
                 },
                 "orphans": {
                   "type": "integer"
+                },
+                "uncited": {
+                  "type": "integer",
+                  "description": "Instances of this class that nothing cites."
+                },
+                "expectation": {
+                  "enum": [
+                    "cited",
+                    "uncited",
+                    "unstated"
+                  ],
+                  "description": "What the ontology declared for this class: `uncited` for a source class nothing is meant to point at, `cited` for a class declaring an inbound edge, `unstated` when it declared neither."
+                },
+                "meets_expectation": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ],
+                  "description": "Whether the class is behaving as it declared. `null` when it declared nothing — there is no expectation to meet, and scoring a class against one it never stated is how a corpus with an unfilled ontology gets reported as failing. A consumer MUST NOT read `null` as false."
                 }
               }
             }
@@ -692,6 +1053,26 @@
             "type": "string",
             "description": "The Role cell verbatim, markdown and all — it is prose written for a reader."
           },
+          "kind": {
+            "type": "string",
+            "description": "`agent`, `human`, or empty. RFC-0012 attestation. NOT REQUIRED, and neither is any other attestation field: a released CLI predates the columns and a registry written before them fills none of them in, so empty means the registry does not say."
+          },
+          "model": {
+            "type": "string",
+            "description": "What produced this seat's positions, for an agent elector. Recorded, never privileged — Article II governs weight and Article III governs record."
+          },
+          "version": {
+            "type": "string",
+            "description": "The model's version, where the model name does not carry it."
+          },
+          "config": {
+            "type": "string",
+            "description": "A hash of the agent's operative configuration, never the configuration itself."
+          },
+          "key": {
+            "type": "string",
+            "description": "The seat's SSH public key in `authorized_keys` form — the key, not a fingerprint. `yidam lint` generates the `gpg.ssh.allowedSignersFile` from this column at verification time, so the registry is the trust root and a key it does not carry verifies nothing. Empty means the seat declares its commits unverifiable."
+          },
           "branch_present": {
             "type": "boolean",
             "description": "Whether the branch exists, local or remote-tracking. A registered elector whose branch is gone is a state to report, not an error."
@@ -700,8 +1081,11 @@
       }
     },
     "positions": {
-      "type": "array",
-      "description": "`sangha` only. Files in `positions/`, attributed by the `<elector>-<question>` naming convention.",
+      "type": [
+        "array",
+        "integer"
+      ],
+      "description": "An array in `sangha` (files in `positions/`, attributed by the `<elector>-<question>` naming convention); an integer in `status` (standing `ma/*` elector positions, which are neither active work nor drift — divergence from the baseline is what a position is for). This key was declared TWICE in this object until #650, once per shape. Every JSON parser keeps the last, so the `status` declaration and its description were dead text that read as coverage. `items` below therefore applies to the `sangha` shape only.",
       "items": {
         "type": "object",
         "required": [
@@ -758,6 +1142,13 @@
           "branch_present": {
             "type": "boolean",
             "description": "Whether `rigpa/<evolution>` still exists. False is routine: the branch is often deleted once the resolution lands on the baseline."
+          },
+          "synthesized_by": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The `synthesized-by:` seats — the elector branch that executed the synthesis, and a list where it was joint. NOT REQUIRED, deliberately: a released CLI predates the field and emits records without it, and every record written before the field existed carries none, so a consumer that assumes it is present is wrong in two directions at once. Empty means the record does not say who executed it, which is a finding (`resolution-executor-unrecorded`) rather than a gap in this report."
           }
         }
       }
@@ -909,6 +1300,10 @@
                 },
                 "description": {
                   "type": "string"
+                },
+                "required": {
+                  "type": "boolean",
+                  "description": "Whether every instance of the class must carry this property. `missing-property` GATES on a property declared true and reports the rest, so this is the difference between a finding that fails CI and one that does not — and until #606 this report did not carry it, which made `yidam schema`'s claim that one declaration decides both, 'so the editor and the gate cannot disagree', false along this route. Always emitted, including when false: a client is versioned independently of the binary it talks to, so an absent field would be ambiguous between 'this property is optional' and 'this binary predates the field', and it was the second reading that produced a page claiming every property in a corpus was optional. Absent therefore means the binary is older than the field, never that the property is optional."
                 }
               }
             }
@@ -1242,6 +1637,288 @@
             "type": "string",
             "description": "Author date, ISO-8601."
           }
+        }
+      }
+    },
+    "kuten": {
+      "type": "object",
+      "description": "`kuten check` only. What this corpus declared its practice is aimed at (RFC-0028), and where its own history disagrees. Advisory by construction: the command exits zero however far a corpus has drifted, so a consumer MUST NOT read a divergence as a gate failure.",
+      "required": [
+        "held",
+        "revision_skew",
+        "vintage",
+        "measurement",
+        "findings",
+        "conforming"
+      ],
+      "properties": {
+        "held": {
+          "type": "boolean",
+          "description": "Whether this repository declares a kuten at all. `false` is a supported state and not a finding — it was all eighteen corpora the layer was measured over."
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The kuten named by `.yidam/decisions/kuten.yml`."
+        },
+        "declared_revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "The revision the decision record names."
+        },
+        "vendored_revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "The revision of the profile actually vendored under `.yidam/.vendor/prelude/kuten/`."
+        },
+        "revision_skew": {
+          "type": "boolean",
+          "description": "Whether those two disagree. A comparison across revisions is annotated rather than silently made, on the same rule that refuses a cross-PROTOCOL_VERSION diff."
+        },
+        "unresolved": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Why there is nothing to compare, when a kuten is declared and cannot be read."
+        },
+        "vintage": {
+          "type": "object",
+          "description": "What the repository's VENDORED prelude could have produced. A metric that prelude could not have produced is reported as `vintage` and never as divergence — a repository whose GRAPH.md has no `phase` verb has not stopped running phases.",
+          "required": [
+            "has_phase_verb",
+            "vocabulary_is_closed",
+            "graph_present"
+          ],
+          "properties": {
+            "has_phase_verb": {
+              "type": "boolean"
+            },
+            "vocabulary_is_closed": {
+              "type": "boolean"
+            },
+            "graph_present": {
+              "type": "boolean",
+              "description": "Whether a vendored GRAPH.md was found at all. False is absence, not age."
+            }
+          }
+        },
+        "measurement": {
+          "type": "object",
+          "description": "What this repository's own history and working tree show.",
+          "required": [
+            "commits",
+            "phase_commits",
+            "off_vocabulary_commits",
+            "nodes"
+          ],
+          "properties": {
+            "commits": {
+              "type": "integer",
+              "description": "Commits with an authored subject; git-generated merge subjects are excluded, because nobody chose their verb."
+            },
+            "phase_commits": {
+              "type": "integer"
+            },
+            "off_vocabulary_commits": {
+              "type": "integer"
+            },
+            "nodes": {
+              "type": "integer"
+            },
+            "median_node_lines": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Null where the corpus has no instance nodes."
+            },
+            "open_questions": {
+              "type": "integer",
+              "description": "Instance nodes the corpus currently holds open as questions, by the same predicate `open-questions` reports. NOT required: a CLI released before the question-pressure slot emits a measurement without it, and its output must still validate. Corpus state and deliberately not `open:` commits — two of the six repositories the layer was extracted from have written none while holding open questions in the corpus."
+            }
+          }
+        },
+        "findings": {
+          "type": "array",
+          "description": "One entry per claim the kuten makes that this repository can be read against, including the ones that conform: a metric that vanishes when it agrees cannot be told from one that was never read. A slot the profile leaves unpopulated produces no entry. Most entries read a measured value against a declared band, and `declared` is then that band; the `question-pressure` entry reads a declared *kind* instead, so `declared` is the kind's name and `measured` is a count or a reason. Both shapes carry the same `verdict` set, and a consumer keys on `metric` rather than on which shape it is.",
+          "items": {
+            "type": "object",
+            "required": [
+              "slot",
+              "metric",
+              "verdict",
+              "declared",
+              "measured"
+            ],
+            "properties": {
+              "slot": {
+                "type": "string",
+                "description": "The kuten slot the band belongs to."
+              },
+              "metric": {
+                "type": "string",
+                "description": "Stable identifier; the prose is free to change."
+              },
+              "verdict": {
+                "enum": [
+                  "conforming",
+                  "divergent",
+                  "vintage",
+                  "unmeasurable"
+                ],
+                "description": "`divergent` is a question for a person, never a defect. `vintage` means the vendored prelude could not have produced the metric. `unmeasurable` means there was nothing to measure."
+              },
+              "declared": {
+                "type": "string"
+              },
+              "measured": {
+                "type": "string"
+              },
+              "question": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The question a person is asked, where there is one. Absent on a conforming metric."
+              }
+            }
+          }
+        },
+        "conforming": {
+          "type": "boolean",
+          "description": "Whether every measured metric is inside its band. NOT an exit code: this command exits zero either way."
+        }
+      }
+    },
+    "score": {
+      "type": "object",
+      "description": "`score` only. One range of commits read against the criteria this corpus's kuten declares, or against the template's own where it holds none (RFC-0028, #286). Advisory by construction: there is no overall number, no verdict and no band, and the command exits zero however it reads — a consumer MUST NOT derive a pass or a failure from any row. A range spanning a kuten revision is refused rather than answered.",
+      "required": [
+        "range",
+        "base",
+        "tip",
+        "held",
+        "revision_skew",
+        "commits",
+        "added_nodes",
+        "rows",
+        "questions"
+      ],
+      "properties": {
+        "range": {
+          "type": "string",
+          "description": "The range as the caller wrote it. Always explicit: there is no default, because a default range produces a number about a scope nobody chose."
+        },
+        "base": {
+          "type": "string",
+          "description": "Full sha of the commit the range starts after."
+        },
+        "tip": {
+          "type": "string",
+          "description": "Full sha of the commit it ends at. The corpus is reconstructed at both, from git objects, never from the working tree."
+        },
+        "held": {
+          "type": "boolean",
+          "description": "Whether the criteria are this corpus's own. `false` means they are the template's, which is every repository today — the same criteria, and a different answer to whose selection they are."
+        },
+        "kuten": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The kuten the criteria came from, where one was held."
+        },
+        "revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "The revision the decision record names at the TIP of the range, read from that commit's tree rather than from the working copy."
+        },
+        "revision_skew": {
+          "type": "boolean",
+          "description": "Whether the vendored profile the criteria were read from is at another revision than that record names. Annotated, never silently resolved."
+        },
+        "commits": {
+          "type": "integer",
+          "description": "Authored, non-merge commits in the range — the same reader and the same merge predicate `lint --commits` uses."
+        },
+        "added_nodes": {
+          "type": "integer",
+          "description": "Corpus instances present at the tip and absent at the base."
+        },
+        "rows": {
+          "type": "array",
+          "description": "Exactly one per declared criterion, in declaration order — including the ones that could not be read. A criterion that vanished when it had no denominator could not be told from one that was never declared.",
+          "items": {
+            "type": "object",
+            "required": [
+              "criterion",
+              "reading",
+              "evidence"
+            ],
+            "properties": {
+              "criterion": {
+                "type": "string",
+                "description": "The criterion id, as the profile's `rubric.criteria` declares it. A consumer keys on this; the prose may change."
+              },
+              "reading": {
+                "type": "object",
+                "description": "What the criterion read. `unmeasurable` is NOT zero: it means there was no denominator, and a consumer that reads it as 0.00 is asserting something the report declined to.",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "measured",
+                      "unmeasurable"
+                    ]
+                  },
+                  "value": {
+                    "type": "number",
+                    "description": "The share, 0.0–1.0. Present only when `kind` is `measured`."
+                  },
+                  "shown": {
+                    "type": "string",
+                    "description": "The reading as a reader is shown it, e.g. `2 of 3 (67%)`. Present only when `kind` is `measured`."
+                  },
+                  "why": {
+                    "type": "string",
+                    "description": "Why there was nothing to read. Present only when `kind` is `unmeasurable`."
+                  }
+                }
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "The items the reading was drawn from, marked — capped, with a final line saying how many were left out. Non-empty whenever `kind` is `measured`: a number with nothing behind it is a claim nobody can check."
+              },
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "What a reader has to know to read the number correctly — the legibility precondition beside `register`, or the reason `questions` is never a threshold."
+              }
+            }
+          }
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The judged questions, when `--brief` asked for them. Scored by nothing, and deliberately: each turns on whether an assertion is warranted, and no corpus fact decides it. Empty otherwise."
         }
       }
     }

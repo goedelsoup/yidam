@@ -62,7 +62,7 @@ exists.
 
 A regression is any of:
 - A structural check that previously passed now fails
-- A judge quality score that drops by more than one band from the prior snapshot
+- A judge quality score that drops by ≥1 band from the prior snapshot
 - A new orphan node, missing genesis commit, or missing edge that wasn't present before
 
 The first two are implemented — a band that drops between two scored snapshots is reported

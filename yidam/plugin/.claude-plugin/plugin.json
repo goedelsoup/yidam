@@ -1,0 +1,13 @@
+{
+  "name": "yidam",
+  "version": "0.1.0",
+  "description": "Reach a yidam corpus from Claude Code: thirteen MCP tools over the corpus, and five skills that call them at the point each decision is made.",
+  "author": {
+    "name": "goedelsoup",
+    "url": "https://github.com/goedelsoup"
+  },
+  "homepage": "https://goedelsoup.github.io/yidam/mcp-server/",
+  "repository": "https://github.com/goedelsoup/yidam",
+  "license": "MIT",
+  "keywords": ["knowledge-graph", "mcp", "corpus", "provenance", "yidam"]
+}

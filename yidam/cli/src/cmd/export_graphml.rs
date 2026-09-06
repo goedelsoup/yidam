@@ -164,8 +164,11 @@ mod tests {
         let mut edges = 0;
         loop {
             match reader.read_event().expect("valid XML") {
-                Event::Start(e) if e.name().as_ref() == b"node" => nodes += 1,
-                Event::Start(e) if e.name().as_ref() == b"edge" => edges += 1,
+                // `&str`, not `&[u8]`: quick-xml 0.42 made `QName::as_ref` hand back a
+                // decoded name, so the byte literals these used to compare against no
+                // longer typecheck. The comparison is the same one.
+                Event::Start(e) if e.name().as_ref() == "node" => nodes += 1,
+                Event::Start(e) if e.name().as_ref() == "edge" => edges += 1,
                 Event::Eof => break,
                 _ => {}
             }

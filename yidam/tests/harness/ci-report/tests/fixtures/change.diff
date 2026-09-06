@@ -1,0 +1,16 @@
+diff --git a/yidam/cli/src/parse.rs b/yidam/cli/src/parse.rs
+--- a/yidam/cli/src/parse.rs
++++ b/yidam/cli/src/parse.rs
+@@ -0,0 +1,2 @@
++pub fn parse(input: &str) -> usize {
++    input.len()
+@@ -4,0 +5,2 @@
++pub fn unreached(input: &str) -> usize {
++    input.len() * 2
+diff --git a/yidam/cli/src/embedding.rs b/yidam/cli/src/embedding.rs
+--- a/yidam/cli/src/embedding.rs
++++ b/yidam/cli/src/embedding.rs
+@@ -0,0 +1,3 @@
++pub fn embed(_input: &str) -> Vec<f32> {
++    Vec::new()
++}

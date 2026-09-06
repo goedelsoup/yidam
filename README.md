@@ -26,7 +26,13 @@ Bootstrapping it produces a repository that does.
 
 **[goedelsoup.github.io/yidam](https://goedelsoup.github.io/yidam/)** — the documentation
 site, and the route to prefer. It renders everything under [`docs/`](docs/README.md) with a
-sidebar, search, and working cross-links, published from `main` on every push.
+sidebar, search, and working cross-links.
+
+It is versioned on the CLI, because that is what you have installed. The address above
+documents the **current release**; the last three releases keep their own paths
+(`/yidam/v0.7/`, and so on) and every page carries a menu to move between them.
+[`/yidam/main/`](https://goedelsoup.github.io/yidam/main/) documents unreleased tooling and
+says so on every page.
 
 | Going to | Start at |
 |---|---|
@@ -96,13 +102,21 @@ fetches the same artifact:
 cargo binstall yidam
 ```
 
+Not going to install a binary at all? Claude Desktop takes an `.mcpb` bundle — the server and
+the binary in one file you drag onto the Extensions pane, which asks which repository to serve.
+macOS only, and it gives you the MCP server rather than the CLI:
+
+```sh
+open yidam-0.9.0-aarch64-apple-darwin.mcpb    # from the latest release; or double-click it
+```
+
 Or from source, if you would rather. Same light default build, and it needs only a Rust
 toolchain — no protoc, no system C library, no ML runtime. `--locked` builds from the lock file the
 tag committed, which is what makes it the same binary the release was built from; without it
 cargo re-resolves every dependency:
 
 ```sh
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.7.0 --locked yidam
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.9.0 --locked yidam
 ```
 
 Either way, `yidam --version` should answer, naming the build and the features it carries.
@@ -216,7 +230,7 @@ yidam pack 'a -rel-> b'   that query's answer filled to a token budget, and what
 yidam estimate '…'        what a query would cost before running it
 yidam neighbors <node>    one node's neighbourhood — the traversal `serve --mcp` performs
 yidam diff main..HEAD     node and edge changes between two refs
-yidam check-diff a..b     types a code diff introduces that the ontology does not name
+yidam check-diff          types this branch introduces that the ontology does not name
 yidam log                 commit history classified as testimony or pipeline work
 yidam replay              corpus health across the repository's whole history
 yidam phases              active inquiry branches
@@ -268,7 +282,9 @@ The binary is partitioned by cargo feature so the common case stays cheap to ins
 | `tonpa` *(default)* | Bundle dependency manager — `tonpa add`, `verify`, `update` | reqwest (rustls) + tokio. Vendored C, no system library |
 | `index` | `index-build`, and upgrades `serve --mcp`'s `retrieve` from keyword to semantic | fastembed (ONNX) + LanceDB; needs protoc 31 at build time |
 | `export-sqlite` | `export --format sqlite` | Bundled SQLite + sqlite-vec, compiled from C |
-| `export-graph` | `export --format rdf` | Pure Rust |
+| `vault-s3` *(default)* | The `s3://` transport for `yidam vault` — the rest of the vault is ungated | hmac + reqwest (rustls) + tokio |
+| `export-graph` *(default)* | `export --format rdf` | Pure Rust |
+| `serve-http` *(default)* | `serve --mcp --http` — MCP over a URL, the transport every remote agent platform needs | hyper 1.x server features. **+1 package** (`httpdate`); hyper is already here for reqwest |
 | `full` | All of the above | |
 
 `tonpa` is in the default set even though it costs an HTTP stack, because it is the only
@@ -276,8 +292,9 @@ feature whose absence broke an instruction rather than removing a capability: wi
 `yidam tonpa add …` answered `unrecognized subcommand`, and inside a script with output
 redirected that is indistinguishable from success.
 
-MSRV is Rust 1.85, deliberately below the 1.88 toolchain this repo pins, so derived repos on
-older toolchains can still install the CLI.
+MSRV is Rust 1.88, the toolchain this repo pins. It read 1.85 here and in `Cargo.toml` while
+every gate built 1.88 and nothing ever compiled the floor, so #463 raised it to the pin —
+an unverified promise replaced by one every build checks.
 
 ## Prelude SDKs, parity, and specs
 

@@ -36,7 +36,9 @@ prelude/sdks/
   spec/                   ← formal specifications (Dafny, LEAN 4)
     graph.dfy             ← corpus graph invariants, marker update correctness
     sangha.dfy            ← resolution soundness (Article V proof)
-    core.lean             ← type-theoretic corpus + resolution model
+    Core.lean             ← type-theoretic corpus + resolution model
+    lakefile.lean         ← the Lake package `lake build Yidam` compiles
+    lean-toolchain        ← elan's pin, and the only one (see [tasks.verify])
   parity/                 ← cross-language parity fixtures and runner
     fixtures/             ← TOML files: input text → expected canonical output
     README.md             ← parity contract and how to add cases
@@ -163,13 +165,30 @@ SanghaEvolution
 ### Phase types
 
 ```
-Phase
-  name        : string           — short declarative label
-  kind        : PhaseKind        — Investigation | Extraction | Synthesis | Assessment
-  branch      : string           — the ma/* branch this phase lives on
-
-PhaseKind = Investigation | Extraction | Synthesis | Assessment
+PhaseRow
+  name        : string           — the phase name, humanized from the ref
+  state       : string           — active | settled | position
+  ref_name    : string           — the ref this row was derived from
+  owner       : string           — who last committed on it
+  started     : string           — the date of its first commit
+  commits     : integer          — commits ahead of the baseline
 ```
+
+This is what `yidam phases` emits, and no SDK implements it — the row is a CLI report shape,
+carried here because the report contract is shared. Three things it deliberately does **not**
+have:
+
+- **No `kind`.** A phase's *type* — Investigation, Extraction, Synthesis, Assessment — is
+  declared by the vendored kuten (`kuten/inquiry/kuten.yml`, `phases.types`) and described in
+  [PHASES.md](../PHASES.md). Nothing in any repository records a type against a phase: across
+  the eighteen corpora the layer was measured over there are 60 `phase/*` refs and 301
+  `phase:` subjects, and not one of either encodes a type. The validator that would read one
+  is filed and unbuilt.
+- **No `branch`.** `state` is a lifecycle word derived from the ref namespace, not a branch
+  name; `ref_name` carries the ref.
+- **Not `ma/*`.** A phase lives on `phase/<name>`. `ma/<elector>` is a standing elector
+  position, which never settles and is a different object — conflating the two is what had
+  `yidam status` reporting 26 active phases in a repository holding one.
 
 ### Samudaya types
 
@@ -214,8 +233,11 @@ ScoredNode
 
 ## The parity surface
 
-These eight functions form the **parity contract** — the operations all three SDKs must
-implement identically, as verified by the fixture harness.
+These functions form the **parity contract** — the operations all three SDKs must
+implement identically, as verified by the fixture harness. `parity-check`'s `functions` loop
+in `mise.toml` is the authoritative list; this section is the prose beside it, and it said
+"eight" while naming eight of ten for as long as `is_recognized_verb` and
+`compile_class_schema` were on the surface.
 
 ```
 parse_node(text: string) -> CorpusNode
@@ -248,10 +270,24 @@ update_regen(text: string, command: string, new_content: string) -> string
   Empty new_content clears the body with no blank line left between the markers.
 
 find_reachable(edges: GraphEdge[], node_path: string) -> string[]
-  All nodes reachable from node_path following directed edges (BFS), sorted.
+  All nodes reachable from node_path following directed edges (BFS).
+  The start node is not included. Sorted by code point, which is not what
+  JavaScript's default comparator does — see parity/README.md.
 
 find_citations(edges: GraphEdge[], node_path: string) -> string[]
-  All nodes with a directed edge pointing to node_path, sorted.
+  All nodes with a directed edge pointing to node_path, sorted by code point
+  and deduplicated.
+
+is_recognized_verb(verb: string) -> bool
+  Whether a leading commit verb is in the closed vocabulary — the epistemic and
+  operational verb sets together. classify_commit treats anything else as Epistemic;
+  this is the predicate that says whether it was recognised at all.
+
+compile_class_schema(class: OntologyClass) -> JsonSchema
+  Compile a parsed .ont.yml class definition into the JSON Schema its instances
+  validate against. An empty `required` is omitted rather than written as [].
+  Declared relationships are published as an x-yidam-edges annotation, not as a
+  constraint on links[].relationship — see ontology.rs for why.
 ```
 
 Every parity fixture is a TOML file pairing one of these functions with a representative
@@ -271,14 +307,26 @@ can state as method postconditions and verify automatically.
 
 **`update_regen` — the content preservation theorem**
 ```
-method UpdateRegen(text: string, command: string, new_content: string)
-    returns (result: string)
-  ensures TextOutsideRegen(result, command) == TextOutsideRegen(text, command)
-  ensures ContentBetweenRegen(result, command) == new_content
-  ensures CountRegen(result) == CountRegen(text)
+lemma UpdateRegenSpec(text: string, command: string, newContent: string)
+  requires HasRegenFor(text, command)
+  requires ContainsNo(newContent, RegenClose)
+  ensures  result[..sp.body] == text[..sp.body]              // frame, before
+  ensures  result[sp.body + |body|..] == text[sp.close..]    // frame, after
+  ensures  RegenSpan(result, command) == Some(...)           // the section, exactly
+  ensures  UpdateRegen(result, command, newContent) == result // idempotency
 ```
-Informally: everything outside the target REGEN section is byte-for-byte identical;
-the target section gets exactly `new_content`; no REGEN blocks are created or destroyed.
+Everything outside the target REGEN section is byte-for-byte identical; the target section
+gets exactly `new_content`, still bracketed by the same open tag and arrow; and running it
+again with the same content changes nothing.
+
+The precondition is not decoration: a caller who writes `<!-- /REGEN -->` into
+`new_content` terminates the section early, and every clause above is false of that call.
+
+A fourth clause — "no REGEN blocks are created or destroyed", over a count — used to be here
+and is not, because it was false and because it was the weaker instrument. Byte-for-byte
+equality says more about the blocks outside the section than a count of them can, and inside
+the section the content is the caller's. `RegenBlockCountWasTheWrongInstrument` proves the
+unconditional form false.
 
 **`classify_commit` — totality and coverage**
 ```
@@ -289,11 +337,39 @@ Every non-empty commit message maps to exactly one kind. No partial function, no
 
 **`parse_markers` — no phantom markers**
 ```
-method ParseMarkers(text: string) returns (markers: seq<Marker>)
-  ensures forall m in markers :: IsValidMarker(text, m)
-  ensures forall span in ValidMarkerSpans(text) :: exists m in markers :: m.span == span
+function ParseFrom(lines: seq<string>, i: nat): seq<Marker>
+  ensures forall m :: m in ParseFrom(lines, i) ==>
+    exists k :: i <= k < |lines| && Opens(lines[k], m)
 ```
-Every marker found is real; every real marker in the text is found.
+Every marker returned is one that some line of the source opens — the parser cannot invent
+one. The postcondition rides on the scan itself, so every call discharges it.
+
+The converse does **not** hold, and `ParseMarkersIsNotComplete` proves it: a REGEN block
+missing its close tag swallows every marker below it, because the scan looking for
+`<!-- /REGEN -->` runs to the end of the file and takes the rest of the document as that
+block's content.
+
+It no longer does so in silence. `scan_markers` (#524) returns the same marker sequence and,
+beside it, the blocks whose extent it could not read the way they were meant:
+
+```
+Fault = OpenArrowMissing | CloseTagMissing | ClosedOnAnothersTag
+MalformedBlock { command, line, fault, swallowed_lines, swallowed_markers }
+```
+
+`ClosedOnAnothersTag` is the one a real file carries. `CloseTagMissing` needs the damaged
+block to be the *last* in the document; give it a sibling below and the scan runs past the
+sibling's open tag, closes on the sibling's close tag, and returns one well-formed-looking
+block with a marker quietly gone. `TheSwallowedBlockIsReported` and
+`ABlockThatClosesOnAnothersTagIsReported` prove both of the model.
+
+`parse_markers` is `scan_markers` without the second channel and keeps its signature: the
+marker sequence is the frozen contract and did not change. `yidam lint`'s
+`malformed-regen-block` is the first consumer either has had in this repository.
+
+Grounding is stated over *lines*, not raw substrings. The version that said a marker's
+command appears in the source after `"<!-- REGEN: "` is false of the parser, which trims:
+one extra space in the tag is enough. `TheSubstringFormOfGroundingIsFalse` is the witness.
 
 **Sangha Article V — resolution scope fidelity**
 ```
@@ -312,7 +388,7 @@ method Resolve(positions: seq<Position>) returns (evolution: Evolution)
     exists node in evolution.open_questions :: tension.description == node.title
 ```
 
-### LEAN 4 (`spec/core.lean`)
+### LEAN 4 (`spec/Core.lean`)
 
 LEAN 4 targets the *mathematical structure* of the model — the deeper invariants that
 Dafny's imperative style doesn't reach well.
@@ -329,13 +405,25 @@ claim's axis. Rigpa synthesis is the *join* of positions in this poset, restrict
 claims present in at least one elector (Article V as a monotone join).
 
 **Constitutional non-contradiction**
-Articles I–VI can be expressed as axioms in a type theory. Domain articles added by
-samudaya augmentations are additional axioms. The consistency check is: do the domain axioms
-derive `False` when combined with Articles I–VI? Provably not, if domain articles are
-purely additive (which is the constraint the bootstrap agent enforces).
+`ConstitutionBase` states Articles II, III, V and VI over the data each is about — the corpus
+graph, the elector positions, the evolutions on record, the commit classifier. A domain
+augmentation adds material: nodes to the corpus, evolutions to the record, obligations of its
+own. `additive_augmentations_do_not_contradict` says that a base constitution plus a purely
+additive augmentation that discharges its own obligations *is* a constitution, and that
+nothing the base established is withdrawn — no node's claims modified, no morphism lost.
 
-LEAN 4 proofs here are more aspirational than the Dafny specs — they're the mathematical
-skeleton of "the model is coherent" rather than "the implementation is correct." Both matter.
+"Purely additive" is `AugmentsGraph`: every node `g` holds, `g'` holds unchanged.
+
+One article is an obligation of the augmentation rather than an inheritance, and
+`additivity_does_not_preserve_acyclicity` is why: adding nodes is exactly how a cycle
+appears, so Article VI has to be re-established on the augmented corpus. The witness is two
+nodes pointing at each other, added to a corpus that had none.
+
+None of this was true before #499. The theorem's conclusion was `True`, its proof was
+`trivial`, its three hypotheses were unused — Lean said so, on every build, in three
+`unused variable` warnings that sat on a green run. `ConstitutionBase` was mostly `True`
+placeholders for the same reason. The build is warning-free now, and that is the check: a
+hypothesis that earns its place is one the proof cannot be completed without.
 
 ---
 
@@ -371,7 +459,7 @@ pub enum CommitKind { Epistemic, Operational }
 pub struct CommitEvent { pub hash, pub kind, pub verb, pub subject, pub context }
 pub fn classify_commit(message: &str) -> CommitEvent
 
-pub fn active_phases(repo: &Repository) -> Result<Vec<Phase>>   // reads ma/* refs
+pub fn active_phases(repo: &Repository) -> Result<Vec<PhaseRow>>  // would read phase/* refs
 pub fn resolved_evolutions(repo: &Repository) -> Result<Vec<SanghaEvolution>>  // rigpa/*
 
 // yidam_core::sangha
@@ -449,7 +537,7 @@ export function templateSections(text: string): TemplateMarker[]
 export interface AgentContext {
   nodes: ScoredNode[]                // semantically retrieved, not path-followed
   openQuestions: CorpusNode[]        // nodes with open claims — natural agent entry points
-  activePhases: Phase[]              // in-progress ma/* branches
+  activePhases: PhaseRow[]           // in-progress phase/* branches
   tokenEstimate: number              // approximate context consumption
 }
 

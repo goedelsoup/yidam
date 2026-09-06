@@ -19,6 +19,8 @@ pub struct YidamConfig {
     pub catalog: CatalogConfig,
     #[serde(default)]
     pub due: DueConfig,
+    #[serde(default)]
+    pub object: ObjectConfig,
     /// The stores this corpus keeps artifacts in, by name.
     ///
     /// Plural before it needs to be, and the reasoning is
@@ -168,6 +170,41 @@ pub struct DueConfig {
     /// index_after = 25
     /// ```
     pub index_after: Option<usize>,
+}
+
+/// Where the artifact this corpus is about lives, in this repository.
+///
+/// **The paths are here and not in the kuten, and that is settled** — RFC-0028 §4, Erratum 5.
+/// A kuten is an upstream-authored profile vendored unchanged, `inquiry` is one profile
+/// serving six repositories with six object shapes, and the only thing a corpus writes about
+/// it is `{kuten, revision}`. There is no channel by which a corpus supplies paths to a
+/// profile, and paths are a fact about a repository rather than about a practice. The kuten
+/// declares the *direction* of the arrow; this declares where the arrow points. It is the
+/// `clocks` precedent: the kuten proposes values and never holds live ones.
+///
+/// Absent means the repository has **one** register and the corpus vocabulary governs every
+/// commit, which is what every repository did before this key existed.
+#[derive(Debug, Default, Deserialize)]
+pub struct ObjectConfig {
+    /// Globs naming the artifact register, relative to the repository root.
+    ///
+    /// `**` spans any number of path segments and `*` any run within one. A glob also claims
+    /// everything beneath what it names, so `"web"` and `"web/**"` say the same thing.
+    ///
+    /// Read by `lint --commits`, which declines to report a commit touching **only** these
+    /// paths against the corpus vocabulary. `feat:` on the artifact is not a corpus-vocabulary
+    /// violation; measured across the population, 40 off-vocabulary commits in one derived
+    /// repository and 75 in another touch no corpus file at all.
+    ///
+    /// A commit touching both registers is governed by the corpus register, and a commit
+    /// listing no paths — the authored merge — is too.
+    ///
+    /// ```toml
+    /// [object]
+    /// paths = ["web/**", "crates/**", "package.json"]
+    /// ```
+    #[serde(default)]
+    pub paths: Vec<String>,
 }
 
 pub fn load_yidam_config(root: &Path) -> Result<YidamConfig> {

@@ -15,7 +15,19 @@
     "noImplicitReturns": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
-    "rewriteRelativeImportExtensions": true
+    "rewriteRelativeImportExtensions": true,
+    // TypeScript 6 stopped pulling every `@types/*` package into the global scope on its
+    // own, so this list is now the only thing that loads them. Without it `process`,
+    // `Buffer` and `setTimeout` are undeclared and every `node:` specifier is unresolved —
+    // `node:` is not a form the `commonjs` resolver understands, and it was `@types/node`'s
+    // ambient declarations covering that all along.
+    //
+    // `vscode` is absent deliberately: it is imported by name, so the resolver reaches
+    // `@types/vscode` the same way it reaches any other module, and listing it here would
+    // say the extension's own API is ambient when it is not.
+    "types": [
+      "node"
+    ]
   },
   "include": [
     "src/**/*.ts"

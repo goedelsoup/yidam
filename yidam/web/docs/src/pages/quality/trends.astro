@@ -1,0 +1,174 @@
+---
+// The series, and the sections nothing measures yet.
+//
+// #467 left this page declaring both its sections unmeasured and reading the reason out of
+// the report. #468 fills the first half: the series is one record per push to main, kept on
+// the `quality-series` orphan branch, and these are its shapes.
+//
+// Mutation survivors are still absent, and the page says so out of the report rather than
+// holding an opinion of its own — the same arrangement, one section narrower.
+import { Sparkline } from '../../../../../design/index.js';
+import Quality from '../../layouts/Quality.astro';
+import NoReport from '../../components/NoReport.astro';
+import { loadReport, loadSeries, column, plural, seriesProvenance } from '../../quality/report';
+
+const { report, problem } = loadReport();
+const series = loadSeries();
+const sections = Object.entries(report?.quality.sections ?? {});
+
+const TITLES: Record<string, string> = {
+  bench: 'The bench series',
+  mutation: 'Mutation survivors',
+};
+
+// `higherIsWorse` is per metric and is the only thing that decides a stroke colour. Tests
+// asserting going up is not the same kind of event as test seconds going up, and one colour
+// for both teaches a reader to stop reading the colour.
+const LINES = [
+  {
+    label: 'Tests asserting',
+    points: column(series.records, (r) => r.totals.asserted),
+    higherIsWorse: false,
+    format: (v: number) => `${v}`,
+  },
+  {
+    label: 'Skipped',
+    points: column(series.records, (r) => r.totals.skipped),
+    higherIsWorse: true,
+    format: (v: number) => `${v}`,
+  },
+  {
+    label: 'Test seconds',
+    points: column(series.records, (r) => r.test_seconds),
+    higherIsWorse: true,
+    format: (v: number) => `${v.toFixed(1)}s`,
+  },
+  {
+    label: 'Focused-scan tokens at the largest corpus',
+    points: column(series.records, (r) => r.bench?.focused_tokens ?? null),
+    higherIsWorse: true,
+    format: (v: number) => v.toLocaleString('en-US'),
+  },
+];
+
+const drawable = LINES.filter((l) => l.points.length > 0);
+
+// #516. Every line above is drawn from test counts, and a run can fail without a test
+// failing. A series of green points across a month of red builds is a chart that lies using
+// numbers that are each individually true, so the runs that did not pass are named.
+const redRuns = series.records.filter((r) => (r.unsuccessful_jobs ?? []).length > 0);
+
+// #526. The count below was stated as a bare fact — "N records, one per push to main" — which
+// is a claim about the branch, made by a page holding a snapshot of it. The report's lag has a
+// line in the masthead; the series had none, and a masthead describing the other half of the
+// page is not one.
+const read = seriesProvenance(series.records, report?.yidam.commit);
+
+// Composed here rather than in the markup, and the markup below keeps `<code>` inline rather
+// than putting it between two `{}` on separate lines. Whitespace between two children is a
+// text node: the first draft of this line read "oldest first , up to bbb2222 , recorded",
+// which is the same defect `plural()`'s comment records from the overview page.
+const countLine = `${plural(series.records.length, 'record')}, one per push to main, oldest first`;
+const recordedClause = read.recordedAt ? `, recorded ${read.recordedAt}` : '';
+---
+
+<Quality title="Trends" commit={report?.yidam.commit} version={report?.yidam.version}>
+  {problem && <NoReport problem={problem} />}
+
+  <div class="card">
+    <h2>The series</h2>
+    {
+      series.problem ? (
+        <p class="note">{series.problem}</p>
+      ) : (
+        <>
+          {read.commit ? (
+            <p class="note">
+              {countLine}, up to <code>{read.commit}</code>{recordedClause}. The branch may
+              have grown since this build read it.
+            </p>
+          ) : (
+            <p class="note">{countLine}.</p>
+          )}
+          {read.disagrees && (
+            <p class="note">
+              The header describes <code>{report?.yidam.commit}</code>, from the last CI run
+              that passed; the series above was read at <code>{read.commit}</code>. The two
+              halves of this page are two moments, fetched from two places.
+            </p>
+          )}
+          <div class="lines">
+            {drawable.map((line) => (
+              <Sparkline
+                label={line.label}
+                points={line.points}
+                higherIsWorse={line.higherIsWorse}
+                format={line.format}
+              />
+            ))}
+          </div>
+        </>
+      )
+    }
+    {
+      redRuns.length > 0 && (
+        <p class="damaged">
+          {`${redRuns.length} of these ${redRuns.length === 1 ? 'commits' : 'commits'} did not pass CI: `}
+          {redRuns
+            .map((r) => `${r.commit} (${(r.unsuccessful_jobs ?? []).join(', ')})`)
+            .join('; ')}
+          . The lines above count test cases, which is a different question from whether the
+          run passed.
+        </p>
+      )
+    }
+    {
+      series.unreadable.length > 0 && (
+        <p class="damaged">
+          {`${series.unreadable.length} line${series.unreadable.length === 1 ? '' : 's'} of the series could not be read and ${series.unreadable.length === 1 ? 'was' : 'were'} skipped: ${series.unreadable.join(', ')}.`}
+          {' '}
+          The rest is drawn above. A truncated append must not blank the history around it.
+        </p>
+      )
+    }
+  </div>
+
+  {
+    sections.map(([name, section]) =>
+      section.measured ? null : (
+        <div class="absent">
+          <p>
+            <strong>{TITLES[name] ?? name} — not measured.</strong> {section.why}
+          </p>
+        </div>
+      ),
+    )
+  }
+  {
+    report && sections.length === 0 && (
+      <div class="absent">
+        <p>
+          <strong>This report declares no sections at all.</strong> A report that omits them
+          leaves this page unable to tell "nothing to say" from "nothing was asked".
+        </p>
+      </div>
+    )
+  }
+</Quality>
+
+<style>
+  .lines {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+    gap: var(--space-5);
+    margin-top: var(--space-3);
+  }
+
+  /* Damage is reported in the skipped family, not the failure family: a line that did not
+     parse is a gap in the record, not a red test. */
+  .damaged {
+    margin-top: var(--space-3);
+    color: var(--run-skipped-fg);
+    font-size: var(--text-xs);
+  }
+</style>

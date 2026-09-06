@@ -8,6 +8,7 @@
 use std::fmt::Write;
 
 use crate::census::{Kind, Skip};
+use crate::coverage::{Absence, FileDiff};
 use crate::junit::Run;
 
 /// How many of the slowest tests to name. Enough to see a pattern, few enough that the
@@ -110,6 +111,117 @@ pub fn render(gate: &str, run: &Run, skips: &[Skip]) -> String {
     s
 }
 
+/// The coverage section: what this change added, and what the run could not see.
+///
+/// Two lists, never merged. Uncovered lines are lines a test could have executed and did
+/// not; unmeasured files were not compiled into the build that produced the LCOV. Adding
+/// them together produces the number #464 exists to prevent — one that calls the whole index
+/// path untested because a pull request does not build it.
+///
+/// `features` is what the measurement was taken under, and it is printed whether or not
+/// anything was unmeasured. A reader who cannot see which build this was cannot tell a
+/// thorough run from a narrow one.
+pub fn render_coverage(features: &[String], files: &[FileDiff]) -> String {
+    let mut s = String::new();
+    let feature_list = if features.is_empty() {
+        "unknown".to_string()
+    } else {
+        features
+            .iter()
+            .map(|f| format!("`{f}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+
+    let _ = writeln!(s, "#### Coverage of this change");
+    let _ = writeln!(s);
+    let _ = writeln!(s, "Measured under: {feature_list}");
+    let _ = writeln!(s);
+
+    let measured: Vec<&FileDiff> = files.iter().filter(|f| f.uncovered.is_some()).collect();
+    let added: usize = measured.iter().map(|f| f.added.len()).sum();
+    let uncovered: usize = measured
+        .iter()
+        .map(|f| f.uncovered.as_ref().map_or(0, |u| u.len()))
+        .sum();
+
+    if added == 0 {
+        let _ = writeln!(s, "No Rust lines added in a file this build compiled.");
+        let _ = writeln!(s);
+    } else {
+        let pct = ((added - uncovered) as f64 / added as f64) * 100.0;
+        let _ = writeln!(s, "| added lines | covered | uncovered |");
+        let _ = writeln!(s, "|---|---|---|");
+        let _ = writeln!(
+            s,
+            "| {added} | {} ({pct:.0}%) | {uncovered} |",
+            added - uncovered
+        );
+        let _ = writeln!(s);
+    }
+
+    let with_gaps: Vec<&&FileDiff> = measured
+        .iter()
+        .filter(|f| f.uncovered.as_ref().is_some_and(|u| !u.is_empty()))
+        .collect();
+    if !with_gaps.is_empty() {
+        let _ = writeln!(s, "Lines this change added that no test executed:");
+        let _ = writeln!(s);
+        for f in with_gaps {
+            let lines = f.uncovered.as_ref().expect("filtered on Some");
+            let _ = writeln!(s, "- `{}` — {}", f.path, join_ranges(lines));
+        }
+        let _ = writeln!(s);
+    }
+
+    // Unmeasured is its own heading on purpose. Folded into the table above it would read as
+    // a coverage gap; it is a statement about the build, not about the tests.
+    let unmeasured: Vec<&FileDiff> = files.iter().filter(|f| f.uncovered.is_none()).collect();
+    if !unmeasured.is_empty() {
+        let _ = writeln!(
+            s,
+            "**Not measured under these features** — these were not compiled into the build this ran against, so nothing here is a claim that they are untested:"
+        );
+        let _ = writeln!(s);
+        for f in &unmeasured {
+            let why = match &f.absence {
+                Some(Absence::Gated(feature)) => format!("gated behind `{feature}`"),
+                Some(Absence::TestOnly) => "test code".to_string(),
+                Some(Absence::NoCoverableCode) => "no coverable code".to_string(),
+                Some(Absence::Unexplained) | None => {
+                    "**not compiled, and nothing says why**".to_string()
+                }
+            };
+            let _ = writeln!(s, "- `{}` ({} lines added) — {why}", f.path, f.added.len());
+        }
+        let _ = writeln!(s);
+    }
+
+    s
+}
+
+/// `11, 12, 13, 20` → `11-13, 20`. A list of forty consecutive line numbers is not something
+/// anybody reads; a range is.
+fn join_ranges(lines: &[u32]) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let start = lines[i];
+        let mut end = start;
+        while i + 1 < lines.len() && lines[i + 1] == end + 1 {
+            i += 1;
+            end = lines[i];
+        }
+        out.push(if start == end {
+            start.to_string()
+        } else {
+            format!("{start}-{end}")
+        });
+        i += 1;
+    }
+    out.join(", ")
+}
+
 fn truncate(text: &str, max: usize) -> String {
     if text.chars().count() <= max {
         return text.to_string();
@@ -197,6 +309,79 @@ mod tests {
         let b = md.find("yidam::x b` | 2.500").expect("slow test missing");
         let a = md.find("yidam::x a` | 0.500").expect("fast test missing");
         assert!(b < a, "slowest should come first:\n{md}");
+    }
+
+    // ── coverage ─────────────────────────────────────────────────────────────
+
+    fn gated(path: &str, feature: &str, added: usize) -> FileDiff {
+        FileDiff {
+            path: path.into(),
+            added: (1..=added as u32).collect(),
+            uncovered: None,
+            absence: Some(Absence::Gated(feature.into())),
+        }
+    }
+
+    /// The assertion that decides whether the number is honest.
+    ///
+    /// A gated file contributes **nothing** to the added/uncovered arithmetic. Counted as
+    /// uncovered it would drag the percentage down and name the index path untested, which
+    /// is the claim #464 exists to stop this repository from making.
+    #[test]
+    fn unmeasured_files_are_not_counted_as_uncovered() {
+        let files = vec![
+            FileDiff {
+                path: "yidam/cli/src/parse.rs".into(),
+                added: vec![10, 11],
+                uncovered: Some(vec![11]),
+                absence: None,
+            },
+            gated("yidam/cli/src/embedding.rs", "vector-read", 40),
+        ];
+        let md = render_coverage(&["reports".into(), "tonpa".into()], &files);
+        assert!(
+            md.contains("| 2 | 1 (50%) | 1 |"),
+            "gated lines entered the sum:\n{md}"
+        );
+        assert!(md.contains("Not measured under these features"));
+        assert!(md.contains("gated behind `vector-read`"));
+        assert!(
+            !md.contains("embedding.rs` — 1-40"),
+            "a gated file must not be listed as uncovered lines:\n{md}"
+        );
+    }
+
+    /// The build is named even when everything was measured.
+    #[test]
+    fn the_feature_set_is_always_stated() {
+        let md = render_coverage(&["reports".into()], &[]);
+        assert!(md.contains("Measured under: `reports`"), "{md}");
+    }
+
+    /// A file that is not compiled and has no gate to explain it is the interesting case,
+    /// and it must not read like the legitimate ones.
+    #[test]
+    fn an_unexplained_absence_says_so_loudly() {
+        let files = vec![FileDiff {
+            path: "yidam/cli/src/orphan.rs".into(),
+            added: vec![1],
+            uncovered: None,
+            absence: Some(Absence::Unexplained),
+        }];
+        let md = render_coverage(&["reports".into()], &files);
+        assert!(md.contains("nothing says why"), "{md}");
+    }
+
+    #[test]
+    fn consecutive_uncovered_lines_render_as_a_range() {
+        let files = vec![FileDiff {
+            path: "a.rs".into(),
+            added: (10..=14).collect(),
+            uncovered: Some(vec![10, 11, 12, 14]),
+            absence: None,
+        }];
+        let md = render_coverage(&[], &files);
+        assert!(md.contains("10-12, 14"), "{md}");
     }
 
     #[test]

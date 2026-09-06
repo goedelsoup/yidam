@@ -1,4 +1,4 @@
-use yidam_domain_statistics::{mean, variance, z_score, pearson_correlation};
+use yidam_domain_statistics::{mean, pearson_correlation, variance, z_score};
 
 fn fixture_dir(function: &str) -> std::path::PathBuf {
     // CARGO_MANIFEST_DIR = prelude/domains/statistics/rust/
@@ -53,7 +53,10 @@ fn parity_mean() {
 #[test]
 fn parity_variance() {
     let fixtures = load_fixtures("statistics.variance");
-    assert!(!fixtures.is_empty(), "no statistics.variance fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no statistics.variance fixtures found"
+    );
 
     for fx in &fixtures {
         let input = &fx["input"];
@@ -92,7 +95,10 @@ fn parity_z_score() {
 #[test]
 fn parity_pearson_correlation() {
     let fixtures = load_fixtures("statistics.pearson_correlation");
-    assert!(!fixtures.is_empty(), "no statistics.pearson_correlation fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no statistics.pearson_correlation fixtures found"
+    );
 
     for fx in &fixtures {
         let input = &fx["input"];

@@ -217,6 +217,12 @@ for name in $exceptions; do
   fi
 done
 
+# The third question — does every SDK *answer* every function — is not asked here. Both loops
+# above are about fixtures, and both passed while `find_reachable` and `find_citations` existed
+# in the Rust SDK alone (#530). It is asked by `yidam/cli/tests/parity_implementations.rs`,
+# which reads this `functions=` line rather than restating it, and which needs a comment
+# stripper and a tree walk that this shell task has no business growing.
+
 # Counted, not stated. This line read "9 functions covered" while the loop above walked
 # ten — the same drift one line below the check that exists to catch it.
 echo "parity fixture check: $(echo $functions | wc -w | tr -d ' ') functions covered, $(ls -d $fixtures/*/ | wc -l | tr -d ' ') directories all accounted for"
@@ -234,6 +240,9 @@ depends = ["parity-check"]
 run = [
   "cargo nextest run --config-file .config/nextest.toml --manifest-path yidam/prelude/sdks/rust/Cargo.toml",
   "cargo test --doc --manifest-path yidam/prelude/sdks/rust/Cargo.toml",
+  # The TypeScript half needed an install nobody had run, and said so as
+  # `vitest: command not found` — beside a Python half that provisions itself. See #646.
+  "scripts/npm-ensure.sh yidam/prelude/sdks/typescript",
   "cd yidam/prelude/sdks/typescript && npm test",
   "cd yidam/prelude/sdks/python && uv run --extra dev pytest tests/",
 ]
@@ -271,6 +280,7 @@ for domain_dir in yidam/prelude/domains/*/; do
     cargo test --manifest-path "$domain_dir/rust/Cargo.toml" -- parity
   fi
   if [ -f "$domain_dir/typescript/package.json" ]; then
+    scripts/npm-ensure.sh "$domain_dir/typescript"
     (cd "$domain_dir/typescript" && npm test -- parity)
   fi
   if [ -f "$domain_dir/python/pyproject.toml" ]; then
@@ -283,7 +293,11 @@ done
 description = "Cross-runtime embedding reproducibility check (fastembed / transformers.js / sentence-transformers). Downloads model weights on first run; skipped by the default parity task."
 env = { YIDAM_EMBED_PARITY = "1" }
 run = [
-  "cargo test --manifest-path yidam/cli/Cargo.toml --features index --test embed_parity",
+  # `vector-read`, not `index`: this runner embeds text and never builds an index, so
+  # `index` bought it protoc and lancedb for nothing. #442 split the two features for
+  # exactly this and `embed_parity.rs` records it — the task kept the old flag.
+  "cargo test --manifest-path yidam/cli/Cargo.toml --features vector-read --test embed_parity",
+  "scripts/npm-ensure.sh yidam/prelude/sdks/typescript",
   "cd yidam/prelude/sdks/typescript && npm test -- embed_parity",
   "cd yidam/prelude/sdks/python && uv run --extra dev --extra embed pytest tests/parity/test_embed_config.py",
 ]
@@ -371,6 +385,70 @@ description = "The whole supply-chain gate: advisories, licences, unused deps."
 # baseline from crates.io, and it answers a different question — what a *release* would
 # break, rather than what this tree carries.
 depends = ["deny", "machete"]
+# ── design system (#465) ──────────────────────────────────────────────────
+#
+# `_adherence.oxlintrc.json` forbids raw hex, raw px, off-system fonts and undeclared
+# component props. Nothing invoked it — not this file, not a workflow, not a package.json —
+# and it would not have run if anything had: it carried an `x-omelette` key that oxlint
+# rejects outright, so the config had never been loadable either. A surface with no consumer,
+# and the consumer would have failed on contact.
+#
+# It lints JS and JSX, which is what oxlint reads. The palette's other two consumers are CSS
+# files it cannot parse, and they are covered from the other side: they now hold no colours
+# at all, only `var(--…)` into the one bundle, and `design_tokens.rs` asserts that no surface
+# outside yidam/design/ declares a raw hex.
+
+[tasks.design-lint]
+description = "Design-system adherence: no raw hex, no raw px, no off-system fonts, declared props only."
+tools = { "npm:oxlint" = "1.42.0" }
+# `--deny-warnings`, because a lint that only warns in CI is a lint that is off. The rules
+# themselves moved from `warn` to `error` in #465 for the same reason; this covers oxlint's
+# own defaults, one of which was already firing on a stray escape in `Avatar.jsx`.
+#
+# The self-test is not decoration. Every custom rule this config carried was inert: 47
+# `no-restricted-syntax` selectors named a rule oxlint does not implement, and the one rule it
+# does implement was switched off everywhere by an `overrides` block. The job ran, read 40
+# files, and reported nothing — on a tree with 21 hand-written hex colours in it. A lint is
+# only checked by running it against something that should fail.
+run = [
+  "oxlint --config yidam/design/_adherence.oxlintrc.json --deny-warnings yidam/design",
+  "bash scripts/design-lint-selftest.sh",
+]
+
+# ── coverage (#464) ───────────────────────────────────────────────────────
+#
+# 35,806 lines of Rust had no coverage measurement of any kind. What lands in the job summary
+# is **diff coverage** — the lines a change added that no test executed — because that is the
+# number that changes what somebody does. A repository-wide percentage does not, and a floor
+# invites the ratchet-by-one-line game rather than a test. Nothing here fails a build on a
+# number; RFC-0025 defers that decision until there is a month of data.
+#
+# The feature set is passed to the reporter and printed beside the number. It is not
+# decoration: a pull request compiles the light default, so `--features index` files are not
+# in the LCOV at all, and a report that treated "absent" as "zero" would call the whole index
+# path untested. `ci-report` classifies every absence instead — gated, test-only, no coverable
+# code, or unexplained — and only the last of those is a finding.
+
+[tasks.coverage]
+description = "Line coverage over the CLI workspace, as LCOV, under the light default build."
+tools = { "github:taiki-e/cargo-llvm-cov" = "v0.9.0" }
+# `--no-report` then `report`, rather than one command: the run and the rendering are
+# separate so the same profile data can produce LCOV here and whatever P7 wants later.
+run = [
+  "cargo llvm-cov --no-report nextest --config-file .config/nextest.toml --manifest-path yidam/cli/Cargo.toml",
+  "cargo llvm-cov report --lcov --output-path yidam/cli/target/coverage.lcov --manifest-path yidam/cli/Cargo.toml",
+]
+
+[tasks.coverage-full]
+description = "Coverage including the feature-gated paths a pull request never compiles."
+tools = { "github:taiki-e/cargo-llvm-cov" = "v0.9.0" }
+# Where the gated files stop being unmeasured. This is the run whose number covers the index,
+# sqlite and rdf paths, and it belongs beside `ci-cli-full` on main and the weekly schedule
+# for the same reason that job does: protoc, an ONNX runtime, SQLite from source.
+run = [
+  "cargo llvm-cov --no-report nextest --config-file .config/nextest.toml --all-features --manifest-path yidam/cli/Cargo.toml",
+  "cargo llvm-cov report --lcov --output-path yidam/cli/target/coverage-full.lcov --manifest-path yidam/cli/Cargo.toml",
+]
 
 # ── bootstrap harness (yidam/tests/harness/) ──────────────────────────────
 
@@ -500,10 +578,17 @@ run = [
 # `bench` refuses to measure against keyword search — so this cannot live in the light gate
 # and runs where `cli-full` runs: main push and the weekly schedule, not on pull requests.
 #
-# The regression guard it provides is real but narrow until #261 lands. It ratchets nothing
-# yet: the arms that exist — flat and full-scan — cannot regress from a change to the
-# traversal path, because neither traverses. What it does catch today is the goal set and
-# the corpus drifting apart, retrieval breaking outright, and the example losing its index.
+# The regression guard it provides is real but narrow, and #261 has since landed. What it
+# catches is the goal set and the corpus drifting apart, retrieval breaking outright, and the
+# example losing its index.
+#
+# It still ratchets nothing, and that is now a stated scope rather than a pending one: this
+# arm needs a vector index and an embedding run, and whether an ANN search over embedded
+# prose reproduces closely enough to hold a baseline is a question #468 did not measure.
+# Guessing a tolerance for it would be inventing the number instead of finding it.
+#
+# The arm that *is* ratcheted is `--scaling`, by `bench_baseline.rs` in the `ci (cli)` gate —
+# it is deterministic, so the baseline is exact and the diff is the review.
 [tasks.bench-example]
 description = "Run `yidam bench` against examples/streamflow, with a real index (needs --features index)."
 run = [
@@ -513,12 +598,50 @@ run = [
 
 # `--scaling` generates its corpora in memory and has no retrieval arm, so it needs neither
 # the index feature nor a corpus — which is why this one *can* run on every pull request.
+# Its numbers are ratcheted by `bench_baseline.rs`, which runs the same binary over the same
+# committed config inside `ci (cli)` and compares against `tests/goldens/bench/scaling.json`.
+# This job remains because the two answer different questions: the test asks whether the
+# numbers moved, and this prints the table a reader actually reads.
 [tasks.bench-scaling]
 description = "Run `yidam bench --scaling` over generated corpora."
 run = [
   "cargo build --manifest-path yidam/cli/Cargo.toml --locked",
   "yidam/cli/target/debug/yidam bench --scaling",
 ]
+
+# ── mutation testing (#468) ───────────────────────────────────────────────
+#
+# The check this repository has been performing by hand. RFC-0024 prescribes it per call site
+# — "delete the guard, keep the comment, confirm red" — and every phase of #459 has done it by
+# remembering to. This catches the ones nobody thought to do.
+#
+# **It mutates your working tree.** cargo-mutants copies the package directory and builds the
+# copy; `yidam/cli` dev-depends on `../tests/harness/ci-report`, which is outside that
+# directory, so the copy cannot resolve it and the baseline build fails before any mutant runs.
+# `--in-place` is the way around that, and the cost is real: interrupt this and a source file
+# is left holding a mutant. `git status` will show it and `git checkout --` on that one path
+# restores it — but commit your work first, because that command takes uncommitted edits with
+# it.
+#
+# `NEXTEST_PROFILE=default` because mise sets it to `ci` globally and the config defining that
+# profile is only found through the explicit `--config-file` every gate passes. cargo-mutants
+# builds its baseline with its own command line and never sees the flag.
+#
+# Scoped, and by a measured cost rather than a guess: one mutant is roughly 80 seconds here,
+# and `cmd/lint/` alone holds 586 of them.
+[tasks.mutants]
+description = "Mutate the rule-bearing modules and report which mutants no test caught."
+tools = { "cargo:cargo-mutants" = "25.3.1" }
+run = """
+env NEXTEST_PROFILE=default cargo mutants \
+  --manifest-path yidam/cli/Cargo.toml \
+  --cargo-arg=--locked \
+  --in-place \
+  --test-tool nextest \
+  --timeout 300 \
+  --file src/vault/policy.rs \
+  --file src/cmd/lint/commits.rs
+"""
 
 # The editor client. Not a cargo workspace, so it is not in the `ci` composite below —
 # `mise run ci` is the Rust gate and stays fast. CI runs this as its own job.
@@ -531,9 +654,33 @@ run = [
 description = "CI for the VS Code extension: compile (src + tests), lint, unit tests."
 dir = "yidam/editors/vscode"
 run = [
+  # `$MISE_PROJECT_ROOT` because `dir` above put us inside the package. See #646.
+  "\"$MISE_PROJECT_ROOT/scripts/npm-ensure.sh\" .",
   "npm run compile",
   "npm run lint",
   "npm run test:unit",
+]
+
+# The web editor surface (RFC-0030, #606). Same shape as `ci-vscode` and for the same reason:
+# `mise run ci` compiles neither the extension nor the docs site and does not compile this
+# either, so the CI job is the only gate this package has.
+#
+# Build before test, deliberately: a build error is a worse signal to receive from a test
+# runner than from a builder, and the build is what proves the design system still resolves
+# through `app.css`'s relative import. `test` carries the RFC-0016 boundary gates — the ones
+# the embedded shape would have got for free — so this task is what stops a verdict being
+# computed in TypeScript.
+#
+# `design_tokens.rs` covers this surface too, and separately: it walks the repository and
+# reads `src/styles/app.css` as a consumer, so a raw hex here fails `cargo test` rather than
+# this task. Two gates, two failure sites, on purpose.
+[tasks.ci-editor-web]
+description = "CI for the web editor surface: build, RFC-0016 boundary gates, and unit tests."
+dir = "yidam/editors/web"
+run = [
+  "\"$MISE_PROJECT_ROOT/scripts/npm-ensure.sh\" .",
+  "npm run build",
+  "npm run test",
 ]
 
 # The packaging gate. Not in `ci-vscode`: it needs `out/` built and it runs vsce, which
@@ -546,7 +693,10 @@ run = [
 [tasks.ext-package]
 description = "Package the VS Code extension and assert the .vsix holds the runtime set and nothing else."
 dir = "yidam/editors/vscode"
-run = "npm run package"
+run = [
+  "\"$MISE_PROJECT_ROOT/scripts/npm-ensure.sh\" .",
+  "npm run package",
+]
 
 # ── running the extension by hand ─────────────────────────────────────
 # 143 unit tests cover the logic that does not need an editor, which is the
@@ -563,13 +713,47 @@ dir = "yidam/editors/vscode"
 # The same corpus the goldens and the extension's tests assert against, staged
 # through the same `stage.toml` they read — so what you see by hand and what CI
 # checks are one repository rather than two that drift.
-run = "node --experimental-strip-types scripts/stage-fixture.ts"
+#
+# The install guard is not tidiness. `stage-fixture.ts` reaches `test/stage.ts`, which needs
+# `smol-toml`, so on a checkout that has not run `npm install` in this package the task failed
+# with a bare `ERR_MODULE_NOT_FOUND` naming a transitive dependency — which reads as the
+# script being broken rather than as a missing install, and was written up that way on #606.
+# `npm-ensure.sh` is that guard, now shared by every npm-backed task here (#646).
+run = """
+set -eu
+"$MISE_PROJECT_ROOT/scripts/npm-ensure.sh" .
+node --experimental-strip-types scripts/stage-fixture.ts
+"""
+
+# The web editor's equivalent of `ext-dev`, and #606's definition of done asks for it by name:
+# "`mise run ext-fixture` stages the reports golden corpus; the app is driven against that
+# tree, so what CI checks and what a person sees stay one repository."
+#
+# Until this existed the second half was done by hand, against a hand-staged copy of
+# `examples/streamflow` — which is a different corpus from the one the goldens certify, so the
+# two halves of that sentence were about two repositories.
+#
+# It builds rather than running `astro dev`, because `bin/yidam-edit.mjs` is the entry point
+# `npx @yidam/edit` runs and the dev server is not. Driving the surface a person gets means
+# driving the one with the flag parsing, the port claim and the built `dist/` in it.
+[tasks.edit-dev]
+description = "Stage the reports fixture and serve it with the web editor, as `npx @yidam/edit` would."
+depends = ["ext-fixture"]
+run = """
+set -eu
+fixture="$PWD/.local/ext-fixture"
+scripts/npm-ensure.sh yidam/editors/web
+cd yidam/editors/web
+npm run build
+exec node ./bin/yidam-edit.mjs --root "$fixture" ${YIDAM_EDIT_PORT:+--port "$YIDAM_EDIT_PORT"}
+"""
 
 [tasks.ext-dev]
 description = "Compile the extension, stage the fixture, and open both in an Extension Development Host."
 depends = ["ext-fixture"]
 run = """
 set -eu
+scripts/npm-ensure.sh yidam/editors/vscode
 cd yidam/editors/vscode && npm run compile && cd -
 code="${YIDAM_CODE:-code}"
 if ! command -v "$code" >/dev/null 2>&1; then
@@ -581,8 +765,62 @@ fi
 "$code" --extensionDevelopmentPath="$PWD/yidam/editors/vscode" "$PWD/.local/ext-fixture"
 """
 
-# Composite for local use (`mise run ci`); CI runs ci-harness and ci-cli as
-# separate parallel jobs (see .github/workflows/ci.yml).
+# ── domain crate formatting (prelude/domains/) ────────────────────────────
+# #590: `cargo fmt --all` is documented as formatting "all packages, and also
+# their local path-based dependencies". A derived repository depends on a
+# domain crate by path — that is where the prelude vendors it, under
+# `.yidam/.vendor/` — so a derived repo's OWN formatting gate reaches these
+# crates. `directories.md` marks `.yidam/.vendor/` read-only, so there is no
+# legal repair downstream: whether that gate is green depends on whether the
+# vendored copy happens to be rustfmt-clean at the pin, which is not
+# something a derived repo controls. The fix runs here instead, on what gets
+# vendored, so it is clean by construction.
+#
+# Glob-discovered, not a named crate list: a hardcoded list is exactly the
+# rot #590 itself warns about in its own workaround — a crate added later is
+# not reported as missed, it is just never formatted or checked. Both tasks
+# below walk `*/rust/Cargo.toml` for whatever domains actually exist and
+# assert a non-zero count, so a glob that stops matching (a rename, a moved
+# directory) fails loudly instead of passing by finding nothing.
+[tasks.domain-fmt]
+description = "Format every domain crate under yidam/prelude/domains/*/rust/ (glob-discovered)."
+run = """
+set -eu
+count=0
+for manifest in yidam/prelude/domains/*/rust/Cargo.toml; do
+  [ -f "$manifest" ] || continue
+  cargo fmt --all --manifest-path "$manifest"
+  count=$((count + 1))
+done
+if [ "$count" -eq 0 ]; then
+  echo "ERROR: no domain crates found under yidam/prelude/domains/*/rust/Cargo.toml"
+  echo "       the glob matched nothing — fix the pattern before trusting this task"
+  exit 1
+fi
+echo "domain-fmt: formatted $count crates"
+"""
+
+[tasks.ci-domains]
+description = "CI for the domain crates under yidam/prelude/domains/*/rust/: fmt-check, glob-discovered."
+run = """
+set -eu
+count=0
+for manifest in yidam/prelude/domains/*/rust/Cargo.toml; do
+  [ -f "$manifest" ] || continue
+  cargo fmt --all --manifest-path "$manifest" -- --check
+  count=$((count + 1))
+done
+if [ "$count" -eq 0 ]; then
+  echo "ERROR: no domain crates found under yidam/prelude/domains/*/rust/Cargo.toml"
+  echo "       a gate that discovers nothing passes silently, which is the failure"
+  echo "       mode this task exists to avoid — fix the glob before trusting it"
+  exit 1
+fi
+echo "ci-domains: fmt-checked $count crates"
+"""
+
+# Composite for local use (`mise run ci`); CI runs ci-harness, ci-cli and
+# ci-domains as separate parallel jobs (see .github/workflows/ci.yml).
 # ── release ───────────────────────────────────────────────────────────────
 # Cutting a release is order-dependent and the order is not visible from a
 # shell about to run `git tag`. ./release.sh does the ordering rather than
@@ -593,8 +831,8 @@ description = "Cut a release tag for one layer, checking its preconditions. Usag
 run = "./release.sh"
 
 [tasks.ci]
-description = "Full CI pass: harness + yidam CLI fmt-check, clippy, and test."
-depends = ["ci-harness", "ci-cli"]
+description = "Full CI pass: harness + yidam CLI fmt-check, clippy, test; domain crate fmt-check."
+depends = ["ci-harness", "ci-cli", "ci-domains"]
 
 # ── docs site (yidam/web/docs/) ───────────────────────────────────────────
 # Astro/Starlight docs server. Content is loaded live from docs/ at the repo
@@ -606,18 +844,43 @@ depends = ["ci-harness", "ci-cli"]
 # too: serving the site at a different prefix than it ships at would hide every
 # link the base affects until it was live.
 
+# Was "run once after clone", which is a step a reader has to know about and therefore a step
+# they can miss — the same shape as #646's other seven, and answered the same way. It is now a
+# dependency of the tasks that need it rather than a note, and it installs only when there is
+# nothing installed, so naming it explicitly stays cheap.
 [tasks.docs-install]
-description = "Install docs site dependencies (run once after clone)."
-run = "npm install --prefix yidam/web/docs"
+description = "Ensure the docs site's dependencies are installed."
+run = "scripts/npm-ensure.sh yidam/web/docs"
 
 [tasks.docs-dev]
 description = "Start the docs dev server on http://localhost:4321/yidam/."
+depends = ["docs-install"]
 run = "npm run --prefix yidam/web/docs dev -- --port 4321"
+
+# The quality pages, built and read back (#467).
+#
+# Everything else about that phase is asserted on the model, and none of it can catch a
+# template that is handed `asserted: 0` and draws a green bar anyway. This builds the site
+# twice — once against `ci-report`'s committed golden, once with no report at all — and reads
+# the emitted HTML. Two builds rather than one, into directories of their own, so a render
+# against a fixture can never become the thing that deploys.
+#
+# It found the two bugs it was written for on its first run: an overview page reading
+# "3 ignored test s", and a no-report state that had never been rendered.
+[tasks.docs-test]
+description = "Build the quality pages against a fixture report and assert on the HTML."
+# `package.json`'s `test` script, for the reason `docs-build` calls `build`: docs.yml carries
+# no mise, so the workflow and the terminal have to reach the same command by two routes, and
+# the npm script is the one they can both name.
+depends = ["docs-install"]
+run = "npm run --prefix yidam/web/docs test"
 
 [tasks.docs-build]
 description = "Build the docs site to yidam/web/docs/dist/."
+depends = ["docs-install"]
 run = "npm run --prefix yidam/web/docs build"
 
 [tasks.docs-preview]
 description = "Preview the production docs build locally."
+depends = ["docs-install"]
 run = "npm run --prefix yidam/web/docs preview"

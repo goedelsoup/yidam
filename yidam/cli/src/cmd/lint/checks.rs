@@ -73,6 +73,20 @@ impl EdgePolicy {
 /// A class definition parsed once — `<class>.ont.yml`.
 pub struct Class {
     pub rel: String,
+    /// The file's bytes, as they were read.
+    ///
+    /// Kept for the reason [`Node::text`] is kept, and against the same defect: `load_classes`
+    /// already had this string in hand and threw it away, so a check over a class's *prose*
+    /// had nothing to read but the fields serde happened to keep.
+    ///
+    /// **The bytes rather than the fields, because the fields are not all of the prose.**
+    /// A class writes prose in four places, and measured across 17 corpora the 21 evidence-tag
+    /// sites in class files fall in all four: 9 in `description`, 6 in `properties[].description`,
+    /// 2 in `edges[].description`, and 4 in `analytic_note`. [`ClassProperty`] and [`ClassEdge`]
+    /// declare no `description` field at all — serde parses two of those four straight out of
+    /// existence — and `analytic_note` is not on [`ClassFields`] either. A scan over the text
+    /// reaches all four at once, and cannot fall behind the next prose field somebody adds.
+    pub text: String,
     /// The `description` field: the text that says what kind of thing an instance is.
     /// Deliberately the only field [`class_asserts_purpose`] reads; see there.
     pub description: String,
@@ -84,8 +98,14 @@ pub struct Class {
     pub edges: Vec<ClassEdge>,
     /// Whether [`Self::edges`] is a bound or a description. See [`EdgePolicy`].
     pub edge_policy: EdgePolicy,
-    /// The longest an instance of this class may be, in lines. `None` when the class has
+    /// The longest an instance's `description` may be, in lines. `None` when the class has
     /// not said, which is every class written before the field existed — and no check runs.
+    ///
+    /// **Lines of prose, not lines of file.** `node-too-long` counted the bytes as read until
+    /// #588 showed what that charges for: frontmatter, properties, and a `claim_tag` and
+    /// `source` on every link, so a node documenting where its edges come from paid for the
+    /// provenance out of a budget written to stop descriptions sprawling. A corpus that
+    /// raised this number to absorb structural lines can lower it again.
     ///
     /// **There is no default, and that is a measurement rather than a shrug.** The bootstrap
     /// rubric's S7 fixes 40 lines, and across 410 nodes in five real corpora **335 of them
@@ -119,6 +139,13 @@ pub struct Class {
     /// contradicted rather than an omission, which is why [`unimplemented_class`] gates
     /// where `missing-property` does not.
     pub implemented_by: Option<String>,
+    /// The declared foundational alignment, or `None` when the corpus chose none — which is
+    /// every corpus this repository ships, and a legitimate answer the bootstrap dialogue
+    /// offers by name.
+    pub foundational_type: Option<FoundationalType>,
+    /// Dead alignment spellings this class file carries, as written. Empty for almost every
+    /// class; [`foundational_field_misspelled`] is the only reader.
+    pub dead_alignment_fields: Vec<&'static str>,
 }
 
 /// One typed field a class declares.
@@ -162,6 +189,50 @@ pub struct ClassEdge {
 pub struct EdgeView<'a> {
     pub name: &'a str,
     pub edges: &'a [ClassEdge],
+}
+
+/// One corpus file's prose and where it lives — all [`claim_tag_malformed`] reads.
+///
+/// A view rather than `&[Node]` for the reason [`EdgeView`] is one: the derivation has two
+/// callers holding different things. A malformed evidence tag is a defect of *prose*, and a
+/// class file's prose is prose a reader treats exactly as an instance's — so the check has to
+/// see both, and there is no shape either side already has that the other can produce.
+///
+/// **A [`Class`] is deliberately not made into a [`Node`].** Two derivations decide what class
+/// a node belongs to, and a class file borrowed into the node list is read wrongly by both, in
+/// two different directions. [`unknown_class`] reads `inst.class`, which on an `.ont.yml` is
+/// the class's *own* name — so the file reads as an instance of itself and passes.
+/// [`class_of`] reads the parent **directory**, which is `corpus` for
+/// `.yidam/corpus/gage.ont.yml` — so `missing-property`, `property-type`, `node-too-long`,
+/// `unlicensed-edge` and `edge-target-class` would all look the file up under a class no
+/// ontology declares, find nothing, and skip it while appearing to have checked it. Sharing
+/// the one field two checks need costs nothing; sharing the type re-answers every question
+/// `&[Node]` is asked, and answers several of them silently.
+pub struct ProseView<'a> {
+    pub rel: &'a str,
+    pub text: &'a str,
+}
+
+/// Every file whose prose may carry an evidence tag: the corpus's instances, then its classes.
+///
+/// Instances first, so widening the scope did not reorder the findings a report already had.
+///
+/// `universal.yml` is **not** here, and that is a scope decision rather than an omission. It
+/// declares properties every class inherits; it is not a class, [`load_classes`] does not
+/// produce one for it, and no measured corpus writes prose in it at all. A file whose contents
+/// are a property list has no argument in it to tag.
+pub fn prose_views<'a>(nodes: &'a [Node], classes: &'a [Class]) -> Vec<ProseView<'a>> {
+    nodes
+        .iter()
+        .map(|n| ProseView {
+            rel: &n.rel,
+            text: &n.text,
+        })
+        .chain(classes.iter().map(|c| ProseView {
+            rel: &c.rel,
+            text: &c.text,
+        }))
+        .collect()
 }
 
 /// Classes the ontology says nothing points at.
@@ -258,23 +329,61 @@ pub(crate) struct ClassFields {
     max_lines: Option<usize>,
     #[serde(default)]
     implemented_by: Option<String>,
+    #[serde(default)]
+    foundational_type: Option<FoundationalType>,
+    /// The three spellings that were never read by anything. Deserialized only so
+    /// [`foundational_field_misspelled`] can see them — `bootstrap.md` told authors to write
+    /// `bfo_type:` for its whole life, and `additionalProperties: true` on the class body
+    /// meant a corpus that believed it never heard otherwise. See #613.
+    #[serde(default)]
+    bfo_type: Option<serde_yaml::Value>,
+    #[serde(default)]
+    ufo_type: Option<serde_yaml::Value>,
+    #[serde(default)]
+    bfo_anchor: Option<String>,
+}
+
+/// A class's foundational alignment: which upper ontology, which type in it, and optionally
+/// the IRI that type has there.
+///
+/// `iri` is optional because the alignment is worth stating even when nobody has looked the
+/// IRI up, and because deriving one from `type` would mean shipping a BFO and gUFO term table
+/// in the binary — a second copy of somebody else's vocabulary, wrong the moment they revise
+/// it. When it is present `export-rdf` emits `skos:exactMatch`; when it is absent the
+/// ontology and type still reach RDF as literals, which is what `bfo_anchor:` never did for
+/// a UFO-aligned corpus.
+#[derive(Default, Clone, serde::Deserialize)]
+pub struct FoundationalType {
+    #[serde(default)]
+    pub ontology: String,
+    #[serde(default, rename = "type")]
+    pub ty: String,
+    #[serde(default)]
+    pub iri: Option<String>,
 }
 
 impl Class {
-    /// Build one from a parsed class file and the path it came from.
+    /// Build one from a class file's bytes and the path it came from.
     ///
     /// Shared with `query::at`, which reconstructs classes from git blobs rather than from a
     /// walk. Two builders would be two answers to what a class *is* — and the one used less
     /// often is the one that would quietly stop reading `edge_policy`, which is the field the
     /// whole typecheck ladder turns on.
-    pub(crate) fn from_fields(rel: impl Into<String>, fields: ClassFields) -> Class {
+    ///
+    /// It takes the *text* and deserializes here rather than taking a parsed [`ClassFields`],
+    /// so that [`Self::text`] and the fields cannot come from different strings. A caller
+    /// holding both could pass a mismatched pair, and nothing would say so.
+    pub(crate) fn parse(rel: impl Into<String>, text: impl Into<String>) -> Class {
         let rel = rel.into();
+        let text = text.into();
+        let fields: ClassFields = serde_yaml::from_str(&text).unwrap_or_default();
         Class {
             name: Path::new(&rel)
                 .file_name()
                 .map(|f| f.to_string_lossy().replace(".ont.yml", ""))
                 .unwrap_or_default(),
             rel,
+            text,
             description: fields.description.unwrap_or_default(),
             properties: fields.properties,
             edges: fields.edges,
@@ -287,6 +396,15 @@ impl Class {
                 .implemented_by
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty()),
+            foundational_type: fields.foundational_type,
+            dead_alignment_fields: [
+                fields.bfo_type.is_some().then_some("bfo_type"),
+                fields.ufo_type.is_some().then_some("ufo_type"),
+                fields.bfo_anchor.is_some().then_some("bfo_anchor"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
         }
     }
 }
@@ -294,13 +412,7 @@ impl Class {
 pub fn load_classes(root: &Path, paths: &[PathBuf], overlay: &super::Overlay) -> Vec<Class> {
     paths
         .iter()
-        .map(|p| {
-            let text = overlay.read(p);
-            Class::from_fields(
-                rel_of(root, p),
-                serde_yaml::from_str(&text).unwrap_or_default(),
-            )
-        })
+        .map(|p| Class::parse(rel_of(root, p), overlay.read(p)))
         .collect()
 }
 
@@ -487,16 +599,24 @@ pub fn class_asserts_purpose(classes: &[Class]) -> Check {
         "class-asserts-purpose",
         "Class definition asserts a purpose rather than describing a kind",
         Severity::Warn,
-        "A claim tag attaches to a claim somebody makes on a node. A class definition is \
-         not that — it is the meaning every instance takes on by being filed under the \
+        "A claim tag attaches to a claim somebody makes on a node. A class definition is read \
+         differently — it is the meaning every instance takes on by being filed under the \
          class, asserted identically and untagged for each. So a class whose description \
-         states a reason ('deployed to obtain an outcome the ordinary path would not \
-         yield') puts that assertion beyond the reach of every other check here, which all \
-         run on tags. The case this was written from survived five resolutions and three \
-         arguments about its instances. Rewrite the description to say what an instance IS \
-         — the observable shape, the admission conditions — and move any characterization \
-         of why to a field that attributes it, or to `analytic_note`, which this check does \
-         not read.",
+         states a reason ('deployed to obtain an outcome the ordinary path would not yield') \
+         states it where no tag attributes it, and the checks that run on tags read past it. \
+         The case this was written from survived five resolutions and three arguments about \
+         its instances. Rewrite the description to say what an instance IS — the observable \
+         shape, the admission conditions — and move any characterization of why to a field \
+         that attributes it, or to `analytic_note`, which this check does not read.\n\n\
+         That last clause is a rule about what THIS check reads, not a claim about what \
+         corpora contain. Class prose does carry evidence tags — measured over 17 corpora, 3 \
+         classes in 3 of them do — and #603 was filed because that fact was inferable only by \
+         porting the matcher downstream. Two other checks read what this one does not: \
+         `claim-tag-malformed` scans every field of the class file, `analytic_note` included, \
+         and `class-claim-uncounted` reports the tags there at `Info`. Neither contradicts the \
+         escape hatch above. The first reports a tag that is MALFORMED, so a well-formed tag \
+         in `analytic_note` stays exactly as fine as this sentence offers; the second reports \
+         a count and gates on nothing.",
         violations,
     )
 }
@@ -576,6 +696,105 @@ fn elide(sentence: &str, hit: &str) -> String {
 }
 
 // ── corpus structure ──────────────────────────────────────────────────────────
+
+/// A class file naming foundational alignment in a spelling nothing reads.
+///
+/// `foundational_type:` is the field: `yidam schema` validates it, the bootstrap template
+/// writes it, and `export-rdf` reads it. Three other spellings existed. `bfo_type:` and
+/// `ufo_type:` were what `bootstrap.md` told authors to write, in prose, one hundred and
+/// ninety lines above its own template writing the correct one — so an agent following the
+/// dialogue produced a field no part of the toolchain had ever read. `bfo_anchor:` was read
+/// by `export-rdf` and written by nothing, which is the same bug from the other end: the RDF
+/// export looked for a field bootstrap never produced, so a corpus that declared an alignment
+/// exported no `skos:exactMatch` at all.
+///
+/// None of it went red. The class body is `additionalProperties: true`, so an undeclared key
+/// validates, and no corpus this repository ships declares an alignment — the path was never
+/// exercised. This check is the thing that would have said so. It gates rather than warns,
+/// because a silently-ignored alignment field is indistinguishable from an alignment.
+pub fn foundational_field_misspelled(classes: &[Class]) -> Check {
+    let violations = classes
+        .iter()
+        .flat_map(|c| {
+            c.dead_alignment_fields.iter().map(move |f| {
+                let fix = if *f == "bfo_anchor" {
+                    "move the URI to `foundational_type.iri`"
+                } else {
+                    "write `foundational_type:` with `ontology:` and `type:`"
+                };
+                Violation::new(&c.rel, format!("`{f}:` is read by nothing — {fix}"))
+            })
+        })
+        .collect();
+    Check::new(
+        "foundational-field-misspelled",
+        "Class declares foundational alignment in a field nothing reads",
+        Severity::Error,
+        "Foundational alignment is `foundational_type:`, carrying `ontology: bfo|ufo`, a \
+         `type:`, and optionally the `iri:` that type has in that ontology. `bfo_type:` and \
+         `ufo_type:` were never read by anything — they are what bootstrap's prose asked for \
+         while its own template asked for `foundational_type:`. `bfo_anchor:` was read by \
+         `export-rdf` and written by nothing, and was BFO-only besides, so a UFO-aligned \
+         corpus could not use it. A class carrying one of these has stated an alignment that \
+         no gate, query, or export can see, which is worse than stating none: the corpus \
+         believes it is aligned. See docs/vocabulary.md and RFC-0013.",
+        violations,
+    )
+}
+
+/// A class that declared an alignment the vocabulary does not have.
+///
+/// `foundational_type` is validated by `yidam schema` for shape — that `ontology` and `type`
+/// are present strings — but a schema cannot say that `bfo-2` is not an ontology or that
+/// `BFO_0000002` is not an IRI. Both produce an alignment that exports as a literal nobody
+/// can resolve, which is the failure `foundational_field_misspelled` exists for wearing a
+/// valid field name.
+///
+/// The `type` is deliberately unchecked. BFO and UFO both have large term sets that their
+/// maintainers revise, and a list of them compiled into this binary would be a second copy of
+/// somebody else's vocabulary — wrong the moment they revise it, and refusing terms a corpus
+/// is right to use. `ontology` is checkable because it is two values and they are ours.
+pub fn foundational_type_malformed(classes: &[Class]) -> Check {
+    let violations = classes
+        .iter()
+        .filter_map(|c| {
+            let ft = c.foundational_type.as_ref()?;
+            let problem = if !matches!(ft.ontology.as_str(), "bfo" | "ufo") {
+                format!(
+                    "`ontology: {}` — the values are `bfo` and `ufo`",
+                    ft.ontology
+                )
+            } else if ft.ty.trim().is_empty() {
+                format!("`ontology: {}` with no `type:`", ft.ontology)
+            } else if ft
+                .iri
+                .as_deref()
+                .is_some_and(|i| !i.starts_with("http://") && !i.starts_with("https://"))
+            {
+                format!(
+                    "`iri: {}` is not an absolute IRI",
+                    ft.iri.as_deref().unwrap_or_default()
+                )
+            } else {
+                return None;
+            };
+            Some(Violation::new(&c.rel, problem))
+        })
+        .collect();
+    Check::new(
+        "foundational-type-malformed",
+        "Class declares a foundational alignment that cannot be resolved",
+        Severity::Error,
+        "`foundational_type:` carries `ontology: bfo` or `ontology: ufo`, a non-empty \
+         `type:`, and optionally an `iri:` beginning `http://` or `https://`. An alignment \
+         outside that shape reaches RDF as a literal no consumer can follow, which leaves \
+         the corpus asserting an alignment nothing can check — the state #613 found across \
+         four field names. The `type:` itself is not checked against BFO or UFO: their term \
+         sets are theirs to revise, and a copy of them in this binary would start refusing \
+         terms a corpus is right to use.",
+        violations,
+    )
+}
 
 pub fn missing_class(nodes: &[Node]) -> Check {
     let violations = nodes
@@ -916,6 +1135,27 @@ pub fn undeclared_property(
 /// that says nothing is not reported against, for the reason [`EdgePolicy::Unstated`] gives
 /// one field over: gating there would enforce a contract nobody wrote.
 ///
+/// **And the unit is the `description`, not the file.** This counted `n.text` — the bytes as
+/// read, frontmatter, properties and links included — while its own rationale argues about
+/// prose. The two came apart as soon as a corpus started recording where its edges come from:
+/// a `claim_tag` and a `source` on each link costs about a line and a half per edge, so a
+/// node that documents its provenance paid for it out of a budget written to stop
+/// *descriptions* sprawling. One derived corpus reported 212 findings, 207 of them one class
+/// whose fixed structure — frontmatter, two properties, three tagged links — is 18 lines
+/// before a word of prose, against a ceiling of 25. Its `max_lines` was raised 42 → 60 and
+/// the share over it went *up*, from 11 of 40 to 207 of 238, which is the evidence that the
+/// number was never what was wrong.
+///
+/// A node with no description is skipped rather than falling back to the file. There is
+/// nothing to be too long, and falling back would charge structure to a node that wrote no
+/// prose at all — the defect, reintroduced for the nodes it hits hardest.
+///
+/// The harness's S7 still counts the file, and this no longer claims to agree with it. #595
+/// made S7 explicitly a genesis-only number, scored once against a corpus a bootstrap has
+/// just produced and never re-run; structure overhead is small there. `max_lines:` is a
+/// steady-state contract a class keeps for its whole life, and structure overhead is exactly
+/// what grows over one.
+///
 /// Warn rather than Error even when declared. Length is editorial, the ratchet in
 /// [`super::baseline`] already distinguishes inherited from new, and a node one line over is
 /// not a corpus that has stopped being true.
@@ -929,15 +1169,21 @@ pub fn node_too_long(nodes: &[Node], classes: &[Class]) -> Check {
         let Some(max) = class.max_lines else {
             continue;
         };
-        // The bytes as read, so this counts what a reader scrolls past — the same thing the
-        // harness's S7 counts, and the reason `Node::text` is kept after parsing.
-        let lines = n.text.lines().count();
+        // The parsed prose block, which `CorpusInstance` already holds apart from
+        // `properties` and `links` — so the thing measured is the thing the ceiling is about.
+        let Some(description) = n.inst.description.as_deref() else {
+            continue;
+        };
+        let lines = description.lines().count();
         if lines <= max {
             continue;
         }
         violations.push(Violation::new(
             &n.rel,
-            format!("{lines} lines; `{}` declares `max_lines: {max}`", class.rel),
+            format!(
+                "{lines} lines of `description`; `{}` declares `max_lines: {max}`",
+                class.rel
+            ),
         ));
     }
     Check::new(
@@ -947,9 +1193,11 @@ pub fn node_too_long(nodes: &[Node], classes: &[Class]) -> Check {
         "A long node is usually two nodes, or a node carrying quoted source that belongs in \
          the catalog entry it cites. The ceiling is the class's own — a class that declares \
          no `max_lines:` is not checked, because the length an instance should be is a \
-         question about that class and not about corpora in general. Measured before \
-         choosing: a fixed ceiling of 40, which the bootstrap rubric uses at genesis, is \
-         exceeded by 335 of 410 nodes across five real corpora once they have grown.",
+         question about that class and not about corpora in general. What is counted is the \
+         `description` block and not the file: the argument is about prose, and a node that \
+         records where each of its edges comes from should not pay for that provenance out \
+         of a budget written to stop descriptions sprawling. A corpus that raised \
+         `max_lines:` to absorb structural lines can lower it again.",
         violations,
     )
 }
@@ -1079,7 +1327,9 @@ pub fn unimplemented_class(classes: &[Class], types: &TypeIndex) -> Check {
         "unimplemented-class",
         "Class naming an implementation the code does not define",
         Severity::Error,
-        "A class declaring `implemented_by:` has stated a fact about `crates/`, and a tree \
+        "A class declaring `implemented_by:` has stated a fact about `crates/`,
+            foundational_type: None,
+            dead_alignment_fields: vec![], and a tree \
          with no type of that name contradicts it — which is what this check's siblings \
          gate on, and an omission is not. A class that declares nothing is not checked, and \
          that silence is measured rather than timid: across twelve derived corpora 129 of \
@@ -1392,12 +1642,19 @@ const TAG_SEPARATORS: &[char] = &['—', '–', '-', ':', ';', ',', '|', '/', '=
 /// what was meant; saying so does not.
 ///
 /// Warn rather than Error: the node is still readable and the fix is the author's to make.
-pub fn claim_tag_malformed(nodes: &[Node]) -> Check {
+///
+/// **Class files are in scope, and were not until #603.** The check took `&[Node]`, and a
+/// `*.ont.yml` is not a node, so a class's own prose was never scanned — a boundary nobody had
+/// decided and nobody could see. It was found by porting the matcher downstream: excluding
+/// `*.ont.yml` was exactly what made the port reproduce lint's output, 234/234, and including
+/// them reported two findings lint did not. Both were real, and both in one class explaining
+/// why a property has to exist.
+pub fn claim_tag_malformed(prose: &[ProseView<'_>]) -> Check {
     let mut violations = Vec::new();
-    for n in nodes {
-        // Masked, so a node explaining the vocabulary is not reported for naming it — the
+    for n in prose {
+        // Masked, so a file explaining the vocabulary is not reported for naming it — the
         // same reason the counter masks.
-        for (line, found) in near_miss_tags(&crate::markdown::mask_code(&n.text)) {
+        for (line, found) in near_miss_tags(&crate::markdown::mask_code(n.text)) {
             violations.push(Violation::new(
                 format!("{}:{}", n.rel, line),
                 format!(
@@ -1415,12 +1672,136 @@ pub fn claim_tag_malformed(nodes: &[Node]) -> Check {
          from reading as an open claim. The cost is that a tag with its citation folded \
          inside the brackets matches nothing and is silently counted as untagged — a node \
          that looks tagged to a reader and reads as bare assertion to every counter. This \
-         reports the near miss rather than guessing at it.",
+         reports the near miss rather than guessing at it. Brackets are matched by depth \
+         over the block rather than to the first `]` on the line, because a citation that is \
+         itself a link both nests a `]` and wraps: measured on one derived corpus, the line \
+         scan found 234 of 445 such tags and none of the 179 that wrapped. The block is the \
+         bound, so an unbalanced `[` in quoted source costs one bracket rather than every \
+         tag below it.\n\n\
+         Scope: every instance file and every class file, read as bytes — so a tag in a \
+         class's `description`, in a `properties[]` or `edges[]` entry, or in its \
+         `analytic_note` is reported the same way one in a node is. Measured over 17 corpora, \
+         all four carry tags. Reading a class's parsed fields instead would miss two of the \
+         four outright, because the property and edge structs declare no `description` at \
+         all. `universal.yml` is not read: it is a property list, not an argument.",
         violations,
     )
 }
 
+/// Evidence tags in a class file's prose, which nothing counts.
+///
+/// **Reported, and does not gate** — the shape [`EdgePolicy::Unstated`] and `policy-override`
+/// already have, and for the same reason: the state is worth seeing and there is no defect to
+/// fix. A class arguing for its own shape in tagged prose is doing something legitimate.
+///
+/// It exists because the boundary was invisible from inside a derived repository. `yidam
+/// status` counts claims in nodes and reads no class file, which is a decision (see
+/// [`crate::claims::count_in_source`]) rather than an accident — but nothing said so, and an
+/// author moving an argument out of a node and into the class it belongs to would watch its
+/// claims silently stop being counted. #603 was filed by somebody who could only find this
+/// out by porting the matcher and noticing which files had to be excluded for the numbers to
+/// agree.
+///
+/// # What is counted, and the one place it diverges from the counter
+///
+/// The grammar is [`crate::claims::count_in_source`]'s, so the number here and the number a
+/// widened counter would add come from one rule and move together. The text handed to it is
+/// masked by [`crate::markdown::mask_code`] rather than `mask_fenced`, which is the divergence
+/// and the only one — a tag inside backticks is not reported.
+///
+/// **That is measured, not inherited.** Over the 26 class files this repository tracks, the
+/// counter's own rule finds 6 tags in 2 files and the span mask finds 0, and the 6 are the
+/// same 6 the counter is not widened for: a class explaining its own vocabulary, every one of
+/// them backticked. Reporting them would put a permanent Info row in front of every reader of
+/// two teaching corpora, which is the state `TAG_SEPARATORS` refuses for the same vocabulary
+/// one screen up — a permanently non-empty report is where a real finding gets lost.
+///
+/// It is the opposite call from the one [`crate::markdown::mask_fenced`] records for the
+/// counter, and the difference is the subject rather than the rule. There, 80% of a mature
+/// corpus's `[open]` tags are backticked *node* prose and are claims, so the typographic rule
+/// under-counted a corpus's own front page fivefold. Here the subject is a class file, the
+/// measured population is the other way round, and under-reporting costs an Info row rather
+/// than a published number. Should a corpus turn up asserting backticked claims in class
+/// prose, this is the line to revisit, and the measurement above is what to re-run.
+///
+/// **Never baselined**, by construction: [`super::baseline::Baseline::from_checks`] records
+/// only what gates, and nothing here does. So this cannot be blessed into silence, which is
+/// the point — it is the trigger for a later decision, not debt.
+pub fn class_claim_uncounted(classes: &[Class]) -> Check {
+    let violations = classes
+        .iter()
+        .filter_map(|c| {
+            let n = crate::claims::count_in_source(&crate::markdown::mask_code(&c.text)).total();
+            (n > 0).then(|| {
+                Violation::new(
+                    &c.rel,
+                    format!(
+                        "class prose asserts {n} evidence tag(s). `yidam status` counts claims \
+                         in nodes, so these are counted nowhere"
+                    ),
+                )
+                .at(Severity::Info)
+            })
+        })
+        .collect();
+    Check::new(
+        "class-claim-uncounted",
+        "Evidence tag asserted in class prose, which no counter reads",
+        Severity::Info,
+        "A claim is \"a statement in a node\" — CONSTITUTION.md, Article V — and the counters \
+         hold to that. A class file may still write one, because a class is where a corpus \
+         argues for its own shape and that argument is evidenced like any other. This reports \
+         the gap rather than closing it, and the reason it is not closed is measured: taking \
+         the counter's own rule to class files finds 6 tags across 2 of the 4 corpora this \
+         repository ships, and every one of the six is a class explaining its own vocabulary — \
+         \"`[verified]` means somebody confirmed the change shipped and held\". They survive \
+         the narration rule because it is past-tense-only and the word after every one of them \
+         is \"means\". Telling those six from a real assertion is a judgement about wording, \
+         which is the same reason Article V gives for refusing to delegate claim identity to a \
+         checker at all. So the count is shown and not spent, and only what is asserted \
+         outside backticks is shown at all. If a corpus finds real claims here, the fix is to \
+         move them into a node — where they are counted, cited, and reachable by every other \
+         check.",
+        violations,
+    )
+}
+
+/// The `]` that closes the `[` at `open`, matched by depth and never past `bound`.
+///
+/// Depth rather than the first `]`, because the first one may be a nested link's. Bounded,
+/// because an unbalanced `[` must cost the check one bracket and not the rest of the file.
+fn matching_bracket(text: &str, open: usize, bound: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    text[open..bound].char_indices().find_map(|(rel, c)| {
+        match c {
+            '[' => depth += 1,
+            ']' => depth = depth.saturating_sub(1),
+            _ => return None,
+        }
+        (depth == 0 && c == ']').then_some(open + rel)
+    })
+}
+
 /// `(line, text)` for each bracketed near miss. Links are not near misses.
+///
+/// **Bracket depth over the block, not the first `]` on the line.** The line-scoped scan this
+/// replaces reported 234 of 445 tags of exactly this shape in one derived corpus, and the
+/// 211 it missed had two causes that share this one fix:
+///
+/// - *A tag that wraps was never closed.* `line[at..].find(']')` cannot find a `]` that is on
+///   the next line, and wrapping is not an edge case — it is what happens whenever the
+///   citation is a markdown link, because links are long. **Not one of 179 wrapped tags was
+///   reported.**
+/// - *A tag whose citation is a link closed on the wrong bracket.* In
+///   `[verified — [`x`](x.yml)]` the first `]` is the inner link's; the character after it is
+///   `(`, so the guard that exists to keep `[open questions](…)` from reading as a claim fired
+///   on the tag it was meant to protect. The guard is right and its subject was wrong: it is
+///   tested against the **outer** `]` here.
+///
+/// The bound is [`crate::claims::block_end`] — the boundary already measured for
+/// `statement_around`. It is load-bearing rather than tidy: an unbounded depth scan drops
+/// every tag below the corpus's first unbalanced `[` (one corpus has one, inside quoted source
+/// text) and does it silently, with the finding count falling as the corpus grows.
 fn near_miss_tags(text: &str) -> Vec<(usize, String)> {
     let tags = [
         crate::claims::VERIFIED,
@@ -1428,40 +1809,49 @@ fn near_miss_tags(text: &str) -> Vec<(usize, String)> {
         crate::claims::OPEN,
     ];
     let mut out = Vec::new();
-    for (i, line) in text.lines().enumerate() {
-        let bytes = line.as_bytes();
-        let mut j = 0;
-        while j < bytes.len() {
-            let Some(open) = line[j..].find('[') else {
-                break;
-            };
-            let at = j + open;
-            let Some(close_rel) = line[at..].find(']') else {
-                break;
-            };
-            let close = at + close_rel;
-            j = close + 1;
-            // `[text](target)` and `[text][ref]` are links; their label is not a claim.
-            if matches!(line[j..].chars().next(), Some('(') | Some('[')) {
-                continue;
+    let bytes = text.as_bytes();
+    let mut line = 1;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\n' {
+            line += 1;
+            i += 1;
+            continue;
+        }
+        if bytes[i] != b'[' {
+            i += 1;
+            continue;
+        }
+        let Some(close) = matching_bracket(text, i, crate::claims::block_end(text, i)) else {
+            // Unbalanced within its block: this bracket opens nothing, and the next one is
+            // still worth asking about.
+            i += 1;
+            continue;
+        };
+        // `[text](target)` and `[text][ref]` are links; their label is not a claim.
+        if matches!(text[close + 1..].chars().next(), Some('(') | Some('[')) {
+            i += 1;
+            continue;
+        }
+        // A tag's text may carry the wrap it was written across; what is reported should not.
+        let inner = crate::claims::collapse_whitespace(&text[i + 1..close]);
+        let hit = tags.iter().any(|tag| {
+            let word = tag.trim_matches(|c| c == '[' || c == ']');
+            if inner == word {
+                return false; // the tag itself, exactly as intended
             }
-            let inner = &line[at + 1..close];
-            for tag in tags {
-                let word = tag.trim_matches(|c| c == '[' || c == ']');
-                if inner == word {
-                    break; // the tag itself, exactly as intended
-                }
-                let Some(rest) = inner.strip_prefix(word) else {
-                    continue;
-                };
-                if rest
-                    .trim_start()
+            inner.strip_prefix(word).is_some_and(|rest| {
+                rest.trim_start()
                     .starts_with(|c: char| TAG_SEPARATORS.contains(&c))
-                {
-                    out.push((i + 1, line[at..=close].to_string()));
-                    break;
-                }
-            }
+            })
+        });
+        if hit {
+            out.push((line, format!("[{inner}]")));
+            // Anything nested inside a reported tag is part of it, not a second finding.
+            line += text[i..close].matches('\n').count();
+            i = close + 1;
+        } else {
+            i += 1;
         }
     }
     out
@@ -2094,6 +2484,73 @@ fn is_delimiter_row(line: &str) -> bool {
             .all(|c| !c.trim().is_empty() && c.trim().chars().all(|ch| ch == '-' || ch == ':'))
 }
 
+/// REGEN blocks that took lines which were not theirs.
+///
+/// `yidam regen` writes into a block by finding its open tag, its arrow and its close tag. If
+/// any of the three is missing the write is a **silent no-op** — `update_regen` returns the
+/// text unchanged — so the section simply stops updating, and the failure reads as "that part
+/// never refreshes" rather than as a malformed file. Where a marker below it gets swallowed
+/// as content, that marker's section stops updating too, and nothing anywhere says so.
+///
+/// The scan is `yidam_core::markers::scan_markers`, not a reader of this check's own. A
+/// second scanner would be a second answer to "where does a block end", and the two would
+/// drift without either going red — the argument `formal_specs.rs` makes about a workflow
+/// that reproduces a task instead of running it. It is also this repository's first consumer
+/// of a function that had three implementations, shared fixtures, and nothing calling it.
+///
+/// Warn rather than Error, and the reason is a limit of the scanner rather than a doubt about
+/// the finding: it does not know about fenced code blocks, so a document explaining the marker
+/// syntax with a deliberately unbalanced example is indistinguishable from a damaged file.
+/// Gating on a check that cannot tell those apart is how `--warn-only` gets typed, which turns
+/// every check off at once. Every markdown file in this repository passes it as written.
+pub fn malformed_regen_block(files: &[(String, String)]) -> Check {
+    use yidam_core::markers::Fault;
+    let mut violations = Vec::new();
+    for (rel, text) in files {
+        for b in yidam_core::markers::scan_markers(text).malformed {
+            let what = match b.fault {
+                Fault::OpenArrowMissing => {
+                    "its opening comment never closes: no line after it ends in `-->`, so \
+                     everything below became part of the tag"
+                }
+                Fault::CloseTagMissing => {
+                    "`<!-- /REGEN -->` never arrives, so the rest of the file became its body"
+                }
+                Fault::ClosedOnAnothersTag => {
+                    "it closes on a `<!-- /REGEN -->` belonging to a block opened inside its \
+                     own body — a close tag is missing between them"
+                }
+            };
+            let lost = match b.swallowed_markers {
+                0 => String::new(),
+                n => format!(
+                    ", {n} of which open{} a marker that is now content",
+                    if n == 1 { "s" } else { "" }
+                ),
+            };
+            violations.push(Violation::new(
+                rel,
+                format!(
+                    "line {}: the `{}` block — {what}. It took the {} line(s) after it{lost}. \
+                     `yidam regen` will not write to it.",
+                    b.line, b.command, b.swallowed_lines
+                ),
+            ));
+        }
+    }
+    Check::new(
+        "malformed-regen-block",
+        "REGEN block whose extent is not what it looks like",
+        Severity::Warn,
+        "A REGEN block is three markers: the open tag, the `-->` that ends it, and \
+         `<!-- /REGEN -->`. `yidam regen` finds all three or writes nothing at all, without \
+         saying so — the section goes stale and looks like a generator that stopped running. \
+         Where the missing tag is a close tag, the block also swallows whatever is below it, \
+         so the *next* section stops updating for the same invisible reason.",
+        violations,
+    )
+}
+
 /// Ragged markdown tables in any committed prose.
 ///
 /// Applied to catalog entries and the corpus's own READMEs — anywhere a reader meets a
@@ -2615,6 +3072,7 @@ mod tests {
     fn instances_of_a_source_class_are_not_orphans() {
         let ont = |name: &str, dir: &str| Class {
             rel: format!(".yidam/corpus/{name}.ont.yml"),
+            text: String::new(),
             description: String::new(),
             name: name.into(),
             properties: vec![],
@@ -2622,6 +3080,8 @@ mod tests {
             edge_policy: EdgePolicy::default(),
             max_lines: None,
             implemented_by: None,
+            foundational_type: None,
+            dead_alignment_fields: vec![],
         };
         let node = |class: &str, file: &str| Node {
             path: PathBuf::from(format!("corpus/{class}/{file}.yml")),
@@ -2656,6 +3116,7 @@ mod tests {
     fn a_class_another_class_points_at_is_not_a_source_class() {
         let gage = Class {
             rel: ".yidam/corpus/gage.ont.yml".into(),
+            text: String::new(),
             description: String::new(),
             name: "gage".into(),
             properties: vec![],
@@ -2663,9 +3124,12 @@ mod tests {
             edge_policy: EdgePolicy::default(),
             max_lines: None,
             implemented_by: None,
+            foundational_type: None,
+            dead_alignment_fields: vec![],
         };
         let concept = Class {
             rel: ".yidam/corpus/concept.ont.yml".into(),
+            text: String::new(),
             description: String::new(),
             name: "concept".into(),
             properties: vec![],
@@ -2673,6 +3137,8 @@ mod tests {
             edge_policy: EdgePolicy::default(),
             max_lines: None,
             implemented_by: None,
+            foundational_type: None,
+            dead_alignment_fields: vec![],
         };
         let classes = [gage, concept];
         let sources = source_classes(&edge_views(&classes));
@@ -2696,6 +3162,7 @@ mod tests {
     fn a_self_edge_does_not_make_a_class_pointed_at() {
         let reach = Class {
             rel: ".yidam/corpus/reach.ont.yml".into(),
+            text: String::new(),
             description: String::new(),
             name: "reach".into(),
             properties: vec![],
@@ -2703,6 +3170,8 @@ mod tests {
             edge_policy: EdgePolicy::default(),
             max_lines: None,
             implemented_by: None,
+            foundational_type: None,
+            dead_alignment_fields: vec![],
         };
         let classes = [reach];
         assert!(source_classes(&edge_views(&classes)).contains("reach"));
@@ -2714,6 +3183,7 @@ mod tests {
     fn a_directionless_declaration_exempts_neither_end() {
         let a = Class {
             rel: ".yidam/corpus/a.ont.yml".into(),
+            text: String::new(),
             description: String::new(),
             name: "a".into(),
             properties: vec![],
@@ -2725,9 +3195,12 @@ mod tests {
             edge_policy: EdgePolicy::default(),
             max_lines: None,
             implemented_by: None,
+            foundational_type: None,
+            dead_alignment_fields: vec![],
         };
         let b = Class {
             rel: ".yidam/corpus/b.ont.yml".into(),
+            text: String::new(),
             description: String::new(),
             name: "b".into(),
             properties: vec![],
@@ -2735,6 +3208,8 @@ mod tests {
             edge_policy: EdgePolicy::default(),
             max_lines: None,
             implemented_by: None,
+            foundational_type: None,
+            dead_alignment_fields: vec![],
         };
         let classes = [a, b];
         assert!(source_classes(&edge_views(&classes)).is_empty());
@@ -2748,6 +3223,7 @@ mod tests {
     fn a_class_declaring_no_edges_is_not_a_source_class() {
         let silent = Class {
             rel: ".yidam/corpus/concept.ont.yml".into(),
+            text: String::new(),
             description: String::new(),
             name: "concept".into(),
             properties: vec![],
@@ -2755,6 +3231,8 @@ mod tests {
             edge_policy: EdgePolicy::default(),
             max_lines: None,
             implemented_by: None,
+            foundational_type: None,
+            dead_alignment_fields: vec![],
         };
         assert!(
             source_classes(&edge_views(std::slice::from_ref(&silent))).is_empty(),
@@ -2786,6 +3264,82 @@ mod tests {
             crate::claims::count_in_source("The estimate is [verified — Pearl 2009].").total(),
             0
         );
+    }
+
+    /// The shape that made 179 of 445 tags invisible: the citation is a link, so it is long,
+    /// so the tag wraps and its `]` is never on the line that holds its `[`.
+    #[test]
+    fn a_tag_that_wraps_a_line_is_still_a_near_miss() {
+        let text = "  A resolution stands. [verified —\n    \
+                    [the audit reports](../catalog/auditor-district-audits.md)]\n";
+        let found = near_miss_tags(text);
+        assert_eq!(found.len(), 1, "a wrapped tag is one tag: {found:?}");
+        assert_eq!(found[0].0, 1, "reported where the tag opens");
+        assert_eq!(
+            found[0].1, "[verified — [the audit reports](../catalog/auditor-district-audits.md)]",
+            "the wrap is the file's, not the tag's, so the finding does not carry it"
+        );
+    }
+
+    /// The link guard, tested against the outer `]` rather than the inner one. Single-line,
+    /// and reported by nothing before this: `find(']')` returned the *link's* bracket, the
+    /// next character was `(`, and the guard fired on the tag it exists to protect.
+    #[test]
+    fn a_tag_whose_citation_is_a_link_is_a_near_miss() {
+        let found = near_miss_tags(
+            "The share follows [verified — [`bridge-formula`](bridge-formula.yml)].",
+        );
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(
+            found[0].1,
+            "[verified — [`bridge-formula`](bridge-formula.yml)]"
+        );
+    }
+
+    /// The bound is the point of the bound. An unbalanced `[` in quoted source — this one is
+    /// verbatim from a derived corpus — must cost the check that bracket and nothing else; an
+    /// unbounded depth scan swallows every tag below it and the finding count *falls* as the
+    /// corpus grows.
+    #[test]
+    fn an_unbalanced_bracket_does_not_blind_the_rest_of_the_file() {
+        let text = "properties:\n  as_written: \"against 37 on the [Cupp\"\n  \
+                    note: A later count. [verified — Cupp 2019]\n";
+        let found = near_miss_tags(text);
+        assert_eq!(
+            found.len(),
+            1,
+            "the tag below the stray `[` survives: {found:?}"
+        );
+        assert_eq!(found[0], (3, "[verified — Cupp 2019]".to_string()));
+    }
+
+    /// A tag may cross a soft wrap and may not cross into the next YAML key, list item or
+    /// paragraph — the same boundary `statement_around` is measured against, for the same
+    /// reason.
+    ///
+    /// Each case here is written so the *separator* is inside the unclosed bracket: without
+    /// the bound the scan runs on to a `]` in the next block, folds two blocks into one
+    /// "tag", and reports it. That is the false positive an unbounded depth scan buys, and
+    /// it is why these are three cases and not one.
+    #[test]
+    fn the_scan_stops_at_the_block_it_started_in() {
+        for (label, text) in [
+            (
+                "a new YAML key",
+                "description: The rate rose. [verified —\nsource: ../s.md]\n",
+            ),
+            ("a new list item", "- first [verified —\n- second later]\n"),
+            (
+                "a blank line",
+                "The rate rose. [verified —\n\nA later paragraph entirely]\n",
+            ),
+        ] {
+            assert!(
+                near_miss_tags(text).is_empty(),
+                "{label} ends the block, so nothing here is one tag: {:?}",
+                near_miss_tags(text)
+            );
+        }
     }
 
     #[test]
@@ -2838,7 +3392,7 @@ mod tests {
                    untagged.\n"
                 .to_string(),
         };
-        let c = claim_tag_malformed(std::slice::from_ref(&node));
+        let c = claim_tag_malformed(&prose_views(std::slice::from_ref(&node), &[]));
         assert_eq!(c.violations.len(), 0, "{:?}", c.violations);
     }
 
@@ -2852,13 +3406,184 @@ mod tests {
             text: "class: c\nlabel: X\ndescription: |\n  Settled [verified — Pearl 2009].\n"
                 .to_string(),
         };
-        let c = claim_tag_malformed(std::slice::from_ref(&node));
+        let c = claim_tag_malformed(&prose_views(std::slice::from_ref(&node), &[]));
         assert_eq!(c.violations.len(), 1);
         assert!(
             c.violations[0].node.ends_with(":4"),
             "{}",
             c.violations[0].node
         );
+    }
+
+    // ── claim-tag-malformed over class prose (#603) ───────────────────────────
+
+    /// Write a class file and load it the way `lint` does, so these exercise the loader
+    /// keeping the file's bytes rather than a struct literal that could not lose them.
+    fn loaded_class(name: &str, yaml: &str) -> (tempfile::TempDir, Vec<Class>) {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(format!("{name}.ont.yml"));
+        std::fs::write(&p, yaml).unwrap();
+        let classes = load_classes(dir.path(), &[p], &crate::cmd::lint::Overlay::default());
+        (dir, classes)
+    }
+
+    /// The two shapes #603 was filed with, verbatim, in the file they were found in.
+    ///
+    /// The first wraps across three lines and folds two markdown links inside the brackets;
+    /// the second folds a backticked crate path. Neither was reported before this check read
+    /// class files, and both are exactly what it exists to catch.
+    #[test]
+    fn the_reported_shapes_are_caught_in_a_class_file() {
+        let (_d, classes) = loaded_class(
+            "education-agency",
+            "class: education-agency\ndescription: |\n  A body a state creates. [verified —\n  \
+             [the audit reports that recite each resolution](../catalog/auditor-district-audits.md), and\n  \
+             [R.C. 3311.22](../catalog/ohio-revised-code.md)]\n  \
+             The register files it. [verified — `dispersion::lea_directory`]\n",
+        );
+        let c = claim_tag_malformed(&prose_views(&[], &classes));
+        assert_eq!(c.violations.len(), 2, "{:?}", c.violations);
+        assert!(
+            c.violations[0].node.ends_with(":3"),
+            "{}",
+            c.violations[0].node
+        );
+        assert!(
+            c.violations[1].node.ends_with(":6"),
+            "{}",
+            c.violations[1].node
+        );
+    }
+
+    /// All four places a class writes prose, and the reason the scan reads bytes.
+    ///
+    /// Measured over 17 corpora, the 21 tag sites in class files fall in all four —
+    /// `description`, `properties[].description`, `edges[].description` and `analytic_note`.
+    /// `ClassProperty` and `ClassEdge` declare no `description` field, so a scan over the
+    /// parsed struct would report two of these four and silently miss the rest.
+    #[test]
+    fn every_prose_field_of_a_class_is_read() {
+        let (_d, classes) = loaded_class(
+            "agency",
+            "class: agency\n\
+             description: A body a state creates. [verified — R.C. 3311.22]\n\
+             properties:\n  - name: dispersion\n    type: string\n    \
+             description: Where its pupils went. [verified — `dispersion::lea_directory`]\n\
+             edges:\n  - relationship: succeeds\n    target: agency\n    \
+             description: The body it replaced. [inference — the register]\n\
+             analytic_note: The closure had no effect on boundaries. [open — whether it held]\n",
+        );
+        let c = claim_tag_malformed(&prose_views(&[], &classes));
+        let lines: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
+        assert_eq!(c.violations.len(), 4, "{lines:?}");
+        // One per field, so no two findings share a line.
+        let distinct: HashSet<&&str> = lines.iter().collect();
+        assert_eq!(distinct.len(), 4, "{lines:?}");
+    }
+
+    /// The widening reports nothing against anything this repository ships.
+    ///
+    /// Paired with the two tests above deliberately: a zero assertion on its own would pass
+    /// against a check that read nothing at all. The set is walked rather than listed — a
+    /// hardcoded file list stops covering new corpora without ever going red — and an empty
+    /// walk fails, because a discovery that finds nothing also passes everything.
+    #[test]
+    fn no_class_file_in_this_repository_carries_a_near_miss() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .unwrap();
+        let mut paths = Vec::new();
+        collect_ont_files(&root, &mut paths);
+        paths.sort();
+        assert!(
+            !paths.is_empty(),
+            "no class files found under {} — the walk, not the corpus, is what broke",
+            root.display()
+        );
+        let classes = load_classes(&root, &paths, &crate::cmd::lint::Overlay::default());
+        let malformed = claim_tag_malformed(&prose_views(&[], &classes));
+        assert!(
+            malformed.passed(),
+            "{} class file(s) scanned: {:?}",
+            paths.len(),
+            malformed.violations
+        );
+        // And the Info companion, whose measurement is the other half of the same claim.
+        let uncounted = class_claim_uncounted(&classes);
+        assert!(
+            uncounted.passed(),
+            "{} class file(s) scanned: {:?}",
+            paths.len(),
+            uncounted.violations
+        );
+    }
+
+    /// Every `*.ont.yml` under `dir`, skipping the directories no corpus lives in.
+    fn collect_ont_files(dir: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            let name = e.file_name().to_string_lossy().to_string();
+            if p.is_dir() {
+                if !matches!(name.as_str(), ".git" | "target" | "node_modules" | "dist") {
+                    collect_ont_files(&p, out);
+                }
+            } else if name.ends_with(".ont.yml") {
+                out.push(p);
+            }
+        }
+    }
+
+    // ── class-claim-uncounted (#603) ──────────────────────────────────────────
+
+    /// A class asserting a tag outside backticks is reported, with the number.
+    #[test]
+    fn a_tag_asserted_in_class_prose_is_reported_with_its_count() {
+        let (_d, classes) = loaded_class(
+            "remediation",
+            "class: remediation\ndescription: |\n  A change made after an incident.\n  \
+             It shipped and held. [verified]\nanalytic_note: |\n  Whether it held is [open].\n",
+        );
+        let c = class_claim_uncounted(&classes);
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        assert!(
+            c.violations[0].detail.contains("asserts 2 evidence tag(s)"),
+            "{}",
+            c.violations[0].detail
+        );
+    }
+
+    /// A class explaining its own vocabulary is not reported for naming it.
+    ///
+    /// This is the shape both `examples/incidents` and `examples/journalism` write, and the
+    /// only shape either of them writes: 6 tags across the 26 class files this repository
+    /// tracks, every one backticked. Reporting them would put a permanent Info row in front of
+    /// every reader of two teaching corpora.
+    #[test]
+    fn a_class_naming_its_vocabulary_is_not_reported() {
+        let (_d, classes) = loaded_class(
+            "finding",
+            "class: finding\ndescription: |\n  The tiers map onto newsroom standards: \
+             `[verified]` means two independent documents support it, `[inference]` means it \
+             follows from verified facts, `[open]` is still being chased.\n",
+        );
+        assert!(class_claim_uncounted(&classes).passed());
+    }
+
+    /// Reported, and gates on nothing — the shape `EdgePolicy::Unstated` and `policy-override`
+    /// already have. Gating would make a legitimate class file a blocked commit.
+    #[test]
+    fn the_class_claim_count_never_gates() {
+        let (_d, classes) = loaded_class(
+            "remediation",
+            "class: remediation\ndescription: It shipped and held. [verified]\n",
+        );
+        let c = class_claim_uncounted(&classes);
+        assert_eq!(c.severity, Severity::Info);
+        assert!(!c.violations.iter().any(|v| c.gates(v)));
     }
 
     /// A source at a known path, and a node in a directory that can reach it.
@@ -3202,6 +3927,81 @@ mod tests {
     }
 
     #[test]
+    fn a_well_formed_regen_block_passes() {
+        let text = "## Status\n\n<!-- REGEN: yidam status -->\n12 nodes\n<!-- /REGEN -->\n";
+        assert!(malformed_regen_block(&[("f.md".into(), text.into())]).passed());
+    }
+
+    #[test]
+    fn prose_with_no_markers_at_all_passes() {
+        let text = "# A document\n\nNothing generated here.\n";
+        assert!(malformed_regen_block(&[("f.md".into(), text.into())]).passed());
+    }
+
+    /// The shape a damaged file has in practice: two blocks, one missing close tag, and the
+    /// scan reads it as a single long block that closed normally. The second section stops
+    /// updating and nothing about the file looks wrong.
+    #[test]
+    fn a_block_that_swallows_the_next_one_is_reported_with_the_line_and_what_was_lost() {
+        let text = "<!-- REGEN: yidam status -->\n12 nodes\n\n                    <!-- REGEN: yidam open-questions -->\n- q\n<!-- /REGEN -->\n";
+        let c = malformed_regen_block(&[("README.md".into(), text.into())]);
+        assert_eq!(c.violations.len(), 1, "{:#?}", c.violations);
+        let d = &c.violations[0].detail;
+        assert!(d.contains("line 1"), "{d}");
+        assert!(d.contains("yidam status"), "{d}");
+        assert!(d.contains("belonging to a block opened inside"), "{d}");
+        assert!(
+            d.contains("1 of which opens a marker that is now content"),
+            "the finding must say a marker was lost, not just that lines were taken: {d}"
+        );
+        assert!(d.contains("will not write to it"), "{d}");
+    }
+
+    #[test]
+    fn a_block_with_no_close_tag_at_the_end_of_a_file_is_reported() {
+        let text = "## Status\n\n<!-- REGEN: yidam status -->\n12 nodes\n";
+        let c = malformed_regen_block(&[("README.md".into(), text.into())]);
+        assert_eq!(c.violations.len(), 1);
+        assert!(
+            c.violations[0].detail.contains("line 3"),
+            "{:?}",
+            c.violations[0].detail
+        );
+        assert!(
+            c.violations[0].detail.contains("never arrives"),
+            "{:?}",
+            c.violations[0].detail
+        );
+    }
+
+    #[test]
+    fn an_open_tag_that_never_closes_is_reported_as_its_own_fault() {
+        let text = "<!-- REGEN: yidam status\nFields: count.\n\nmore prose\n";
+        let c = malformed_regen_block(&[("README.md".into(), text.into())]);
+        assert_eq!(c.violations.len(), 1);
+        assert!(
+            c.violations[0]
+                .detail
+                .contains("opening comment never closes"),
+            "{:?}",
+            c.violations[0].detail
+        );
+    }
+
+    /// The finding names the file it is in, so a report over a hundred of them is actionable.
+    #[test]
+    fn each_file_is_scanned_and_named() {
+        let bad = "<!-- REGEN: a -->\nx\n";
+        let good = "<!-- REGEN: b -->\ny\n<!-- /REGEN -->\n";
+        let c = malformed_regen_block(&[
+            ("good.md".into(), good.into()),
+            ("bad.md".into(), bad.into()),
+        ]);
+        assert_eq!(c.violations.len(), 1);
+        assert_eq!(c.violations[0].node, "bad.md");
+    }
+
+    #[test]
     fn a_well_formed_table_passes() {
         let text = "intro\n\n| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n\nafter\n";
         assert!(malformed_table(&[("f.md".into(), text.into())]).passed());
@@ -3235,23 +4035,20 @@ mod tests {
 
     // ── class-asserts-purpose ─────────────────────────────────────────────────
 
+    /// Serialized and re-parsed rather than assembled, so [`Class::text`] and
+    /// [`Class::description`] cannot disagree. A literal with an empty `text` would let a
+    /// prose check written against this helper pass while reading nothing.
     fn class(rel: &str, description: &str) -> Class {
-        Class {
-            rel: rel.into(),
-            description: description.into(),
-            name: rel
-                .rsplit('/')
-                .next()
-                .unwrap_or(rel)
-                .replace(".ont.yml", ""),
-            properties: vec![],
-            // Declares an inbound edge, so instances are expected to be pointed at. The
-            // source-class arm is exercised by `orphan_in`'s own tests.
-            edges: vec![edge("cited-by", "concept", "in")],
-            edge_policy: EdgePolicy::default(),
-            max_lines: None,
-            implemented_by: None,
-        }
+        let mut m = serde_yaml::Mapping::new();
+        m.insert("description".into(), description.into());
+        // Declares an inbound edge, so instances are expected to be pointed at. The
+        // source-class arm is exercised by `orphan_in`'s own tests.
+        m.insert(
+            "edges".into(),
+            serde_yaml::from_str("- relationship: cited-by\n  target: concept\n  direction: in\n")
+                .unwrap(),
+        );
+        Class::parse(rel, serde_yaml::to_string(&m).unwrap())
     }
 
     #[test]
@@ -3411,13 +4208,10 @@ mod tests {
     /// uses and built by the same builder — so a test cannot pass against a shape the YAML
     /// could never produce, and cannot go on passing against a field the real builder has
     /// started reading and this one has not. It used to assemble the struct itself, which
-    /// is the third answer to *what a class is* that [`Class::from_fields`] exists to
+    /// is the third answer to *what a class is* that [`Class::parse`] exists to
     /// prevent; it silently ignored `implemented_by:` the day the field was added.
     fn class_from(name: &str, yaml: &str) -> Class {
-        Class::from_fields(
-            format!(".yidam/corpus/{name}.ont.yml"),
-            serde_yaml::from_str(yaml).unwrap(),
-        )
+        Class::parse(format!(".yidam/corpus/{name}.ont.yml"), yaml)
     }
 
     // ── node-too-long ─────────────────────────────────────────────────────────
@@ -3426,6 +4220,7 @@ mod tests {
     fn capped(name: &str, max: Option<usize>) -> Class {
         Class {
             rel: format!(".yidam/corpus/{name}.ont.yml"),
+            text: String::new(),
             description: String::new(),
             name: name.into(),
             properties: vec![],
@@ -3433,17 +4228,29 @@ mod tests {
             edge_policy: EdgePolicy::default(),
             max_lines: max,
             implemented_by: None,
+            foundational_type: None,
+            dead_alignment_fields: vec![],
         }
     }
 
     /// An instance of `class` that is `lines` lines long.
     fn sized(rel: &str, class: &str, lines: usize) -> Node {
         let mut yaml = format!("class: {class}\nlabel: L\ndescription: |\n");
-        for _ in 3..lines {
+        for _ in 0..lines {
             yaml.push_str("  filler\n");
         }
-        assert_eq!(yaml.lines().count(), lines);
-        node(rel, &yaml)
+        let n = node(rel, &yaml);
+        assert_eq!(
+            n.inst
+                .description
+                .as_deref()
+                .unwrap_or_default()
+                .lines()
+                .count(),
+            lines,
+            "the helper sizes the description, which is what the check counts"
+        );
+        n
     }
 
     /// A class that declares no ceiling is not checked, however long its instances are.
@@ -3470,9 +4277,9 @@ mod tests {
         assert_eq!(c.violations.len(), 1, "only the long one is over");
         assert_eq!(c.violations[0].node, "person/long.yml");
         assert!(
-            c.violations[0].detail.contains("52 lines")
+            c.violations[0].detail.contains("52 lines of `description`")
                 && c.violations[0].detail.contains("max_lines: 40"),
-            "the finding must carry both numbers, not just a verdict: {}",
+            "the finding must carry both numbers and name the unit, not just a verdict: {}",
             c.violations[0].detail
         );
         assert_eq!(
@@ -3500,12 +4307,67 @@ mod tests {
         );
     }
 
+    /// The reported defect: a node paid for its own provenance out of its prose allowance.
+    ///
+    /// The description here is four lines and the ceiling is six. What made this node long
+    /// is frontmatter, two properties and three links carrying a `claim_tag` and a `source`
+    /// apiece — the structure a corpus grows when it records where its edges come from, and
+    /// exactly what a budget written against sprawling *prose* has no business charging for.
+    #[test]
+    fn structure_is_not_charged_against_the_prose_budget() {
+        let yaml = "class: tenure\n\
+                    label: A holder\n\
+                    description: |\n  \
+                      Who held the office, from when, and until when.\n  \
+                      The dates are those recorded in the minute book.\n  \
+                      Two predecessors are named in the same entry.\n  \
+                      The ending is recorded as a resignation.\n\
+                    properties:\n  \
+                      began: 1913-04-02\n  \
+                      ended: 1919-11-30\n\
+                    links:\n\
+                    - rel: held\n  \
+                      target: ../office/registrar.yml\n  \
+                      claim_tag: verified\n  \
+                      source: ../../catalog/minute-book-1913.md\n\
+                    - rel: succeeded\n  \
+                      target: ../tenure/prior.yml\n  \
+                      claim_tag: verified\n  \
+                      source: ../../catalog/minute-book-1913.md\n\
+                    - rel: recorded_in\n  \
+                      target: ../document/minutes.yml\n  \
+                      claim_tag: verified\n  \
+                      source: ../../catalog/minute-book-1913.md\n";
+        let n = node("tenure/a.yml", yaml);
+        assert!(
+            n.text.lines().count() > 20,
+            "the file is long, which is the point of the fixture"
+        );
+        assert!(
+            node_too_long(&[n], &[capped("tenure", Some(6))]).passed(),
+            "four lines of prose is under a six-line ceiling, whatever the file weighs"
+        );
+    }
+
+    /// A node with no description is skipped, not measured against its file.
+    ///
+    /// Falling back to `text` would reintroduce the defect precisely where it bites hardest:
+    /// a node that is all structure and no prose.
+    #[test]
+    fn a_node_with_no_description_is_not_reported() {
+        let yaml = "class: person\nlabel: A\nlinks:\n- rel: knows\n  target: ../person/b.yml\n";
+        let n = node("person/a.yml", yaml);
+        assert!(n.inst.description.is_none());
+        assert!(node_too_long(&[n], &[capped("person", Some(1))]).passed());
+    }
+
     // ── unimplemented-class ───────────────────────────────────────────────────
 
     /// A class of `name` that says `impl_by` implements it, or says nothing.
     fn implemented(name: &str, impl_by: Option<&str>) -> Class {
         Class {
             rel: format!(".yidam/corpus/{name}.ont.yml"),
+            text: String::new(),
             description: String::new(),
             name: name.into(),
             properties: vec![],
@@ -3513,6 +4375,8 @@ mod tests {
             edge_policy: EdgePolicy::default(),
             max_lines: None,
             implemented_by: impl_by.map(str::to_string),
+            foundational_type: None,
+            dead_alignment_fields: vec![],
         }
     }
 
@@ -3609,18 +4473,19 @@ mod tests {
     /// nothing can match.
     #[test]
     fn an_empty_declaration_is_read_as_no_declaration() {
-        let fields: ClassFields = serde_yaml::from_str("implemented_by: '   '").unwrap();
-        let class = Class::from_fields(".yidam/corpus/a.ont.yml", fields);
+        let class = Class::parse(".yidam/corpus/a.ont.yml", "implemented_by: '   '");
         assert_eq!(class.implemented_by, None);
         assert!(unimplemented_class(&[class], &tree(&[])).passed());
     }
 
     #[test]
     fn a_declaration_is_read_off_the_class_file_and_trimmed() {
-        let fields: ClassFields =
-            serde_yaml::from_str("implemented_by: '  Intervention  '").unwrap();
         assert_eq!(
-            Class::from_fields(".yidam/corpus/a.ont.yml", fields).implemented_by,
+            Class::parse(
+                ".yidam/corpus/a.ont.yml",
+                "implemented_by: '  Intervention  '"
+            )
+            .implemented_by,
             Some("Intervention".to_string())
         );
     }
@@ -4315,6 +5180,232 @@ pub fn resolution_annotation_decides(annotations: &[Annotation]) -> Check {
     )
 }
 
+/// A `ma/*` reference a resolution makes that `electors.md` does not register.
+///
+/// Both directions of the record point at seats: `tips:` says whose positions were read, and
+/// `synthesized-by:` says who did the reading. Either naming a branch the registry does not
+/// carry is a resolution standing on an elector that does not exist, and it is decidable —
+/// set membership between a table and a frontmatter list, with no judgement in it.
+///
+/// Measured against the only derived repository running a sangha: 70 of 70 tips name a
+/// registered branch, so this lands green there. It is a guard rather than a finding, and the
+/// case it guards is a seat quietly leaving `electors.md` while the records that rest on it
+/// stay. A registry is expected to keep historical seats for exactly that reason.
+pub fn resolution_elector_unregistered(
+    records: &[crate::cmd::sangha::Resolution],
+    registered: &[String],
+) -> Check {
+    let mut violations = Vec::new();
+    for r in records {
+        // A tip is `ma/<elector>@<hash>`; the seat is the part before the `@`.
+        let named = r
+            .tips
+            .iter()
+            .map(|t| (t.split('@').next().unwrap_or(t), "read as a tip"))
+            .chain(
+                r.synthesized_by
+                    .iter()
+                    .map(|s| (s.as_str(), "named as the executor")),
+            );
+        for (branch, how) in named {
+            if branch.is_empty() || registered.iter().any(|b| b == branch) {
+                continue;
+            }
+            violations.push(Violation::new(
+                r.file.clone(),
+                format!("`{branch}` is {how} and `electors.md` registers no such branch"),
+            ));
+        }
+    }
+    Check::new(
+        "resolution-elector-unregistered",
+        "Resolution names a ma/* branch no elector row registers",
+        Severity::Error,
+        "A resolution's authority rests on the seats it names, so a name the registry does \
+         not carry is the one part of the record that cannot be read charitably — either the \
+         seat was never registered, or it was removed and the records resting on it were \
+         left behind. This gates where its sibling warns because it is set membership \
+         between two committed files rather than a judgement about a missing field: there is \
+         no state of the world in which the answer is arguable.",
+        violations,
+    )
+}
+
+/// A resolution record that does not say which seat executed it.
+///
+/// `synthesized-by` is the only field naming a *seat* rather than a branch that was read, and
+/// it is the only thing that can distinguish one elector from another in the record. Nothing
+/// in git can: in the repository that has run this protocol, all 126 commits across three
+/// elector branches carry the operator's git author, and none of the 1,070 commits in it is
+/// signed. The auditor's position and the owner's are told apart by a branch name and nothing
+/// else.
+///
+/// **Warn, and the condition for escalating is written down rather than left to taste.** Every
+/// record written before the field existed is this finding — 29 of 29 in that repository — and
+/// they cannot be fixed. A resolution record is a dated document; retrofitting one means
+/// somebody recalling which seat held the pen a month ago, and the corpus cannot recover it
+/// mechanically because the git author is the same for every seat. Gating on a debt that
+/// cannot be paid is how a gate gets switched off. This becomes an Error when that is no
+/// longer true — when `electors.md` binds a distinct signing key per seat (RFC-0012), the
+/// executor is recoverable from the commit and a missing field is a choice rather than an
+/// inheritance.
+///
+/// **`keys_bind_seats` is that condition, decided rather than promised.** It is
+/// [`super::attest::binds_distinct_key_per_seat`] — every registered seat binds a key and no
+/// two bind the same one — so the escalation is an event with a commit that causes it, not a
+/// sentence in a doc comment. It is false in every repository that has not opted into
+/// collective mode, which is nearly all of them, and false in the measured one: the registry
+/// binds no keys, so the 29 records written before the field existed stay a warning.
+pub fn resolution_executor_unrecorded(
+    records: &[crate::cmd::sangha::Resolution],
+    keys_bind_seats: bool,
+) -> Check {
+    let violations = records
+        .iter()
+        .filter(|r| r.synthesized_by.is_empty())
+        .map(|r| {
+            Violation::new(
+                r.file.clone(),
+                "no `synthesized-by:` — the record names which tips were read and not who \
+                 read them",
+            )
+        })
+        .collect();
+    Check::new(
+        "resolution-executor-unrecorded",
+        "Resolution record does not name the seat that executed it",
+        if keys_bind_seats {
+            Severity::Error
+        } else {
+            Severity::Warn
+        },
+        "Article II governs weight and Article III governs record, and they answer different \
+         questions. Naming the executor grants it nothing — no standing, no tiebreak, no \
+         priority in any later resolution — which is why recording it costs the article \
+         nothing. What it buys is that the most consequential actor in the event stops being \
+         the one actor the provenance omits. The record already names the tips that were \
+         read; the reader was the gap.",
+        violations,
+    )
+}
+
+#[cfg(test)]
+mod resolution_record_tests {
+    use super::*;
+    use crate::cmd::sangha::Resolution;
+
+    fn record(file: &str, by: &[&str], tips: &[&str]) -> Resolution {
+        Resolution {
+            file: file.to_string(),
+            evolution: "e".to_string(),
+            date: "2026-01-01".to_string(),
+            tips: tips.iter().map(|t| t.to_string()).collect(),
+            synthesized_by: by.iter().map(|b| b.to_string()).collect(),
+            branch_present: true,
+        }
+    }
+
+    fn registered() -> Vec<String> {
+        vec!["ma/auditor".to_string(), "ma/advocate".to_string()]
+    }
+
+    #[test]
+    fn a_record_naming_registered_seats_passes_both() {
+        let r = [record(
+            "resolutions/e.md",
+            &["ma/auditor"],
+            &["ma/auditor@aaaaaaa", "ma/advocate@bbbbbbb"],
+        )];
+        assert!(resolution_elector_unregistered(&r, &registered()).passed());
+        assert!(resolution_executor_unrecorded(&r, false).passed());
+    }
+
+    /// The tip carries `@<hash>`; the seat is what precedes it. Comparing the whole string
+    /// would report every tip in every repository as unregistered.
+    #[test]
+    fn a_tip_is_matched_without_its_hash() {
+        let r = [record("resolutions/e.md", &[], &["ma/auditor@aaaaaaa"])];
+        let c = resolution_elector_unregistered(&r, &registered());
+        assert!(c.passed(), "{c:#?}");
+    }
+
+    #[test]
+    fn an_unregistered_executor_is_an_error() {
+        let r = [record(
+            "resolutions/e.md",
+            &["ma/stranger"],
+            &["ma/auditor@a"],
+        )];
+        let c = resolution_elector_unregistered(&r, &registered());
+        assert_eq!(c.violations.len(), 1, "{c:#?}");
+        assert!(c.violations[0].detail.contains("ma/stranger"), "{c:#?}");
+        assert!(
+            c.violations[0].detail.contains("executor"),
+            "the finding does not say which half named it: {:?}",
+            c.violations[0].detail
+        );
+    }
+
+    /// Both halves of the record point at seats, and a check that read only one would pass a
+    /// resolution standing on a position nobody registered.
+    #[test]
+    fn an_unregistered_tip_is_an_error_too() {
+        let r = [record("resolutions/e.md", &["ma/auditor"], &["ma/ghost@a"])];
+        let c = resolution_elector_unregistered(&r, &registered());
+        assert_eq!(c.violations.len(), 1, "{c:#?}");
+        assert!(c.violations[0].detail.contains("tip"), "{c:#?}");
+    }
+
+    /// A joint synthesis names every seat, and every one of them is checked.
+    #[test]
+    fn each_seat_of_a_joint_synthesis_is_checked() {
+        let r = [record(
+            "resolutions/e.md",
+            &["ma/auditor", "ma/stranger"],
+            &[],
+        )];
+        let c = resolution_elector_unregistered(&r, &registered());
+        assert_eq!(c.violations.len(), 1, "{c:#?}");
+        assert!(c.violations[0].detail.contains("ma/stranger"));
+    }
+
+    /// Every record written before the field existed. It warns and does not gate — see the
+    /// rationale on the check for the condition under which that changes.
+    #[test]
+    fn a_record_naming_no_executor_warns_and_does_not_gate() {
+        let r = [record("resolutions/e.md", &[], &["ma/auditor@a"])];
+        let c = resolution_executor_unrecorded(&r, false);
+        assert_eq!(c.violations.len(), 1, "{c:#?}");
+        assert_eq!(c.severity, Severity::Warn);
+        // …and the *other* check is silent about it: a record that names no seat has named
+        // no unregistered one, and reporting it twice would double-count one gap.
+        assert!(resolution_elector_unregistered(&r, &registered()).passed());
+    }
+
+    /// The escalation RFC-0012 arms: the same records, the same finding, and it gates once
+    /// the registry binds a distinct key per seat — because the executor is then recoverable
+    /// from the commit and a missing field is a choice rather than an inheritance.
+    ///
+    /// The condition is [`super::super::attest::binds_distinct_key_per_seat`]; this asserts
+    /// only that the severity follows it, which is the half that lives here.
+    #[test]
+    fn a_registry_binding_a_key_per_seat_makes_it_gate() {
+        let r = [record("resolutions/e.md", &[], &["ma/auditor@a"])];
+        let c = resolution_executor_unrecorded(&r, true);
+        assert_eq!(c.violations.len(), 1, "{c:#?}");
+        assert_eq!(c.severity, Severity::Error, "{c:#?}");
+    }
+
+    /// A repository with no sangha has no records, and both checks report that they ran.
+    #[test]
+    fn no_records_is_not_a_finding() {
+        assert!(resolution_elector_unregistered(&[], &[]).passed());
+        assert!(resolution_executor_unrecorded(&[], false).passed());
+        // Escalated or not, a check with nothing to report reports nothing.
+        assert!(resolution_executor_unrecorded(&[], true).passed());
+    }
+}
+
 #[cfg(test)]
 mod annotation_tests {
     use super::*;
@@ -4453,6 +5544,14 @@ pub struct ProseLink {
     /// reader's markdown client does, and the whole reason a repo-root-relative link in
     /// a nested file is broken.
     pub resolved: PathBuf,
+    /// A `#L<n>` / `#L<n>-L<m>` fragment, when the link carries one. A heading anchor
+    /// is `None`: the file is what exists, the heading is not ours to verify. A line
+    /// range is ours — see [`super::line_citations`].
+    pub fragment: Option<super::line_citations::LineFragment>,
+    /// Byte columns of the whole `[label](target)` on its line, for finding the quoted
+    /// passage beside it. Valid into the raw line: the mask that found the link keeps
+    /// byte offsets.
+    pub span: (usize, usize),
 }
 
 /// Whether a link target points outside the filesystem and is therefore not ours to check.
@@ -4467,15 +5566,26 @@ fn is_external(target: &str) -> bool {
         || target.starts_with('/')
 }
 
-/// Strip a markdown title and any angle-bracket wrapper: `<a b> "title"` → `a b`.
-fn link_path(raw: &str) -> String {
+/// Strip a markdown title and any angle-bracket wrapper: `<a b> "title"` → `a b`, and
+/// split off the fragment.
+///
+/// A heading anchor is dropped — the file is what exists, the heading is not ours to
+/// verify. A `#L<n>` line fragment is different in kind: it names lines in a file this
+/// repository owns and is decidable, so it is kept for the line-citation checks rather
+/// than falling with the anchors (#563).
+fn link_parts(raw: &str) -> (String, Option<super::line_citations::LineFragment>) {
     let t = raw.trim();
     let t = match (t.strip_prefix('<'), t.find('>')) {
         (Some(_), Some(end)) => &t[1..end],
         _ => t.split_whitespace().next().unwrap_or(t),
     };
-    // Drop an anchor: the file is what exists, the heading is not ours to verify.
-    t.split('#').next().unwrap_or(t).trim().to_string()
+    match t.split_once('#') {
+        Some((path, frag)) => (
+            path.trim().to_string(),
+            super::line_citations::parse_fragment(frag),
+        ),
+        None => (t.trim().to_string(), None),
+    }
 }
 
 /// Every checkable markdown link in one file.
@@ -4517,7 +5627,27 @@ pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
             };
             let target_raw = &line[j..j + close_rel];
             j += close_rel + 1;
-            let target = link_path(target_raw);
+            // Walk back to the `[` that opens the label, for the link's full extent.
+            let label_start = {
+                let mut depth = 1usize;
+                let mut k = at;
+                loop {
+                    let Some(prev) = line[..k].rfind(['[', ']']) else {
+                        break at;
+                    };
+                    k = prev;
+                    match bytes[k] {
+                        b']' => depth += 1,
+                        _ => {
+                            depth -= 1;
+                            if depth == 0 {
+                                break k;
+                            }
+                        }
+                    }
+                }
+            };
+            let (target, fragment) = link_parts(target_raw);
             if is_external(&target) {
                 continue;
             }
@@ -4526,6 +5656,8 @@ pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
                 line: i + 1,
                 target: target.clone(),
                 resolved: dir.join(&target),
+                fragment,
+                span: (label_start, j),
             });
         }
     }
@@ -4752,5 +5884,104 @@ After [it](there.md).
     #[test]
     fn no_links_is_clean() {
         assert!(broken_prose_link(&[]).passed());
+    }
+}
+
+/// #613 — foundational alignment had four field names and the export read the one nothing
+/// wrote. These cover the two checks that make that state visible.
+#[cfg(test)]
+mod foundational_alignment_tests {
+    use super::*;
+
+    /// Build a class from its file's actual bytes, so these exercise the deserialization the
+    /// bug lived in rather than a struct literal that cannot reproduce it.
+    fn ont(rel: &str, yaml: &str) -> Class {
+        Class::parse(rel, yaml)
+    }
+
+    #[test]
+    fn the_field_bootstrap_asked_for_is_read_by_nothing_and_says_so() {
+        // `bootstrap.md` told authors to write this for the whole life of the field, in prose
+        // 190 lines above its own template writing the correct one. #613.
+        for dead in ["bfo_type: continuant", "ufo_type: relator"] {
+            let c =
+                foundational_field_misspelled(&[ont("x.ont.yml", &format!("class: x\n{dead}\n"))]);
+            assert!(!c.passed(), "{dead} must not pass");
+            assert!(
+                c.violations[0].detail.contains("foundational_type"),
+                "the finding must name the field that works, got: {}",
+                c.violations[0].detail
+            );
+        }
+    }
+
+    #[test]
+    fn the_field_the_rdf_export_used_to_read_is_named_too() {
+        let c = foundational_field_misspelled(&[ont(
+            "x.ont.yml",
+            "class: x\nbfo_anchor: http://purl.obolibrary.org/obo/BFO_0000002\n",
+        )]);
+        assert!(!c.passed());
+        assert!(
+            c.violations[0].detail.contains("iri"),
+            "a bfo_anchor holds a URI, so the repair is where the URI now goes: {}",
+            c.violations[0].detail
+        );
+    }
+
+    #[test]
+    fn a_correct_alignment_passes_both_checks() {
+        let good = ont(
+            "x.ont.yml",
+            "class: x\nfoundational_type:\n  ontology: ufo\n  type: relator\n  iri: https://purl.org/nemo/gufo#Relator\n",
+        );
+        assert!(foundational_field_misspelled(std::slice::from_ref(&good)).passed());
+        assert!(foundational_type_malformed(&[good]).passed());
+    }
+
+    #[test]
+    fn an_alignment_with_no_iri_is_complete() {
+        // The IRI is optional on purpose: the alignment is worth stating without one, and
+        // requiring it would mean shipping a BFO/gUFO term table to derive it.
+        let c = ont(
+            "x.ont.yml",
+            "class: x\nfoundational_type:\n  ontology: bfo\n  type: continuant\n",
+        );
+        assert!(foundational_type_malformed(&[c]).passed());
+    }
+
+    #[test]
+    fn a_class_with_no_alignment_at_all_passes() {
+        // Every corpus this repository ships is here, and "none" is an answer the bootstrap
+        // dialogue offers by name.
+        let c = ont("x.ont.yml", "class: x\ndescription: A thing.\n");
+        assert!(foundational_field_misspelled(std::slice::from_ref(&c)).passed());
+        assert!(foundational_type_malformed(&[c]).passed());
+    }
+
+    #[test]
+    fn an_ontology_outside_the_two_is_malformed() {
+        for bad in [
+            "  ontology: bfo-2\n  type: continuant",
+            "  ontology: bfo\n  type: \"\"",
+            "  ontology: bfo\n  type: continuant\n  iri: BFO_0000002",
+        ] {
+            let c = foundational_type_malformed(&[ont(
+                "x.ont.yml",
+                &format!("class: x\nfoundational_type:\n{bad}\n"),
+            )]);
+            assert!(!c.passed(), "must not pass: {bad}");
+        }
+    }
+
+    #[test]
+    fn the_type_itself_is_not_checked_against_a_term_list() {
+        // A list of BFO/UFO terms in this binary would start refusing terms a corpus is right
+        // to use the first time either ontology is revised.
+        let c = ont(
+            "x.ont.yml",
+            "class: x\nfoundational_type:\n  ontology: bfo\n  type: a-term-invented-today\n",
+        );
+        assert!(foundational_type_malformed(&[c]).passed());
     }
 }

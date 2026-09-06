@@ -2,13 +2,15 @@
 
 - **Status:** Draft
 - **Track:** I21
-- **Relates to:** RFC-0020 (the carriage rule this extends from findings to executions), RFC-0023
-  (the store whose bytes a receipt records, and the sentence this design is a second application
-  of), RFC-0024 (the policy layer, and the constitutional-family question it deliberately left
-  open — this RFC is what needs it settled), RFC-0019 (the citation contract a cross-corpus gather
-  is bound by), RFC-0003 (the light binary this must run in), RFC-0001 (the report contract it
-  emits on), RFC-0018 (the precedent that a new surface is a CLI surface and **not** a fourth
-  parity function), RFC-0009 (the execution authority this must not claim)
+- **Relates to:**
+  - RFC-0020 (the carriage rule this extends from findings to executions)
+  - RFC-0023 (the store whose bytes a receipt records, and the sentence this design is a second application of)
+  - RFC-0024 (the policy layer, and the constitutional-family question it deliberately left open — this RFC is what needs it settled)
+  - RFC-0019 (the citation contract a cross-corpus gather is bound by)
+  - RFC-0003 (the light binary this must run in)
+  - RFC-0001 (the report contract it emits on)
+  - RFC-0018 (the precedent that a new surface is a CLI surface and **not** a fourth parity function)
+  - RFC-0009 (the execution authority this must not claim)
 - **Versioning layers touched:** template (the prelude gains a capability-manifest section;
   `directories.md` gains one) / bootstrap protocol (the scaffold gains
   `.yidam/capabilities.toml`) / tooling (`yidam` CLI implements it) — **no parity-surface change,
@@ -16,6 +18,14 @@
 - **Parent epic:** #460 — this RFC specifies **#471** through **#476**
 - **Downstream reference case:** none yet. The first consumer is `examples/streamflow`, by
   construction — see "Why the first thing built is not the manifest".
+
+> **Noted 2026-09-04.** Open question 2 — does a write-capable MCP tool live in the existing tier
+> or a new one — is answered by [RFC-0029](0029-write-tier.md): the same tier mechanism, with an
+> opt-in declaration and an identity gate (declarable only where a git author identity exists).
+> The question's #426 clause is discharged rather than carried: RFC-0027 corrected the premise —
+> a profile is a projection of the canonical list, so a new tier changes nothing a profile
+> serves — and RFC-0029 §2.4 restates the constraint in that corrected form. The invariant this
+> RFC states is what made the answer safe to give; RFC-0029 §3 says how.
 
 ## Summary
 

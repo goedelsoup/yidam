@@ -18,6 +18,8 @@
 //! one command a collaborator cannot install.
 
 mod absence;
+#[cfg(feature = "serve-http")]
+pub(crate) mod http;
 mod resources;
 pub(crate) mod tools;
 
@@ -26,9 +28,8 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::Path;
 
-use crate::git::head_commit_short;
 use crate::model::{corpus_nodes, file_stem as stem, load_domain_model};
-use crate::paths::repo_root;
+use crate::paths::resolve_root;
 
 /// One corpus instance, parsed for serving. The id (`<class>/<name>`) is
 /// what `get_node` and `neighbors` accept.
@@ -148,7 +149,54 @@ pub(crate) struct ServerState {
 }
 
 impl ServerState {
+    /// Whether the index is behind the working tree — `None` where this server cannot tell.
+    ///
+    /// Three states and not two, because a projected mirror carries no working git repository
+    /// and so cannot answer at all. `null` is the honest word for that, and it is the same
+    /// convention `degraded_reason` and `origin` already follow here: a client testing the key
+    /// must never have to distinguish "not stale" from "a server that could not say".
+    ///
+    /// `Some(false)` covers both *the index is current* and *there is no index* — neither is
+    /// behind anything, and `indexed_commit` is what tells those apart.
+    ///
+    /// One definition, read by both the banner and the handshake. They were two computations of
+    /// the same sentence, one of which re-ran `git rev-parse` for a value already in state.
+    pub(crate) fn stale_index(&self) -> Option<bool> {
+        if self.commit == crate::git::UNKNOWN_COMMIT {
+            return None;
+        }
+        Some(matches!(&self.indexed_commit, Some(i) if *i != self.commit))
+    }
+
+    /// Load the corpus at `root`, or refuse if `root` is not one.
+    ///
+    /// The check is here rather than in each transport's entry point because it is a fact
+    /// about *this state*, not about framing — the same reason [`banner`] is shared. Two
+    /// transports forgot it once; a third would have been free to.
+    ///
+    /// **Why a server owes this and a report does not.** [`crate::paths::repo_root`] falls
+    /// back to the working directory when `git rev-parse` fails, which is what lets every
+    /// report run somewhere no repository exists, and `require_yidam_repo`'s own doc draws the
+    /// line at *report tolerates, gate requires*. A server is neither, and it is the worse
+    /// case of the two: a report prints its emptiness to a person who can see it, and a server
+    /// hands emptiness to an agent **as an answer**.
+    ///
+    /// It was measured before it was fixed (#549). In an ordinary git repository with no
+    /// `.yidam/`, `serve` exited 0 and answered `initialize` with a handshake identical in
+    /// shape to a corpus bootstrapped an hour ago — `nodes: 0, skills: 0, decisions: 0` in
+    /// both — differing only in `domain`, which [`load_domain_model`] had **fabricated from
+    /// the directory basename**. So the server did not merely fail to notice it was outside a
+    /// corpus; it presented a plausible one, named after whatever folder the client started
+    /// in, and the warning saying so went to stderr where an HTTP client cannot read it.
+    ///
+    /// That is RFC-0005's `absence` argument one level up. *Not a corpus* and *an empty
+    /// corpus* are two different facts; the handshake collapsed them; and all thirteen tools
+    /// then answered from the collapsed one. `require_yidam_repo` admits the empty corpus on
+    /// purpose — its test is `.yidam/`, not corpus content — so nothing here refuses a
+    /// repository that has simply not been written into yet.
     pub(crate) fn load(root: &Path) -> Result<Self> {
+        crate::paths::require_yidam_repo(root)?;
+
         let model = load_domain_model(root)?;
 
         let nodes = corpus_nodes(&model);
@@ -319,12 +367,17 @@ fn load_citations(root: &Path, nodes: &[Node]) -> std::collections::HashMap<Stri
         .collect()
 }
 
-/// Serve the domain computer over MCP stdio. Blocks until stdin closes.
-pub fn serve_mcp() -> Result<()> {
-    let root = repo_root()?;
-    let state = ServerState::load(&root)?;
-
-    // Banner goes to stderr — stdout carries only JSON-RPC frames.
+/// What this server is about to serve, on stderr.
+///
+/// Shared by both transports rather than written once per transport: everything it reports is a
+/// fact about the *corpus and the build* — how many nodes, whether an index is readable,
+/// whether HEAD has moved past it — and none of it is about framing. A second copy would be a
+/// second place for the staleness warning to go stale.
+///
+/// It is stderr on stdio because stdout carries JSON-RPC frames. It is stderr over HTTP for a
+/// weaker reason: a person at a terminal reads it, and **a remote client cannot see it at all**.
+/// That is #424, and this function is where its fix will land.
+fn banner(state: &ServerState) {
     eprintln!(
         "yidam MCP server — domain {:?}, {} node(s), {} skill(s), {} decision(s)",
         state.domain,
@@ -351,8 +404,8 @@ pub fn serve_mcp() -> Result<()> {
         ),
     }
     if let Some(indexed) = &state.indexed_commit {
-        let head = head_commit_short(&root);
-        if *indexed != head {
+        let head = &state.commit;
+        if state.stale_index() == Some(true) {
             // "serving the stale index" is only true of a build that is serving it. A
             // build that cannot read the index still owes the warning — the staleness is
             // real and worth knowing before installing one that can — but must not claim
@@ -367,11 +420,39 @@ pub fn serve_mcp() -> Result<()> {
             );
         }
     }
+}
+
+/// Serve the domain computer over MCP stdio. Blocks until stdin closes.
+///
+/// `root` is the corpus directory, or `None` to resolve it from wherever the client started
+/// this process — see [`crate::paths::resolve_root`].
+pub fn serve_mcp(root: Option<&Path>) -> Result<()> {
+    let root = resolve_root(root)?;
+    let state = ServerState::load(&root)?;
+    banner(&state);
     eprintln!("serving MCP over stdio");
 
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     run_loop(&state, stdin.lock(), stdout.lock())
+}
+
+/// Serve the same contract over HTTP. Blocks until the process is stopped.
+///
+/// The corpus is loaded once, before the socket is bound, so a repository that cannot be read
+/// fails at the command rather than at the first request — which over HTTP would be a 500 to
+/// whoever happened to connect first.
+#[cfg(feature = "serve-http")]
+pub fn serve_mcp_http(
+    root: Option<&Path>,
+    bind: &str,
+    port: u16,
+    allow_origin: Vec<String>,
+) -> Result<()> {
+    let root = resolve_root(root)?;
+    let state = ServerState::load(&root)?;
+    banner(&state);
+    http::serve(state, bind, port, allow_origin)
 }
 
 /// Read newline-delimited JSON-RPC messages from `input`, write responses to
@@ -592,6 +673,90 @@ mod tests {
             // rather than left to read as "nothing matched".
             graph_across: None,
         }
+    }
+
+    /// The handshake says which corpus, not only what the server can do (#424).
+    ///
+    /// This is the fact that had no home in the protocol: it was a banner on stderr, which a
+    /// client that spawned the server can read and one that reached it by URL cannot.
+    #[test]
+    fn the_handshake_names_the_corpus_it_is_serving() {
+        let state = test_state();
+        let corpus = tools::capabilities(&state)["corpus"].clone();
+        assert_eq!(corpus["domain"], state.domain);
+        assert_eq!(corpus["commit"], state.commit);
+        assert_eq!(corpus["nodes"], state.nodes.len());
+        assert_eq!(corpus["skills"], state.skills.len());
+        assert_eq!(corpus["decisions"], state.decisions.len());
+        // Every key the contract requires is present, including the ones whose value is null.
+        // A client that has to test for each separately cannot tell a thin server from an old
+        // one, which is the ambiguity this block exists to close.
+        for key in [
+            "domain",
+            "commit",
+            "nodes",
+            "skills",
+            "decisions",
+            "indexed_commit",
+            "stale",
+        ] {
+            assert!(
+                corpus.get(key).is_some(),
+                "`corpus` is missing `{key}`: {corpus:#?}"
+            );
+        }
+    }
+
+    /// `stale` has three states, and the third is the one a bool could not carry.
+    #[test]
+    fn staleness_is_unknown_when_there_is_no_commit_to_compare_against() {
+        let mut state = test_state();
+
+        // No index: nothing is behind anything.
+        state.indexed_commit = None;
+        assert_eq!(state.stale_index(), Some(false));
+
+        // An index at this commit.
+        state.indexed_commit = Some(state.commit.clone());
+        assert_eq!(state.stale_index(), Some(false));
+
+        // An index at another commit.
+        state.indexed_commit = Some("0000000".into());
+        assert_eq!(state.stale_index(), Some(true));
+
+        // No repository to read a HEAD from — a projected mirror's honest answer, and the
+        // reason the field is null-able rather than a bool.
+        state.commit = crate::git::UNKNOWN_COMMIT.to_string();
+        assert_eq!(
+            state.stale_index(),
+            None,
+            "a server that cannot tell must say so rather than guess `false`"
+        );
+    }
+
+    /// The resource and the handshake are two renderings of one fact, not two facts.
+    #[test]
+    fn graph_summary_and_the_handshake_agree_about_staleness() {
+        let mut state = test_state();
+        state.indexed_commit = Some("0000000".into());
+
+        let capabilities = tools::capabilities(&state);
+        assert_eq!(capabilities["corpus"]["stale"], true);
+
+        let summary = resources::read(&state, "yidam://graph/summary").unwrap();
+        let text = summary["contents"][0]["text"].as_str().unwrap();
+        assert!(
+            text.contains("STALE"),
+            "the handshake says stale and the resource does not: {text}"
+        );
+
+        state.commit = crate::git::UNKNOWN_COMMIT.to_string();
+        let summary = resources::read(&state, "yidam://graph/summary").unwrap();
+        let text = summary["contents"][0]["text"].as_str().unwrap();
+        assert!(
+            text.contains("unknown"),
+            "a server that cannot tell must not render a verdict: {text}"
+        );
     }
 
     #[test]

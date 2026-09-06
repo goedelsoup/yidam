@@ -1,0 +1,48 @@
+{
+  "name": "@yidam/edit",
+  "version": "0.1.0",
+  "description": "Local authoring surface for a yidam-derived knowledge repository. Renders verdicts the yidam binary computes; computes none of its own.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "yidam-edit": "./bin/yidam-edit.mjs"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/goedelsoup/yidam.git",
+    "directory": "yidam/editors/web"
+  },
+  "bugs": {
+    "url": "https://github.com/goedelsoup/yidam/issues"
+  },
+  "homepage": "https://github.com/goedelsoup/yidam/tree/main/yidam/editors/web#readme",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "yidam",
+    "knowledge graph",
+    "corpus",
+    "editor"
+  ],
+  "scripts": {
+    "build": "astro build",
+    "dev": "astro dev",
+    "preview": "node ./bin/yidam-edit.mjs --no-open",
+    "check": "astro check",
+    "test:unit": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=junit.xml test/*.mjs",
+    "test": "npm run test:unit"
+  },
+  "dependencies": {
+    "@astrojs/node": "^9.0.0",
+    "@astrojs/react": "^4.4.2",
+    "astro": "^5.7.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}

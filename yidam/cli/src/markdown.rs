@@ -19,22 +19,49 @@
 ///
 /// The backticks remain, so the result is the same length and a subsequent scan still sees
 /// where the code was — only not what it said.
+///
+/// **An unmatched backtick is literal and masks nothing.** That is CommonMark's own rule,
+/// and it is here because the obvious alternative — a toggle reset at the head of every
+/// line — reads a *closing* backtick as an opening one whenever a span wraps, and inverts
+/// the mask on the line that closes it:
+///
+/// ```text
+/// …the formula was `ADM × base
+/// cost × valuation`. [verified — ¶18]
+/// ```
+///
+/// The tail of the second line is the span's *end* and ordinary prose after it; the toggle
+/// blanked all of it, so `[verified — ¶18]` vanished four words from a `¶17` that was
+/// reported. Under the rule below neither line holds a pair, so neither is touched, and the
+/// tag survives. 42 lines across 14 files of one derived corpus carry an odd backtick, and
+/// the count only grows with the corpus.
+///
+/// The interior of a wrapping span is not masked either, and that is the deliberate half of
+/// the trade. Carrying `in_code` from line to line would mask it, and measures identically
+/// — 399 findings both ways on the corpus that reported this — but it buys a failure with no
+/// bound: one stray backtick anywhere then inverts the mask for the rest of the file. The
+/// paired rule has no such tail, and under-masking is the direction a *scanner* can survive:
+/// a mention read as prose is a finding a reader can dismiss, where prose read as a mention
+/// is a finding nobody ever sees.
 pub fn mask_code_spans(line: &str) -> String {
+    let ticks: Vec<usize> = line.match_indices('`').map(|(i, _)| i).collect();
     let mut out = String::with_capacity(line.len());
-    let mut in_code = false;
-    for c in line.chars() {
-        if c == '`' {
-            in_code = !in_code;
-            out.push(c);
-        } else if in_code {
+    let mut cursor = 0;
+    // `chunks_exact` drops a trailing odd tick on the floor, which is the rule: it pairs
+    // with nothing, so it delimits nothing.
+    for pair in ticks.chunks_exact(2) {
+        let (open, close) = (pair[0], pair[1]);
+        out.push_str(&line[cursor..=open]);
+        for c in line[open + 1..close].chars() {
             // Keep the byte count identical so offsets stay meaningful.
             for _ in 0..c.len_utf8() {
                 out.push(' ');
             }
-        } else {
-            out.push(c);
         }
+        out.push('`');
+        cursor = close + 1;
     }
+    out.push_str(&line[cursor..]);
     out
 }
 
@@ -157,12 +184,51 @@ mod tests {
     }
 
     #[test]
-    fn an_unclosed_span_masks_to_the_end_of_its_line_only() {
+    fn an_unclosed_span_masks_nothing_at_all() {
         let masked = mask_code("a `[open] and\n[open] again\n");
         assert_eq!(
             masked.matches("[open]").count(),
-            1,
-            "a stray backtick must not swallow the rest of the document"
+            2,
+            "a backtick that pairs with nothing delimits nothing — and above all it must \
+             not swallow the rest of the line, let alone the document"
+        );
+    }
+
+    /// The reported defect: the line carrying a wrapping span's **closing** backtick had its
+    /// mask inverted, so the span's end and the prose after it were blanked instead of its
+    /// contents. `¶17` was reported and `¶18`, four words later in the same sentence, was
+    /// not.
+    #[test]
+    fn a_closing_backtick_does_not_invert_the_mask() {
+        let text = "income and property wealth. [verified — ¶17] The formula was `ADM × base\n\
+                    cost × cost-of-doing-business − 0.023 × valuation`. [verified — ¶18]\n";
+        let masked = mask_code(text);
+        assert!(
+            masked.contains("[verified — ¶18]"),
+            "the tag after the closing backtick must survive: {masked}"
+        );
+        assert!(
+            masked.contains("[verified — ¶17]"),
+            "and so must the one before the opening backtick: {masked}"
+        );
+        assert_eq!(masked.len(), text.len(), "byte offsets must not move");
+    }
+
+    /// The other half of the same defect, and the half this fix answers by *not* masking.
+    ///
+    /// A span crossing three lines left its middle line with the toggle false from its first
+    /// character, so nothing on it was masked while the lines around it were half-masked.
+    /// The paired rule makes that consistent rather than accidental: no line of a wrapping
+    /// span holds a pair, so every line of it is left whole. The cost is that a token quoted
+    /// inside such a span reads as prose — see [`mask_code_spans`] for why that direction was
+    /// chosen over carrying state across lines, which measured identically and has no bound.
+    #[test]
+    fn every_line_of_a_wrapping_span_is_left_whole() {
+        let text = "before `a rate of\n[open] per year\nand rising` after\n";
+        let masked = mask_code(text);
+        assert_eq!(
+            masked, text,
+            "no line here holds a pair, so none is touched"
         );
     }
 }

@@ -1,6 +1,6 @@
 # The sangha resolution flow
 
-### When to resolve
+## When to resolve
 
 Not every divergence warrants resolution. Appropriate moments:
 
@@ -8,7 +8,7 @@ Not every divergence warrants resolution. Appropriate moments:
 - An axiom is contested and dependent nodes cannot be trusted until it is settled
 - A new phase of inquiry requires a common baseline
 
-### Resolution procedure
+## Resolution procedure
 
 Steps 1–3 are a **loop**, and it ends when a round adds nothing.
 
@@ -26,7 +26,7 @@ Why the loop rather than a single pass: the step where electors read each other 
 
 See [PROTOCOL.md](https://github.com/goedelsoup/yidam/blob/main/sadhana/sangha/PROTOCOL.md) for the git mechanics of each step.
 
-### Elector registration
+## Elector registration
 
 A participant becomes a recognized elector by:
 

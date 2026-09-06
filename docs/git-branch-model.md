@@ -2,12 +2,12 @@
 
 Two ref namespaces encode the collective knowledge protocol:
 
-### `ma/<elector>` — individual positions
+## `ma/<elector>` — individual positions
 
 Each elector (human or agent) maintains one branch as their working position. Commits here
 are free — no consensus required. Positions are expected to diverge.
 
-### `rigpa/<evolution>` — settled evolutions
+## `rigpa/<evolution>` — settled evolutions
 
 When the sangha synthesizes individual positions into shared understanding, a new
 `rigpa/<evolution>` branch is created. Named for what it represents. This is a stable
@@ -16,7 +16,7 @@ checkpoint; elector branches diverge again from here.
 **The semantic distinction is ontological, not procedural.** `ma/` is a voice moving
 toward recognition. `rigpa/` is recognition.
 
-### Phase types
+## Phase types
 
 | Phase type | What happens | Outputs |
 |------------|-------------|---------|

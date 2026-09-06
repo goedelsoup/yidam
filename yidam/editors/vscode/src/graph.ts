@@ -54,6 +54,20 @@ export interface OntProperty {
   name: string
   type: string
   description: string
+  /**
+   * Whether every instance of the class must carry this property (#301).
+   *
+   * The difference between a finding that fails CI and one that does not: `missing-property`
+   * gates on a property declared `true` and reports the rest. `graph --format json` did not
+   * carry it until #606, so this surface could not tell the two apart either.
+   *
+   * Optional in the type because a repository may pin a binary older than the field, and
+   * `format_version` does not rise for an additive one — `report.schema.json` says a consumer
+   * MUST ignore what it does not know, which cuts both ways. `undefined` means *this binary
+   * does not report requiredness*; it does not mean optional, and code that treats the two as
+   * the same is the mistake this field exists to end.
+   */
+  required?: boolean
 }
 
 export interface OntEdge {
@@ -394,7 +408,13 @@ export function scaffold(input: NewNode, cls: GraphClass | undefined): string {
     lines.push('properties:')
     for (const p of props) {
       lines.push(`  # ${p.description}`)
-      lines.push(`  ${p.name}: ""   # ${p.type}`)
+      // `required` is marked in the scaffold rather than left for the gate to say afterwards.
+      // A template that renders the property `missing-property` GATES on identically to the
+      // four it merely reports invites deleting the wrong one, and the author finds out in
+      // CI. Only when the binary actually said so: `undefined` is a binary that predates the
+      // field, and annotating on it would be inventing the contract rather than relaying it.
+      const marks = [p.type, p.required === true ? 'required' : null].filter(Boolean)
+      lines.push(`  ${p.name}: ""   # ${marks.join(', ')}`)
     }
   }
   lines.push('links:')

@@ -31,6 +31,26 @@ name: Docs
 on:
   push:
     branches: [main]
+    # The version list is derived from `cli/v*` tags — `scripts/versions.mjs` reads
+    # `git tag -l` and `src/versions.mjs` keeps the last three minor series. Pushing such a
+    # tag is therefore the one event that changes the answer, and it was the one event that
+    # did not rebuild the site (#535). Nothing went red: the site kept serving a coherent
+    # *previous* release until somebody happened to push to main for an unrelated reason, so
+    # the stale window was invisible and its length arbitrary — and it always covered the
+    # period right after a release, when a reader following the announcement arrives.
+    #
+    # `cli/v*` and not `v*`: four layers release into one tag namespace and only this one is
+    # in the list, so a build per template or editor tag would redeploy identical content.
+    #
+    # The `paths-ignore` below does not suppress these. GitHub does not evaluate path filters
+    # for pushes of tags — a tag push has no changed-file set to filter on — which is the
+    # first thing a reader worries about on seeing the two in one block.
+    #
+    # This also needs the `github-pages` environment to permit the ref: its deployment branch
+    # policy listed `main` alone, so a tag run would have built, assembled, and then declined
+    # to publish. A `cli/v*` tag policy was added alongside this trigger; the two are one
+    # change and neither works without the other.
+    tags: ['cli/v*']
     paths-ignore:
       - 'LICENSE'
   pull_request:
@@ -44,18 +64,32 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  # For the quality report (#467). The measurements are produced by ci.yml, and reading an
+  # artifact another workflow uploaded is the only permission that needs.
+  actions: read
 
 jobs:
-  build:
-    name: build
+  # ── which versions exist (#466) ────────────────────────────────────────────
+  #
+  # Four layers release independently and this site documents Layer 4, the tooling, because
+  # that is what a reader has installed. The list comes from `cli/v*` tags and nothing else.
+  #
+  # It is resolved in one job and handed to the rest, rather than recomputed per job, so that
+  # every build of one deploy agrees about what the version list is — including the switcher
+  # each page carries, which names versions this build is not.
+  versions:
+    name: versions
     runs-on: ubuntu-latest
-    # Superseded PR builds are cancelled; main is never cancelled, so what deploys
-    # is always the newest commit that finished.
-    concurrency:
-      group: docs-${{ github.ref }}
-      cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      list: ${{ steps.resolve.outputs.list }}
     steps:
+      # `fetch-tags` and full depth: the default checkout has no tags, and a version list
+      # built from no tags would publish `main` alone and report success.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - uses: actions/setup-node@v4
         with:
@@ -63,11 +97,176 @@ jobs:
           cache: npm
           cache-dependency-path: yidam/web/docs/package-lock.json
 
-      # `npm ci`, not the `npm install` that `mise run docs-install` runs: a lockfile
-      # is a claim about what was built, and CI is where that claim is worth enforcing.
       - name: Install dependencies
         run: npm ci
         working-directory: yidam/web/docs
+
+      # The render assertions, and now the version and assembly ones. They run here rather
+      # than in the matrix because they grade *this* tree: a released tag has its own copy of
+      # this site and would be running whatever tests it shipped with, against a version list
+      # it has never heard of.
+      - name: The site's own tests
+        run: npm test
+        working-directory: yidam/web/docs
+
+      # On a pull request this resolves to a single build of the change itself. The released
+      # versions are tags and cannot have changed; building them would spend five jobs to
+      # re-prove that four immutable refs still compile.
+      - name: Resolve the version list
+        id: resolve
+        run: |
+          set -euo pipefail
+          pr=""
+          if [ "${{ github.event_name }}" = "pull_request" ]; then pr="--pull-request"; fi
+          node yidam/web/docs/scripts/versions.mjs --matrix $pr > matrix.json
+          node yidam/web/docs/scripts/versions.mjs $pr > versions.json
+          echo "matrix=$(cat matrix.json)" >> "$GITHUB_OUTPUT"
+          {
+            echo "list<<YIDAM_EOF"
+            cat versions.json
+            echo "YIDAM_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  # One build per version, each a checkout of its own ref reading its own `docs/`.
+  #
+  # That is what makes versioning cost nothing in the site itself: the content loader reads
+  # `docs/` at the repository root and `astro.config.mjs` holds a bidirectional sidebar gate,
+  # and both keep working unchanged because each build only ever sees one version's tree. A
+  # release whose `docs/` had 48 pages is graded against the sidebar that shipped with it.
+  #
+  # `--base` on the command line rather than an environment variable the config reads: every
+  # tag that exists today predates this feature, so its config knows nothing this workflow
+  # could tell it. Astro's own flag reaches `config.base`, which is what the loader's link
+  # rewriter uses.
+  build:
+    name: build (${{ matrix.slot }})
+    needs: versions
+    runs-on: ubuntu-latest
+    strategy:
+      # One version failing must not cancel the others: the report is more useful with four
+      # builds and one error than with one error and four cancellations.
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.versions.outputs.matrix) }}
+    concurrency:
+      group: docs-${{ github.ref }}-${{ matrix.slot }}
+      cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+    steps:
+      # An empty `ref` is the event's own, which is what a pull request wants.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: yidam/web/docs/package-lock.json
+
+      # `npm ci` here and in `scripts/npm-ensure.sh`, which is what `mise run docs-install`
+      # now calls: a lockfile is a claim about what was built, and CI is where that claim is
+      # worth enforcing. This one is the *tag's* lockfile, which is the point. The two routes
+      # agreed on the command only after #646 — this said `ci` and the task said `install`.
+      - name: Install dependencies
+        run: npm ci
+        working-directory: yidam/web/docs
+
+      # ── the quality report (#467) ───────────────────────────────────────────
+      #
+      # The measurements live in ci.yml and this site is built here. The two workflows fire
+      # on the same push and run in parallel, so the newest report a build can see is the one
+      # the *previous* CI run on main left behind. That is why the envelope carries
+      # `yidam.commit` and why every quality page prints it: a page one commit behind and
+      # saying so is honest; a page one commit behind and silent is not.
+      #
+      # Failure here is not failure of the docs build. `continue-on-error` plus the guard
+      # below means an absent report renders the "not measured" state — which is a real state
+      # the pages are tested against, not a fallback that hides a problem. What must never
+      # happen is a stale or fixture report deploying as if it were this commit's, and the
+      # only thing that could produce one is a file that is there; so the download either
+      # produces this run's answer or produces nothing.
+      - name: Fetch the most recent quality report from main
+        id: quality
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_id=$(gh run list --workflow ci.yml --branch main --status success \
+            --limit 1 --json databaseId --jq '.[0].databaseId')
+          [ -n "$run_id" ] || { echo "::notice::no successful CI run on main yet"; exit 1; }
+          gh run download "$run_id" --name quality-report --dir "${RUNNER_TEMP}/quality"
+          echo "path=${RUNNER_TEMP}/quality/quality-report.json" >> "$GITHUB_OUTPUT"
+
+      # The series behind /quality/trends (#468). `quality-report.json` describes one commit;
+      # this is the sequence, appended by ci.yml's `series` job to an orphan branch that
+      # shares no history with main. Fetched rather than checked out for that reason.
+      #
+      # `continue-on-error` for the same reason as the report above, and one more: the branch
+      # does not exist until the first push to main after the series job lands, and a repo
+      # that has never run it must render "no series yet" rather than fail its docs build.
+      # An empty output leaves YIDAM_QUALITY_SERIES unset, which is the state loadSeries()
+      # already describes and quality-render.mjs already asserts.
+      - name: Fetch the quality series from its branch
+        id: series
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin quality-series
+          git show FETCH_HEAD:series.jsonl > "${RUNNER_TEMP}/series.jsonl"
+          echo "path=${RUNNER_TEMP}/series.jsonl" >> "$GITHUB_OUTPUT"
+
+      # `npx astro build` rather than `npm run build`: the base has to be passed, and an old
+      # tag's `build` script does not forward arguments.
+      - name: Build
+        env:
+          YIDAM_QUALITY_REPORT: ${{ steps.quality.outputs.path }}
+          YIDAM_QUALITY_SERIES: ${{ steps.series.outputs.path }}
+        run: npx astro build --base "${{ matrix.base }}"
+        working-directory: yidam/web/docs
+
+      # Every internal link resolves, to a page and to the heading it names. The Astro build
+      # catches a dead page and an unlisted sidebar entry; it has never checked the part
+      # after the `#`, and a wrong fragment leaves a reader at the top of the right document
+      # with nothing to tell them.
+      #
+      # `main` only, and that is a limit rather than a preference: a released tag's build is
+      # whatever that tag shipped, and this cannot be made to pass by changing anything in
+      # this repository. Its first run found two live defects on the deployed site — a
+      # sidebar link that doubled the base into `/yidam/yidam/quality/`, and a favicon
+      # referenced by all 71 pages and published by none — both of which are fixed on `main`
+      # and both of which the released builds still carry.
+      - name: Every link and anchor resolves
+        if: matrix.id == 'main'
+        run: node yidam/web/docs/scripts/check-anchors.mjs yidam/web/docs/dist --base "${{ matrix.base }}"
+
+      - name: Keep this version's build
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-${{ matrix.slot }}
+          path: yidam/web/docs/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  # Every version's build, laid out under one root and decorated with the switcher and the
+  # "you are not reading the current release" banner.
+  #
+  # The decoration happens here and not in each build for two reasons. Every tag that exists
+  # today was built before this feature, so a switcher added to the site's own theme would
+  # appear on no released version — including the one the site root serves. And a switcher
+  # that keeps a reader on the page they are reading has to know which pages the *other*
+  # versions have, which only the assembled tree does.
+  assemble:
+    name: assemble
+    if: github.event_name != 'pull_request'
+    needs: [versions, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
 
       # Pins the Pages source to this workflow, so a source flipped to a branch in the
       # settings UI is put back by the next deploy rather than silently serving
@@ -96,22 +295,42 @@ jobs:
         with:
           enablement: true
 
-      # On a pull request this is the whole job: a build that fails on an unlisted
-      # page, a dead relative link, or a broken sidebar slug, and publishes nothing.
-      - name: Build
-        run: npm run build
-        working-directory: yidam/web/docs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: site-*
+          path: staging
+
+      # `download-artifact` names each directory after its artifact. `assemble.mjs` matches
+      # directories against version ids, and refuses one it cannot place — so a rename that
+      # went wrong fails loudly here rather than publishing a path nothing links to.
+      - name: Name each build by its slot
+        run: |
+          set -euo pipefail
+          for dir in staging/site-*; do
+            mv "$dir" "staging/$(basename "$dir" | sed 's/^site-//')"
+          done
+          ls -1 staging
+
+      - name: Assemble one site
+        run: |
+          set -euo pipefail
+          cat > versions.json <<'YIDAM_EOF'
+          ${{ needs.versions.outputs.list }}
+          YIDAM_EOF
+          node yidam/web/docs/scripts/assemble.mjs \
+            --staging staging \
+            --out site \
+            --versions versions.json
 
       - name: Upload the site
-        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
-          path: yidam/web/docs/dist
+          path: site
 
   deploy:
     name: deploy
     if: github.event_name != 'pull_request'
-    needs: build
+    needs: assemble
     runs-on: ubuntu-latest
     # Pages allows one deployment at a time and queuing is correct here: cancelling
     # an in-flight deploy can leave the site serving a half-published build.

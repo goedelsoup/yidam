@@ -1,8 +1,8 @@
 # Configuration
 
 A derived repository configures yidam through four files, and the split between them is not
-arbitrary: each answers a different question, and putting an answer in the wrong file is how
-one repository's judgement ends up imposed on another.
+arbitrary. Each answers a different question. Putting an answer in the wrong file is how one
+repository's judgement ends up imposed on another.
 
 | File | Answers | Written by |
 |---|---|---|
@@ -12,7 +12,7 @@ one repository's judgement ends up imposed on another.
 | `.yidam/tonpa.toml` | *Which other corpora does this one draw on?* | `yidam tonpa add` |
 
 Everything is optional. A repository with none of them still lints, still gates, and still
-serves — it simply has no ratchet, no dependencies, and no opinion about how its sources age.
+serves. It simply has no ratchet, no dependencies, and no opinion about how its sources age.
 
 ---
 
@@ -35,16 +35,43 @@ committed = "2026-08-27"
 | `template` | The template-layer release tag at that commit, or `"untagged"` |
 | `committed` | That commit's author date — i.e. how old the vendored prelude is |
 
+### `[build]` — yours, and preserved
+
+```toml
+[build]
+features = ["export-sqlite"]
+```
+
+| Field | Meaning |
+|---|---|
+| `features` | Features this repository's `yidam` binary must have beyond the released default set |
+
+The only part of this file you write. Every path that can produce a binary reads it:
+
+| Path | What it does |
+|---|---|
+| `mise run yidam-build` (download) | asks the downloaded binary's `--version` and compiles instead if it is short |
+| `yidam-build-source` (compile) | passes it to `cargo install --features` |
+| `mise run yidam-vendor-update` | withholds the `[tools]` entry, so `mise install` cannot make the swap |
+
+Declare it here rather than editing `mise.yidam.toml`: that file is the inherited task layer
+and a re-vendor replaces it wholesale. This table survives the re-vendor that rewrites
+everything else in `.yidam.toml`.
+
+A release that carries what you asked for is still adopted — the declaration costs nothing
+until it would cost you a capability. A single-line array; the writer emits that form and the
+readers are `sed`, not a TOML parser.
+
 `commit` is the field that makes the pin mean anything; the other three are for reading.
-`template` names the **template** layer specifically — bare `v<semver>` tags — because every
-other layer prefixes its tag (`cli/v*`, `sdk/rust/v*`, `bootstrap/v*`, `editor/v*`) and a field
-that answered with whichever tag happened to sit on the commit would answer for the wrong layer.
+`template` names the **template** layer specifically — bare `v<semver>` tags — . Every other
+layer prefixes its tag (`cli/v*`, `sdk/rust/v*`, `bootstrap/v*`, `editor/v*`). A field that
+answered with whichever tag happened to sit on the commit would answer for the wrong layer.
 
 `committed` is the *pinned commit's* date, not the date this repository ran the vendor step.
 That is what makes `yidam doctor`'s prelude-age check meaningful.
 
-This file is also how the editor surface decides which binary may speak for a corpus: it
-records which yidam governs the repository, and only it gets to say.
+This file is also how the editor surface decides which binary may speak for a corpus. It
+records which yidam governs the repository, and only that one gets to say.
 
 ## `.yidam/config.toml`
 
@@ -68,6 +95,9 @@ index_after = 25
 
 [index]
 model = "BAAI/bge-small-en-v1.5"
+
+[object]
+paths = ["web/**", "crates/**"]
 ```
 
 ### `[lint] escalate_after`
@@ -76,7 +106,7 @@ Corpus-touching commits a dated finding may hold before it escalates from a warn
 error.
 
 Absent means **no finding ever escalates**, and that is the design rather than timidity. The
-number is a judgement about how fast *this* corpus is meant to consume what it collects — a
+number is a judgement about how fast *this* corpus is meant to consume what it collects. A
 breadth sweep landing twelve nodes it will link over the next eighty commits is healthy in one
 repository and over-collection in another. A value compiled into the binary would be one
 corpus's answer arriving as a build failure in a repository that never agreed to it.
@@ -91,23 +121,23 @@ Absent means no withdrawal is ever drafted, which is every corpus until someone 
 **This is not `escalate_after` under another name.** `escalate_after` declares when a finding
 becomes a build failure — a statement about the gate. This declares when an uncited node stops
 being a sweep in progress and becomes over-collection — a statement about the corpus. A
-repository may reasonably hold the first and not the second, and most will: failing the build
-asks a person to look, while drafting a deletion decides what they would have concluded.
+repository may reasonably hold the first and not the second, and most will. Failing the build
+asks a person to look; drafting a deletion decides what they would have concluded.
 
 ### `[catalog] ttl_days`
 
 Days a catalog entry may stand before it is worth looking at again, **when the entry does not
 declare its own**. The per-entry `ttl_days:` is the primary form, because a gauge record and a
-statute do not age at the same rate; this key exists for the common case of a corpus whose
-sources mostly do age alike, so adopting a TTL is one line rather than one line per entry.
+statute do not age at the same rate. This key exists for the common case: a corpus whose
+sources mostly do age alike. Adopting a TTL is then one line rather than one line per entry.
 
 Absent means no entry expires unless it says so itself.
 
 ### `[due]`
 
 The intervals [`yidam due`](cli-reference.md#the-practice) reads. Each is an age a subject may
-reach before that clock comes due, and each absent key means the clock reports what it measured
-and never comes due.
+reach before that clock comes due. An absent key means the clock reports what it measured and
+never comes due.
 
 | Key | Subject | Unit |
 |---|---|---|
@@ -120,9 +150,9 @@ is [`[catalog] ttl_days`](#catalog-ttl_days) and each entry's own `ttl_days:`, w
 lived. Restating it under `[due]` would create two places to set one number.
 
 **Two of these count days and one does not.** How long a question has gone unanswered is a fact
-about the repository, and the repository's clock is `HEAD` — a corpus that has not committed
-has not ignored anything. A phase's time in flight is a fact about the world, which is the same
-argument `ttl_days` makes: work does not stop having been open for four months because nobody
+about the repository, and the repository's clock is `HEAD`. A corpus that has not committed has
+not ignored anything. A phase's time in flight is a fact about the world, which is the same
+argument `ttl_days` makes. Work does not stop having been open for four months because nobody
 committed to the corpus.
 
 `index_after = 1` means any change at all makes a rebuild due. A larger number is a corpus
@@ -131,8 +161,50 @@ saying it is content for retrieval to lag its own edits by that much.
 ### `[index] model`
 
 The embedding model `index-build` uses. Read only by `index-build`, which the light `reports`
-binary does not carry — but the key is still *parsed* there, so a config naming a model is not
-rejected by a binary that simply cannot act on it. `yidam index-build --model` overrides it.
+binary does not carry. The key is still *parsed* there, so a binary that cannot act on a model
+does not reject a config naming one. `yidam index-build --model` overrides it.
+
+### `[object] paths`
+
+Globs naming the artifact this corpus is *about*, relative to the repository root. A repository
+with a `web/` site or a `crates/` workspace beside its corpus has two commit registers. This
+key is how it says which paths are the second one.
+
+`**` spans any number of path segments and `*` any run within one. A glob also claims
+everything beneath what it names, so `"web"` and `"web/**"` say the same thing.
+
+Read by [`yidam lint --commits`](cli-reference.md#checks-and-gates). A commit touching **only** these paths
+is not checked against the corpus vocabulary. `feat:` on the artifact is not a corpus
+violation. Two derived repositories carry 30 and 72 such commits, every one reported today.
+
+Three rules govern the rest, and each is deliberate:
+
+| The commit touches | Governed by |
+|---|---|
+| Only declared object paths | Nothing — the corpus vocabulary does not reach it |
+| Both registers | The corpus |
+| No paths at all | The corpus |
+
+**A mixed commit raises no new finding.** The export act crosses the registers by design: it
+turns the corpus into `web/`. A rule firing on it would fire hardest on the best-behaved
+repositories. That measurement is in RFC-0028 §4.
+
+**A commit with no paths is corpus work.** `git log --name-only` lists nothing for a merge, so
+an authored merge arrives here with an empty list. Absence of evidence is not a declaration of
+jurisdiction.
+
+Absent means the repository has **one** register, and every commit is corpus work. That is
+what every repository did before this key existed, and it is what all six defining corpora do
+today.
+
+**`yidam kuten check` is not scoped by this key.** It measures every authored commit, because
+its numbers are read against a band. Scoping them would let a corpus move its own reading by
+widening this list, with no commit written.
+
+**The commit-msg hook is not scoped by it either.** `yidam vocabulary --check` runs before the
+commit exists and has no paths to read. So the hook still warns about `feat:` on an artifact
+while `lint --commits` stays silent. The asymmetry is recorded rather than fixed: closing it
+means changing a frozen MCP tool.
 
 ## `.yidam/policy/`
 
@@ -223,7 +295,7 @@ caller, and neither is an error.
 
 [Sharing a derivation](sharing-derivations.md) covers what a cross-corpus citation is and is not.
 
-## The ontology, and what it licenses
+## `.yidam/corpus/<class>.ont.yml`
 
 Class definitions live at `.yidam/corpus/<class>.ont.yml` and are configuration in the sense
 that matters most: they decide what the gate will and will not accept.

@@ -1,0 +1,259 @@
+# The `inquiry` kuten — the declaration a tool reads.
+#
+# KUTEN.md beside this file is the document a person reads, and it opens with the binding
+# rule this profile is held to. Every *band* here — the four `{low, high}` pairs, under
+# `phases`, `vocabulary` and `classes` — was measured over eighteen derived corpora before it
+# was written down; not one of those four was chosen. That claim covers the bands and nothing
+# else in this file. The scalars under `clocks` were chosen, from yidam's own configuration
+# documentation, and the comment above them says so — along with what the population turned
+# out to hold, and what would retire them.
+#
+# One thing about a band *is* chosen, and pretending otherwise is what broke two of them:
+# the precision it is quoted at. A ratio is not two decimal places, so quoting one is a
+# decision about which way to round, and A0 made it silently and inward — putting the two
+# repositories that set the endpoints outside the band their own numbers had defined. The
+# rule is now written down under `measured.estimator`, the six measurements it was applied
+# to are under `measured.members`, and a guard runs them back through the bands.
+#
+# A comment in this file satisfies nothing. The guards upstream parse the document, so what
+# is asserted is the tree below and never the prose around it.
+kuten: inquiry
+revision: 1
+gloss: the corpus grows through sustained inquiry — questions opened, and settled
+
+# Where the numbers came from, so a reader can ask whether they still hold.
+#
+# `members` is the per-repository table A0 never published, and not publishing it is why two
+# of the four bands shipped excluding the very repositories that set them (#644). Each row is
+# the raw measurement the band was fitted from — the counts, not the ratios, so the
+# arithmetic between a count and a band is fitted and checked on the same numbers. A guard
+# runs every row back through `compare` against the bands below, so a band that stops
+# containing its own evidence goes red in CI, where the six corpora themselves can never be.
+#
+# **The rows are ordered by history length and the repositories are not named.** Five of the
+# six are private or unpublished, and naming an unpublished repository in a file vendored
+# into every derived corpus discloses it. The identities are A0's population, recorded in
+# #572; the one public member is `allen-county-ohio`, which this file already names under
+# `clocks`. Anonymous is not invented: these are the measurements, taken on the date below.
+#
+# `authored` counts commits git did not write — the same merge predicate `lint --commits`
+# uses — and `instances` counts corpus instance nodes. Neither is spelled with the word the
+# graph encoding reserves, because a kuten may not redefine what a node or a commit is, and
+# the guard that holds it to that reads key names at any depth.
+measured:
+  population: eighteen derived corpora, 6,900 commits, 3,300 instance nodes
+  cluster: six repositories, six unrelated domains, 73 to 1,312 commits
+  controls: [vendored-prelude vintage, repository maturity]
+  # A0 reported no config anywhere and was wrong about where to look; re-measured
+  # 2026-09-06 under #633. See the comment above `clocks`.
+  config_reread: 2026-09-06
+  # When the four bands below were last fitted, and by what rule. Both are here because
+  # neither was recorded the first time, and their absence is what let A0's quoting error
+  # survive a re-measurement two days after it shipped.
+  fitted: 2026-09-06
+  estimator: the observed range over the six, quoted to two decimal places, rounded outward
+  members:
+    - {authored: 73, phase: 11, off_vocabulary: 0, instances: 81, median_lines: 35, open_questions: 14}
+    - {authored: 82, phase: 13, off_vocabulary: 0, instances: 51, median_lines: 62, open_questions: 26}
+    - {authored: 122, phase: 32, off_vocabulary: 2, instances: 71, median_lines: 57, open_questions: 13}
+    - {authored: 157, phase: 24, off_vocabulary: 0, instances: 97, median_lines: 44, open_questions: 51}
+    - {authored: 247, phase: 54, off_vocabulary: 0, instances: 125, median_lines: 59, open_questions: 115}
+    - {authored: 1312, phase: 164, off_vocabulary: 2, instances: 673, median_lines: 62, open_questions: 440}
+
+# The four phase types PHASES.md has always carried, and the share of commits that settle
+# one. Measured across the nine repositories whose vendored prelude has the `phase` verb;
+# six of the nine use it, and those six are this cluster.
+#
+# Observed 0.1250 to 0.2623 on 2026-09-06. A0 published the same range as "13–26%" and the
+# profile quoted it verbatim, which rounded **inward at both ends** and put the two members
+# that set the endpoints outside the band their own numbers defined. That is the rounding
+# rule under `measured.estimator`, and it is why it is written down.
+phases:
+  types: [Investigation, Extraction, Synthesis, Assessment]
+  commit_share: {low: 0.12, high: 0.27}
+
+# The closed vocabulary as it stands. A kuten may declare a subset and gloss it; it may not
+# add a verb, and the guard holds this list to GRAPH.md's.
+vocabulary:
+  verbs:
+    - establish
+    - revise
+    - assess
+    - scope
+    - synthesize
+    - withdraw
+    - open
+    - close
+    - transport
+    - resolve
+    - adopt
+    - decide
+    - phase
+    - genesis
+    - overlay
+    - extract
+    - refresh
+    - compute
+    - index
+    - bundle
+    - reconcile
+    - regen
+    - build
+    - implement
+    - scaffold
+    - catalog
+    - migrate
+    - fix
+    - vendor
+    - consume
+  # Observed 0.0 to 0.0164 on 2026-09-06 — not the zero A0 published, and the correction is
+  # about four commits in two of the six.
+  #
+  # Two carry a valid verb with a `(scope)` suffix, written at genesis under a prelude that
+  # had not yet closed the list; GRAPH.md forbids the suffix, so they are off-vocabulary and
+  # the reading is right. A0's script almost certainly stripped the suffix before matching,
+  # which is the one way to get exactly zero out of this population. The other two are
+  # coinages against a closed list — #292's case, and the reason narrowing is not the answer
+  # to it.
+  #
+  # The ceiling is four commits and not a practice, and it is quoted anyway, because a band
+  # that excludes its own evidence is a wrong extraction whatever the evidence is made of.
+  # The object-coupled pair remains outside at 25% and 4%, which is what the band still
+  # separates. Separately: the vintage control is read per repository, so a commit authored
+  # before its own repository closed its vocabulary is invisible to it. That gap is real, and
+  # it is not this band's to close.
+  off_vocabulary_share: {low: 0.0, high: 0.02}
+
+# The shape of corpus this practice accretes. Both bands are read at matched maturity:
+# nodes per commit halves over a repository's life, so an unmatched comparison measures age.
+#
+# Observed 0.5061 to 1.1096 and 35 to 62 on 2026-09-06. These two are the pair A0 got right,
+# and only the first of them by luck: 0.5061 and 1.1096 happen to round outward at two
+# decimals, where 0.1250 and 0.2623 happen to round inward. The line medians are whole
+# numbers, so the rounding rule is a no-op on them and they are the measurement exactly.
+classes:
+  nodes_per_commit: {low: 0.50, high: 1.12}
+  median_node_lines: {low: 35, high: 62}
+
+# Which way the arrow between corpus and object runs. `authored` is the default and the only
+# value this profile proposes: the corpus is written in git, GRAPH.md's premise holds, and
+# every history-derived surface applies. `projected` is the other declared state — the corpus
+# is regenerated from the object, and `replay`, `--at`, `log --epistemic` and the residence
+# clocks answer about the project rather than the corpus.
+#
+# There is no `paths` key here, and its absence is a decision rather than an omission. This
+# profile is one upstream-authored file serving six repositories with six different object
+# shapes, and the only thing a corpus writes is `.yidam/decisions/kuten.yml`, which is
+# `{kuten, revision}`. Paths are a fact about a repository, not about a practice, so the live
+# register is `[object] paths` in `.yidam/config.toml` — the same division the `clocks` slot
+# below is held to: the kuten proposes values, never holds live ones.
+object:
+  direction: authored
+
+# What the bootstrap asks. One question, and it is the one the loop is built around.
+dialogue:
+  central_question: What is the central question or problem this corpus exists to investigate?
+
+# What the practice routes through.
+skills: [bootstrap]
+
+# A proposal with values, not a permission with blanks — and since 2026-09-06, one that can
+# be shown wrong. `due` reads only `[due]` keys: a corpus holds these by writing them into
+# its config, or declines them by not.
+#
+# These four are the values yidam's own configuration documentation puts in a reader's hands.
+# They were chosen. What was said next — that there was no measured interval to choose
+# instead — was false, and re-reading the same eighteen corpora found it false in two
+# different ways (#633):
+#
+#   catalog.ttl_days     Declared 182 times, 165 of them inside this very cluster:
+#                        allen-county-ohio 129 (median 365), bitrecover-bitwipe 24 (90),
+#                        hermetic-ch 12 (30). A0 looked in `[catalog]` in config.toml and
+#                        found it empty; the per-entry `ttl_days:` is the primary form and
+#                        holds all 182. The in-cluster pooled median is 365 and 180 is its
+#                        25th percentile — but the median of the three corpus medians is 90,
+#                        and two defensible estimators disagreeing fourfold is what a
+#                        heterogeneous population looks like. That is the same fact the
+#                        per-entry form exists for. So 180 stands as the documented fallback
+#                        for a corpus whose sources age alike, and no longer as an absence of
+#                        evidence.
+#   due.questions_after  One corpus holds them, at 200 and 50, out of the two whose pinned
+#   due.phases_after     binary could name the keys when A0 ran. Both of its settings report
+#                        identically to these against its own corpus, and it sits outside
+#                        this cluster on all four bands, so it is weak evidence either way.
+#   due.index_after      Nobody holds one; one corpus declined it in writing, because no
+#                        released binary can build the index the clock measures.
+#
+# Pre-registered, so this is not settled by whoever measures last: three members of this
+# cluster holding a key at matched maturity retires the scalar and replaces it with their
+# median. Two do not — that is a tie, and a tie is not a measurement. One never does,
+# whatever it holds.
+clocks:
+  proposed:
+    due.questions_after: 100
+    due.phases_after: 60
+    due.index_after: 25
+    catalog.ttl_days: 180
+
+# Severities this profile proposes. Every one enters through the policy layer and is visible
+# as an override; a severity anywhere else in this file is a gate loosened quietly, and the
+# guard reports it as one. Empty is a value: not one of the eighteen carried an override.
+policy:
+  proposes_overrides: []
+
+# What kind of question this corpus should be opening. `epistemic` is questions about
+# understanding — the kind `inquiry` is named for. `coverage` is reserved and unimplemented:
+# it needs a class to be able to declare what its instances span, which is #578 and is
+# unscheduled. It parses, and it never diverges.
+#
+# Measured over corpus state, not over `open:` commits. RFC-0028 §5's example rule counted
+# commits; two of the six repositories that defined this profile — bitlocker and hermetic-ch
+# — have zero `open:` commits while holding 27 and 15 open-tagged corpus files, so a
+# commit-based rule reports divergence against its own defining members. The count goes
+# through the same predicate `yidam open-questions` and `due` use.
+#
+# It creates pressure toward a kind of question. It does not author one, and a test asserts
+# that the check writes nothing.
+question_pressure:
+  kind: epistemic
+
+# The criteria a contribution is read against — `yidam score <range>`. Criteria only, and no
+# bands: every band above was measured over eighteen corpora before it was written down, and
+# there is no equivalent measurement for what a *good* reading of a criterion is. A band here
+# would be exactly the number this file's header says none of the others is.
+#
+# What was measured is that each of these three discriminates. Over 10-commit windows across
+# the derived corpora:
+#
+#   register    epistemic share of the *recognized* subset. n=63 windows, min 0.00, median
+#               0.50, max 1.00; undefined in 9 of 72, which is the state the report calls
+#               unmeasurable rather than 0.00. The naive share over every authored commit is
+#               inverted — `classify_commit` is total, so a corpus writing conventional
+#               commits with no recognized verb reads 1.00 — and the two disagree by up to
+#               0.90 on the same range.
+#   landing     surviving added nodes with an inbound edge, through `orphan-in`'s own
+#               resolution and its class exemption. n=41, min 0.00, median 0.67, max 1.00.
+#               Out-degree was measured and rejected: `orphan-out` is an error-severity gate
+#               and 0 of 2,736 nodes across sixteen corpora trip it, so scoring it would
+#               measure the gate.
+#   questions   how many of those nodes are open questions. n=41, median 0.64, full spread —
+#               reported as a number and never thresholded. Whether this corpus *should* be
+#               opening questions is `question_pressure` above, not this.
+#
+# Legibility — the share of commits whose verb is recognized at all — is reported beside
+# `register` and is not a criterion: measured bimodal by repository (42 of 72 windows at 0.00,
+# 9 at 1.00), it separates corpora that adopted the vocabulary from ones that never did, which
+# is not a property of a contribution.
+rubric:
+  criteria: [register, landing, questions]
+
+# ── named, and deliberately unpopulated ──────────────────────────────────────
+# A slot with no values names the state a repository is in. Inventing one ahead of its
+# evidence produces a number that is believed because it is written down.
+#
+# One slot is unpopulated because there is no licence for a value — not because the evidence
+# is missing:
+#
+#   thresholds        — `[lint] escalate_after` and `[propose] withdraw_uncited_after`. A value
+#                       here would decide when a finding fails the build and when a deletion is
+#                       drafted, and a kuten reaches neither act.

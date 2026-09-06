@@ -57,7 +57,8 @@ answer out loud.
 ### Where `foundational_type` stops being a field
 
 If the bootstrap dialogue chose an alignment, every class carries one
-([information architecture](../information-architecture.md) has the schema):
+([choosing an alignment](../ontology/choosing-an-alignment.md) is the decision, and
+[alignment in practice](../ontology/alignment-in-practice.md) is the field):
 
 ```yaml
 # illustrative — the shape a class file would take, not a run

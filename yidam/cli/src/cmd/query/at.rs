@@ -65,7 +65,7 @@ use std::process::Command;
 use anyhow::{bail, Context, Result};
 
 use super::Graph;
-use crate::cmd::lint::checks::{Class, ClassFields, Node};
+use crate::cmd::lint::checks::{Class, Node};
 use crate::cmd::lint::history::{is_class, is_instance, read_blobs};
 
 /// The separator after which git reads no more options. See [`resolve`] for what it prevents.
@@ -392,10 +392,7 @@ impl Graph {
                     inst: serde_yaml::from_str(content).unwrap_or_default(),
                     text: content.to_string(),
                 }),
-                Kind::Class => {
-                    let fields: ClassFields = serde_yaml::from_str(content).unwrap_or_default();
-                    classes.push(Class::from_fields(&entry.path, fields));
-                }
+                Kind::Class => classes.push(Class::parse(&entry.path, content)),
                 // Neither an instance nor a class, and the check reads it for every property
                 // predicate. A reconstruction that skipped it would reject property names a
                 // corpus legitimately declared corpus-wide at that commit.

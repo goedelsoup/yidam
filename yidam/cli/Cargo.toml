@@ -1,6 +1,6 @@
 [package]
 name = "yidam"
-version = "0.7.0"
+version = "0.9.0"
 edition = "2021"
 # The toolchain pinned in mise.toml and every rust-toolchain.toml, and it must stay that.
 # The resolver (with incompatible-rust-versions = "fallback") uses it to avoid dependencies
@@ -31,6 +31,42 @@ name = "yidam"
 path = "src/main.rs"
 
 
+
+
+# -- lints ---------------------------------------------------------------------
+#
+# `-D warnings` lives only on the CI command line, so `cargo clippy` locally and `cargo
+# clippy` in CI are different checks and the difference stays invisible until a pull request
+# goes red (#464). A level in the manifest is read by every invocation, which is the point.
+#
+# **`clippy::unwrap_used` is deliberately NOT here**, and the measurement is why. Production
+# code carries 23 panic paths across 13 files once test modules are excluded — an affordable
+# number, which is what #464 expected. But `[lints]` applies to the whole package, tests
+# included, and this repository's tests unwrap freely: switching it on emits **1,831**
+# warnings, and since every gate passes `-D warnings`, a warn-level lint here is a deny.
+#
+# The issue's own wording is the right scope — "in the modules that must not panic" — and
+# that is a `#![deny(clippy::unwrap_used)]` at the top of chosen modules, after their
+# unwraps are removed. Removing them changes behaviour, and RFC-0025 is explicit that P0
+# through P3 change none. It is worth doing and it is not this phase; the 23 are counted in
+# `panic_paths.rs` so the number cannot quietly grow while nobody is escalating anything.
+[lints.rust]
+# `deny`, not `forbid`, and the difference is the whole of a four-merge outage.
+#
+# #464 added this as `forbid` on the reasoning that this crate has no business writing
+# unsafe. It does, in exactly one place: `export_sqlite.rs` registers the sqlite-vec
+# extension through `sqlite3_auto_extension`, which is a C function pointer and cannot be
+# handed over from safe Rust. `forbid` cannot be lifted by `#[allow]` — that is what
+# distinguishes it from `deny` — so `--features export-sqlite` stopped compiling, and with it
+# `--all-features`.
+#
+# Nothing said so for four merges. `ci (cli · full features)` is the only gate that compiles
+# that feature and it runs on main and the weekly schedule, never on a pull request, so the
+# change went green through review and red on a job nobody was watching. The same phase
+# measured `clippy::unwrap_used` before rejecting it — 1,831 warnings — and added this one by
+# assuming. `sqlite_ffi.rs` in the test suite is the guard that would have caught it.
+unsafe_code = "deny"
+
 [dependencies]
 # ── base: the light `reports` build — the four reports + all pure-Rust
 #    commands. No protoc, no native libraries, no ML runtime. ───────────────
@@ -47,9 +83,9 @@ regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 serde_json = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 hex = "0.4"
-toml = "0.8"
+toml = "1.1"
 # The Rego interpreter behind `yidam policy` (RFC-0024). **Ungated**, and for the
 # reason `vault/mod.rs` gives about its own module: a feature buys the *network*,
 # and compiling a rule and deciding against it are neither. Under RFC-0024's
@@ -77,31 +113,58 @@ toml = "0.8"
 regorus = { version = "0.11", default-features = false, features = ["arc", "ast", "regex"] }
 # Parity SDK — reference implementations of classify_commit etc.; the CLI
 # must not re-implement the parity surface (see prelude/sdks/parity/README.md).
-yidam-core = { path = "../prelude/sdks/rust", version = "0.3.0" }
+yidam-core = { path = "../prelude/sdks/rust", version = "0.4.0" }
 
 # ── optional: `index` — semantic index build, and the vector arm of the MCP
 #    server's `retrieve`. Not `serve` itself: that is in the light default, and
 #    answers every tool without these. Pulls the ML/native stack; lancedb's
 #    prost-build needs protoc 31 at build time. ─────────────────────────────
+# **Held at 4 — see #536.** Not "not yet tried": the bump was taken, measured, and reverted.
+#
+# fastembed 6 embeds the same sentence to a different vector than 4.9.1 — every element of
+# the `embed_config` parity witness moves by 1e-4 to 6e-4 against a 1e-5 tolerance. Bisecting
+# the releases between them puts it on ONE bump: `ort` 2.0.0-rc.12 to rc.13, which skips the
+# bundled ONNX Runtime ahead four versions to 1.28. Not the tokenizer (0.21 to 0.22 is
+# clean), not `ndarray`, not pooling, and not the weights — the registry names the same
+# AllMiniLML6V2Q and the same onnx/model_quantized.onnx in both.
+#
+# THE REASON TO HOLD IS NOT STALE INDEXES. Those are now handled: `retrieval::vector::search`
+# checks the `embed.config.json` witness on the same first-use path that loads the model, and
+# an index from another space degrades to keyword search under `stale_contract`. The reason
+# to hold is that **transformers.js agrees with fastembed 4.9.1 and not with 6**:
+#
+#   fastembed 4.9.1   0.0008519883
+#   transformers.js   0.0008519888        <- ~5e-10 from 4.9.1
+#   fastembed 6.0.2   0.00056339556       <- ~3e-4 from both
+#
+# Two independent runtimes are in one space and the bump moves the Rust reference out of it.
+# Re-recording the fixture to rc.13's numbers does not fix that; it relabels the outlier as
+# the reference and makes the TypeScript SDK non-conforming to its own parity contract. The
+# only way to a green suite would be a `known_delta` for transformers.js, which
+# parity/README.md reserves for "a runtime that cannot load the exact weights in model_file"
+# — and transformers.js loads exactly those weights.
+#
+# Revisit when transformers.js ships an ONNX Runtime that answers the way rc.13 does; the two
+# move back into one space then, and the fixture moves once, deliberately, for both.
 fastembed = { version = "4", optional = true }
-lancedb = { version = "0.13", optional = true }
+lancedb = { version = "0.15", optional = true }
 futures = { version = "0.3", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
 # Arrow decodes the vector index (model::index_rows); shared by `index` and
 # `export-sqlite`. Versions must match lancedb's transitive dependency — update
 # together if bumping either.
-arrow-array = { version = "52", optional = true }
-arrow-schema = { version = "52", optional = true }
-arrow-ipc = { version = "52", optional = true }
+arrow-array = { version = "53", optional = true }
+arrow-schema = { version = "53", optional = true }
+arrow-ipc = { version = "53", optional = true }
 
 # ── optional: `export-sqlite` — `export --format sqlite`. `bundled` compiles
 #    SQLite from C source. ──────────────────────────────────────────────────
-rusqlite = { version = "0.32", features = ["bundled"], optional = true }
+rusqlite = { version = "0.40", features = ["bundled"], optional = true }
 sqlite-vec = { version = "0.1.9", optional = true }
 
 # ── optional: `export-graph` — `export --format rdf`. Pure Rust. ───────────
-oxrdf = { version = "0.2", optional = true }
-oxttl = { version = "0.1", optional = true }
+oxrdf = { version = "0.3", optional = true }
+oxttl = { version = "0.2", optional = true }
 
 # ── `tonpa` — bundle dependency manager (async network fetch). ────────────
 #
@@ -139,10 +202,31 @@ reqwest = { version = "0.12", default-features = false, features = [
 #
 # RustCrypto, pure Rust, no build script, no C — so it cannot affect the aarch64
 # cross-compile, which is the constraint the TLS note above exists to protect.
-hmac = { version = "0.12", optional = true }
+hmac = { version = "0.13", optional = true }
 # Wraps a `tokio::fs::File` as a stream for a `PUT` body. Already in the graph through
 # reqwest's `stream` feature — naming it as a dependency adds no package, and using it
 # without naming it is not allowed.
+# ── `serve --mcp --http` (#423) ───────────────────────────────────────────────
+#
+# **Already in the tree.** `reqwest` pulls hyper 1.x, hyper-util and http-body-util for its
+# client; naming them here with their SERVER features adds exactly **one** crate to the default
+# build, measured on this lockfile: `httpdate` — pure Rust, no build script, no dependencies of
+# its own, and **already pinned in Cargo.lock**, so the audited set does not change at all and
+# neither does the aarch64 cross-compile. `axum` measured at +5, also pure Rust and also cheap;
+# it was not chosen because what sits on top of hyper here is a match on method and path, not
+# an HTTP implementation.
+#
+# `default-features = false` on both: hyper's default set is client + server + http1 + http2,
+# and this transport speaks http1 only. It is one endpoint answering one POST.
+hyper = { version = "1", default-features = false, features = [
+  "server",
+  "http1",
+], optional = true }
+hyper-util = { version = "0.1", default-features = false, features = [
+  "server",
+  "tokio",
+], optional = true }
+http-body-util = { version = "0.1", optional = true }
 tokio-util = { version = "0.7", default-features = false, features = ["io"], optional = true }
 
 [features]
@@ -151,7 +235,7 @@ tokio-util = { version = "0.7", default-features = false, features = ["io"], opt
 # `unrecognized subcommand`, which is not "this feature is unavailable" but "a
 # documented workflow is impossible". Every other gated feature degrades to a
 # missing capability; this one degraded to a broken instruction.
-default = ["reports", "tonpa", "vault-s3"]
+default = ["reports", "tonpa", "vault-s3", "export-graph", "serve-http"]
 # The name of the base build — and **not a supported feature set on its own.**
 #
 # It gates nothing. `reports = []` enables no dependency, and there is no
@@ -214,7 +298,24 @@ export-sqlite = [
   "dep:arrow-schema",
   "dep:arrow-ipc",
 ]
-# `export --format rdf` — pure-Rust RDF (no protoc, no C).
+# `export --format rdf` — pure-Rust RDF. **In the default set, deliberately**, and for
+# the reason given on `vault-s3` below rather than a new one: PR CI never compiles
+# `--features full`, so while this was optional its code shipped without a single pull
+# request having built it. Everything in `default` is compiled and tested by every PR,
+# including the aarch64 cross-compile.
+#
+# It is the cheapest thing that argument has ever been applied to. Measured on this
+# lockfile: +9 crates (`oxrdf`, `oxttl`, `oxiri`, `oxilangtag` and a `rand`/`zerocopy`
+# chain, all pure Rust) and **+0.18 MB on a 15.02 MB release binary**. No protoc, no
+# system C library, so the cross-compile is untouched. RFC-0003 listed it `Default: no`
+# and gave no cost reason; the only cost it names — protoc, C — does not apply.
+#
+# It moved here after a derived repository declined to adopt the download channel (#532):
+# it compiled with `--features export-graph`, its pin reached a `cli/v*` tag, and the
+# released binary would have silently replaced a build that could render RDF with one
+# that reports `needs --features export-graph` — under a test that *skips* on exactly
+# that predicate. A capability that has to be added back by every consumer that needs it
+# is one the default set was choosing wrongly about.
 export-graph = ["dep:oxrdf", "dep:oxttl"]
 # `tonpa` bundle dependency manager — async network fetch via reqwest. In the
 # default set; see the note there and on the reqwest dependency above.
@@ -229,9 +330,35 @@ tonpa = ["dep:reqwest", "dep:tokio"]
 # The rest of the vault — addressing, the cache, the `file://` backend — is ungated and stays
 # that way. This feature buys the network and nothing else.
 vault-s3 = ["dep:hmac", "dep:reqwest", "dep:tokio", "dep:tokio-util"]
+# `serve --mcp --http` — MCP over a transport a URL can reach. **In the default set,
+# deliberately**, and for the reason `vault-s3` and `export-graph` give rather than a new one:
+# anything outside `default` ships code no pull request compiled, and this is the one command
+# that decides whether a corpus is reachable by an agent at all. #237 put `serve` itself behind
+# `index` once and the effect was that the surface making a corpus reachable lived in the build
+# almost nobody installs; gating its only remote transport would be that bug one level out.
+#
+# It is a feature rather than an unconditional dependency so that `--no-default-features
+# --features reports` keeps meaning something — RFC-0003's reports-only binary has no business
+# linking a web server. `tokio/net` rather than `dep:tokio`: tokio is already pulled by `tonpa`
+# and `vault-s3`, and this needs one more of its features, not another copy of it.
+serve-http = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "tokio/net"]
 # Everything — reproduces the pre-partition monolith (`cargo install --features full`).
-full = ["reports", "index", "export-sqlite", "export-graph", "tonpa", "vault-s3"]
+full = [
+  "reports",
+  "index",
+  "export-sqlite",
+  "export-graph",
+  "tonpa",
+  "vault-s3",
+  "serve-http",
+]
 # `index` implies `vector-read`, so `full` carries it without naming it.
+
+# `build.rs` reads `_ds_manifest.json` to concatenate the design tokens the web exporter
+# embeds — the manifest is the one declaration of what the system is and in what order, and
+# a build script cannot see `[dependencies]`.
+[build-dependencies]
+serde_json = "1"
 
 [dev-dependencies]
 walkdir = "2"
@@ -246,10 +373,16 @@ ci-report = { path = "../tests/harness/ci-report" }
 # Reads `examples/<name>/history.toml` in `example_corpus.rs`, so an example can ship the
 # order it was written in and `replay` has a history to reconstruct. Costs no package: it is
 # already a dependency above, and naming it here is what lets a test use it.
-toml = "0.8"
-quick-xml = "0.41"
+toml = "1.1"
+# Parses the shipped kuten profiles in `kuten_prohibitions.rs`. The five prohibitions are
+# guarded against the *tree* a profile declares and never against its text, because a guard
+# that greps a whole file is satisfied by that file's own comments — which is precisely what
+# a profile explaining the prohibition it is breaking would do. Costs no package: already a
+# dependency above, and naming it here is what lets a test use it.
+serde_yaml = "0.9"
+quick-xml = "0.42"
 tempfile = "3"
-jsonschema = { version = "0.51.0", default-features = false }
+jsonschema = { version = "0.52.1", default-features = false }
 
 # ── cargo-binstall ────────────────────────────────────────────────────────────
 #

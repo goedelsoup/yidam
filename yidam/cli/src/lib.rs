@@ -11,6 +11,9 @@ pub mod embed_config;
 #[cfg(feature = "vector-read")]
 pub mod embedding;
 mod git;
+/// What a corpus declares its practice is aimed at (RFC-0028). Public so the guards over
+/// the shipped profiles can parse them the way the binary does, rather than a second way.
+pub mod kuten;
 mod markdown;
 mod parse;
 mod paths;
@@ -21,6 +24,9 @@ pub mod provenance;
 mod regen;
 pub mod report;
 mod retrieval;
+/// What a contribution is scored on. Public for the reason [`kuten`] is: the guard that holds
+/// the declared criteria to the implemented ones has to be able to ask both sides.
+pub mod score;
 pub mod universal;
 // Ungated, and that is the design rather than an oversight. The vault's addressing, cache
 // and `file://` backend need only `sha2`, `hex` and std — all base dependencies — so the
@@ -39,15 +45,24 @@ pub use cmd::tonpa;
 /// The seed kinds `yidam samudaya-audit` accepts. See [`samudaya_seed_kind`].
 pub use cmd::SAMUDAYA_KINDS;
 pub use cmd::{
-    agents_index, backfill, bench, bundle, bundle_status, catalog_audit, check_diff, clone,
-    corpus_index, crates_index, decisions_log, diff_corpus, doctor, due, embed, estimate, export,
-    graph, graph_check, index_status, index_verify, lint, list_formats, log, migrate, neighbors,
-    open_questions, overlay, pack, packages_index, parse_bench_goals, phases, propose, query,
-    regen, rename, replay, run_export, run_policy, run_vault, samudaya_audit, sangha, schema,
-    serve_lsp, serve_mcp, skills_index, status, vault_status, vocabulary, BenchGoal, BenchGoalSet,
-    EmbedOptions, ExportFormat, ExportOptions, LintOptions, LogFilter, MigrateOperation,
-    PolicyCommand, ProposeOptions, RdfFormat, VaultCommand,
+    agents_index, backfill, bench, bundle, bundle_status, catalog_audit, check_diff,
+    citation_label_not_cited, citation_range_stated_twice, clone, collect_line_citations,
+    corpus_index, crates_index, dead_line_citation, decisions_log, diff_corpus, doctor, due, embed,
+    estimate, export, graph, graph_check, index_status, index_verify, label_range, label_symbols,
+    lint, list_formats, log, migrate, neighbors, open_questions, overlay, pack, packages_index,
+    parse_bench_goals, phases, propose, query, regen, relocate, rename, replay, run_export,
+    run_kuten, run_policy, run_score, run_vault, samudaya_audit, sangha, schema, serve_lsp,
+    serve_mcp, skills_index, slid_line_citation, status, unverified_line_citation, vault_status,
+    vocabulary, BenchGoal, BenchGoalSet, EmbedOptions, ExportFormat, ExportOptions, KutenCommand,
+    LineCitation, LineFragment, LintCheck, LintOptions, LintViolation, LogFilter, MigrateOperation,
+    PolicyCommand, ProposeOptions, RdfFormat, Relocation, VaultCommand,
 };
+
+/// The remote transport (#423). Gated because the feature is what pulls the server, and
+/// `--no-default-features --features reports` has no business linking one — see the note on
+/// `serve-http` in Cargo.toml for why it is nonetheless in the default set.
+#[cfg(feature = "serve-http")]
+pub use cmd::serve_mcp_http;
 
 /// The `kind` a samudaya seed file declares, or `None` where it declares none.
 ///

@@ -1,4 +1,4 @@
-use yidam_domain_geodesics::{haversine_km, bearing_deg, central_angle_deg};
+use yidam_domain_geodesics::{bearing_deg, central_angle_deg, haversine_km};
 
 const EPSILON: f64 = 1e-4;
 
@@ -30,7 +30,10 @@ fn load_fixtures(function: &str) -> Vec<toml::Value> {
 #[test]
 fn parity_haversine_km() {
     let fixtures = load_fixtures("geodesics.haversine_km");
-    assert!(!fixtures.is_empty(), "no geodesics.haversine_km fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no geodesics.haversine_km fixtures found"
+    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let result = haversine_km(
@@ -50,7 +53,10 @@ fn parity_haversine_km() {
 #[test]
 fn parity_bearing_deg() {
     let fixtures = load_fixtures("geodesics.bearing_deg");
-    assert!(!fixtures.is_empty(), "no geodesics.bearing_deg fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no geodesics.bearing_deg fixtures found"
+    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let result = bearing_deg(
@@ -70,7 +76,10 @@ fn parity_bearing_deg() {
 #[test]
 fn parity_central_angle_deg() {
     let fixtures = load_fixtures("geodesics.central_angle_deg");
-    assert!(!fixtures.is_empty(), "no geodesics.central_angle_deg fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no geodesics.central_angle_deg fixtures found"
+    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let result = central_angle_deg(

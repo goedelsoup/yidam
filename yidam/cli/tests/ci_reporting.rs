@@ -157,10 +157,10 @@ fn every_workspace_that_runs_nextest_also_runs_the_doctests() {
 /// The bar is *uniformity*, not any one job: a gate that reports differently from its
 /// neighbours is how a reader learns to stop trusting the summary, and a gate whose summary
 /// step was never added looks identical to one with nothing to say.
-#[test]
-fn every_job_that_runs_tests_also_renders_a_summary() {
+/// `ci.yml`'s jobs and their bodies. Jobs are the two-space keys under `jobs:`; a job's body
+/// runs to the next one.
+fn ci_jobs() -> Vec<(String, String)> {
     let yml = ci_yml();
-    // Jobs are the two-space keys under `jobs:`; a job's body runs to the next one.
     let mut jobs: Vec<(String, String)> = Vec::new();
     let mut name = String::new();
     let mut body = String::new();
@@ -184,9 +184,15 @@ fn every_job_that_runs_tests_also_renders_a_summary() {
     }
     assert!(
         jobs.len() >= 5,
-        "only {} jobs parsed out of ci.yml; every assertion below would be vacuous",
+        "only {} jobs parsed out of ci.yml; every assertion built on this would be vacuous",
         jobs.len()
     );
+    jobs
+}
+
+#[test]
+fn every_job_that_runs_tests_also_renders_a_summary() {
+    let jobs = ci_jobs();
 
     // A job runs tests when it invokes a task that does. Read from the task file rather than
     // guessed, so a task that stops running tests stops being required to report them.
@@ -425,5 +431,441 @@ fn a_skip_is_announced_through_the_helper_and_not_in_its_own_words() {
         "these announce a skip in their own words rather than through `ci_report::skipped`, \
          so the census does not see them:\n{}",
         offenders.join("\n")
+    );
+}
+
+/// Every gate that renders a summary also contributes a fragment, and the merge collects it.
+///
+/// Three joins, none of them visible in one file, and each fails quietly on its own:
+///
+/// 1. **A gate that summarises but writes no fragment.** Its results are in a job summary and
+///    absent from the report. The page renders the gates it was given and says nothing about
+///    the one it was not — which reads as a complete run.
+/// 2. **A renamed artifact.** The action uploads `quality-<artifact>`; the merge downloads a
+///    pattern. `ci-report merge` refuses an *empty* set, so losing every fragment is red —
+///    and losing one is a report describing half a run, green.
+/// 3. **A merge that does not wait.** A job absent from `needs:` may not have uploaded yet.
+///
+/// All three are discovered from the two files rather than listed here.
+#[test]
+fn every_summary_also_writes_a_report_fragment() {
+    let jobs = ci_jobs();
+    let action = code_only(&read(".github/actions/test-summary/action.yml"), "#");
+
+    // The literal prefix of the artifact the action uploads, up to the first expansion.
+    let upload = action
+        .split("name: quality-")
+        .nth(1)
+        .expect("the composite action no longer uploads a `quality-` artifact");
+    let templated = upload.lines().next().unwrap_or("").trim();
+    assert!(
+        templated.contains("${{ inputs.artifact }}"),
+        "the fragment artifact is no longer named after the gate ({templated:?}); two gates \
+         writing one name would leave a report describing half a run"
+    );
+
+    let mut summarising = Vec::new();
+    let mut without_fragment = Vec::new();
+    for (job, body) in &jobs {
+        if !body.contains("./.github/actions/test-summary") {
+            continue;
+        }
+        summarising.push(job.clone());
+        if !body.contains("json:") {
+            without_fragment.push(job.clone());
+        }
+    }
+    assert!(
+        summarising.len() >= 4,
+        "only {summarising:?} render a summary; the parse is reading the wrong thing"
+    );
+    assert!(
+        without_fragment.is_empty(),
+        "these gates render a summary and write no report fragment, so their results reach \
+         the quality pages not at all — and a page that lists the gates it was given reads \
+         as a complete run: {without_fragment:?}"
+    );
+
+    let (_, merge) = jobs
+        .iter()
+        .find(|(_, body)| body.contains("ci-report merge"))
+        .expect("no job merges the fragments into a quality report");
+
+    let pattern = merge
+        .split("pattern: ")
+        .nth(1)
+        .and_then(|r| r.lines().next())
+        .map(str::trim)
+        .expect("the merge job downloads no artifact pattern");
+    assert!(
+        pattern.starts_with("quality-") && pattern.ends_with('*'),
+        "the merge downloads {pattern:?}, which does not match what the action uploads \
+         (`quality-<artifact>`). A pattern that matches nothing is caught — `merge` refuses \
+         an empty set — but one that matches some of them is a partial report, green."
+    );
+
+    let needs = merge
+        .split("needs: ")
+        .nth(1)
+        .and_then(|r| r.lines().next())
+        .unwrap_or_default()
+        .to_string();
+    let unawaited: Vec<&String> = summarising.iter().filter(|j| !needs.contains(*j)).collect();
+    assert!(
+        unawaited.is_empty(),
+        "the merge job does not wait for {unawaited:?}, which write fragments it is supposed \
+         to collect. It would merge whatever had finished."
+    );
+}
+
+/// The jobs that must run on a pipeline with a failure say so.
+///
+/// A job whose `if` carries no status check function gets an implicit `success()`, and GitHub
+/// evaluates that across the whole ancestry rather than the direct `needs`. So a job that
+/// depends on an `always()` job still skips when something further up failed — which is what
+/// happened on the merge that landed #468: `cli-full` failed, `quality` ran on its own
+/// `always()` and succeeded, and `series` was skipped anyway. The first record was never
+/// written and the branch was never created.
+///
+/// Discovered from the workflow rather than listed: any job that `needs` a job whose own `if`
+/// says `always()` has inherited that intent, and must state it too or be silently skipped by
+/// the thing its dependency was written to survive.
+#[test]
+fn a_job_needing_an_always_job_says_always_itself() {
+    let jobs = ci_jobs();
+    let unconditional: Vec<&String> = jobs
+        .iter()
+        .filter(|(_, body)| body.contains("if: always()"))
+        .map(|(name, _)| name)
+        .collect();
+    assert!(
+        !unconditional.is_empty(),
+        "no job in ci.yml runs unconditionally; this test is looking at the wrong thing"
+    );
+
+    let mut silent = Vec::new();
+    for (name, body) in &jobs {
+        let Some(needs) = body
+            .split("needs:")
+            .nth(1)
+            .and_then(|r| r.lines().next())
+            .map(str::trim)
+        else {
+            continue;
+        };
+        let inherits = unconditional.iter().any(|dep| needs.contains(dep.as_str()));
+        // `always()` anywhere in the job's own condition, however it is spelled — the block
+        // scalar form wraps it onto its own line.
+        let condition: String = body
+            .lines()
+            .skip_while(|l| !l.trim_start().starts_with("if:"))
+            .take_while(|l| {
+                !l.trim_start().starts_with("needs:") && !l.trim_start().starts_with("runs-on:")
+            })
+            .collect();
+        if inherits && !condition.contains("always()") {
+            silent.push(format!("  {name} needs {needs}"));
+        }
+    }
+    assert!(
+        silent.is_empty(),
+        "these jobs depend on a job that runs unconditionally, and do not run \
+         unconditionally themselves. GitHub applies an implicit `success()` across the whole \
+         ancestry, so one failure anywhere upstream skips them — without a message, and \
+         without the work they were supposed to do:\n{}\n\nSay `always() && \
+         needs.<job>.result == 'success' && …` so the condition is the one that was meant.",
+        silent.join("\n")
+    );
+}
+
+/// Every gate's numbers can be attributed to a job that exists (#516).
+///
+/// The quality report stamps each gate with the conclusion of the job it ran in, matched by
+/// the name the run displays. A gate whose name matches no job is not a loud failure — it is
+/// a conclusion that stays `None` for ever, which the pages draw as "unknown". One unknown
+/// among fourteen greens is exactly the kind of thing nobody notices.
+///
+/// It had already happened before the field existed. `ci (parity)` runs the Rust, TypeScript
+/// and Python parity arms and summarises only the Rust one, so its gate reads
+/// `ci (parity · rust sdk)` — a heading truer than the job name, and one no job will ever be
+/// called. The composite action's `job:` input is how such a gate says where it ran, and this
+/// is what makes it say so.
+///
+/// Both sides come from `ci.yml`: the gates from the `gate:`/`job:` inputs, the job names
+/// from the `name:` of each job, with the one matrix expanded from its own `include:`.
+#[test]
+fn the_gate_names_name_real_jobs() {
+    let yml = read(".github/workflows/ci.yml");
+
+    // Job display names. `name: ci (…)` at job level — two indents under `jobs:` — including
+    // the matrix template, which is expanded below from the values it interpolates.
+    let mut jobs: Vec<String> = Vec::new();
+    for line in yml.lines() {
+        let Some(rest) = line.strip_prefix("    name: ") else {
+            continue;
+        };
+        jobs.push(rest.trim().to_string());
+    }
+    assert!(
+        jobs.len() > 5,
+        "found {} job names in ci.yml, which is too few to be the whole workflow — the shape \
+         this scan keys on has changed and every assertion below is now vacuous",
+        jobs.len()
+    );
+
+    // The matrix. `name: ci (${{ matrix.<key> }})` becomes one job per value of that key,
+    // read from the `include:` block rather than assumed to be `cli` and `harness`.
+    let expanded: Vec<String> = jobs
+        .iter()
+        .flat_map(|name| match name.split_once("${{ matrix.") {
+            None => vec![name.clone()],
+            Some((before, rest)) => {
+                let key = rest.split_once(" }}").map(|(k, _)| k.trim()).unwrap_or("");
+                let after = rest.split_once(" }}").map(|(_, a)| a).unwrap_or("");
+                let values: Vec<String> = yml
+                    .lines()
+                    .filter_map(|l| l.trim().strip_prefix(&format!("- {key}: ")))
+                    .map(|v| v.trim().to_string())
+                    .collect();
+                assert!(
+                    !values.is_empty(),
+                    "{name} interpolates `matrix.{key}` and no `- {key}:` entry defines a \
+                     value for it, so this test cannot know what the job is called"
+                );
+                values
+                    .into_iter()
+                    .map(|v| format!("{before}{v}{after}"))
+                    .collect()
+            }
+        })
+        .collect();
+
+    // What each summary claims, and where it says it ran. The `job:` input overrides `gate:`
+    // for matching; a gate that supplies neither is matched by its own name.
+    let mut claims: Vec<(String, String)> = Vec::new();
+    let mut current_gate: Option<String> = None;
+    for line in yml.lines() {
+        let trimmed = line.trim();
+        if let Some(g) = trimmed.strip_prefix("gate: ") {
+            if let Some(prev) = current_gate.take() {
+                claims.push((prev.clone(), prev));
+            }
+            current_gate = Some(g.trim().to_string());
+        } else if let Some(j) = trimmed.strip_prefix("job: ") {
+            let gate = current_gate
+                .take()
+                .expect("a `job:` input with no `gate:` above it");
+            claims.push((gate, j.trim().to_string()));
+        }
+    }
+    if let Some(prev) = current_gate {
+        claims.push((prev.clone(), prev));
+    }
+    assert!(
+        !claims.is_empty(),
+        "no `gate:` input was found in ci.yml — the summaries are gone, or this scan is"
+    );
+
+    let mut orphans = Vec::new();
+    for (gate, job) in &claims {
+        // The matrix gate is itself a template and expands the same way its job name does.
+        let candidates: Vec<String> = match job.split_once("${{ matrix.") {
+            None => vec![job.clone()],
+            Some(_) => expanded.clone(),
+        };
+        if !candidates.iter().any(|c| expanded.contains(c)) {
+            orphans.push(format!(
+                "  gate `{gate}` reports from job `{job}`, and no job in ci.yml is called that"
+            ));
+        }
+    }
+    assert!(
+        orphans.is_empty(),
+        "a gate's conclusion is matched against the run's job list by name, so each of these \
+         would be stamped `unknown` on every run — silently, for ever:\n{}\n\nJobs in this \
+         workflow: {:?}\n\nIf the heading is deliberately not the job name, say where it ran \
+         with the composite action's `job:` input.",
+        orphans.join("\n"),
+        expanded
+    );
+}
+
+/// The run's job conclusions are fetched, and they reach the merge (#516).
+///
+/// Two halves, each silent on its own. A merge that is never given `--jobs` writes a report
+/// in which every gate's outcome is unknown; a fetch whose output nothing reads is a step
+/// that costs an API call and changes nothing. Neither fails a build. The report still
+/// merges, the pages still render, and the one thing they cannot say is whether the run
+/// passed — which is the state this whole issue was filed about.
+///
+/// It is the shape `YIDAM_QUALITY_SERIES` was in for a whole phase: written by one job, read
+/// by nobody, with a comment saying otherwise.
+#[test]
+fn the_runs_job_conclusions_are_fetched_and_reach_the_merge() {
+    let yml = code_only(&read(".github/workflows/ci.yml"), "#");
+
+    // The reporter has to accept them, or passing them is a crash rather than a feature.
+    let reporter = read("yidam/tests/harness/ci-report/src/main.rs");
+    assert!(
+        reporter.contains("\"--jobs\""),
+        "`ci-report merge` no longer parses `--jobs`, so the workflow below is passing a flag \
+         it will reject"
+    );
+
+    // The `quality` job's own lines: from its header to the next job header, which is a line
+    // indented by exactly two spaces. Splitting on `"\n  "` would also split on every line
+    // inside the job, since those start with more.
+    let mut quality = String::new();
+    let mut inside = false;
+    for line in yml.lines() {
+        let header = line.starts_with("  ") && !line.starts_with("   ") && line.ends_with(':');
+        if header {
+            if inside {
+                break;
+            }
+            inside = line.trim() == "quality:";
+            continue;
+        }
+        if inside {
+            quality.push_str(line);
+            quality.push('\n');
+        }
+    }
+    assert!(
+        !quality.trim().is_empty(),
+        "ci.yml declares no `quality` job, or its shape is no longer one this scan can find"
+    );
+
+    assert!(
+        quality.contains("actions/runs/") && quality.contains("/jobs"),
+        "the quality job never asks what the run's jobs concluded, so every gate's outcome \
+         is `unknown` on every run:\n{quality}"
+    );
+    assert!(
+        quality.contains("--jobs"),
+        "the run's job list is fetched and never handed to the merge — an API call whose \
+         result is discarded, and a report that still cannot say whether the run passed"
+    );
+    assert!(
+        quality.contains("per_page=100"),
+        "the jobs endpoint paginates at 30 and this workflow has more jobs than that is safe \
+         for. `parse_jobs` refuses a truncated list, so this would be a red quality job \
+         rather than a wrong report — but the fix is to ask for them all"
+    );
+    assert!(
+        quality.contains("actions: read"),
+        "the jobs API needs `actions: read`. The repository's default is read-all today, \
+         which grants it by accident; a settings change would take it away and this step \
+         would start failing for a reason nobody would connect to it"
+    );
+}
+
+/// The body of one job in `ci.yml`, comments already stripped.
+///
+/// Textual rather than parsed: this repository takes no YAML dependency, and the shape a
+/// guard needs is unambiguous here — every job is a two-space key, every job property a
+/// four-space one, so a job ends at the next line whose indent is exactly two.
+fn job_block(name: &str) -> String {
+    let yml = ci_yml();
+    let mut out: Vec<&str> = Vec::new();
+    let mut inside = false;
+    for line in yml.lines() {
+        let opens_a_job = line.len() > 2 && line.starts_with("  ") && !line.starts_with("   ");
+        if opens_a_job && line.trim_start().starts_with(&format!("{name}:")) {
+            inside = true;
+            continue;
+        }
+        if inside && opens_a_job {
+            break;
+        }
+        if inside {
+            out.push(line);
+        }
+    }
+    assert!(
+        !out.is_empty(),
+        "no `{name}:` job in ci.yml, or this parser stopped finding one. Every assertion \
+         below reads this block, so an empty one passes them all."
+    );
+    out.join("\n")
+}
+
+/// Every step that runs work in the full-feature job streams resource samples while it runs.
+///
+/// A GitHub-hosted runner killed for memory names no resource: the step ends with "The runner
+/// has received a shutdown signal" and an exit code, and memory and disk are equally good
+/// guesses that take opposite fixes. #539 added a sampler to the step that was failing and
+/// measured it. On d596634 the job was killed two steps earlier, where the sampler was not,
+/// and left exactly the empty log #539 had started from — a second undiagnosable kill, from a
+/// fix that closed the instance and not the class.
+///
+/// So the rule is the class: **anything in this job that runs a mise task goes through the
+/// wrapper.** Discovered by walking the job's own steps, because a list of heavy steps kept
+/// here would stop covering whatever was added next without ever going red — which is the
+/// same failure one level up.
+#[test]
+fn every_heavy_step_in_the_full_feature_job_is_sampled() {
+    let block = job_block("cli-full");
+    let invocations: Vec<&str> = block
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.contains("mise run "))
+        .collect();
+    assert!(
+        !invocations.is_empty(),
+        "the full-feature job runs no mise task. Either the job stopped doing the work this \
+         gate exists for, or this parser is reading the wrong block — and both make the \
+         assertion below vacuous."
+    );
+
+    let unsampled: Vec<&str> = invocations
+        .iter()
+        .filter(|l| !l.contains("with-sampler.sh"))
+        .copied()
+        .collect();
+    assert!(
+        unsampled.is_empty(),
+        "these steps in `cli-full` run without a resource sampler:\n  {}\nThis job has been \
+         killed for memory twice, and each time the log named no resource. Wrap it: \
+         `.github/scripts/with-sampler.sh mise run <task>`.",
+        unsampled.join("\n  ")
+    );
+}
+
+/// The sampler the steps call still samples.
+///
+/// The guard above matches a path. A wrapper that had been emptied to `exec \"$@\"` would
+/// satisfy it and restore the silence, so the marker every `[res]` line carries is checked
+/// where it is produced.
+#[test]
+fn the_sampler_the_steps_call_still_reports_both_resources() {
+    let script = read(".github/scripts/with-sampler.sh");
+    for needle in ["[res]", "MemAvailable", "df -h"] {
+        assert!(
+            script.contains(needle),
+            "with-sampler.sh no longer emits `{needle}`. Memory and disk take opposite fixes, \
+             so a sampler reporting one of them leaves half the diagnosis to a guess."
+        );
+    }
+}
+
+/// The compile-job cap belongs to the job, not to a step inside it.
+///
+/// #539 capped `CARGO_BUILD_JOBS` on `coverage-full`, the step that happened to be failing.
+/// d596634 was killed in `ci-cli-full`, which had no cap, for the same reason. A four-space
+/// `env:` covers every step; a step-level one covers exactly the instance that was last seen
+/// to fail, and moving it back would be invisible in review.
+#[test]
+fn the_build_job_cap_covers_the_whole_full_feature_job() {
+    let block = job_block("cli-full");
+    let at_job_level = block
+        .lines()
+        .any(|l| l.starts_with("      CARGO_BUILD_JOBS:") && !l.starts_with("       "));
+    assert!(
+        at_job_level,
+        "`CARGO_BUILD_JOBS` is not set at the job's own `env:` (six-space key under a \
+         four-space `env:`). Every heavy step in this job links the same 59 test binaries \
+         against the same dependency tree; a cap on one of them is a cap on the step that \
+         failed last time.\n{block}"
     );
 }
