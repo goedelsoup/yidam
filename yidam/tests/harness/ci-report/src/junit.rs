@@ -56,9 +56,13 @@ impl Run {
 /// advisories that forced the upgrade (RUSTSEC-2026-0194/0195) came with a rename, and the
 /// old name is deprecated rather than gone. Following the rename is what keeps the next
 /// upgrade from being a second decision.
+///
+/// The key comparison is `&str` against `&str` at 0.42. Every name and every run of
+/// character data in the crate is UTF-8-validated at the reader now, so the `b"…"` literals
+/// this file used to match on no longer typecheck anywhere.
 fn attr(e: &quick_xml::events::BytesStart, key: &str) -> Option<String> {
     e.attributes().flatten().find_map(|a| {
-        (a.key.as_ref() == key.as_bytes())
+        (a.key.as_ref() == key)
             .then(|| {
                 a.normalized_value(XmlVersion::Implicit1_0)
                     .ok()
@@ -104,8 +108,8 @@ pub fn parse(xml: &str) -> Result<Run> {
                     _ => unreachable!("the match arm admits only these two"),
                 };
                 match e.name().as_ref() {
-                    b"testsuite" => suite = attr(&e, "name").unwrap_or_default(),
-                    b"testcase" => {
+                    "testsuite" => suite = attr(&e, "name").unwrap_or_default(),
+                    "testcase" => {
                         let case = Case {
                             suite: attr(&e, "classname").unwrap_or_else(|| suite.clone()),
                             name: attr(&e, "name").unwrap_or_default(),
@@ -121,7 +125,7 @@ pub fn parse(xml: &str) -> Result<Run> {
                             current = Some(case);
                         }
                     }
-                    b"failure" | b"error" => {
+                    "failure" | "error" => {
                         if let Some(c) = current.as_mut() {
                             // The message attribute is the one-line reason; the element body
                             // is the panic output. Seed with the attribute so a `<failure/>`
@@ -132,8 +136,8 @@ pub fn parse(xml: &str) -> Result<Run> {
                             }
                         }
                     }
-                    b"system-out" if !closed => sink = Some("stdout"),
-                    b"system-err" if !closed => sink = Some("stderr"),
+                    "system-out" if !closed => sink = Some("stdout"),
+                    "system-err" if !closed => sink = Some("stderr"),
                     _ => {}
                 }
             }
@@ -143,10 +147,12 @@ pub fn parse(xml: &str) -> Result<Run> {
                     // `normalized_value` for attributes. Test output is full of `&lt;` and
                     // `&amp;`, and handing those to a reader is the reason this crate parses
                     // XML rather than scanning it.
-                    let text = t
-                        .xml_content(XmlVersion::Implicit1_0)
-                        .unwrap_or_default()
-                        .into_owned();
+                    //
+                    // It returns the content rather than a `Result` at 0.42. The fallible
+                    // half was decoding, and the reader has already done that by here — so
+                    // the `unwrap_or_default()` this used to carry is gone, and with it the
+                    // one path that turned an undecodable run of output into an empty one.
+                    let text = t.xml_content(XmlVersion::Implicit1_0).into_owned();
                     match field {
                         "stdout" => c.stdout.push_str(&text),
                         "stderr" => c.stderr.push_str(&text),
@@ -163,7 +169,11 @@ pub fn parse(xml: &str) -> Result<Run> {
             }
             Ok(Event::CData(t)) => {
                 if let (Some(c), Some(field)) = (current.as_mut(), sink) {
-                    let text = String::from_utf8_lossy(t.as_ref()).into_owned();
+                    // CDATA is not escaped, so there is nothing to resolve — but it is
+                    // decoded, which is what `from_utf8_lossy` used to be doing here. At 0.42
+                    // the reader validates it and a replacement character can no longer be
+                    // substituted for a byte this crate never looked at.
+                    let text = t.as_ref().to_owned();
                     match field {
                         "stdout" => c.stdout.push_str(&text),
                         "stderr" => c.stderr.push_str(&text),
@@ -173,13 +183,13 @@ pub fn parse(xml: &str) -> Result<Run> {
                 }
             }
             Ok(Event::End(e)) => match e.name().as_ref() {
-                b"testcase" => {
+                "testcase" => {
                     if let Some(c) = current.take() {
                         run.cases.push(c);
                     }
                     sink = None;
                 }
-                b"system-out" | b"system-err" | b"failure" | b"error" => sink = None,
+                "system-out" | "system-err" | "failure" | "error" => sink = None,
                 _ => {}
             },
             Ok(_) => {}
@@ -290,6 +300,33 @@ test the_lean_toolchain_is_pinned ... ok
         assert_eq!(run.cases[0].suite, "test");
         assert_eq!(run.passed(), 2);
         assert_eq!(run.failed().count(), 1);
+    }
+
+    /// The CDATA branch, which nothing else in this module reaches.
+    ///
+    /// Neither producer this file has fixtures for writes CDATA — nextest escapes and node's
+    /// reporter escapes — so the branch was carried on the reader's own judgement about what
+    /// a JUnit document may contain, and quick-xml 0.42 rewrote the line that implements it.
+    /// A section that no test enters is a section an upgrade may change in either direction,
+    /// and the two directions here are not the same: CDATA is not escaped, so a reader that
+    /// resolved entities inside it would turn a test that printed the literal text `&lt;`
+    /// into one that printed `<`.
+    #[test]
+    fn cdata_output_is_taken_literally_rather_than_unescaped() {
+        let cdata = r#"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+    <testsuite name="s" tests="1">
+        <testcase name="prints markup" classname="s" time="0.001">
+            <system-out><![CDATA[got <div> and &amp; verbatim]]></system-out>
+        </testcase>
+    </testsuite>
+</testsuites>"#;
+        let run = parse(cdata).expect("a CDATA section should parse");
+        assert_eq!(run.cases.len(), 1);
+        assert_eq!(
+            run.cases[0].stdout, "got <div> and &amp; verbatim",
+            "CDATA was unescaped a second time, so output a test printed literally has changed"
+        );
     }
 
     #[test]
