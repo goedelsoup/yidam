@@ -21,8 +21,29 @@ repository pins, resolved in the order [`binary.ts`](src/lib/binary.ts) document
 |---|---|
 | Status | `yidam status` |
 | Browse | `yidam graph` — nodes, classes, and edges the CLI already resolved |
+| Node | one node: its class's declared properties, its edges out, and its edges **in** |
 | Reports | `yidam lint` and `yidam graph-check`, in that order |
 | Open questions | `yidam open-questions` |
+
+The node page's two additions are the two nothing else in the system offers. **The class
+declaration beside the instance** — #605's second finding is that a corpus node is a typed
+record edited as free text, and showing the values without the contract they answer to
+reproduces exactly that. **Inbound edges** — `used-by` covers catalog entries only, and
+`orphan-in` reports their *absence* without ever naming the ones that are there.
+
+Both are traversal over what the binary already resolved. Inbound edges are matched on the
+envelope's `resolved` path and never on the raw `target`, which is relative to the authoring
+node's directory: comparing that text would be this process doing the path resolution
+`dangling_edge` owns, arriving as a three-line convenience.
+
+The node page lists a class's properties and does **not** say which are required, because the
+envelope does not carry it: `OntProperty` in
+[`cmd/graph.rs`](../../cli/src/cmd/graph.rs) serialises `name`, `type` and `description` only,
+while `missing-property`'s own rationale says a property declared `required: true` *gates*. So
+the one distinction between a property whose omission fails CI and one whose omission is
+merely reported does not reach this surface. A draft of the page rendered the column anyway and
+printed "optional" for every property in the corpus — a fabricated verdict arriving as a table
+column. The fix is the CLI's; #606 records it.
 
 ## The boundary, and why it is a test here
 
@@ -93,16 +114,26 @@ Every colour in `app.css` is a `var(--…)` and none is a literal. That keeps th
 ```
 npm install
 npm run build      # produces dist/server/entry.mjs, which bin/yidam-edit.mjs starts
-npm test           # boundary gates, origin rule, parity, flags, root mismatch
+npm test           # boundary gates, graph traversal, origin rule, parity, flags, root
 npm run dev        # astro dev
 ```
 
 Or `mise run ci-editor-web` from the repository root, which is what CI runs.
 
 `npm test` needs no binary and no corpus: everything it asserts is a property of this package.
-Driving the app against a real corpus uses `mise run ext-fixture`, which stages the reports
-golden corpus as a real repository — so what CI checks and what a person sees stay one
-repository.
+
+To drive the app against a real corpus:
+
+```
+mise run edit-dev                        # stages the fixture, builds, serves it
+YIDAM_EDIT_PORT=4399 mise run edit-dev   # if 8788 is taken
+```
+
+That stages the reports golden corpus — the same one the goldens and the extension's tests
+assert against, through the same `stage.toml` — as a real git repository at
+`.local/ext-fixture`, then serves it through `bin/yidam-edit.mjs` rather than through `astro
+dev`, so what runs is the entry point `npx @yidam/edit` runs. What CI checks and what a person
+sees stay one repository.
 
 ## What is not here yet
 

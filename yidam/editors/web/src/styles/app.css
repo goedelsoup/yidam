@@ -124,6 +124,31 @@ table.corpus td {
   font-size: var(--text-sm);
 }
 
+/* Traversal is the point of a node page, so a link into the corpus reads as one. Underlined
+ * rather than coloured alone: the two colours that mean something on this surface are the
+ * dangling edge's and the gate's, and a third would compete with both. */
+main a {
+  color: var(--text-primary);
+  text-decoration-color: var(--border-accent);
+  text-underline-offset: 0.15em;
+}
+
+.node-id {
+  margin: 0 0 1rem;
+  color: var(--text-secondary);
+}
+
+.node-description {
+  max-width: 46rem;
+}
+
+/* An absence, said out loud. A node with no inbound edges and a page that renders nothing
+ * where they would be are indistinguishable, which is the shape of the mistake this surface
+ * keeps finding: an empty answer and a missing one look identical. */
+.node-empty {
+  color: var(--text-secondary);
+}
+
 ul.edges,
 ul.questions {
   list-style: none;

@@ -1,0 +1,187 @@
+---
+/**
+ * One node: what it says, what its class declared, and what points at it.
+ *
+ * Browse lists nodes and their outgoing edges, which is the corpus seen from above. This is
+ * the corpus seen from a node, and the two things it adds are the two a reader cannot get
+ * from any surface today. **The class declaration beside the instance** — the second finding
+ * in #605 is that a corpus node is a typed record being edited as free text, and a page that
+ * shows the values without the contract they are meant to satisfy reproduces exactly that.
+ * **Inbound edges** — nothing in this system names them: `used-by` covers catalog entries
+ * only, and `orphan-in` reports their absence without ever listing the ones that are there.
+ *
+ * Every verdict here is the binary's. `exists` on an edge is `dangling_edge`'s own answer,
+ * carried through `spawnReport` and rendered; nothing below decides whether a link is broken,
+ * and a property listed as declared-and-absent is a *description* of the instance rather than
+ * a finding — `missing-property` is the check that turns that into a verdict, and it is on
+ * the reports page because that is where the binary's answer goes.
+ *
+ * A rest route rather than a query parameter: a node's identity is a path, and a URL that
+ * looks like the file is one a person can read, share and edit in the address bar.
+ */
+import Shell from '../../layouts/Shell.astro'
+import { session } from '../../lib/session.ts'
+import { spawnReport } from '../../lib/cli.ts'
+import {
+  classOf,
+  nodeById,
+  nodeHref,
+  referencesTo,
+  type GraphReport,
+} from '../../lib/graph.ts'
+
+const id = Astro.params.id ?? ''
+
+const { root, binary } = await session()
+const result =
+  binary.command === null
+    ? null
+    : await spawnReport<GraphReport>({ command: binary.command, root }, 'graph')
+
+const report = result && result.ok ? result.report : null
+const nodes = report?.nodes ?? []
+const node = nodeById(nodes, id)
+const declaration = node ? classOf(report?.classes ?? [], node) : undefined
+const inbound = node ? referencesTo(nodes, id) : []
+
+// Which declared properties this instance carries is not something this page can answer:
+// `graph --format json` reports a node's identity, class and edges, and not its property
+// values. So the class contract is rendered as a contract — what the class asks for — and the
+// question of whether this instance honours it is left to `missing-property`, which is the
+// check that owns it. Restating it here from a report that does not carry the values would be
+// a guess wearing a verdict's clothes.
+const properties = declaration?.properties ?? []
+
+// A node that is not in the report is a real state with two very different causes — a wrong
+// URL, or a corpus that does not contain it — and the header already distinguishes the
+// second. 404 rather than a 200 with an apology on it: a link checker reading this surface
+// should be told, and `browse` is the page that only ever links to nodes that exist.
+if (!node) {
+  Astro.response.status = 404
+}
+---
+
+<Shell title={node ? (node.label ?? id) : 'Node not found'}>
+  {
+    !node ? (
+      <>
+        <p>
+          No node <code>{id}</code> in this corpus.
+        </p>
+        <p>
+          <a href="/browse">Browse</a> lists every node the binary reported. If that list is
+          empty, the header above says why.
+        </p>
+      </>
+    ) : (
+      <>
+        <p class="node-id">
+          <code>{node.node}</code>
+        </p>
+
+        <dl class="status-grid">
+          <dt>class</dt>
+          <dd>
+            {declaration ? (
+              <>
+                <code>{declaration.class}</code>
+                {declaration.label && <span class="node-label"> {declaration.label}</span>}
+              </>
+            ) : (
+              <code>{node.class ?? '—'}</code>
+            )}
+          </dd>
+        </dl>
+
+        {node.description && <p class="node-description">{node.description}</p>}
+
+        <section>
+          <h2>Declared properties</h2>
+          {properties.length === 0 ? (
+            <p class="node-empty">
+              {declaration
+                ? 'This class declares no properties.'
+                : 'No class declaration for this node in the report.'}
+            </p>
+          ) : (
+            <>
+              {/* The contract, not a checklist against this instance — see above.
+                  No required/optional column: the envelope does not carry `required`, and a
+                  draft of this page that printed one said "optional" for every property in the
+                  corpus. See `lib/graph.ts` on `GraphProperty`. */}
+              <table class="corpus">
+                <thead>
+                  <tr>
+                    <th>Property</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {properties.map((property) => (
+                    <tr>
+                      <td>
+                        <code>{property.name}</code>
+                      </td>
+                      <td>{property.type || '—'}</td>
+                      <td>{property.description || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+        </section>
+
+        <section>
+          <h2>Edges out</h2>
+          {(node.links ?? []).length === 0 ? (
+            <p class="node-empty">This node carries no edges.</p>
+          ) : (
+            <ul class="edges">
+              {(node.links ?? []).map((link) => {
+                const target = link.resolved || link.target
+                return (
+                  <li class={link.exists === false ? 'dangling' : undefined}>
+                    <span class="relationship">{link.relationship}</span>{' '}
+                    {/* A link only where there is something to link to. `exists` is the
+                        binary's answer; a route to a node it says is absent would render the
+                        404 above and read as this page being broken. */}
+                    {link.exists === false || !link.resolved ? (
+                      <code>{target}</code>
+                    ) : (
+                      <a href={nodeHref(link.resolved)}>
+                        <code>{target}</code>
+                      </a>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </section>
+
+        <section>
+          <h2>Edges in</h2>
+          {inbound.length === 0 ? (
+            <p class="node-empty">
+              Nothing in this corpus points at this node. <code>orphan-in</code> on the reports
+              page is the check that decides whether that is worth saying.
+            </p>
+          ) : (
+            <ul class="edges">
+              {inbound.map((reference) => (
+                <li>
+                  <span class="relationship">{reference.relationship}</span>{' '}
+                  <a href={nodeHref(reference.from)}>
+                    <code>{reference.from}</code>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </>
+    )
+  }
+</Shell>
