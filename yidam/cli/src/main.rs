@@ -678,6 +678,34 @@ enum Command {
         #[command(subcommand)]
         sub: Option<yidam::KutenCommand>,
     },
+    /// Read a range of commits against the criteria this corpus declared
+    ///
+    /// The genesis rubric scores a repository's birth and fires once. Nothing said whether a
+    /// *session's* work was any good except the gates, which say only whether it broke
+    /// something. This reports one row per declared criterion, with the evidence each reading
+    /// came from, and no overall number.
+    ///
+    /// The criteria come from the vendored kuten's `rubric` slot, or from the template's own
+    /// where a repository holds no kuten — which is every repository today, and the report
+    /// says whose selection it used.
+    ///
+    /// It writes nothing and exits zero however it reads: a kuten binds nobody, and a score
+    /// that gated would be a gate decided by one. The single refusal is a range spanning a
+    /// kuten revision, where there is no one set of criteria to answer with.
+    Score {
+        /// Git range, e.g. `main..HEAD`, `HEAD~5`, `abc123..def456`
+        ///
+        /// Required, as `diff`'s is. A default range would produce a number about a scope
+        /// nobody chose.
+        range: String,
+        /// Also print the questions a person answers and nothing scores
+        #[arg(long)]
+        brief: bool,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
 }
 
 /// The ontology migrations, each naming exactly what it changes.
@@ -1008,5 +1036,10 @@ fn main() -> Result<()> {
         Command::Vault { sub } => yidam::run_vault(sub),
         Command::Policy { sub } => yidam::run_policy(sub),
         Command::Kuten { sub } => yidam::run_kuten(sub),
+        Command::Score {
+            range,
+            brief,
+            format,
+        } => yidam::run_score(&range, format, brief),
     }
 }

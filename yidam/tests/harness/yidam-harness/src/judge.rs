@@ -237,12 +237,15 @@ mod tests {
         repo_root().join("yidam/prelude/sdks/parity/fixtures/reports/basic/repo")
     }
 
+    fn the_rubric() -> Rubric {
+        rubric::load(&repo_root().join("yidam/tests/rubric.md")).unwrap()
+    }
+
     fn built() -> Brief {
-        let rubric = rubric::load(&repo_root().join("yidam/tests/rubric.md")).unwrap();
         let guidance = std::fs::read_to_string(repo_root().join("yidam/tests/judge.md")).unwrap();
         brief(
             &guidance,
-            &rubric,
+            &the_rubric(),
             &test_scenario(),
             &fixture_result(),
             None,
@@ -269,11 +272,22 @@ mod tests {
 
     /// The criteria come from rubric.md, so adding one there holds the judge to it without
     /// anyone editing this file.
+    ///
+    /// The comment above said that while the body below read `for id in ["Q1", …, "Q7"]`, and
+    /// rubric.md had stated a Q8 since the day after it was written. The set is read from the
+    /// document now, and the assertion is on the bullet `brief` renders rather than on the ID
+    /// alone: `Q1` appears in the reply schema whatever the criteria block contains, so a
+    /// bare `contains("Q1")` was satisfied by the prompt's own boilerplate.
     #[test]
     fn the_brief_states_every_criterion_the_rubric_states() {
+        let rubric = the_rubric();
         let rendered = built().render();
-        for id in ["Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7"] {
-            assert!(rendered.contains(id), "{id} is not in the brief");
+        for c in &rubric.quality {
+            assert!(
+                rendered.contains(&format!("- **{}** — {}", c.id, c.description)),
+                "{} is not in the brief's criteria block",
+                c.id
+            );
         }
     }
 

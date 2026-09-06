@@ -271,7 +271,25 @@ fn declared_slots() -> BTreeSet<String> {
 /// cell. `question-pressure` is hyphenated in prose and underscored as a key, and the two are
 /// reconciled here rather than in every caller.
 fn slot_table(text: &str) -> BTreeSet<String> {
-    let mut out = BTreeSet::new();
+    first_column(text, "Slot")
+}
+
+/// The first column of every body row of the markdown table whose first header cell is
+/// `header`, unwrapped from whichever of `**bold**` or `` `code` `` opens the cell.
+///
+/// One parser, because the layer names three sets this way — the slots, their readers, and
+/// the question-pressure kinds — and three copies of "read a markdown table" is how two of
+/// them come to disagree about what a row is.
+fn first_column(text: &str, header: &str) -> BTreeSet<String> {
+    table_rows(text, header)
+        .into_iter()
+        .filter_map(|cells| cell_name(cells.first().copied().unwrap_or_default()))
+        .collect()
+}
+
+/// The body rows of the table whose first header cell is `header`, as cell slices.
+fn table_rows<'a>(text: &'a str, header: &str) -> Vec<Vec<&'a str>> {
+    let mut out = Vec::new();
     let mut inside = false;
     for line in text.lines() {
         let trimmed = line.trim();
@@ -279,30 +297,32 @@ fn slot_table(text: &str) -> BTreeSet<String> {
             inside = false;
             continue;
         }
-        let first = trimmed
+        let cells: Vec<&str> = trimmed
             .trim_start_matches('|')
+            .trim_end_matches('|')
             .split('|')
-            .next()
-            .unwrap_or_default()
-            .trim();
-        if first == "Slot" {
+            .map(str::trim)
+            .collect();
+        if cells.first().copied() == Some(header) {
             inside = true;
             continue;
         }
         if !inside {
             continue;
         }
-        let Some(name) = ["**", "`"].iter().find_map(|delim| {
-            first
-                .strip_prefix(delim)
-                .and_then(|rest| rest.split_once(delim))
-                .map(|(name, _)| name)
-        }) else {
-            continue;
-        };
-        out.insert(name.trim().replace('-', "_"));
+        out.push(cells);
     }
     out
+}
+
+/// The name a table cell opens with, unwrapped from `**` or a backtick. `None` for the
+/// `|---|` separator row and for any cell that does not open with a delimited name.
+fn cell_name(cell: &str) -> Option<String> {
+    ["**", "`"].iter().find_map(|delim| {
+        cell.strip_prefix(delim)
+            .and_then(|rest| rest.split_once(delim))
+            .map(|(name, _)| name.trim().replace('-', "_"))
+    })
 }
 
 fn unknown_slots(doc: &Value, allowed: &BTreeSet<String>) -> Vec<String> {
@@ -608,16 +628,28 @@ fn the_inquiry_profile_is_readable_by_the_binary() {
     assert_eq!(profile.name, "inquiry");
     assert!(profile.revision >= 1);
 
+    // Re-fitted 2026-09-06 (#644) from the six measurements the profile now records, by the
+    // rule under `measured.estimator`: the observed range, quoted to two decimal places,
+    // rounded **outward**. A0 quoted the same measurements rounded inward and put two of the
+    // six outside the bands their own numbers had defined.
+    //
+    // These four assertions pin the published values. That the values contain the evidence
+    // they were fitted from is a different question, and it is asked where the evidence is —
+    // `kuten_cluster::every_band_contains_the_measurements_it_was_fitted_from`.
     let phases = profile.phases.expect("the phases slot is populated");
-    assert_eq!(phases.types.len(), 4, "PHASES.md's four types");
-    assert_eq!(phases.commit_share.low, 0.13);
-    assert_eq!(phases.commit_share.high, 0.26);
+    assert_eq!(phases.commit_share.low, 0.12);
+    assert_eq!(phases.commit_share.high, 0.27);
 
     let classes = profile.classes.expect("the classes slot is populated");
     assert_eq!(classes.nodes_per_commit.low, 0.50);
-    assert_eq!(classes.nodes_per_commit.high, 1.11);
+    assert_eq!(classes.nodes_per_commit.high, 1.12);
     assert_eq!(classes.median_node_lines.low, 35.0);
     assert_eq!(classes.median_node_lines.high, 62.0);
+
+    // The phase *types* are not counted here. A `len() == 4` was the only thing catching a
+    // dropped type, and it caught it by knowing the answer — so it went on passing while
+    // `PHASES.md` and the profile drifted in every other direction.
+    // [`the_phase_type_enumeration_is_one_set_in_two_documents`] holds the set instead.
 
     let vocabulary = profile
         .vocabulary
@@ -626,25 +658,369 @@ fn the_inquiry_profile_is_readable_by_the_binary() {
         vocabulary.off_vocabulary_share,
         yidam::kuten::Band {
             low: 0.0,
-            high: 0.0
+            high: 0.02
         },
-        "exactly 0% in all six, and the two that were not are the object-coupled pair"
+        "0 to 1.64% across the six, re-measured 2026-09-06. A0's \"exactly 0%\" was produced \
+         by stripping the `(scope)` suffix GRAPH.md forbids before matching the verb, which \
+         is the one way this population reads as zero. The object-coupled pair is still \
+         outside, at 25% and 4%"
     );
 }
 
-/// The four phase types are the ones `PHASES.md` carries, read out of the document rather
-/// than restated. A profile declaring a type the prelude never describes is a practice
-/// nobody can run.
+// ── the phase-type enumeration ────────────────────────────────────────────────
+
+/// The bold lead-ins inside one `##` section of a markdown document.
+///
+/// **A section, and never the document.** `PHASES.md` bolds a dozen phrases — *One phase, one
+/// branch*, *Bound phases*, *Settle with a merge commit* — and a scan over the whole file
+/// reads every one of them as a phase type. Restricting to the section that enumerates them,
+/// and to the lead-in form the document actually uses (a bold run opening a paragraph), is
+/// what makes this read the enumeration rather than the prose around it.
+fn bold_lead_ins(text: &str, heading: &str) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    let mut inside = false;
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("## ") {
+            inside = rest.trim() == heading;
+            continue;
+        }
+        if !inside {
+            continue;
+        }
+        let Some(name) = line
+            .strip_prefix("**")
+            .and_then(|rest| rest.split_once("**"))
+            .map(|(name, _)| name.trim().to_string())
+        else {
+            continue;
+        };
+        out.insert(name);
+    }
+    out
+}
+
+/// **The phase types are one set written in two documents, and the two must be equal.**
+///
+/// This replaces a check that ran in one direction — every declared type appears somewhere in
+/// `PHASES.md` — and a `len() == 4` beside it that caught a dropped type by knowing the
+/// answer. Three ways of breaking the pair were green under that arrangement: adding a fifth
+/// type to `PHASES.md`, deleting the section that enumerates them, and any bold sentence
+/// elsewhere in the file standing in for a type that no longer exists. Set equality against
+/// the *section* closes all three.
 #[test]
-fn the_declared_phase_types_are_the_ones_the_prelude_describes() {
-    let phases =
-        std::fs::read_to_string(repo_root().join("yidam/prelude/PHASES.md")).expect("PHASES.md");
+fn the_phase_type_enumeration_is_one_set_in_two_documents() {
+    let path = repo_root().join("yidam/prelude/PHASES.md");
+    let phases = std::fs::read_to_string(&path).expect("PHASES.md");
+    let described = bold_lead_ins(&phases, "Phase types");
+    assert!(
+        !described.is_empty(),
+        "{} has no `## Phase types` section with bold lead-ins in it — this check is reading \
+         nothing, and would pass against any profile at all",
+        path.display()
+    );
+
     let text = std::fs::read_to_string(kuten_dir().join("inquiry/kuten.yml")).unwrap();
     let profile = yidam::kuten::Profile::parse(&text).unwrap();
-    for kind in profile.phases.expect("phases").types {
+    let declared: BTreeSet<String> = profile
+        .phases
+        .expect("the phases slot is populated")
+        .types
+        .into_iter()
+        .collect();
+
+    assert_eq!(
+        declared, described,
+        "the profile declares {declared:?} and PHASES.md describes {described:?}. The \
+         enumeration lives in both documents and a reader is entitled to find the same set in \
+         either; a type in one and not the other is a practice nobody can run or a phase type \
+         nobody can declare."
+    );
+}
+
+/// The section reader ignores the document around the section it was asked for.
+#[test]
+fn the_lead_in_reader_reads_one_section_and_not_the_file() {
+    let doc = "# Title\n\n**Preamble** — not a type.\n\n## Phase types\n\n\
+               **Investigation** — a type.\n\n**Extraction** — a type.\n\n\
+               ## Phase discipline\n\n**One phase, one branch** — not a type.\n";
+    assert_eq!(
+        bold_lead_ins(doc, "Phase types"),
+        ["Investigation".to_string(), "Extraction".to_string()]
+            .into_iter()
+            .collect()
+    );
+    // A document with no such section yields nothing, so the guard above can tell "read the
+    // section and found none" from "found the four".
+    assert!(bold_lead_ins(doc, "Phase kinds").is_empty());
+}
+
+// ── the question-pressure kinds ───────────────────────────────────────────────
+
+/// **The layer document names every kind the binary parses, and no others.**
+///
+/// `coverage` is reserved and unimplemented, which is exactly the state a reader will not
+/// infer from a parser: a kind that exists in the model and in no document is a blank for
+/// somebody to invent a meaning for, and a kind in the document that does not parse is a
+/// declaration that fails at the profile it was written for.
+#[test]
+fn the_layer_document_names_every_question_pressure_kind() {
+    let readme = std::fs::read_to_string(kuten_dir().join("README.md")).expect("kuten/README.md");
+    let documented = first_column(&readme, "Kind");
+    let modelled: BTreeSet<String> = yidam::kuten::PressureKind::ALL
+        .iter()
+        .map(|k| k.name().to_string())
+        .collect();
+    assert_eq!(
+        documented, modelled,
+        "the layer document and the parser name different question-pressure kinds"
+    );
+
+    // And each documented name is the name that parses — the table is the reader's spelling
+    // guide, not a gloss beside one.
+    for name in &documented {
+        let doc = format!("kuten: x\nrevision: 1\nquestion_pressure:\n  kind: {name}\n");
+        yidam::kuten::Profile::parse(&doc)
+            .unwrap_or_else(|e| panic!("the document names `{name}` and it does not parse ({e})"));
+    }
+}
+
+// ── the rubric's criteria ─────────────────────────────────────────────────────
+
+/// Every criterion the shipped profiles declare, discovered from the profiles.
+///
+/// **Parsed out of `rubric.criteria`, never listed here.** #661 is what a hardcoded roster
+/// does: it stops covering new members without ever going red, so a criterion added to the
+/// profile tomorrow would be guarded by nothing and a criterion deleted from it would be
+/// guarded by a test that still passes.
+fn declared_criteria() -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for (name, doc) in profiles() {
+        let Some(rubric) = doc.get("rubric") else {
+            continue;
+        };
+        let criteria = rubric
+            .get("criteria")
+            .and_then(Value::as_sequence)
+            .unwrap_or_else(|| panic!("`{name}` declares a rubric with no `criteria:` sequence"));
+        for c in criteria {
+            let id = c.as_str().unwrap_or_else(|| {
+                panic!("`{name}` names a criterion that is not a string: {c:?}")
+            });
+            out.insert(id.to_string());
+        }
+    }
+    out
+}
+
+/// **The declared criteria and the implemented ones are one set, in both directions.**
+///
+/// A criterion declared in a vendored profile and implemented by nothing is a corpus being
+/// scored on a word — the report says `unmeasurable` and the practice has no reading. A
+/// criterion implemented in the binary and declared by no profile is the failure this layer
+/// exists to name from the other end: a surface with no consumer, which is exactly how
+/// `rubric` sat named and empty until #286.
+///
+/// Both sides are discovered. The declarations come out of `kuten.yml`; the implementations
+/// come out of `Criterion::ALL`, which is the list `yidam score` dispatches on rather than a
+/// second copy of it.
+#[test]
+fn every_declared_criterion_is_implemented_and_every_implemented_one_is_declared() {
+    let declared = declared_criteria();
+    assert!(
+        !declared.is_empty(),
+        "no profile declares a `rubric.criteria` — this check is reading nothing and would \
+         pass against any binary at all"
+    );
+    let implemented: BTreeSet<String> = yidam::score::Criterion::ALL
+        .iter()
+        .map(|c| c.id().to_string())
+        .collect();
+    assert_eq!(
+        declared, implemented,
+        "the shipped profiles declare {declared:?} and the binary implements {implemented:?}. \
+         A declared criterion nothing computes is a corpus scored on a word; an implemented \
+         criterion no practice declares is a surface with no consumer."
+    );
+
+    // And each declared id is the id that resolves — the profile is the spelling, not a gloss
+    // beside one.
+    for id in &declared {
         assert!(
-            phases.contains(&format!("**{kind}**")),
-            "`{kind}` is declared as a phase type and PHASES.md does not describe one"
+            yidam::score::Criterion::from_id(id).is_some(),
+            "`{id}` is declared and does not resolve"
+        );
+    }
+}
+
+/// A criterion that was measured and rejected must not also be declared.
+///
+/// The rejections are recorded in the model with the measurement that dropped them. A profile
+/// declaring one would be re-proposing a criterion this layer already priced, and `score`
+/// would answer `unmeasurable` for the rest of that profile's life without anybody being told
+/// why.
+#[test]
+fn no_profile_declares_a_criterion_that_was_measured_and_rejected() {
+    let declared = declared_criteria();
+    for rejected in yidam::score::CONSIDERED_AND_REJECTED {
+        assert!(
+            !declared.contains(rejected.id),
+            "a profile declares `{}`, which was measured and rejected: {}",
+            rejected.id,
+            rejected.why
+        );
+    }
+}
+
+// ── every populated slot has a consumer ───────────────────────────────────────
+
+/// Slot → the surfaces the layer document says read it, from the table's `Read by` column.
+///
+/// The tokens are a closed set — `check`, `block`, `none` — and an unknown one fails here
+/// rather than being silently treated as no claim.
+fn declared_readers() -> BTreeMap<String, BTreeSet<String>> {
+    let readme = std::fs::read_to_string(kuten_dir().join("README.md")).expect("kuten/README.md");
+    let column = read_by_column(&readme).expect("the slot table has a `Read by` column");
+
+    let mut out = BTreeMap::new();
+    for cells in table_rows(&readme, "Slot") {
+        let Some(slot) = cells.first().copied().and_then(cell_name) else {
+            continue;
+        };
+        let cell = cells.get(column).copied().unwrap_or_default();
+        let mut tokens = BTreeSet::new();
+        for piece in cell.split(',') {
+            let Some(token) = cell_name(piece.trim()) else {
+                continue;
+            };
+            assert!(
+                ["check", "block", "none"].contains(&token.as_str()),
+                "`{slot}` names `{token}` as a reader, which is not one of the surfaces a slot \
+                 can reach: `check`, `block`, `none`"
+            );
+            tokens.insert(token);
+        }
+        assert!(
+            !tokens.is_empty(),
+            "`{slot}` names no reader at all. `none` is the way to say nothing reads it, and \
+             saying it is the point"
+        );
+        assert!(
+            !(tokens.contains("none") && tokens.len() > 1),
+            "`{slot}` claims `none` and a reader in the same breath"
+        );
+        out.insert(slot, tokens);
+    }
+    out
+}
+
+/// The index of the `Read by` column in the slot table's header row.
+fn read_by_column(text: &str) -> Option<usize> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with('|'))
+        .find(|l| {
+            l.trim_start_matches('|')
+                .split('|')
+                .next()
+                .is_some_and(|c| c.trim() == "Slot")
+        })
+        .and_then(|header| {
+            header
+                .trim_start_matches('|')
+                .trim_end_matches('|')
+                .split('|')
+                .position(|c| c.trim() == "Read by")
+        })
+}
+
+/// **Every populated slot reaches a reader, and every claimed reader actually reads it.**
+///
+/// This is the mechanical form of the failure RFC-0028 names by name and this repository
+/// keeps finding in itself: a surface with no consumer. A slot is populated in a vendored
+/// profile, vendored into every derived corpus, and read by nothing — and nothing goes red,
+/// because there is no assertion anywhere that a declaration has to arrive somewhere.
+///
+/// It is guarded in **both** directions, which is what makes it more than a spelling check.
+/// Dropping a slot from the profile must change exactly the surfaces the layer document says
+/// read it: a slot claiming `check` whose removal leaves `kuten check` identical is a
+/// documented consumer that does not exist, and a slot claiming `none` whose removal changes
+/// a report is a consumer nobody documented.
+#[test]
+fn every_populated_slot_has_a_consumer() {
+    use yidam::kuten::{compare, render_block, Declaration, Measurement, Profile, Vintage};
+
+    let readers = declared_readers();
+    let text = std::fs::read_to_string(kuten_dir().join("inquiry/kuten.yml")).expect("inquiry");
+    let doc: Value = serde_yaml::from_str(&text).expect("the profile is YAML");
+    let full = Profile::parse(&text).expect("the binary can read it");
+    let declaration = Declaration::parse("kuten: inquiry\nrevision: 1\n").unwrap();
+
+    // A repository in the middle of every band, holding open questions, at a vintage that
+    // gates nothing off. A probe that was vintage-exempt or empty would make two slots
+    // report identically whatever they declare.
+    let probe = Measurement {
+        commits: 100,
+        phase_commits: 20,
+        off_vocabulary_commits: 0,
+        nodes: 80,
+        median_node_lines: Some(48.0),
+        open_questions: 6,
+    };
+    let vintage = Vintage::read("| `phase` | settled |\n\nThis list is closed:\n");
+    let check_of =
+        |p: &Profile| serde_json::to_string(&compare(p, &probe, &vintage)).expect("findings");
+
+    let slots: Vec<String> = doc
+        .as_mapping()
+        .expect("a mapping")
+        .keys()
+        .filter_map(Value::as_str)
+        .filter(|k| !PROFILE_HEADER.contains(k))
+        .map(str::to_string)
+        .collect();
+    assert!(
+        slots.len() > 3,
+        "read {} slot(s) out of the shipped profile — this is guarding almost nothing: {slots:?}",
+        slots.len()
+    );
+
+    for slot in slots {
+        let reduced: serde_yaml::Mapping = doc
+            .as_mapping()
+            .expect("a mapping")
+            .iter()
+            .filter(|(k, _)| k.as_str() != Some(slot.as_str()))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let reduced = Value::Mapping(reduced);
+        let without = Profile::parse(&serde_yaml::to_string(&reduced).expect("re-serialised"))
+            .unwrap_or_else(|e| panic!("the profile without `{slot}` does not parse ({e})"));
+
+        let mut observed = BTreeSet::new();
+        if check_of(&full) != check_of(&without) {
+            observed.insert("check".to_string());
+        }
+        if render_block(Some(&declaration), Some(&full))
+            != render_block(Some(&declaration), Some(&without))
+        {
+            observed.insert("block".to_string());
+        }
+        if observed.is_empty() {
+            observed.insert("none".to_string());
+        }
+
+        let declared = readers.get(&slot).unwrap_or_else(|| {
+            panic!(
+                "`{slot}` is populated in the profile and the layer document's slot table has \
+                 no row for it, so nothing says whether anything reads it"
+            )
+        });
+        assert_eq!(
+            &observed, declared,
+            "`{slot}` is documented as read by {declared:?} and is actually read by \
+             {observed:?}. A slot populated in a vendored profile that reaches no report is a \
+             declaration nothing consumes — the failure this layer exists to stop — and a \
+             documented reader that does not read it is the same failure with a paper trail."
         );
     }
 }

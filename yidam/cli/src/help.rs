@@ -85,7 +85,11 @@ pub const GROUPS: &[Group] = &[
         // for a person about how the practice is going. `kuten check` exits zero however far
         // a corpus has drifted, and filing it under the gates would teach a reader that
         // having drifted is a defect — which is the one reading it exists to prevent.
-        commands: &[r("due"), w("kuten")],
+        // `score` belongs here for the same reason, one unit of work in. It reads a range
+        // against declared criteria and reports a row each; it has no verdict to give and
+        // exits zero however it reads, so filing it under the gates would teach a reader
+        // that a low reading is a defect — which is the one thing it must not say.
+        commands: &[r("due"), w("kuten"), r("score")],
     },
     Group {
         title: "README blocks — each rewrites its <!-- REGEN --> block where it is run",

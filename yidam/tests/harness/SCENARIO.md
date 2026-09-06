@@ -111,7 +111,7 @@ only quality criterion that is scenario-specific rather than universal.
 
 ### Structural check binding
 
-Structural checks (S1–S7 in `tests/rubric.md`) apply uniformly to all scenarios.
+Structural checks (the S rows of `tests/rubric.md`) apply uniformly to all scenarios.
 There is no per-scenario override mechanism — if a check needs to be scenario-aware,
 it should be a quality check assessed by the judge, not a structural check.
 

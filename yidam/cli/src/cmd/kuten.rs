@@ -56,7 +56,7 @@ pub fn run(sub: Option<KutenCommand>) -> Result<()> {
 /// Takes the two documents rather than a root so the rendering is testable without a
 /// repository — and so the no-kuten arm, which is every repository today, is exercised by
 /// the same function that renders the held one.
-pub(crate) fn render_block(
+pub fn render_block(
     declaration: Option<&kuten::Declaration>,
     profile: Option<&kuten::Profile>,
 ) -> String {
@@ -101,11 +101,72 @@ pub(crate) fn render_block(
             share_band(vocabulary.off_vocabulary_share)
         ));
     }
+    if let Some(object) = &profile.object {
+        // The direction, and the consequence a reader needs in the same breath. An
+        // `authored` corpus is what every history-derived surface already assumes; a
+        // `projected` one is the state that made those surfaces answer nothing, and saying
+        // only the word would leave the reader to re-derive what it means (RFC-0028 §6).
+        out.push_str(&format!(
+            "- **Object** — {}, so its history is {}.\n",
+            object.direction.describe(),
+            match object.direction {
+                kuten::Direction::Authored => "the record",
+                kuten::Direction::Projected =>
+                    "the project's and not the corpus's: `replay`, `--at`, `log --epistemic` \
+                     and the residence clocks do not apply",
+            }
+        ));
+    }
+    if let Some(pressure) = &profile.question_pressure {
+        out.push_str(&format!(
+            "- **Questions** — this practice presses toward {} ones. It creates the pressure \
+             and authors nothing.\n",
+            pressure.kind.name()
+        ));
+    }
+    if let Some(rubric) = &profile.rubric {
+        // **The block, and not `check`.** The criteria are read by `yidam score <range>`,
+        // which is not a corpus-wide report and has no place in one: `check` measures a
+        // repository's whole history against declared bands, and a contribution score is
+        // about a range somebody chose. What the block owes the reader is *which* criteria
+        // the next session will be read against — before the session, where an agent meets
+        // it — so the slot's reader is `block`.
+        out.push_str(&format!(
+            "- **Contribution** — a session's work is read against {}. `yidam score <range>` \
+             reports one row each, with the evidence, and no overall number.\n",
+            list(&criteria_glosses(&rubric.criteria))
+        ));
+    }
     out.push_str(
         "\nIt narrows the loop and may not widen the model, and it binds nobody: divergence \
          from it is a question for a person, not a defect. Ask `yidam kuten check`.",
     );
     out
+}
+
+/// Each declared criterion as `` `id` (what it reads) ``.
+///
+/// The gloss comes from [`crate::score::Criterion`] rather than from the profile: a corpus
+/// declares *which* criteria it is read against, and what each one computes is the binary's
+/// answer, not a per-corpus one. A criterion this binary does not implement is named as such
+/// rather than dropped — the same reading `score` gives it.
+fn criteria_glosses(criteria: &[String]) -> Vec<String> {
+    criteria
+        .iter()
+        .map(|id| match crate::score::Criterion::from_id(id) {
+            Some(c) => format!("`{id}` ({})", c.gloss()),
+            None => format!("`{id}` (declared here and not implemented by this binary)"),
+        })
+        .collect()
+}
+
+/// `a`, `a and b`, `a, b and c` — an English list, because this renders into prose.
+fn list(items: &[String]) -> String {
+    match items {
+        [] => "no criteria at all".to_string(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
 }
 
 fn share_band(b: kuten::Band) -> String {
@@ -213,9 +274,12 @@ mod tests {
     fn profile() -> Profile {
         Profile::parse(
             "kuten: inquiry\nrevision: 1\ngloss: questions opened, and settled\n\
-             phases:\n  types: [Investigation, Extraction]\n  commit_share: {low: 0.13, high: 0.26}\n\
-             vocabulary:\n  verbs: [establish, open]\n  off_vocabulary_share: {low: 0.0, high: 0.0}\n\
-             classes:\n  nodes_per_commit: {low: 0.50, high: 1.11}\n  median_node_lines: {low: 35, high: 62}\n",
+             phases:\n  types: [Investigation, Extraction]\n  commit_share: {low: 0.12, high: 0.27}\n\
+             vocabulary:\n  verbs: [establish, open]\n  off_vocabulary_share: {low: 0.0, high: 0.02}\n\
+             classes:\n  nodes_per_commit: {low: 0.50, high: 1.12}\n  median_node_lines: {low: 35, high: 62}\n\
+             object:\n  direction: authored\n\
+             question_pressure:\n  kind: epistemic\n\
+             rubric:\n  criteria: [register, landing, questions]\n",
         )
         .unwrap()
     }
@@ -231,6 +295,58 @@ mod tests {
         assert!(text.contains("revision 1"), "{text}");
         assert!(text.contains("Investigation"), "{text}");
         assert!(text.contains("binds nobody"), "{text}");
+    }
+
+    /// The two slots A3 populates reach the document the agent actually reads. A declaration
+    /// nothing in the loop reads is this epic's own diagnosed failure aimed at its centre.
+    #[test]
+    fn the_block_names_the_direction_and_the_pressure() {
+        let text = render_block(Some(&declaration(1)), Some(&profile()));
+        assert!(text.contains("authored in git"), "{text}");
+        assert!(text.contains("epistemic"), "{text}");
+
+        let projected =
+            Profile::parse("kuten: mirror\nrevision: 1\nobject:\n  direction: projected\n")
+                .unwrap();
+        let text = render_block(Some(&declaration(1)), Some(&projected));
+        assert!(text.contains("projected from its object"), "{text}");
+        assert!(
+            text.contains("do not apply"),
+            "a projected corpus's reader is told which surfaces stop answering: {text}"
+        );
+    }
+
+    /// **The `rubric` slot's only reader.** The criteria have to reach the document an agent
+    /// meets at session start, and they have to arrive glossed: a bare list of three words is
+    /// a declaration nobody can act on, which is a surface with no consumer wearing one.
+    #[test]
+    fn the_block_names_each_criterion_and_what_it_reads() {
+        let text = render_block(Some(&declaration(1)), Some(&profile()));
+        for c in crate::score::Criterion::ALL {
+            assert!(text.contains(c.id()), "`{}` missing from {text}", c.id());
+            assert!(
+                text.contains(c.gloss()),
+                "`{}` arrives unglossed: {text}",
+                c.id()
+            );
+        }
+        assert!(text.contains("yidam score"), "{text}");
+        assert!(
+            text.contains("no overall number"),
+            "the block must not read as a score somebody passes: {text}"
+        );
+    }
+
+    /// A criterion the profile declares and this binary does not implement is named as such.
+    /// Dropping it would make a newer profile's declaration silently invisible.
+    #[test]
+    fn a_criterion_the_binary_does_not_implement_is_named_in_the_block() {
+        let newer =
+            Profile::parse("kuten: inquiry\nrevision: 1\nrubric:\n  criteria: [sourcing]\n")
+                .unwrap();
+        let text = render_block(Some(&declaration(1)), Some(&newer));
+        assert!(text.contains("`sourcing`"), "{text}");
+        assert!(text.contains("not implemented by this binary"), "{text}");
     }
 
     /// The arm every repository is in today, and it must read as a state rather than a fault.
@@ -256,6 +372,7 @@ mod tests {
             off_vocabulary_commits: 0,
             nodes: 160,
             median_node_lines: Some(48.0),
+            open_questions: 12,
         };
         let vintage = Vintage::read("| `phase` | settled |\nThis list is closed");
         let findings = crate::kuten::compare(&profile(), &m, &vintage);

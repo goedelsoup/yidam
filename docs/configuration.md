@@ -95,6 +95,9 @@ index_after = 25
 
 [index]
 model = "BAAI/bge-small-en-v1.5"
+
+[object]
+paths = ["web/**", "crates/**"]
 ```
 
 ### `[lint] escalate_after`
@@ -160,6 +163,48 @@ saying it is content for retrieval to lag its own edits by that much.
 The embedding model `index-build` uses. Read only by `index-build`, which the light `reports`
 binary does not carry. The key is still *parsed* there, so a binary that cannot act on a model
 does not reject a config naming one. `yidam index-build --model` overrides it.
+
+### `[object] paths`
+
+Globs naming the artifact this corpus is *about*, relative to the repository root. A repository
+with a `web/` site or a `crates/` workspace beside its corpus has two commit registers. This
+key is how it says which paths are the second one.
+
+`**` spans any number of path segments and `*` any run within one. A glob also claims
+everything beneath what it names, so `"web"` and `"web/**"` say the same thing.
+
+Read by [`yidam lint --commits`](cli-reference.md#checks-and-gates). A commit touching **only** these paths
+is not checked against the corpus vocabulary. `feat:` on the artifact is not a corpus
+violation. Two derived repositories carry 30 and 72 such commits, every one reported today.
+
+Three rules govern the rest, and each is deliberate:
+
+| The commit touches | Governed by |
+|---|---|
+| Only declared object paths | Nothing — the corpus vocabulary does not reach it |
+| Both registers | The corpus |
+| No paths at all | The corpus |
+
+**A mixed commit raises no new finding.** The export act crosses the registers by design: it
+turns the corpus into `web/`. A rule firing on it would fire hardest on the best-behaved
+repositories. That measurement is in RFC-0028 §4.
+
+**A commit with no paths is corpus work.** `git log --name-only` lists nothing for a merge, so
+an authored merge arrives here with an empty list. Absence of evidence is not a declaration of
+jurisdiction.
+
+Absent means the repository has **one** register, and every commit is corpus work. That is
+what every repository did before this key existed, and it is what all six defining corpora do
+today.
+
+**`yidam kuten check` is not scoped by this key.** It measures every authored commit, because
+its numbers are read against a band. Scoping them would let a corpus move its own reading by
+widening this list, with no commit written.
+
+**The commit-msg hook is not scoped by it either.** `yidam vocabulary --check` runs before the
+commit exists and has no paths to read. So the hook still warns about `feat:` on an artifact
+while `lint --commits` stays silent. The asymmetry is recorded rather than fixed: closing it
+means changing a frozen MCP tool.
 
 ## `.yidam/policy/`
 

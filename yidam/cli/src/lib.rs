@@ -24,6 +24,9 @@ pub mod provenance;
 mod regen;
 pub mod report;
 mod retrieval;
+/// What a contribution is scored on. Public for the reason [`kuten`] is: the guard that holds
+/// the declared criteria to the implemented ones has to be able to ask both sides.
+pub mod score;
 pub mod universal;
 // Ungated, and that is the design rather than an oversight. The vault's addressing, cache
 // and `file://` backend need only `sha2`, `hex` and std — all base dependencies — so the
@@ -48,10 +51,10 @@ pub use cmd::{
     estimate, export, graph, graph_check, index_status, index_verify, label_range, label_symbols,
     lint, list_formats, log, migrate, neighbors, open_questions, overlay, pack, packages_index,
     parse_bench_goals, phases, propose, query, regen, relocate, rename, replay, run_export,
-    run_kuten, run_policy, run_vault, samudaya_audit, sangha, schema, serve_lsp, serve_mcp,
-    skills_index, slid_line_citation, status, unverified_line_citation, vault_status, vocabulary,
-    BenchGoal, BenchGoalSet, EmbedOptions, ExportFormat, ExportOptions, KutenCommand, LineCitation,
-    LineFragment, LintCheck, LintOptions, LintViolation, LogFilter, MigrateOperation,
+    run_kuten, run_policy, run_score, run_vault, samudaya_audit, sangha, schema, serve_lsp,
+    serve_mcp, skills_index, slid_line_citation, status, unverified_line_citation, vault_status,
+    vocabulary, BenchGoal, BenchGoalSet, EmbedOptions, ExportFormat, ExportOptions, KutenCommand,
+    LineCitation, LineFragment, LintCheck, LintOptions, LintViolation, LogFilter, MigrateOperation,
     PolicyCommand, ProposeOptions, RdfFormat, Relocation, VaultCommand,
 };
 
