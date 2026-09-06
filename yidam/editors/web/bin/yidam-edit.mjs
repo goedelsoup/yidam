@@ -19,6 +19,7 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from './args.mjs'
+import { claimPort } from './listen.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const ENTRY = path.join(here, '..', 'dist', 'server', 'entry.mjs')
@@ -39,11 +40,24 @@ if (!existsSync(ENTRY)) {
   process.exit(1)
 }
 
+const HOST = '127.0.0.1'
+
+// Before the URL is printed, not after. The adapter binds during module evaluation and
+// rejects a promise nothing here is handed, so a busy port used to print a URL, log two
+// unhandled rejections and exit 0 — leaving a person to open the other server on that port
+// and read a corpus that was not theirs. See `listen.mjs` for why this narrows the window
+// rather than closing it.
+const busy = await claimPort(port, HOST)
+if (busy) {
+  process.stderr.write(`${busy}\n`)
+  process.exit(1)
+}
+
 process.env.YIDAM_EDIT_ROOT = path.resolve(root)
-process.env.HOST = '127.0.0.1'
+process.env.HOST = HOST
 process.env.PORT = String(port)
 
-const url = `http://127.0.0.1:${port}/`
+const url = `http://${HOST}:${port}/`
 process.stdout.write(`yidam-edit — ${process.env.YIDAM_EDIT_ROOT}\n${url}\n`)
 
 await import(ENTRY)
