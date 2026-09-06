@@ -268,6 +268,82 @@ fn the_same_zero_reads_two_ways_and_only_the_prelude_decides() {
     );
 }
 
+// ── the reader, against a document ────────────────────────────────────────────
+
+/// **The probes are read against the prelude this repository ships**, not against a fixture.
+///
+/// Every other test here states `Vintage` as data — deliberately, because the six corpora
+/// that defined the cluster are not in this checkout — and that is exactly the hole #638 fell
+/// through: `Vintage::read` had no test with a document in it, so a probe that matched
+/// nothing in any real `GRAPH.md` could not fail anything. `vocabulary_is_closed` was matched
+/// against the raw text of a sentence that had since been rewrapped, and read `false` for the
+/// template and all eighteen derived corpora.
+///
+/// The document this loads is the one every derived repository vendors, so if a reflow, a
+/// rewording, or a table edit puts either probe out of reach again, this goes red here rather
+/// than silently exempting a metric in every corpus downstream.
+#[test]
+fn both_probes_read_true_against_the_shipped_prelude() {
+    let path = repo_root().join("yidam/prelude/GRAPH.md");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("{} is unreadable ({e})", path.display()));
+    let vintage = Vintage::read(&text);
+
+    assert!(
+        vintage.graph_present,
+        "a document was read, so the prelude is present"
+    );
+    assert!(
+        vintage.has_phase_verb,
+        "{} no longer carries a `| `phase`` row in the vocabulary table, so every corpus \
+         reads as unable to have settled a phase",
+        path.display()
+    );
+    assert!(
+        vintage.vocabulary_is_closed,
+        "{} no longer reads as closing the commit vocabulary, so `off-vocabulary-share` is \
+         gated off in every corpus and the band can never be read",
+        path.display()
+    );
+}
+
+/// The closed-list sentence is prose, and prose gets rewrapped. Neither the wrapping this
+/// repository happens to ship nor any other may decide the answer.
+#[test]
+fn the_closed_list_is_read_however_the_paragraph_is_wrapped() {
+    let path = repo_root().join("yidam/prelude/GRAPH.md");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("{} is unreadable ({e})", path.display()));
+
+    // One line per paragraph — the shape a formatter with no column limit would leave.
+    let unwrapped = text
+        .split("\n\n")
+        .map(|para| para.split_whitespace().collect::<Vec<_>>().join(" "))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    assert!(
+        Vintage::read(&unwrapped).vocabulary_is_closed,
+        "unwrapping the paragraphs lost the closed vocabulary"
+    );
+
+    // And every break the sentence itself could be given. Rewrapped from `unwrapped`, where
+    // the sentence is contiguous — in the shipped file it is already broken after `This`, so
+    // a substitution against `text` would replace nothing and prove nothing.
+    let sentence = "This list is closed:";
+    assert!(
+        unwrapped.contains(sentence),
+        "the closed-list sentence has been reworded; this test names the old wording"
+    );
+    let words: Vec<&str> = sentence.split(' ').collect();
+    for at in 1..words.len() {
+        let broken = format!("{}\n{}", words[..at].join(" "), words[at..].join(" "));
+        assert!(
+            Vintage::read(&unwrapped.replace(sentence, &broken)).vocabulary_is_closed,
+            "a break after word {at} of `{sentence}` lost the closed vocabulary"
+        );
+    }
+}
+
 // ── end to end, through the binary ────────────────────────────────────────────
 
 struct Run {
