@@ -101,14 +101,14 @@ jobs:
             apt: gcc-aarch64-linux-gnu
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The pinned toolchain, not `@stable`. An artifact built by whatever stable shipped
       # that week is not the build any gate here tested, and this one is published. The
       # three `@stable` steps left in install-channels.yml are the deliberate opposite:
       # they simulate a user, who has whatever stable is, and pinning them would test a
       # channel nobody uses. `toolchain_pins.rs` asserts both halves.
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@1.120.0
         with:
           targets: ${{ matrix.target }}
 
@@ -210,7 +210,7 @@ jobs:
           [ -s "$out" ] || { echo "::error::no bundle at $out"; exit 1; }
           shasum -a 256 "$name.mcpb" > "$name.mcpb.sha256"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.pkg.outputs.name }}
           path: |
@@ -236,7 +236,7 @@ jobs:
       id-token: write      # the OIDC token the attestation is signed with
       attestations: write  # writing the attestation to this repository
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The tag and the manifest must agree. They can drift in either direction —
       # a tag cut before the bump, or a bump pushed without a tag — and an
@@ -253,7 +253,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
