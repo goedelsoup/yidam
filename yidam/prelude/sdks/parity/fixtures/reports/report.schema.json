@@ -1796,6 +1796,131 @@
           "description": "Whether every measured metric is inside its band. NOT an exit code: this command exits zero either way."
         }
       }
+    },
+    "score": {
+      "type": "object",
+      "description": "`score` only. One range of commits read against the criteria this corpus's kuten declares, or against the template's own where it holds none (RFC-0028, #286). Advisory by construction: there is no overall number, no verdict and no band, and the command exits zero however it reads — a consumer MUST NOT derive a pass or a failure from any row. A range spanning a kuten revision is refused rather than answered.",
+      "required": [
+        "range",
+        "base",
+        "tip",
+        "held",
+        "revision_skew",
+        "commits",
+        "added_nodes",
+        "rows",
+        "questions"
+      ],
+      "properties": {
+        "range": {
+          "type": "string",
+          "description": "The range as the caller wrote it. Always explicit: there is no default, because a default range produces a number about a scope nobody chose."
+        },
+        "base": {
+          "type": "string",
+          "description": "Full sha of the commit the range starts after."
+        },
+        "tip": {
+          "type": "string",
+          "description": "Full sha of the commit it ends at. The corpus is reconstructed at both, from git objects, never from the working tree."
+        },
+        "held": {
+          "type": "boolean",
+          "description": "Whether the criteria are this corpus's own. `false` means they are the template's, which is every repository today — the same criteria, and a different answer to whose selection they are."
+        },
+        "kuten": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The kuten the criteria came from, where one was held."
+        },
+        "revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "The revision the decision record names at the TIP of the range, read from that commit's tree rather than from the working copy."
+        },
+        "revision_skew": {
+          "type": "boolean",
+          "description": "Whether the vendored profile the criteria were read from is at another revision than that record names. Annotated, never silently resolved."
+        },
+        "commits": {
+          "type": "integer",
+          "description": "Authored, non-merge commits in the range — the same reader and the same merge predicate `lint --commits` uses."
+        },
+        "added_nodes": {
+          "type": "integer",
+          "description": "Corpus instances present at the tip and absent at the base."
+        },
+        "rows": {
+          "type": "array",
+          "description": "Exactly one per declared criterion, in declaration order — including the ones that could not be read. A criterion that vanished when it had no denominator could not be told from one that was never declared.",
+          "items": {
+            "type": "object",
+            "required": [
+              "criterion",
+              "reading",
+              "evidence"
+            ],
+            "properties": {
+              "criterion": {
+                "type": "string",
+                "description": "The criterion id, as the profile's `rubric.criteria` declares it. A consumer keys on this; the prose may change."
+              },
+              "reading": {
+                "type": "object",
+                "description": "What the criterion read. `unmeasurable` is NOT zero: it means there was no denominator, and a consumer that reads it as 0.00 is asserting something the report declined to.",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "measured",
+                      "unmeasurable"
+                    ]
+                  },
+                  "value": {
+                    "type": "number",
+                    "description": "The share, 0.0–1.0. Present only when `kind` is `measured`."
+                  },
+                  "shown": {
+                    "type": "string",
+                    "description": "The reading as a reader is shown it, e.g. `2 of 3 (67%)`. Present only when `kind` is `measured`."
+                  },
+                  "why": {
+                    "type": "string",
+                    "description": "Why there was nothing to read. Present only when `kind` is `unmeasurable`."
+                  }
+                }
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "The items the reading was drawn from, marked — capped, with a final line saying how many were left out. Non-empty whenever `kind` is `measured`: a number with nothing behind it is a claim nobody can check."
+              },
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "What a reader has to know to read the number correctly — the legibility precondition beside `register`, or the reason `questions` is never a threshold."
+              }
+            }
+          }
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The judged questions, when `--brief` asked for them. Scored by nothing, and deliberately: each turns on whether an assertion is warranted, and no corpus fact decides it. Empty otherwise."
+        }
+      }
     }
   }
 }

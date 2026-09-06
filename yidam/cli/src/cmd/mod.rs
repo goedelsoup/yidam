@@ -46,6 +46,7 @@ mod replay;
 mod samudaya_audit;
 mod sangha;
 mod schema;
+pub(crate) mod score;
 pub(crate) mod serve;
 pub(crate) mod status;
 #[cfg(feature = "tonpa")]
@@ -104,6 +105,7 @@ pub use replay::replay;
 pub use samudaya_audit::{samudaya_audit, VALID_KINDS as SAMUDAYA_KINDS};
 pub use sangha::sangha;
 pub use schema::{class_schemas, schema};
+pub use score::score as run_score;
 pub use serve::serve_mcp;
 #[cfg(feature = "serve-http")]
 pub use serve::serve_mcp_http;

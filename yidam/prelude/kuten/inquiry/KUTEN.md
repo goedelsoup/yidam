@@ -85,16 +85,37 @@ corpus completing a series can only be pressed to open coverage questions once a
 declare what its instances span, and that is a class-contract change filed outside this layer
 (#578). It parses, and it never diverges.
 
+## What a contribution is read against
+
+`rubric.criteria` names what `yidam score <range>` reads a session's work against. `inquiry`
+declares three, and the declaration is **criteria only — no bands**.
+
+| Criterion | What it reads | What the windows showed |
+|---|---|---|
+| `register` | Of the commits whose verb the vocabulary carries, how many are epistemic | n=63, 0.00 / 0.50 / 1.00; undefined in 9 of 72 |
+| `landing` | Of the nodes the range added and left standing, how many something points at | n=41, 0.00 / 0.67 / 1.00 |
+| `questions` | How many of those nodes are open questions | n=41, median 0.64, full spread |
+
+The bands above this section were measured before they were written down. **Nothing measured
+what a good reading of a criterion is**, so declaring one would be the number this profile's
+own header says none of the others is. What was measured is that each of the three
+discriminates across 10-commit windows in the derived corpora, which is what makes it a
+criterion rather than a slogan.
+
+Three things were measured and rejected, and each is recorded so nobody proposes it twice.
+**Out-degree** — *did new nodes enter the graph reachable* — is an error-severity gate that 0
+of 2,736 nodes across sixteen corpora trip, so scoring it would measure the gate. **The
+presence of an `open:` commit** appears in 2 of 72 windows, and a criterion 97% of ranges fail
+is not a criterion. **The naive epistemic share** is inverted: `classify_commit` is total, so a
+corpus writing conventional commits with no recognized verb reads 1.00, and `register`
+computes over the recognized subset for exactly that reason.
+
+`score` reports a row per criterion with the evidence it came from, and no overall number: a
+single score over a range of commits names somebody's session. It exits zero however it reads.
+
 ## What this profile does not declare
 
-One slot is named by the layer and left empty here, because the evidence for it is not in yet
-and a value invented now would be believed later.
-
-- **`rubric`** — the criteria a contribution is scored by. A rubric built alone would be one
-  corpus's answer imposed on every other, which is the argument `escalate_after` already
-  makes about compiling a threshold into a binary.
-
-And **`thresholds`** — `[lint] escalate_after` and `[propose] withdraw_uncited_after` — which no
+**`thresholds`** — `[lint] escalate_after` and `[propose] withdraw_uncited_after` — which no
 kuten populates, whatever it measures. `escalate_after` decides when a finding fails the build,
 and `withdraw_uncited_after` licenses `propose` to draft a deletion. A kuten reaches neither act:
 the first is a gate change and arrives as a visible policy override, the second is authorship and

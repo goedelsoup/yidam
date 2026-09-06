@@ -330,6 +330,23 @@ impl PressureKind {
     }
 }
 
+/// The criteria a contribution is scored by — RFC-0028 §1, and #286.
+///
+/// # Criteria only. There is no band here, and that is a decision
+///
+/// Every other populated slot carries intervals measured over eighteen derived corpora, and
+/// the profile's own header says *"not one of those four was chosen"*. There is no equivalent
+/// measurement for a rubric: what was measured is that each criterion **discriminates** across
+/// ranges, not what a good reading of one is. A band here would be a number believed because
+/// it is written down, which is the failure this whole layer exists to name.
+///
+/// So the slot says *which* criteria this practice reads, and [`crate::score`] says what each
+/// one computes. `yidam score` reports a row per criterion and no verdict.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Rubric {
+    pub criteria: Vec<String>,
+}
+
 /// What kind of question this corpus should be opening — RFC-0028 §5.
 ///
 /// **It creates pressure toward a kind of question; it does not author one.** That is
@@ -364,6 +381,23 @@ pub struct Profile {
     pub object: Option<Object>,
     #[serde(default)]
     pub question_pressure: Option<QuestionPressure>,
+    #[serde(default)]
+    pub rubric: Option<Rubric>,
+}
+
+impl Profile {
+    /// The criteria a contribution held to this profile is scored on.
+    ///
+    /// **[`crate::score::Criterion::ALL`] where the profile declares none**, which is the
+    /// state every repository is in: nothing retrofits a kuten into an existing corpus, and 0
+    /// of 18 derived corpora hold one. The neutral arm runs the same criteria — what differs
+    /// is whose selection it is, and the report says which.
+    pub fn criteria(profile: Option<&Profile>) -> Vec<String> {
+        profile
+            .and_then(|p| p.rubric.as_ref())
+            .map(|r| r.criteria.clone())
+            .unwrap_or_else(crate::score::Criterion::all_ids)
+    }
 }
 
 impl Profile {

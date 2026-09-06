@@ -933,7 +933,7 @@ fn run_checked(
 }
 
 /// A commit, short enough to read and long enough to paste.
-fn short(commit: &str) -> &str {
+pub(crate) fn short(commit: &str) -> &str {
     &commit[..commit.len().min(8)]
 }
 

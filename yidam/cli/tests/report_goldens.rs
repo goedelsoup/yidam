@@ -302,6 +302,13 @@ const LIVE: &[(&str, &[&str])] = &[
     ("due", &["due"]),
     ("regen", &["regen", "--check"]),
     ("propose", &["propose", "--dry-run"]),
+    // Not a golden, and for `redact_first_commit`'s reason rather than the calendar's: every
+    // `register` evidence line carries a short sha, so a golden would put a screen of
+    // unreadable hex in front of whoever next extends `stage.toml` — and any sha matches any
+    // other sha's shape, so it would pin nothing worth pinning. The readings themselves are
+    // asserted against histories built for the purpose in `score_range.rs`; what is checked
+    // here is the envelope, and that a read-only report is read-only.
+    ("score", &["score", "HEAD~1..HEAD"]),
 ];
 
 /// Commands carrying a `--format` flag that this file cannot exercise, and why.

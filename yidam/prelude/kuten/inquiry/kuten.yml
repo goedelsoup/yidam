@@ -157,13 +157,42 @@ policy:
 question_pressure:
   kind: epistemic
 
+# The criteria a contribution is read against — `yidam score <range>`. Criteria only, and no
+# bands: every band above was measured over eighteen corpora before it was written down, and
+# there is no equivalent measurement for what a *good* reading of a criterion is. A band here
+# would be exactly the number this file's header says none of the others is.
+#
+# What was measured is that each of these three discriminates. Over 10-commit windows across
+# the derived corpora:
+#
+#   register    epistemic share of the *recognized* subset. n=63 windows, min 0.00, median
+#               0.50, max 1.00; undefined in 9 of 72, which is the state the report calls
+#               unmeasurable rather than 0.00. The naive share over every authored commit is
+#               inverted — `classify_commit` is total, so a corpus writing conventional
+#               commits with no recognized verb reads 1.00 — and the two disagree by up to
+#               0.90 on the same range.
+#   landing     surviving added nodes with an inbound edge, through `orphan-in`'s own
+#               resolution and its class exemption. n=41, min 0.00, median 0.67, max 1.00.
+#               Out-degree was measured and rejected: `orphan-out` is an error-severity gate
+#               and 0 of 2,736 nodes across sixteen corpora trip it, so scoring it would
+#               measure the gate.
+#   questions   how many of those nodes are open questions. n=41, median 0.64, full spread —
+#               reported as a number and never thresholded. Whether this corpus *should* be
+#               opening questions is `question_pressure` above, not this.
+#
+# Legibility — the share of commits whose verb is recognized at all — is reported beside
+# `register` and is not a criterion: measured bimodal by repository (42 of 72 windows at 0.00,
+# 9 at 1.00), it separates corpora that adopted the vocabulary from ones that never did, which
+# is not a property of a contribution.
+rubric:
+  criteria: [register, landing, questions]
+
 # ── named, and deliberately unpopulated ──────────────────────────────────────
 # A slot with no values names the state a repository is in. Inventing one ahead of its
 # evidence produces a number that is believed because it is written down.
 #
-#   rubric            — the criteria a contribution is scored by
-#
-# And one that is unpopulated for a different reason — not missing evidence, but no licence:
+# One slot is unpopulated because there is no licence for a value — not because the evidence
+# is missing:
 #
 #   thresholds        — `[lint] escalate_after` and `[propose] withdraw_uncited_after`. A value
 #                       here would decide when a finding fails the build and when a deletion is

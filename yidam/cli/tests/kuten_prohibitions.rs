@@ -773,6 +773,93 @@ fn the_layer_document_names_every_question_pressure_kind() {
     }
 }
 
+// ── the rubric's criteria ─────────────────────────────────────────────────────
+
+/// Every criterion the shipped profiles declare, discovered from the profiles.
+///
+/// **Parsed out of `rubric.criteria`, never listed here.** #661 is what a hardcoded roster
+/// does: it stops covering new members without ever going red, so a criterion added to the
+/// profile tomorrow would be guarded by nothing and a criterion deleted from it would be
+/// guarded by a test that still passes.
+fn declared_criteria() -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for (name, doc) in profiles() {
+        let Some(rubric) = doc.get("rubric") else {
+            continue;
+        };
+        let criteria = rubric
+            .get("criteria")
+            .and_then(Value::as_sequence)
+            .unwrap_or_else(|| panic!("`{name}` declares a rubric with no `criteria:` sequence"));
+        for c in criteria {
+            let id = c.as_str().unwrap_or_else(|| {
+                panic!("`{name}` names a criterion that is not a string: {c:?}")
+            });
+            out.insert(id.to_string());
+        }
+    }
+    out
+}
+
+/// **The declared criteria and the implemented ones are one set, in both directions.**
+///
+/// A criterion declared in a vendored profile and implemented by nothing is a corpus being
+/// scored on a word — the report says `unmeasurable` and the practice has no reading. A
+/// criterion implemented in the binary and declared by no profile is the failure this layer
+/// exists to name from the other end: a surface with no consumer, which is exactly how
+/// `rubric` sat named and empty until #286.
+///
+/// Both sides are discovered. The declarations come out of `kuten.yml`; the implementations
+/// come out of `Criterion::ALL`, which is the list `yidam score` dispatches on rather than a
+/// second copy of it.
+#[test]
+fn every_declared_criterion_is_implemented_and_every_implemented_one_is_declared() {
+    let declared = declared_criteria();
+    assert!(
+        !declared.is_empty(),
+        "no profile declares a `rubric.criteria` — this check is reading nothing and would \
+         pass against any binary at all"
+    );
+    let implemented: BTreeSet<String> = yidam::score::Criterion::ALL
+        .iter()
+        .map(|c| c.id().to_string())
+        .collect();
+    assert_eq!(
+        declared, implemented,
+        "the shipped profiles declare {declared:?} and the binary implements {implemented:?}. \
+         A declared criterion nothing computes is a corpus scored on a word; an implemented \
+         criterion no practice declares is a surface with no consumer."
+    );
+
+    // And each declared id is the id that resolves — the profile is the spelling, not a gloss
+    // beside one.
+    for id in &declared {
+        assert!(
+            yidam::score::Criterion::from_id(id).is_some(),
+            "`{id}` is declared and does not resolve"
+        );
+    }
+}
+
+/// A criterion that was measured and rejected must not also be declared.
+///
+/// The rejections are recorded in the model with the measurement that dropped them. A profile
+/// declaring one would be re-proposing a criterion this layer already priced, and `score`
+/// would answer `unmeasurable` for the rest of that profile's life without anybody being told
+/// why.
+#[test]
+fn no_profile_declares_a_criterion_that_was_measured_and_rejected() {
+    let declared = declared_criteria();
+    for rejected in yidam::score::CONSIDERED_AND_REJECTED {
+        assert!(
+            !declared.contains(rejected.id),
+            "a profile declares `{}`, which was measured and rejected: {}",
+            rejected.id,
+            rejected.why
+        );
+    }
+}
+
 // ── every populated slot has a consumer ───────────────────────────────────────
 
 /// Slot → the surfaces the layer document says read it, from the table's `Read by` column.
