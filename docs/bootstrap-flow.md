@@ -68,18 +68,18 @@ kuten: inquiry
 revision: 1
 ```
 
-The revision is copied out of the profile rather than typed, because every consumer reads the
-kuten at the vintage the repository holds and never at upstream's current one. If a later
-re-vendor moves the two apart, `yidam kuten` says so in `AGENTS.md` instead of picking one.
+The revision is copied out of the profile, never typed. Every consumer reads the kuten at the
+vintage the repository holds, not at upstream's current one. If a later re-vendor moves the
+two apart, `yidam kuten` says so in `AGENTS.md` instead of picking one.
 
 The profile itself needs no step of its own. The vendor step moves the whole
-`yidam/prelude/` tree into `.yidam/.vendor/prelude/`, so the directory the record names
-arrives with the rest of the prelude — and by the time the gate run that follows it calls
+`yidam/prelude/` tree into `.yidam/.vendor/prelude/`. The directory the record names therefore
+arrives with the rest of the prelude. By the time the gate run that follows calls
 `yidam regen`, the `AGENTS.md` kuten block has a subject.
 
-**Declining is a real answer.** A repository holding no kuten is a supported state that
-`doctor`, `yidam kuten` and `kuten check` each report deliberately; the bootstrap writes no
-record when the user does not adopt one.
+**Declining is a real answer.** A repository holding no kuten is a supported state.
+`doctor`, `yidam kuten` and `kuten check` each report it deliberately, and the bootstrap
+writes no record when the user does not adopt one.
 
 ## Prelude internalized checkpoint
 

@@ -107,8 +107,8 @@ rationale: |
 ```
 
 One record is also read by a tool. `.yidam/decisions/kuten.yml` records which
-[kuten](../yidam/prelude/kuten/README.md) this corpus adopted and the revision that was
-vendored with it, so it carries two extra fields on top of the shape above:
+[kuten](../yidam/prelude/kuten/README.md) this corpus adopted, and the revision vendored with
+it. It carries two extra fields on top of the shape above:
 
 ```yaml
 id: kuten
