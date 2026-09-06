@@ -6,6 +6,23 @@
  * the same test the gate uses — so a broken link renders as broken here because the binary
  * said so, not because this page re-derived the rule. `graph.ts` states that boundary for the
  * extension and it is the same boundary.
+ *
+ * The table itself is an island (`islands/NodeTable.jsx`), which is this package's first and
+ * so far only one. Two reasons, and the second is the one that put it here rather than
+ * anywhere else. It is RFC-0030's Phase 1 spike — whether the design system's React
+ * components survive client bundling, unanswered because none had ever been hydrated. And
+ * this is the page that needs it: measured against a live derived repository, browse is 90
+ * rows and 299 edges, and a table that long with no way to narrow it is a page people scroll
+ * past rather than read.
+ *
+ * `client:load` rather than `client:visible`: the filter is the first thing above the table,
+ * so it is in the viewport at the moment the page arrives and the two directives differ only
+ * in whether the field is inert for the first few hundred milliseconds. A control that ignores
+ * what you type is worse than one that has not appeared yet.
+ *
+ * Server-rendered either way. Astro renders the component on the server too, so a reader with
+ * no JavaScript gets the same table without the filter, rather than an empty page — the
+ * property that makes an island the right shape for this instead of a fetch.
  */
 import Shell from '../layouts/Shell.astro'
 import { session } from '../lib/session.ts'
@@ -14,7 +31,8 @@ import { spawnReport } from '../lib/cli.ts'
 // about `node` rather than `id` that this file used to carry. One definition, because two
 // pages disagreeing about the envelope's field names is the failure that emptied this table
 // once already.
-import { nodeHref, type GraphReport } from '../lib/graph.ts'
+import { type GraphReport } from '../lib/graph.ts'
+import { NodeTable } from '../islands/NodeTable.jsx'
 
 const { root, binary } = await session()
 const result =
@@ -30,38 +48,7 @@ const nodes = result && result.ok ? (result.report.nodes ?? []) : []
     nodes.length === 0 ? (
       <p>No nodes to show — see the header.</p>
     ) : (
-      <table class="corpus">
-        <thead>
-          <tr>
-            <th>Node</th>
-            <th>Class</th>
-            <th>Edges</th>
-          </tr>
-        </thead>
-        <tbody>
-          {nodes.map((node) => (
-            <tr>
-              <td>
-                <a href={nodeHref(node.node)}>
-                  <code>{node.node}</code>
-                </a>
-                {node.label && <div class="node-label">{node.label}</div>}
-              </td>
-              <td>{node.class ?? '—'}</td>
-              <td>
-                <ul class="edges">
-                  {(node.links ?? []).map((link) => (
-                    <li class={link.exists === false ? 'dangling' : undefined}>
-                      <span class="relationship">{link.relationship}</span>{' '}
-                      <code>{link.resolved || link.target}</code>
-                    </li>
-                  ))}
-                </ul>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <NodeTable client:load nodes={nodes} />
     )
   }
 </Shell>
