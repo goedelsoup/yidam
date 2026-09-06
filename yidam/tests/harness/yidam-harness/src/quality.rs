@@ -12,9 +12,10 @@
 //! verdict it has already committed to. Quoting the node text before scoring it makes the
 //! band answerable to something.
 //!
-//! **Every criterion, exactly once.** A judge that returns six of seven has not scored the
-//! seventh, and a report missing a criterion is not a report with an implicit pass. Parsing
-//! rejects it.
+//! **Every criterion, exactly once.** A judge that returns all but one has not scored the one
+//! it left out, and a report missing a criterion is not a report with an implicit pass.
+//! Parsing rejects it. `expected` is the set `rubric.md` states, so this sentence names no
+//! count: the count it used to name was already wrong.
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};

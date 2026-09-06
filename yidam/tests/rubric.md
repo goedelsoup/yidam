@@ -89,4 +89,20 @@ score; a verdict that omits one, invents one, or gives a band with no evidence i
 A run is a **regression** against a prior snapshot if:
 - Any structural check changes from pass → fail
 - Any quality criterion drops by ≥1 band (pass → marginal, or marginal → fail)
-- The corpus node count decreases
+
+The band threshold is stated in three documents and enforced in one place. `diff.rs` compares
+`now < base.band`, which fires on a drop of exactly one, and
+`the_band_threshold_is_the_same_in_the_documents_and_in_the_code` holds this row,
+[`docs/quality-rubric.md`](../../docs/quality-rubric.md) and
+[HARNESS.md](HARNESS.md) to it. HARNESS.md said "more than one band" until that test existed.
+
+A third threshold stood here and was never implemented: *the corpus node count decreases*. It
+is struck rather than left standing, because the claim above this table is that the harness
+runs no check it does not state and states no check the harness does not run, and an
+unimplemented row makes that claim false in the direction nobody notices. A snapshot records
+verdicts and not the corpus — `Snapshot` carries the protocol version, the run record, the
+judge's bands and the structural results — so no count can be recovered from either side of a
+comparison. Storing one would change the snapshot format, and every snapshot written before
+that change would carry no count, so the new threshold would be skipped against exactly the
+baselines a regression gate exists to compare against. A corpus that shrinks below two
+instance nodes still fails S1.

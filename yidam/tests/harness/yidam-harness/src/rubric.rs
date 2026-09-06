@@ -1,10 +1,16 @@
 //! The rubric, read rather than restated.
 //!
-//! `rubric.md` states S1–S7 and Q1–Q7 in two markdown tables. Before this module the same
-//! criteria were also written out in `docs/quality-rubric.md`, in `check.rs`'s description
-//! strings, and in prose in `judge.md` — four transcriptions, each pinned only by itself.
-//! The parity task's own comment names the failure class: "two transcriptions each pinned
-//! only by itself."
+//! `rubric.md` states the structural and the quality criteria in two markdown tables. Before
+//! this module the same criteria were also written out in `docs/quality-rubric.md`, in
+//! `check.rs`'s description strings, and in prose in `judge.md` — four transcriptions, each
+//! pinned only by itself. The parity task's own comment names the failure class: "two
+//! transcriptions each pinned only by itself."
+//!
+//! This paragraph named the criteria as `S1–S7` and `Q1–Q7` until it was found to be wrong.
+//! `rubric.md` had stated eight quality criteria since the day after the sentence was
+//! written — the module against transcription drift, drifting, for the whole of its life. It
+//! states no count now: a count in prose is one more transcription, and it is pinned by
+//! whoever last read it.
 //!
 //! The Q criteria are read from here because the judge is scored against them and a judge
 //! prompt built from a copy would drift from the document reviewers read.
@@ -19,6 +25,13 @@
 //!
 //! `docs/quality-rubric.md` is the third copy, pinned here for the same reason. It is the
 //! page the docs site renders, so it cannot simply be deleted in favour of a link.
+//!
+//! `judge.md`'s calibration anchors are the fourth, and are pinned here too. They matter more
+//! than a fourth copy usually would, because the Q side has no `check.rs`: no code implements
+//! a quality criterion, so nothing goes red when the rubric stops stating one. Deleting the
+//! last Q row from `rubric.md` *and* from the docs copy left every test green — two copies
+//! cannot catch a synchronised edit, and the contiguity rule only catches a gap in the
+//! middle.
 
 use anyhow::{Context, Result};
 use std::path::Path;
@@ -220,6 +233,128 @@ mod tests {
                  criteria. The rubric beside the harness is the source; regenerate the docs \
                  page from it."
             );
+        }
+    }
+
+    /// Every criterion `judge.md` writes a calibration anchor for is a criterion the rubric
+    /// states.
+    ///
+    /// This is the guard the Q side did not have. The S side is held by `check.rs` — an
+    /// S row with no check, or a check with no row, fails the two tests above — and there is
+    /// no equivalent for Q, because a quality criterion is scored by a model rather than
+    /// implemented. So the only other document that names Q criteria by ID is the judge's own
+    /// guidance, and it is read rather than trusted.
+    ///
+    /// One direction, deliberately. The anchors are a subset by design: they exist for the
+    /// criteria whose middle band is hardest to place, and asserting that every criterion is
+    /// anchored would produce anchors written to satisfy a test rather than to calibrate
+    /// anything. IDs and not descriptions, because an anchor heading summarises its row
+    /// rather than repeating it, and a comparison that had to soften that difference would
+    /// soften a real one too.
+    #[test]
+    fn every_criterion_the_judge_guidance_anchors_is_one_the_rubric_states() {
+        let rubric = load(&rubric_path()).unwrap();
+        let guidance = std::fs::read_to_string(repo_root().join("yidam/tests/judge.md")).unwrap();
+
+        // Anchors head their table as `**Q8 — edges assert only …**`.
+        let anchored: Vec<String> = guidance
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix("**"))
+            .map(|l| {
+                l.chars()
+                    .take_while(char::is_ascii_alphanumeric)
+                    .collect::<String>()
+            })
+            .filter(|id| is_criterion_id(id))
+            .collect();
+
+        assert!(
+            anchored.len() >= 3,
+            "found {anchored:?} anchored in judge.md — the anchor headings moved, and this \
+             test now asserts nothing about the rubric's tail"
+        );
+
+        let stated = rubric.quality_ids();
+        for id in &anchored {
+            assert!(
+                stated.contains(&id.as_str()),
+                "judge.md calibrates {id} and rubric.md does not state it. Either the row was \
+                 dropped from the table, or the judge is being shown band anchors for a \
+                 criterion its verdict will be rejected for scoring."
+            );
+        }
+    }
+
+    /// The regression threshold, in the three places that state it and in the one that runs it.
+    ///
+    /// `HARNESS.md` said a regression was a score dropping "by more than one band". That is
+    /// not what `rubric.md` says and not what `diff::compare` does: `now < base_c.band` fires
+    /// on pass → marginal, a drop of exactly one. A third statement of a threshold, pinned by
+    /// nothing, disagreeing with the code that enforces it — so all three documents are read
+    /// here, and the code is run against the case they agree on.
+    #[test]
+    fn the_band_threshold_is_the_same_in_the_documents_and_in_the_code() {
+        let root = repo_root();
+        for path in [
+            root.join("yidam/tests/rubric.md"),
+            root.join("docs/quality-rubric.md"),
+            root.join("yidam/tests/HARNESS.md"),
+        ] {
+            let text = std::fs::read_to_string(&path).unwrap();
+            let bullets: Vec<&str> = text
+                .lines()
+                .map(str::trim)
+                .filter(|l| l.starts_with("- ") && l.contains("band"))
+                .collect();
+            assert_eq!(
+                bullets.len(),
+                1,
+                "{} states the band threshold in {} bullets rather than one: {bullets:?}",
+                path.display(),
+                bullets.len()
+            );
+            assert!(
+                bullets[0].contains("≥1 band"),
+                "{} states the threshold as {:?}. The three documents and diff.rs have to \
+                 mean the same thing by it.",
+                path.display(),
+                bullets[0]
+            );
+        }
+
+        // And this is what the code means by ≥1: the smallest drop there is, in both places
+        // it can happen.
+        for (from, to) in [
+            (crate::quality::Band::Pass, crate::quality::Band::Marginal),
+            (crate::quality::Band::Marginal, crate::quality::Band::Fail),
+        ] {
+            let reported = crate::diff::compare(&scored(from), &scored(to)).unwrap();
+            assert_eq!(
+                reported.len(),
+                1,
+                "a drop of one band from {} to {} was reported as {reported:?}",
+                from.as_str(),
+                to.as_str()
+            );
+        }
+    }
+
+    /// A snapshot carrying one scored criterion and nothing else — enough to compare bands.
+    fn scored(band: crate::quality::Band) -> crate::snapshot::Snapshot {
+        crate::snapshot::Snapshot {
+            protocol_version: Some(crate::PROTOCOL_VERSION.to_string()),
+            run: None,
+            quality: Some(crate::quality::QualityReport {
+                criteria: vec![crate::quality::CriterionVerdict {
+                    id: "Q1".into(),
+                    evidence: vec!["a quote".into()],
+                    band,
+                    rationale: "because".into(),
+                }],
+                overall: band,
+                most_important_finding: "a finding".into(),
+            }),
+            structural: crate::check::CheckReport { results: vec![] },
         }
     }
 

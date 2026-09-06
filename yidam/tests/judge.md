@@ -157,6 +157,7 @@ is a verdict the evidence was assembled to support.
 assistant turn precedes the first Write"* is evidence, and states what is absent. An empty
 list is not; it is a band answerable to nothing, and the harness refuses it.
 
-**Every criterion, exactly once**, in ID order. Six of seven is not six passes and a gap. Do
+**Every criterion, exactly once**, in ID order. A criterion you leave out is a gap, not a
+pass, and the harness rejects the verdict for it. Score the criteria you are given above; do
 not revise a band once you have moved past it — a criterion re-scored in light of a later one
 is scored against the corpus's overall impression rather than against itself.

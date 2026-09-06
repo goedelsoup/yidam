@@ -39,4 +39,9 @@ there since both were written.
 A run is a regression if:
 - Any structural check changes from pass → fail
 - Any quality criterion drops by ≥1 band (pass → marginal, or marginal → fail)
-- The corpus node count decreases
+
+A third threshold once stood here: *the corpus node count decreases*. It was never
+implemented, and it is struck rather than left standing. A snapshot records verdicts, not the
+corpus, so no count survives for either side to compare. Storing one would change the
+snapshot format, and older snapshots would carry no count at all. A corpus that shrinks below
+two instance nodes still fails S1.
