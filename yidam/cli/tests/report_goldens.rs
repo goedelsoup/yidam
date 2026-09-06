@@ -492,6 +492,156 @@ fn exit_codes_are_identical_across_formats() {
     }
 }
 
+// ── a duplicate key is legal JSON, and the parser hides it ────────────────────
+
+/// Every duplicated key in a JSON document, as the path it sits at.
+///
+/// **A validator cannot find this defect**, which is why it needs its own check.
+/// `serde_json::Value` keeps the last of a duplicated pair and reports nothing, so by the time
+/// any schema check runs, the earlier declaration is already gone. That is how
+/// `report.schema.json` came to declare `positions` twice — once as the integer `status` emits,
+/// once as the array `sangha` does. The parser discarded the first, and its description went on
+/// reading as coverage for a shape nothing checked (#665). The union that replaced them was
+/// found by wiring the validator up and watching a *consequence* fail, not by seeing the
+/// duplication; a third one whose two shapes happened to agree would still be invisible.
+///
+/// So this reads the pairs as the deserializer yields them, before a map can swallow one.
+fn duplicate_keys(text: &str) -> Vec<String> {
+    struct At<'a> {
+        path: String,
+        out: &'a mut Vec<String>,
+    }
+
+    impl<'de> serde::de::DeserializeSeed<'de> for At<'_> {
+        type Value = ();
+        fn deserialize<D: serde::Deserializer<'de>>(self, d: D) -> Result<(), D::Error> {
+            d.deserialize_any(self)
+        }
+    }
+
+    impl<'de> serde::de::Visitor<'de> for At<'_> {
+        type Value = ();
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("any JSON value")
+        }
+
+        fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
+            let mut seen = BTreeSet::new();
+            while let Some(key) = map.next_key::<String>()? {
+                let here = format!("{}/{key}", self.path);
+                if !seen.insert(key) {
+                    self.out.push(here.clone());
+                }
+                map.next_value_seed(At {
+                    path: here,
+                    out: self.out,
+                })?;
+            }
+            Ok(())
+        }
+
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<(), A::Error> {
+            let mut i = 0;
+            while seq
+                .next_element_seed(At {
+                    path: format!("{}[{i}]", self.path),
+                    out: self.out,
+                })?
+                .is_some()
+            {
+                i += 1;
+            }
+            Ok(())
+        }
+
+        // A scalar carries no keys. Each is spelled out because serde's defaults reject.
+        fn visit_bool<E>(self, _: bool) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_i64<E>(self, _: i64) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_u64<E>(self, _: u64) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_f64<E>(self, _: f64) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_str<E>(self, _: &str) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_unit<E>(self) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_none<E>(self) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_some<D: serde::Deserializer<'de>>(self, d: D) -> Result<(), D::Error> {
+            d.deserialize_any(self)
+        }
+    }
+
+    let mut out = Vec::new();
+    let mut de = serde_json::Deserializer::from_str(text);
+    serde::de::DeserializeSeed::deserialize(
+        At {
+            path: String::new(),
+            out: &mut out,
+        },
+        &mut de,
+    )
+    .expect("valid JSON");
+    out
+}
+
+/// No contract this repository ships declares the same key twice.
+///
+/// **The set is discovered**, not listed. A hardcoded path would have covered
+/// `report.schema.json` and gone on passing while a golden or a second contract grew the same
+/// defect — which is the shape #661 was, one criterion behind the document it claimed to check.
+#[test]
+fn no_shipped_contract_declares_a_key_twice() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../prelude/sdks/parity");
+    let mut checked = 0;
+    let mut found: Vec<String> = Vec::new();
+
+    for entry in walkdir::WalkDir::new(&root)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+    {
+        let text = std::fs::read_to_string(entry.path()).expect("a readable contract");
+        checked += 1;
+        let rel = entry
+            .path()
+            .strip_prefix(&root)
+            .unwrap_or(entry.path())
+            .display()
+            .to_string();
+        found.extend(
+            duplicate_keys(&text)
+                .into_iter()
+                .map(|p| format!("{rel}: {p}")),
+        );
+    }
+
+    // The floor. A walk that finds nothing to read passes exactly like a tree in good order,
+    // and this one is discovered rather than listed, so a moved directory would silence it.
+    assert!(
+        checked >= 20,
+        "read only {checked} contract file(s) under {} — the tree moved and this check is \
+         reading nothing",
+        root.display()
+    );
+    assert!(
+        found.is_empty(),
+        "a key is declared twice, and every JSON parser keeps the last — the earlier \
+         declaration is dead text that reads as coverage:\n  {}",
+        found.join("\n  ")
+    );
+}
+
 /// The committed contract, parsed once.
 fn schema() -> serde_json::Value {
     serde_json::from_str(
