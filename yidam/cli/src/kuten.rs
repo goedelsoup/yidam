@@ -917,6 +917,27 @@ pub fn read_declaration(root: &Path) -> anyhow::Result<Option<Declaration>> {
     })?))
 }
 
+/// Every kuten profile vendored in this repository, by directory name, sorted.
+///
+/// **Discovered, never listed.** The vendor step copies the whole `yidam/prelude/` tree
+/// (`cp -R`), so a profile added upstream arrives in a derived repository without anything
+/// here being told about it. A command offering a hardcoded set would go on offering
+/// yesterday's, and the one thing a corpus adopting a practice must be able to see is what it
+/// actually holds.
+pub fn vendored_profiles(root: &Path) -> Vec<String> {
+    let dir = root.join(VENDORED_DIR);
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = entries
+        .filter_map(Result::ok)
+        .filter(|e| e.path().join("kuten.yml").is_file())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    out.sort();
+    out
+}
+
 /// The vendored profile the declaration names.
 pub fn read_profile(root: &Path, name: &str) -> anyhow::Result<Option<Profile>> {
     let path = profile_path(root, name);

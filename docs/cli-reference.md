@@ -57,7 +57,7 @@ corpus has drifted, and however a contribution reads.
 | Command | What it answers |
 |---|---|
 | `due` | What is due? Four clocks read together — index staleness, catalog TTL, unanswered questions, phases in flight. `--strict` exits nonzero on a due clock |
-| `kuten` * | What is this corpus's practice aimed at? Writes the declaration into `AGENTS.md`. `kuten check` reads the history against it |
+| `kuten` * | What is this corpus's practice aimed at? Writes the declaration into `AGENTS.md`. `kuten check` reads the history against it; `kuten adopt <name>` declares one |
 | `score <range>` | How did this session's work read? One row per declared criterion, with its evidence |
 
 ### A kuten declares what the work is for
@@ -78,6 +78,25 @@ meets it at session start.
 - loosen a gate, except as a visible policy override.
 
 **A repository holding no kuten is a supported state.** It reports as one.
+
+### Adopting one in a corpus that already exists
+
+The bootstrap writes the decision record at genesis. A repository older than the layer has
+none. Re-vendor the prelude first, then adopt:
+
+```sh
+YIDAM_REF=v0.4.0 mise run yidam-vendor-update
+yidam kuten adopt inquiry
+```
+
+`adopt` copies the revision from the vendored profile. Typing it by hand is the error the
+revision exists to survive.
+
+It also adds the `AGENTS.md` section when that file has none. The scaffold carrying that
+section is deleted at genesis, so repositories predating the layer never received it.
+
+It refuses when a record already exists. Changing a kuten is a `decide:` commit carrying a
+superseding record.
 
 ### `kuten check` asks a question and never fails
 
