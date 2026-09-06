@@ -156,8 +156,11 @@ jobs:
       # binary that speaks the contract, not the full feature set.
       - name: Install the yidam CLI so the contract tests have something to read
         run: cargo install --path yidam/cli --locked
-      - run: npm install
-        working-directory: yidam/editors/vscode
+      # No `npm install` step: every npm-backed mise task installs when `node_modules`
+      # is absent, through `scripts/npm-ensure.sh`. One recipe rather than two that can
+      # disagree — and the workflow step was what kept #646 invisible, since CI was the
+      # only place the packages were ever populated before a task ran.
+      #
       # Skipping is a courtesy to contributors without the CLI; it must never be how
       # this job goes green. This turns an absent or stale binary into a failure.
       - run: mise run ci-vscode
@@ -193,8 +196,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
-      - run: npm install
-        working-directory: yidam/editors/web
+      # No `npm install` step: every npm-backed mise task installs when `node_modules`
+      # is absent, through `scripts/npm-ensure.sh`. One recipe rather than two that can
+      # disagree — and the workflow step was what kept #646 invisible, since CI was the
+      # only place the packages were ever populated before a task ran.
       - run: mise run ci-editor-web
       # No `manifest`, for the reason the extension gives one job up: node's JUnit reporter
       # writes no `<system-out>`, so a runtime skip would be invisible to the census however
@@ -233,8 +238,6 @@ jobs:
             yidam/prelude/sdks/rust
             yidam/tests/harness
           key: parity
-      - run: npm install
-        working-directory: yidam/prelude/sdks/typescript
       # `parity` depends on `parity-check`, which enforces the fixture rules in both
       # directions: every parity function has a fixture, and every fixture directory has a
       # runner that reads it.
