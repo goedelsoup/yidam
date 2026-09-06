@@ -1,5 +1,12 @@
-# One of the six — the largest, at 1,123 commits, and on the high endpoint of every band.
-note = "the high end of the cluster: 26% phases, 1.11 nodes/commit, a 62-line median"
+# One of the six — the largest, at 1,123 commits, and on A0's published high endpoint for
+# every band.
+#
+# The 2026-09-06 re-fit (#644) moved the phase ceiling to 0.27 and the accretion ceiling to
+# 1.12, so these counts are now just inside rather than on the ends. The ends themselves are
+# covered exactly by `measured.members`, which is where the repositories that set them live.
+# This fixture's remaining job is that a repository high in every band at once is still one
+# corpus and not four findings.
+note = "high in every band at once: 26% phases, 1.11 nodes/commit, a 62-line median"
 cluster = true
 
 [measurement]

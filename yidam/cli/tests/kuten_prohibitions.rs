@@ -628,13 +628,21 @@ fn the_inquiry_profile_is_readable_by_the_binary() {
     assert_eq!(profile.name, "inquiry");
     assert!(profile.revision >= 1);
 
+    // Re-fitted 2026-09-06 (#644) from the six measurements the profile now records, by the
+    // rule under `measured.estimator`: the observed range, quoted to two decimal places,
+    // rounded **outward**. A0 quoted the same measurements rounded inward and put two of the
+    // six outside the bands their own numbers had defined.
+    //
+    // These four assertions pin the published values. That the values contain the evidence
+    // they were fitted from is a different question, and it is asked where the evidence is —
+    // `kuten_cluster::every_band_contains_the_measurements_it_was_fitted_from`.
     let phases = profile.phases.expect("the phases slot is populated");
-    assert_eq!(phases.commit_share.low, 0.13);
-    assert_eq!(phases.commit_share.high, 0.26);
+    assert_eq!(phases.commit_share.low, 0.12);
+    assert_eq!(phases.commit_share.high, 0.27);
 
     let classes = profile.classes.expect("the classes slot is populated");
     assert_eq!(classes.nodes_per_commit.low, 0.50);
-    assert_eq!(classes.nodes_per_commit.high, 1.11);
+    assert_eq!(classes.nodes_per_commit.high, 1.12);
     assert_eq!(classes.median_node_lines.low, 35.0);
     assert_eq!(classes.median_node_lines.high, 62.0);
 
@@ -650,9 +658,12 @@ fn the_inquiry_profile_is_readable_by_the_binary() {
         vocabulary.off_vocabulary_share,
         yidam::kuten::Band {
             low: 0.0,
-            high: 0.0
+            high: 0.02
         },
-        "exactly 0% in all six, and the two that were not are the object-coupled pair"
+        "0 to 1.64% across the six, re-measured 2026-09-06. A0's \"exactly 0%\" was produced \
+         by stripping the `(scope)` suffix GRAPH.md forbids before matching the verb, which \
+         is the one way this population reads as zero. The object-coupled pair is still \
+         outside, at 25% and 4%"
     );
 }
 

@@ -22,15 +22,34 @@ loop was for. Until now nothing wrote it down where a repository could be measur
 
 Every band below was measured before it was declared, over eighteen derived corpora holding
 6,900 commits and 3,300 instance nodes, read-only. One cluster survived two controls, and
-this profile is that cluster: **six repositories, six unrelated domains, 73 to 1,123
+this profile is that cluster: **six repositories, six unrelated domains, 73 to 1,312
 commits**, converging on four numbers.
 
-| Slot | Band | What the six showed |
-|---|---|---|
-| `phases` | 13–26% | Commits settling a phase, among the nine repositories whose vendored prelude has the verb |
-| `classes` | 0.50–1.11 | Instance nodes per commit, at matched maturity |
-| `classes` | 35–62 lines | Median instance node length |
-| `vocabulary` | 0% | Off-vocabulary commits — exactly zero in all six |
+Re-fitted **2026-09-06** (#644). Each band is the observed range over the six, quoted to two
+decimal places and rounded **outward**. The six measurements it was fitted from are recorded
+in `kuten.yml` under `measured.members`.
+
+| Slot | Band | Observed | What the six showed |
+|---|---|---|---|
+| `phases` | 12–27% | 12.50–26.23% | Commits settling a phase, among the nine repositories whose vendored prelude has the verb |
+| `classes` | 0.50–1.12 | 0.5061–1.1096 | Instance nodes per commit, at matched maturity |
+| `classes` | 35–62 lines | 35–62 | Median instance node length |
+| `vocabulary` | 0–2% | 0–1.64% | Off-vocabulary commits: four of them, in two of the six |
+
+### What the re-fit corrected
+
+A band is a measurement. The precision it is quoted at is a choice, and A0 made that choice
+without recording it. The first two rows above were published as *13–26%* and *0%* — the same
+measurements, rounded inward. That put the two repositories whose numbers set those endpoints
+outside the bands they had defined, which by this layer's own test is a wrong extraction and
+not a divergent repository.
+
+The correction is the rule rather than the numbers: round outward, record the measurements
+beside the band, and have a guard read them back. The zero had a second cause worth stating.
+Two of the four off-vocabulary commits carry a valid verb with a `(scope)` suffix that
+[GRAPH.md](../../GRAPH.md) forbids, written at genesis under a prelude that had not yet closed
+the list. A script that strips the suffix before matching reads this population as exactly
+zero, and that is the one way to reach the number A0 published.
 
 Two controls are what make those numbers a cluster rather than an artifact, and both are
 mandatory in any repeat of the measurement.

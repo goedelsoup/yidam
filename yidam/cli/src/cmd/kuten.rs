@@ -274,9 +274,9 @@ mod tests {
     fn profile() -> Profile {
         Profile::parse(
             "kuten: inquiry\nrevision: 1\ngloss: questions opened, and settled\n\
-             phases:\n  types: [Investigation, Extraction]\n  commit_share: {low: 0.13, high: 0.26}\n\
-             vocabulary:\n  verbs: [establish, open]\n  off_vocabulary_share: {low: 0.0, high: 0.0}\n\
-             classes:\n  nodes_per_commit: {low: 0.50, high: 1.11}\n  median_node_lines: {low: 35, high: 62}\n\
+             phases:\n  types: [Investigation, Extraction]\n  commit_share: {low: 0.12, high: 0.27}\n\
+             vocabulary:\n  verbs: [establish, open]\n  off_vocabulary_share: {low: 0.0, high: 0.02}\n\
+             classes:\n  nodes_per_commit: {low: 0.50, high: 1.12}\n  median_node_lines: {low: 35, high: 62}\n\
              object:\n  direction: authored\n\
              question_pressure:\n  kind: epistemic\n\
              rubric:\n  criteria: [register, landing, questions]\n",

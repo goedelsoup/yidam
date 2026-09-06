@@ -82,6 +82,9 @@ survives: **`inquiry`** — six repositories, six unrelated domains, 73 to 1,123
 converges on phase commits **13–26%**, nodes/commit **0.50–1.11**, median node **35–62 lines**,
 off-vocabulary **exactly 0% in all six**. That is A2's extraction target, and it is falsifiable.
 
+Two of those four were falsified, by the population itself, eight days later. See "A0's bands,
+corrected" below.
+
 A second cluster was reported and then retracted. Two controls dissolved it, and both are
 mandatory in any repeat of this measurement (including #288's — "the method A7 inherits"):
 
@@ -145,6 +148,44 @@ retirement rule.
 One caveat travels with the correction: eligibility is inferred from each corpus's pinned yidam
 revision, never from an observed invocation. That instrument cannot separate *could not have known
 the key existed* from *knew and declined*, and under the read-only constraint none available can.
+
+#### A0's bands, corrected (2026-09-06, #644)
+
+The same failure, one layer over. The four bands had no falsifier either: A0 published them as
+ranges and no per-repository table, so nothing could ask whether a band still contained the
+measurements it was fitted from. Re-measuring the six with the repository's own `kuten::measure`,
+read-only, says two of them never did.
+
+| Band | A0 | Observed 2026-09-06 | Re-fitted |
+|---|---|---|---|
+| `phases.commit_share` | 0.13–0.26 | **0.1250–0.2623** | **0.12–0.27** |
+| `vocabulary.off_vocabulary_share` | 0.0–0.0 | **0.0–0.0164** | **0.0–0.02** |
+| `classes.nodes_per_commit` | 0.50–1.11 | 0.5061–1.1096 | 0.50–**1.12** |
+| `classes.median_node_lines` | 35–62 | 35–62 | 35–62 |
+
+**One cause, applied twice.** A0 quoted a min/max band to two decimal places and rounded
+**inward**: 0.2623 became "0.26", 0.1250 became "0.13", 0.0164 became "0.0". Each rounding put
+the repository whose measurement had set that endpoint outside the band it defined — which §9's
+obligation calls a wrong extraction. `nodes_per_commit` escaped only because 0.5061 and 1.1096
+happen to round outward at two decimals.
+
+This is not drift. The member that fails both bands last committed **2026-08-20**, before A0 ran:
+its numbers today are its numbers then. One member has genuinely moved — its phase share fell from
+0.1279 to 0.1250 as its last hundred commits ran at 0.076 — and that is divergence, which is the
+instrument working rather than an extraction to correct.
+
+The zero has a second cause. Of the four off-vocabulary commits, two carry a valid verb with a
+`(scope)` suffix [`GRAPH.md`](../../yidam/prelude/GRAPH.md) forbids, written at genesis under a
+prelude that had not yet closed the list; the other two are coinages — `report:` and `publish:` —
+against a closed one, which is the middle row of the table below. Stripping the suffix before
+matching the verb is the one way to read this population as exactly zero, and it is a rule the
+document explicitly refuses.
+
+**What changes, so the next re-fit is legible rather than surprising.** The estimator is written
+down — *the observed range, quoted to two decimal places, rounded outward* — the fit carries a
+date, and the six measurements are recorded in the profile under `measured.members`. A guard reads
+them back through `compare` and holds every band to containing its own evidence, which is the half
+of §9's obligation that can run in CI while the corpora themselves cannot.
 
 ### The vocabulary has three failure causes, not one
 
@@ -230,7 +271,7 @@ The slot inventory, with A0's verdicts as #572 records them:
 |---|---|---|
 | **phases** — the valid phase types | real (0–26% use among the nine with the verb) | A3, §3 |
 | **vocabulary** — the registers, and a glossed subset | real, and specified wrongly by the plan: register scoping is the primary job, narrowing the secondary benefit | A3, §4 |
-| **classes** — the shape of the corpus the practice accretes | real (extraction target: 0.50–1.11 nodes/commit, 35–62 line medians) | A2 |
+| **classes** — the shape of the corpus the practice accretes | real (A0's extraction target: 0.50–1.11 nodes/commit, 35–62 line medians; re-fitted 2026-09-06 to 0.50–1.12 and 35–62) | A2 |
 | **object** — the artifact outside the corpus, and its direction | real — the one axis that breaks conformance | A3 §6, A6 |
 | **dialogue** — what the bootstrap asks | real | A2 |
 | **skills** — what the practice routes through | real | A2 |
@@ -724,6 +765,14 @@ declaration and the history and reports divergence, read-only, exit zero, on RFC
 contract; `doctor` reports which kuten is held and at what revision. A2's proof obligation is
 A0's cluster run backward: a declared `inquiry` that fails to recognise the six repositories
 which defined it is a wrong extraction.
+
+That obligation went unchecked for eight days, because A0 published ranges and no
+per-repository table, and two bands failed it from the day they shipped ("A0's bands,
+corrected", above). It is checked now: the profile records the six measurements it was fitted
+from, and a guard reads them back through the same `compare` the command runs. The obligation
+is dated — a member that later changes its practice moves off a correctly fitted band, and
+that is divergence, not a wrong extraction — so a re-fit is an act with a date on it, recorded
+in `measured.fitted` beside the estimator it used.
 
 And one transcription line, so `due` never grows a precedence rule:
 
