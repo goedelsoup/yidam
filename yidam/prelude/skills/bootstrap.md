@@ -80,6 +80,16 @@ file to internalize here.
 5. `yidam/prelude/guidelines/agent-conduct.md` — specific conduct norms
 6. `yidam/prelude/guidelines/directories.md` — where things live and what belongs in each
 
+Two later steps reach a named path under `yidam/prelude/` for a stated purpose, and they are
+the only exceptions: **step 2** lists `yidam/prelude/kuten/` and reads two fields out of the
+profile the user confirms, and **step 5** lists `yidam/prelude/domains/` to see what a
+calculator could call into. Each says which path it reads and which field it takes from it.
+Nothing else under `yidam/prelude/` is opened at any point. The ban above is on wandering —
+on enumerating a directory to see what turns up and reading whatever does — and a step that
+names the path and the field before it reads is not wandering. Step 5 has directed its
+listing for as long as that paragraph has forbidden one, and the unqualified ban was the half
+that was wrong.
+
 `yidam/tests/` is deliberately absent from this list, and absent from the repository you are
 working in. It holds how the yidam template tests itself — the harness, the rubric, the
 judge's criteria, and each scenario's reference description of a good result. None of it
@@ -240,6 +250,65 @@ decision: |
 rationale: |
   <why these classes; what was considered and discarded; why this alignment was chosen>
 ```
+
+**One confirmation remains, and it is the only one in this step that is not about the
+domain.** Everything above says what this repository is *about*. A **kuten** says what its
+work is *aimed at* — the phase types it runs, the shape of corpus it accretes, the share of
+its commits that settle something. It narrows the loop and may not widen the model, and it
+binds nobody: divergence from it is a question for a person, not a defect.
+
+List the profiles this template ships and read the one you are about to name:
+
+```
+ls yidam/prelude/kuten/
+```
+
+Each profile directory holds `kuten.yml`, the declaration a tool reads, and `KUTEN.md`, the
+document a person reads. Take the profile's `gloss:` and its `revision:` from `kuten.yml`
+directly — quote the gloss rather than paraphrasing it, and copy the revision rather than
+typing a number you remember.
+
+**With one profile present this is a confirmation, not a menu.** State it and take the answer:
+
+> **This corpus's practice — its kuten — is `<name>`.** <the profile's `gloss:`, verbatim.>
+> It is vendored at genesis and recorded with the revision that was vendored, and it changes
+> afterwards only by a `decide:` commit carrying a superseding record. Confirm it, or say
+> that no profile here describes what this corpus is for — **holding no kuten is a supported
+> state**, and `yidam kuten check` reports it as one and exits zero.
+
+If the listing turns up more than one profile, give each its own line — name and gloss, in
+the profile's own words — and ask which. Do not rank them and do not recommend one. A
+practice the user does not recognize as theirs is a declaration that will be diverged from on
+the first commit, and divergence is the one thing this layer exists to make legible.
+
+If the directory is absent or the listing is empty — an existing repository that was overlaid
+without the template tree — there is no profile to confirm and nothing to vendor. Say so, ask
+nothing, and write no record.
+
+Then write the kuten decision record. If the user declined a kuten, write no file and say so
+in step 9 — an absent record is the state `doctor` and `yidam kuten` both already report, and
+a record naming a profile the user did not adopt is worse than none.
+
+```
+.yidam/decisions/kuten.yml
+```
+
+```yaml
+id: kuten
+summary: <one line — the profile adopted, and the revision vendored with it>
+kuten: inquiry                # the profile confirmed above, by its directory name
+revision: 1                   # that profile's own `revision:`, copied — not typed from memory
+decision: |
+  <the profile adopted, and what its gloss says the practice is aimed at>
+rationale: |
+  <what the user said when it was stated; if the listing held another profile and it was
+  declined, name it and say why>
+```
+
+`kuten:` and `revision:` are the two fields a tool reads; the rest is for a person and for
+`yidam decisions-log`. The revision is recorded because a kuten is read at the vintage the
+repository holds and never at upstream's current one — and if the two ever disagree, after a
+re-vendor say, `yidam kuten` says so in `AGENTS.md` rather than quietly picking one.
 
 ### 3. Orient to and scaffold the derived-repo structure
 
@@ -936,6 +1005,10 @@ finding an empty directory and guessing:
   it when a capability genuinely belongs outside `crates/`.
 - `docs/` — documentation about the repository, as distinct from the corpus's knowledge.
   Create it when there is something to say that is not a corpus node.
+- `.yidam/decisions/kuten.yml` — the practice this corpus declared. Name the kuten adopted in
+  step 2 and the revision recorded with it, or say that none was adopted: holding no kuten is
+  a supported state, `yidam kuten check` reports it as one and exits zero, and one can be
+  adopted later by a `decide:` commit carrying the record.
 - `.yidam/sangha/` — collective resolution. State the governance mode chosen in step 2. In
   single-elector mode, say that phases run on `phase/<name>` branches and that the sangha
   can be adopted later if a second elector appears.

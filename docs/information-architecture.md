@@ -106,6 +106,22 @@ rationale: |
   <why this, not alternatives considered>
 ```
 
+One record is also read by a tool. `.yidam/decisions/kuten.yml` records which
+[kuten](../yidam/prelude/kuten/README.md) this corpus adopted and the revision that was
+vendored with it, so it carries two extra fields on top of the shape above:
+
+```yaml
+id: kuten
+summary: <one line>
+kuten: inquiry
+revision: 1
+```
+
+`yidam kuten`, `kuten check` and `doctor` read `kuten:` and `revision:`; the rest of the
+record is for a person and for `decisions-log`. The bootstrap writes it at genesis when the
+user adopts a profile. A repository with no such record holds no kuten, which is a supported
+state and is reported as one.
+
 ### Resolution records
 
 `.yidam/sangha/resolutions/<evolution>.md`:
