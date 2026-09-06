@@ -140,9 +140,11 @@ per machine while the pin is one per repository. `yidam doctor` answers this dir
 
 **Findings look too mild.** Baseline membership outranks severity: inherited debt renders as a
 Hint however severe the finding is. `yidam.lint.showBaselined` controls whether they appear at
-all. If a finding that fails CI renders as a Warning and is *not* baselined, the extension is
-older than the fix in #655 — it read the check's declared severity rather than the finding's,
-and a `missing-property` finding on a `required: true` property is raised past its check.
+all.
+
+**A finding that fails CI renders as a Warning.** If it is not baselined, the extension
+predates #655. Older builds read the check's declared severity rather than the finding's own.
+`missing-property` raises a `required: true` omission past its check. Update the extension.
 
 ## `serve --mcp` returns `degraded`
 

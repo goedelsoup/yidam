@@ -266,8 +266,8 @@ Two consequences worth knowing:
   broken"; a fix means the entry no longer describes reality, and a stale ratchet is a ratchet
   that has stopped ratcheting. Re-bless after a cleanup pass.
 - **Baseline membership outranks severity in the editor.** Inherited debt renders as a Hint
-  however severe the finding is, and the severity read is the finding's rather than its
-  check's — see [Editor setup](editor-setup.md).
+  however severe the finding is. The severity read is the finding's own, not its check's —
+  see [Editor setup](editor-setup.md).
 
 Commit-vocabulary findings are baselined by **commit**, not by file: history is immutable, so a
 baselined commit stays baselined.
