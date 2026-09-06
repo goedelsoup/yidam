@@ -173,6 +173,13 @@ ul.questions {
   text-decoration: line-through;
 }
 
+/* A property whose omission fails the gate, as `missing-property` decides it — not as this
+ * page does. Same weight as `.gate-failed` on the reports page, because it is the same
+ * question asked one surface earlier. */
+.gates {
+  color: var(--status-open-fg);
+}
+
 .severity {
   font-size: var(--text-xs);
   color: var(--text-secondary);

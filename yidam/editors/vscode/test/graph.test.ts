@@ -80,7 +80,13 @@ const GRAPH: GraphReport = {
       class: 'concept',
       label: 'Concept',
       description: 'A unit of understanding.',
-      properties: [{ name: 'datum', type: 'string', description: 'Which vertical datum.' }],
+      // One of each, because the scaffold has to tell them apart: `missing-property` GATES on
+      // `station` and merely reports `datum`, and a template rendering both the same way is
+      // one the author deletes the wrong line from.
+      properties: [
+        { name: 'datum', type: 'string', description: 'Which vertical datum.' },
+        { name: 'station', type: 'string', description: 'The station.', required: true },
+      ],
       edges: [
         {
           relationship: 'relates-to',
@@ -336,6 +342,9 @@ test('a scaffolded node carries its properties and its first edge', () => {
   assert.match(body, /^label: Stage datum$/m)
   assert.match(body, /^  datum: ""   # string$/m)
   assert.match(body, /^  # Which vertical datum\.$/m)
+  // The one the gate fails on says so, and the one it does not stays unmarked — otherwise
+  // the annotation carries no information.
+  assert.match(body, /^  station: ""   # string, required$/m)
   assert.match(body, /^  - target: \.\.\/gauge\/ohio-river\.yml$/m)
   assert.match(body, /^    relationship: measured-by$/m)
   // The description is quoted, so a `:` or a `#` in it cannot break the file.

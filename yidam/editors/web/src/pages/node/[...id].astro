@@ -27,6 +27,7 @@ import {
   nodeById,
   nodeHref,
   referencesTo,
+  reportsRequired,
   type GraphReport,
 } from '../../lib/graph.ts'
 
@@ -51,6 +52,13 @@ const inbound = node ? referencesTo(nodes, id) : []
 // check that owns it. Restating it here from a report that does not carry the values would be
 // a guess wearing a verdict's clothes.
 const properties = declaration?.properties ?? []
+
+// Whether the binary that answered reports requiredness. A repository pins its own binary and
+// this client is versioned independently, so a corpus on one older than the field is normal —
+// and `format_version` does not rise for an additive field. The column is shown when the
+// answer exists and replaced by a sentence when it does not, because the first draft of this
+// page rendered it either way and called every property in the corpus optional.
+const hasRequired = reportsRequired(properties)
 
 // A node that is not in the report is a real state with two very different causes — a wrong
 // URL, or a corpus that does not contain it — and the header already distinguishes the
@@ -105,15 +113,13 @@ if (!node) {
             </p>
           ) : (
             <>
-              {/* The contract, not a checklist against this instance — see above.
-                  No required/optional column: the envelope does not carry `required`, and a
-                  draft of this page that printed one said "optional" for every property in the
-                  corpus. See `lib/graph.ts` on `GraphProperty`. */}
+              {/* The contract, not a checklist against this instance — see above. */}
               <table class="corpus">
                 <thead>
                   <tr>
                     <th>Property</th>
                     <th>Type</th>
+                    {hasRequired && <th>Omitting it</th>}
                     <th>Description</th>
                   </tr>
                 </thead>
@@ -124,11 +130,27 @@ if (!node) {
                         <code>{property.name}</code>
                       </td>
                       <td>{property.type || '—'}</td>
+                      {/* The column says what happens, not what the property is called.
+                          "required" and "optional" are the ontology's words for a distinction
+                          whose whole content here is which findings fail CI, and a reader
+                          looking at a node wants that rather than the vocabulary. */}
+                      {hasRequired && (
+                        <td class={property.required ? 'gates' : undefined}>
+                          {property.required ? 'fails the gate' : 'reported'}
+                        </td>
+                      )}
                       <td>{property.description || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              {!hasRequired && (
+                <p class="node-empty">
+                  This <code>yidam</code> does not report which properties are required, so
+                  which of these <code>missing-property</code> gates on cannot be shown. The
+                  header says which binary answered.
+                </p>
+              )}
             </>
           )}
         </section>

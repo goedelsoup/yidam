@@ -13,7 +13,13 @@
 
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { classOf, nodeById, nodeHref, referencesTo } from '../src/lib/graph.ts'
+import {
+  classOf,
+  nodeById,
+  nodeHref,
+  referencesTo,
+  reportsRequired,
+} from '../src/lib/graph.ts'
 
 /**
  * Two nodes in different directories whose raw `target` text is the same string, resolving to
@@ -76,6 +82,34 @@ test('a node nothing points at reports nothing, rather than reporting an absence
   assert.deepEqual(referencesTo(NODES, 'concept/gone.yml'), [
     { from: 'concept/low-flow.yml', relationship: 'depends-on' },
   ])
+})
+
+test('an absent `required` is not read as optional', () => {
+  // The whole point of the CLI change behind this. A binary older than the field reports no
+  // `required` at all, and treating that as false is what printed "optional" against every
+  // property in a corpus — including any the gate would have failed on.
+  assert.equal(reportsRequired([{ name: 'datum', type: 'string' }]), false)
+  assert.equal(
+    reportsRequired([
+      { name: 'station', type: 'string', required: true },
+      { name: 'datum', type: 'string' },
+    ]),
+    false,
+    'a partial answer is not an answer — the CLI emits the field on every property or none',
+  )
+
+  assert.equal(reportsRequired([{ name: 'datum', type: 'string', required: false }]), true)
+  assert.equal(
+    reportsRequired([
+      { name: 'station', type: 'string', required: true },
+      { name: 'datum', type: 'string', required: false },
+    ]),
+    true,
+  )
+
+  // A class declaring nothing has no answer to report either way, and the page renders
+  // "This class declares no properties" rather than a table with a column above no rows.
+  assert.equal(reportsRequired([]), false)
 })
 
 test('a href keeps the separators and escapes the segments', () => {

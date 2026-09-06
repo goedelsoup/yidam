@@ -36,14 +36,24 @@ envelope's `resolved` path and never on the raw `target`, which is relative to t
 node's directory: comparing that text would be this process doing the path resolution
 `dangling_edge` owns, arriving as a three-line convenience.
 
-The node page lists a class's properties and does **not** say which are required, because the
-envelope does not carry it: `OntProperty` in
-[`cmd/graph.rs`](../../cli/src/cmd/graph.rs) serialises `name`, `type` and `description` only,
-while `missing-property`'s own rationale says a property declared `required: true` *gates*. So
-the one distinction between a property whose omission fails CI and one whose omission is
-merely reported does not reach this surface. A draft of the page rendered the column anyway and
-printed "optional" for every property in the corpus — a fabricated verdict arriving as a table
-column. The fix is the CLI's; #606 records it.
+The properties table says what omitting each one costs — **fails the gate** or **reported** —
+rather than "required" and "optional". That distinction is `missing-property`'s: it gates on a
+property declared `required: true` and reports the rest, and a reader looking at a node wants
+to know which findings fail CI more than they want the ontology's vocabulary for it.
+
+It did not reach this surface at first. `OntProperty` in
+[`cmd/graph.rs`](../../cli/src/cmd/graph.rs) serialised `name`, `type` and `description` and
+stopped, so a draft of this page rendered the column anyway and printed "optional" for every
+property in the corpus — a fabricated verdict arriving as a table column, which is the same
+failure as one arriving as a check and harder to see. The column was removed, the CLI now
+carries the field, and the column is back.
+
+**An absent `required` is not read as optional.** A repository pins the binary that governs it
+and this client is versioned independently, so a corpus on a binary older than the field is a
+normal state — and `format_version` does not rise for an additive field, by
+`report.schema.json`'s own rule. The CLI emits `required` on every property or on none, so the
+column appears when the answer exists and is replaced by one sentence naming the binary when it
+does not. Both paths were checked against two real binaries rather than mocked.
 
 ## The boundary, and why it is a test here
 
