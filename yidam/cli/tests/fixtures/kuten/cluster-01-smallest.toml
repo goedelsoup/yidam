@@ -1,10 +1,12 @@
 # One of the six repositories that defined `inquiry` — the smallest, at 73 commits.
 #
 # The shape, not the corpus. A0 published the cluster as four ranges over six repositories in
-# six unrelated domains; it did not publish a per-repository table, and inventing one here
-# would be the thing #574 forbids. What these fixtures pin is that a repository sitting
-# anywhere inside the published cluster — including on an endpoint — is recognized as one of
-# the six, and that the arithmetic between a raw count and a band does not lose it.
+# six unrelated domains and no per-repository table, so these fixtures were built from the
+# ranges. The table exists now — `measured.members` in the shipped profile, and the guard
+# that reads it back through the bands — and its absence is exactly why two of the four bands
+# had shipped excluding the members that set them. What these fixtures pin is the other
+# thing: that a repository sitting anywhere inside the cluster is recognized as one of the
+# six, and that the arithmetic between a raw count and a band does not lose it.
 #
 # `open_questions` is the one number here that was measured against the six repositories
 # themselves rather than against A0's published ranges. Running this repository's own

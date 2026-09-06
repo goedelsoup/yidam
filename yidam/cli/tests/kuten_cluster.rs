@@ -6,17 +6,29 @@
 //!
 //! # What is and is not proved here
 //!
-//! Those six corpora are not in this checkout and cannot be, so the obligation is encoded as
-//! their measured **shapes**: the cluster A0 published is four ranges — phase commits 13–26%,
-//! nodes per commit 0.50–1.11, median node 35–62 lines, off-vocabulary exactly 0% — over six
-//! repositories in six unrelated domains, and no per-repository table was published. So the
-//! fixtures under `fixtures/kuten/` sit on the cluster's endpoints and through its interior,
-//! and what they pin is that a repository anywhere inside the published cluster is recognized
-//! and that the arithmetic between a raw count and a band never loses one.
+//! Those six corpora are not in this checkout and cannot be. Their **measurements** can be,
+//! and since #644 they are: the profile records the six raw counts its bands were fitted
+//! from, and [`every_band_contains_the_measurements_it_was_fitted_from`] reads them back
+//! through `compare`. That is the obligation itself, running in CI.
 //!
-//! **The run against the real six is the owner's to do.** These fixtures cannot substitute
-//! for it: they can show the extraction is faithful to the numbers A0 reported, and they
-//! cannot show the numbers A0 reported are what those repositories still are.
+//! It did not run before, because A0 published the cluster only as four ranges and no
+//! per-repository table. Two of those four ranges excluded the very repositories whose
+//! numbers had set their endpoints — a ratio quoted to two decimal places and rounded inward
+//! — and nothing here could see it, because there was nothing to compare the bands against
+//! but themselves.
+//!
+//! The fixtures under `fixtures/kuten/` keep the job they are good at, which is the other
+//! one. The endpoints are now covered exactly, by the members that set them, so the fixtures
+//! probe the interior and carry the four **controls** — a vintage prelude, a repository that
+//! stopped phasing, an object-coupled one, an empty one — which no measurement of the six can
+//! supply, because none of the six is any of those things. Their counts sit on A0's published
+//! endpoints, which the re-fit made interior; that is where they are useful now, and moving
+//! them onto the new ends would only re-assert what the members already assert.
+//!
+//! What neither half proves is that the recorded numbers are still what those repositories
+//! are. A member that changes its practice moves off a correctly fitted band, and that is
+//! divergence rather than a wrong extraction. Re-fitting is a dated act; the date is
+//! `measured.fitted`.
 //!
 //! # The controls are the other half
 //!
@@ -189,6 +201,156 @@ fn every_shape_in_the_cluster_conforms() {
             );
         }
     }
+}
+
+// ── the obligation, on the measurements themselves ────────────────────────────
+
+/// One row of `measured.members` — a repository's raw counts, as the profile records them.
+///
+/// The field names are not [`Measurement`]'s. `commits` and `nodes` are key names the
+/// encoding prohibition reserves at any depth in a profile, so the record spells them
+/// `authored` and `instances` and the mapping is made here, once, in the open.
+#[derive(serde::Deserialize)]
+struct Member {
+    authored: usize,
+    phase: usize,
+    off_vocabulary: usize,
+    instances: usize,
+    median_lines: f64,
+    open_questions: usize,
+}
+
+impl Member {
+    fn measurement(&self) -> Measurement {
+        Measurement {
+            commits: self.authored,
+            phase_commits: self.phase,
+            off_vocabulary_commits: self.off_vocabulary,
+            nodes: self.instances,
+            median_node_lines: Some(self.median_lines),
+            open_questions: self.open_questions,
+        }
+    }
+}
+
+/// The six measurements the bands were fitted from, read off the shipped profile.
+fn measured_members() -> Vec<Member> {
+    let path = repo_root().join("yidam/prelude/kuten/inquiry/kuten.yml");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("{} is unreadable ({e})", path.display()));
+    let doc: serde_yaml::Value =
+        serde_yaml::from_str(&text).expect("the shipped inquiry profile is YAML");
+    let rows = doc
+        .get("measured")
+        .and_then(|m| m.get("members"))
+        .cloned()
+        .expect("the shipped profile records the members its bands were fitted from");
+    serde_yaml::from_value(rows).expect("`measured.members` is a list of raw counts")
+}
+
+/// **The proof obligation, on the numbers rather than on shapes standing in for them.**
+///
+/// The fixtures above encode the cluster A0 *published* — four ranges — because A0 published
+/// no per-repository table. That absence is not a detail: it is why two of the four bands
+/// shipped excluding the very repositories whose measurements set their endpoints, and why
+/// finding it out took a re-measurement two days later (#644). A0 quoted a ratio to two
+/// decimal places and rounded inward, so a member measured at 0.2623 sat outside a ceiling of
+/// 0.26 that its own number had defined, and a member at 0.0164 sat outside a zero.
+///
+/// So the profile now carries the six measurements, and this reads them back through
+/// [`compare`] — the same function `kuten check` runs — and holds every band to containing
+/// its own evidence. **This is the half that can run in CI.** The six corpora are not in this
+/// checkout and never will be; their measurements can be, and a band that stops containing
+/// them goes red here on the commit that moves it.
+///
+/// What this cannot do is notice that the recorded numbers have gone stale — a repository
+/// that changes its practice moves away from a band that is still correctly fitted, and that
+/// is divergence, which is the instrument working. Re-fitting is a dated act, and
+/// `measured.fitted` is where the date lives.
+#[test]
+fn every_band_contains_the_measurements_it_was_fitted_from() {
+    let profile = inquiry();
+    let members = measured_members();
+    assert_eq!(
+        members.len(),
+        6,
+        "the cluster is six repositories and the profile records {} — a table that lost a row \
+         would go on passing this while the band it no longer constrains drifted off it",
+        members.len()
+    );
+
+    // Every one of the six carries the `phase` verb and a closed vocabulary in the prelude it
+    // has vendored — measured, not assumed, and it is what makes the two vintage-gated
+    // metrics answerable for them at all. A vintage-exempt probe here would make this test
+    // pass on a band it never read.
+    let vintage = Vintage {
+        has_phase_verb: true,
+        vocabulary_is_closed: true,
+        graph_present: true,
+    };
+
+    for (i, member) in members.iter().enumerate() {
+        let findings = compare(&profile, &member.measurement(), &vintage);
+        assert_eq!(
+            findings.len(),
+            5,
+            "member {i}: four bands and the question-pressure kind, five findings"
+        );
+        for finding in &findings {
+            assert_eq!(
+                finding.verdict,
+                Verdict::Conforming,
+                "member {i} of the six this profile was fitted from measured {} on `{}`, and \
+                 the declared {} reports {}. A band that excludes its own evidence is a wrong \
+                 extraction — re-fit it by `measured.estimator`, which rounds outward.",
+                finding.measured,
+                finding.metric,
+                finding.declared,
+                tag(finding.verdict)
+            );
+        }
+    }
+}
+
+/// The guard above, mutated: a recorded measurement moved outside its band is caught.
+///
+/// A test that reads a table and compares it against bands fitted from that same table can
+/// pass by reading nothing — an empty list, a renamed key, a `Vintage` that exempts the two
+/// gated metrics. This moves one row's phase count until it sits below the floor and asserts
+/// the comparison notices, so the assertion above is known to be load-bearing rather than
+/// believed to be.
+#[test]
+fn the_containment_guard_catches_a_member_outside_its_band() {
+    let profile = inquiry();
+    let vintage = Vintage {
+        has_phase_verb: true,
+        vocabulary_is_closed: true,
+        graph_present: true,
+    };
+    let mut measurement = measured_members()[0].measurement();
+    let floor = profile
+        .phases
+        .as_ref()
+        .expect("the phases slot is populated")
+        .commit_share
+        .low;
+    measurement.phase_commits = 0;
+    assert!(
+        floor > 0.0,
+        "a floor of zero would make this mutation conform, and the mutation would prove nothing"
+    );
+
+    let verdicts: Vec<Verdict> = compare(&profile, &measurement, &vintage)
+        .into_iter()
+        .filter(|f| f.metric == "phase-commit-share")
+        .map(|f| f.verdict)
+        .collect();
+    assert_eq!(
+        verdicts,
+        vec![Verdict::Divergent],
+        "a member driven to zero phase commits still reads as conforming, so the containment \
+         assertion above is not reading the band"
+    );
 }
 
 /// **G6 — the question-pressure rule recognizes all six, and it was measured before it was

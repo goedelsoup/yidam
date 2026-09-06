@@ -8,6 +8,13 @@
 # documentation, and the comment above them says so — along with what the population turned
 # out to hold, and what would retire them.
 #
+# One thing about a band *is* chosen, and pretending otherwise is what broke two of them:
+# the precision it is quoted at. A ratio is not two decimal places, so quoting one is a
+# decision about which way to round, and A0 made it silently and inward — putting the two
+# repositories that set the endpoints outside the band their own numbers had defined. The
+# rule is now written down under `measured.estimator`, the six measurements it was applied
+# to are under `measured.members`, and a guard runs them back through the bands.
+#
 # A comment in this file satisfies nothing. The guards upstream parse the document, so what
 # is asserted is the tree below and never the prose around it.
 kuten: inquiry
@@ -15,20 +22,55 @@ revision: 1
 gloss: the corpus grows through sustained inquiry — questions opened, and settled
 
 # Where the numbers came from, so a reader can ask whether they still hold.
+#
+# `members` is the per-repository table A0 never published, and not publishing it is why two
+# of the four bands shipped excluding the very repositories that set them (#644). Each row is
+# the raw measurement the band was fitted from — the counts, not the ratios, so the
+# arithmetic between a count and a band is fitted and checked on the same numbers. A guard
+# runs every row back through `compare` against the bands below, so a band that stops
+# containing its own evidence goes red in CI, where the six corpora themselves can never be.
+#
+# **The rows are ordered by history length and the repositories are not named.** Five of the
+# six are private or unpublished, and naming an unpublished repository in a file vendored
+# into every derived corpus discloses it. The identities are A0's population, recorded in
+# #572; the one public member is `allen-county-ohio`, which this file already names under
+# `clocks`. Anonymous is not invented: these are the measurements, taken on the date below.
+#
+# `authored` counts commits git did not write — the same merge predicate `lint --commits`
+# uses — and `instances` counts corpus instance nodes. Neither is spelled with the word the
+# graph encoding reserves, because a kuten may not redefine what a node or a commit is, and
+# the guard that holds it to that reads key names at any depth.
 measured:
   population: eighteen derived corpora, 6,900 commits, 3,300 instance nodes
-  cluster: six repositories, six unrelated domains, 73 to 1,123 commits
+  cluster: six repositories, six unrelated domains, 73 to 1,312 commits
   controls: [vendored-prelude vintage, repository maturity]
   # A0 reported no config anywhere and was wrong about where to look; re-measured
   # 2026-09-06 under #633. See the comment above `clocks`.
   config_reread: 2026-09-06
+  # When the four bands below were last fitted, and by what rule. Both are here because
+  # neither was recorded the first time, and their absence is what let A0's quoting error
+  # survive a re-measurement two days after it shipped.
+  fitted: 2026-09-06
+  estimator: the observed range over the six, quoted to two decimal places, rounded outward
+  members:
+    - {authored: 73, phase: 11, off_vocabulary: 0, instances: 81, median_lines: 35, open_questions: 14}
+    - {authored: 82, phase: 13, off_vocabulary: 0, instances: 51, median_lines: 62, open_questions: 26}
+    - {authored: 122, phase: 32, off_vocabulary: 2, instances: 71, median_lines: 57, open_questions: 13}
+    - {authored: 157, phase: 24, off_vocabulary: 0, instances: 97, median_lines: 44, open_questions: 51}
+    - {authored: 247, phase: 54, off_vocabulary: 0, instances: 125, median_lines: 59, open_questions: 115}
+    - {authored: 1312, phase: 164, off_vocabulary: 2, instances: 673, median_lines: 62, open_questions: 440}
 
 # The four phase types PHASES.md has always carried, and the share of commits that settle
 # one. Measured across the nine repositories whose vendored prelude has the `phase` verb;
 # six of the nine use it, and those six are this cluster.
+#
+# Observed 0.1250 to 0.2623 on 2026-09-06. A0 published the same range as "13–26%" and the
+# profile quoted it verbatim, which rounded **inward at both ends** and put the two members
+# that set the endpoints outside the band their own numbers defined. That is the rounding
+# rule under `measured.estimator`, and it is why it is written down.
 phases:
   types: [Investigation, Extraction, Synthesis, Assessment]
-  commit_share: {low: 0.13, high: 0.26}
+  commit_share: {low: 0.12, high: 0.27}
 
 # The closed vocabulary as it stands. A kuten may declare a subset and gloss it; it may not
 # add a verb, and the guard holds this list to GRAPH.md's.
@@ -64,15 +106,33 @@ vocabulary:
     - fix
     - vendor
     - consume
-  # Exactly 0% in all six. The two repositories that were not at zero were the two coupled
-  # to an artifact, and that is an axis crossing both shapes rather than a property of this
-  # one — which is why the band is zero rather than widened to admit them.
-  off_vocabulary_share: {low: 0.0, high: 0.0}
+  # Observed 0.0 to 0.0164 on 2026-09-06 — not the zero A0 published, and the correction is
+  # about four commits in two of the six.
+  #
+  # Two carry a valid verb with a `(scope)` suffix, written at genesis under a prelude that
+  # had not yet closed the list; GRAPH.md forbids the suffix, so they are off-vocabulary and
+  # the reading is right. A0's script almost certainly stripped the suffix before matching,
+  # which is the one way to get exactly zero out of this population. The other two are
+  # coinages against a closed list — #292's case, and the reason narrowing is not the answer
+  # to it.
+  #
+  # The ceiling is four commits and not a practice, and it is quoted anyway, because a band
+  # that excludes its own evidence is a wrong extraction whatever the evidence is made of.
+  # The object-coupled pair remains outside at 25% and 4%, which is what the band still
+  # separates. Separately: the vintage control is read per repository, so a commit authored
+  # before its own repository closed its vocabulary is invisible to it. That gap is real, and
+  # it is not this band's to close.
+  off_vocabulary_share: {low: 0.0, high: 0.02}
 
 # The shape of corpus this practice accretes. Both bands are read at matched maturity:
 # nodes per commit halves over a repository's life, so an unmatched comparison measures age.
+#
+# Observed 0.5061 to 1.1096 and 35 to 62 on 2026-09-06. These two are the pair A0 got right,
+# and only the first of them by luck: 0.5061 and 1.1096 happen to round outward at two
+# decimals, where 0.1250 and 0.2623 happen to round inward. The line medians are whole
+# numbers, so the rounding rule is a no-op on them and they are the measurement exactly.
 classes:
-  nodes_per_commit: {low: 0.50, high: 1.11}
+  nodes_per_commit: {low: 0.50, high: 1.12}
   median_node_lines: {low: 35, high: 62}
 
 # Which way the arrow between corpus and object runs. `authored` is the default and the only
