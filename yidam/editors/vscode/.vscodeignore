@@ -21,7 +21,7 @@ out/**/*.js.map
 # ── build and lint configuration, which runs nowhere after packaging ────────
 tsconfig.json
 tsconfig.test.json
-eslint.config.mjs
+.oxlintrc.json
 mise.toml
 .gitignore
 .vscodeignore

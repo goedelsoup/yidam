@@ -1,0 +1,38 @@
+// The linter, after eslint. See the commit that introduced this file for why the swap
+// happened at all: `@typescript-eslint` peers on `typescript <6.1.0` and oxlint parses
+// TypeScript itself, so the linter no longer has an opinion about which compiler ships.
+//
+// `plugins` and `rules` carry the three rules `eslint.config.mjs` enforced, by the names
+// oxlint knows them under. `typescript/no-unused-vars` and `eslint/no-unused-vars` are two
+// spellings of one rule here; the TypeScript-plugin spelling is written because these are
+// TypeScript files and a reader should not have to know they alias.
+//
+// What is NOT written down is the `correctness` category, which oxlint runs by default and
+// which is 71 rules rather than 3. It is left on deliberately: this source passed all of it
+// unmodified on the first run, so the coverage was free, and turning it off to match the old
+// config exactly would be choosing a smaller linter for the sake of the diff.
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript"],
+  "rules": {
+    "typescript/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+    "eslint/no-console": "error",
+    "eslint/eqeqeq": "error"
+  },
+  "overrides": [
+    // `no-console` is off here and only here — the same exception `eslint.config.mjs` made,
+    // for the same reason. These scripts are run by a person or by CI and their output IS
+    // the result: a packaging check that cannot say what is wrong with the package has not
+    // checked anything.
+    //
+    // `scripts/` needed its own block under eslint because it was otherwise parsed as
+    // JavaScript and TypeScript syntax failed on it. That half is gone: oxlint reads every
+    // file here as TypeScript, so this override now narrows one rule and nothing else.
+    {
+      "files": ["scripts/**/*.ts"],
+      "rules": {
+        "eslint/no-console": "off"
+      }
+    }
+  ]
+}

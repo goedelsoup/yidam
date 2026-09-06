@@ -4,7 +4,7 @@
  * `.vscodeignore` is an exclusion list, and an exclusion list has the failure mode every
  * exclusion list has: the thing it forgot looks exactly like the thing it excluded. Both
  * are "a file that is not mentioned". Before this existed, the default — no `.vscodeignore`
- * at all — packaged 66 files including `src/`, `test/`, `eslint.config.mjs` and `mise.toml`,
+ * at all — packaged 66 files including `src/`, `test/`, the lint config and `mise.toml`,
  * and `vsce package` reported success each time.
  *
  * So the rule is inverted here into an allowlist. A new file in the package fails this
@@ -59,7 +59,10 @@ const FORBIDDEN: [RegExp, string][] = [
   [/^test\//, 'the test suite, which no installer runs'],
   [/^scripts\//, 'development scripts, including this one'],
   [/\.js\.map$/, 'a source map whose sources are not shipped'],
-  [/^tsconfig|^eslint|^mise\.toml$/, 'build configuration that runs nowhere after packaging'],
+  [
+    /^tsconfig|^\.oxlintrc|^mise\.toml$/,
+    'build configuration that runs nowhere after packaging',
+  ],
   [/^node_modules\//, 'dependencies — this extension bundles none at runtime'],
   [/^\.git|^\.vscodeignore$/, 'repository metadata'],
 ]
