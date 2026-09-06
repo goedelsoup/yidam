@@ -66,10 +66,20 @@ arrives through `propose`'s own licence. The slot is named so that emptiness is 
 can see, rather than a family the layer forgot.
 
 `clocks` and `policy` are populated but are **proposals with values, not permissions with
-blanks**. `.yidam/config.toml` was empty in seventeen of the eighteen corpora measured and
-not one carried a policy override, so there is no measured interval to extract. The proposed
-values are the ones yidam's own configuration documentation puts in a reader's hands; a
-corpus holds them by writing them into its config, or declines them by not.
+blanks**. The proposed values are the ones yidam's own configuration documentation puts in a
+reader's hands; a corpus holds them by writing them into its config, or declines them by not.
+
+They were chosen rather than measured, and the reason first given — that there was no measured
+interval to extract — was wrong. Re-reading the same eighteen corpora on 2026-09-06 found
+`catalog.ttl_days` declared 182 times, 165 of them inside this cluster, in the per-entry form
+the first pass did not read. For the three `[due]` keys the population was never eighteen:
+two corpora held a yidam new enough to name those keys, and one of the two set values. No
+policy override exists anywhere, which does stand.
+
+So the scalars stay, as a documented fallback and not as evidence, and the profile beside this
+document records what would retire each one. A proposal that cannot be wrong is a preference
+wearing a measurement's clothes; this one can now be wrong, and the rule for it is written
+down in advance.
 
 ## How divergence is reported
 
