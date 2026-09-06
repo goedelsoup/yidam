@@ -65,15 +65,22 @@ mechanical form of the failure this layer keeps finding in itself — a surface 
 | `thresholds` | The `[lint]`/`[propose]` values — `escalate_after`, `withdraw_uncited_after`. Named, and proposed by no kuten: one decides when a finding fails the build, the other licenses a drafted deletion, and a kuten reaches neither act | `none` |
 | `policy` | Proposed severity overrides, which enter through the policy layer and are visible as overrides | `none` |
 | `object` | The artifact outside the corpus, and the direction of the arrow between them | `block` |
-| `rubric` | The criteria a contribution is scored by | `none` |
+| `rubric` | The criteria a contribution is scored by | `block` |
 | `question_pressure` | What kind of question this corpus should be opening | `check`, `block` |
 
-Two of these — `thresholds` and `rubric` — are named here and populated by no profile yet, and
-they are named rather than counted so the list cannot lose one by being reordered. A slot with
-no values says which state a repository is in; a slot invented ahead of its evidence says
-nothing and is believed anyway. `rubric` awaits a measurement. `thresholds` is the one that
-stays empty on principle rather than on evidence: a value under it would be a gate decided
-outside `policy:` and a deletion drafted with no licence.
+One of these — `thresholds` — is named here and populated by no profile, and it is named
+rather than counted so the list cannot lose it by being reordered. A slot with no values says
+which state a repository is in; a slot invented ahead of its evidence says nothing and is
+believed anyway. `thresholds` is the one that stays empty on principle rather than on
+evidence: a value under it would be a gate decided outside `policy:` and a deletion drafted
+with no licence.
+
+`rubric` is the one slot that names **criteria and no bands**, and the asymmetry is the point.
+Every band in a profile was measured over eighteen corpora before it was written down. What a
+*good* reading of a criterion is was never measured, so a band here would be a number believed
+because it is written down — the failure this layer exists to name. The slot says which
+criteria a contribution is read against; `yidam score <range>` says what each one computes and
+reports a row each, with no overall number and no verdict.
 
 ## The kinds of question pressure
 

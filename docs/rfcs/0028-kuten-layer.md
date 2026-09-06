@@ -250,6 +250,64 @@ it says a corpus is *owed*, and exits zero. `thresholds` cannot, because `escala
 when a finding fails the build and `withdraw_uncited_after` licenses a drafted deletion; a kuten
 reaches neither act except through the doors §8 names for them. Settled in Open questions 1.
 
+> **As built (A5, 2026-09-06) — the `rubric` slot, which this RFC names in the table above and
+> specifies nowhere else.** §5–§9 are silent about it and §9's surface list names three, none
+> of them a score. What shipped:
+>
+> - **The slot declares criteria and no bands.** `rubric.criteria` is a list of ids and
+>   nothing else. Every other populated slot carries intervals measured over eighteen corpora
+>   before they were written down, and the profile's own header says *"not one of those four
+>   was chosen"*. What was measured for a rubric is that each criterion **discriminates**
+>   across ranges — not what a good reading of one is — so a band here would be the number this
+>   layer exists to refuse.
+> - **Its reader is `block`**, and the layer document's `Read by` column says so. The criteria
+>   land in the `AGENTS.md` declaration, which is where an agent meets them at session start —
+>   before the work, which is the only place naming them changes anything. They are
+>   deliberately not a `check` reader: `check` measures a repository's whole history against
+>   bands, and a contribution is a range somebody chose.
+> - **`yidam score <range>` reads them, and reports rows only.** No overall verdict, no
+>   `conforming` flag, no band. A single number over a range of commits names a person's
+>   session; what is defensible is a reading per criterion with the commits and nodes it came
+>   from, so a reader can disagree by looking. Exit zero however it reads, on `cmd/kuten.rs`'s
+>   rule — a score that gated would be a gate decided by the kuten, which is exactly why
+>   `thresholds` ships empty.
+> - **Three criteria, each measured over 10-commit windows across the derived corpora before
+>   it was kept.** `register` — the epistemic share **of the recognized subset** (n=63; min
+>   0.00, median 0.50, max 1.00; undefined in 9 of 72). `landing` — the share of surviving
+>   added nodes with an inbound edge, through `orphan-in`'s own resolution and its class
+>   exemption (n=41; 0.00 / 0.67 / 1.00). `questions` — how many of those nodes are open
+>   questions, through `claims::is_open_question` (n=41, median 0.64), reported as a number and
+>   never thresholded, because whether a corpus *should* be opening questions is §5's slot.
+> - **`register` reports `unmeasurable` on a zero denominator, never 0.00**, and that is the
+>   single behavioural rule the criterion turns on. `classify_commit` is total — Operational is
+>   the listed case and everything else falls through to Epistemic, which the Dafny spec proves
+>   — so the naive share reads 1.00 for a corpus whose subjects are conventional commits with
+>   no recognized verb. The two readings disagree by up to 0.90 over the same range.
+> - **Legibility is a precondition reported beside `register` and never a scored row.** The
+>   share of authored non-merge commits whose verb is recognized at all is bimodal *by
+>   repository* — 42 of 72 windows at 0.00, 9 at 1.00 — so it separates corpora that adopted
+>   the vocabulary from ones that never did, which is not a property of a contribution.
+> - **Three candidates were measured and rejected**, recorded in the model as
+>   `score::CONSIDERED_AND_REJECTED` rather than in a commit message. Out-degree — #286's *"did
+>   new nodes enter the graph reachable"* — is `orphan-out`, an error-severity gate that 0 of
+>   2,736 nodes across sixteen corpora trip, so scoring it would measure the gate. The presence
+>   of an `open:` commit appears in 2 of 72 windows. The naive epistemic share is the inversion
+>   above.
+> - **The no-kuten arm is the default, not a fallback**, because 0 of 18 derived corpora hold a
+>   kuten and `migrate` has no retrofit path. It runs the same criteria and says the selection
+>   is the template's rather than that corpus's.
+> - **The cross-revision refusal of §2 fires, and is tested.** The decision record is a
+>   committed file, so the declaration at either end of a range is readable with `git show`;
+>   where the two differ, `score` names both and stops before comparing anything. It is the one
+>   non-zero exit, and it is a refusal to answer rather than a verdict on the work. #662 is why
+>   an integration test drives a range across a revision change: the harness's own instance of
+>   this refusal has been inert for a protocol version because nothing tested that case.
+> - **Deferred, named:** `standing` — a directional claim delta; the components exist and there
+>   is no per-window distribution yet. And `sourcing`, which measured as a floor (29 of 35
+>   windows at zero) and is not computable at a past ref at all, because the corpus
+>   reconstruction is pathspec'd to `.yidam/corpus` and `.yidam/catalog` is therefore not in
+>   any reconstruction.
+
 ### 2 — The revision model
 
 A kuten is vendored, and A0's whole correction was that a repository works from the prelude it

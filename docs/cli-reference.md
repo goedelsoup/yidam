@@ -51,13 +51,14 @@ baseline is what makes that the question. — see
 
 ## The practice
 
-Two commands, and neither is a gate. Both exit zero however much is owed. Both exit zero
-however far a corpus has drifted.
+Three commands, and none is a gate. Each exits zero however much is owed, however far a
+corpus has drifted, and however a contribution reads.
 
 | Command | What it answers |
 |---|---|
 | `due` | What is due? Four clocks read together — index staleness, catalog TTL, unanswered questions, phases in flight. `--strict` exits nonzero on a due clock |
 | `kuten` * | What is this corpus's practice aimed at? Writes the declaration into `AGENTS.md`. `kuten check` reads the history against it |
+| `score <range>` | How did this session's work read? One row per declared criterion, with its evidence |
 
 ### A kuten declares what the work is for
 
@@ -95,6 +96,29 @@ this repository *vendored*, not the current ones. A repository whose vendored `G
 **A comparison across revisions is annotated, never silently made.** The vendored profile may
 have moved past the revision the decision record names. The report says so, and the numbers
 stay readable.
+
+### `score` reads a contribution, not a repository
+
+The genesis rubric scores a repository's birth. It fires once. After that nothing said whether
+a *session's* work was any good. The gates said only whether it broke something, which is a
+floor and not a standard.
+
+`yidam score <range>` reads one range against declared criteria. It reports one row each: a
+number, and the commits or nodes that number came from. There is no overall score.
+
+**A single number over a range names somebody's session.** So there is none. Each row is a
+reading a person can disagree with by looking at its evidence.
+
+The range is required, as `diff`'s is. A default range answers about a scope nobody chose.
+
+**The criteria come from the kuten's `rubric` slot.** Where a repository holds no kuten, the
+template's own criteria are used. The report says which, every time.
+
+`--brief` adds four questions a person answers. Nothing scores them.
+
+**It writes nothing and exits zero however it reads.** A kuten binds nobody. A score that gated
+would be a gate decided by one. It refuses exactly once. A range spanning a kuten revision has
+no single set of criteria. It names both revisions and stops.
 
 ### `due` is not `doctor`, and the difference is the point
 
