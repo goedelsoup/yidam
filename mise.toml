@@ -240,6 +240,9 @@ depends = ["parity-check"]
 run = [
   "cargo nextest run --config-file .config/nextest.toml --manifest-path yidam/prelude/sdks/rust/Cargo.toml",
   "cargo test --doc --manifest-path yidam/prelude/sdks/rust/Cargo.toml",
+  # The TypeScript half needed an install nobody had run, and said so as
+  # `vitest: command not found` — beside a Python half that provisions itself. See #646.
+  "scripts/npm-ensure.sh yidam/prelude/sdks/typescript",
   "cd yidam/prelude/sdks/typescript && npm test",
   "cd yidam/prelude/sdks/python && uv run --extra dev pytest tests/",
 ]
@@ -277,6 +280,7 @@ for domain_dir in yidam/prelude/domains/*/; do
     cargo test --manifest-path "$domain_dir/rust/Cargo.toml" -- parity
   fi
   if [ -f "$domain_dir/typescript/package.json" ]; then
+    scripts/npm-ensure.sh "$domain_dir/typescript"
     (cd "$domain_dir/typescript" && npm test -- parity)
   fi
   if [ -f "$domain_dir/python/pyproject.toml" ]; then
@@ -293,6 +297,7 @@ run = [
   # `index` bought it protoc and lancedb for nothing. #442 split the two features for
   # exactly this and `embed_parity.rs` records it — the task kept the old flag.
   "cargo test --manifest-path yidam/cli/Cargo.toml --features vector-read --test embed_parity",
+  "scripts/npm-ensure.sh yidam/prelude/sdks/typescript",
   "cd yidam/prelude/sdks/typescript && npm test -- embed_parity",
   "cd yidam/prelude/sdks/python && uv run --extra dev --extra embed pytest tests/parity/test_embed_config.py",
 ]
@@ -649,6 +654,8 @@ env NEXTEST_PROFILE=default cargo mutants \
 description = "CI for the VS Code extension: compile (src + tests), lint, unit tests."
 dir = "yidam/editors/vscode"
 run = [
+  # `$MISE_PROJECT_ROOT` because `dir` above put us inside the package. See #646.
+  "\"$MISE_PROJECT_ROOT/scripts/npm-ensure.sh\" .",
   "npm run compile",
   "npm run lint",
   "npm run test:unit",
@@ -671,6 +678,7 @@ run = [
 description = "CI for the web editor surface: build, RFC-0016 boundary gates, and unit tests."
 dir = "yidam/editors/web"
 run = [
+  "\"$MISE_PROJECT_ROOT/scripts/npm-ensure.sh\" .",
   "npm run build",
   "npm run test",
 ]
@@ -685,7 +693,10 @@ run = [
 [tasks.ext-package]
 description = "Package the VS Code extension and assert the .vsix holds the runtime set and nothing else."
 dir = "yidam/editors/vscode"
-run = "npm run package"
+run = [
+  "\"$MISE_PROJECT_ROOT/scripts/npm-ensure.sh\" .",
+  "npm run package",
+]
 
 # ── running the extension by hand ─────────────────────────────────────
 # 143 unit tests cover the logic that does not need an editor, which is the
@@ -704,14 +715,13 @@ dir = "yidam/editors/vscode"
 # checks are one repository rather than two that drift.
 #
 # The install guard is not tidiness. `stage-fixture.ts` reaches `test/stage.ts`, which needs
-# `smol-toml`, so on a checkout that has not run `npm install` in this package the task fails
+# `smol-toml`, so on a checkout that has not run `npm install` in this package the task failed
 # with a bare `ERR_MODULE_NOT_FOUND` naming a transitive dependency — which reads as the
 # script being broken rather than as a missing install, and was written up that way on #606.
-# CI installs explicitly (`ci.yml`'s `vscode` job), so this is a no-op there and a working
-# task everywhere else.
+# `npm-ensure.sh` is that guard, now shared by every npm-backed task here (#646).
 run = """
 set -eu
-[ -d node_modules ] || npm install
+"$MISE_PROJECT_ROOT/scripts/npm-ensure.sh" .
 node --experimental-strip-types scripts/stage-fixture.ts
 """
 
@@ -732,8 +742,8 @@ depends = ["ext-fixture"]
 run = """
 set -eu
 fixture="$PWD/.local/ext-fixture"
+scripts/npm-ensure.sh yidam/editors/web
 cd yidam/editors/web
-[ -d node_modules ] || npm install
 npm run build
 exec node ./bin/yidam-edit.mjs --root "$fixture" ${YIDAM_EDIT_PORT:+--port "$YIDAM_EDIT_PORT"}
 """
@@ -743,6 +753,7 @@ description = "Compile the extension, stage the fixture, and open both in an Ext
 depends = ["ext-fixture"]
 run = """
 set -eu
+scripts/npm-ensure.sh yidam/editors/vscode
 cd yidam/editors/vscode && npm run compile && cd -
 code="${YIDAM_CODE:-code}"
 if ! command -v "$code" >/dev/null 2>&1; then
@@ -833,12 +844,17 @@ depends = ["ci-harness", "ci-cli", "ci-domains"]
 # too: serving the site at a different prefix than it ships at would hide every
 # link the base affects until it was live.
 
+# Was "run once after clone", which is a step a reader has to know about and therefore a step
+# they can miss — the same shape as #646's other seven, and answered the same way. It is now a
+# dependency of the tasks that need it rather than a note, and it installs only when there is
+# nothing installed, so naming it explicitly stays cheap.
 [tasks.docs-install]
-description = "Install docs site dependencies (run once after clone)."
-run = "npm install --prefix yidam/web/docs"
+description = "Ensure the docs site's dependencies are installed."
+run = "scripts/npm-ensure.sh yidam/web/docs"
 
 [tasks.docs-dev]
 description = "Start the docs dev server on http://localhost:4321/yidam/."
+depends = ["docs-install"]
 run = "npm run --prefix yidam/web/docs dev -- --port 4321"
 
 # The quality pages, built and read back (#467).
@@ -856,12 +872,15 @@ description = "Build the quality pages against a fixture report and assert on th
 # `package.json`'s `test` script, for the reason `docs-build` calls `build`: docs.yml carries
 # no mise, so the workflow and the terminal have to reach the same command by two routes, and
 # the npm script is the one they can both name.
+depends = ["docs-install"]
 run = "npm run --prefix yidam/web/docs test"
 
 [tasks.docs-build]
 description = "Build the docs site to yidam/web/docs/dist/."
+depends = ["docs-install"]
 run = "npm run --prefix yidam/web/docs build"
 
 [tasks.docs-preview]
 description = "Preview the production docs build locally."
+depends = ["docs-install"]
 run = "npm run --prefix yidam/web/docs preview"

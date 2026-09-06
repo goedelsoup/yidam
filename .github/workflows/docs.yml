@@ -162,9 +162,10 @@ jobs:
           cache: npm
           cache-dependency-path: yidam/web/docs/package-lock.json
 
-      # `npm ci`, not the `npm install` that `mise run docs-install` runs: a lockfile
-      # is a claim about what was built, and CI is where that claim is worth enforcing.
-      # This one is the *tag's* lockfile, which is the point.
+      # `npm ci` here and in `scripts/npm-ensure.sh`, which is what `mise run docs-install`
+      # now calls: a lockfile is a claim about what was built, and CI is where that claim is
+      # worth enforcing. This one is the *tag's* lockfile, which is the point. The two routes
+      # agreed on the command only after #646 — this said `ci` and the task said `install`.
       - name: Install dependencies
         run: npm ci
         working-directory: yidam/web/docs
