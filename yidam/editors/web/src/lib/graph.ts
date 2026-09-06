@@ -41,24 +41,41 @@ export interface GraphNode {
 }
 
 /**
- * A property a class declares — and exactly the three fields the envelope carries.
+ * A property a class declares.
  *
- * **There is no `required` here, and its absence is the point.** `OntProperty` in
- * `yidam/cli/src/cmd/graph.rs:48-53` serialises `name`, `type` and `description` and nothing
- * else, while `missing-property`'s own rationale says a property declared `required: true`
- * *gates*. So the one distinction between a property whose omission fails CI and one whose
- * omission is reported and forgiven does not survive into `graph --format json`.
+ * `required` is the distinction `missing-property` gates on: a property declared `true` fails
+ * the gate when an instance omits it, and every other omission is reported and forgiven.
  *
- * A first draft of the node page rendered a `Declared` column from this and printed
- * "optional" for every property in the fixture, including any that were not — a fabricated
- * verdict, arriving as a table column rather than as a check. Adding the field to this
- * interface would make that mistake available again, so it is not here. The fix is on the
- * CLI's side and is recorded on #606.
+ * It did not reach this surface until the CLI change #606 carried. `OntProperty` serialised
+ * `name`, `type` and `description` and stopped, so a first draft of the node page rendered a
+ * required/optional column from a report that could not answer it and printed "optional" for
+ * every property in the corpus — a fabricated verdict arriving as a table column, which is the
+ * same failure as one arriving as a check and harder to see.
+ *
+ * **Optional here, and `undefined` does not mean optional.** A repository pins the binary that
+ * governs it and this client is versioned independently, so a corpus on a binary older than
+ * the field is a normal state rather than an exceptional one — and `format_version` does not
+ * rise for an additive field, by `report.schema.json`'s own rule. `undefined` means *this
+ * binary does not report requiredness*, and the page says that rather than guessing, because
+ * guessing is what produced the column that had to be removed.
  */
 export interface GraphProperty {
   name: string
   type?: string
   description?: string
+  required?: boolean
+}
+
+/**
+ * Whether the binary that answered reports requiredness at all.
+ *
+ * Asked of the whole set rather than per property, because it is a fact about the binary and
+ * not about any one declaration: the CLI emits `required` on every property or on none. So the
+ * column appears when the answer is available and is replaced by one sentence when it is not,
+ * rather than every row carrying its own shrug.
+ */
+export function reportsRequired(properties: GraphProperty[]): boolean {
+  return properties.length > 0 && properties.every((p) => typeof p.required === 'boolean')
 }
 
 export interface GraphClassEdge {
