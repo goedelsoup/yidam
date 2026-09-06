@@ -14,6 +14,36 @@ pub fn repo_root() -> Result<PathBuf> {
     }
 }
 
+/// The corpus a server was told to serve, or the one its process happens to be standing in.
+///
+/// The three `serve` transports each resolved their own root by calling [`repo_root`], which
+/// made the working directory load-bearing three times over: a server is spawned by a client,
+/// so its working directory is whatever that client happened to use, and `docs/mcp-server.md`
+/// had to document `sh -c 'cd … && exec …'` as the way to say which corpus you meant. `--root`
+/// is that sentence as a flag (#421), and this is the one place that decides what it means, so
+/// a fourth transport cannot quietly disagree with the other three.
+///
+/// **Without `--root`, nothing changes** — [`repo_root`] answers exactly as it always has.
+///
+/// **With it, the nearest `.yidam/` at or above the named directory is the corpus.** Not
+/// `git rev-parse --show-toplevel`, which is how the working directory is resolved and is
+/// the wrong rule for a directory someone named: it overshoots every corpus that lives
+/// inside another git repository — `examples/streamflow` in this one, and any corpus checked
+/// out inside a larger workspace. Pointed straight at such a corpus, toplevel resolution
+/// returns the *outer* repository, which has no `.yidam/`, so the flag whose whole job is to
+/// end the ambiguity refuses a directory the person had correctly named. Measured, not
+/// assumed. Walking up finds the same corpus `cd`-ing there would, in every nesting.
+pub fn resolve_root(explicit: Option<&Path>) -> Result<PathBuf> {
+    let Some(dir) = explicit else {
+        return repo_root();
+    };
+    Ok(dir
+        .ancestors()
+        .find(|d| d.join(".yidam").is_dir())
+        .unwrap_or(dir)
+        .to_path_buf())
+}
+
 /// Fail unless the current directory really is a yidam-derived repository.
 ///
 /// [`repo_root`] falls back to the working directory when `git rev-parse` fails, which is
@@ -32,7 +62,15 @@ pub fn require_yidam_repo(root: &Path) -> Result<()> {
         return Ok(());
     }
 
+    // `-C root`, because the question is whether *this* directory is in a repository. Without
+    // it this asked about the process's working directory and reported the answer as though it
+    // were about `root` — invisible while the two were always the same directory, and wrong
+    // the moment `--root` let them differ: a corpus-less directory named on the command line
+    // was described as "not inside a git repository" on the strength of where the client
+    // happened to start the server.
     let in_git = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
         .args(["rev-parse", "--show-toplevel"])
         .output()
         .map(|o| o.status.success())
@@ -48,8 +86,8 @@ pub fn require_yidam_repo(root: &Path) -> Result<()> {
     }
     anyhow::bail!(
         "not a yidam repository: {} is not inside a git repository\n  \
-         yidam locates a repository with `git rev-parse --show-toplevel` and found none, so \
-         it fell back to the working directory. Run this from inside a derived repository.",
+         yidam locates a repository with `git rev-parse --show-toplevel` and found none \
+         here. Run this from inside a derived repository.",
         root.display()
     )
 }
@@ -330,5 +368,80 @@ mod pinned_tests {
         let tmp = TempDir::new().unwrap();
         repo_with_pin(&tmp);
         assert_eq!(pinned_binary(tmp.path(), None), Pinned::Unpinned);
+    }
+}
+
+#[cfg(test)]
+mod resolve_root_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn corpus(at: &Path) -> &Path {
+        std::fs::create_dir_all(at.join(".yidam")).unwrap();
+        at
+    }
+
+    #[test]
+    fn a_named_corpus_is_the_corpus() {
+        let tmp = TempDir::new().unwrap();
+        let root = corpus(tmp.path());
+        assert_eq!(resolve_root(Some(root)).unwrap(), root);
+    }
+
+    /// The case that made toplevel resolution the wrong rule. `examples/streamflow` is a
+    /// corpus inside this repository, and so is any corpus a person checks out inside a
+    /// larger workspace: `git rev-parse --show-toplevel` from it answers with the *outer*
+    /// repository, which has no `.yidam/`, so `--root` pointed exactly at the corpus refused
+    /// it. Nothing about the outer directory is reachable from the answer.
+    ///
+    /// A real `git init`, not a `.git/` directory: git does not resolve a toplevel through a
+    /// directory it cannot read as a repository, so the faked version of this test passed
+    /// against the very rule it was written to reject — the mutation fell back to the named
+    /// directory and looked correct.
+    #[test]
+    fn a_corpus_nested_inside_another_repository_resolves_to_itself() {
+        let tmp = TempDir::new().unwrap();
+        let outer = tmp.path();
+        let ok = std::process::Command::new("git")
+            .arg("-C")
+            .arg(outer)
+            .arg("init")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        assert!(ok, "git init failed; this test proves nothing without it");
+        let inner = corpus(&outer.join("examples/streamflow")).to_path_buf();
+        assert_eq!(resolve_root(Some(&inner)).unwrap(), inner);
+    }
+
+    /// Naming a subdirectory reaches the corpus above it, the way `cd`-ing there would.
+    #[test]
+    fn a_subdirectory_of_a_corpus_resolves_up_to_it() {
+        let tmp = TempDir::new().unwrap();
+        let root = corpus(tmp.path()).to_path_buf();
+        let deep = root.join(".yidam/corpus/decision");
+        std::fs::create_dir_all(&deep).unwrap();
+        assert_eq!(resolve_root(Some(&deep)).unwrap(), root);
+    }
+
+    /// The nearest one, not the outermost: a corpus inside a corpus is served as itself.
+    #[test]
+    fn the_nearest_corpus_wins_over_an_enclosing_one() {
+        let tmp = TempDir::new().unwrap();
+        let outer = corpus(tmp.path()).to_path_buf();
+        let inner = corpus(&outer.join("vendored/other")).to_path_buf();
+        assert_eq!(resolve_root(Some(&inner)).unwrap(), inner);
+    }
+
+    /// A directory with no corpus at or above it is returned unchanged, so that
+    /// [`require_yidam_repo`] refuses *the directory that was named* rather than some
+    /// ancestor the person never mentioned.
+    #[test]
+    fn a_directory_with_no_corpus_is_returned_as_named() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join("nowhere");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(resolve_root(Some(&dir)).unwrap(), dir);
+        assert!(require_yidam_repo(&dir).is_err());
     }
 }

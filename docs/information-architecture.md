@@ -42,8 +42,11 @@ operational events, not epistemic events.
 
 ### Ontology class definitions
 
-During bootstrap, the schema layer is written to `.yidam/corpus/<class>.ont.yml`. If a
-foundational ontology was chosen (BFO or UFO), each class carries a `foundational_type` field;
+During bootstrap, the schema layer is written to `.yidam/corpus/<class>.ont.yml`.
+[What an ontology is](ontology/what-an-ontology-is.md) explains what a class declares and why. If
+a foundational ontology was chosen (BFO or UFO) — see
+[choosing an alignment](ontology/choosing-an-alignment.md) — each class carries a
+`foundational_type` field;
 omit it entirely for "none" alignment:
 
 ```yaml
@@ -52,6 +55,7 @@ label: <Human-Readable Label>
 foundational_type:           # omit if alignment is "none"
   ontology: bfo | ufo
   type: <bfo or ufo type value>
+  iri: <url>                 # optional; exported as skos:exactMatch
 description: |
   <one sentence>
 properties:
@@ -102,6 +106,22 @@ rationale: |
   <why this, not alternatives considered>
 ```
 
+One record is also read by a tool. `.yidam/decisions/kuten.yml` records which
+[kuten](../yidam/prelude/kuten/README.md) this corpus adopted, and the revision vendored with
+it. It carries two extra fields on top of the shape above:
+
+```yaml
+id: kuten
+summary: <one line>
+kuten: inquiry
+revision: 1
+```
+
+`yidam kuten`, `kuten check` and `doctor` read `kuten:` and `revision:`; the rest of the
+record is for a person and for `decisions-log`. The bootstrap writes it at genesis when the
+user adopts a profile. A repository with no such record holds no kuten, which is a supported
+state and is reported as one.
+
 ### Resolution records
 
 `.yidam/sangha/resolutions/<evolution>.md`:
@@ -110,6 +130,7 @@ rationale: |
 ---
 evolution: <name>
 date: <YYYY-MM-DD>
+synthesized-by: ma/<elector>
 tips:
   - ma/<elector>@<short-hash>
 ---

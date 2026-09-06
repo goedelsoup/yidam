@@ -4,5 +4,6 @@ Electors (2)
 
 Positions (3) — 1 filed under no registered elector
 
-Resolutions (1)
-  tailwater-regime — 2026-01-01, 2 tip(s) read
+Resolutions (2)
+  silt-budget — 2026-01-02, 2 tip(s) read, no seat recorded
+  tailwater-regime — 2026-01-01, 2 tip(s) read, by ma/hydrologist

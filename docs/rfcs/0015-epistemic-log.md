@@ -1,6 +1,6 @@
 # RFC-0015 — An epistemic-only history view (`yidam log --epistemic`)
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I10
 - **Relates to:** `classify_commit` (parity surface), RFC-0001 (report/JSON conventions), RFC-0003
   (light binary), `prelude/GRAPH.md`, `prelude/SCRIPTURE.md`

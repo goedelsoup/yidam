@@ -194,6 +194,12 @@ it starts describing a *reason*, it is making a claim no reader will see it make
 `yidam lint` reports the shape of this as `class-asserts-purpose`, but a lint over wording
 is a prompt to look, not a proof of absence.
 
+Two checks do read a class file's prose, and neither replaces that reading. Every field of it
+is scanned for the near miss above, so `[verified — a source]` in a class is reported exactly
+as it is in a node. And `class-claim-uncounted` reports, at `Info`, how many well-formed tags
+a class asserts — reported because nothing *counts* them. `yidam status` counts claims in
+nodes. A class that has an argument worth counting should be putting it in one.
+
 ## Prefer a base rate to a refusal
 
 Where a documentary sequence invites a causal reading the record cannot support, saying *do

@@ -24,11 +24,14 @@ After bootstrap, a derived repository has two tiers:
 
 **Created on first use.** Bootstrap does not scaffold `agents/`, `docs/`, or `packages/`.
 An empty directory holding only a README that describes what it would contain is
-indistinguishable from an abandoned one — and it stays empty: across the two repositories
-derived from this template, `agents/` and `packages/` never received a single file and
-`docs/` received exactly one. Create each the day something goes in it. The conventions
-below say what belongs where when that day comes; the `yidam` CLI treats all three as
-optional and its index commands are no-ops when the directory is absent.
+indistinguishable from an abandoned one, which is the argument for deferral, not a claim
+that these directories go unused — measured across fifteen derived repositories, `agents/`
+received 11 domain agents across 4 repositories and `docs/` received 53 files across 6;
+only `packages/` stayed empty in 14 of 15. Create each the day something goes in it, the
+same argument `sadhana/skills/README.md` makes for skills: a repeatable need emerges from
+inquiry, not preemptively. The conventions below say what belongs where when that day
+comes; the `yidam` CLI treats all three as optional and its index commands are no-ops when
+the directory is absent.
 
 ---
 
@@ -100,10 +103,11 @@ Found in a derived repository by a commit whose message says it exactly: *the fi
 being normalised, so the committed record was of what git did rather than what the register
 said.*
 
-**A type declared here is a claim about the domain, and `yidam check-diff a..b` asks about
-it.** The ontology is a contract that every check reads from the corpus side; this reads it
-from the code side, comparing the type and enum names a diff *adds* under `crates/` against
-the classes, properties and relationships `.ont.yml` declares. `RatingCurve` where nothing is
+**A type declared here is a claim about the domain, and `yidam check-diff` asks about it.**
+Run bare it reads this branch's work — the merge-base with `main` — and it takes an explicit
+range too. The ontology is a contract that every check reads from the corpus side; this reads
+it from the code side, comparing the type and enum names a diff *adds* under `crates/`
+against the classes, properties and relationships `.ont.yml` declares. `RatingCurve` where nothing is
 named `rating-curve` is a question — is this a concept the corpus should model, or a helper
 the ontology has no reason to know about? — and the answer is yours. It never gates and never
 will: the fix is a new class or a decision not to have one, and both are judgement.
@@ -376,7 +380,10 @@ or anything that describes how the repo operates rather than what it knows.
   well. Do not include dates in filenames; the git history has dates.
 - Size: 2–10 sentences is often right. If a node grows beyond a screen, decompose it. A
   class may make that checkable by declaring `max_lines:` in its `.ont.yml`, and
-  `node-too-long` then reports an instance over it. No class carries a default, and that is
+  `node-too-long` then reports an instance whose `description` runs over it. The
+  `description` and not the file: a node that records where each of its edges comes from —
+  a `claim_tag` and a `source` per link — should not pay for that provenance out of a budget
+  written to stop prose sprawling. No class carries a default, and that is
   measured rather than timid: the bootstrap rubric caps a node at 40 lines, and across five
   real corpora 335 of 410 nodes exceed it — 86%, 86% and 97% in the three mature ones — while
   the same corpora at their genesis commits run to a median of 35, where 40 is right for

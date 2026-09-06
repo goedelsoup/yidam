@@ -1,10 +1,13 @@
 # RFC-0021 — Code that names what the ontology has not (`yidam check-diff`)
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I16
-- **Relates to:** RFC-0020 (the proposal surface a finding here becomes), RFC-0018 (the typed
-  query this matches against), RFC-0001 (the report contract it emits on), RFC-0003 (the light
-  binary it must run in), RFC-0016 (the severity table an editor renders it through)
+- **Relates to:**
+  - RFC-0020 (the proposal surface a finding here becomes)
+  - RFC-0018 (the typed query this matches against)
+  - RFC-0001 (the report contract it emits on)
+  - RFC-0003 (the light binary it must run in)
+  - RFC-0016 (the severity table an editor renders it through)
 - **Versioning layers touched:** tooling (`yidam` CLI) — **no parity-surface change, no
   template change, no MCP contract change**; see [What this does not
   touch](#what-this-does-not-touch)
@@ -101,7 +104,7 @@ does not need a general answer, because a diff-scoped check asks about each type
 the commit that introduces it**, with the author present. A corpus-scoped check would ask
 about `Cell` on every run forever.
 
-## Design
+## Proposal
 
 ### One finding
 
@@ -266,6 +269,28 @@ instead of deferring it. That section stands as an intent, not as built behaviou
   addition and correlating the two is the hard part, while a check that scans the tree finds
   the class under its new name and says nothing. What did not survive was the unconditional
   reading — see RFC-0022's note for the measurement that killed it.
-- **What `--from`/`--to` default to.** `yidam diff` takes an explicit range. A check meant for
-  CI probably wants the merge-base with the default branch, which is a different default and
-  one this RFC has not measured a need for.
+- ~~**What `--from`/`--to` default to.**~~ **Settled** (#389): the range is optional and
+  defaults to the merge-base with `main` (or `master`). The CI half of the question lapsed
+  when #29 closed — nothing gates and no workflow ships — so what remained was plainer: this
+  command copied `diff`'s required range, but `diff` compares two corpus states and neither
+  is privileged, while this asks *what did this branch's worth of work name that the ontology
+  has not*, and that question has an obvious range. It is closer to `log` than to `diff`.
+
+  The measurement the original copy lacked, taken over every branch the derived corpora have
+  merged into their baseline: **250 of 381 touched `crates/`** — 90% and 88% in the two
+  largest, 64% and 47% in the next two. So the default asks about real code most times it
+  fires.
+
+  The same measurement is why the degenerate positions are **errors rather than empty
+  reports**. Eight of thirteen corpora sit *on* their baseline at any given moment, where the
+  merge-base is HEAD; an empty report there reads "No type declaration was introduced in
+  `crates/` by main..HEAD", which is true and indistinguishable from the informative answer —
+  *your branch introduced no types*. That is the failure `example_corpus.rs` argues against
+  from the other direction. A repository with no baseline at all, mid-bootstrap, refuses for
+  the same reason. Detached HEAD, filed as the second surprising case, is not one:
+  `merge-base main HEAD` resolves there normally and the default is exactly right.
+
+  The default resolves to `main..HEAD` only while the baseline has not moved on, and to the
+  merge-base sha once it has. A two-dot range compares endpoints, so against a moved `main` it
+  reports a type that existed at the branch point and that `main` has since deleted as newly
+  introduced — a question put to an author about code their branch never touched.

@@ -10,7 +10,7 @@
 import { Sparkline } from '../../../../../design/index.js';
 import Quality from '../../layouts/Quality.astro';
 import NoReport from '../../components/NoReport.astro';
-import { loadReport, loadSeries, column } from '../../quality/report';
+import { loadReport, loadSeries, column, plural, seriesProvenance } from '../../quality/report';
 
 const { report, problem } = loadReport();
 const series = loadSeries();
@@ -57,6 +57,19 @@ const drawable = LINES.filter((l) => l.points.length > 0);
 // failing. A series of green points across a month of red builds is a chart that lies using
 // numbers that are each individually true, so the runs that did not pass are named.
 const redRuns = series.records.filter((r) => (r.unsuccessful_jobs ?? []).length > 0);
+
+// #526. The count below was stated as a bare fact — "N records, one per push to main" — which
+// is a claim about the branch, made by a page holding a snapshot of it. The report's lag has a
+// line in the masthead; the series had none, and a masthead describing the other half of the
+// page is not one.
+const read = seriesProvenance(series.records, report?.yidam.commit);
+
+// Composed here rather than in the markup, and the markup below keeps `<code>` inline rather
+// than putting it between two `{}` on separate lines. Whitespace between two children is a
+// text node: the first draft of this line read "oldest first , up to bbb2222 , recorded",
+// which is the same defect `plural()`'s comment records from the overview page.
+const countLine = `${plural(series.records.length, 'record')}, one per push to main, oldest first`;
+const recordedClause = read.recordedAt ? `, recorded ${read.recordedAt}` : '';
 ---
 
 <Quality title="Trends" commit={report?.yidam.commit} version={report?.yidam.version}>
@@ -69,9 +82,21 @@ const redRuns = series.records.filter((r) => (r.unsuccessful_jobs ?? []).length 
         <p class="note">{series.problem}</p>
       ) : (
         <>
-          <p class="note">
-            {`${series.records.length} record${series.records.length === 1 ? '' : 's'}, one per push to main, oldest first.`}
-          </p>
+          {read.commit ? (
+            <p class="note">
+              {countLine}, up to <code>{read.commit}</code>{recordedClause}. The branch may
+              have grown since this build read it.
+            </p>
+          ) : (
+            <p class="note">{countLine}.</p>
+          )}
+          {read.disagrees && (
+            <p class="note">
+              The header describes <code>{report?.yidam.commit}</code>, from the last CI run
+              that passed; the series above was read at <code>{read.commit}</code>. The two
+              halves of this page are two moments, fetched from two places.
+            </p>
+          )}
           <div class="lines">
             {drawable.map((line) => (
               <Sparkline

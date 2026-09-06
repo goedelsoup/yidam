@@ -1,6 +1,6 @@
 # RFC-0006 — Correctness reconciliation
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I6
 - **Relates to:** RFC-0001, RFC-0002, RFC-0007
 - **Versioning layers touched:** SDK+parity (primary); template (docs, embed contract)
@@ -132,6 +132,15 @@ four surfaces can no longer diverge.
 ---
 
 ## 4. Make the parity gate real
+
+> **Landed in #530, by a different mechanism than proposed below.** `find_reachable` and
+> `find_citations` now exist in `graph.ts` and `graph.py` and are read by both runners. The
+> gate is a static check rather than the emitted manifest this section describes:
+> `yidam/cli/tests/parity_implementations.rs` walks the tree for definitions and each SDK's
+> `tests/` for fixture-loader calls, discovering the function list from `parity-check`'s own
+> `functions` loop. A manifest would have each runner report on itself; walking the sources
+> asks the same question of a runner that reports nothing. The problem statement below is
+> preserved as written.
 
 **Problem.** `find_reachable` and `find_citations` are on the eight-function parity surface
 (`prelude/sdks/parity/README.md:9-19`) but exist **only in the Rust SDK**

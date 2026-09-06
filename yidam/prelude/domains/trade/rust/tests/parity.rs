@@ -1,4 +1,6 @@
-use yidam_domain_trade::{trade_balance, terms_of_trade, tariff_revenue, revealed_comparative_advantage};
+use yidam_domain_trade::{
+    revealed_comparative_advantage, tariff_revenue, terms_of_trade, trade_balance,
+};
 
 fn fixture_dir(function: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -28,10 +30,16 @@ fn load_fixtures(function: &str) -> Vec<toml::Value> {
 #[test]
 fn parity_trade_balance() {
     let fixtures = load_fixtures("trade.trade_balance");
-    assert!(!fixtures.is_empty(), "no trade.trade_balance fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no trade.trade_balance fixtures found"
+    );
     for fx in &fixtures {
         let inp = &fx["input"];
-        let result = trade_balance(inp["exports"].as_float().unwrap(), inp["imports"].as_float().unwrap());
+        let result = trade_balance(
+            inp["exports"].as_float().unwrap(),
+            inp["imports"].as_float().unwrap(),
+        );
         let expected = fx["expected"]["balance"].as_float().unwrap();
         assert_eq!(result, expected);
     }
@@ -40,7 +48,10 @@ fn parity_trade_balance() {
 #[test]
 fn parity_terms_of_trade() {
     let fixtures = load_fixtures("trade.terms_of_trade");
-    assert!(!fixtures.is_empty(), "no trade.terms_of_trade fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no trade.terms_of_trade fixtures found"
+    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let result = terms_of_trade(
@@ -55,7 +66,10 @@ fn parity_terms_of_trade() {
 #[test]
 fn parity_tariff_revenue() {
     let fixtures = load_fixtures("trade.tariff_revenue");
-    assert!(!fixtures.is_empty(), "no trade.tariff_revenue fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no trade.tariff_revenue fixtures found"
+    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let result = tariff_revenue(
@@ -70,7 +84,10 @@ fn parity_tariff_revenue() {
 #[test]
 fn parity_revealed_comparative_advantage() {
     let fixtures = load_fixtures("trade.revealed_comparative_advantage");
-    assert!(!fixtures.is_empty(), "no trade.revealed_comparative_advantage fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no trade.revealed_comparative_advantage fixtures found"
+    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let result = revealed_comparative_advantage(

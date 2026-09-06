@@ -2,7 +2,7 @@ import json
 import tomllib
 from pathlib import Path
 
-from yidam_core import corpus, git, markers, ontology
+from yidam_core import corpus, git, graph, markers, ontology
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent / "parity" / "fixtures"
 
@@ -94,7 +94,8 @@ def test_parity_parse_markers():
     fixtures = load_fixtures("parse_markers")
     assert fixtures, "no parse_markers fixtures"
     for fx in fixtures:
-        parsed = markers.parse_markers(fx["input"]["content"])
+        scan = markers.scan_markers(fx["input"]["content"])
+        parsed = scan.markers
         expected = fx["expected"]
         assert len(parsed) == len(expected), "marker count"
         for marker, em in zip(parsed, expected):
@@ -104,6 +105,39 @@ def test_parity_parse_markers():
             else:
                 assert marker.command == em["command"], "regen.command"
                 assert marker.content == em["content"], "regen.content"
+
+        # Absent means none, not "not checked". A fixture written before this field existed
+        # is asserting that its input has no malformed block.
+        bad = fx.get("expected_malformed", [])
+        assert len(scan.malformed) == len(bad), f"malformed count: {scan.malformed}"
+        for block, eb in zip(scan.malformed, bad):
+            assert block.command == eb["command"], "malformed.command"
+            assert block.line == eb["line"], "malformed.line"
+            assert block.fault.value == eb["fault"], "malformed.fault"
+            assert block.swallowed_lines == eb["swallowed_lines"], "malformed.swallowed_lines"
+            assert block.swallowed_markers == eb["swallowed_markers"], "malformed.swallowed_markers"
+
+
+def _edges(inp: dict) -> list[graph.GraphEdge]:
+    return [graph.GraphEdge(from_=e["from"], to=e["to"]) for e in inp["edges"]]
+
+
+def test_parity_find_reachable():
+    fixtures = load_fixtures("find_reachable")
+    assert fixtures, "no find_reachable fixtures"
+    for fx in fixtures:
+        inp = fx["input"]
+        reachable = graph.find_reachable(_edges(inp), inp["node_path"])
+        assert reachable == fx["expected"]["reachable"], fx["description"]
+
+
+def test_parity_find_citations():
+    fixtures = load_fixtures("find_citations")
+    assert fixtures, "no find_citations fixtures"
+    for fx in fixtures:
+        inp = fx["input"]
+        citations = graph.find_citations(_edges(inp), inp["node_path"])
+        assert citations == fx["expected"]["citations"], fx["description"]
 
 
 def test_parity_update_regen():

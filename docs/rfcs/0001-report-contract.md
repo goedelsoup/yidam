@@ -1,6 +1,6 @@
 # RFC-0001 — The report contract: reports as versioned rules with golden fixtures
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I1
 - **Relates to:** RFC-0002 (node model the reports run on), RFC-0003 (a light binary to
   generate goldens from), RFC-0005 (the MCP `open_questions` tool shares this predicate)

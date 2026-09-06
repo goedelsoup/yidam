@@ -208,7 +208,8 @@ claude mcp add yidam -- yidam serve --mcp     # run from inside the repository
 ```
 
 One thing to know before you do: the server finds the corpus from the directory it was
-started in, so a server launched somewhere else serves an empty corpus without erroring.
+started in, and refuses to start anywhere that is not one. So a client configured to launch it
+from the wrong place fails visibly rather than answering every question with nothing.
 
 The binary you installed in step 1 already carries this. `--features index` upgrades
 `retrieve` from keyword to semantic search and changes nothing else; without it the server

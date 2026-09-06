@@ -1,17 +1,33 @@
 # RFC-0020 — Proposing what a finding already says (`yidam propose`)
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I15
-- **Relates to:** RFC-0019 (whose movement questions this carries into commits), RFC-0008
-  (the strict reading of Article V this depends on), RFC-0009 (the resolution authority this
-  must stay below), RFC-0001 (the report contract the run emits on), RFC-0003 (the light
-  binary this must run in), RFC-0015 (the epistemic log these commits join)
+- **Relates to:**
+  - RFC-0019 (whose movement questions this carries into commits)
+  - RFC-0008 (the strict reading of Article V this depends on)
+  - RFC-0009 (the resolution authority this must stay below)
+  - RFC-0001 (the report contract the run emits on)
+  - RFC-0003 (the light binary this must run in)
+  - RFC-0015 (the epistemic log these commits join)
 - **Versioning layers touched:** tooling (`yidam` CLI) / template (`prelude/GRAPH.md` gains a
   ref namespace and one rule; `.yidam/config.toml` gains one declaration) — **no parity-surface
   change and no MCP contract change**; see [What this does not touch](#what-this-does-not-touch)
 - **Downstream reference case:** Project BOSC (watermark-directory)
 - **Parent epic:** #252 (E4) — this RFC precedes #269, and the proposal halves of #270 and
   #271 are built against it
+
+> **Amended 2026-09-04, by [RFC-0029](0029-write-tier.md).** "What this does not touch" declines
+> an MCP `propose` tool: *"an agent that could call `propose` over MCP would be a tool proposing
+> to a tool, and the whole design turns on a person reading the branch."* The decline is
+> **amended, not overridden**, because the calculus changed after it was written. RFC-0026's run
+> invariant — a run authors operational commits directly, every epistemic commit goes to a
+> proposal branch, and nothing merges itself — enforces the person-reads-the-branch property on
+> the commits themselves, mechanically (`classify_commit` over a run's commits), rather than by
+> keeping the transport a shell; and RFC-0029's identity gate ensures a write-capable declaration
+> exists only where a git author does, so the caller is never "a tool" with nobody behind it.
+> What lapses is only the inference that the transport must therefore stay shell-only. The clause
+> this section actually protects — a person reading the branch, nothing merging itself — stands
+> in full and is restated by RFC-0029 §3.
 
 ## Summary
 
@@ -38,7 +54,7 @@ epistemic commit written outside a resolution event, and licenses it on exactly 
 > It is carriage and not synthesis, which is what makes it legal outside a resolution event:
 > Article V confines synthesis to resolutions, and copying a file verbatim introduces no node,
 > edge or claim that its author did not hold.
-> — [`GRAPH.md:386-389`](../../yidam/prelude/GRAPH.md#L386-L389), on `transport`
+> — [`GRAPH.md:459-461`](../../yidam/prelude/GRAPH.md#L459-L461), on `transport`
 
 `propose` inherits that test and this RFC makes it mechanical: **a proposal's commit body must
 contain the finding's own words, verbatim.** That is the constitutional rule expressed as
@@ -80,7 +96,7 @@ is authoring an edge, and an edge is a claim.
 
 **(b) In the worked example the check cannot fire at all.** `is_source_class` reads only the
 class's *own* edge list, and is true when that list is non-empty and holds no `direction: in`
-entry ([`checks.rs:125-132`](../../yidam/cli/src/cmd/lint/checks.rs#L125-L132)). Every class in
+entry ([`checks.rs:132-139`](../../yidam/cli/src/cmd/lint/checks.rs#L132-L139)). Every class in
 `examples/streamflow` declares outbound edges only, so all three derive as source classes and
 every instance is exempt.
 
@@ -103,7 +119,7 @@ people what good looks like, and that has to be said here.
 
 **(c) `orphan-in` is the only check that carries an age.** `Violation::age` is `None` for every
 finding except those `orphan_in_dated` decorates
-([`mod.rs:289-311`](../../yidam/cli/src/cmd/lint/mod.rs#L289-L311),
+([`orphan_in_dated`](../../yidam/cli/src/cmd/lint/mod.rs#L492-L514),
 [`model.rs:58`](../../yidam/cli/src/cmd/lint/model.rs#L58)). "Past its residence threshold" is
 therefore well-defined for exactly one check today. That is not a problem to fix here — it is a
 bound on how much of the corpus `propose` can speak about, and the command should say so rather
@@ -181,7 +197,7 @@ question is settled, which is the definition of a resolution.
 The acts that survive are the ones that assert nothing new: recording a question, retracting
 what nothing came back for, and retiring a question the tool itself raised.
 
-## Design
+## Proposal
 
 ### The test: carriage, not composition
 

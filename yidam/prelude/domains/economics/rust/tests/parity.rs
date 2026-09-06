@@ -1,4 +1,4 @@
-use yidam_domain_economics::{gdp_expenditure, price_elasticity, opportunity_cost};
+use yidam_domain_economics::{gdp_expenditure, opportunity_cost, price_elasticity};
 
 fn fixture_dir(function: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -28,7 +28,10 @@ fn load_fixtures(function: &str) -> Vec<toml::Value> {
 #[test]
 fn parity_gdp_expenditure() {
     let fixtures = load_fixtures("economics.gdp_expenditure");
-    assert!(!fixtures.is_empty(), "no economics.gdp_expenditure fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no economics.gdp_expenditure fixtures found"
+    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let result = gdp_expenditure(
@@ -45,7 +48,10 @@ fn parity_gdp_expenditure() {
 #[test]
 fn parity_price_elasticity() {
     let fixtures = load_fixtures("economics.price_elasticity");
-    assert!(!fixtures.is_empty(), "no economics.price_elasticity fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no economics.price_elasticity fixtures found"
+    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let result = price_elasticity(
@@ -60,7 +66,10 @@ fn parity_price_elasticity() {
 #[test]
 fn parity_opportunity_cost() {
     let fixtures = load_fixtures("economics.opportunity_cost");
-    assert!(!fixtures.is_empty(), "no economics.opportunity_cost fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no economics.opportunity_cost fixtures found"
+    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let result = opportunity_cost(

@@ -178,7 +178,8 @@ fn parity_parse_markers() {
 
     for fx in &fixtures {
         let text = fx["input"]["content"].as_str().unwrap();
-        let parsed = markers::parse_markers(text);
+        let scan = markers::scan_markers(text);
+        let parsed = &scan.markers;
 
         let expected = fx["expected"].as_array().unwrap();
         assert_eq!(parsed.len(), expected.len(), "marker count");
@@ -199,6 +200,50 @@ fn parity_parse_markers() {
                     assert_eq!(content, exp["content"].as_str().unwrap(), "regen.content");
                 }
             }
+        }
+
+        // Absent means none, not "not checked". A fixture written before this field existed
+        // is asserting that its input has no malformed block — which is what makes adding
+        // the field to three runners safe, and what would catch a scan that started
+        // reporting one on well-formed input.
+        let empty: Vec<toml::Value> = Vec::new();
+        let bad = fx
+            .get("expected_malformed")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&empty);
+        assert_eq!(
+            scan.malformed.len(),
+            bad.len(),
+            "malformed block count in {:?}: {:?}",
+            fx["description"].as_str().unwrap_or(""),
+            scan.malformed
+        );
+        for (got, exp) in scan.malformed.iter().zip(bad.iter()) {
+            assert_eq!(
+                got.command,
+                exp["command"].as_str().unwrap(),
+                "malformed.command"
+            );
+            assert_eq!(
+                got.line as i64,
+                exp["line"].as_integer().unwrap(),
+                "malformed.line"
+            );
+            assert_eq!(
+                got.fault.as_str(),
+                exp["fault"].as_str().unwrap(),
+                "malformed.fault"
+            );
+            assert_eq!(
+                got.swallowed_lines as i64,
+                exp["swallowed_lines"].as_integer().unwrap(),
+                "malformed.swallowed_lines"
+            );
+            assert_eq!(
+                got.swallowed_markers as i64,
+                exp["swallowed_markers"].as_integer().unwrap(),
+                "malformed.swallowed_markers"
+            );
         }
     }
 }

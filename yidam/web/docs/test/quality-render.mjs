@@ -301,10 +301,10 @@ console.log('a change with no measured lines says so, rather than claiming cover
 
 console.log('the series draws its shapes, and a bad line does not take the good ones…');
 {
-  const record = (commit, asserted, seconds, tokens, unsuccessful_jobs) =>
+  const record = (commit, asserted, seconds, tokens, unsuccessful_jobs, recorded_at = 1788000000) =>
     JSON.stringify({
       commit,
-      recorded_at: 1788000000,
+      recorded_at,
       gates: 4,
       totals: { cases: asserted, failed: 0, passed: asserted, skipped: 3, gated: 0, ignored: 3, asserted },
       test_seconds: seconds,
@@ -319,7 +319,8 @@ console.log('the series draws its shapes, and a bad line does not take the good 
       record('aaa1111', 1640, 68.2, 392000),
       '{ truncated',
       // Zero failed tests and a red run — the shape #516 is about, in the series.
-      record('bbb2222', 1699, 74.9, 378521, ['ci (cli · full features)']),
+      // A later instant than the first record, so "the newest" is a claim that can be wrong.
+      record('bbb2222', 1699, 74.9, 378521, ['ci (cli · full features)'], 1788304687),
       '',
     ].join('\n'),
   );
@@ -354,8 +355,100 @@ console.log('the series draws its shapes, and a bad line does not take the good 
     t.includes('ci (cli · full features)'),
     'the series says a run failed and not which part of it did',
   );
+
+  // #526. The count used to stand alone — "N records, one per push to main" — which is a
+  // claim about the branch made by a page holding a snapshot of it. The masthead states the
+  // *report's* commit, and the report and the series are two fetches with two lags.
+  check(
+    'the series names the newest record it actually read',
+    t.includes('up to') && t.includes('bbb2222') && t.includes('recorded 2026-09-01 23:18 UTC'),
+    `the count is stated with no moment attached, or with the first record's:\n      ${t.slice(0, 500)}`,
+  );
+  check(
+    'and not the oldest',
+    !t.includes('recorded 2026-08-29'),
+    'the page read records[0] where it meant the last one',
+  );
+  check(
+    'and says the branch may have moved since',
+    t.includes('may have grown since this build read it'),
+    'a snapshot is presented as the whole history',
+  );
+  check(
+    'a series describing a different commit from the report says so',
+    t.includes('two moments, fetched from two places'),
+    `the report is at <commit> and the series ends at bbb2222:\n      ${t.slice(0, 500)}`,
+  );
+  // The defect this line was written with: `{expr}` on one line and `{expr}` on the next are
+  // two children with a text node of whitespace between them, and the page read
+  // "oldest first , up to bbb2222 , recorded".
+  // Scoped to the card, not the document: the inlined stylesheet holds `} .damaged`, and a
+  // whole-page scan for " ." reports the CSS on every run.
+  const card = (() => {
+    const flat = inline(html);
+    const from = flat.indexOf('The series');
+    const to = flat.indexOf('Tests asserting', from);
+    return flat.slice(from, to < 0 ? from + 600 : to);
+  })();
+  check(
+    'and the punctuation around it is not spaced off the words',
+    !card.includes(' ,') && !card.includes(' .'),
+    `a space the renderer inserted between two adjacent expressions:\n      ${card}`,
+  );
   rmSync(path, { force: true });
   rmSync(join(site, 'dist-quality-series'), { recursive: true, force: true });
+}
+
+// The notice has to be able to *not* fire. A sentence on every build is a sentence nobody
+// reads, and one that cannot be absent is one no assertion above is really testing.
+console.log('a series that agrees with the report says nothing about disagreeing…');
+{
+  const golden_commit = JSON.parse(readFileSync(golden, 'utf8')).yidam.commit;
+  const path = join(site, 'series.agree.jsonl');
+  const rec = (commit, at) =>
+    JSON.stringify({
+      commit,
+      recorded_at: at,
+      gates: 1,
+      totals: { cases: 10, failed: 0, passed: 10, skipped: 0, gated: 0, ignored: 0, asserted: 10 },
+      test_seconds: 1,
+      coverage: null,
+      bench: null,
+    });
+  writeFileSync(path, [rec('aaa1111', 1788000000), rec(golden_commit, 1788308751)].join('\n') + '\n');
+
+  // Twice, in two zones. `recorded_at` is a unix instant and the build machine's clock is
+  // UTC; a page that rendered it in the builder's local zone would be a number two readers
+  // read as two different moments, and every check on it would still pass on the runner.
+  const rendered = ['UTC', 'Asia/Tokyo'].map((TZ) => {
+    build(`dist-quality-tz-${TZ.replace('/', '-')}`, {
+      YIDAM_QUALITY_REPORT: golden,
+      YIDAM_QUALITY_SERIES: path,
+      TZ,
+    });
+    return text(page(`dist-quality-tz-${TZ.replace('/', '-')}`, 'quality/trends'));
+  });
+
+  check(
+    'a series ending at the report\'s own commit raises nothing',
+    !rendered[0].includes('two moments, fetched from two places'),
+    `the notice fired on a build where both halves name ${golden_commit}`,
+  );
+  check(
+    'and the record it read is still named',
+    rendered[0].includes('recorded 2026-09-02 00:25 UTC'),
+    rendered[0].slice(0, 400),
+  );
+  check(
+    'the timestamp does not move with the builder\'s time zone',
+    rendered[0] === rendered[1],
+    'built under TZ=UTC and TZ=Asia/Tokyo and the pages differ',
+  );
+
+  rmSync(path, { force: true });
+  for (const TZ of ['UTC', 'Asia-Tokyo']) {
+    rmSync(join(site, `dist-quality-tz-${TZ}`), { recursive: true, force: true });
+  }
 }
 
 console.log('one record is not a trend…');

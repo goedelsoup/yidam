@@ -375,12 +375,20 @@ enum Command {
     /// Read-only, and it never gates: every finding is a question about the corpus, and
     /// the answer — a new class, or a decision not to have one — is an author's.
     ///
-    /// The range is explicit, exactly as `diff`'s is. What a CI default should be is an
-    /// open question in RFC-0021 and is not answered by picking one here.
+    /// The range is optional, as `log`'s is and unlike `diff`'s, and defaults to the
+    /// merge-base with `main` (or `master`) — this branch's worth of work. #389 settled
+    /// that on the argument the original copy of `diff`'s required range did not consider:
+    /// `diff` compares two corpus states and neither is privileged, while this asks what
+    /// *this branch* named that the ontology has not, and that has an obvious range.
+    ///
+    /// Where that range would be empty — on the baseline itself, or with no baseline at
+    /// all — it refuses rather than reporting nothing, because nothing is what it also
+    /// prints when your branch is genuinely clean.
     #[command(name = "check-diff")]
     CheckDiff {
-        /// Git range, e.g. `main..HEAD`, `HEAD~5`, `abc123..def456`
-        range: String,
+        /// Git range, e.g. `main..HEAD`, `HEAD~5`, `abc123..def456`. Defaults to the
+        /// merge-base with `main` (or `master`) — this branch's worth of work.
+        range: Option<String>,
         /// Output format. `json` emits the machine-readable report contract
         /// (RFC-0016); `text` is the default.
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
@@ -391,6 +399,15 @@ enum Command {
     Bundle,
     /// Export the domain model in the specified format
     Export {
+        /// The corpus to export. Defaults to wherever this process was started.
+        ///
+        /// The same flag `serve` takes, and for the reason #236 and #428 both give: the
+        /// corpus worth exporting is often not the repository you are standing in.
+        /// `examples/streamflow` is a corpus inside this one, and `git rev-parse
+        /// --show-toplevel` from it answers with yidam, which has no `.yidam/` — so the
+        /// only way to export it was to copy it elsewhere and `git init` the copy.
+        #[arg(long, value_name = "DIR")]
+        root: Option<PathBuf>,
         /// Output format (use --list to see available formats and their status)
         #[arg(long, value_enum, required_unless_present = "list")]
         format: Option<ExportFormat>,
@@ -489,6 +506,20 @@ enum Command {
     },
     /// Serve the domain computer over a stdio protocol
     Serve {
+        /// The corpus to serve. Defaults to wherever this process was started (#421).
+        ///
+        /// Every other command is typed by a person standing in the repository they mean.
+        /// A server is spawned by a client, so its working directory is whatever that
+        /// client happened to use — which is why `docs/mcp-server.md` had to document
+        /// `sh -c 'cd … && exec …'` as the way to say which corpus you meant. This is that
+        /// sentence as a flag, and it is what the `.mcpb` bundle's directory picker fills
+        /// in.
+        ///
+        /// Resolved the same way the working directory is: `git rev-parse --show-toplevel`
+        /// from here, falling back to this directory. It must be a corpus — a directory
+        /// with no `.yidam/` is refused by name rather than served as an empty one (#549).
+        #[arg(long, value_name = "DIR")]
+        root: Option<std::path::PathBuf>,
         /// Serve MCP over stdio — the agent surface. In the light default; `--features
         /// index` upgrades `retrieve` from keyword to semantic.
         #[arg(long)]
@@ -496,6 +527,33 @@ enum Command {
         /// Serve LSP over stdio — the editor surface. In the light default.
         #[arg(long)]
         lsp: bool,
+        /// Serve MCP over HTTP instead of stdio — the remote agent surface (#423).
+        ///
+        /// Every platform that reaches a corpus by URL needs this; none of them can spawn a
+        /// subprocess on someone else's machine. Read-only, one corpus, no authentication:
+        /// put it behind a tunnel or a proxy that supplies one.
+        #[cfg(feature = "serve-http")]
+        #[arg(long, requires = "mcp")]
+        http: bool,
+        /// Address to bind `--http` to. Defaults to loopback, which the MCP spec asks for:
+        /// a server on 0.0.0.0 is reachable by anything on the network, and this one
+        /// authenticates nobody.
+        #[cfg(feature = "serve-http")]
+        #[arg(long, default_value = "127.0.0.1", requires = "http")]
+        bind: String,
+        /// Port for `--http`.
+        #[cfg(feature = "serve-http")]
+        #[arg(long, default_value_t = 8787, requires = "http")]
+        port: u16,
+        /// A browser origin that may reach `--http`. Repeatable.
+        ///
+        /// The spec requires Origin validation against DNS rebinding, where a page on another
+        /// site drives a server bound to localhost. A request carrying no Origin — curl, and
+        /// every server-to-server client — is not a cross-origin request and passes without
+        /// this flag.
+        #[cfg(feature = "serve-http")]
+        #[arg(long, value_name = "URL", requires = "http")]
+        allow_origin: Vec<String>,
     },
     /// Run corpus quality checks against the baseline ratchet
     Lint {
@@ -607,6 +665,18 @@ enum Command {
     Policy {
         #[command(subcommand)]
         sub: yidam::PolicyCommand,
+    },
+    /// Declare what this corpus's practice is aimed at, and read the corpus against it
+    ///
+    /// A repository declares what it is *about* and, until now, never what its work is
+    /// *for*. A kuten is that declaration: vendored with the prelude, adopted by a decision
+    /// record, and narrowing the loop without widening the model.
+    ///
+    /// With no subcommand it writes the `AGENTS.md` REGEN block — the one path a
+    /// declaration has into what an agent reads at session start. `check` reads.
+    Kuten {
+        #[command(subcommand)]
+        sub: Option<yidam::KutenCommand>,
     },
 }
 
@@ -803,9 +873,10 @@ fn main() -> Result<()> {
         Command::GraphCheck { format } => yidam::graph_check(format),
         Command::DecisionsLog => yidam::decisions_log(),
         Command::Diff { range, format } => yidam::diff_corpus(&range, format),
-        Command::CheckDiff { range, format } => yidam::check_diff(&range, format),
+        Command::CheckDiff { range, format } => yidam::check_diff(range, format),
         Command::Bundle => yidam::bundle(),
         Command::Export {
+            root,
             format,
             out,
             webllm_model,
@@ -822,7 +893,7 @@ fn main() -> Result<()> {
                     rdf_format,
                     token_budget,
                 };
-                yidam::run_export(format.unwrap(), out.as_deref(), &options)
+                yidam::run_export(root.as_deref(), format.unwrap(), out.as_deref(), &options)
             }
         }
         Command::Embed { no_catalog } => yidam::embed(yidam::EmbedOptions {
@@ -874,15 +945,32 @@ fn main() -> Result<()> {
         // only the ML build carried was one almost nobody could reach. MCP's *semantic*
         // retrieval still needs `index`; every tool it serves does not, and the server
         // reports the difference on the handshake and on every `retrieve`.
-        Command::Serve { mcp, lsp } => {
+        Command::Serve {
+            root,
+            mcp,
+            lsp,
+            #[cfg(feature = "serve-http")]
+            http,
+            #[cfg(feature = "serve-http")]
+            bind,
+            #[cfg(feature = "serve-http")]
+            port,
+            #[cfg(feature = "serve-http")]
+            allow_origin,
+        } => {
             if lsp && mcp {
                 anyhow::bail!("pick one transport — `--lsp` or `--mcp`")
             }
+            let root = root.as_deref();
             if lsp {
-                return yidam::serve_lsp();
+                return yidam::serve_lsp(root);
+            }
+            #[cfg(feature = "serve-http")]
+            if mcp && http {
+                return yidam::serve_mcp_http(root, &bind, port, allow_origin);
             }
             if mcp {
-                return yidam::serve_mcp();
+                return yidam::serve_mcp(root);
             }
             anyhow::bail!("name a transport — `yidam serve --lsp` or `yidam serve --mcp`")
         }
@@ -919,5 +1007,6 @@ fn main() -> Result<()> {
         // putting one in the signature of the ungated half. See `vault/store.rs`.
         Command::Vault { sub } => yidam::run_vault(sub),
         Command::Policy { sub } => yidam::run_policy(sub),
+        Command::Kuten { sub } => yidam::run_kuten(sub),
     }
 }

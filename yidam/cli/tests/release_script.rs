@@ -25,7 +25,34 @@ fn read(rel: &str) -> String {
 ///
 /// Always `--dry-run`: these tests must never be able to create a tag, whatever else they
 /// get wrong.
+///
+/// **Memoised, because a dry run is expensive and nextest runs tests in parallel.** For the
+/// `cli` and `sdk/rust` layers release.sh verifies the packaged build with
+/// `cargo publish --dry-run`, so each distinct invocation is a full package build. Two of them
+/// at once contend on one target directory: the second test to call this took **63s against
+/// the first one's 10s**, making it the slowest test in the whole suite by six times and
+/// adding about a minute to `ci (cli)` — twice, since coverage runs the suite again.
+///
+/// A dry run has no side effects on the tree it reads, which is what makes one invocation
+/// answerable to several assertions. Every refusal is reported by one run rather than the
+/// first one stopping it, so a test asking about a different refusal asks the same output.
 fn release(args: &[&str]) -> (String, bool) {
+    use std::sync::{Mutex, OnceLock};
+    static RUNS: OnceLock<Mutex<std::collections::HashMap<String, (String, bool)>>> =
+        OnceLock::new();
+
+    let key = args.join(" ");
+    // The lock is held across the run on purpose: two threads reaching an unmemoised
+    // invocation are exactly the contention this exists to remove, and a dry run is fast
+    // enough that serialising them beats letting both build.
+    let mut runs = RUNS
+        .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+        .lock()
+        .expect("the release.sh memo is not poisoned");
+    if let Some(cached) = runs.get(&key) {
+        return cached.clone();
+    }
+
     let out = Command::new("./release.sh")
         .args(args)
         .arg("--dry-run")
@@ -34,7 +61,9 @@ fn release(args: &[&str]) -> (String, bool) {
         .expect("release.sh is executable");
     let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
     text.push_str(&String::from_utf8_lossy(&out.stderr));
-    (text, out.status.success())
+    let result = (text, out.status.success());
+    runs.insert(key, result.clone());
+    result
 }
 
 /// A version the manifest does not declare is refused, not tagged.
@@ -311,5 +340,124 @@ fn the_tag_exists_check_does_not_match_another_layers_tag() {
         "release.sh asks the remote about `$TAG` rather than `refs/tags/$TAG`, which matches \
          any layer whose tag ends the same way:\n  {}",
         asked.trim()
+    );
+}
+
+/// The lines under `## <heading>` in `docs/upgrading.md`, up to the next `## `, with blank
+/// lines and HTML comments dropped.
+///
+/// The same reading `release.sh` and `release.yml` both do, re-implemented here rather than
+/// shelled out to — a third copy of an `awk` program would be a third thing to be wrong. What
+/// this file asserts is that the two of them *behave* as this reading says they should.
+fn upgrade_section(heading: &str) -> Vec<String> {
+    let doc = read("docs/upgrading.md");
+    let mut inside = false;
+    let mut out = Vec::new();
+    for line in doc.lines() {
+        if line.trim() == format!("## {heading}") {
+            inside = true;
+            continue;
+        }
+        if line.starts_with("## ") {
+            inside = false;
+        }
+        if inside {
+            let t = line.trim();
+            if !t.is_empty() && !t.starts_with("<!--") && !t.starts_with("-->") {
+                out.push(line.to_string());
+            }
+        }
+    }
+    out
+}
+
+/// `## Unreleased` must exist, even with nothing under it.
+///
+/// `release.sh` reads that heading to decide whether a note was staged and never filed. A
+/// document without it does not fail — it reads as "no note", for this release and every one
+/// after, which is the failure mode the whole mechanism exists to prevent.
+#[test]
+fn the_upgrade_notes_keep_the_heading_release_sh_reads() {
+    let doc = read("docs/upgrading.md");
+    assert!(
+        doc.lines().any(|l| l.trim() == "## Unreleased"),
+        "docs/upgrading.md has no `## Unreleased` heading. release.sh reads it to find a note \
+         nobody filed; without it every release from here on reads as having no note."
+    );
+}
+
+/// A note staged under `## Unreleased` refuses the tag — and only then.
+///
+/// Asserted against the document's actual content rather than as a fixed expectation, so it
+/// stays true through the state it is describing: today there is a note staged (#549's, whose
+/// version is not chosen yet) and the refusal must fire; once it is filed under a tag the
+/// section is empty and the refusal must *not* fire. A test that only checked one of those
+/// would go green the moment the mechanism started mattering, or the moment it stopped.
+#[test]
+fn a_staged_upgrade_note_refuses_the_tag_and_an_empty_section_does_not() {
+    // The same arguments `a_version_the_manifest_does_not_declare_is_refused` uses, so the
+    // whole suite makes one release.sh invocation and one packaged-build check. The layer and
+    // version are irrelevant here: this refusal is raised before either is consulted, and a
+    // dry run reports every refusal rather than stopping at the first.
+    let (out, _) = release(&["sdk/rust", "9.9.9"]);
+
+    let staged = upgrade_section("Unreleased");
+    let refused = out.contains("staged-upgrade-note");
+
+    if staged.is_empty() {
+        assert!(
+            !refused,
+            "nothing is staged under `## Unreleased` and release.sh refused anyway:\n{out}"
+        );
+    } else {
+        assert!(
+            refused,
+            "docs/upgrading.md has {} line(s) staged under `## Unreleased` and release.sh did \
+             not refuse. The note would be dropped from this release and repeated into the \
+             next.\nrelease.sh said:\n{out}",
+            staged.len()
+        );
+    }
+}
+
+/// The release must publish the note for the tag it is cutting, and must not lose the list.
+///
+/// `--generate-notes` produces a flat list of PR titles with nowhere in it for prose, which is
+/// how #549 — a change that stops a working client configuration from starting — would have
+/// shipped as one `fix(serve): …` line among twenty. The repair is a composed body, and it has
+/// two halves that can each be lost silently: the upgrade note, and the list it goes above.
+#[test]
+fn the_release_publishes_the_upgrade_note_for_the_tag_it_cuts() {
+    let workflow = read(".github/workflows/release.yml");
+    let commands = workflow
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        commands.contains("docs/upgrading.md"),
+        "release.yml never reads docs/upgrading.md, so a filed upgrade note reaches the docs \
+         site and not the release anyone is reading before they upgrade"
+    );
+    assert!(
+        commands.contains("releases/generate-notes"),
+        "release.yml must still generate the list of merged PRs; prepending a note is not a \
+         reason to stop saying what changed"
+    );
+    assert!(
+        commands.contains("--notes-file"),
+        "release.yml must publish the composed body with --notes-file"
+    );
+    // Both flags on one `gh release create` is an ambiguity nothing here has tested, and it
+    // would be discovered by pushing a tag. One mechanism.
+    let create = commands
+        .split("gh release create")
+        .nth(1)
+        .expect("release.yml creates a release");
+    assert!(
+        !create.contains("--generate-notes"),
+        "`gh release create` is passed both --notes-file and --generate-notes; which one wins \
+         is untested here and a tag push is a poor place to find out"
     );
 }

@@ -91,10 +91,29 @@ pub fn resolve(
     nodes: &[Node],
     corpus_dir: &str,
 ) -> Result<Resolved, String> {
-    let reason = retrieval.degraded_reason();
+    // The vector arm can find, on its first search, that the index was built in a space this
+    // binary does not embed into — which `Retrieval` cannot know at load time without paying
+    // to load the model. So the reason starts as what the retrieval state declares and is
+    // overridden by what the search discovered.
+    //
+    // `unused_mut` in the light build is correct there and not worth a second code path: that
+    // build never embeds, so it can never reach the override.
+    #[cfg_attr(not(feature = "vector-read"), allow(unused_mut))]
+    let mut reason = retrieval.degraded_reason();
+    #[cfg_attr(not(feature = "vector-read"), allow(unused_mut))]
+    let mut repair = retrieval.repair();
     let (entries, read) = match retrieval {
         #[cfg(feature = "vector-read")]
-        Retrieval::Vector(index) => vector_entries(index, text, classes, k, nodes, corpus_dir)?,
+        Retrieval::Vector(index) => {
+            match vector_entries(index, text, classes, k, nodes, corpus_dir)? {
+                Some(found) => found,
+                None => {
+                    reason = Some(crate::retrieval::STALE_CONTRACT);
+                    repair = Some(crate::retrieval::STALE_CONTRACT_REPAIR);
+                    keyword_entries(text, classes, k, nodes, corpus_dir)
+                }
+            }
+        }
         _ => keyword_entries(text, classes, k, nodes, corpus_dir),
     };
     Ok(Resolved {
@@ -104,7 +123,7 @@ pub fn resolve(
             k,
             degraded: reason.is_some(),
             degraded_reason: reason,
-            repair: retrieval.repair(),
+            repair,
             entries: entries.clone(),
         },
         entries: entries.into_iter().map(|e| e.node).collect(),
@@ -130,6 +149,10 @@ fn candidates<'a>(
         .collect()
 }
 
+/// What a step resolved to: its entries, and the nodes reading them charged.
+#[cfg(feature = "vector-read")]
+type Entries = (Vec<Entry>, Vec<String>);
+
 #[cfg(feature = "vector-read")]
 fn vector_entries(
     index: &crate::retrieval::vector::IndexState,
@@ -138,14 +161,19 @@ fn vector_entries(
     k: usize,
     nodes: &[Node],
     corpus_dir: &str,
-) -> Result<(Vec<Entry>, Vec<String>), String> {
+) -> Result<Option<Entries>, String> {
     let candidates = candidates(nodes, classes);
     // The class test is applied here rather than after truncation: `k` must count nodes the
     // step could actually match, or a `k` of 1 against a corpus whose nearest row is of
     // another class resolves to nothing and looks like a miss.
-    let hits = crate::retrieval::vector::search(index, text, k, |row| {
+    let searched = crate::retrieval::vector::search(index, text, k, |row| {
         candidates.contains_key(row.path.as_str())
     })?;
+    // `None`, not an error: the caller has a keyword arm and this step still resolves — it
+    // resolves the way it would against a corpus with no index, and says which.
+    let crate::retrieval::vector::Searched::Hits(hits) = searched else {
+        return Ok(None);
+    };
     let entries: Vec<Entry> = hits
         .iter()
         .filter_map(|(row, score)| {
@@ -156,7 +184,7 @@ fn vector_entries(
         })
         .collect();
     let read = entries.iter().map(|e| e.node.clone()).collect();
-    Ok((entries, read))
+    Ok(Some((entries, read)))
 }
 
 /// The fallback: the same scorer `retrieve` degrades to, over the step's candidate classes.

@@ -51,6 +51,35 @@ pub struct OntProperty {
     pub r#type: String,
     #[serde(default)]
     pub description: String,
+    /// Whether every instance of the class must carry this property (#301).
+    ///
+    /// This report dropped the field until #606, and the omission had a shape worth naming.
+    /// `yidam schema` describes `required` on a property and says why it is one declaration:
+    /// *"`missing-property` gates on a property declared `true` and reports the rest, and the
+    /// compiled class schema lists exactly these as JSON Schema `required` — one declaration
+    /// deciding both, so the editor and the gate cannot disagree."* An editor reading this
+    /// report could not see it, so along this route they could, and did.
+    ///
+    /// What that cost is a client that cannot tell the one property whose omission fails CI
+    /// from the four whose omission is reported and forgiven. It was found by a surface that
+    /// rendered a required/optional column from this shape and printed "optional" for every
+    /// property in a corpus — a fabricated verdict arriving as a table column, which is the
+    /// same failure as one arriving as a check and harder to see.
+    ///
+    /// **Serialised even when false**, unlike the YAML it is read from, where absent means
+    /// false. The two are answering different questions. In a `.ont.yml` the author is the
+    /// only writer and silence is theirs to give; in this envelope the reader is a client
+    /// versioned independently of the binary that produced it, so an absent field is
+    /// ambiguous between *this property is optional* and *this binary predates the field*.
+    /// Emitting it always makes its presence the answer to the second question, which is the
+    /// distinction whose absence caused the mistake above.
+    ///
+    /// Additive, and no `format_version` bump: `report.schema.json` states that consumers
+    /// MUST ignore unknown fields and that the version rises only when a consumer that
+    /// understood the previous one would *mis-read* this one. A reader that has never heard
+    /// of `required` reads everything else exactly as before.
+    #[serde(default)]
+    pub required: bool,
 }
 
 /// One relationship a class may enter into.
@@ -538,6 +567,45 @@ mod tests {
         assert_eq!(c.edges[0].relationship, "reads");
         assert_eq!(c.edges[0].target, "gauge");
         assert_eq!(c.edges[0].direction, "out");
+    }
+
+    /// The distinction `missing-property` gates on has to survive into the report, or the
+    /// claim `yidam schema` makes for `required` — "one declaration deciding both, so the
+    /// editor and the gate cannot disagree" — is false along this route. It was.
+    #[test]
+    fn a_property_carries_whether_it_is_required() {
+        let (_t, root, corpus) = corpus();
+        write(
+            &corpus.join("concept.ont.yml"),
+            "class: concept\nlabel: Concept\ndescription: A unit.\n\
+             properties:\n  - name: parameter\n    type: string\n    required: true\n    \
+             description: The one that gates.\n\
+             \x20 - name: datum\n    type: string\n    description: The one that does not.\n",
+        );
+        let r = graph_data(&root, &corpus);
+        let props = &r.classes[0].properties;
+        assert!(
+            props[0].required,
+            "`required: true` did not reach the report"
+        );
+        assert!(
+            !props[1].required,
+            "a property that said nothing about being required was reported as required"
+        );
+
+        // Absent means false when *reading* the ontology, and present-and-false when
+        // *writing* the report. A client is versioned independently of the binary, so an
+        // absent field would be ambiguous between "optional" and "this binary is older than
+        // the field" — and it is the second reading that produced a page claiming every
+        // property in a corpus was optional.
+        let json = serde_json::to_value(&r.classes[0]).expect("classes serialise");
+        let emitted = &json["properties"][1];
+        assert_eq!(
+            emitted["required"],
+            serde_json::json!(false),
+            "an optional property must still carry `required: false`, so its presence \
+             answers whether this binary reports requiredness at all"
+        );
     }
 
     /// The filename governs when the field is absent — `graph-check` matches an instance's

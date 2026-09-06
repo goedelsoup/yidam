@@ -25,6 +25,21 @@ on:
     # Weekly full-feature build (Mondays 06:00 UTC) — catches gated-code breakage
     # and arrow/lancedb version-lock rot that the light PR builds never compile.
     - cron: '0 6 * * 1'
+  # `ci (mutants)` has guarded on `workflow_dispatch` since it was written and this trigger
+  # was not here, so that arm of its condition was unreachable: the job could be reached by
+  # the Monday schedule and by nothing else. The heavy jobs — mutants, and the full-feature
+  # build — are exactly the ones worth running against a branch on purpose, which is also how
+  # #539 was measured rather than guessed at.
+  #
+  # `mutants` is opt-in rather than implied, because it is a 180-minute job and the reason to
+  # dispatch is usually one of the other twelve. The first dispatch of this workflow started
+  # it by accident twice; a trigger whose cheap use costs three hours is one nobody dares use.
+  workflow_dispatch:
+    inputs:
+      mutants:
+        description: 'Also run ci (mutants) — mutation testing, up to 180 minutes'
+        type: boolean
+        default: false
 
 # Cancel superseded runs on the same ref (e.g. a force-push to a PR branch).
 # Never cancel main — keep its history green.
@@ -92,8 +107,33 @@ jobs:
           lcov: ${{ matrix.workspace == 'cli' && 'yidam/cli/target/coverage.lcov' || '' }}
           src: ${{ matrix.workspace == 'cli' && 'yidam/cli/src' || '' }}
           # The default set, spelled where the reader of a number can see it.
-          # `light_build.rs` is what keeps this list and `[features] default` in step.
-          features: ${{ matrix.workspace == 'cli' && 'reports,tonpa,vault-s3' || '' }}
+          # `coverage_reporting.rs::the_reported_feature_set_is_the_one_the_gate_builds`
+          # is what keeps this list and `[features] default` in step — it reads this line
+          # and the manifest and requires them equal. (It used to say `light_build.rs`,
+          # which never read this file.)
+          features: ${{ matrix.workspace == 'cli' && 'reports,tonpa,vault-s3,export-graph,serve-http' || '' }}
+
+  domains:
+    # #590: `cargo fmt --all` in a derived repo reaches these crates too, by path, because
+    # that is where the prelude vendors them — and nothing upstream formatted them. This is
+    # the fix: format them here, on what gets vendored, so a derived repo's gate never
+    # depends on whether the pin it is on happens to be clean.
+    #
+    # `mise run ci-domains` glob-discovers `yidam/prelude/domains/*/rust/Cargo.toml` rather
+    # than naming the 14 crates, so a fifteenth domain is covered the day it lands.
+    #
+    # Its own job, not a leg of the `ci` matrix above: these are 14 standalone crates with no
+    # shared workspace and no clippy/test wiring here (that is `domain-parity`'s job), so
+    # there is no JUnit for the summary step to read — just fmt-check, like `design` and
+    # `supply-chain` below.
+    name: ci (domains)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - name: Ensure rustfmt for the pinned toolchain
+        run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component rustfmt
+      - run: mise run ci-domains
 
   vscode:
     # The editor client. Separate from the Rust matrix because it shares no toolchain
@@ -116,8 +156,11 @@ jobs:
       # binary that speaks the contract, not the full feature set.
       - name: Install the yidam CLI so the contract tests have something to read
         run: cargo install --path yidam/cli --locked
-      - run: npm install
-        working-directory: yidam/editors/vscode
+      # No `npm install` step: every npm-backed mise task installs when `node_modules`
+      # is absent, through `scripts/npm-ensure.sh`. One recipe rather than two that can
+      # disagree — and the workflow step was what kept #646 invisible, since CI was the
+      # only place the packages were ever populated before a task ran.
+      #
       # Skipping is a courtesy to contributors without the CLI; it must never be how
       # this job goes green. This turns an absent or stale binary into a failure.
       - run: mise run ci-vscode
@@ -133,6 +176,41 @@ jobs:
           gate: ci (vscode)
           junit: yidam/editors/vscode/junit.xml
           artifact: test-results-vscode
+          json: "true"
+
+  editor-web:
+    # The web editor surface (RFC-0030, #606). Separate from `vscode` above for the reason
+    # that job is separate from the Rust matrix — no shared toolchain — and separate from the
+    # docs site because that one is built and deployed by `docs.yml`.
+    #
+    # It needs **no yidam binary**, unlike `vscode`. Everything this package asserts is a
+    # property of the package: the RFC-0016 boundary gates read its own import graph, the
+    # parity test compares its two copied modules against the extension's, and the flag and
+    # origin tests are pure functions. That is deliberate rather than lucky — a gate that
+    # needed a corpus to run is a gate that gets skipped on the day it matters.
+    #
+    # `ci-editor-web` builds before it tests. The build is what proves `app.css`'s relative
+    # `@import` of `yidam/design/` still resolves, which no unit test here can see.
+    name: ci (editor-web)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      # No `npm install` step: every npm-backed mise task installs when `node_modules`
+      # is absent, through `scripts/npm-ensure.sh`. One recipe rather than two that can
+      # disagree — and the workflow step was what kept #646 invisible, since CI was the
+      # only place the packages were ever populated before a task ran.
+      - run: mise run ci-editor-web
+      # No `manifest`, for the reason the extension gives one job up: node's JUnit reporter
+      # writes no `<system-out>`, so a runtime skip would be invisible to the census however
+      # it were counted. This package has no environment-gated suite, and every test in it is
+      # meant to run everywhere.
+      - uses: ./.github/actions/test-summary
+        if: always()
+        with:
+          gate: ci (editor-web)
+          junit: yidam/editors/web/junit.xml
+          artifact: test-results-editor-web
           json: "true"
 
   parity:
@@ -160,8 +238,6 @@ jobs:
             yidam/prelude/sdks/rust
             yidam/tests/harness
           key: parity
-      - run: npm install
-        working-directory: yidam/prelude/sdks/typescript
       # `parity` depends on `parity-check`, which enforces the fixture rules in both
       # directions: every parity function has a fixture, and every fixture directory has a
       # runner that reads it.
@@ -373,6 +449,40 @@ jobs:
     name: ci (cli · full features)
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    env:
+      # Job-wide, and it was step-wide once. #539 measured this job dying for memory during
+      # `coverage-full` and capped the jobs THERE — the step that happened to be failing. On
+      # d596634 it was killed again, one step earlier, in `ci-cli-full`. So the cap belongs to
+      # the job: fixing the instance bought three green runs and then failed somewhere else.
+      #
+      # What the d596634 log actually shows, which is not what the first reading of it assumed:
+      #
+      #   02:27:08  $ cargo clippy --all-features        Finished in 8.51s
+      #   02:27:17  $ cargo nextest run --all-features   Compiling yidam, yidam-core, ci-report
+      #   02:29:03  ERROR sh exited with non-zero status: killed by SIGTERM   (exit 143)
+      #
+      # No dependency is compiled anywhere in the run — `Swatinem/rust-cache` restores the
+      # whole `--all-features` tree, which is why the clippy CHECK above finishes in 8.5s. The
+      # expensive step is the one after it, and what it does is codegen and LINK the 59
+      # integration test binaries under `yidam/cli/tests/`, each of which statically contains
+      # lancedb, lance, datafusion, arrow and ort with debuginfo.
+      #
+      # `-j` is the lever because it bounds how many of those link units run at once, not
+      # because it slows a dependency build that is not happening. A 4-vCPU runner defaults to
+      # `-j 4`; #539 measured the peak at ~15.5GB of 16 with four, so a unit costs roughly
+      # 3.5GB and 3 would leave about a gigabyte of headroom on a machine that had just proved
+      # it has none.
+      #
+      # THE KILL IS MARGINAL, NOT DETERMINISTIC, and a reader who misses that will read one
+      # green run as proof. df1b713 — docs-only, on top of the commit that failed, with this
+      # cap still step-scoped — ran the same `--all-features` step for its full 5m22s at `-j 4`
+      # and passed; d596634 was killed 105 seconds into it. Roughly three failures in seven
+      # main runs. So the evidence for `2` is headroom, not a reproduction: df1b713's samples
+      # of `coverage-full`, which #539 had already capped, floor at 5.7Gi where the same step
+      # at `-j 4` reached 0.5Gi. Disk never went below 38G in either.
+      #
+      # The cost is that this job's heaviest step gets slower — about 5m22s to 8 minutes.
+      CARGO_BUILD_JOBS: '2'
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
@@ -382,7 +492,11 @@ jobs:
         with:
           workspaces: yidam/cli
           key: cli-full
-      - run: mise run ci-cli-full
+      # Where the runner died on d596634, with no line in the log naming a resource — the
+      # sampler was on `coverage-full`, two steps later. Every heavy step in this job goes
+      # through the wrapper now, and `ci_reporting.rs` asserts that rather than trusting it.
+      - name: Full-feature build and tests, with a resource sampler
+        run: .github/scripts/with-sampler.sh mise run ci-cli-full
       - uses: ./.github/actions/test-summary
         if: always()
         with:
@@ -397,10 +511,47 @@ jobs:
       # runs — main push and the weekly schedule — and not on pull requests. That is one
       # commit later than the "every PR" the issue imagined, and it is the latest it can be
       # without the number being about keyword matching.
-      - run: mise run bench-example
+      # `--features index` is a third feature set, so this is a third codegen-and-link of the
+      # binary, not a cache hit on the two above. It had no sampler at all, which is the same
+      # hole one step over: a kill here would leave the log d596634 left.
+      - name: Benchmark against examples/streamflow, with a resource sampler
+        run: .github/scripts/with-sampler.sh mise run bench-example
       # The number that covers the gated paths. Retained rather than only summarised: P7's
       # series is a sequence of these, and a series cannot start later than its first point.
-      - run: mise run coverage-full
+      #
+      # ── CARGO_BUILD_JOBS, and the measurement that chose it ──────────────────
+      #
+      # This step was where the runner died on `d01cb87` and every commit after it: every test
+      # passed, then the job stopped mid-crate with exit 137 and "the runner has received a
+      # shutdown signal". No cargo error, no `No space left on device`, no OOM line — nothing
+      # in the log named the resource, so memory and disk were equally good guesses and they
+      # take opposite fixes. The sampler below was added first, alone, and measured it (#539):
+      #
+      #   [res] 20:34:37 mem_avail=13.6Gi disk_avail=39G   ← start of the coverage build
+      #   [res] 20:38:37 mem_avail=0.6Gi  disk_avail=34G
+      #   [res] 20:40:38 mem_avail=0.5Gi  disk_avail=29G   ← last line before the kill
+      #
+      # Memory, decisively. Disk never went below 29G, so freeing the preinstalled images or
+      # splitting the job — the two disk fixes — would have changed nothing.
+      #
+      # The runner has 4 vCPU, so cargo defaults to `-j 4`, and four rustc processes each
+      # holding an instrumented LLVM module for lancedb/lance/datafusion do not fit in 16GB.
+      # `d01cb87` is where it began because that is where arrow went 52.2.0 → 53.4.1 and
+      # datafusion 41 → 44, underneath the crate being compiled when the VM went away.
+      #
+      # 2 rather than 3: at 4 jobs the peak was ~15.5GB of 16, so a job costs roughly 3.5GB
+      # and 3 would leave about a gigabyte of headroom on a machine that had just proved it
+      # has none. This step gets slower; nothing else does, and the run it replaces produced
+      # no coverage number at all.
+      #
+      # ── the sampler stays, and why it writes to stdout ───────────────────────
+      #
+      # It is what made this diagnosable, and it is what makes the next regression legible
+      # rather than another silent kill. A file in /tmp would die with the VM, and a post-step
+      # with `if: always()` does not run when the runner agent is the thing that was killed —
+      # so the last `[res]` line to reach the log survives precisely the failure it explains.
+      - name: Coverage (full features), with a resource sampler
+        run: .github/scripts/with-sampler.sh mise run coverage-full
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -426,7 +577,7 @@ jobs:
     # failed.
     name: ci (quality report)
     if: always()
-    needs: [ci, vscode, parity, cli-full]
+    needs: [ci, vscode, editor-web, parity, cli-full]
     # Declared rather than inherited. The repository's default is read-all today, which grants
     # the jobs API by accident; a settings change to "restricted" would take it away and the
     # step that reads conclusions would fail with a report that still merges — quietly losing
@@ -642,7 +793,9 @@ jobs:
     # `--config-file` every gate passes. cargo-mutants builds its baseline with its own
     # command line and never sees the flag.
     name: ci (mutants)
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # Dispatch runs it only when asked. `inputs.mutants` is absent on a schedule run, so the
+    # first clause is what keeps Monday's run intact.
+    if: github.event_name == 'schedule' || inputs.mutants
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:

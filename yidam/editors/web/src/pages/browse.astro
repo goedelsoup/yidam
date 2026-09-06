@@ -1,0 +1,54 @@
+---
+/**
+ * Every node, and every edge the CLI resolved for it.
+ *
+ * `yidam graph --format json` reports each edge already resolved, with `exists` answered by
+ * the same test the gate uses — so a broken link renders as broken here because the binary
+ * said so, not because this page re-derived the rule. `graph.ts` states that boundary for the
+ * extension and it is the same boundary.
+ *
+ * The table itself is an island (`islands/NodeTable.jsx`), which is this package's first and
+ * so far only one. Two reasons, and the second is the one that put it here rather than
+ * anywhere else. It is RFC-0030's Phase 1 spike — whether the design system's React
+ * components survive client bundling, unanswered because none had ever been hydrated. And
+ * this is the page that needs it: measured against a live derived repository, browse is 90
+ * rows and 299 edges, and a table that long with no way to narrow it is a page people scroll
+ * past rather than read.
+ *
+ * `client:load` rather than `client:visible`: the filter is the first thing above the table,
+ * so it is in the viewport at the moment the page arrives and the two directives differ only
+ * in whether the field is inert for the first few hundred milliseconds. A control that ignores
+ * what you type is worse than one that has not appeared yet.
+ *
+ * Server-rendered either way. Astro renders the component on the server too, so a reader with
+ * no JavaScript gets the same table without the filter, rather than an empty page — the
+ * property that makes an island the right shape for this instead of a fetch.
+ */
+import Shell from '../layouts/Shell.astro'
+import { session } from '../lib/session.ts'
+import { spawnReport } from '../lib/cli.ts'
+// The shapes moved to `lib/graph.ts` when the node page needed them too, along with the note
+// about `node` rather than `id` that this file used to carry. One definition, because two
+// pages disagreeing about the envelope's field names is the failure that emptied this table
+// once already.
+import { type GraphReport } from '../lib/graph.ts'
+import { NodeTable } from '../islands/NodeTable.jsx'
+
+const { root, binary } = await session()
+const result =
+  binary.command === null
+    ? null
+    : await spawnReport<GraphReport>({ command: binary.command, root }, 'graph')
+
+const nodes = result && result.ok ? (result.report.nodes ?? []) : []
+---
+
+<Shell title="Browse">
+  {
+    nodes.length === 0 ? (
+      <p>No nodes to show — see the header.</p>
+    ) : (
+      <NodeTable client:load nodes={nodes} />
+    )
+  }
+</Shell>
