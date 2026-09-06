@@ -494,35 +494,132 @@ fn schema() -> serde_json::Value {
     .expect("schema is valid JSON")
 }
 
+/// What one walk found.
+#[derive(Default)]
+struct Contract {
+    problems: Vec<String>,
+    /// Fields that reached a declaration. This is the guard against the guard: a walk that
+    /// stops descending reports no problems and looks exactly like a contract in good order,
+    /// which is the state this check was in until #645. A floor on this number is what makes
+    /// "found nothing" mean "looked and found nothing".
+    resolved: usize,
+}
+
 /// One envelope against the contract: every required field present, every emitted field
-/// declared.
+/// declared, **all the way down**.
 ///
 /// Not full JSON-Schema validation — that would want a dependency this crate does not
 /// otherwise need. It is the half that actually rots: a field added to a report and not to
 /// the schema, which leaves a consumer reading a contract that does not describe the data
 /// it is being sent.
-fn contract_problems(
-    schema: &serde_json::Value,
-    name: &str,
+///
+/// # It used to compare one level
+///
+/// This walked `doc.as_object()`'s keys against `schema["properties"]` and stopped, so every
+/// nested field in every report was undeclared and passing. The first run of the recursion
+/// resolved 933 fields and found **seven** the schema did not declare — including `severity`
+/// on every lint violation, which both editor surfaces render, in the most-read report in the
+/// family. Two clients read a field the published contract had never mentioned. Declaring
+/// those seven is what takes the figure to the 973 the floor below is set under.
+///
+/// It was found the way blind spots usually are: by adding `required` to `graph`'s class
+/// properties (#642) and noticing the golden validated *before* the declaration was written.
+/// `every_live_report_field_is_declared_in_the_schema` exists because the golden-reading check
+/// had a blind spot; this is that same shape one level down.
+///
+/// # What it does not do
+///
+/// It does not demand `additionalProperties: false`. The envelope's own description tells
+/// consumers to ignore unknown fields, so a *stricter* contract than that would contradict
+/// RFC-0016. The obligation here is the other direction: whatever yidam emits, the contract
+/// must describe.
+///
+/// Maps whose keys the corpus decides are handled by `additionalProperties`, not by declaring
+/// their keys. `replay[].by_class` is the case that proves it — keyed by class name, so a
+/// check that wanted a declaration per key would demand `concept` and `gauge` and be wrong
+/// about every corpus but the fixture.
+fn contract_problems(schema: &serde_json::Value, name: &str, doc: &serde_json::Value) -> Contract {
+    let mut out = Contract::default();
+    doc.as_object().expect("an envelope is an object");
+    walk(schema, doc, name, "", &mut out);
+    // One undeclared field is one problem however many array elements carry it. Without this
+    // a fixture with two catalog sources reports `sources[].artifacts` twice, and a real
+    // corpus would report it hundreds of times — a failure nobody reads to the end of.
+    let unique: BTreeSet<String> = out.problems.into_iter().collect();
+    out.problems = unique.into_iter().collect();
+    out
+}
+
+fn walk(
+    node: &serde_json::Value,
     doc: &serde_json::Value,
-) -> Vec<String> {
-    let declared = schema["properties"].as_object().unwrap();
-    let obj = doc.as_object().expect("an envelope is an object");
-    let mut problems = Vec::new();
-    for key in schema["required"].as_array().unwrap() {
-        let key = key.as_str().unwrap();
-        if !obj.contains_key(key) {
-            problems.push(format!("  {name}: missing required `{key}`"));
+    name: &str,
+    path: &str,
+    out: &mut Contract,
+) {
+    match doc {
+        serde_json::Value::Object(obj) => {
+            if let Some(required) = node.get("required").and_then(|r| r.as_array()) {
+                for key in required {
+                    let key = key.as_str().expect("a required entry is a field name");
+                    if !obj.contains_key(key) {
+                        let at = if path.is_empty() {
+                            key.to_string()
+                        } else {
+                            format!("{path}.{key}")
+                        };
+                        out.problems
+                            .push(format!("  {name}: missing required `{at}`"));
+                    }
+                }
+            }
+
+            let declared = node.get("properties").and_then(|p| p.as_object());
+            let extra = node.get("additionalProperties");
+
+            for (key, value) in obj {
+                // A declaration by name wins; a dynamic map's value shape is the fallback.
+                let by_name = declared.and_then(|d| d.get(key));
+                let sub = by_name.or_else(|| extra.filter(|e| e.is_object()));
+                // Inside a dynamic map the key belongs to the corpus, not to the contract, so
+                // the path says `*`. `by_class.concept` and `by_class.gauge` are one shape
+                // reported twice; a reader who has to fix it fixes it once.
+                let segment = if by_name.is_none() && sub.is_some() {
+                    "*"
+                } else {
+                    key.as_str()
+                };
+                let at = if path.is_empty() {
+                    segment.to_string()
+                } else {
+                    format!("{path}.{segment}")
+                };
+                match sub {
+                    Some(sub) => {
+                        out.resolved += 1;
+                        walk(sub, value, name, &at, out);
+                    }
+                    // `additionalProperties: true` permits the key and says nothing about the
+                    // value, which is a declaration — an intentionally open bag rather than a
+                    // field somebody forgot.
+                    None if extra == Some(&serde_json::Value::Bool(true)) => out.resolved += 1,
+                    None => out.problems.push(format!(
+                        "  {name}: emits `{at}`, which report.schema.json does not declare"
+                    )),
+                }
+            }
         }
-    }
-    for key in obj.keys() {
-        if !declared.contains_key(key) {
-            problems.push(format!(
-                "  {name}: emits `{key}`, which report.schema.json does not declare"
-            ));
+        serde_json::Value::Array(items) => {
+            // An array whose `items` the schema omits was itself declared, and there is
+            // nothing further to check against.
+            if let Some(sub) = node.get("items") {
+                for value in items {
+                    walk(sub, value, name, &format!("{path}[]"), out);
+                }
+            }
         }
+        _ => {}
     }
-    problems
 }
 
 const CONTRACT_ADVICE: &str = "\n\nAdd the field to report.schema.json, or stop emitting it. \
@@ -533,6 +630,7 @@ const CONTRACT_ADVICE: &str = "\n\nAdd the field to report.schema.json, or stop 
 fn every_golden_field_is_declared_in_the_schema() {
     let schema = schema();
     let mut problems = Vec::new();
+    let mut resolved = 0;
     let mut seen = 0;
     for entry in std::fs::read_dir(fixture_dir().join("expected")).unwrap() {
         let path = entry.unwrap().path();
@@ -543,10 +641,23 @@ fn every_golden_field_is_declared_in_the_schema() {
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let doc: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        problems.extend(contract_problems(&schema, &name, &doc));
+        let found = contract_problems(&schema, &name, &doc);
+        problems.extend(found.problems);
+        resolved += found.resolved;
     }
 
     assert!(seen > 0, "no JSON goldens found — the scan is broken");
+    // The guard against the guard. Before #645 this walked one level and every nested field
+    // in every report was undeclared and passing — a green gate that had stopped looking,
+    // which reads from the outside exactly like a contract in good order. 973 fields resolve
+    // today and a walk that stops descending reaches 146, measured by removing the recursive
+    // call. Deliberately well under the real figure: this is a tripwire for a scan that broke,
+    // not a count anybody should have to update when a report gains a field.
+    assert!(
+        resolved >= 700,
+        "the contract walk resolved only {resolved} fields against the schema — it has \
+         stopped descending, and a check that looks at nothing reports nothing"
+    );
     assert!(
         problems.is_empty(),
         "goldens and schema disagree:\n{}{CONTRACT_ADVICE}",
@@ -566,6 +677,7 @@ fn every_live_report_field_is_declared_in_the_schema() {
     let schema = schema();
     let tmp = stage();
     let mut problems = Vec::new();
+    let mut resolved = 0;
     for (name, args) in LIVE {
         let mut a = args.to_vec();
         a.extend_from_slice(&["--format", "json"]);
@@ -577,8 +689,16 @@ fn every_live_report_field_is_declared_in_the_schema() {
                 r.stdout
             )
         });
-        problems.extend(contract_problems(&schema, name, &doc));
+        let found = contract_problems(&schema, name, &doc);
+        problems.extend(found.problems);
+        resolved += found.resolved;
     }
+    assert!(
+        resolved >= 40,
+        "the contract walk resolved only {resolved} fields across {} live reports — it has \
+         stopped descending",
+        LIVE.len()
+    );
     assert!(
         problems.is_empty(),
         "live reports and schema disagree:\n{}{CONTRACT_ADVICE}",

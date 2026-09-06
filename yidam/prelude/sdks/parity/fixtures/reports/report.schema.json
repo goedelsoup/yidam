@@ -85,28 +85,73 @@
               }
             }
           }
+        },
+        "expired_baseline_entries": {
+          "type": "array",
+          "description": "Entries that have outlived the expiry the baseline declares, and so no longer forgive the violation they list. These fail CI. Separate from `new_violations` although both fail: an introduced violation is something this change did, an expired one is something the repository agreed to deal with and has not — and a consumer telling somebody they introduced a finding that has sat in their baseline for two hundred commits would be wrong.",
+          "items": {
+            "type": "object",
+            "required": [
+              "check",
+              "node",
+              "commits"
+            ],
+            "properties": {
+              "check": {
+                "type": "string"
+              },
+              "node": {
+                "type": "string"
+              },
+              "commits": {
+                "type": "integer",
+                "description": "Corpus-touching commits it has stood for."
+              }
+            }
+          }
         }
       }
     },
     "checks": {
       "type": "array",
-      "description": "`lint` only. Every check that ran, including those that found nothing — a check that vanishes when it passes cannot be told from one that never ran.",
+      "description": "`lint` AND `doctor`, and the two emit different item shapes under this one key — which went unstated until #645's recursive gate read it. `lint`'s check carries `title`, `severity`, `rationale` and `violations`; `doctor`'s carries `question`, `verdict`, `detail` and `remedy`. Both carry `id`, which is the only field required here for the same reason the envelope requires only three at the top level: this schema is a flat union across commands, and a `required` naming one command's shape would declare the other command's output invalid. Consumers key on `id` and read the fields their command emits. In both, every check that ran is present including those that found nothing — a check that vanishes when it passes cannot be told from one that never ran.",
       "items": {
         "type": "object",
         "required": [
-          "id",
-          "title",
-          "severity",
-          "rationale",
-          "violations"
+          "id"
         ],
         "properties": {
           "id": {
             "type": "string",
-            "description": "Stable identifier; half of a violation's identity in the baseline."
+            "description": "Stable identifier. A consumer keys on this; the prose is free to change. In `lint` it is also half of a violation's identity in the baseline."
           },
           "title": {
-            "type": "string"
+            "type": "string",
+            "description": "`lint` only."
+          },
+          "question": {
+            "type": "string",
+            "description": "`doctor` only. The question in the form a person would ask it."
+          },
+          "verdict": {
+            "enum": [
+              "ok",
+              "warn",
+              "fail",
+              "skipped"
+            ],
+            "description": "`doctor` only. `warn` is actionable and a normal state to be in, and does not affect the exit code without `--strict`; `fail` is wrong now and exits nonzero; `skipped` is not answerable, almost always because the repository check already failed and there is nothing to answer about. A consumer MUST NOT read `skipped` as `ok`."
+          },
+          "detail": {
+            "type": "string",
+            "description": "`doctor` only. What was actually found."
+          },
+          "remedy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`doctor` only. The command or edit that resolves it; null when there is nothing to do."
           },
           "severity": {
             "enum": [
@@ -140,6 +185,37 @@
                 "in_baseline": {
                   "type": "boolean",
                   "description": "Whether the committed baseline already records this violation. ONLY MEANINGFUL WHEN severity IS error — the baseline records error-severity violations and nothing else, so a warn or info violation is always false here. Read this together with `severity`, never alone."
+                },
+                "severity": {
+                  "enum": [
+                    "error",
+                    "warn",
+                    "info"
+                  ],
+                  "description": "This violation's severity. Normally the check's, and not always: a check can raise a single finding above its own level — `missing-property` reports at `warn` and gates the one property a class declared `required: true`. So read it here rather than from the check, which is what `in_baseline` above means by 'together with `severity`'. Both editor surfaces render this field, and it went undeclared until #645 because the contract gate compared only the envelope's top level."
+                },
+                "age": {
+                  "type": "object",
+                  "description": "How long a corpus-state finding has held. Present only on the checks that measure it; absent is the normal case and means the finding has no age, not that it is new.",
+                  "required": [
+                    "first_commit",
+                    "first_day",
+                    "commits"
+                  ],
+                  "properties": {
+                    "first_commit": {
+                      "type": "string",
+                      "description": "Full sha of the commit at which the condition began, so a consumer can `git show` it."
+                    },
+                    "first_day": {
+                      "type": "string",
+                      "description": "The `YYYY-MM-DD` of that commit — the same day the text report prints."
+                    },
+                    "commits": {
+                      "type": "integer",
+                      "description": "Corpus-touching commits it has held for, counting the one at HEAD. Commits rather than days, deliberately: a day count is a function of when the report was run, so the same corpus answers differently tomorrow and no consumer can cache or pin it."
+                    }
+                  }
                 },
                 "span": {
                   "type": "object",
@@ -490,6 +566,57 @@
                 "description": "Basenames of nodes that cite this entry, that the list omits."
               }
             }
+          },
+          "artifacts": {
+            "type": "array",
+            "description": "The entry's fetched artifacts, as its record declares them. Empty when the entry names no bytes — a catalog entry is a record about a source and does not have to have fetched one.",
+            "items": {
+              "type": "object",
+              "description": "Every field is optional so that a malformed record parses and is REPORTED rather than making the whole entry unreadable: an entry that fails to load takes its citations, its TTL and its `used-by` down with it, which is a large penalty for one bad field.",
+              "properties": {
+                "sha256": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The content address — 64 lowercase hex characters."
+                },
+                "bytes": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "Size in bytes, as fetched."
+                },
+                "media_type": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "So a reader knows what the artifact is without fetching it."
+                },
+                "retrieved": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "When these bytes were obtained. Distinct from the entry's own `retrieved:`, which is about the record — an entry can be revised without re-fetching anything."
+                },
+                "from": {
+                  "description": "Where it came from: an index into this entry's `location` list, or a literal URL."
+                },
+                "vault": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Which vault these bytes may be stored in. `none` means the local cache and nowhere else. Routing, and not permission — `redistributable` is the other question and overrides this one."
+                },
+                "redistributable": {
+                  "description": "Whether these bytes may leave this machine at all."
+                }
+              }
+            }
           }
         }
       }
@@ -591,6 +718,25 @@
                 },
                 "orphans": {
                   "type": "integer"
+                },
+                "uncited": {
+                  "type": "integer",
+                  "description": "Instances of this class that nothing cites."
+                },
+                "expectation": {
+                  "enum": [
+                    "cited",
+                    "uncited",
+                    "unstated"
+                  ],
+                  "description": "What the ontology declared for this class: `uncited` for a source class nothing is meant to point at, `cited` for a class declaring an inbound edge, `unstated` when it declared neither."
+                },
+                "meets_expectation": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ],
+                  "description": "Whether the class is behaving as it declared. `null` when it declared nothing — there is no expectation to meet, and scoring a class against one it never stated is how a corpus with an unfilled ontology gets reported as failing. A consumer MUST NOT read `null` as false."
                 }
               }
             }
