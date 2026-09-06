@@ -7,7 +7,8 @@ surface in the system.
 
 1. **Check for samudaya** — read pre-placed seed files if present
 2. **Internalize the prelude** — output a single confirmation message; wait for acknowledgment
-3. **Ontology discovery dialogue** — iterative Q&A to surface the domain's core concepts
+3. **Ontology discovery dialogue** — iterative Q&A to surface the domain's core concepts,
+   the foundational alignment, the seed count, the governance mode, and the kuten
 4. **Scaffold the structure** — create directory layout from templates
 5. **Formalize the ontology** — write `.ont.yml` class definitions
 6. **Identify implied edges, connectors, calculators** — present a structured report; await approval
@@ -42,6 +43,43 @@ The bootstrap confirms the ontology with the user in this format before writing 
 ```
 source →[relationship]→ target
 ```
+
+## The kuten confirmation
+
+The dialogue closes with the one question that is not about the domain. Everything before it
+says what the repository is *about*; a [kuten](../yidam/prelude/kuten/README.md) says what its
+work is **aimed at**.
+
+The bootstrap lists `yidam/prelude/kuten/` rather than naming a profile in prose, and quotes
+that profile's own `gloss:` back to the user. With one profile shipping this is a
+confirmation and not a menu:
+
+> **This corpus's practice — its kuten — is `<name>`.** <the profile's `gloss:`, verbatim.>
+> It is vendored at genesis and recorded with the revision that was vendored, and it changes
+> afterwards only by a `decide:` commit carrying a superseding record. Confirm it, or say
+> that no profile here describes what this corpus is for — **holding no kuten is a supported
+> state**, and `yidam kuten check` reports it as one and exits zero.
+
+The answer is written to `.yidam/decisions/kuten.yml` and lands in the genesis commit with
+the other decision records. Two of its fields are read by tools:
+
+```yaml
+kuten: inquiry
+revision: 1
+```
+
+The revision is copied out of the profile rather than typed, because every consumer reads the
+kuten at the vintage the repository holds and never at upstream's current one. If a later
+re-vendor moves the two apart, `yidam kuten` says so in `AGENTS.md` instead of picking one.
+
+The profile itself needs no step of its own. The vendor step moves the whole
+`yidam/prelude/` tree into `.yidam/.vendor/prelude/`, so the directory the record names
+arrives with the rest of the prelude — and by the time the gate run that follows it calls
+`yidam regen`, the `AGENTS.md` kuten block has a subject.
+
+**Declining is a real answer.** A repository holding no kuten is a supported state that
+`doctor`, `yidam kuten` and `kuten check` each report deliberately; the bootstrap writes no
+record when the user does not adopt one.
 
 ## Prelude internalized checkpoint
 
