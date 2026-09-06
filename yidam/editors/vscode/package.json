@@ -260,7 +260,7 @@
   "scripts": {
     "compile": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
     "watch": "tsc -p . --watch",
-    "lint": "eslint src test scripts --ext .ts",
+    "lint": "oxlint src test scripts",
     "test:unit": "node --test --experimental-strip-types --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=junit.xml test/*.test.ts",
     "vscode:prepublish": "npm run compile",
     "package": "node --experimental-strip-types scripts/check-package.ts"
@@ -268,12 +268,10 @@
   "devDependencies": {
     "@types/node": "^26",
     "@types/vscode": "^1.90.0",
-    "@typescript-eslint/eslint-plugin": "^8",
-    "@typescript-eslint/parser": "^8",
     "@vscode/vsce": "^3.9.2",
-    "eslint": "^10",
     "ovsx": "^1.1.1",
+    "oxlint": "^1.81",
     "smol-toml": "^1.3.0",
-    "typescript": "^6.0"
+    "typescript": "^7.0"
   }
 }
