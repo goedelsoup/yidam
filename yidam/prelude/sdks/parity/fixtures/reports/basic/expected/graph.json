@@ -82,12 +82,14 @@
         {
           "name": "datum",
           "type": "string",
-          "description": "Which vertical datum the values are read against."
+          "description": "Which vertical datum the values are read against.",
+          "required": false
         },
         {
           "name": "claim_tag",
           "type": "claim",
-          "description": "The evidence standing of this node, as a tag rather than as prose."
+          "description": "The evidence standing of this node, as a tag rather than as prose.",
+          "required": false
         }
       ],
       "edges": [
@@ -119,7 +121,8 @@
         {
           "name": "station",
           "type": "string",
-          "description": "The operator's identifier for this station."
+          "description": "The operator's identifier for this station.",
+          "required": false
         }
       ],
       "edges": [
