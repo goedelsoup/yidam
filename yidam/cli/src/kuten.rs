@@ -143,6 +143,167 @@ pub struct Object {
     pub direction: Direction,
 }
 
+/// Which of a repository's two registers a path belongs to — RFC-0028 §4.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Register {
+    /// The corpus. Everything the declared vocabulary governs, and the default: a path no
+    /// declaration claims is corpus, because a repository that has said nothing about an
+    /// object has exactly one register.
+    Corpus,
+    /// The artifact outside the corpus, as `[object] paths` names it.
+    Object,
+}
+
+/// Which registers one commit's paths fall in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Touch {
+    CorpusOnly,
+    ObjectOnly,
+    Both,
+    /// The commit lists no paths at all.
+    ///
+    /// **Governed by the corpus register, and that is the decision rather than a fallthrough.**
+    /// `git log --name-only` prints no names for a merge commit, so an authored merge — the
+    /// `adopt: the baseline after electoral-purpose` form the vocabulary asks for — arrives
+    /// here with an empty path list. Absence of evidence is not a declaration of jurisdiction:
+    /// reading it as `ObjectOnly` would silence the verb check on exactly the commits where
+    /// two inquiry threads join, which is where it earns its keep.
+    None,
+}
+
+/// The two registers a repository has.
+///
+/// # Why the paths are read from the corpus and not from the kuten
+///
+/// See [`Object`]. The kuten declares the *direction* of the arrow, which is a property of the
+/// practice; the paths are a property of this repository, and they live in `[object] paths` in
+/// `.yidam/config.toml`.
+///
+/// # The corpus register is the default, and nothing enumerates it
+///
+/// There is no corpus glob list. A repository that declares no object has one register and
+/// every path is in it, which is what [`Registers::corpus_only`] means and why it reproduces
+/// today's behaviour exactly. Declaring the corpus's own paths instead would make the
+/// undeclared case ambiguous — a new top-level directory would silently leave the corpus's
+/// jurisdiction — and it is the object that is the exception, in three of eighteen measured
+/// repositories.
+#[derive(Debug, Clone, Default)]
+pub struct Registers {
+    /// Globs naming the object register. Empty means the repository has one register.
+    object: Vec<String>,
+}
+
+impl Registers {
+    /// Every repository that declares no object.
+    ///
+    /// Every path is corpus, so [`Registers::touch`] answers `CorpusOnly` for any commit with
+    /// paths and `None` for one without — and `lint --commits` reports exactly what it
+    /// reported before this existed.
+    pub fn corpus_only() -> Self {
+        Registers { object: Vec::new() }
+    }
+
+    /// `[object] paths` from `.yidam/config.toml`.
+    ///
+    /// A repository with no config file, or one whose `[object]` section is absent or lists
+    /// no paths, gets [`Registers::corpus_only`]. So does one whose config fails to parse:
+    /// this is a report, and a malformed config is `lint`'s own finding to make, not a reason
+    /// for the verb check to change what it governs.
+    pub fn of_repo(root: &Path) -> Self {
+        let paths = crate::config::load_yidam_config(root)
+            .map(|c| c.object.paths)
+            .unwrap_or_default();
+        Registers::of_globs(paths)
+    }
+
+    /// The registers a given set of object globs describes.
+    pub fn of_globs(object: Vec<String>) -> Self {
+        Registers {
+            object: object
+                .into_iter()
+                .map(|g| g.trim().trim_end_matches('/').to_string())
+                .filter(|g| !g.is_empty())
+                .collect(),
+        }
+    }
+
+    /// Whether any object path is declared at all.
+    pub fn declares_object(&self) -> bool {
+        !self.object.is_empty()
+    }
+
+    /// Which register one repository-relative path falls in.
+    pub fn register_of(&self, path: &str) -> Register {
+        let path = path.trim_start_matches("./");
+        if self.object.iter().any(|g| glob_covers(g, path)) {
+            Register::Object
+        } else {
+            Register::Corpus
+        }
+    }
+
+    /// Which registers a commit's paths fall in.
+    pub fn touch(&self, paths: &[String]) -> Touch {
+        let mut corpus = false;
+        let mut object = false;
+        for p in paths {
+            match self.register_of(p) {
+                Register::Corpus => corpus = true,
+                Register::Object => object = true,
+            }
+        }
+        match (corpus, object) {
+            (true, true) => Touch::Both,
+            (true, false) => Touch::CorpusOnly,
+            (false, true) => Touch::ObjectOnly,
+            (false, false) => Touch::None,
+        }
+    }
+}
+
+/// Whether `pattern` claims `path` — matching the path itself or any directory above it.
+///
+/// The ancestor rule is what makes `paths = ["web"]` mean the directory rather than a file
+/// called `web`, which is the form anyone writing this by hand will reach for first. `web/**`
+/// says the same thing explicitly and both work.
+fn glob_covers(pattern: &str, path: &str) -> bool {
+    let pat: Vec<&str> = pattern.split('/').collect();
+    let segs: Vec<&str> = path.split('/').collect();
+    (1..=segs.len()).any(|n| glob_match(&pat, &segs[..n]))
+}
+
+/// Segment-wise glob match. `**` spans any number of segments, `*` any run within one.
+fn glob_match(pat: &[&str], segs: &[&str]) -> bool {
+    match pat.first() {
+        None => segs.is_empty(),
+        Some(&"**") => (0..=segs.len()).any(|skip| glob_match(&pat[1..], &segs[skip..])),
+        Some(p) => match segs.first() {
+            Some(s) if segment_match(p, s) => glob_match(&pat[1..], &segs[1..]),
+            _ => false,
+        },
+    }
+}
+
+/// One segment against one pattern segment, where `*` matches any run of characters.
+fn segment_match(pat: &str, seg: &str) -> bool {
+    let parts: Vec<&str> = pat.split('*').collect();
+    if parts.len() == 1 {
+        return pat == seg;
+    }
+    let (first, last) = (parts[0], parts[parts.len() - 1]);
+    if !seg.starts_with(first) || !seg.ends_with(last) || seg.len() < first.len() + last.len() {
+        return false;
+    }
+    let mut rest = &seg[first.len()..seg.len() - last.len()];
+    for mid in &parts[1..parts.len() - 1] {
+        match rest.find(mid) {
+            Some(i) => rest = &rest[i + mid.len()..],
+            None => return false,
+        }
+    }
+    true
+}
+
 /// What kind of question this corpus should be opening.
 ///
 /// `Coverage` is reserved and unimplemented: it needs a class to declare what its instances
@@ -307,6 +468,29 @@ pub struct Measurement {
     /// Commits whose leading verb is `phase`.
     pub phase_commits: usize,
     /// Commits whose leading verb is outside the closed vocabulary.
+    ///
+    /// **Every authored commit, and deliberately not register-scoped** — unlike
+    /// `lint --commits`, which since A3 declines to report a commit touching only the object
+    /// register. The asymmetry is a decision and was measured before it was taken.
+    ///
+    /// *It costs nothing today.* Under [`Registers::corpus_only`] — the state of all six
+    /// repositories that defined this profile, none of which holds a `.yidam/config.toml` at
+    /// all — **zero** commits change register in any of them, or in either object-coupled
+    /// repository. Scoping and not scoping give the same number for every corpus measured.
+    ///
+    /// *It would cost something later.* This number is read against a band. Scoping it would
+    /// make a band-checked quantity settable from `.yidam/config.toml`: a corpus could move
+    /// its own `off_vocabulary_share` toward `0.00–0.00` by widening `[object] paths`,
+    /// without writing a commit. The counterfactual measures the lever — declaring every
+    /// top-level path but `.yidam/` as the object takes matt-huffman from 0.1671 to 0.1291
+    /// and ohio-education-funding from 0.4930 to 0.3248. A conformance reading a corpus can
+    /// dial is not a measurement, and RFC-0024's rule against a gate loosened quietly is the
+    /// same argument one level out.
+    ///
+    /// So `lint --commits` reports what a reader is asked to act on, scoped to the register
+    /// the vocabulary governs; this measures what the repository did, whole. A repository
+    /// declaring `[object] paths` will see the two differ, and that is the intended reading
+    /// rather than a defect.
     pub off_vocabulary_commits: usize,
     /// Instance nodes in the corpus.
     pub nodes: usize,
@@ -1154,5 +1338,100 @@ mod tests {
     fn an_unknown_slot_parses() {
         let p = Profile::parse("kuten: inquiry\nrevision: 1\nsomething_new: {a: 1}\n").unwrap();
         assert_eq!(p.name, "inquiry");
+    }
+
+    // -- registers ------------------------------------------------------------------
+
+    /// **G9's other half.** A repository that declares no object has one register, and every
+    /// path is in it — including the ones that look most like an artifact.
+    #[test]
+    fn with_no_declaration_every_path_is_corpus() {
+        let r = Registers::corpus_only();
+        for p in [
+            ".yidam/corpus/a.md",
+            "web/index.html",
+            "crates/x/src/lib.rs",
+            "package.json",
+            "README.md",
+        ] {
+            assert_eq!(r.register_of(p), Register::Corpus, "{p}");
+        }
+        assert!(!r.declares_object());
+        assert_eq!(r.touch(&["web/index.html".into()]), Touch::CorpusOnly);
+    }
+
+    #[test]
+    fn a_declared_glob_claims_what_it_names_and_everything_beneath_it() {
+        let r = Registers::of_globs(vec![
+            "web/**".into(),
+            "crates".into(),
+            "package.json".into(),
+        ]);
+        for p in [
+            "web/index.html",
+            "web/src/app/main.tsx",
+            "crates/x/src/lib.rs",
+            "package.json",
+        ] {
+            assert_eq!(r.register_of(p), Register::Object, "{p}");
+        }
+        for p in [".yidam/corpus/a.md", "README.md", "docs/web.md"] {
+            assert_eq!(r.register_of(p), Register::Corpus, "{p}");
+        }
+    }
+
+    #[test]
+    fn a_star_stays_inside_one_segment_and_a_double_star_does_not() {
+        let one = Registers::of_globs(vec!["src/*.rs".into()]);
+        assert_eq!(one.register_of("src/main.rs"), Register::Object);
+        assert_eq!(one.register_of("src/cmd/main.rs"), Register::Corpus);
+
+        let many = Registers::of_globs(vec!["src/**/*.rs".into()]);
+        assert_eq!(many.register_of("src/main.rs"), Register::Object);
+        assert_eq!(many.register_of("src/cmd/lint/main.rs"), Register::Object);
+        assert_eq!(many.register_of("src/main.py"), Register::Corpus);
+    }
+
+    #[test]
+    fn every_touch_the_split_can_produce() {
+        let r = Registers::of_globs(vec!["web/**".into()]);
+        assert_eq!(r.touch(&["web/a.tsx".into()]), Touch::ObjectOnly);
+        assert_eq!(r.touch(&[".yidam/corpus/a.md".into()]), Touch::CorpusOnly);
+        assert_eq!(
+            r.touch(&["web/a.tsx".into(), ".yidam/corpus/a.md".into()]),
+            Touch::Both
+        );
+        assert_eq!(r.touch(&[]), Touch::None);
+    }
+
+    /// A blank or slash-suffixed entry is not a glob that claims the repository root.
+    #[test]
+    fn a_trailing_slash_and_an_empty_entry_are_normalised_away() {
+        let r = Registers::of_globs(vec!["web/".into(), "  ".into(), "".into()]);
+        assert!(r.declares_object());
+        assert_eq!(r.register_of("web/a.tsx"), Register::Object);
+        assert_eq!(r.register_of("README.md"), Register::Corpus);
+    }
+
+    /// A repository with no `.yidam/config.toml` at all — which is every one of the six that
+    /// defined this profile — gets one register.
+    #[test]
+    fn a_repository_with_no_config_declares_no_object() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        assert!(!Registers::of_repo(dir.path()).declares_object());
+    }
+
+    #[test]
+    fn the_paths_are_read_from_the_corpus_config() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(dir.path().join(".yidam")).expect("mkdir");
+        std::fs::write(
+            dir.path().join(".yidam/config.toml"),
+            "[object]\npaths = [\"web/**\"]\n",
+        )
+        .expect("write");
+        let r = Registers::of_repo(dir.path());
+        assert!(r.declares_object());
+        assert_eq!(r.register_of("web/a.tsx"), Register::Object);
     }
 }

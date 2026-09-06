@@ -234,7 +234,7 @@ The slot inventory, with A0's verdicts as #572 records them:
 | **object** — the artifact outside the corpus, and its direction | real — the one axis that breaks conformance | A3 §6, A6 |
 | **dialogue** — what the bootstrap asks | real | A2 |
 | **skills** — what the practice routes through | real | A2 |
-| **rubric** — the criteria a contribution is scored by | real | **A5, co-designed with #286** (scope decision 3): a rubric built alone would be `escalate_after`'s argument violated at rubric scale — *"a value compiled into the binary would be one corpus's answer imposed on every other"* ([`config.rs:52-53`](../../yidam/cli/src/config.rs#L52-L53)) |
+| **rubric** — the criteria a contribution is scored by | real | **A5, co-designed with #286** (scope decision 3): a rubric built alone would be `escalate_after`'s argument violated at rubric scale — *"a value compiled into the binary would be one corpus's answer imposed on every other"* ([`config.rs:54-55`](../../yidam/cli/src/config.rs#L54-L55)) |
 | **clocks** — proposed `[due]` and `[catalog]` values | premature, but not unmeasured (A0 correction, above): the `[due]` keys had a denominator of 2 when A0 ran and 1 corpus held two of them; `catalog.ttl_days` is declared 165 times inside the cluster, pooled median 365 against the proposed 180. Ships as a **proposal with values**, not a permission with blanks — now with the distribution beside it and a rule that retires it | A2, §9 |
 | **thresholds** — proposed `[lint]`/`[propose]` values: `escalate_after`, `withdraw_uncited_after` ([`configuration.md`](../configuration.md)) | premature on `clocks`' evidence, and — unlike `clocks` — not a kuten's to propose either: escalating a finding to a build failure is a gate change that enters through RFC-0024's layer (§7, row 5), and drafting a withdrawal is authorship §8 declines. Ships **named and unpopulated** | A2 |
 | **policy** — proposed severities and overrides | premature: no corpus carries an override in `.yidam/policy/` — re-verified 2026-09-06 under #633, and it stands on its own terms, though on the same corrected denominator as `clocks` (the Rego layer shipped four days before A0) — ships as a **proposal with values**, through RFC-0024's layer, visible as an override | A2, §7 row 5 |
@@ -452,6 +452,38 @@ mislead a reader — not merely to look untidy — the remedy is a register colu
 a second consumer of register jurisdiction appears, the filter gets one shared home in the CLI
 rather than a second inline copy. Arm (a) remains the recorded escalation path, under its own
 RFC, if the register ever genuinely needs to be a parity-visible fact.
+
+> **As built (A3, 2026-09-06).** Under arm (b), as decided. `Registers` in
+> [`kuten.rs`](../../yidam/cli/src/kuten.rs) reads `[object] paths` and the filter sits in
+> `cmd/lint/commits.rs`, applied before `is_recognized_verb`; `classify_commit`, the parity
+> fixtures and `subject.violations[].rule` are untouched. Three rules the section did not
+> state, each settled by measurement:
+>
+> - **A commit spanning both registers is governed by the corpus** and raises no new finding,
+>   per the strike above. Re-measured 2026-09-06 under the maximal object declaration — every
+>   top-level path but `.yidam/` — the filter silences **30** of matt-huffman's 132
+>   off-vocabulary commits and **72** of ohio-education-funding's 211. The problem table above
+>   quotes A0's 24-of-32 and 107-of-111 for a different pair, and 40/75 for these two; the gap
+>   is method, since `--name-only` lists nothing for a merge.
+> - **A commit listing no paths is governed by the corpus.** `git log --name-only` prints
+>   nothing for a merge, so every merge arrives with an empty list, and reading that as
+>   artifact work would silence the verb check on the commits where two threads join.
+>   Re-measured 2026-09-06: **94** of matt-huffman's 132 off-vocabulary commits have no paths,
+>   92 of them merges, and **35** of ohio-education-funding's 211. Absence of evidence is not
+>   a declaration of jurisdiction.
+> - **`kuten check` is not scoped by the register, and `lint --commits` is.** Measured under
+>   `Registers::corpus_only()` across all eight relevant corpora, **zero** commits change
+>   register — none of the six defining repositories holds a `.yidam/config.toml` at all — so
+>   scoping `Measurement::off_vocabulary_commits` buys nothing today, and it would make a
+>   band-checked quantity settable from a corpus's own config. The counterfactual measures the
+>   lever: declaring every top-level path but `.yidam/` as the object moves matt-huffman from
+>   0.1671 to 0.1291 and ohio-education-funding from 0.4930 to 0.3248.
+>
+> **One asymmetry ships open.** `yidam vocabulary --check` runs in the commit-msg hook, before
+> the commit exists, and takes no paths — so the hook still reports `feat:` on an artifact
+> while `lint --commits` is silent. Closing it means changing `check_subject`, which is frozen
+> in [`sdks/parity/mcp/tools.json`](../../yidam/prelude/sdks/parity/mcp/tools.json). Recorded
+> rather than fixed, and filed as its own issue.
 
 ### 5 — The question-pressure slot, and #578's disposition
 
@@ -694,7 +726,7 @@ an interval, and this RFC adds no second one — the same sentence RFC-0026 wrot
    thresholds decide a build failure and a drafted deletion, so a kuten names the slot and
    populates nothing. Undoing the fold also stops the layer disowning the one quote it is built
    on — `escalate_after`'s *"a value compiled into the binary would be one corpus's answer
-   imposed on every other"* ([`config.rs:52-53`](../../yidam/cli/src/config.rs#L52-L53)) is the
+   imposed on every other"* ([`config.rs:54-55`](../../yidam/cli/src/config.rs#L54-L55)) is the
    argument for the kuten existing, and it was the only slot with no row. ~~`inquiry` leaves it
    unpopulated, as it leaves `object`, `rubric` and `question_pressure`.~~
 

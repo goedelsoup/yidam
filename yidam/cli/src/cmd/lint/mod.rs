@@ -84,7 +84,7 @@ pub(crate) fn build_report(
 }
 
 pub(crate) fn commit_verb_severity() -> Severity {
-    commits::unrecognized_verb(&[]).severity
+    commits::unrecognized_verb(&[], &crate::kuten::Registers::corpus_only()).severity
 }
 
 use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir};
@@ -471,7 +471,11 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
 
     if opts.commits {
         let subjects = commits::read_subjects(root, opts.range.as_deref());
-        all.push(commits::unrecognized_verb(&subjects));
+        // `[object] paths`, or one register if the repository declares no object — which is
+        // every repository that has not written the key, and every one that ran this before
+        // the key existed.
+        let registers = crate::kuten::Registers::of_repo(root);
+        all.push(commits::unrecognized_verb(&subjects, &registers));
     }
 
     all
