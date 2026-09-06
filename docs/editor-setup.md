@@ -47,8 +47,8 @@ directions**. Inherited debt renders as a Hint however severe the finding is. `y
 not ask *is the corpus clean?* — it asks *did this change make it less clean?*
 
 The severity it reads is the **finding's**, which is not always its check's. A check is
-declared at a level and a finding can be raised past it: `missing-property` is declared `warn`
-and raises the omission of a property a class marked `required: true` to `error`, and a
+declared at a level, and a finding can be raised past it. `missing-property` is declared
+`warn`, and raises to `error` the omission of a property a class marked `required: true`. A
 corpus-state finding that has outlived `escalate_after` escalates on age. The raised finding is
 the one that fails CI, so it is the one that renders as an Error.
 
