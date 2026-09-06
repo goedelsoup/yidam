@@ -47,26 +47,48 @@ directory. A profile that trips a guard does not ship.
 A profile is a directory here holding two files. `kuten.yml` is the declaration a tool
 reads; `KUTEN.md` is the document a person reads, and it opens with the binding rule.
 
-| Slot | What it declares |
-|---|---|
-| `phases` | The valid phase types, and the share of commits that settle one |
-| `vocabulary` | The subset of the closed verb list this practice uses, and the off-vocabulary share it expects |
-| `classes` | The shape of corpus this practice accretes — nodes per commit, and node length |
-| `dialogue` | What the bootstrap asks |
-| `skills` | What the practice routes through |
-| `clocks` | Proposed `[due]` intervals — a proposal the corpus's own config holds or declines |
-| `thresholds` | The `[lint]`/`[propose]` values — `escalate_after`, `withdraw_uncited_after`. Named, and proposed by no kuten: one decides when a finding fails the build, the other licenses a drafted deletion, and a kuten reaches neither act |
-| `policy` | Proposed severity overrides, which enter through the policy layer and are visible as overrides |
-| `object` | The artifact outside the corpus, and the direction of the arrow between them |
-| `rubric` | The criteria a contribution is scored by |
-| `question_pressure` | What kind of question this corpus should be opening |
+The **Read by** column names which surface reports a populated slot, in two tokens: `check` is
+`yidam kuten check`, and `block` is the `AGENTS.md` declaration `yidam kuten` regenerates.
+`none` means no tool reads it — the slot is a proposal a person weighs, and saying so is the
+point. The column is guarded in both directions: a slot that claims a reader must actually
+change that surface, and a slot that claims `none` must actually change neither. That is the
+mechanical form of the failure this layer keeps finding in itself — a surface with no consumer.
 
-Four of these — `thresholds`, `object`, `rubric` and `question_pressure` — are named here and
-populated by no profile yet, and they are named rather than counted so the list cannot lose one
-by being reordered. A slot with no values says which state a repository is in; a slot invented
-ahead of its evidence says nothing and is believed anyway. `thresholds` is the one that stays
-empty on principle rather than on evidence: the other three await a measurement, and a value
-under this one would be a gate decided outside `policy:` and a deletion drafted with no licence.
+| Slot | What it declares | Read by |
+|---|---|---|
+| `phases` | The valid phase types, and the share of commits that settle one | `check`, `block` |
+| `vocabulary` | The subset of the closed verb list this practice uses, and the off-vocabulary share it expects | `check`, `block` |
+| `classes` | The shape of corpus this practice accretes — nodes per commit, and node length | `check`, `block` |
+| `dialogue` | What the bootstrap asks | `none` |
+| `skills` | What the practice routes through | `none` |
+| `clocks` | Proposed `[due]` intervals — a proposal the corpus's own config holds or declines | `none` |
+| `thresholds` | The `[lint]`/`[propose]` values — `escalate_after`, `withdraw_uncited_after`. Named, and proposed by no kuten: one decides when a finding fails the build, the other licenses a drafted deletion, and a kuten reaches neither act | `none` |
+| `policy` | Proposed severity overrides, which enter through the policy layer and are visible as overrides | `none` |
+| `object` | The artifact outside the corpus, and the direction of the arrow between them | `block` |
+| `rubric` | The criteria a contribution is scored by | `none` |
+| `question_pressure` | What kind of question this corpus should be opening | `check`, `block` |
+
+Two of these — `thresholds` and `rubric` — are named here and populated by no profile yet, and
+they are named rather than counted so the list cannot lose one by being reordered. A slot with
+no values says which state a repository is in; a slot invented ahead of its evidence says
+nothing and is believed anyway. `rubric` awaits a measurement. `thresholds` is the one that
+stays empty on principle rather than on evidence: a value under it would be a gate decided
+outside `policy:` and a deletion drafted with no licence.
+
+## The kinds of question pressure
+
+`question_pressure` names a kind rather than a band, and the kinds are these two and no others.
+A profile naming anything else does not parse.
+
+| Kind | What it means |
+|---|---|
+| `epistemic` | Questions about understanding — what the corpus does not yet know. Measured against the open questions the corpus holds, through the same predicate `yidam open-questions` uses, and never against `open:` commits: two of the six repositories that defined `inquiry` have written none while holding 27 and 15 open-tagged nodes |
+| `coverage` | Questions about what a series does not yet span. **Reserved and unimplemented**: it needs a class to be able to declare what its instances cover, which is a class-contract change filed outside this layer. It parses, and it never diverges |
+
+Whichever kind is declared, the slot **creates pressure toward a kind of question and authors
+none**. That is not restraint, it is the licence: opening a question asserts nothing the work
+did not already assert, which is exactly why `propose` may draft `open:` and may not draft
+`establish:`. A slot that wrote would be reaching past the door it came through.
 
 ## Holding one
 

@@ -13,6 +13,11 @@ phase_commits = 0
 off_vocabulary_commits = 129
 nodes = 200
 median_node_lines = 45.0
+# Question pressure carries no vintage gate, deliberately: the `[open]` standing predates
+# both the `phase` verb and the closed list, so a repository on an old prelude could always
+# have opened a question. The exemption is for the two metrics the prelude actually gates,
+# and reading it as a blanket one would be the same error in the other direction.
+open_questions = 90
 
 [vintage]
 has_phase_verb = false

@@ -75,6 +75,21 @@ classes:
   nodes_per_commit: {low: 0.50, high: 1.11}
   median_node_lines: {low: 35, high: 62}
 
+# Which way the arrow between corpus and object runs. `authored` is the default and the only
+# value this profile proposes: the corpus is written in git, GRAPH.md's premise holds, and
+# every history-derived surface applies. `projected` is the other declared state — the corpus
+# is regenerated from the object, and `replay`, `--at`, `log --epistemic` and the residence
+# clocks answer about the project rather than the corpus.
+#
+# There is no `paths` key here, and its absence is a decision rather than an omission. This
+# profile is one upstream-authored file serving six repositories with six different object
+# shapes, and the only thing a corpus writes is `.yidam/decisions/kuten.yml`, which is
+# `{kuten, revision}`. Paths are a fact about a repository, not about a practice, so the live
+# register is `[object] paths` in `.yidam/config.toml` — the same division the `clocks` slot
+# below is held to: the kuten proposes values, never holds live ones.
+object:
+  direction: authored
+
 # What the bootstrap asks. One question, and it is the one the loop is built around.
 dialogue:
   central_question: What is the central question or problem this corpus exists to investigate?
@@ -126,13 +141,27 @@ clocks:
 policy:
   proposes_overrides: []
 
+# What kind of question this corpus should be opening. `epistemic` is questions about
+# understanding — the kind `inquiry` is named for. `coverage` is reserved and unimplemented:
+# it needs a class to be able to declare what its instances span, which is #578 and is
+# unscheduled. It parses, and it never diverges.
+#
+# Measured over corpus state, not over `open:` commits. RFC-0028 §5's example rule counted
+# commits; two of the six repositories that defined this profile — bitlocker and hermetic-ch
+# — have zero `open:` commits while holding 27 and 15 open-tagged corpus files, so a
+# commit-based rule reports divergence against its own defining members. The count goes
+# through the same predicate `yidam open-questions` and `due` use.
+#
+# It creates pressure toward a kind of question. It does not author one, and a test asserts
+# that the check writes nothing.
+question_pressure:
+  kind: epistemic
+
 # ── named, and deliberately unpopulated ──────────────────────────────────────
 # A slot with no values names the state a repository is in. Inventing one ahead of its
 # evidence produces a number that is believed because it is written down.
 #
-#   object            — the artifact outside the corpus, and the arrow's direction
 #   rubric            — the criteria a contribution is scored by
-#   question_pressure — what kind of question this corpus should be opening
 #
 # And one that is unpopulated for a different reason — not missing evidence, but no licence:
 #

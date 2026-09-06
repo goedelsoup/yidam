@@ -715,9 +715,34 @@ fn check_kuten(root: &Path) -> Check {
             Check::KUTEN,
             KUTEN_QUESTION,
             Verdict::Ok,
-            format!("`{}`, revision {}", profile.name, profile.revision),
+            format!(
+                "`{}`, revision {} — {}",
+                profile.name,
+                profile.revision,
+                object_state(profile.object.as_ref())
+            ),
             None,
         ),
+    }
+}
+
+/// Which way the arrow between corpus and object runs — RFC-0028 §6, and #582's acceptance
+/// criterion.
+///
+/// **This line is why #582 closes.** An undeclared untracked corpus is today
+/// indistinguishable from no corpus at all, and #582's third question was precisely whether
+/// anything says which state a repository is in. It is on the existing `kuten` check's text
+/// rather than a check of its own: the direction is part of the answer to *which kuten does
+/// this repository hold*, not a second question, and every consumer of `doctor` keys on the
+/// check id.
+///
+/// A profile that leaves the slot unpopulated says nothing here — the difference between
+/// *this practice makes no claim* and *this repository was not read*, kept the same way
+/// [`crate::kuten::compare`] keeps it.
+fn object_state(object: Option<&crate::kuten::Object>) -> String {
+    match object {
+        None => "the object slot is unpopulated, so nothing is declared about direction".into(),
+        Some(o) => format!("{} ({})", o.direction.describe(), o.direction.name()),
     }
 }
 

@@ -165,13 +165,30 @@ SanghaEvolution
 ### Phase types
 
 ```
-Phase
-  name        : string           — short declarative label
-  kind        : PhaseKind        — Investigation | Extraction | Synthesis | Assessment
-  branch      : string           — the ma/* branch this phase lives on
-
-PhaseKind = Investigation | Extraction | Synthesis | Assessment
+PhaseRow
+  name        : string           — the phase name, humanized from the ref
+  state       : string           — active | settled | position
+  ref_name    : string           — the ref this row was derived from
+  owner       : string           — who last committed on it
+  started     : string           — the date of its first commit
+  commits     : integer          — commits ahead of the baseline
 ```
+
+This is what `yidam phases` emits, and no SDK implements it — the row is a CLI report shape,
+carried here because the report contract is shared. Three things it deliberately does **not**
+have:
+
+- **No `kind`.** A phase's *type* — Investigation, Extraction, Synthesis, Assessment — is
+  declared by the vendored kuten (`kuten/inquiry/kuten.yml`, `phases.types`) and described in
+  [PHASES.md](../PHASES.md). Nothing in any repository records a type against a phase: across
+  the eighteen corpora the layer was measured over there are 60 `phase/*` refs and 301
+  `phase:` subjects, and not one of either encodes a type. The validator that would read one
+  is filed and unbuilt.
+- **No `branch`.** `state` is a lifecycle word derived from the ref namespace, not a branch
+  name; `ref_name` carries the ref.
+- **Not `ma/*`.** A phase lives on `phase/<name>`. `ma/<elector>` is a standing elector
+  position, which never settles and is a different object — conflating the two is what had
+  `yidam status` reporting 26 active phases in a repository holding one.
 
 ### Samudaya types
 
@@ -442,7 +459,7 @@ pub enum CommitKind { Epistemic, Operational }
 pub struct CommitEvent { pub hash, pub kind, pub verb, pub subject, pub context }
 pub fn classify_commit(message: &str) -> CommitEvent
 
-pub fn active_phases(repo: &Repository) -> Result<Vec<Phase>>   // reads ma/* refs
+pub fn active_phases(repo: &Repository) -> Result<Vec<PhaseRow>>  // would read phase/* refs
 pub fn resolved_evolutions(repo: &Repository) -> Result<Vec<SanghaEvolution>>  // rigpa/*
 
 // yidam_core::sangha
@@ -520,7 +537,7 @@ export function templateSections(text: string): TemplateMarker[]
 export interface AgentContext {
   nodes: ScoredNode[]                // semantically retrieved, not path-followed
   openQuestions: CorpusNode[]        // nodes with open claims — natural agent entry points
-  activePhases: Phase[]              // in-progress ma/* branches
+  activePhases: PhaseRow[]           // in-progress phase/* branches
   tokenEstimate: number              // approximate context consumption
 }
 

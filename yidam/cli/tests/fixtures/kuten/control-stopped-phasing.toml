@@ -12,6 +12,9 @@ phase_commits = 0
 off_vocabulary_commits = 0
 nodes = 150
 median_node_lines = 44.0
+# Still asking, and no longer bounding. The two are independent, and this fixture holds one
+# of them fixed so the divergence it declares cannot be read as a general malaise.
+open_questions = 60
 
 [vintage]
 has_phase_verb = true
