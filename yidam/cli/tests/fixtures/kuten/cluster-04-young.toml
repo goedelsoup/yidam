@@ -12,6 +12,10 @@ phase_commits = 30
 off_vocabulary_commits = 0
 nodes = 220
 median_node_lines = 41.0
+# The floor of the measured open-question range: 11% of commits, which is what the least
+# question-heavy of the six holds (13 / 122). The rule is presence, not a share — but a
+# fixture sitting on the floor is what shows the rule is not quietly a threshold.
+open_questions = 23
 
 [vintage]
 has_phase_verb = true

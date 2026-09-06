@@ -1374,12 +1374,16 @@
                 "null"
               ],
               "description": "Null where the corpus has no instance nodes."
+            },
+            "open_questions": {
+              "type": "integer",
+              "description": "Instance nodes the corpus currently holds open as questions, by the same predicate `open-questions` reports. NOT required: a CLI released before the question-pressure slot emits a measurement without it, and its output must still validate. Corpus state and deliberately not `open:` commits — two of the six repositories the layer was extracted from have written none while holding open questions in the corpus."
             }
           }
         },
         "findings": {
           "type": "array",
-          "description": "One entry per band the kuten declares, including the ones that conform: a metric that vanishes when it agrees cannot be told from one that was never read. A slot the profile leaves unpopulated produces no entry.",
+          "description": "One entry per claim the kuten makes that this repository can be read against, including the ones that conform: a metric that vanishes when it agrees cannot be told from one that was never read. A slot the profile leaves unpopulated produces no entry. Most entries read a measured value against a declared band, and `declared` is then that band; the `question-pressure` entry reads a declared *kind* instead, so `declared` is the kind's name and `measured` is a count or a reason. Both shapes carry the same `verdict` set, and a consumer keys on `metric` rather than on which shape it is.",
           "items": {
             "type": "object",
             "required": [

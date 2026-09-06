@@ -8,6 +8,8 @@ phase_commits = 291
 off_vocabulary_commits = 0
 nodes = 1246
 median_node_lines = 62.0
+# 34% of commits, which is the ratio the largest of the six actually measures (436 / 1,278).
+open_questions = 383
 
 [vintage]
 has_phase_verb = true

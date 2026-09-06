@@ -56,7 +56,7 @@ pub fn run(sub: Option<KutenCommand>) -> Result<()> {
 /// Takes the two documents rather than a root so the rendering is testable without a
 /// repository — and so the no-kuten arm, which is every repository today, is exercised by
 /// the same function that renders the held one.
-pub(crate) fn render_block(
+pub fn render_block(
     declaration: Option<&kuten::Declaration>,
     profile: Option<&kuten::Profile>,
 ) -> String {
@@ -99,6 +99,29 @@ pub(crate) fn render_block(
             "- **Vocabulary** — {} verbs, and {} of commits outside them.\n",
             vocabulary.verbs.len(),
             share_band(vocabulary.off_vocabulary_share)
+        ));
+    }
+    if let Some(object) = &profile.object {
+        // The direction, and the consequence a reader needs in the same breath. An
+        // `authored` corpus is what every history-derived surface already assumes; a
+        // `projected` one is the state that made those surfaces answer nothing, and saying
+        // only the word would leave the reader to re-derive what it means (RFC-0028 §6).
+        out.push_str(&format!(
+            "- **Object** — {}, so its history is {}.\n",
+            object.direction.describe(),
+            match object.direction {
+                kuten::Direction::Authored => "the record",
+                kuten::Direction::Projected =>
+                    "the project's and not the corpus's: `replay`, `--at`, `log --epistemic` \
+                     and the residence clocks do not apply",
+            }
+        ));
+    }
+    if let Some(pressure) = &profile.question_pressure {
+        out.push_str(&format!(
+            "- **Questions** — this practice presses toward {} ones. It creates the pressure \
+             and authors nothing.\n",
+            pressure.kind.name()
         ));
     }
     out.push_str(
@@ -215,7 +238,9 @@ mod tests {
             "kuten: inquiry\nrevision: 1\ngloss: questions opened, and settled\n\
              phases:\n  types: [Investigation, Extraction]\n  commit_share: {low: 0.13, high: 0.26}\n\
              vocabulary:\n  verbs: [establish, open]\n  off_vocabulary_share: {low: 0.0, high: 0.0}\n\
-             classes:\n  nodes_per_commit: {low: 0.50, high: 1.11}\n  median_node_lines: {low: 35, high: 62}\n",
+             classes:\n  nodes_per_commit: {low: 0.50, high: 1.11}\n  median_node_lines: {low: 35, high: 62}\n\
+             object:\n  direction: authored\n\
+             question_pressure:\n  kind: epistemic\n",
         )
         .unwrap()
     }
@@ -231,6 +256,25 @@ mod tests {
         assert!(text.contains("revision 1"), "{text}");
         assert!(text.contains("Investigation"), "{text}");
         assert!(text.contains("binds nobody"), "{text}");
+    }
+
+    /// The two slots A3 populates reach the document the agent actually reads. A declaration
+    /// nothing in the loop reads is this epic's own diagnosed failure aimed at its centre.
+    #[test]
+    fn the_block_names_the_direction_and_the_pressure() {
+        let text = render_block(Some(&declaration(1)), Some(&profile()));
+        assert!(text.contains("authored in git"), "{text}");
+        assert!(text.contains("epistemic"), "{text}");
+
+        let projected =
+            Profile::parse("kuten: mirror\nrevision: 1\nobject:\n  direction: projected\n")
+                .unwrap();
+        let text = render_block(Some(&declaration(1)), Some(&projected));
+        assert!(text.contains("projected from its object"), "{text}");
+        assert!(
+            text.contains("do not apply"),
+            "a projected corpus's reader is told which surfaces stop answering: {text}"
+        );
     }
 
     /// The arm every repository is in today, and it must read as a state rather than a fault.
@@ -256,6 +300,7 @@ mod tests {
             off_vocabulary_commits: 0,
             nodes: 160,
             median_node_lines: Some(48.0),
+            open_questions: 12,
         };
         let vintage = Vintage::read("| `phase` | settled |\nThis list is closed");
         let findings = crate::kuten::compare(&profile(), &m, &vintage);

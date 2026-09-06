@@ -157,12 +157,23 @@ fn six_shapes_define_the_cluster_and_the_rest_are_controls() {
 }
 
 /// The obligation, run backward: every shape inside the cluster is recognized.
+///
+/// Five findings and not four since A3: the four bands, plus the kind-shaped
+/// `question-pressure` finding, which is read against the corpus's open questions rather than
+/// against an interval. The obligation covers it exactly as it covers the bands — a rule that
+/// reports divergence against a repository which defined the profile is a wrong extraction,
+/// whatever shape the rule is.
 #[test]
 fn every_shape_in_the_cluster_conforms() {
     let profile = inquiry();
     for f in fixtures().iter().filter(|f| f.cluster) {
         let findings = compare(&profile, &f.measurement, &f.vintage);
-        assert_eq!(findings.len(), 4, "{}: four bands, four findings", f.name);
+        assert_eq!(
+            findings.len(),
+            5,
+            "{}: four bands and the question-pressure kind, five findings",
+            f.name
+        );
         for finding in &findings {
             assert_eq!(
                 finding.verdict,
@@ -177,6 +188,50 @@ fn every_shape_in_the_cluster_conforms() {
                 finding.declared
             );
         }
+    }
+}
+
+/// **G6 — the question-pressure rule recognizes all six, and it was measured before it was
+/// written.**
+///
+/// RFC-0028 §5's example rule counts `open:` commits, and it does not survive its own
+/// population: two of the six — bitlocker and hermetic-ch — have written **zero** while
+/// holding open questions in the corpus. So the rule reads corpus state through
+/// `claims::is_open_question`, and this is the assertion that it recognizes the six.
+///
+/// The counts in the six fixtures are not invented. Running this repository's own
+/// `kuten::measure` over the six repositories on 2026-09-06, read-only, gave 14 / 26 / 13 /
+/// 51 / 115 / 436 open questions against 73 / 82 / 122 / 157 / 247 / 1,278 authored commits —
+/// every one non-zero, at 11% to 47% of commits. The fixtures sit on the ends and through the
+/// interior of that measured range.
+#[test]
+fn the_question_pressure_rule_recognizes_every_repository_that_defined_the_profile() {
+    let profile = inquiry();
+    assert!(
+        profile.question_pressure.is_some(),
+        "the shipped profile no longer declares question pressure, so this asserts nothing"
+    );
+    for f in fixtures().iter().filter(|f| f.cluster) {
+        assert!(
+            f.measurement.open_questions > 0,
+            "{}: a cluster fixture with no open questions is not one of the six — every one \
+             of them holds some",
+            f.name
+        );
+        let finding = compare(&profile, &f.measurement, &f.vintage)
+            .into_iter()
+            .find(|x| x.metric == "question-pressure")
+            .unwrap_or_else(|| panic!("{}: no question-pressure finding", f.name));
+        assert_eq!(
+            finding.verdict,
+            Verdict::Conforming,
+            "{} ({}) defined this profile and the question-pressure rule reports {} against \
+             it — the rule is wrong, not the repository",
+            f.name,
+            f.note,
+            tag(finding.verdict)
+        );
+        assert!(finding.question.is_none());
     }
 }
 
@@ -363,6 +418,16 @@ fn run(root: &Path, args: &[&str]) -> Run {
     }
 }
 
+/// A 48-line corpus node, optionally carrying an open claim.
+fn node(open: bool) -> String {
+    let body = if open {
+        format!("{}  whether this holds is [open]\n", "  line\n".repeat(45))
+    } else {
+        "  line\n".repeat(46)
+    };
+    format!("title: a node\ndescription: |\n{body}")
+}
+
 /// A repository holding a kuten: the vendored profile, the decision record, a corpus, and a
 /// history built out of the closed vocabulary.
 fn stage(declared_revision: u32) -> tempfile::TempDir {
@@ -389,10 +454,13 @@ fn stage(declared_revision: u32) -> tempfile::TempDir {
         &format!("kuten: inquiry\nrevision: {declared_revision}\n"),
     );
 
-    // Four nodes of 48 lines each: a 48-line median, inside the 35–62 band.
-    let node = format!("title: a node\ndescription: |\n{}", "  line\n".repeat(46));
+    // Four nodes of 48 lines each: a 48-line median, inside the 35–62 band. One of them
+    // carries an open claim, because a corpus declaring `inquiry` and holding no open
+    // question diverges on question pressure — correctly — and this fixture is the
+    // conforming one. `[open]` replaces a line rather than adding one, so the median does
+    // not move.
     for n in 0..4 {
-        write(&format!(".yidam/corpus/concept/n{n}.yml"), &node);
+        write(&format!(".yidam/corpus/concept/n{n}.yml"), &node(n == 0));
     }
     write(
         "AGENTS.md",
@@ -445,12 +513,103 @@ fn a_repository_holding_inquiry_is_read_against_it_and_nothing_is_written() {
     assert_eq!(v["kuten"]["name"], "inquiry");
     assert_eq!(v["kuten"]["revision_skew"], false);
     assert_eq!(v["kuten"]["conforming"], true, "{}", r.stdout);
-    assert_eq!(v["kuten"]["findings"].as_array().unwrap().len(), 4);
+    assert_eq!(v["kuten"]["findings"].as_array().unwrap().len(), 5);
 
     assert_eq!(
         std::fs::read_to_string(tmp.path().join("AGENTS.md")).unwrap(),
         before,
         "`kuten check` wrote to the repository it was pointed at"
+    );
+}
+
+/// Every file under `root`, outside `.git`, as path → contents.
+///
+/// `.git` is excluded because git's own bookkeeping is not authorship: `git log` may touch a
+/// pack index or a ref cache, and counting that as the kuten having written something would
+/// make the assertion below flaky in the one direction that matters least.
+fn tree(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+    let mut out = BTreeMap::new();
+    for entry in walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_entry(|e| e.file_name() != ".git")
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+    {
+        let rel = entry.path().strip_prefix(root).unwrap_or(entry.path());
+        out.insert(
+            rel.to_path_buf(),
+            std::fs::read(entry.path()).unwrap_or_default(),
+        );
+    }
+    out
+}
+
+/// Which paths were created, deleted, or edited between two snapshots.
+///
+/// Named paths rather than a whole-map equality: comparing the maps directly is the same
+/// assertion, and it prints two corpora as byte arrays when it fails, which is a report
+/// nobody can read.
+fn written(before: &BTreeMap<PathBuf, Vec<u8>>, after: &BTreeMap<PathBuf, Vec<u8>>) -> Vec<String> {
+    let mut out = Vec::new();
+    for (path, body) in after {
+        match before.get(path) {
+            None => out.push(format!("created {}", path.display())),
+            Some(was) if was != body => out.push(format!("modified {}", path.display())),
+            Some(_) => {}
+        }
+    }
+    for path in before.keys() {
+        if !after.contains_key(path) {
+            out.push(format!("deleted {}", path.display()));
+        }
+    }
+    out.sort();
+    out
+}
+
+/// **G4 — the question-pressure slot authors nothing.** #575's DoD, run rather than asserted.
+///
+/// This is the constitutional half of the slot and the reason it is licensed at all. Opening
+/// a question asserts nothing the work did not already assert, which is why `propose` may
+/// draft `open:` and may not draft `establish:` — and a slot that *created* a question would
+/// be reaching past the door it came through. So the check may report the gap and may not
+/// close it.
+///
+/// The corpus here holds **no** open question, so the slot is in its divergent arm — the one
+/// arm where a tempted implementation would have something to write — and the whole tree
+/// outside `.git` is compared byte for byte before and after.
+#[test]
+fn the_question_pressure_slot_authors_nothing() {
+    let tmp = stage(1);
+    // Strip the one node that carries an open question, so the check runs with something to
+    // say. A repository already holding questions would exercise the silent arm.
+    std::fs::write(tmp.path().join(".yidam/corpus/concept/n0.yml"), node(false)).unwrap();
+
+    let before = tree(tmp.path());
+    let r = run(tmp.path(), &["kuten", "check", "--format", "json"]);
+    assert_eq!(r.code, 0, "{}", r.stdout);
+    let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("valid JSON");
+    let finding = v["kuten"]["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["metric"] == "question-pressure")
+        .expect("a question-pressure finding");
+    assert_eq!(
+        finding["verdict"], "divergent",
+        "the fixture is meant to be in the arm that has something to say: {finding}"
+    );
+    assert!(
+        finding["question"].as_str().is_some_and(|q| !q.is_empty()),
+        "divergence asks a person: {finding}"
+    );
+
+    let wrote = written(&before, &tree(tmp.path()));
+    assert!(
+        wrote.is_empty(),
+        "`kuten check` {wrote:?} under a question-pressure divergence. The slot creates \
+         pressure toward a kind of question; it does not author one, and anything that did \
+         would be reaching past the licence it came through."
     );
 }
 
@@ -495,22 +654,53 @@ fn the_agents_block_is_written_by_the_generator_and_checked_by_the_gate() {
     );
 }
 
-/// `doctor` names the kuten and its revision — RFC-0028 §9.
+/// `doctor` names the kuten, its revision, and which way the arrow runs — RFC-0028 §9 and
+/// §6, which adopts #582's acceptance criterion into A3.
+///
+/// The direction is on the existing `kuten` check's **text** rather than a check of its own:
+/// it is part of the answer to *which kuten does this repository hold*, and a consumer keys
+/// on the check id. `doctor`'s id set is asserted exhaustively elsewhere, so a new id would
+/// be a contract change made in passing.
 #[test]
-fn doctor_reports_which_kuten_is_held() {
+fn doctor_reports_which_kuten_is_held_and_which_way_the_arrow_runs() {
     let tmp = stage(1);
-    let r = run(tmp.path(), &["doctor", "--format", "json"]);
-    let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("valid JSON");
-    let check = v["checks"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|c| c["id"] == "kuten")
-        .expect("a kuten check");
-    assert_eq!(check["verdict"], "ok");
+    let read_detail = |root: &Path| {
+        let r = run(root, &["doctor", "--format", "json"]);
+        let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("valid JSON");
+        let check = v["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["id"] == "kuten")
+            .expect("a kuten check")
+            .clone();
+        assert_eq!(check["verdict"], "ok", "{check}");
+        check["detail"].as_str().unwrap_or_default().to_string()
+    };
+
+    let detail = read_detail(tmp.path());
+    assert!(detail.contains("revision 1"), "{detail}");
     assert!(
-        check["detail"].as_str().unwrap().contains("revision 1"),
-        "{check}"
+        detail.contains("authored"),
+        "the direction is what closes #582: an undeclared untracked corpus is otherwise \
+         indistinguishable from no corpus at all. Got: {detail}"
+    );
+
+    // And the other declared state actually reads differently. A line that said `authored`
+    // whatever the profile declares would answer #582's question with a constant.
+    let vendored = tmp
+        .path()
+        .join(".yidam/.vendor/prelude/kuten/inquiry/kuten.yml");
+    let text = std::fs::read_to_string(&vendored).unwrap();
+    std::fs::write(
+        &vendored,
+        text.replace("direction: authored", "direction: projected"),
+    )
+    .unwrap();
+    let detail = read_detail(tmp.path());
+    assert!(
+        detail.contains("projected"),
+        "a projected corpus is a declared state and `doctor` names it: {detail}"
     );
 }
 

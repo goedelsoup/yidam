@@ -8,6 +8,8 @@ phase_commits = 78
 off_vocabulary_commits = 0
 nodes = 320
 median_node_lines = 48.0
+# The interior of the measured open-question range too: 34% of commits.
+open_questions = 136
 
 [vintage]
 has_phase_verb = true

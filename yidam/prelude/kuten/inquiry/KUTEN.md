@@ -44,19 +44,55 @@ properties of the template they hold, not of their practice.
 2.07 at commit 69, 0.98 at commit 250, 0.54 at its head. Comparing a 69-commit repository
 against a 1,123-commit one manufactures a difference that is only age.
 
+## The direction of the arrow
+
+`object.direction` says which way the arrow between this corpus and the artifact outside it
+runs. `inquiry` proposes **`authored`**: the corpus is written in git, [GRAPH.md](../../GRAPH.md)'s
+premise holds — the files are the data, `git log` is the audit trail — and every
+history-derived surface applies.
+
+The other declared state is **`projected`**: the corpus is regenerated from the object by the
+repository's own tooling, so the arrow runs object → corpus. It is endorsed rather than ruled
+out. The largest repository the layer was measured over reached it deliberately, gitignoring
+its corpus and mirroring 744 files back from its own data; a model with no word for that
+defines its largest real instance as misuse. Under `projected`, `replay`, `--at`,
+`log --epistemic` and the residence clocks report *not applicable by declaration* rather than
+answering nothing, and `doctor` names the state on the kuten line.
+
+**The slot declares no paths, and that is settled rather than pending.** This profile is one
+upstream-authored file serving six repositories with six different object shapes, and the only
+thing a corpus writes is its decision record — the kuten it adopted and the revision. There is
+no channel by which a corpus hands paths to it, and paths are a fact about a repository rather
+than about a practice. The live register is `[object] paths` in `.yidam/config.toml`, on the
+same division the clocks are held to: the kuten proposes values, never holds live ones.
+
+## What kind of question this corpus should be opening
+
+`question_pressure.kind` is **`epistemic`** here: questions about understanding, which is what
+`inquiry` is named for. `yidam kuten check` reads it against the open questions this corpus
+holds and asks about the gap — *you declared inquiry, and you have opened none* — and that is
+the whole of what the slot does. **It creates pressure toward a kind of question. It does not
+author one**, and a test asserts that the check writes no file.
+
+It is measured over the corpus's own open questions rather than over `open:` commits, through
+the same predicate `yidam open-questions` uses. Two of the six repositories that defined this
+profile have written no `open:` commit at all while holding 27 and 15 open-tagged corpus
+files; a rule that read commits would report divergence against the very corpora it was
+extracted from.
+
+`coverage` is the other kind the layer names, and it is **reserved and unimplemented**. A
+corpus completing a series can only be pressed to open coverage questions once a class can
+declare what its instances span, and that is a class-contract change filed outside this layer
+(#578). It parses, and it never diverges.
+
 ## What this profile does not declare
 
-Three slots are named by the layer and left empty here, because the evidence for them is not
-in yet and a value invented now would be believed later. A fourth is empty for a reason
-evidence will never change, and it is listed after them.
+One slot is named by the layer and left empty here, because the evidence for it is not in yet
+and a value invented now would be believed later.
 
-- **`object`** — the artifact outside the corpus, and whether the arrow runs corpus → object
-  or object → corpus. Object coupling is an axis crossing both shapes rather than a property
-  of this one, and it is specified separately.
 - **`rubric`** — the criteria a contribution is scored by. A rubric built alone would be one
   corpus's answer imposed on every other, which is the argument `escalate_after` already
   makes about compiling a threshold into a binary.
-- **`question_pressure`** — what kind of question this corpus should be opening.
 
 And **`thresholds`** — `[lint] escalate_after` and `[propose] withdraw_uncited_after` — which no
 kuten populates, whatever it measures. `escalate_after` decides when a finding fails the build,

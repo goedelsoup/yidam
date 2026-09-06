@@ -12,6 +12,8 @@ phase_commits = 24
 off_vocabulary_commits = 0
 nodes = 60
 median_node_lines = 38.0
+# 31% of commits, the ratio the mid-sized member measures (51 / 157).
+open_questions = 30
 
 [vintage]
 has_phase_verb = true

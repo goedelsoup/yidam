@@ -276,17 +276,42 @@ designing A0's own confound into A0's deliverable. So (#572, scope decision 6):
 
 ### 3 — Phase composition: the kuten declares the types; the run record feeds the shipped derivation
 
-Two open children rewrite `cmd/phases.rs` — #575 its **type** half (the enumeration moves from
-the binary into the vendored kuten) and #473 its **state** half (a phase gains an input-state
+Two open children rewrite `cmd/phases.rs` — #575 its **type** half (~~the enumeration moves from
+the binary into the vendored kuten~~) and #473 its **state** half (a phase gains an input-state
 snapshot and a run record) — and until now neither issue named the other. This section is the
 one place the composition is decided; #473's restatement (its thread, 2026-09-04) defers both
 calls here explicitly.
 
 **The kuten declares the valid phase types.** `PHASES.md` keeps the discipline prose — one
 phase one branch, settle with a merge, bound phases, do not mix types — because none of that is
-kuten-specific. What moves is the enumeration: `yidam phases` reads the vendored profile, and a
-repository holding no kuten gets today's four types and reports that it is using the default
-(#575).
+kuten-specific. What moves is the enumeration: `yidam phases` reads the vendored profile, and
+~~a repository holding no kuten gets today's four types and reports that it is using the
+default~~ (#575).
+
+> **Erratum 1 — struck 2026-09-06, building A3 (#575).** *"The enumeration moves from the
+> binary into the vendored kuten"* is **false in both directions.** There is no phase-type
+> list in the binary: no `PhaseType`, no `PHASE_TYPES`, no phase-type constant anywhere in
+> `yidam/cli/src` outside `#[cfg(test)]`, and `cmd/phases.rs` has no type concept at any of
+> its 441 lines — `PhaseRow` is `{name, state, ref_name, owner, started, commits}` and `state`
+> is a lifecycle word derived from ref namespaces. And the move it describes **already
+> happened in A2**: `kuten/inquiry/kuten.yml` carries `types: [Investigation, Extraction,
+> Synthesis, Assessment]` and `Profile` parses them.
+>
+> The default clause is struck for the stronger reason that implementing it is the only way to
+> *create* the artefact this section objects to — a four-element phase-type list compiled into
+> the binary. `render_block`'s no-kuten arm prints no types at all, and that is correct.
+>
+> What survived is a guard rather than a migration. The enumeration lives in more than one
+> document, and the pair was checked in one direction only: every declared type had to appear
+> somewhere in `PHASES.md`, with a `len() == 4` beside it as the only thing catching a dropped
+> one. Adding a fifth heading to `PHASES.md` was green; deleting the section that enumerates
+> them and leaving one bold sentence elsewhere in the file was green. A3 replaces both with
+> set equality against the `## Phase types` **section**.
+>
+> Nothing in any repository is typed: across the eighteen derived corpora there are 60
+> `phase/*` refs encoding no type, 301 `phase:` subjects naming none, and no file under any
+> `.yidam/` recording one. The enforcing consumer stays where this section already puts it —
+> #473's `phase start`, validating a declared type against the vendored list.
 
 **The run record stores a phase's declared type and an input snapshot that names the kuten
 revision.** #473 (as restated) gives `phase start` a snapshot — the sha, the manifest digest,
@@ -300,6 +325,15 @@ that changed under it.
 **#473 owns the `cmd/phases.rs` rewrite, sequenced before #575.** One issue rewrites the file;
 the other reads the result. #473 lands the record and the state derivation; #575 lands the
 declared enumeration on top of it.
+
+> **Erratum 2 — annotated 2026-09-06, building A3 (#575).** **The clause stands and A3 honours
+> it**: nothing in #575 touches `cmd/phases.rs`, `git.rs` or `cmd/status.rs`. Its stated
+> rationale no longer holds, and the difference matters for whoever reads this next. The
+> sequencing was argued as *one issue rewrites the file; the other reads the result* — but the
+> only thing #575 was named as needing from that rewrite was the declared enumeration, and
+> Erratum 1 records that A2 discharged it. So the clause is now a boundary rather than a
+> dependency: A3 stays out of the file because two issues editing one file concurrently is a
+> merge problem, not because A3 is waiting for anything in it.
 
 **Decided: the run record feeds the shipped `RefKind` derivation; it does not replace it.**
 #473's original DoD said *"the ref-shape inference is deleted, not left as a fallback"* — written
@@ -329,14 +363,34 @@ classifier, two evidence sources, ranked — not two classifiers.
 
 ### 4 — Registers scope recognition, never classification
 
-The register declaration: the `object` slot names the object's paths; the corpus register is
+The register declaration: ~~the `object` slot names the object's paths~~; the corpus register is
 `.yidam/**` plus whatever else the declaration claims for the corpus; everything in the object's
 paths is the artifact register. `lint --commits` then reports `feat:` on the artifact as nothing
-at all, and `establish:` on the corpus exactly as before. **A commit touching both registers is
+at all, and `establish:` on the corpus exactly as before. ~~**A commit touching both registers is
 a conduct finding with its own message** — `PHASES.md`'s do-not-mix rule applied one level out —
 not a vocabulary finding. Severity is the kuten's to propose and the corpus's to override, per
 §7 row 5; the proposed default is Warn, the severity `unrecognized-verb` already carries,
-because history cannot be rewritten to fix it.
+because history cannot be rewritten to fix it.~~
+
+> **Erratum 5 — struck 2026-09-06, building A3 (#575); the register survives, its home moves.**
+> The slot cannot carry paths. A kuten is an **upstream-authored** profile vendored unchanged,
+> and `inquiry` is deliberately one profile across six object shapes; the only thing a corpus
+> writes is `.yidam/decisions/kuten.yml`, which is `{kuten, revision}`. There is no channel by
+> which a corpus supplies paths to it, and paths are a fact about a repository rather than
+> about a practice. **The live register is `[object] paths` in `.yidam/config.toml`**, on the
+> precedent §9 already argues for the clocks — *"the kuten proposes values, never holds live
+> ones."* What the slot declares is §6's direction, which is a property of the practice. The
+> register split itself is unaffected and still belongs in `lint --commits`, under arm (b).
+
+> **The mixed-register conduct finding is struck to its own issue (#643)**, 2026-09-06, on the
+> measurement Open Question 3 pre-registered *"before A3 fixes the proposed severity"*. It
+> produces ~710 findings across six corpora that are already 100% vocabulary-conformant —
+> grindcore 138/247, audio-effect-design 61/122, bitrecover-bitwipe 61/157, bitlocker 31/82,
+> hermetic-ch 27/73, allen-county-ohio 392/1267 — most often on `regen`, the corpus → `web/`
+> export, which is the one act whose job is to cross the registers. A rule that fires hardest
+> on the best-behaved repositories teaches readers to ignore the line, which is `due`'s own
+> argument. It needs an exemption for the export act, and that exemption needs its own
+> evidence.
 
 The load-bearing question is *where the register split lives relative to `classify_commit`* —
 because `classify_commit` is a parity function fixtured in three SDKs, its totality is
@@ -430,6 +484,19 @@ comparable vintage (the same bar scope decision 1 sets for a second kuten), or t
 outlier's practice files a concrete upstream need. Until then the reserved `coverage` kind is
 the whole of this epic's interface to it.
 
+> **As built (A3, 2026-09-06) — the example rule above is not the rule that shipped.** This
+> section's illustration — ~~*"this corpus has opened none in two hundred commits"*~~ — counts
+> `open:` commits, and measured against the six repositories that produced every band in this
+> profile it fires against two of them: **bitlocker and hermetic-ch have zero `open:` commits**
+> while holding 27 and 15 open-tagged corpus files. §9's own obligation calls that a wrong
+> extraction. So the pressure is measured over the corpus's **open questions**, through
+> `claims::is_open_question` — the predicate `yidam open-questions`, `due`, `lint --history`
+> and the MCP server already share, frozen in `sdks/parity/mcp/tools.json`. Re-measured with
+> that predicate on 2026-09-06, all six hold open questions: 14, 26, 13, 51, 115 and 436,
+> against 73, 82, 122, 157, 247 and 1,278 authored commits. `kind: coverage` parses and yields
+> `unmeasurable` naming #578, and the divergent arm asks a question and writes nothing — a
+> test compares the whole tree, byte for byte, either side of the check.
+
 ### 6 — The object slot carries a direction, and projection is a declared state
 
 **Decided: the `object` slot declares its direction — `authored` or `projected` — and
@@ -456,9 +523,18 @@ This answers #582's three questions in order: a projected corpus **is** a corpus
 queries, exports) whose epistemic-history surfaces are declared inapplicable; the model **does**
 say so, in the slot; and `doctor` says which state a repository is in. **The decision adopts
 #582 into this epic:** the direction field and the `doctor` line become A3 acceptance criteria
-(#575), the history-surface behaviour lands with them, and #582 closes when they do — not
+(#575), ~~the history-surface behaviour lands with them~~, and #582 closes when they do — not
 before, because a decision a reader cannot yet see in a report is exactly the
 surface-with-no-consumer failure this repository keeps finding.
+
+> **As built (A3, 2026-09-06).** The slot declares `direction` and **nothing else** — see
+> Erratum 5 in §4 for why it cannot carry the object's paths and where they live instead. The
+> direction reaches two readers: `doctor`'s kuten line names the state, and the `AGENTS.md`
+> block spells out for a `projected` corpus which surfaces stop answering. The
+> *history-surface behaviour* did not land with them, and Erratum 4 in "What this does not do"
+> records why: making the residence clocks answer differently is a change to `due`, which the
+> non-goals forbid in the same document. The conflict is recorded there and deliberately left
+> for an issue with a repository actually holding `projected` behind it.
 
 ### 7 — The invariant: five prohibitions, each guarded, each guard mutation-tested
 
@@ -586,7 +662,26 @@ an interval, and this RFC adds no second one — the same sentence RFC-0026 wrot
 - **Does not build the object.** yidam governs the corpus; the corpus governs the build.
 - **Not #578.** Coverage is a class-contract change with the ontology lineage; this RFC
   reserves the slot value and schedules nothing (§5).
-- **`due` is unchanged** (§9).
+- ~~**`due` is unchanged** (§9).~~
+
+  > **Erratum 4 — conflict recorded 2026-09-06, building A3 (#575); deliberately not
+  > resolved.** This line and §6 cannot both be true. §6 says that under
+  > `object.direction: projected` *"the residence clocks … report **not applicable by
+  > declaration** rather than answering nothing"*, and the residence clocks are `cmd/due.rs`.
+  > A clock that reads a vendored declaration and changes what it reports is `due` changed —
+  > and §9's transcription line, *"`due` reads only `[due]` keys"*, was written to stop
+  > exactly that kind of second input growing into it.
+  >
+  > **A3 changes neither**, and that is the decision rather than an omission. `due` is
+  > untouched here; a projected corpus's clocks report today what they reported yesterday.
+  > Resolving the conflict means choosing between two coherent positions — a projection-aware
+  > `due` reading one more vendored fact, or a `due` that stays a function of `[due]` keys
+  > while some other surface carries the declaration — and neither is A3's to pick while
+  > building the slot the choice is about. What A3 owes is that the declaration exists, is
+  > reported, and can be read: `doctor` names the direction and the `AGENTS.md` block spells
+  > out which surfaces a projected corpus should not expect answers from. The behaviour change
+  > §6 describes needs its own issue and its own evidence, from a repository actually holding
+  > `projected`.
 
 ## Open questions
 
@@ -600,8 +695,21 @@ an interval, and this RFC adds no second one — the same sentence RFC-0026 wrot
    populates nothing. Undoing the fold also stops the layer disowning the one quote it is built
    on — `escalate_after`'s *"a value compiled into the binary would be one corpus's answer
    imposed on every other"* ([`config.rs:52-53`](../../yidam/cli/src/config.rs#L52-L53)) is the
-   argument for the kuten existing, and it was the only slot with no row. `inquiry` leaves it
-   unpopulated, as it leaves `object`, `rubric` and `question_pressure`.
+   argument for the kuten existing, and it was the only slot with no row. ~~`inquiry` leaves it
+   unpopulated, as it leaves `object`, `rubric` and `question_pressure`.~~
+
+   > **Erratum 3 — struck 2026-09-06, building A3 (#575).** That closing sentence describes
+   > the **post-A2** state and was marked *Settled* while describing it, so as written it now
+   > forbids what §5 and §6 require of A3: §6 makes `object.direction` and the `doctor` line
+   > A3 acceptance criteria, and §5 puts the epistemic half of `question_pressure` in A3
+   > standing alone. A3 populates both, and `inquiry` leaves `thresholds` and `rubric`
+   > unpopulated. Nothing about the *count* is disturbed — it is eleven, and the reason
+   > `thresholds` stays empty is unchanged and is the only part of that paragraph the
+   > settlement was about.
+   >
+   > The wrapping is worth recording with it: this sentence could only be found with a
+   > whitespace-collapsed search, because it breaks mid-phrase. A grep for `` `inquiry` leaves
+   > it unpopulated `` matches nothing in this file.
 2. **Where the vendored binding rule lands.** §8 fixes the text and its destination class
    (vendored prelude, at the head of the kuten profile document); whether a one-line pointer
    also belongs in `GRAPH.md` or `CONSTITUTION.md`'s commentary is A2's placement call.

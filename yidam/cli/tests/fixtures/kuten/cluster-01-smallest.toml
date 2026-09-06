@@ -5,7 +5,15 @@
 # would be the thing #574 forbids. What these fixtures pin is that a repository sitting
 # anywhere inside the published cluster — including on an endpoint — is recognized as one of
 # the six, and that the arithmetic between a raw count and a band does not lose it.
-note = "the low end of the cluster: 14% phases, 0.51 nodes/commit, a 35-line median"
+#
+# `open_questions` is the one number here that was measured against the six repositories
+# themselves rather than against A0's published ranges. Running this repository's own
+# `kuten::measure` — the shared `is_open_question` predicate — over the six on 2026-09-06 gave
+# 14, 26, 13, 51, 115 and 436 open questions against 73, 82, 122, 157, 247 and 1,278 authored
+# commits: **every one of the six holds open questions**, at 11% to 47% of its commit count.
+# The six fixtures carry counts drawn from that measured range rather than invented for it,
+# and this one carries hermetic-ch's pair exactly.
+note = "the low end of the cluster: 14% phases, 0.51 nodes/commit, a 35-line median, 14 open"
 cluster = true
 
 [measurement]
@@ -14,6 +22,7 @@ phase_commits = 10
 off_vocabulary_commits = 0
 nodes = 37
 median_node_lines = 35.0
+open_questions = 14
 
 [vintage]
 has_phase_verb = true

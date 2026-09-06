@@ -13,6 +13,9 @@ phase_commits = 80
 off_vocabulary_commits = 100
 nodes = 320
 median_node_lines = 48.0
+# Object coupling is an axis, not a practice: this repository is still opening questions, and
+# the only thing that diverges is the register its commits are read against.
+open_questions = 100
 
 [vintage]
 has_phase_verb = true
