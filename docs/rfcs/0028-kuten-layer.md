@@ -101,8 +101,50 @@ What survived, better controlled than the original claim:
 - One genuine outlier, n=1: a corpus at **11.26 nodes/commit at matched maturity**, 5.4× the
   next, 583 of 777 nodes in two structured classes. A case to understand (#578), not a kuten to
   mint.
-- `.yidam/config.toml` is empty in **17 of 18** corpora, and **not one** carries a `.rego`
-  override. A blank nobody has filled in eighteen tries is not a preference being expressed.
+- ~~`.yidam/config.toml` is empty in **17 of 18** corpora, and **not one** carries a `.rego`
+  override. A blank nobody has filled in eighteen tries is not a preference being expressed.~~
+  **Corrected 2026-09-06 under #633 — see below.**
+
+#### A0's config finding, corrected (2026-09-06, #633)
+
+#633 was filed because the four `clocks` scalars had no falsifier: nothing consumed the slot and
+nothing re-read the corpora's config, so no later measurement could contradict them. Re-measuring
+the same eighteen corpora, read-only, contradicted them — and contradicted the finding they rest
+on first.
+
+| Slot value | A0 | Re-measured 2026-09-06 |
+|---|---|---|
+| `catalog.ttl_days: 180` | no measured interval | **182 declarations**, 165 of them inside the six-repository cluster the bands were extracted from: allen-county-ohio 129 (median 365), bitrecover-bitwipe 24 (90), hermetic-ch 12 (30). In-cluster pooled median **365**; 180 is the pooled 25th percentile and no member's median |
+| `due.questions_after: 100` | no measured interval | 1 corpus holds one, at **200** — of **2** whose pinned binary could name the key when A0 ran |
+| `due.phases_after: 60` | no measured interval | 1 holds one, at **50** — same denominator |
+| `due.index_after: 25` | no measured interval | 0 hold one; 1 declined it in writing |
+| `policy.proposes_overrides: []` | no `.rego` in eighteen | **stands.** No corpus carries a file in `.yidam/policy/`, which is where an override lives — the seven `.rego` files three corpora hold are vendored prelude policy, not overrides |
+
+Two errors, different in kind.
+
+**The TTL was read in the secondary form.** A0 read `[catalog] ttl_days` in `.yidam/config.toml`.
+The per-entry `ttl_days:` is the primary one: [`configuration.md`](../configuration.md) says
+*"The per-entry `ttl_days:` is the primary form, because a gauge record and a statute do not age
+at the same rate"*, and `due` names both channels in one remedy line. The interval the slot
+reports as nonexistent is declared 165 times inside the very cluster the profile was extracted
+from.
+
+**"Eighteen tries" was never eighteen.** No vendored document names `questions_after`,
+`phases_after` or `index_after` — they are documented in `docs/configuration.md`, which
+`clone` does not vendor — so the only channel that names them to a corpus is `due`'s own output
+for an unset clock. That output landed 2026-08-30 and released in `cli/v0.7.0` the following day,
+four days before A0. Two of the eighteen pinned a binary containing it at that moment.
+
+The verdict those sentences supported is unchanged: these slots ship as **proposals with values**,
+not permissions with blanks. A smaller denominator supports that more strongly than the larger one
+did — a population that could not yet answer is more premature, not less. What is withdrawn is the
+claim that there was nothing to measure, and with it the warrant for calling the four scalars
+anything but an illustration until they are measured or retired. §1's `clocks` row carries the
+retirement rule.
+
+One caveat travels with the correction: eligibility is inferred from each corpus's pinned yidam
+revision, never from an observed invocation. That instrument cannot separate *could not have known
+the key existed* from *knew and declined*, and under the read-only constraint none available can.
 
 ### The vocabulary has three failure causes, not one
 
@@ -193,9 +235,9 @@ The slot inventory, with A0's verdicts as #572 records them:
 | **dialogue** — what the bootstrap asks | real | A2 |
 | **skills** — what the practice routes through | real | A2 |
 | **rubric** — the criteria a contribution is scored by | real | **A5, co-designed with #286** (scope decision 3): a rubric built alone would be `escalate_after`'s argument violated at rubric scale — *"a value compiled into the binary would be one corpus's answer imposed on every other"* ([`config.rs:52-53`](../../yidam/cli/src/config.rs#L52-L53)) |
-| **clocks** — proposed `[due]` values | premature: config empty in 17 of 18 — ships as a **proposal with values**, not a permission with blanks | A2, §9 |
+| **clocks** — proposed `[due]` and `[catalog]` values | premature, but not unmeasured (A0 correction, above): the `[due]` keys had a denominator of 2 when A0 ran and 1 corpus held two of them; `catalog.ttl_days` is declared 165 times inside the cluster, pooled median 365 against the proposed 180. Ships as a **proposal with values**, not a permission with blanks — now with the distribution beside it and a rule that retires it | A2, §9 |
 | **thresholds** — proposed `[lint]`/`[propose]` values: `escalate_after`, `withdraw_uncited_after` ([`configuration.md`](../configuration.md)) | premature on `clocks`' evidence, and — unlike `clocks` — not a kuten's to propose either: escalating a finding to a build failure is a gate change that enters through RFC-0024's layer (§7, row 5), and drafting a withdrawal is authorship §8 declines. Ships **named and unpopulated** | A2 |
-| **policy** — proposed severities and overrides | premature: no `.rego` in eighteen — ships as a **proposal with values**, through RFC-0024's layer, visible as an override | A2, §7 row 5 |
+| **policy** — proposed severities and overrides | premature: no corpus carries an override in `.yidam/policy/` — re-verified 2026-09-06 under #633, and it stands on its own terms, though on the same corrected denominator as `clocks` (the Rego layer shipped four days before A0) — ships as a **proposal with values**, through RFC-0024's layer, visible as an override | A2, §7 row 5 |
 | **question-pressure** — what kind of question this corpus should open | not measurable (nothing existing creates it); settled in #572's negotiation | A3, §5 |
 
 The verdict sentences are #572's verbatim: six varied and are real (phases, rubric, classes,

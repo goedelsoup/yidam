@@ -5,7 +5,8 @@
 # `phases`, `vocabulary` and `classes` — was measured over eighteen derived corpora before it
 # was written down; not one of those four was chosen. That claim covers the bands and nothing
 # else in this file. The scalars under `clocks` were chosen, from yidam's own configuration
-# documentation, and the comment above them says so.
+# documentation, and the comment above them says so — along with what the population turned
+# out to hold, and what would retire them.
 #
 # A comment in this file satisfies nothing. The guards upstream parse the document, so what
 # is asserted is the tree below and never the prose around it.
@@ -18,6 +19,9 @@ measured:
   population: eighteen derived corpora, 6,900 commits, 3,300 instance nodes
   cluster: six repositories, six unrelated domains, 73 to 1,123 commits
   controls: [vendored-prelude vintage, repository maturity]
+  # A0 reported no config anywhere and was wrong about where to look; re-measured
+  # 2026-09-06 under #633. See the comment above `clocks`.
+  config_reread: 2026-09-06
 
 # The four phase types PHASES.md has always carried, and the share of commits that settle
 # one. Measured across the nine repositories whose vendored prelude has the `phase` verb;
@@ -78,10 +82,37 @@ dialogue:
 # What the practice routes through.
 skills: [bootstrap]
 
-# A proposal with values, not a permission with blanks. Config was empty in seventeen of
-# eighteen corpora, so there is no measured interval; these are the values yidam's own
-# configuration documentation puts in a reader's hands. `due` reads only `[due]` keys — a
-# corpus holds these by writing them into its config, or declines them by not.
+# A proposal with values, not a permission with blanks — and since 2026-09-06, one that can
+# be shown wrong. `due` reads only `[due]` keys: a corpus holds these by writing them into
+# its config, or declines them by not.
+#
+# These four are the values yidam's own configuration documentation puts in a reader's hands.
+# They were chosen. What was said next — that there was no measured interval to choose
+# instead — was false, and re-reading the same eighteen corpora found it false in two
+# different ways (#633):
+#
+#   catalog.ttl_days     Declared 182 times, 165 of them inside this very cluster:
+#                        allen-county-ohio 129 (median 365), bitrecover-bitwipe 24 (90),
+#                        hermetic-ch 12 (30). A0 looked in `[catalog]` in config.toml and
+#                        found it empty; the per-entry `ttl_days:` is the primary form and
+#                        holds all 182. The in-cluster pooled median is 365 and 180 is its
+#                        25th percentile — but the median of the three corpus medians is 90,
+#                        and two defensible estimators disagreeing fourfold is what a
+#                        heterogeneous population looks like. That is the same fact the
+#                        per-entry form exists for. So 180 stands as the documented fallback
+#                        for a corpus whose sources age alike, and no longer as an absence of
+#                        evidence.
+#   due.questions_after  One corpus holds them, at 200 and 50, out of the two whose pinned
+#   due.phases_after     binary could name the keys when A0 ran. Both of its settings report
+#                        identically to these against its own corpus, and it sits outside
+#                        this cluster on all four bands, so it is weak evidence either way.
+#   due.index_after      Nobody holds one; one corpus declined it in writing, because no
+#                        released binary can build the index the clock measures.
+#
+# Pre-registered, so this is not settled by whoever measures last: three members of this
+# cluster holding a key at matched maturity retires the scalar and replaces it with their
+# median. Two do not — that is a tie, and a tie is not a measurement. One never does,
+# whatever it holds.
 clocks:
   proposed:
     due.questions_after: 100

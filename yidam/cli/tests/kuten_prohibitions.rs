@@ -547,6 +547,56 @@ fn the_binding_rule_check_reads_the_document_and_not_its_comments() {
 
 // ── the profile is what the binary reads ──────────────────────────────────────
 
+/// The four `clocks` scalars are pinned, and the set of them is closed.
+///
+/// The bands next door are pinned by [`the_inquiry_profile_is_readable_by_the_binary`], which
+/// parses through [`yidam::kuten::Profile`]. The scalars cannot be: `Profile` does not parse the
+/// `clocks` slot at all, deliberately — `due` reads only `[due]` keys, and a second live home for
+/// an interval is what RFC-0028 §9 forbids. The cost was that all four could be edited with
+/// nothing going red, which is half of why #633 could say the proposal was unfalsifiable.
+///
+/// So this reads the document rather than the model. Changing a value here is allowed and is
+/// what #633's retirement rule describes — three cluster members holding a key replaces the
+/// scalar with their median — but it is not allowed to happen quietly, and adding a fifth
+/// proposed key is a new interval the layer never argued for.
+#[test]
+fn the_proposed_clock_intervals_are_pinned_and_the_set_is_closed() {
+    let text = std::fs::read_to_string(kuten_dir().join("inquiry/kuten.yml"))
+        .expect("the inquiry profile");
+    let doc: Value = serde_yaml::from_str(&text).expect("the profile is YAML");
+
+    let proposed = doc
+        .get("clocks")
+        .and_then(|c| c.get("proposed"))
+        .and_then(Value::as_mapping)
+        .expect("`clocks.proposed` is a mapping");
+
+    let mut got: Vec<(String, i64)> = proposed
+        .iter()
+        .map(|(k, v)| {
+            let key = k.as_str().expect("a scalar key").to_string();
+            let n = v
+                .as_i64()
+                .unwrap_or_else(|| panic!("`{key}` proposes {v:?}, which is not a whole interval"));
+            (key, n)
+        })
+        .collect();
+    got.sort();
+
+    assert_eq!(
+        got,
+        vec![
+            ("catalog.ttl_days".to_string(), 180),
+            ("due.index_after".to_string(), 25),
+            ("due.phases_after".to_string(), 60),
+            ("due.questions_after".to_string(), 100),
+        ],
+        "the proposed intervals moved. That is a real change and may be the right one — but it \
+         is #633's, and it lands with the measurement that retires the old value, the RFC-0028 \
+         §1 row, and this assertion updated together"
+    );
+}
+
 /// The shipped `inquiry` profile parses as the binary parses it, and carries the bands A0
 /// measured. A profile the CLI cannot read is a declaration nothing consumes.
 #[test]
