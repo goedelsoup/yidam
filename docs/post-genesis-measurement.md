@@ -1,7 +1,8 @@
 # Post-genesis measurement
 
 yidam instruments the moment a repository is born and almost nothing after it. The harness
-scores the genesis commit against [rubric](../yidam/tests/rubric.md) checks S1–S7 and Q1–Q8,
+scores the genesis commit against the [rubric](../yidam/tests/rubric.md)'s structural and
+quality checks,
 and `yidam lint` reports the corpus's present state. Neither records how a corpus changes
 across its life, so no question of the form *is this repository getting better or worse?* can
 currently be answered.
