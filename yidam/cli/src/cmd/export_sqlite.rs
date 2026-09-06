@@ -6,6 +6,16 @@ use crate::model::{index_rows, DomainModel};
 
 /// Register the sqlite-vec extension for every connection this process opens.
 /// Safe to call repeatedly; `sqlite3_auto_extension` deduplicates.
+///
+/// **The crate's one `unsafe`,** and `[lints.rust] unsafe_code = "deny"` in `Cargo.toml` is
+/// written as `deny` rather than `forbid` so that this exception can exist and be seen.
+///
+/// It cannot be written safely: `sqlite3_auto_extension` takes a C function pointer and
+/// hands it to SQLite to call on every connection this process opens. What makes it sound is
+/// that the pointer is sqlite-vec's own init function, whose signature is checked against
+/// `rusqlite::ffi`'s declaration by the `type InitFn` alias below — a mismatch is a compile
+/// error rather than a call through a wrong signature.
+#[allow(unsafe_code)]
 fn register_sqlite_vec() {
     unsafe {
         type InitFn = unsafe extern "C" fn(

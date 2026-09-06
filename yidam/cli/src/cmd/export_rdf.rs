@@ -16,14 +16,52 @@ const XSD_NS: &str = "http://www.w3.org/2001/XMLSchema#";
 
 /// The corpus mapped to RDF terms — the shared intermediate both the Turtle
 /// and JSON-LD serializers consume, so the two outputs cannot drift.
+/// A class's foundational alignment, as RDF needs it.
+///
+/// Both halves reach the graph. `ontology` and `ty` become literals unconditionally, so a
+/// corpus that declared an alignment without looking up an IRI still exports the fact that it
+/// did — which `bfo_anchor:` never managed, being a bare URI with nowhere to say *which*
+/// ontology it came from and no UFO form at all. `iri` becomes `skos:exactMatch` when the
+/// class supplies one.
+#[derive(Clone)]
+struct Alignment {
+    ontology: String,
+    ty: String,
+    iri: Option<String>,
+}
+
+/// Read `foundational_type:`, falling back to the retired `bfo_anchor:` for one release.
+///
+/// The fallback exists because #613 found the two had never been connected: bootstrap wrote
+/// `foundational_type:` (when it was not telling authors to write `bfo_type:`) and this
+/// export read `bfo_anchor:`, so no corpus could satisfy both. Any corpus that guessed
+/// `bfo_anchor:` from the old `domain-computer.md` still exports, and `lint` now names the
+/// field so the repair is visible rather than silent.
+fn alignment_of(content: &str) -> Option<Alignment> {
+    let v = serde_yaml::from_str::<serde_yaml::Value>(content).ok()?;
+    let ft = &v["foundational_type"];
+    if let Some(ontology) = ft["ontology"].as_str() {
+        return Some(Alignment {
+            ontology: ontology.to_string(),
+            ty: ft["type"].as_str().unwrap_or_default().to_string(),
+            iri: ft["iri"].as_str().map(str::to_string),
+        });
+    }
+    v["bfo_anchor"].as_str().map(|anchor| Alignment {
+        ontology: "bfo".to_string(),
+        ty: String::new(),
+        iri: Some(anchor.to_string()),
+    })
+}
+
 struct RdfView {
     dataset_iri: String,
     domain: String,
     commit: String,
     genesis: String,
     generated_at_iso: String,
-    /// class name → optional `bfo_anchor:` value from its `.ont.yml`.
-    classes: BTreeMap<String, Option<String>>,
+    /// class name → its declared foundational alignment, when it has one.
+    classes: BTreeMap<String, Option<Alignment>>,
     instances: Vec<RdfInstance>,
     /// Relationship names (beyond the plain "link") in use, for property decls.
     relationships: Vec<String>,
@@ -72,16 +110,13 @@ fn build_view(model: &DomainModel) -> RdfView {
     let nodes = corpus_nodes(model);
     let known: std::collections::HashSet<&str> = nodes.iter().map(|n| n.id.as_str()).collect();
 
-    let mut classes: BTreeMap<String, Option<String>> = BTreeMap::new();
+    let mut classes: BTreeMap<String, Option<Alignment>> = BTreeMap::new();
     for cls in &model.classes {
         let name = crate::model::file_stem(&cls.filename)
             .trim_end_matches(".ont")
             .to_string();
         let content = String::from_utf8_lossy(&cls.content);
-        let bfo = serde_yaml::from_str::<serde_yaml::Value>(&content)
-            .ok()
-            .and_then(|v| v["bfo_anchor"].as_str().map(str::to_string));
-        classes.insert(name, bfo);
+        classes.insert(name, alignment_of(&content));
     }
 
     let mut relationships: BTreeMap<String, ()> = BTreeMap::new();
@@ -163,7 +198,7 @@ fn build_graph(view: &RdfView) -> Result<Graph> {
     );
 
     // Classes
-    for (class, bfo) in &view.classes {
+    for (class, align) in &view.classes {
         let class_node = yidam(class)?;
         insert(&class_node, &a, node(&format!("{OWL_NS}Class"))?.into());
         insert(
@@ -171,19 +206,39 @@ fn build_graph(view: &RdfView) -> Result<Graph> {
             &rdfs_label,
             Literal::new_simple_literal(class).into(),
         );
-        if let Some(anchor) = bfo {
-            if anchor.starts_with("http") {
+        if let Some(align) = align {
+            if !align.ontology.is_empty() {
                 insert(
                     &class_node,
-                    &node(&format!("{SKOS_NS}exactMatch"))?,
-                    node(anchor)?.into(),
+                    &yidam("foundationalOntology")?,
+                    Literal::new_simple_literal(&align.ontology).into(),
                 );
-            } else {
+            }
+            if !align.ty.is_empty() {
                 insert(
                     &class_node,
-                    &yidam("bfoAnchor")?,
-                    Literal::new_simple_literal(anchor).into(),
+                    &yidam("foundationalType")?,
+                    Literal::new_simple_literal(&align.ty).into(),
                 );
+            }
+            // Only an absolute IRI can be an `exactMatch` object. A class that wrote
+            // something else into `iri:` gets it as a literal rather than a parse failure —
+            // the alignment is still worth exporting, and `lint` is where a malformed IRI
+            // is somebody's to fix.
+            if let Some(iri) = &align.iri {
+                if iri.starts_with("http") {
+                    insert(
+                        &class_node,
+                        &node(&format!("{SKOS_NS}exactMatch"))?,
+                        node(iri)?.into(),
+                    );
+                } else {
+                    insert(
+                        &class_node,
+                        &yidam("foundationalIri")?,
+                        Literal::new_simple_literal(iri).into(),
+                    );
+                }
             }
         }
     }
@@ -280,17 +335,25 @@ pub(crate) fn render_rdf_jsonld(model: &DomainModel) -> Result<String> {
         "yidam:genesisDate": view.genesis,
     })];
 
-    for (class, bfo) in &view.classes {
+    for (class, align) in &view.classes {
         let mut obj = json!({
             "@id": format!("yidam:{class}"),
             "@type": "owl:Class",
             "rdfs:label": class,
         });
-        if let Some(anchor) = bfo {
-            if anchor.starts_with("http") {
-                obj["skos:exactMatch"] = json!({"@id": anchor});
-            } else {
-                obj["yidam:bfoAnchor"] = json!(anchor);
+        if let Some(align) = align {
+            if !align.ontology.is_empty() {
+                obj["yidam:foundationalOntology"] = json!(align.ontology);
+            }
+            if !align.ty.is_empty() {
+                obj["yidam:foundationalType"] = json!(align.ty);
+            }
+            if let Some(iri) = &align.iri {
+                if iri.starts_with("http") {
+                    obj["skos:exactMatch"] = json!({"@id": iri});
+                } else {
+                    obj["yidam:foundationalIri"] = json!(iri);
+                }
             }
         }
         graph.push(obj);
@@ -482,5 +545,97 @@ mod tests {
         assert_eq!(property_local_name("relates to"), "relatesTo");
         assert_eq!(property_local_name("link"), "linksTo");
         assert_eq!(property_local_name("???"), "linksTo");
+    }
+    /// #613 — the export read `bfo_anchor:` and bootstrap wrote `foundational_type:`, so no
+    /// corpus could satisfy both and an aligned corpus exported no `skos:exactMatch` at all.
+    /// These are the shapes that were never once exercised.
+    mod foundational_alignment {
+        use super::*;
+
+        fn model_with(class_yaml: &str) -> DomainModel {
+            let mut m = test_model();
+            m.classes = vec![OntClass {
+                filename: "concept.ont.yml".into(),
+                content: class_yaml.as_bytes().to_vec(),
+            }];
+            m
+        }
+
+        #[test]
+        fn an_iri_becomes_exact_match_in_both_serializations() {
+            let m = model_with(
+                "class: concept\nfoundational_type:\n  ontology: ufo\n  type: relator\n  iri: https://purl.org/nemo/gufo#Relator\n",
+            );
+            let ttl = render_rdf_turtle(&m).unwrap();
+            let jsonld = render_rdf_jsonld(&m).unwrap();
+            for (name, out) in [("turtle", &ttl), ("json-ld", &jsonld)] {
+                assert!(
+                    out.contains("https://purl.org/nemo/gufo#Relator"),
+                    "{name} dropped the alignment IRI"
+                );
+                assert!(out.contains("relator"), "{name} dropped the type");
+                assert!(out.contains("ufo"), "{name} dropped the ontology");
+            }
+        }
+
+        #[test]
+        fn an_alignment_without_an_iri_still_reaches_rdf() {
+            // The regression that made this a bug: `bfo_anchor:` could carry a URI and
+            // nothing else, so a corpus that had declared an alignment but not looked up an
+            // IRI exported no trace of having done so.
+            let m = model_with(
+                "class: concept\nfoundational_type:\n  ontology: bfo\n  type: continuant\n",
+            );
+            let ttl = render_rdf_turtle(&m).unwrap();
+            assert!(ttl.contains("continuant"), "the type must reach the graph");
+            assert!(ttl.contains("foundationalOntology"), "so must the ontology");
+            assert!(
+                !ttl.contains("exactMatch"),
+                "with no iri there is nothing to claim an exact match with"
+            );
+        }
+
+        #[test]
+        fn a_ufo_alignment_exports_which_no_bfo_anchor_ever_could() {
+            let m =
+                model_with("class: concept\nfoundational_type:\n  ontology: ufo\n  type: kind\n");
+            assert!(render_rdf_turtle(&m).unwrap().contains("\"ufo\""));
+        }
+
+        #[test]
+        fn the_retired_bfo_anchor_is_still_read() {
+            // Read for one release so a corpus that guessed it from the old
+            // `domain-computer.md` keeps exporting. `lint` names the field either way.
+            let m = model_with(
+                "class: concept\nbfo_anchor: http://purl.obolibrary.org/obo/BFO_0000002\n",
+            );
+            let ttl = render_rdf_turtle(&m).unwrap();
+            assert!(ttl.contains("skos:exactMatch") || ttl.contains("exactMatch"));
+            assert!(ttl.contains("BFO_0000002"));
+        }
+
+        #[test]
+        fn foundational_type_wins_over_a_stray_bfo_anchor() {
+            let m = model_with(
+                "class: concept\nbfo_anchor: http://purl.obolibrary.org/obo/BFO_0000001\nfoundational_type:\n  ontology: bfo\n  type: continuant\n  iri: http://purl.obolibrary.org/obo/BFO_0000002\n",
+            );
+            let ttl = render_rdf_turtle(&m).unwrap();
+            assert!(
+                ttl.contains("BFO_0000002"),
+                "the declared field is the answer"
+            );
+            assert!(
+                !ttl.contains("BFO_0000001"),
+                "the retired field must not also be emitted — two exactMatches is two claims"
+            );
+        }
+
+        #[test]
+        fn a_class_with_no_alignment_emits_none_of_it() {
+            let m = model_with("class: concept\n");
+            let ttl = render_rdf_turtle(&m).unwrap();
+            assert!(!ttl.contains("foundational"));
+            assert!(!ttl.contains("exactMatch"));
+        }
     }
 }

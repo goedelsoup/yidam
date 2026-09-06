@@ -1,4 +1,5 @@
 import { defineConfig } from 'astro/config';
+import react from '@astrojs/react';
 import starlight from '@astrojs/starlight';
 import { DOCS_BASE, publishedIds, resolveFrom } from './src/content/docs-source.ts';
 
@@ -48,6 +49,23 @@ const sidebar = [
       { slug: 'artifact-vaults', label: 'Artifact vaults' },
       { slug: 'sharing-derivations', label: 'Sharing a derivation' },
       { slug: 'troubleshooting', label: 'Troubleshooting' },
+      // Beside troubleshooting rather than under 'The project' with `versioning`.
+      // `versioning` explains why four layers move independently, which is read
+      // once; this is read when a working setup starts behaving differently, which
+      // is the same moment somebody opens Troubleshooting.
+      { slug: 'upgrading', label: 'Upgrade notes' },
+    ],
+  },
+  // Before 'The model' rather than inside it. Every derived repository answers the alignment
+  // question during bootstrap, and until #613 there was no page to open when it was asked —
+  // the material existed in `prelude/skills/bootstrap.md`, which the site does not publish,
+  // and in a walkthrough labelled "(sketch)".
+  {
+    label: 'Ontology',
+    items: [
+      { slug: 'ontology/what-an-ontology-is', label: 'What an ontology is' },
+      { slug: 'ontology/choosing-an-alignment', label: 'Choosing an alignment' },
+      { slug: 'ontology/alignment-in-practice', label: 'Alignment in practice' },
     ],
   },
   {
@@ -75,12 +93,29 @@ const sidebar = [
       { slug: 'quality-rubric', label: 'Quality rubric' },
       { slug: 'test-harness', label: 'Test harness' },
       { slug: 'post-genesis-measurement', label: 'Post-genesis measurement' },
+      // A `link` rather than a `slug`: `/quality/` is not a Starlight route and has no entry
+      // in the content collection. It is a segment of this deployment with its own layout,
+      // built from `src/pages/quality/`, and `sidebarSlugs` below collects slugs only — so
+      // the bidirectional gate neither demands a page for it nor calls it unlisted.
+      //
+      // Root-relative and WITHOUT `base`, which Starlight prepends itself. Writing
+      // `${BASE}/quality/` here — for the reason `docs_site.rs` exists, that a literal
+      // `/yidam/quality/` beside a `base` that moved is a working site and a dead link —
+      // doubled it instead: the deployed site linked to `/yidam/yidam/quality/`, which 404s,
+      // from every page, from #467 until #466 found it. The reasoning was right and the fix
+      // was the opposite of the one it called for. `check-anchors.mjs` is what noticed.
+      { link: '/quality/', label: 'Measurements' },
     ],
   },
   {
     label: 'The project',
     items: [
       { slug: 'contributing', label: 'Contributing' },
+      // Beside `contributing` rather than under 'The model': this is a rule set for somebody
+      // about to write a page, which is the same moment they open Contributing. It states the
+      // tier every page belongs to, so it is also what `aesthetic-direction` is measured
+      // against — the register that page commits to is Tier 3's whole justification.
+      { slug: 'style-guide', label: 'Documentation style guide' },
       { slug: 'versioning', label: 'Versioning and releases' },
       { slug: 'aesthetic-direction', label: 'Aesthetic direction' },
     ],
@@ -145,6 +180,10 @@ const sidebar = [
       { slug: 'rfcs/0024-policy-as-code', label: '0024 · Policy as code' },
       { slug: 'rfcs/0025-quality-surface', label: '0025 · The instrument, turned around' },
       { slug: 'rfcs/0026-orchestrator-layer', label: '0026 · The orchestrator layer' },
+      { slug: 'rfcs/0027-openai-profile', label: '0027 · The openai profile' },
+      { slug: 'rfcs/0028-kuten-layer', label: '0028 · The kuten layer' },
+      { slug: 'rfcs/0029-write-tier', label: '0029 · The write tier' },
+      { slug: 'rfcs/0030-standalone-editor', label: '0030 · The standalone editor' },
     ],
   },
 ];
@@ -201,6 +240,12 @@ export default defineConfig({
     '/': `${BASE}/what-yidam-is/`,
   },
   integrations: [
+    // The quality routes (#467) render the design system's own React components — the first
+    // consumer `yidam/design/components/` has ever had. No `client:*` directive appears on
+    // any of them, so this is a build-time renderer: React produces HTML and none of it is
+    // shipped to a reader. The alternative was re-implementing a status meter and a coverage
+    // bar in Astro, which is the second copy #465 spent a phase removing.
+    react(),
     starlight({
       title: 'yidam',
       description: 'A git-native knowledge graph system for structured domain research.',

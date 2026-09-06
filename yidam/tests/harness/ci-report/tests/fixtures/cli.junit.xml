@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A gate with something to say: one failure, one pass, and a suite that ran and
+     asserted nothing. The third is the shape RFC-0025 warns is easy to lose. -->
+<testsuites name="nextest-run" tests="4" failures="1">
+  <testsuite name="yidam::design_tokens" tests="2" failures="1">
+    <testcase name="no_consumer_declares_a_raw_colour" classname="yidam::design_tokens" time="0.031"/>
+    <testcase name="every_token_a_consumer_uses_is_declared_at_the_source" classname="yidam::design_tokens" time="0.044">
+      <failure message="dangling token">these reference tokens the design system does not declare:
+  yidam/web/docs/src/styles/custom.css:12: var(--ink-999)</failure>
+    </testcase>
+  </testsuite>
+  <testsuite name="yidam::vault_s3" tests="2" failures="0">
+    <testcase name="a_round_trip_through_the_bucket" classname="yidam::vault_s3" time="0.002">
+      <system-out>YIDAM-SKIP: set YIDAM_S3_TEST=1 and run a MinIO on http://127.0.0.1:9000</system-out>
+    </testcase>
+    <testcase name="a_missing_object_is_not_an_empty_one" classname="yidam::vault_s3" time="0.001">
+      <system-out>YIDAM-SKIP: set YIDAM_S3_TEST=1 and run a MinIO on http://127.0.0.1:9000</system-out>
+    </testcase>
+  </testsuite>
+</testsuites>

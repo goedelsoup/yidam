@@ -40,13 +40,31 @@ The rule was unenforceable until a corpus existed on which some tier goes unback
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.12.0",
+    "contract": "0.13.0",
+    "corpus": {
+      "domain": "streamflow",
+      "commit": "a1b2c3d",
+      "nodes": 8, "skills": 1, "decisions": 2,
+      "indexed_commit": null, "stale": false
+    },
     "retrieve": { "vector": false, "reason": "no_index" },
     "graph": true, "ontology": true, "dependencies": true,
     "phases": false, "sangha": false, "resources": true
   }
 }
 ```
+
+`corpus` answers *which corpus is this*, which every other key here does not (contract
+0.13.0). It was a startup banner on stderr — readable by a client that spawned the server as
+a subprocess, and invisible to one reached over HTTP, which is on another machine. `nodes: 0`
+is the tell for a server that found the wrong directory and is answering every tool with
+nothing; from the client side that is otherwise indistinguishable from an empty corpus.
+
+`stale` has three states and the third is required. `true` when the index was built at another
+commit; `false` when it was not, which covers *current* and *no index alike* — `indexed_commit`
+tells those apart; **`null` when the server cannot tell**, which is the honest answer from a
+projected mirror with no working git repository. Null rather than absent, so a client never has
+to distinguish "not stale" from "a server too old to say".
 
 `retrieve.vector` is not a capability tier — `retrieve` is core either way. It says whether
 the vector index is loaded, which is the same fact `degraded` reports per call. A server that

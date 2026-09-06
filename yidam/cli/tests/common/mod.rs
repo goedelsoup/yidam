@@ -105,17 +105,14 @@ pub const MAPPING: &[Install] = &[
     row("sadhana/root/mise.toml", Some("mise.toml")),
     row("sadhana/root/gitattributes", Some(".gitattributes")),
     row("sadhana/root/gitignore", Some(".gitignore")),
-    row(
-        "sadhana/github/workflows/ci.yml",
-        Some(".github/workflows/ci.yml"),
-    ),
-    // Overwrites yidam's own release.yml, which publishes the CLI's binaries on a `cli/v*`
-    // tag — from a repository that has no CLI. Left in place it is a workflow waiting to run
-    // against the wrong thing.
-    row(
-        "sadhana/github/workflows/release.yml",
-        Some(".github/workflows/release.yml"),
-    ),
+    // A directory mirror, not two named files (#589). Step 3 used to name `ci.yml` and
+    // `release.yml` and overwrite only those two, leaving the rest of yidam's own
+    // `.github/workflows/` behind — `docs.yml`, `editor.yml`, `install-channels.yml`,
+    // `publish-crates.yml`, `tap.yml` — each naming a layout that does not survive genesis,
+    // and `index.yml` shipped in the scaffold with no row to install it at all. Whatever
+    // `sadhana/github/workflows/` holds is what a derived repository's `.github/workflows/`
+    // becomes, in full — enumerated by [`materialize`], never named here.
+    row("sadhana/github/workflows", Some(".github/workflows")),
     // Directory mirrors.
     Install {
         src: "sadhana/sangha",

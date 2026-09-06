@@ -83,7 +83,7 @@ yidam 0.5.0 (78544f8) [reports tonpa]
 ```
 
 That build has no `index`, so `yidam index-build` is not there. The feature table is in
-[Installation](installation.md#which-build-you-have); released binaries carry the default set.
+[Installation](installation.md#check-which-build-you-have); released binaries carry the default set.
 
 This failure mode is why `tonpa` is a default feature despite costing an HTTP stack: it was the
 one whose absence broke an *instruction* rather than removing a capability, and inside a script

@@ -27,7 +27,7 @@
 //! the AWS test-suite vectors be asserted exactly and what lets `vault push --dry-run` print
 //! the canonical request a real send would have signed.
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::{Digest, Sha256};
 
 type HmacSha256 = Hmac<Sha256>;
@@ -167,7 +167,11 @@ impl Signable<'_> {
 }
 
 fn hmac(key: &[u8], data: &[u8]) -> Vec<u8> {
-    let mut m = <HmacSha256 as Mac>::new_from_slice(key).expect("hmac takes a key of any length");
+    // `new_from_slice` is `KeyInit`'s, not `Mac`'s: hmac 0.13 moved it there with the
+    // digest 0.11 / crypto-common 0.2 trait split. `Mac` is still what `update` and
+    // `finalize` come from, so both traits are in scope.
+    let mut m =
+        <HmacSha256 as KeyInit>::new_from_slice(key).expect("hmac takes a key of any length");
     m.update(data);
     m.finalize().into_bytes().to_vec()
 }

@@ -4,13 +4,13 @@ The `yidam` binary is the whole toolchain. There is no daemon, no service, and n
 configure before the first run — a derived repository records which yidam governs it in its
 own `.yidam.toml`, and the binary reads that.
 
-Five channels serve the same artifact. Each one is exercised weekly by
+Six channels serve the same artifact. Each one is exercised weekly by
 [`install-channels.yml`](https://github.com/goedelsoup/yidam/blob/main/.github/workflows/install-channels.yml),
 which runs the lines below verbatim in a container holding only the tools the line claims to
 need and asserts that `yidam --version` answers with the latest release. A channel that stops
 working turns that job red, so a line documented here is a line somebody checked this week.
 
-## The script
+## The install script
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/goedelsoup/yidam/main/install.sh | sh
@@ -77,10 +77,31 @@ cargo binstall yidam
 Fetches the same prebuilt artifact the script does — it does not compile. Useful when cargo is
 already on hand and you would rather not add another package manager.
 
+## Claude Desktop, as a bundle
+
+Not a channel that installs a binary you run — it installs one Claude Desktop runs, without a
+terminal anywhere in the process. Download the `.mcpb` for your Mac from the
+[latest release](https://github.com/goedelsoup/yidam/releases) and drag it onto the Extensions
+pane, or:
+
+```sh
+open yidam-0.9.0-aarch64-apple-darwin.mcpb    # Apple silicon
+open yidam-0.9.0-x86_64-apple-darwin.mcpb     # Intel
+```
+
+The bundle is a zip holding a manifest and the light `yidam` build, and the installer asks
+which repository to serve — so nothing lands on your `PATH` and no client configuration is
+written by hand. **macOS only**: Claude Desktop runs there and on Windows, and this project
+cross-compiles no Windows target.
+
+It gives you the MCP server and nothing else. If you want to *run* `yidam` — `lint`, `status`,
+`propose` — you want one of the channels above as well. [Connecting an
+agent](mcp-server.md#claude-desktop-as-a-bundle) has the rest.
+
 ## From source
 
 ```sh
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.7.0 --locked yidam
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.9.0 --locked yidam
 ```
 
 The default build needs **only a Rust toolchain**: no protoc, no system C library, no ML
@@ -91,10 +112,11 @@ get something that merely resembles it.
 `yidam` is also on [crates.io](https://crates.io/crates/yidam), so `cargo install yidam` works
 — but it re-resolves dependencies the same way, and pinning the tag is the reproducible form.
 
-**MSRV is Rust 1.85**, deliberately below the 1.88 toolchain this repository pins, so a derived
-repo on an older toolchain can still install the CLI.
+**MSRV is Rust 1.88**, which is the toolchain this repository pins. It read 1.85 here and in
+`Cargo.toml` while every gate built 1.88 and nothing compiled the floor — an unverified promise
+rather than a lower one — so #463 raised it to the pin, where every build verifies it.
 
-## Verifying
+## Verify the install
 
 ```console
 $ yidam --version
@@ -110,7 +132,7 @@ Inside a derived repository, [`yidam doctor`](troubleshooting.md) is the fuller 
 answers whether the running binary is the one the repository pins, whether `.yidam/bin` is
 ahead on `PATH`, and how stale the vendored prelude is.
 
-## Which build you have
+## Check which build you have
 
 The binary is partitioned by cargo feature so the common case stays cheap to install. Released
 artifacts — the script, the tap, binstall — carry the **default** set.
@@ -122,7 +144,9 @@ artifacts — the script, the tap, binstall — carry the **default** set.
 | `vector-read` | Upgrades `serve --mcp`'s `retrieve` from keyword to semantic, over an index built elsewhere | fastembed (ONNX); **no protoc** |
 | `index` | `vector-read`, plus `index-build` — the ability to *make* one | + LanceDB; **needs protoc 31 at build time** |
 | `export-sqlite` | `export --format sqlite` | Bundled SQLite + sqlite-vec, compiled from C |
-| `export-graph` | `export --format rdf` | Pure Rust |
+| `vault-s3` *(default)* | The `s3://` transport for `yidam vault`. The rest of the vault — addressing, cache, `file://` — is ungated | hmac + reqwest (rustls) + tokio |
+| `export-graph` *(default)* | `export --format rdf` | Pure Rust |
+| `serve-http` *(default)* | `serve --mcp --http` — MCP over a URL, the transport every remote agent platform needs | hyper 1.x server features. **+1 package** (`httpdate`); hyper is already here for reqwest |
 | `full` | All of the above | |
 
 Two things follow from that table that are easy to get backwards.
@@ -154,11 +178,11 @@ To build a heavier set from source:
 
 ```sh
 # Semantic retrieval over an index somebody else built. No protoc.
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.7.0 --locked \
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.9.0 --locked \
   --features vector-read yidam
 
 # Everything, including the ability to build an index.
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.7.0 --locked \
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.9.0 --locked \
   --features full yidam
 ```
 
@@ -166,7 +190,7 @@ cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.7.0 --locke
 maintainer's build — see [Contributing](contributing.md), where `mise install` provisions all
 of it.
 
-## Upgrading
+## Upgrade
 
 Whichever channel installed it:
 
@@ -181,7 +205,7 @@ not by itself change what any repository inherits. `mise run yidam-vendor-update
 separate act that adopts a newer prelude; see [Versioning and releases](versioning.md) for why
 those are different layers with different lifetimes.
 
-## Uninstalling
+## Uninstall
 
 ```sh
 rm ~/.local/bin/yidam             # script (or "$YIDAM_BIN_DIR/yidam")

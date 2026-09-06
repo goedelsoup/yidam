@@ -5,13 +5,17 @@
 //! Conflating the two is what produces a gate that is either permanently red or
 //! permanently ignored; see [`baseline`].
 
+pub(crate) mod attest;
 pub(crate) mod baseline;
 pub(crate) mod checks;
 pub(crate) mod citations;
-mod commits;
+pub(crate) mod commits;
 pub(crate) mod history;
 pub mod json;
+pub(crate) mod line_citations;
+pub(crate) mod lineage;
 pub(crate) mod model;
+pub(crate) mod scope;
 pub(crate) mod ttl;
 
 use std::collections::{HashMap, HashSet};
@@ -19,7 +23,41 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
-pub use model::{Check, Severity};
+pub use line_citations::{
+    citation_label_not_cited, citation_range_stated_twice, dead_line_citation, label_range,
+    label_symbols, relocate, slid_line_citation, unverified_line_citation, LineCitation,
+    LineFragment, Relocation,
+};
+pub use model::{Check, Severity, Violation};
+
+/// Every line-anchored citation in `root`'s prose surfaces (`docs/`, `.yidam/`), read
+/// from disk.
+///
+/// Exposed so this repository can hold its own documentation to the line-citation checks
+/// from a test: the lint gate walks a *corpus*, the template repository is not one, and
+/// that gap is exactly how twelve citations rotted with every build green (#563).
+/// Authorship regions are honoured the way the gate honours them — a file in a declared
+/// region is not plainly this repository's, and its citations are not held here.
+pub fn collect_line_citations(root: &Path) -> Vec<LineCitation> {
+    let overlay = Overlay::default();
+    let authorship = crate::authorship::Authorship::load_or_default(root);
+    let mut paths = walk_linkable_files(&root.join(".yidam"));
+    paths.extend(walk_linkable_files(&root.join("docs")));
+    let mut links = Vec::new();
+    for p in &paths {
+        let rel = p
+            .strip_prefix(root)
+            .unwrap_or(p)
+            .to_string_lossy()
+            .to_string();
+        if authorship.covering(&rel).is_some() {
+            continue;
+        }
+        let dir = p.parent().unwrap_or(root);
+        links.extend(checks::prose_links(&rel, dir, &overlay.read(p)));
+    }
+    line_citations::collect(root, &links, &|p| overlay.read(p))
+}
 
 /// The severity `unrecognized-verb` reports at.
 ///
@@ -46,7 +84,7 @@ pub(crate) fn build_report(
 }
 
 pub(crate) fn commit_verb_severity() -> Severity {
-    commits::unrecognized_verb(&[]).severity
+    commits::unrecognized_verb(&[], &crate::kuten::Registers::corpus_only()).severity
 }
 
 use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir};
@@ -216,6 +254,30 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         annotations.extend(checks::annotations_in(&rel, &overlay.read(&p)));
     }
 
+    // The seats the records name, and the seats the registry carries. Read through the
+    // sangha report rather than re-parsed here: a second reading of "who is an elector" is
+    // how a repository comes to be described two ways at once, and `electors.md` is a table
+    // whose column order is the kind of thing that drifts.
+    let sangha = crate::cmd::sangha::sangha_data(root);
+    let registered: Vec<String> = sangha.electors.iter().map(|e| e.branch.clone()).collect();
+
+    // RFC-0012's verification, and its condition is the registry's own declaration: a seat's
+    // tip is verified when, and only when, its row binds a key. Both are empty in a corpus
+    // that binds none — every corpus today — and neither touches git there.
+    let attestations = attest::attest(root, &sangha.electors);
+    let keys_bind_seats = attest::binds_distinct_key_per_seat(&sangha.electors);
+
+    // Article V's node and edge clauses, decided against the tips each record names. The git
+    // reading happens here, where there is a repository; the two checks that consume it are
+    // pure, which is what lets the arm that has never fired in a real corpus be tested at all.
+    // A repository with no resolutions — every corpus not running a sangha — spawns nothing.
+    let scope_audits = scope::audit(root, &sangha.resolutions);
+
+    // Where each elector branch stands in the settled line, and what it says about where it
+    // stands. Read here for the same reason the scope audit is: the checks stay pure, and the
+    // refs are the one thing they cannot be handed off disk.
+    let standings = lineage::standings(root, &sangha.resolutions);
+
     // ── Prose links ─────────────────────────────────────────────────────────────
     //
     // Authored markdown, and what counts as authored is declared rather than hard-coded:
@@ -229,9 +291,37 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     // `docs/` is included — documentation about the repository is authored, and its links
     // rot the same way. Not `crates/` or `web/`, whose READMEs carry illustrative targets
     // rather than references to files that are supposed to exist.
+    // ── REGEN blocks (#524) ─────────────────────────────────────────────────────
+    //
+    // Every authored file the generators can write into. The walk is the prose-link walk
+    // plus the repository README, which `yidam status` and `yidam vault-status` write and
+    // which nothing else in this function reads. A file with no markers contributes nothing,
+    // so a walk wider than the generators' own list costs a read and cannot miss a target —
+    // which a list copied from the ten `update_file_regen` call sites would.
     let authorship = crate::authorship::Authorship::load_or_default(root);
     let mut prose_link_paths: Vec<std::path::PathBuf> = walk_linkable_files(&root.join(".yidam"));
     prose_link_paths.extend(walk_linkable_files(&root.join("docs")));
+
+    let mut regen_files: Vec<(String, String)> = Vec::new();
+    for p in prose_link_paths
+        .iter()
+        .chain([root.join("README.md")].iter().filter(|p| p.exists()))
+    {
+        let rel = p
+            .strip_prefix(root)
+            .unwrap_or(p)
+            .to_string_lossy()
+            .to_string();
+        // The same authorship rule the prose-link check applies: a finding in vendored
+        // prelude content is one the derived repository cannot act on.
+        if authorship
+            .covering(&rel)
+            .is_some_and(|r| !r.kind.reportable())
+        {
+            continue;
+        }
+        regen_files.push((rel, overlay.read(p)));
+    }
 
     let mut prose_links: Vec<checks::ProseLink> = Vec::new();
     let mut unauthored: Vec<checks::UnauthoredLink> = Vec::new();
@@ -258,6 +348,12 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         }
     }
     let stale_regions = crate::authorship::stale(root, &authorship);
+
+    // The links that also name a line, decided against the cited files — through the
+    // overlay, so the buffer someone is editing a passage out of is the one the citation
+    // is held to. Authored links only: a line citation in vendored or generated prose is
+    // somebody else's to fix, the same judgement `unauthored-prose-link` records.
+    let line_citations = line_citations::collect(root, &prose_links, &|p| overlay.read(p));
 
     // What this corpus has declared about its own gate. Absent — the common case, and the
     // case for every repository that has not yet argued about a number — escalates nothing.
@@ -307,10 +403,16 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         }
     };
 
+    // Nodes and classes both: a malformed evidence tag is a defect of prose, and a class file
+    // carries prose. Bound here rather than inline because the view borrows from both.
+    let tag_prose = checks::prose_views(&nodes, &classes);
+
     // One walk of the citations, four readings of it — the same predicate `check_citation`
     // answers from over MCP (#357). Destructured here rather than pushed after the vec, so
     // the four keep their place in the report's order.
     let [unresolved, span_drift, pin_moved, unpinned] = citations::checks(&nodes, &deps);
+    let [scope_unheld, scope_unverifiable] = scope::checks(&scope_audits);
+    let [baseline_unmet, baseline_undeclared, holds_unadopted] = lineage::checks(&standings);
 
     let mut all = vec![
         checks::missing_class(&nodes),
@@ -333,18 +435,35 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::catalog_unobtained_but_cited(&sources, &cites),
         checks::missing_label(&nodes),
         checks::missing_description(&nodes),
-        checks::claim_tag_malformed(&nodes),
+        checks::claim_tag_malformed(&tag_prose),
         checks::catalog_used_by_drift(&sources, &cites),
         checks::catalog_location_malformed(&sources),
         checks::catalog_artifact_malformed(&sources),
         checks::catalog_artifact_unroutable(&sources, &declared_vaults),
         checks::malformed_table(&prose),
+        checks::malformed_regen_block(&regen_files),
         orphan_in_dated(root, &nodes, &classes).escalating_after(escalate_after),
         checks::catalog_uncited(&sources, &cites),
         checks::class_asserts_purpose(&classes),
+        checks::class_claim_uncounted(&classes),
+        checks::foundational_field_misspelled(&classes),
+        checks::foundational_type_malformed(&classes),
         checks::resolution_annotation_malformed(&annotations),
         checks::resolution_annotation_decides(&annotations),
+        checks::resolution_elector_unregistered(&sangha.resolutions, &registered),
+        checks::resolution_executor_unrecorded(&sangha.resolutions, keys_bind_seats),
+        attest::elector_signature_unverified(&attestations),
+        scope_unheld,
+        scope_unverifiable,
+        baseline_unmet,
+        baseline_undeclared,
+        holds_unadopted,
         checks::broken_prose_link(&prose_links),
+        line_citations::dead_line_citation(&line_citations),
+        line_citations::slid_line_citation(&line_citations),
+        line_citations::citation_label_not_cited(&line_citations),
+        line_citations::unverified_line_citation(&line_citations),
+        line_citations::citation_range_stated_twice(&line_citations),
         checks::unauthored_prose_link(&unauthored),
         checks::authorship_region_stale(&stale_regions),
         checks::policy_override(&policy_overrides),
@@ -352,7 +471,11 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
 
     if opts.commits {
         let subjects = commits::read_subjects(root, opts.range.as_deref());
-        all.push(commits::unrecognized_verb(&subjects));
+        // `[object] paths`, or one register if the repository declares no object — which is
+        // every repository that has not written the key, and every one that ran this before
+        // the key existed.
+        let registers = crate::kuten::Registers::of_repo(root);
+        all.push(commits::unrecognized_verb(&subjects, &registers));
     }
 
     all
@@ -747,7 +870,22 @@ decision := {"allow": true, "deny": []}
         // A check that vanishes when it passes cannot be told from one that did not run.
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 35);
+
+        // Against a repository that *has* findings, rather than against a number written
+        // here. The invariant is that a passing run reports the same checks a failing one
+        // does; the literal was 46 and only ever recorded how many existed the day it was
+        // typed.
+        let dirty = repo_with_an_aged_orphan(6);
+        let dirty_ids: HashSet<&str> = run_checks(dirty.path(), &Options::default())
+            .iter()
+            .map(|c| c.id)
+            .collect();
+        let clean_ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
+        assert_eq!(
+            clean_ids, dirty_ids,
+            "a passing run reports fewer checks than a failing one"
+        );
+        assert_eq!(all.len(), clean_ids.len(), "a check id was reported twice");
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
         assert!(ids.contains("catalog-used-by-drift"));
@@ -760,10 +898,21 @@ decision := {"allow": true, "deny": []}
         // check that disappears when there is nothing to check cannot be told from one
         // that was never wired in.
         assert!(ids.contains("resolution-annotation-malformed"));
+        // Same reason, and the pair that reads the record's frontmatter rather than its
+        // prose: a repository with no `electors.md` at all still hears both answer.
+        assert!(ids.contains("resolution-elector-unregistered"));
+        assert!(ids.contains("resolution-executor-unrecorded"));
+        // Same reason again, and this one is the most silent of all: RFC-0012's verification
+        // is vacuous until a registry row binds a signing key, so a check that vanished when
+        // it found no keys would be indistinguishable from one nobody wired in.
+        assert!(ids.contains("elector-signature-unverified"));
         assert!(ids.contains("resolution-annotation-decides"));
         assert!(ids.contains("broken-prose-link"));
         assert!(ids.contains("unauthored-prose-link"));
         assert!(ids.contains("claim-tag-malformed"));
+        // Reported in a repository whose REGEN blocks are all well formed, which is the
+        // state every corpus is in until one is edited by hand.
+        assert!(ids.contains("malformed-regen-block"));
         assert!(ids.contains("authorship-region-stale"));
         // The class contract. `clean_repo`'s ontology declares neither properties nor
         // edges, so all five pass here — which is the case worth pinning: silence is not a
@@ -912,9 +1061,15 @@ decision := {"allow": true, "deny": []}
             "imported:\n  - path: docs/x\n    from: a\n    why: b\n",
         );
         assert!(crate::authorship::Authorship::load(tmp.path()).is_err());
-        // …while the checks themselves keep answering, for the editor's sake.
+        // …while the checks themselves keep answering, for the editor's sake. Compared
+        // against a repository whose manifest reads, so the number is derived rather than
+        // written: the literal here was 46 and said nothing about the manifest.
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 35);
+        let sound = clean_repo();
+        assert_eq!(
+            all.len(),
+            run_checks(sound.path(), &Options::default()).len()
+        );
     }
 
     /// A class declaring an implementation, and a `crates/` tree that may or may not hold it.
@@ -1239,7 +1394,13 @@ decision := {"allow": true, "deny": []}
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        assert_eq!(all.len(), 35, "every check still ran");
+
+        // Compared against the same repository with a config that parses, rather than against
+        // a number written here. The literal was 46 and went stale the next time a check was
+        // added — which says nothing about escalation, and is the one thing this test is for.
+        let sound = repo_with_an_aged_orphan(6);
+        let expected = run_checks(sound.path(), &Options::default()).len();
+        assert_eq!(all.len(), expected, "every check still ran");
         assert_eq!(errors(&all), 0);
     }
 

@@ -279,6 +279,12 @@ const COMMANDS: &[(&str, &[&str])] = &[
             "vendor(yidam): the prelude at 4e1a2b0",
         ],
     ),
+    // The fixture declares no kuten, so this golden pins the arm every repository is in
+    // today: holding none is a supported state and reports as one rather than as a finding.
+    // The held arm cannot be a golden here — giving the fixture a kuten would move the
+    // other twenty goldens — and is covered by `kuten_cluster.rs` against the six shapes
+    // that defined the profile.
+    ("kuten-check", &["kuten", "check"]),
 ];
 
 /// Reports checked by running them, because they cannot have a golden.
@@ -488,45 +494,236 @@ fn schema() -> serde_json::Value {
     .expect("schema is valid JSON")
 }
 
-/// One envelope against the contract: every required field present, every emitted field
-/// declared.
+/// What one walk found.
+#[derive(Default)]
+struct Contract {
+    /// Deduped as it accumulates. One undeclared field is one problem however many array
+    /// elements or documents carry it: a fixture with two catalog sources reported
+    /// `sources[].artifacts` twice, and an envelope-level field printed once per golden —
+    /// twenty identical lines, which is the failure the dedup was added to prevent and did
+    /// not, because it was per-document while the caller's accumulator was not.
+    problems: BTreeSet<String>,
+    /// Every path that reached a declaration. A *witness* set rather than a count — see
+    /// [`assert_contract`]. A walk that stops descending reports no problems and looks exactly
+    /// like a contract in good order, which is the state this check was in until #645.
+    resolved: BTreeSet<String>,
+}
+
+/// One envelope against the contract: every emitted field declared, **all the way down**.
 ///
-/// Not full JSON-Schema validation — that would want a dependency this crate does not
-/// otherwise need. It is the half that actually rots: a field added to a report and not to
-/// the schema, which leaves a consumer reading a contract that does not describe the data
-/// it is being sent.
-fn contract_problems(
-    schema: &serde_json::Value,
+/// # Two obligations, and only one of them is JSON Schema's
+///
+/// A validator answers *is this document allowed by the schema* — types, enums, `required`,
+/// bounds. [`schema_violations`] runs one, because this crate already carries `jsonschema` as
+/// an unconditional dev-dependency and this file was hand-checking a subset of what it does.
+/// Everything declared below the envelope's first level — every enum, every
+/// `["boolean","null"]`, every `minimum` — was inert until that was wired up.
+///
+/// This walk answers the *other* question, the one a validator deliberately cannot: **whatever
+/// yidam emits, the contract must describe it.** JSON Schema is permissive by design — an
+/// undeclared field is valid unless `additionalProperties: false` — and this envelope's own
+/// description tells consumers to ignore unknown fields, so demanding that keyword would
+/// contradict the contract it is checking. The obligation runs the other way, and nothing but
+/// this walk carries it.
+///
+/// # It used to compare one level
+///
+/// This walked `doc.as_object()`'s keys against `schema["properties"]` and stopped, so every
+/// nested field in every report was undeclared and passing. The first recursive run found
+/// **seven** the schema did not declare — including `severity` on every lint violation, in the
+/// most-read report in the family.
+///
+/// It was found the way blind spots usually are: by adding `required` to `graph`'s class
+/// properties (#642) and noticing the golden validated *before* the declaration was written.
+/// `every_live_report_field_is_declared_in_the_schema` exists because the golden-reading check
+/// had a blind spot; this was that same shape one level down.
+fn contract_problems(schema: &serde_json::Value, name: &str, doc: &serde_json::Value) -> Contract {
+    let mut out = Contract::default();
+    assert!(doc.is_object(), "{name}: an envelope is an object");
+    walk(schema, doc, name, "", &mut out);
+    out
+}
+
+/// Whether a schema node declares a value shape for keys it does not name.
+///
+/// **`true` and `{}` do not count, and that is the whole point of this function.** Both are the
+/// empty schema, both mean "anything may appear here", and honouring either would make
+/// `additionalProperties` a one-line off-switch for every undeclared-field assertion in this
+/// file — while *raising* the resolved count, so a volume floor could not see it either. The
+/// trigger would not even be sabotage: this schema's own description says consumers MUST ignore
+/// unknown fields, so a maintainer codifying that rule in the schema would silently disable the
+/// gate.
+///
+/// What does count is a non-empty object: `replay[].by_class`'s value shape, keyed by class
+/// name, which is a real declaration of what lives under a key the corpus chooses.
+fn value_shape(node: &serde_json::Value) -> Option<&serde_json::Value> {
+    node.get("additionalProperties")
+        .filter(|e| e.as_object().is_some_and(|o| !o.is_empty()))
+}
+
+fn walk(
+    node: &serde_json::Value,
+    doc: &serde_json::Value,
+    name: &str,
+    path: &str,
+    out: &mut Contract,
+) {
+    match doc {
+        serde_json::Value::Object(obj) => {
+            // `required` presence is the validator's job now. It reads the keyword properly,
+            // including a malformed one, where this file's `.and_then(|r| r.as_array())`
+            // silently skipped a `required` that was misspelled or written as a string.
+            let declared = node.get("properties").and_then(|p| p.as_object());
+            let extra = value_shape(node);
+
+            for (key, value) in obj {
+                let by_name = declared.and_then(|d| d.get(key));
+                // Inside a dynamic map the key belongs to the corpus, not to the contract, so
+                // the path says `*`: one shape to fix rather than one per class.
+                let seg = if by_name.is_none() && extra.is_some() {
+                    "*"
+                } else {
+                    key.as_str()
+                };
+                let here = if path.is_empty() {
+                    seg.to_string()
+                } else {
+                    format!("{path}.{seg}")
+                };
+                match by_name.or(extra) {
+                    Some(sub) => {
+                        out.resolved.insert(here.clone());
+                        walk(sub, value, name, &here, out);
+                    }
+                    None => {
+                        out.problems.insert(format!(
+                            "  {name}: emits `{here}`, which report.schema.json does not declare"
+                        ));
+                    }
+                }
+            }
+        }
+        serde_json::Value::Array(items) => {
+            let here = format!("{path}[]");
+            match node.get("items") {
+                Some(sub) => {
+                    for value in items {
+                        walk(sub, value, name, &here, out);
+                    }
+                }
+                // An array declared without `items` is a hole, not a leaf: everything inside it
+                // goes unread. Five top-level arrays were in that state — `nodes`,
+                // `open_questions`, `phases`, `edges`, `findings` — hiding 33 distinct paths,
+                // about 11% of every field emitted. `check-diff.findings[]` was the sharpest:
+                // its declaration described the item shape, `severity` included, in prose.
+                //
+                // Only when the array has something in it. An empty array has nothing
+                // unchecked, which is why `diff`'s `nodes` and `edges` do not force a shape to
+                // be invented for data no fixture has produced — and why this goes red the day
+                // one does.
+                None if !items.is_empty() => {
+                    out.problems.insert(format!(
+                        "  {name}: emits `{here}` with {} element(s) and report.schema.json \
+                         declares no `items` for it",
+                        items.len()
+                    ));
+                }
+                None => {}
+            }
+        }
+        // A scalar meeting an object or array declaration is the validator's to refuse, and it
+        // does. Before one ran, replacing `lint`'s whole `gate` object with `null` — or with the
+        // integer 7 — left this walk green.
+        _ => {}
+    }
+}
+
+/// The contract as a validator reads it.
+///
+/// `jsonschema` is already an unconditional dev-dependency and already compiles *this same
+/// file* in `quality_surface.rs` and `class_schemas.rs`. Hand-rolling a subset of it is how
+/// `positions` came to be declared twice with the second silently winning, and how `status`'s
+/// integer `open_questions` sat under an `array` declaration for as long as the file existed.
+fn schema_violations(
+    validator: &jsonschema::Validator,
     name: &str,
     doc: &serde_json::Value,
 ) -> Vec<String> {
-    let declared = schema["properties"].as_object().unwrap();
-    let obj = doc.as_object().expect("an envelope is an object");
-    let mut problems = Vec::new();
-    for key in schema["required"].as_array().unwrap() {
-        let key = key.as_str().unwrap();
-        if !obj.contains_key(key) {
-            problems.push(format!("  {name}: missing required `{key}`"));
-        }
-    }
-    for key in obj.keys() {
-        if !declared.contains_key(key) {
-            problems.push(format!(
-                "  {name}: emits `{key}`, which report.schema.json does not declare"
-            ));
-        }
-    }
-    problems
+    validator
+        .iter_errors(doc)
+        .map(|e| format!("  {name}: at `{}`: {e}", e.instance_path()))
+        .collect()
+}
+
+fn validator(schema: &serde_json::Value) -> jsonschema::Validator {
+    jsonschema::validator_for(schema).expect("report.schema.json compiles as a JSON Schema")
 }
 
 const CONTRACT_ADVICE: &str = "\n\nAdd the field to report.schema.json, or stop emitting it. \
      A consumer reading a contract that does not describe the data it is sent is the failure \
      this contract exists to prevent.";
 
+/// Paths the walk must have reached, or it did not descend.
+///
+/// **Witnesses, not a volume floor.** The floor these replaced was calibrated against total
+/// collapse and nothing else: measured over the goldens, a walk capped at depth 2 resolves 843
+/// fields and cleared a 700 floor by 143 while losing every field under
+/// `checks[].violations[]` — `severity`, `age`, `in_baseline`, `span`, the four this change
+/// exists for. Deleting `items` from 39 of the schema's 40 array declarations, one at a time,
+/// left the gate fully green. The live floor was worse: removing the array recursion left 42
+/// against a floor of 40, and an array is how `doctor`'s `checks[]` is reached at all.
+///
+/// A path measures depth directly, needs no revision when a report gains a field, and names
+/// what was lost when it fails.
+const GOLDEN_WITNESSES: &[&str] = &[
+    // Four levels down, through two arrays.
+    "checks[].violations[].severity",
+    // Through a dynamic map's value shape.
+    "replay[].by_class.*.meets_expectation",
+    // Through an array whose item shape was prose until #650.
+    "findings[].nearest.name",
+];
+
+/// `doctor` has no golden, and is reached only through an array.
+const LIVE_WITNESSES: &[&str] = &["checks[].question", "checks[].verdict"];
+
+/// Both tests' shared body: validate, then walk, then witness.
+///
+/// Problems before witnesses. The two fail together — deleting a declaration both raises
+/// `problems` and drops `resolved` — and the accurate message is the one naming the field.
+/// Asserting depth first reported "it has stopped descending" for a schema that was merely
+/// missing a declaration, and `CONTRACT_ADVICE` was never reached.
+fn assert_contract(found: &Contract, invalid: &[String], witnesses: &[&str], label: &str) {
+    assert!(
+        invalid.is_empty(),
+        "{label} do not validate against report.schema.json:\n{}",
+        invalid.join("\n")
+    );
+    assert!(
+        found.problems.is_empty(),
+        "{label} and schema disagree:\n{}{CONTRACT_ADVICE}",
+        found
+            .problems
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    for witness in witnesses {
+        assert!(
+            found.resolved.contains(*witness),
+            "the contract walk never reached `{witness}` in {label} — it has stopped \
+             descending, and a check that looks at nothing reports nothing"
+        );
+    }
+}
+
 #[test]
 fn every_golden_field_is_declared_in_the_schema() {
     let schema = schema();
-    let mut problems = Vec::new();
+    let validator = validator(&schema);
+    let mut found = Contract::default();
+    let mut invalid = Vec::new();
     let mut seen = 0;
     for entry in std::fs::read_dir(fixture_dir().join("expected")).unwrap() {
         let path = entry.unwrap().path();
@@ -537,15 +734,14 @@ fn every_golden_field_is_declared_in_the_schema() {
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let doc: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        problems.extend(contract_problems(&schema, &name, &doc));
+        invalid.extend(schema_violations(&validator, &name, &doc));
+        let one = contract_problems(&schema, &name, &doc);
+        found.problems.extend(one.problems);
+        found.resolved.extend(one.resolved);
     }
 
     assert!(seen > 0, "no JSON goldens found — the scan is broken");
-    assert!(
-        problems.is_empty(),
-        "goldens and schema disagree:\n{}{CONTRACT_ADVICE}",
-        problems.join("\n")
-    );
+    assert_contract(&found, &invalid, GOLDEN_WITNESSES, "goldens");
 }
 
 /// The same check for the reports that have no golden to read.
@@ -555,11 +751,16 @@ fn every_golden_field_is_declared_in_the_schema() {
 /// `report.schema.json`, because the check above reads the `expected/` directory and neither
 /// command has a file in it. The contract was wrong about two commands and nothing could say
 /// so.
+///
+/// It found a third the moment it could descend: `doctor` and `lint` both emit a top-level
+/// `checks` array with different item shapes, and the schema described the key as `lint` only.
 #[test]
 fn every_live_report_field_is_declared_in_the_schema() {
     let schema = schema();
+    let validator = validator(&schema);
     let tmp = stage();
-    let mut problems = Vec::new();
+    let mut found = Contract::default();
+    let mut invalid = Vec::new();
     for (name, args) in LIVE {
         let mut a = args.to_vec();
         a.extend_from_slice(&["--format", "json"]);
@@ -571,13 +772,157 @@ fn every_live_report_field_is_declared_in_the_schema() {
                 r.stdout
             )
         });
-        problems.extend(contract_problems(&schema, name, &doc));
+        invalid.extend(schema_violations(&validator, name, &doc));
+        let one = contract_problems(&schema, name, &doc);
+        found.problems.extend(one.problems);
+        found.resolved.extend(one.resolved);
     }
-    assert!(
-        problems.is_empty(),
-        "live reports and schema disagree:\n{}{CONTRACT_ADVICE}",
-        problems.join("\n")
-    );
+    assert_contract(&found, &invalid, LIVE_WITNESSES, "live reports");
+}
+
+/// The walk's own branches, tested directly.
+///
+/// The two end-to-end tests can only see a branch that wrongly *reports*. A branch that
+/// wrongly **resolves** — counts a field as declared when nothing declared it — produces no
+/// problem and is invisible to both, which is the shape of every defect this section covers.
+/// `docs/contributing.md`: "Prefer testing library functions directly."
+#[cfg(test)]
+mod walk_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn found(schema: serde_json::Value, doc: serde_json::Value) -> Contract {
+        contract_problems(&schema, "fixture", &doc)
+    }
+
+    #[test]
+    fn a_permissive_additional_properties_does_not_declare_anything() {
+        // `true` and `{}` are the same empty schema, and honouring either would make this
+        // keyword a one-line off-switch for the whole file. `false` is the validator's to
+        // enforce and declares no value shape either.
+        for permissive in [json!(true), json!({}), json!(false)] {
+            assert!(
+                value_shape(&json!({ "additionalProperties": permissive })).is_none(),
+                "{permissive} was read as declaring a value shape"
+            );
+        }
+        // A real map declaration is honoured — `replay[].by_class` is the live case.
+        assert!(value_shape(&json!({ "additionalProperties": { "type": "string" } })).is_some());
+    }
+
+    #[test]
+    fn a_permissive_additional_properties_cannot_silence_the_check() {
+        let doc = json!({ "declared": 1, "undeclared": 2 });
+        for permissive in [json!(true), json!({})] {
+            let out = found(
+                json!({
+                    "properties": { "declared": {} },
+                    "additionalProperties": permissive,
+                }),
+                doc.clone(),
+            );
+            assert_eq!(
+                out.problems.len(),
+                1,
+                "additionalProperties: {permissive} hid an undeclared field"
+            );
+            // And it must not inflate the witness set either — that is how the old volume
+            // floor would have read the off-switch as *more* coverage rather than less.
+            assert!(!out.resolved.contains("undeclared"));
+        }
+    }
+
+    #[test]
+    fn a_dynamic_maps_key_belongs_to_the_corpus() {
+        let out = found(
+            json!({
+                "properties": {
+                    "by_class": { "additionalProperties": { "properties": { "nodes": {} } } }
+                }
+            }),
+            json!({ "by_class": { "concept": { "nodes": 3 }, "gauge": { "nodes": 1 } } }),
+        );
+        assert!(out.problems.is_empty(), "{:?}", out.problems);
+        // One shape, not one per class: a reader who has to fix it fixes it once.
+        assert!(out.resolved.contains("by_class.*.nodes"));
+        assert!(!out.resolved.iter().any(|p| p.contains("concept")));
+    }
+
+    #[test]
+    fn an_array_with_elements_and_no_items_is_a_hole() {
+        let out = found(
+            json!({ "properties": { "rows": { "type": "array" } } }),
+            json!({ "rows": [{ "anything": 1 }] }),
+        );
+        assert_eq!(out.problems.len(), 1);
+        assert!(
+            out.problems
+                .iter()
+                .next()
+                .unwrap()
+                .contains("declares no `items`"),
+            "{:?}",
+            out.problems
+        );
+    }
+
+    #[test]
+    fn an_empty_array_has_nothing_unchecked() {
+        // `diff` emits `nodes` and `edges` empty, and no fixture has ever produced an element.
+        // Demanding a shape for data nobody has seen would be inventing the contract.
+        let out = found(
+            json!({ "properties": { "rows": { "type": "array" } } }),
+            json!({ "rows": [] }),
+        );
+        assert!(out.problems.is_empty(), "{:?}", out.problems);
+    }
+
+    #[test]
+    fn an_undeclared_field_is_named_by_its_full_path() {
+        let out = found(
+            json!({
+                "properties": {
+                    "checks": { "items": { "properties": { "id": {} } } }
+                }
+            }),
+            json!({ "checks": [{ "id": "a", "severity": "warn" }] }),
+        );
+        assert_eq!(
+            out.problems.iter().next().unwrap().trim(),
+            "fixture: emits `checks[].severity`, which report.schema.json does not declare"
+        );
+    }
+
+    #[test]
+    fn one_undeclared_field_is_one_problem_however_many_elements_carry_it() {
+        // Two catalog sources reported `sources[].artifacts` twice; a real corpus would report
+        // it hundreds of times, which is a failure nobody reads to the end of.
+        let out = found(
+            json!({ "properties": { "rows": { "items": { "properties": { "id": {} } } } } }),
+            json!({ "rows": [{ "id": 1, "extra": 1 }, { "id": 2, "extra": 2 }] }),
+        );
+        assert_eq!(out.problems.len(), 1, "{:?}", out.problems);
+    }
+
+    #[test]
+    fn resolved_records_the_path_a_witness_can_name() {
+        let out = found(
+            json!({
+                "properties": {
+                    "checks": {
+                        "items": {
+                            "properties": {
+                                "violations": { "items": { "properties": { "severity": {} } } }
+                            }
+                        }
+                    }
+                }
+            }),
+            json!({ "checks": [{ "violations": [{ "severity": "error" }] }] }),
+        );
+        assert!(out.problems.is_empty(), "{:?}", out.problems);
+        assert!(out.resolved.contains("checks[].violations[].severity"));
+    }
 }
 
 /// A report run live must still leave the fixture alone.

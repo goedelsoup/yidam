@@ -1,6 +1,6 @@
 # RFC-0017 — Serving assertions, not documents (`claims` and the practice tools)
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I12
 - **Relates to:** RFC-0005 (the MCP contract this extends), RFC-0001 (the report contract),
   RFC-0002 (node-model unification — the two claim readers this reconciles), RFC-0003 (the

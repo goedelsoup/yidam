@@ -1,0 +1,127 @@
+---
+// The overview: every gate, and what each one actually exercised.
+import { StatusMeter } from '../../../../../design/index.js';
+import Quality from '../../layouts/Quality.astro';
+import NoReport from '../../components/NoReport.astro';
+import { loadReport, overall, plural, unsuccessfulJobs, gateOutcome } from '../../quality/report';
+
+const { report, problem } = loadReport();
+const total = report ? overall(report) : null;
+
+// #516. Every number on this page comes from JUnit, and JUnit describes test cases: a job
+// that fails outside its tests — a lint, a coverage render, a packaging check — moves none
+// of them. This page said "0 failed" for a run whose `ci (cli · full features)` was red, so
+// the run's own verdict is stated first, above the bars it does not affect.
+const trouble = report ? unsuccessfulJobs(report) : [];
+const pending = report?.quality.run?.pending ?? [];
+const askedAboutJobs = Boolean(report?.quality.run);
+---
+
+<Quality title="Quality" commit={report?.yidam.commit} version={report?.yidam.version}>
+  {problem && <NoReport problem={problem} />}
+  {
+    report && total && (
+      <>
+        {trouble.length > 0 && (
+          <div class="card alarm">
+            <h2>
+              {plural(trouble.length, 'job')} did not succeed
+            </h2>
+            <ul class="plain">
+              {trouble.map((job) => (
+                <li>
+                  <strong>{job.name}</strong> — {job.conclusion}
+                </li>
+              ))}
+            </ul>
+            <p class="note">
+              The counts below are test cases, and a job can fail without one of them
+              failing — a lint, a coverage step, a packaging check. Where they disagree with
+              this, this is the run's verdict.
+            </p>
+          </div>
+        )}
+        {!askedAboutJobs && (
+          <div class="card">
+            <h2>No job outcomes</h2>
+            <p class="note">
+              This report was merged without the run's job list, so nothing here can say
+              whether the jobs themselves passed — only what their tests did. That is not the
+              same claim.
+            </p>
+          </div>
+        )}
+        <div class="card">
+          <h2>Every gate</h2>
+          <StatusMeter
+            asserted={total.asserted}
+            failed={total.failed}
+            skipped={total.skipped}
+          />
+          <p class="note">
+            {`${plural(total.cases, 'case')} across ${plural(report.quality.gates.length, 'gate')}.`}{' '}
+            The bar is drawn from <code class="mono">asserted</code>, not{' '}
+            <code class="mono">passed</code>: a runner records a skipped test as a pass, so{' '}
+            {`${plural(total.gated, 'gated skip')} and ${plural(total.ignored, 'ignored test')}`}{' '}
+            would otherwise be counted as work that happened.
+          </p>
+        </div>
+
+        <div class="rows">
+          {report.quality.gates.map((gate) => (
+            <div class={gateOutcome(gate) === 'bad' ? 'card alarm' : 'card'}>
+              <h2>{gate.gate}</h2>
+              <StatusMeter
+                asserted={gate.totals.asserted}
+                failed={gate.totals.failed}
+                skipped={gate.totals.skipped}
+                size="sm"
+              />
+              <div class="kv">
+                <span>
+                  {gate.features.length > 0 ? (
+                    <>
+                      features <code class="mono">{gate.features.join(', ')}</code>
+                    </>
+                  ) : (
+                    'not a cargo build'
+                  )}
+                </span>
+                <span>{gate.suites.length} suites</span>
+                <span>{gate.coverage ? 'coverage measured' : 'no coverage'}</span>
+                <span>
+                  {gateOutcome(gate) === 'unknown'
+                    ? 'job outcome unknown'
+                    : `job ${gate.conclusion}`}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {pending.length > 0 && (
+          <div class="card">
+            <h2>Still running when this was written</h2>
+            <p class="note">
+              {pending.join(', ')} — the report is assembled by a job of the run it
+              describes, so that job can be named but not judged. Jobs sequenced after it may
+              not have started yet, and a run's later jobs are outside what any report written
+              during it can say.
+            </p>
+          </div>
+        )}
+
+        <div class="card">
+          <h2>Not measured here</h2>
+          <ul class="plain">
+            {Object.entries(report.quality.sections).map(([name, section]) => (
+              <li>
+                <strong>{name}</strong> — {section.measured ? 'measured' : section.why}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </>
+    )
+  }
+</Quality>

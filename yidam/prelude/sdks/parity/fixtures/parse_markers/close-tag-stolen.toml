@@ -1,0 +1,34 @@
+function = "parse_markers"
+description = "A block missing its close tag closes on the next block's, so the next block becomes content and no marker is missing from the count"
+
+[input]
+content = """
+## Status
+
+<!-- REGEN: yidam status -->
+**12 nodes**
+
+## Open Questions
+
+<!-- REGEN: yidam open-questions -->
+- Is positivity testable?
+<!-- /REGEN -->
+"""
+
+[[expected]]
+kind = "Regen"
+command = "yidam status"
+content = """
+**12 nodes**
+
+## Open Questions
+
+<!-- REGEN: yidam open-questions -->
+- Is positivity testable?"""
+
+[[expected_malformed]]
+command = "yidam status"
+line = 3
+fault = "ClosedOnAnothersTag"
+swallowed_lines = 6
+swallowed_markers = 1

@@ -10,7 +10,6 @@ use super::export_rdf::{render_rdf_jsonld, render_rdf_turtle};
 use super::export_sqlite::render_sqlite;
 use super::export_web::render_web;
 use crate::model::{load_domain_model, DomainModel};
-use crate::paths::repo_root;
 
 /// RDF serialization selected by `--rdf-format`; omitted → both are written.
 #[derive(Debug, Clone, clap::ValueEnum)]
@@ -96,8 +95,13 @@ pub fn list_formats() {
 /// (which takes `&DomainModel` and returns bytes), then writes to disk.
 /// To add a new format: add a variant to [`ExportFormat`], add a `render_<format>`
 /// function in its own module, and add an arm here.
+/// `root` is the corpus `model` was loaded from. It is a parameter rather than a thing this
+/// looks up, because a renderer that reaches for [`crate::paths::repo_root`] on its own is a
+/// *second* answer to "which corpus?" — and the two were free to differ the moment `--root`
+/// existed. `llms` did exactly that (#421, #236).
 pub fn export(
     model: &DomainModel,
+    root: &Path,
     format: ExportFormat,
     out: &Path,
     options: &ExportOptions,
@@ -208,7 +212,7 @@ pub fn export(
             if let Some(parent) = out.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            let pack = render_llms(model, options.token_budget);
+            let pack = render_llms(model, root, options.token_budget);
             std::fs::write(out, &pack.text)?;
             let budget_note = match options.token_budget {
                 Some(budget) => format!(" (token budget: {budget})"),
@@ -254,12 +258,17 @@ pub fn export(
 ///
 /// Resolves the output path from `out` or uses the format-specific default.
 /// This is the command-level entry point; [`export`] is the pure dispatch layer.
-pub fn run_export(format: ExportFormat, out: Option<&Path>, options: &ExportOptions) -> Result<()> {
-    let root = repo_root()?;
+pub fn run_export(
+    root: Option<&Path>,
+    format: ExportFormat,
+    out: Option<&Path>,
+    options: &ExportOptions,
+) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let model = load_domain_model(&root)?;
     let default_out = format.default_output(&root);
     let out_path = out.unwrap_or(&default_out);
-    export(&model, format, out_path, options)
+    export(&model, &root, format, out_path, options)
 }
 
 /// Unix seconds → ISO-8601 UTC (days-from-civil inverse, Hinnant's algorithm).

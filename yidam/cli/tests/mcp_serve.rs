@@ -765,3 +765,110 @@ fn only_query_spans_the_dependency_set() {
          wrote down is indistinguishable from one nobody thought of, which is what #333 found"
     );
 }
+
+/// A server that starts outside a corpus answers an agent from a corpus that is not there.
+///
+/// This is RFC-0005's `absence` argument one level up, and it was measured before it was
+/// fixed (#549). `serve` located the corpus with `git rev-parse --show-toplevel`, fell back to
+/// the working directory, and asked neither whether it had found one — so in an ordinary git
+/// repository with no `.yidam/` it exited 0, served, and answered `initialize` with a
+/// handshake **identical in shape** to a repository bootstrapped an hour ago: `nodes: 0`,
+/// `skills: 0`, `decisions: 0` in both. The only field that differed was `domain`, which
+/// `load_domain_model` had fabricated from the directory basename.
+///
+/// So the assertion has to be a *pair*. Refusing everything with no nodes would be the same
+/// defect with the sign flipped — `require_yidam_repo` admits the empty corpus on purpose,
+/// because a repository nobody has written into yet is a legitimate corpus and telling its
+/// author otherwise is the one thing this must not do. What the two halves pin is the
+/// distinction, not the refusal.
+#[test]
+fn serve_refuses_a_non_corpus_and_still_admits_an_empty_one() {
+    fn bare_repo(with_yidam: bool) -> tempfile::TempDir {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        if with_yidam {
+            std::fs::create_dir_all(root.join(".yidam/corpus")).unwrap();
+        }
+        std::fs::write(root.join("README.md"), "a repository\n").unwrap();
+        git(root, &["init", "-q", "-b", "main"]);
+        git(root, &["config", "user.email", "t@t.co"]);
+        git(root, &["config", "user.name", "Test"]);
+        git(root, &["add", "-A"]);
+        git(root, &["commit", "-q", "-m", "genesis: empty"]);
+        tmp
+    }
+
+    /// Run `serve --mcp` to completion with one `initialize` on stdin.
+    fn serve_in(cwd: &Path) -> std::process::Output {
+        use std::io::Write as _;
+        let mut child = Command::new(env!("CARGO_BIN_EXE_yidam"))
+            .args(["serve", "--mcp"])
+            .current_dir(cwd)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawning yidam serve --mcp");
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(
+                br#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}
+"#,
+            )
+            .ok();
+        child.wait_with_output().expect("serve terminates")
+    }
+
+    // A git repository that is not a corpus.
+    let plain = bare_repo(false);
+    let out = serve_in(plain.path());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !out.status.success(),
+        "serve started in a directory with no .yidam/ and exited {:?}. stdout was:\n{}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stdout).trim().is_empty(),
+        "serve refused and still answered the handshake:\n{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert!(
+        stderr.contains("not a yidam repository"),
+        "the refusal does not say what is wrong:\n{stderr}"
+    );
+    // The repair, not just the diagnosis. Whoever hits this has a client config pointing at
+    // the wrong directory and no way to know that is what happened.
+    assert!(
+        stderr.contains("yidam overlay") || stderr.contains("yidam clone"),
+        "the refusal names no repair:\n{stderr}"
+    );
+    // The fabricated domain was the sharp end of this: the handshake presented a corpus
+    // named after whatever folder the client happened to start in.
+    let basename = plain.path().file_name().unwrap().to_string_lossy();
+    assert!(
+        !String::from_utf8_lossy(&out.stdout).contains(basename.as_ref()),
+        "the directory basename still reaches a client as a domain name"
+    );
+
+    // A corpus that exists and has nothing in it yet. `require_yidam_repo` tests `.yidam/`
+    // rather than corpus content for exactly this case.
+    let empty = bare_repo(true);
+    let out = serve_in(empty.path());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let handshake: Value = serde_json::from_str(stdout.lines().next().unwrap_or_default())
+        .unwrap_or_else(|e| {
+            panic!(
+                "serve refused a bootstrapped repository with an empty corpus ({e}). \
+                 stderr:\n{}",
+                String::from_utf8_lossy(&out.stderr)
+            )
+        });
+    assert_eq!(
+        handshake["result"]["capabilities"]["yidam"]["corpus"]["nodes"], 0,
+        "the empty corpus is served, and served as empty"
+    );
+}

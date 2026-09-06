@@ -10,7 +10,7 @@ Three agents participate in every bootstrap test run:
 
 The domain owner is intentionally constrained: seed concept hints are anchors, not definitions.
 
-### Scenario schema
+## Scenario schema
 
 Scenarios drive test runs:
 
@@ -24,7 +24,7 @@ seed_concepts:
 good_bootstrap_looks_like: <1–2 sentences describing a successful result>
 ```
 
-### Snapshot path
+## Snapshot path
 
 ```
 tests/results/<id>/<model>/<YYYY-MM-DD>/

@@ -1,0 +1,22 @@
+function = "parse_markers"
+description = "A block whose close tag never arrives takes the rest of the file as its content"
+
+[input]
+content = """
+## Status
+
+<!-- REGEN: yidam status -->
+**12 nodes** · 3 open
+"""
+
+[[expected]]
+kind = "Regen"
+command = "yidam status"
+content = "**12 nodes** · 3 open"
+
+[[expected_malformed]]
+command = "yidam status"
+line = 3
+fault = "CloseTagMissing"
+swallowed_lines = 1
+swallowed_markers = 0

@@ -10,7 +10,7 @@
   "root": "<ROOT>",
   "gate": {
     "passed": false,
-    "new_violations": 1,
+    "new_violations": 2,
     "baselined_violations": 0,
     "stale_baseline_entries": [],
     "expired_baseline_entries": []
@@ -103,7 +103,7 @@
       "id": "node-too-long",
       "title": "Instance longer than its class allows",
       "severity": "warn",
-      "rationale": "A long node is usually two nodes, or a node carrying quoted source that belongs in the catalog entry it cites. The ceiling is the class's own — a class that declares no `max_lines:` is not checked, because the length an instance should be is a question about that class and not about corpora in general. Measured before choosing: a fixed ceiling of 40, which the bootstrap rubric uses at genesis, is exceeded by 335 of 410 nodes across five real corpora once they have grown.",
+      "rationale": "A long node is usually two nodes, or a node carrying quoted source that belongs in the catalog entry it cites. The ceiling is the class's own — a class that declares no `max_lines:` is not checked, because the length an instance should be is a question about that class and not about corpora in general. What is counted is the `description` block and not the file: the argument is about prose, and a node that records where each of its edges comes from should not pay for that provenance out of a budget written to stop descriptions sprawling. A corpus that raised `max_lines:` to absorb structural lines can lower it again.",
       "violations": []
     },
     {
@@ -117,7 +117,7 @@
       "id": "unimplemented-class",
       "title": "Class naming an implementation the code does not define",
       "severity": "error",
-      "rationale": "A class declaring `implemented_by:` has stated a fact about `crates/`, and a tree with no type of that name contradicts it — which is what this check's siblings gate on, and an omission is not. A class that declares nothing is not checked, and that silence is measured rather than timid: across twelve derived corpora 129 of 157 declared classes have no type bearing their name, and matching every language in the tree raises it to 88%. Their ontologies model a domain and their code models the pipeline that gathers evidence about it, so a class without a type is the normal case and reporting it would call four fifths of every ontology debt. A rename is invisible: the tree is scanned rather than a diff, so a class implemented under a new name is simply found.",
+      "rationale": "A class declaring `implemented_by:` has stated a fact about `crates/`,\n            foundational_type: None,\n            dead_alignment_fields: vec![], and a tree with no type of that name contradicts it — which is what this check's siblings gate on, and an omission is not. A class that declares nothing is not checked, and that silence is measured rather than timid: across twelve derived corpora 129 of 157 declared classes have no type bearing their name, and matching every language in the tree raises it to 88%. Their ontologies model a domain and their code models the pipeline that gathers evidence about it, so a class without a type is the normal case and reporting it would call four fifths of every ontology debt. A rename is invisible: the tree is scanned rather than a diff, so a class implemented under a new name is simply found.",
       "violations": []
     },
     {
@@ -211,7 +211,7 @@
       "id": "claim-tag-malformed",
       "title": "Evidence tag that counts as nothing",
       "severity": "warn",
-      "rationale": "The three tokens are matched exactly, which is what keeps `[open questions](…)` from reading as an open claim. The cost is that a tag with its citation folded inside the brackets matches nothing and is silently counted as untagged — a node that looks tagged to a reader and reads as bare assertion to every counter. This reports the near miss rather than guessing at it.",
+      "rationale": "The three tokens are matched exactly, which is what keeps `[open questions](…)` from reading as an open claim. The cost is that a tag with its citation folded inside the brackets matches nothing and is silently counted as untagged — a node that looks tagged to a reader and reads as bare assertion to every counter. This reports the near miss rather than guessing at it. Brackets are matched by depth over the block rather than to the first `]` on the line, because a citation that is itself a link both nests a `]` and wraps: measured on one derived corpus, the line scan found 234 of 445 such tags and none of the 179 that wrapped. The block is the bound, so an unbalanced `[` in quoted source costs one bracket rather than every tag below it.\n\nScope: every instance file and every class file, read as bytes — so a tag in a class's `description`, in a `properties[]` or `edges[]` entry, or in its `analytic_note` is reported the same way one in a node is. Measured over 17 corpora, all four carry tags. Reading a class's parsed fields instead would miss two of the four outright, because the property and edge structs declare no `description` at all. `universal.yml` is not read: it is a property list, not an argument.",
       "violations": []
     },
     {
@@ -257,6 +257,13 @@
       "violations": []
     },
     {
+      "id": "malformed-regen-block",
+      "title": "REGEN block whose extent is not what it looks like",
+      "severity": "warn",
+      "rationale": "A REGEN block is three markers: the open tag, the `-->` that ends it, and `<!-- /REGEN -->`. `yidam regen` finds all three or writes nothing at all, without saying so — the section goes stale and looks like a generator that stopped running. Where the missing tag is a close tag, the block also swallows whatever is below it, so the *next* section stops updating for the same invisible reason.",
+      "violations": []
+    },
+    {
       "id": "orphan-in",
       "title": "Node nothing points to",
       "severity": "info",
@@ -286,7 +293,28 @@
       "id": "class-asserts-purpose",
       "title": "Class definition asserts a purpose rather than describing a kind",
       "severity": "warn",
-      "rationale": "A claim tag attaches to a claim somebody makes on a node. A class definition is not that — it is the meaning every instance takes on by being filed under the class, asserted identically and untagged for each. So a class whose description states a reason ('deployed to obtain an outcome the ordinary path would not yield') puts that assertion beyond the reach of every other check here, which all run on tags. The case this was written from survived five resolutions and three arguments about its instances. Rewrite the description to say what an instance IS — the observable shape, the admission conditions — and move any characterization of why to a field that attributes it, or to `analytic_note`, which this check does not read.",
+      "rationale": "A claim tag attaches to a claim somebody makes on a node. A class definition is read differently — it is the meaning every instance takes on by being filed under the class, asserted identically and untagged for each. So a class whose description states a reason ('deployed to obtain an outcome the ordinary path would not yield') states it where no tag attributes it, and the checks that run on tags read past it. The case this was written from survived five resolutions and three arguments about its instances. Rewrite the description to say what an instance IS — the observable shape, the admission conditions — and move any characterization of why to a field that attributes it, or to `analytic_note`, which this check does not read.\n\nThat last clause is a rule about what THIS check reads, not a claim about what corpora contain. Class prose does carry evidence tags — measured over 17 corpora, 3 classes in 3 of them do — and #603 was filed because that fact was inferable only by porting the matcher downstream. Two other checks read what this one does not: `claim-tag-malformed` scans every field of the class file, `analytic_note` included, and `class-claim-uncounted` reports the tags there at `Info`. Neither contradicts the escape hatch above. The first reports a tag that is MALFORMED, so a well-formed tag in `analytic_note` stays exactly as fine as this sentence offers; the second reports a count and gates on nothing.",
+      "violations": []
+    },
+    {
+      "id": "class-claim-uncounted",
+      "title": "Evidence tag asserted in class prose, which no counter reads",
+      "severity": "info",
+      "rationale": "A claim is \"a statement in a node\" — CONSTITUTION.md, Article V — and the counters hold to that. A class file may still write one, because a class is where a corpus argues for its own shape and that argument is evidenced like any other. This reports the gap rather than closing it, and the reason it is not closed is measured: taking the counter's own rule to class files finds 6 tags across 2 of the 4 corpora this repository ships, and every one of the six is a class explaining its own vocabulary — \"`[verified]` means somebody confirmed the change shipped and held\". They survive the narration rule because it is past-tense-only and the word after every one of them is \"means\". Telling those six from a real assertion is a judgement about wording, which is the same reason Article V gives for refusing to delegate claim identity to a checker at all. So the count is shown and not spent, and only what is asserted outside backticks is shown at all. If a corpus finds real claims here, the fix is to move them into a node — where they are counted, cited, and reachable by every other check.",
+      "violations": []
+    },
+    {
+      "id": "foundational-field-misspelled",
+      "title": "Class declares foundational alignment in a field nothing reads",
+      "severity": "error",
+      "rationale": "Foundational alignment is `foundational_type:`, carrying `ontology: bfo|ufo`, a `type:`, and optionally the `iri:` that type has in that ontology. `bfo_type:` and `ufo_type:` were never read by anything — they are what bootstrap's prose asked for while its own template asked for `foundational_type:`. `bfo_anchor:` was read by `export-rdf` and written by nothing, and was BFO-only besides, so a UFO-aligned corpus could not use it. A class carrying one of these has stated an alignment that no gate, query, or export can see, which is worse than stating none: the corpus believes it is aligned. See docs/vocabulary.md and RFC-0013.",
+      "violations": []
+    },
+    {
+      "id": "foundational-type-malformed",
+      "title": "Class declares a foundational alignment that cannot be resolved",
+      "severity": "error",
+      "rationale": "`foundational_type:` carries `ontology: bfo` or `ontology: ufo`, a non-empty `type:`, and optionally an `iri:` beginning `http://` or `https://`. An alignment outside that shape reaches RDF as a literal no consumer can follow, which leaves the corpus asserting an alignment nothing can check — the state #613 found across four field names. The `type:` itself is not checked against BFO or UFO: their term sets are theirs to revise, and a copy of them in this binary would start refusing terms a corpus is right to use.",
       "violations": []
     },
     {
@@ -304,10 +332,138 @@
       "violations": []
     },
     {
+      "id": "resolution-elector-unregistered",
+      "title": "Resolution names a ma/* branch no elector row registers",
+      "severity": "error",
+      "rationale": "A resolution's authority rests on the seats it names, so a name the registry does not carry is the one part of the record that cannot be read charitably — either the seat was never registered, or it was removed and the records resting on it were left behind. This gates where its sibling warns because it is set membership between two committed files rather than a judgement about a missing field: there is no state of the world in which the answer is arguable.",
+      "violations": [
+        {
+          "node": ".yidam/sangha/resolutions/silt-budget.md",
+          "detail": "`ma/dredger` is read as a tip and `electors.md` registers no such branch",
+          "severity": "error",
+          "in_baseline": false,
+          "span": {
+            "line": 6
+          }
+        }
+      ]
+    },
+    {
+      "id": "resolution-executor-unrecorded",
+      "title": "Resolution record does not name the seat that executed it",
+      "severity": "warn",
+      "rationale": "Article II governs weight and Article III governs record, and they answer different questions. Naming the executor grants it nothing — no standing, no tiebreak, no priority in any later resolution — which is why recording it costs the article nothing. What it buys is that the most consequential actor in the event stops being the one actor the provenance omits. The record already names the tips that were read; the reader was the gap.",
+      "violations": [
+        {
+          "node": ".yidam/sangha/resolutions/silt-budget.md",
+          "detail": "no `synthesized-by:` — the record names which tips were read and not who read them",
+          "severity": "warn",
+          "in_baseline": false
+        }
+      ]
+    },
+    {
+      "id": "elector-signature-unverified",
+      "title": "Elector branch tip does not verify against the key its row binds",
+      "severity": "error",
+      "rationale": "RFC-0012, amended: a signature buys integrity and third-party verification, and it is worth having for those and claimed for nothing more — under one operator it does not distinguish seats from one another, and `electors.md` says so. This gates rather than warns because the repository decided it: the check is vacuous until a row binds a key, and binding one is a declaration that this seat's commits verify against it. The allowed-signers file is generated from the registry at verification time and never committed, so the trust anchor cannot drift from the record, and a key the registry does not carry verifies nothing.",
+      "violations": []
+    },
+    {
+      "id": "resolution-scope-unheld",
+      "title": "Resolution seats a node or edge no elector held",
+      "severity": "error",
+      "rationale": "Article V confines a resolution to what the electors brought to it: it may not introduce nodes, edges or claims that were not held by at least one of them. A node and an edge carry an identity — a node id, and a subject, verb and object — so this is set membership across the tips the record itself names, and there is no state of the world in which the answer is arguable. That is why it gates where the claim clause cannot: a claim has no identity to compare, and the constitution leaves that judgement with the synthesizer rather than delegating it to a checker. The rule this most often catches is the one the commentary states: a class is not its instances, so a resolution that seats the first instances of a class alongside the class it adopts is introducing nodes no elector held.",
+      "violations": []
+    },
+    {
+      "id": "resolution-scope-unverifiable",
+      "title": "Resolution's scope fidelity could not be decided here",
+      "severity": "warn",
+      "rationale": "Whether Article V's node and edge clauses can be decided depends on what the clone holds. A `ma/*` tip need not be an ancestor of the baseline — transport copies a file and `adopt` merges the rigpa into the elector's branch, not the reverse — so 15 of the 70 tips measured are reachable only through the `ma/*` branches themselves, which a single-branch checkout does not fetch; and a depth-1 checkout cannot see what a resolution's own commit changed. That makes this a Warn: the record may be sound and the clone merely thin. What it must not do is pass silently. A gate that judges nothing while reporting nothing is indistinguishable from a gate that found nothing wrong, and this check is the difference.",
+      "violations": [
+        {
+          "node": ".yidam/sangha/resolutions/silt-budget.md",
+          "detail": "2 of 2 tip(s) name no commit here — ma/hydrologist@ccccccc, ma/dredger@ddddddd — this resolution's scope was not checked",
+          "severity": "warn",
+          "in_baseline": false
+        },
+        {
+          "node": ".yidam/sangha/resolutions/tailwater-regime.md",
+          "detail": "2 of 2 tip(s) name no commit here — ma/hydrologist@aaaaaaa, ma/gauge-reader@bbbbbbb — this resolution's scope was not checked",
+          "severity": "warn",
+          "in_baseline": false
+        }
+      ]
+    },
+    {
+      "id": "elector-baseline-unmet",
+      "title": "Elector branch declares a baseline it does not stand on",
+      "severity": "error",
+      "rationale": "A declared baseline is a claim — *this position is measured against that evolution* — and a claim about the branch's own history is one the branch either satisfies or does not. There is no state of the world in which an elector is measured against a settlement their branch has never seen, so this gates. What it deliberately does not gate on is a baseline that is merely *old*: divergence from the baseline is what an elector's branch is for, and Article VI says so in as many words, so a position several resolutions behind is a position doing its job.",
+      "violations": []
+    },
+    {
+      "id": "elector-baseline-undeclared",
+      "title": "Elector branch does not say which evolution it is measured against",
+      "severity": "info",
+      "rationale": "Info, and it carries the answer rather than only the complaint: every branch is undeclared until somebody starts writing the trailer, so a finding that merely said *missing* would be one line of noise per elector forever. What the branch holds through is derivable from the settlements, so this reports it — which is both the useful half today and, exactly, the thing to write down. It is deliberately not the same fact: holding a settlement is what a `merge main` brings you, and being measured against one is a choice. An elector who has absorbed a resolution they abstained from holds it and may well not mean to stand on it.",
+      "violations": [
+        {
+          "node": "ma/hydrologist",
+          "detail": "no `Baseline:` trailer — it holds every settlement, through `tailwater-regime`",
+          "severity": "info",
+          "in_baseline": false
+        }
+      ]
+    },
+    {
+      "id": "elector-holds-unadopted",
+      "title": "Elector branch holds a resolution it took no part in and has not adopted",
+      "severity": "info",
+      "rationale": "A resolution binds the electors whose tips it read. Everyone else may read it, cite it,          adopt it or build on it, and until they declare it as their baseline it is not what          their position is measured against — Article VI, which says the sangha exercises the          minimum authority needed and that divergence is not a violation. Merging `main` cannot          be what binds: it is how the corpus stays shared, and the protocol requires it mid-loop.          So this reports the gap between what a branch has absorbed and what it says it stands          on, at Info, because the gap is a legitimate state rather than a defect. What it is not          is invisible, which is what it was: nine of nine abstainers were bound in practice with          nothing recording it.",
+      "violations": []
+    },
+    {
       "id": "broken-prose-link",
       "title": "A markdown link in prose does not resolve",
       "severity": "error",
       "rationale": "A link resolves against the directory of the file it sits in — that is what a reader's client does — so a path spelled from the repository root is broken in every file that is not at the root. Error severity, which puts it under the baseline ratchet: a link listed there and since repaired fails the build exactly as a new break does, because a list permitted to be wrong drifts and one that over-lists silently re-permits whatever it over-lists. Fenced and inline code are not read, so an example path in a shell command is not a finding.",
+      "violations": []
+    },
+    {
+      "id": "dead-line-citation",
+      "title": "A citation names lines that are not there",
+      "severity": "error",
+      "rationale": "A `#L` fragment names a line range in a file this repository owns, and unlike a heading anchor it is decidable: the range either exists and holds text or it does not. The founding instance cited a blank line — the passage had moved and the number kept pointing at where it used to be. Error severity, under the baseline ratchet like every other citation defect a person here can fix.",
+      "violations": []
+    },
+    {
+      "id": "slid-line-citation",
+      "title": "The quoted passage is not in the cited lines",
+      "severity": "error",
+      "rationale": "An edit above a cited range moves the range off its passage without breaking anything a file-level check can see: the citation still resolves, the lines still hold text, and the text is now something else. Twelve citations rotted that way at once, silently, and two came to point at words written long after the arguments that cite them. Where the document quotes the passage it cites — the house style — the quote decides. Matched on words, in order, elisions honoured, so wrapping, emphasis and comment markers cannot manufacture a drift. Where the passage is still in the file and in exactly one place, the finding names the range it moved to: the same matching that found the drift decides it, and re-deriving that by hand was the whole recurring cost. That range is where the quoted words are and nothing wider, so a citation that deliberately spanned more than it quoted is widened back out by hand.",
+      "violations": []
+    },
+    {
+      "id": "citation-label-not-cited",
+      "title": "A citation's label names something its lines do not say",
+      "severity": "error",
+      "rationale": "The strong anchor is a quote, and 119 of this repository's 150 line citations carry none. Each of those was checked for existence and nothing else, which leaves the whole of the interesting failure uncovered: a range that slides onto lines that are neither blank nor quoted is invisible to `dead-line-citation` and `slid-line-citation` at once. Seven citations had already rotted through that gap when a person found them by hand while looking at something else (#627), and six of the seven were labelled with the very check they cited. The label is the anchor they were carrying all along: the house writes a citation of code with its symbol in the label and its coordinate in the fragment, so the label is a claim about the target's content that a check can decide. Read only where nothing quotes the passage — a quote is better evidence and decides alone — and only where the label names a symbol rather than restating the line number, which is the other house form and 104 of the 119. Matched on words exactly as a quote is, so wrapping, emphasis and an argument list cannot manufacture a drift, and any one `::` segment is enough. Error, under the baseline ratchet like every other citation defect a person here can fix: this is a latch on a population that is already correct, not a backlog.",
+      "violations": []
+    },
+    {
+      "id": "unverified-line-citation",
+      "title": "A line citation with nothing to hold it to",
+      "severity": "info",
+      "rationale": "A citation with neither anchor can only be checked for existence, and a range that slid onto the wrong lines still exists. Info is not the whole answer to that and was never meant to be — seven citations rotted through this exact gap and nothing found them (#632). What closes the part of it that the document can close is `citation-label-not-cited`, which reads the symbol a code citation labels as the anchor a quote would have been. What is left here is the residue: a citation whose label restates the line number and whose prose says nothing about the passage. There, the document holds no claim about the target at all, and only a recorded digest of the cited lines could tell a slide from an edit — an artifact with a staleness question of its own, weighed against this and declined (#632). So the severity stays Info, because the remedy — quote the passage, label the symbol, widen to a stable range, or drop the fragment — is a judgement about the document and not a defect in the corpus. Never gates, never baselined. The count is the thing to watch: it is how much of the citation surface is taken on trust.",
+      "violations": []
+    },
+    {
+      "id": "citation-range-stated-twice",
+      "title": "A citation's label and its link name different lines",
+      "severity": "error",
+      "rationale": "The house style states the cited range twice — `[`file.rs:12-19`](../file.rs#L12-L19)` — and 134 of the 149 line citations in this repository write both copies. Until #622 nothing read the left-hand one, so the two could disagree indefinitely: the scan sees the fragment, and the label is what a reader's eye lands on. The failure this forecloses is half a repair. A citation that slid is fixed by editing a number, and editing the one number that resolves leaves the other one lying. No citation disagreed on the day this landed, which is the point — it is a latch on a population that is already correct, not a backlog. A label that names no range is the other house form and not a finding: most citations of code label a symbol.",
       "violations": []
     },
     {

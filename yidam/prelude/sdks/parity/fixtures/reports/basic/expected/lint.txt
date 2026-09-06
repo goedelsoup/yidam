@@ -17,3 +17,16 @@ WARN [catalog-used-by-drift] `used-by` list disagreeing with the citations — 1
 
 INFO [orphan-in] Node nothing points to — 1 finding(s)
   .yidam/corpus/concept/tailwater.yml: nothing links to this node — uncited since 2026-01-01, 2 commit(s)
+
+ERROR [resolution-elector-unregistered] Resolution names a ma/* branch no elector row registers — 1 finding(s)
+  .yidam/sangha/resolutions/silt-budget.md: `ma/dredger` is read as a tip and `electors.md` registers no such branch
+
+WARN [resolution-executor-unrecorded] Resolution record does not name the seat that executed it — 1 finding(s)
+  .yidam/sangha/resolutions/silt-budget.md: no `synthesized-by:` — the record names which tips were read and not who read them
+
+WARN [resolution-scope-unverifiable] Resolution's scope fidelity could not be decided here — 2 finding(s)
+  .yidam/sangha/resolutions/silt-budget.md: 2 of 2 tip(s) name no commit here — ma/hydrologist@ccccccc, ma/dredger@ddddddd — this resolution's scope was not checked
+  .yidam/sangha/resolutions/tailwater-regime.md: 2 of 2 tip(s) name no commit here — ma/hydrologist@aaaaaaa, ma/gauge-reader@bbbbbbb — this resolution's scope was not checked
+
+INFO [elector-baseline-undeclared] Elector branch does not say which evolution it is measured against — 1 finding(s)
+  ma/hydrologist: no `Baseline:` trailer — it holds every settlement, through `tailwater-regime`

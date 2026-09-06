@@ -87,28 +87,53 @@ struct Channel {
     marker: &'static str,
     /// The substring `.github/workflows/install-channels.yml` must contain to be running it.
     probe: &'static str,
+    /// How *this* channel proves it obtained the released version rather than merely
+    /// something.
+    ///
+    /// It used to be `yidam --version` for every channel, hardcoded in one assertion, because
+    /// every channel delivered the binary. Two of them now deliver a VS Code extension, which
+    /// has no `--version` and is never on `PATH` — and a count of `yidam --version` against
+    /// `CHANNELS.len()` would have failed those for the wrong reason, or been lowered until it
+    /// asserted nothing.
+    ///
+    /// **It is the comparison, not the command.** `yidam --version` was the first spelling
+    /// here and it failed `installer-linux`, which verifies the version by running
+    /// `"$HOME/.local/bin/yidam" --version` — the binary is not on `PATH` inside that
+    /// container. The literal appeared only in the step's `name:`, which is the hole this file
+    /// already knows about from the other direction. What every channel genuinely has in
+    /// common is that it compares what it obtained against the release the workflow resolved.
+    version_probe: &'static str,
 }
+
+/// What each family of channels compares against: the release its own job resolved, rather
+/// than a version hardcoded anywhere.
+const CLI_VERSION: &str = "needs.released.outputs.version";
+const EDITOR_VERSION: &str = "needs.editor-released.outputs.version";
 
 const CHANNELS: &[Channel] = &[
     Channel {
         opener: "curl -fsSL",
         marker: "install.sh | sh",
         probe: "install.sh | sh",
+        version_probe: CLI_VERSION,
     },
     Channel {
         opener: "brew install",
         marker: "brew install goedelsoup/tap/yidam",
         probe: "brew install goedelsoup/tap/yidam",
+        version_probe: CLI_VERSION,
     },
     Channel {
         opener: "cargo binstall",
         marker: "cargo binstall yidam",
         probe: "cargo binstall",
+        version_probe: CLI_VERSION,
     },
     Channel {
         opener: "cargo install",
         marker: "cargo install --git",
         probe: "cargo install --git",
+        version_probe: CLI_VERSION,
     },
     // `marker` and `probe` are the same string, and deliberately carry the tool option: a
     // job that resolved the binary without `version_prefix` would be checking a channel
@@ -119,6 +144,51 @@ const CHANNELS: &[Channel] = &[
         opener: "mise use",
         marker: "github:goedelsoup/yidam[version_prefix=cli/v]",
         probe: "github:goedelsoup/yidam[version_prefix=cli/v]",
+        version_probe: CLI_VERSION,
+    },
+    // ── the bundle, which is a channel with no install command at all ──────────────────
+    //
+    // #421. Every other row here is a line someone types; this one is a file someone drags
+    // onto an application, which is the entire point of it — the audience is the person who
+    // cannot install a Rust binary. `open <file>` is what that gesture is in a shell, and it
+    // is documented as the alternative rather than the instruction.
+    //
+    // The channel is checked the way `editor-vsix` is, and for the same reason: the artifact
+    // is a zip, so the manifest inside it is this channel's `yidam --version` — an asset that
+    // downloads is not evidence it is the one that was cut. It goes further than the .vsix
+    // job can, because this archive carries an executable: the job runs the bundled binary
+    // and makes it say its own version, on a macOS runner, which is the only check here that
+    // exercises the bytes a Claude Desktop user actually runs.
+    Channel {
+        opener: "open yidam-",
+        marker: ".mcpb",
+        probe: "manifest.json",
+        version_probe: CLI_VERSION,
+    },
+    // ── the extension is a channel too, and was exempt for as long as it was unlisted ──
+    //
+    // #313 asked for two things: document how the extension is obtained, and check that the
+    // documentation can succeed. The documentation landed, in `README.md` and
+    // `docs/editor-setup.md`. The check landed for Open VSX only, and the `.vsix` line stayed
+    // uncovered — not by a decision, but because no `opener` matched it, which is precisely
+    // the silent exemption `every_channel_can_be_seen_by_the_collector` exists to describe.
+    //
+    // It is the line that matters most. Open VSX does not serve VS Code proper, so for a VS
+    // Code user the release asset is not a fallback — it is the only route the extension has,
+    // and it was the one nothing asked about. `install-channels.yml` said so in a comment.
+    Channel {
+        opener: "codium --install-extension",
+        marker: "codium --install-extension goedelsoup.yidam-vscode",
+        probe: "open-vsx.org",
+        version_probe: EDITOR_VERSION,
+    },
+    Channel {
+        opener: "code --install-extension",
+        marker: "code --install-extension yidam-vscode-",
+        // The manifest inside the archive, which is this channel's `yidam --version`: an
+        // asset that downloads and unpacks is not evidence it is the one that was cut.
+        probe: "extension/package.json",
+        version_probe: EDITOR_VERSION,
     },
 ];
 
@@ -127,7 +197,19 @@ const CHANNELS: &[Channel] = &[
 /// are not distribution channels — but they open with `cargo install` and would otherwise
 /// read as an unchecked one. Named here rather than filtered by shape, so that calling a
 /// line "not a channel" stays a decision someone wrote down.
-const NOT_A_CHANNEL: &[&str] = &["cargo install --path"];
+const NOT_A_CHANNEL: &[&str] = &[
+    "cargo install --path",
+    // `code --install-extension yidam/editors/vscode/dist/yidam-vscode.vsix`, under "Or build
+    // it from a checkout". The path is the point: it names a file `mise run ext-package`
+    // writes inside this repository, so there is no release, registry or asset for it to be
+    // wrong about. The release-asset line two blocks above it — `yidam-vscode-<version>.vsix`
+    // — is a channel and is not exempted by this.
+    //
+    // Found by adding the `code --install-extension` opener, which is the whole argument for
+    // deriving openers from `CHANNELS`: the line had been in `README.md` and
+    // `docs/editor-setup.md` all along, collected by nothing.
+    "yidam/editors/vscode/dist/",
+];
 
 fn documented_install_lines(doc: &str) -> Vec<String> {
     read(doc)
@@ -187,6 +269,60 @@ fn workflow_commands(text: &str) -> String {
         }
     }
     commands.join("\n")
+}
+
+/// Every job in the workflow, as (job name, the text of its `run:` steps).
+///
+/// Needed because a *count* of version assertions cannot say which channel made them. Two
+/// channels assert with the editor release's own output and one job says it three times, so a
+/// per-probe count of two was satisfied while the other job asserted nothing — measured by
+/// deleting that job's comparison and watching this file stay green.
+///
+/// Jobs are the two-space keys under `jobs:`, which is how this file is written throughout.
+fn workflow_jobs(text: &str) -> Vec<(String, String)> {
+    let mut jobs: Vec<(String, String)> = Vec::new();
+    let body = match text.split_once("\njobs:\n") {
+        Some((_, rest)) => rest,
+        None => return jobs,
+    };
+    let mut current: Option<(String, String)> = None;
+    for line in body.lines() {
+        let is_job_key = line.starts_with("  ")
+            && !line.starts_with("   ")
+            && line.trim_end().ends_with(':')
+            && !line.trim_start().starts_with('#');
+        if is_job_key {
+            if let Some(job) = current.take() {
+                jobs.push(job);
+            }
+            let name = line.trim().trim_end_matches(':').to_string();
+            current = Some((name, String::new()));
+        } else if let Some((_, buf)) = current.as_mut() {
+            buf.push_str(line);
+            buf.push('\n');
+        }
+    }
+    if let Some(job) = current {
+        jobs.push(job);
+    }
+    jobs.into_iter()
+        .map(|(name, text)| {
+            // `::error::` lines are dropped, and that is the point rather than tidiness. Every
+            // one of these jobs names the expected version in its failure message as well as
+            // in its comparison, so a mutation that deletes the comparison and leaves the
+            // message reads as still checking — measured: `installer-linux`'s
+            // `case "yidam ${{ … }} "*)` was replaced with `case "yidam "*)` and this file
+            // stayed green, because the `::error::` echo below it still carried the string.
+            //
+            // A message that names the release is not a check of it.
+            let commands = workflow_commands(&text)
+                .lines()
+                .filter(|l| !l.contains("::error::"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            (name, commands)
+        })
+        .collect()
 }
 
 /// Nothing may be documented as an install path without something running it.
@@ -281,25 +417,64 @@ fn every_channel_can_be_seen_by_the_collector() {
     );
 }
 
-/// Each channel must prove it installed the *released* version, not merely something.
+/// Each channel must prove it obtained the *released* version, not merely something.
 ///
 /// A tap that lags a release, or a binstall that quietly compiled from source, both end with
-/// a working `yidam` on PATH. Only the version tells them apart.
+/// a working `yidam` on PATH. Only the version tells them apart. The same holds for a `.vsix`
+/// that downloads and unpacks: that is not evidence it is the one that was cut.
+///
+/// **Asserted in the job that obtains it, not counted across the file.** Two earlier shapes of
+/// this test both passed a mutation that deleted a real comparison:
+///
+/// - counting occurrences in the raw file, where a job `name:` and the comment above a step
+///   answer for the step — the hole `workflow_commands` exists for, on another test, and this
+///   one had it too;
+/// - counting them per `version_probe` across all jobs, where `editor-openvsx` says
+///   `needs.editor-released.outputs.version` three times and so covered the quota for two
+///   channels while `editor-vsix` asserted nothing.
+///
+/// Both were measured by deleting the comparison and leaving its comment. So the claim is now
+/// the one that was meant all along: the job whose steps run this channel's `probe` is the job
+/// whose steps must contain its `version_probe`, read with `::error::` lines removed — see
+/// [`workflow_jobs`] for the third mutation that made that last clause necessary.
+///
+/// It is still a substring check over shell, and there is a shape it cannot see: a comparison
+/// rewritten to compare against something *else* that happens to mention the release nearby.
+/// No substring check can. That is what review is for; what this closes is the whole class of
+/// channel with no assertion at all, which is the one that let a stale tap look healthy.
 #[test]
 fn each_channel_asserts_the_released_version() {
     let workflow = read(".github/workflows/install-channels.yml");
-    let checks = workflow.matches("yidam --version").count();
+    let jobs = workflow_jobs(&workflow);
     assert!(
-        checks >= CHANNELS.len(),
-        "install-channels.yml runs `yidam --version` {checks} time(s) for {} documented \
-         channel(s); every channel must assert what it installed",
+        jobs.len() > CHANNELS.len(),
+        "the job split found {} job(s) in a workflow with {} channels; it is parsing the \
+         wrong thing and every assertion below is vacuous",
+        jobs.len(),
         CHANNELS.len()
     );
-    assert!(
-        workflow.contains("needs.released.outputs.version"),
-        "install-channels.yml must compare against the latest release's version; asserting \
-         that *a* binary runs is what let a stale tap look healthy"
-    );
+
+    for channel in CHANNELS {
+        let running: Vec<&(String, String)> = jobs
+            .iter()
+            .filter(|(_, cmds)| cmds.contains(channel.probe))
+            .collect();
+        assert!(
+            !running.is_empty(),
+            "no job's `run:` steps contain `{}`, so nothing obtains the {} channel",
+            channel.probe,
+            channel.marker
+        );
+        for (name, cmds) in running {
+            assert!(
+                cmds.contains(channel.version_probe),
+                "job `{name}` obtains the `{}` channel and never checks `{}` — it proves \
+                 something was installed and not that it was the release",
+                channel.marker,
+                channel.version_probe
+            );
+        }
+    }
 }
 
 /// The check must run without anyone remembering to run it, and must run when it lands.
@@ -472,8 +647,15 @@ fn the_cross_compile_check_mirrors_the_release_build() {
 /// nothing about bumping a version forces the line to move, and a reader who follows it
 /// installs whatever was current when it was last edited.
 ///
-/// The other channels resolve "latest" at install time and cannot drift this way. This one
-/// buys reproducibility with a version in prose, and prose is the thing that rots.
+/// The `.mcpb` bundle is the second such pin and arrived later (#421). Its asset name
+/// *contains* the version — `yidam-0.9.0-aarch64-apple-darwin.mcpb` — so a documented line
+/// naming one is a filename that 404s the day after a release, handed to the one audience
+/// this project has that cannot diagnose it. Scanned here rather than in a test of its own,
+/// because "a version written into prose" is one hazard with two instances, and the loop
+/// that only knew about the first is how the second went uncovered while this test was green.
+///
+/// The other channels resolve "latest" at install time and cannot drift this way. These buy
+/// reproducibility with a version in prose, and prose is the thing that rots.
 ///
 /// Every document, not just the README. `release.sh` rewrites no prose at all — both pins
 /// this repository carries moved by hand in the release commit, and only one of them had a
@@ -502,11 +684,43 @@ fn every_pinned_tag_is_the_version_this_repository_declares() {
             );
             pinned += 1;
         }
+        for line in text.lines().filter(|l| l.contains(".mcpb")) {
+            // Only *filenames*, and this used to read `line.contains("yidam-")`.
+            //
+            // `.mcpb` is also written about as a format — "an `.mcpb` is a zip holding a
+            // manifest" — and prose about the format carries no version to be wrong, so the
+            // filter has always had to tell the two apart. A line-wide `yidam-` was a fine
+            // proxy while `yidam-` began exactly one thing. RFC-0030 adds a second
+            // (`yidam-edit`, the web editor surface), so a sentence contrasting the bundle
+            // with it — *"a `.mcpb` bundle contains the binary; `yidam-edit` contains no
+            // binary"* — matched, and was reported as a stale release filename.
+            //
+            // So the filter reads the token rather than the line: an asset name is a
+            // whitespace-delimited word ending in `.mcpb` and beginning `yidam-`. That is
+            // strictly narrower on prose and no weaker on filenames, which is the only
+            // direction this may safely move — a filter that stopped seeing a real asset
+            // name would let exactly the 404 this test exists for through.
+            for token in line
+                .split_whitespace()
+                .map(|t| {
+                    t.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.' && c != '-')
+                })
+                .filter(|t| t.ends_with(".mcpb") && t.starts_with("yidam-"))
+            {
+                assert!(
+                    token.starts_with(&format!("yidam-{declared}-")),
+                    "{doc} names a bundle from a different release than yidam/cli/Cargo.toml \
+                     declares ({declared}):\n  {token}\nThat filename is a 404 for the one \
+                     channel whose users cannot diagnose it."
+                );
+                pinned += 1;
+            }
+        }
     }
     assert!(
         pinned > 0,
-        "no document pins a `cargo install --git … --tag cli/v…` line; if that channel was \
-         removed, remove this test with it"
+        "no document pins a `cargo install --git … --tag cli/v…` line or an `.mcpb` asset \
+         name; if those channels were removed, remove this test with them"
     );
 }
 
@@ -703,10 +917,23 @@ fn the_release_publishes_build_provenance_for_what_it_ships() {
          artifact attestations\" on every install of this binary and finds nothing there, \
          which reads to a user exactly as verification passing."
     );
+    // Scoped to the attest step's own subject list rather than matched against the whole
+    // job, because `gh release create` names the same glob and would answer for this. The
+    // spelling of the list is not pinned — it became a block scalar when the `.mcpb` bundles
+    // joined it (#421), and a test that fails on YAML style rather than on coverage is one
+    // that gets edited without being read.
+    let subjects = publish
+        .split("subject-path:")
+        .nth(1)
+        .expect("the attestation step names no subjects")
+        .split("\n      - ")
+        .next()
+        .unwrap();
     assert!(
-        publish.contains("subject-path: 'dist/*.tar.gz'"),
+        subjects.contains("dist/*.tar.gz"),
         "the attestation does not cover `dist/*.tar.gz` — the assets every channel actually \
-         downloads. An attestation over something else is the absence with extra steps."
+         downloads. An attestation over something else is the absence with extra steps. \
+         Subjects: {subjects:?}"
     );
     for permission in ["id-token: write", "attestations: write"] {
         assert!(
@@ -724,4 +951,115 @@ fn the_release_publishes_build_provenance_for_what_it_ships() {
          job-level block replaces the workflow-level one, so `gh release create` would be \
          publishing without permission to write the release"
     );
+}
+
+/// The notes for a release must start from the previous release **of its own layer**.
+///
+/// `nothing_resolves_a_layer_release_through_the_repository_latest` is the same finding at a
+/// different call site, and this is the fourth. `releases/generate-notes` picks a base when
+/// `previous_tag_name` is omitted, and on `cli/v0.9.0` it picked `cli/v0.7.0` — past
+/// `cli/v0.8.0`, which exists, is a release, is an annotated tag on `main`, and is an ancestor
+/// of the tag being cut. The published notes listed 37 pull requests where 16 belonged to the
+/// release; everything from #497 on had already shipped (#555).
+///
+/// It is a content defect rather than a broken link, and the least alarming shape one can
+/// take: a changelog that is too long reads like a busy release.
+#[test]
+fn the_release_notes_start_from_this_layers_previous_release() {
+    let workflow = read(".github/workflows/release.yml");
+    let commands = workflow
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        commands.contains("previous_tag_name"),
+        "release.yml generates notes without `previous_tag_name`, so GitHub chooses the base. \
+         It chose one release too far back on cli/v0.9.0 and repeated a whole release's \
+         changelog."
+    );
+    assert!(
+        commands.contains("previous-release-tag.sh"),
+        "release.yml must resolve the previous tag per layer. A hardcoded one is a second \
+         place the version lives, and omitting it is the defect above."
+    );
+}
+
+/// The resolution itself, run against fixtures rather than the network.
+///
+/// The workflow's copy is exercised by cutting a release, which is a poor place to learn that
+/// a shell expansion was wrong. This drives the same script the workflow calls.
+///
+/// The fixture interleaves layers in *creation* order the way this repository's really does,
+/// because that ordering is what the first version of the script got wrong: it took the newest
+/// release of the layer that was not the tag itself, which is correct only while the tag being
+/// cut is the newest one. Asked about a historical tag it answered with a *later* release.
+/// That had no reachable symptom in the release flow — it only ever cuts the newest — and
+/// would have grown one the first time somebody re-cut an old tag.
+#[test]
+fn the_previous_release_resolution_answers_per_layer() {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let script = repo_root().join(".github/scripts/previous-release-tag.sh");
+    assert!(script.is_file(), "{} is missing", script.display());
+
+    // Newest-first, as the releases API returns them, and deliberately not in version order.
+    const RELEASES: &str = r#"[
+      {"tag_name": "cli/v0.10.0"},
+      {"tag_name": "v0.3.0"},
+      {"tag_name": "cli/v0.9.0"},
+      {"tag_name": "sdk/rust/v0.4.0"},
+      {"tag_name": "cli/v0.8.0"},
+      {"tag_name": "editor/v0.2.0"},
+      {"tag_name": "editor/v0.1.0"}
+    ]"#;
+
+    let cases: &[(&str, &str)] = &[
+        // `0.10.0` sorts above `0.9.0` by version and below it as a string.
+        ("cli/v0.10.0", "cli/v0.9.0"),
+        // A tag that is not the newest release of its layer: the answer is the one below it,
+        // never the one above.
+        ("cli/v0.9.0", "cli/v0.8.0"),
+        // The layer's earliest release has no predecessor, and "" is the answer rather than
+        // an error — the caller omits `previous_tag_name` on it.
+        ("cli/v0.8.0", ""),
+        ("editor/v0.2.0", "editor/v0.1.0"),
+        ("editor/v0.1.0", ""),
+        // Layers with exactly one release, and a tag whose prefix is a prefix of nothing else.
+        ("sdk/rust/v0.4.0", ""),
+        ("v0.3.0", ""),
+        // A tag with no release yet — the ordinary case, since notes are generated before the
+        // release is created.
+        ("cli/v0.11.0", "cli/v0.10.0"),
+    ];
+
+    for (tag, expected) in cases {
+        let mut child = Command::new(&script)
+            .arg(tag)
+            .current_dir(repo_root())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("the resolution script runs");
+        child
+            .stdin
+            .take()
+            .expect("stdin is piped")
+            .write_all(RELEASES.as_bytes())
+            .expect("the fixture is written");
+        let out = child.wait_with_output().expect("the script terminates");
+        assert!(
+            out.status.success(),
+            "resolving {tag} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let got = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        assert_eq!(
+            &got, expected,
+            "previous release of {tag}: expected {expected:?}, got {got:?}"
+        );
+    }
 }

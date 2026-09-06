@@ -15,8 +15,8 @@
   "operational": 1,
   "entries": [
     {
-      "hash": "3689a832119779781c59c0b111d32ae34d7ebc65",
-      "short": "3689a832",
+      "hash": "e0deec6ea5e48884c6fd872019859f3e6e519f93",
+      "short": "e0deec6e",
       "kind": "epistemic",
       "verb": "revise",
       "subject": "revise: the corpus carries a claim tag of each kind",
@@ -24,8 +24,8 @@
       "date": "2026-01-01T00:00:00Z"
     },
     {
-      "hash": "057378f9bbe067cd1588633fd1eb68d736325034",
-      "short": "057378f9",
+      "hash": "1ff145ac15230765d2e2a1a5689d645580e3f8b4",
+      "short": "1ff145ac",
       "kind": "epistemic",
       "verb": "genesis",
       "subject": "genesis: reports fixture",

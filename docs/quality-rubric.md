@@ -9,7 +9,7 @@ cannot disagree for long: `the_docs_copy_of_the_rubric_states_the_same_criteria`
 build when these tables drift from it. It caught Q7 already, worded one way here and another
 there since both were written.
 
-### Structural checks (pass/fail)
+## Structural checks (pass/fail)
 
 | ID | Check |
 |---|---|
@@ -21,7 +21,7 @@ there since both were written.
 | `S6` | The `.yidam/` scaffold exists (`catalog`, `corpus`, `decisions`, `skills`) |
 | `S7` | No instance node exceeds 40 lines |
 
-### Quality checks (scored `pass` / `marginal` / `fail`)
+## Quality checks (scored `pass` / `marginal` / `fail`)
 
 | ID | Criterion |
 |----|-----------|
@@ -34,7 +34,7 @@ there since both were written.
 | Q7 | Ontology matches `good_bootstrap_looks_like` from the scenario |
 | Q8 | Edges assert only relationships the domain supports |
 
-### Regression thresholds
+## Regression thresholds
 
 A run is a regression if:
 - Any structural check changes from pass → fail

@@ -1,11 +1,12 @@
 # RFC-0025 — The instrument, turned around: measuring the repository that measures
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Track:** I20
-- **Relates to:** RFC-0001 (the report envelope this reuses rather than extends), RFC-0003 (the
-  feature split that constrains what a coverage number may claim), RFC-0023 (the read/build
-  split that created the middle build nobody's CI compiles), RFC-0024 (the guard-mirror
-  precedent, and the mutation discipline this automates without replacing)
+- **Relates to:**
+  - RFC-0001 (the report envelope this reuses rather than extends)
+  - RFC-0003 (the feature split that constrains what a coverage number may claim)
+  - RFC-0023 (the read/build split that created the middle build nobody's CI compiles)
+  - RFC-0024 (the guard-mirror precedent, and the mutation discipline this automates without replacing)
 - **Versioning layers touched:** **none released.** This is repository infrastructure and a docs
   deployment. Layer 4 is touched only incidentally — `export-web`'s stylesheet is rebuilt from
   the token source with no change to its output format. No new subcommand, no `format_version`
@@ -107,7 +108,7 @@ reader on `cli/v0.2.0` gets documentation for unreleased tooling with nothing on
 so — including `cli-reference`, which `cli_reference.rs` keeps faithful to `main`'s binary and to
 no other.
 
-## Design
+## Proposal
 
 ### The measurement contract is the existing envelope, reused as a type
 
@@ -281,6 +282,11 @@ Beyond that, each phase golden-fixtures its output where output is a contract:
   second opinion on them. Where the two touch the same guard tests, RFC-0024 wins.
 - **No coverage threshold that fails a build.** Diff coverage is reported and read. Whether it
   ever becomes a gate is a decision for after the first month of data.
+
+- **No mutation gate.** `cargo-mutants` reports survivors into a job summary and fails on
+  nothing. It is measured weekly and scoped by cost: #468 measured one mutant at roughly 80
+  seconds — a 28s build and a 56s test run — so the 586 mutants in `cmd/lint/` alone would be
+  thirteen hours. The scope is the modules where a survivor means something, not the codebase.
 - **No CI latency budget increase beyond ~5 minutes on a pull request.** Today a PR gate is 1-3
   minutes. nextest is faster than `cargo test`; `cargo-deny` is seconds. `cargo-mutants` and
   full-repo coverage go on the weekly schedule `cli-full` already uses.
@@ -290,17 +296,30 @@ Beyond that, each phase golden-fixtures its output where output is a contract:
 
 ## Open questions
 
-1. **Does the series belong in git?** P7 appends one record per main push to a committed file, on
-   the argument that git is the one store this repository already trusts and that
-   `.yidam/`-shaped history is its whole thesis. The cost is a commit on `main` per push, from CI,
-   which no workflow here does today. The alternative — a Pages-side artifact — has no history
-   older than the last deploy. Settle in #468 before the first record is written, because the
-   answer is hard to change once there is a year of them.
+1. ~~**Does the series belong in git?**~~ **Settled in #468: git, on an orphan branch.**
+
+   Git, for the reason the question gave — it is the one store this repository already trusts,
+   and a Pages-side artifact has no history older than the last deploy. But on a
+   `quality-series` orphan branch rather than a file on `main`, which the question did not
+   consider. A bot commit per push to `main` would land in `git log main` beside real work,
+   would race a human push, and — `ci.yml` being `on: push: branches: [main]` — would
+   re-trigger the run that wrote it. The orphan branch costs one ref and a `git fetch` in the
+   docs build, and none of that.
+
+   `yidam/tests/harness/ci-report/series-branch-README.md` is committed to that branch and
+   carries the reasoning where somebody who lands on it will read it.
 2. **Which surfaces are inside the adherence lint?** P4 discovers consumers by token reference,
    which is correct for CSS and JSX and says nothing about the VS Code extension, whose colors come
    from the editor's own theme API. Is a webview in scope? It renders in this repository's design
    language and cannot use its tokens directly.
-3. **What happens to a version's docs when its tag is yanked?** P5 builds from released `cli/v*`
-   tags. `publish-crates.yml:20-24` is clear that a yanked crate version is still downloadable by
-   anything that already resolved it — so its documentation arguably must stay up. Nothing decides
-   this, and it is the same shape as question 1: cheap now, expensive after the fact.
+3. ~~**What happens to a version's docs when its tag is yanked?**~~ **Settled in #466: dropped
+   entirely.** A yanked release is a retracted release, documentation included, and its URLs 404.
+   The argument against — that a yanked crate is still downloadable by anything that already
+   resolved it, so somebody may still be running it — was weighed and not taken.
+
+   Two consequences, implemented rather than left to be discovered. The published set of paths is
+   **not monotonic**: a yank removes live URLs with no release having happened, so a link that
+   worked yesterday can 404 today. And the build now depends on crates.io, which means an
+   unreachable crates.io must degrade toward *publishing* — a lookup that failed yields "nothing
+   known to be yanked", never "drop everything", or an outage elsewhere would withdraw this site's
+   documentation. `scripts/versions.mjs` enforces the direction; `test/versions.mjs` asserts it.

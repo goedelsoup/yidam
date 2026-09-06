@@ -1,6 +1,6 @@
 # RFC-0013 — Closing RFC-0002: the node-model open questions
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I8
 - **Relates to:** RFC-0002 (resolves its open questions), RFC-0001 (blocked on this), RFC-0006 (tag
   reconciliation)

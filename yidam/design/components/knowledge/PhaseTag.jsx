@@ -4,7 +4,7 @@ const PHASE = {
   Investigation: { bg: 'var(--phase-investigation-bg)', fg: 'var(--phase-investigation-fg)', border: 'var(--rigpa-100)' },
   Extraction:    { bg: 'var(--phase-extraction-bg)',    fg: 'var(--phase-extraction-fg)',    border: 'var(--gold-200)'  },
   Synthesis:     { bg: 'var(--phase-synthesis-bg)',     fg: 'var(--phase-synthesis-fg)',     border: 'var(--ma-200)'   },
-  Assessment:    { bg: 'var(--phase-assessment-bg)',    fg: 'var(--phase-assessment-fg)',    border: '#aad4b4'         },
+  Assessment:    { bg: 'var(--phase-assessment-bg)',    fg: 'var(--phase-assessment-fg)',    border: 'var(--jade-200)'  },
 };
 
 export function PhaseTag({ phase }) {

@@ -20,6 +20,21 @@ A participant becomes a recognized elector by:
 
 The first elector registers themselves.
 
+### What a registration records
+
+An agent elector records what it is at registration — model, version, and a hash of its
+operative configuration — in the columns [electors.md](electors.md) describes. A material
+change is recorded as an update, so the ancestry of a position includes the state of the
+agent that held it; a model upgrade is material, and the config hash is what makes
+"material" detectable rather than a matter of opinion.
+
+A seat may also bind an SSH public key, and binding one is a declaration: `yidam lint`
+generates the allowed-signers file from `electors.md` and verifies that seat's branch tip
+against the key its own row carries. A seat that binds none is not in violation of
+anything — it has said its commits are unverifiable, which is the state every seat is in
+until somebody decides otherwise. Recording any of this grants a seat nothing; Article II
+governs weight and Article III governs record, and `electors.md` says so at the top.
+
 ## Calling a resolution
 
 Any elector may call a resolution by:
@@ -32,6 +47,24 @@ Not every divergence warrants resolution. Call one when:
 - A shared question is sufficiently explored and the positions want synthesis
 - An axiom is contested and dependent nodes cannot be trusted until it is settled
 - A new phase of inquiry requires a common baseline
+
+## Who may execute one
+
+**Any recognized elector, whether or not they called it.** Calling was specified here from the
+start; executing was not, and the executor holds the one pen Articles III–V are written to bound —
+it decides what the collective understanding *is*, which tensions become open questions, and what
+the rigpa records.
+
+A standing designated-synthesizer role would be exactly the privilege Article II forbids: no
+elector's position is privileged "by identity, seniority, or the model that produced it." So
+execution authority is universal, and it is bounded by *what* the executor may do rather than by
+*who* they are. Holding the pen is not a tiebreaker. If the executor's own position is in tension
+with another's, that tension becomes an open-question node under step 5 like any other — never a
+claim the executor settles in their own favour because they were the one typing.
+
+The caller and the executor may differ, and often should: the elector who noticed a tension is not
+always the one best placed to synthesize it. Only the executor is recorded, in `synthesized-by`
+below.
 
 ## Resolution procedure
 
@@ -105,10 +138,31 @@ after one pass. The loop is not a quota.
    and edges present in at least one elector's position. Do not add content from outside
    the positions.
 
+   **A node or an edge here is decided rather than judged**, and `yidam lint` decides it —
+   `resolution-scope-unheld` reads the `tips:` this record names, resolves each one, and asks
+   whether the node stood in the corpus there or was named in a position filed there. Article
+   V's third object, a *claim*, is deliberately not checked: a node and an edge carry an
+   identity of their own and a claim does not, so that judgement stays with the synthesizer
+   under Article II. See the commentary under Article V in
+   [CONSTITUTION.md](../.vendor/prelude/CONSTITUTION.md).
+
+   The rule this most often catches is the one the commentary states: **a class is not its
+   instances.** A position arguing that a class should exist does not hold the instances of
+   it, so a resolution adopting the class and seating its first instances in the same commit
+   is introducing nodes no elector held. In the repository that has run this protocol that is
+   three of twenty-nine resolutions, and every one of them is that mistake.
+
 5. **Open tensions** — Any genuine disagreement that cannot be synthesized without
    choosing one elector's position over another must become an open-question node
    in the corpus. Title the node as the question. Do not silently collapse divergent
    positions into a single claim.
+
+   An open-question node is the one thing Article V lets a resolution introduce that no
+   elector held, and **it is licensed by this record and nothing else** — name the node under
+   `What remains open` below. Nothing in the corpus model marks such a node; there is no class
+   for it and no field. Tying the exception to the record is not a workaround for the missing
+   marker but the right place for it, because what makes the node legal is the resolution
+   saying the question is still open.
 
 6. **Commit** — Create the `rigpa/<evolution>` branch and commit the synthesis with the
    `resolve:` verb. The commit message must include:
@@ -144,6 +198,7 @@ A round that adds nothing ends the loop. Three things that are *not* reasons to 
 ---
 evolution: <name matching rigpa/<evolution> branch>
 date: <YYYY-MM-DD>
+synthesized-by: ma/<elector>
 rounds: <how many times the loop ran>
 tips:
   - ma/<elector>@<short-hash>
@@ -165,6 +220,18 @@ positions:
 
 ...
 ```
+
+`synthesized-by` names the elector who executed the resolution — one seat, or a list where a
+synthesis was genuinely joint. **It is a record, not a rank.** Article II governs weight and grants
+the executor none: being named here is no standing, no tiebreak, and no priority in any later
+resolution. Article III governs record, and the human or agent who did the reading is part of the
+ancestry it demands. The record already names which tips were read; omitting who read them left the
+most consequential actor in the event the one actor the provenance omits.
+
+It is also the field that makes a seat legible at all. In the repository that has run this protocol,
+all 126 commits across three elector branches carry one git author — the operator's. Nothing in git
+distinguishes the auditor's position from the owner's, and until this field exists nothing in the
+record does either.
 
 `rounds` and `positions` are what make Article III (Provenance) checkable rather than
 asserted. Ancestry is not only which commits were read; it is which claims were contested
@@ -234,3 +301,86 @@ by merging 23 times without being told to.
 
 Prior rigpa branches are not deleted — they remain as provenance. The new
 `rigpa/<evolution>` is the active baseline.
+
+**What electors actually do is merge `main`, and that is worth knowing before you follow the
+recipe above.** Measured across 126 commits on the three elector branches of the repository that
+has run this protocol: **one** `adopt:` commit, and **72** `merge main` commits. The settlement
+lands on the baseline branch, so merging `main` picks it up along with everything else settled
+since; merging `rigpa/<evolution>` picks up that evolution and nothing after it.
+
+Three consequences, none of them yet decided — see
+[RFC-0010](https://github.com/goedelsoup/yidam/blob/main/docs/rfcs/0010-evolution-lineage.md) and
+[RFC-0011](https://github.com/goedelsoup/yidam/blob/main/docs/rfcs/0011-partial-sangha.md), which
+is where the decision belongs rather than here:
+
+1. **Merge-base cannot tell you which evolution a branch is measured against.** Asked, it returns
+   the same evolution for all three electors — four to six resolutions stale — because it reads
+   `rigpa/*` refs that nobody merges.
+2. **Merging `main` adopts resolutions you did not participate in.** All nine partial resolutions
+   in that repository are held by the elector who sat them out, absorbed this way, with nothing
+   recording that it happened.
+3. **`merge main — …` is outside the closed commit vocabulary.** An authored merge subject is not
+   the git-generated form the commit check exempts, so `main..ma/<elector>` reports thirty of them
+   — and the default range never walks an elector branch, so a workflow used seventy-two times is
+   invisible to the gate.
+
+None of that makes merging `main` wrong. Step 3 requires it mid-loop, and a corpus with a shared
+baseline is the point. It does mean that *which evolution this position is measured against* is a
+fact the branch does not currently state, and the recipe above is not the one producing the
+history.
+
+### Declaring the baseline
+
+Say it, rather than leaving it to be inferred. Put a trailer on the commit that adopts:
+
+```
+Baseline: rigpa/<evolution>@<short-hash>
+```
+
+The most recent one on a `ma/*` branch is the branch's declaration, and `yidam lint` reads it:
+`elector-baseline-unmet` gates when a branch declares an evolution no record carries, or one whose
+settlement the branch does not contain. **A baseline that is merely old is not a finding** —
+divergence from the baseline is what an elector's branch is for, and Article VI says so.
+
+### What binds, and what does not
+
+**A resolution binds the electors whose tips it read. The declaration binds everyone else, and the
+merge binds nobody.**
+
+*Holding* a settlement and *being measured against* it are two facts. Merging `main` brings you
+every settlement on it, including resolutions you took no part in — that is what arrived, not what
+you stand on, and it cannot be the act that binds without making the ordinary workflow illegal.
+Step 3 requires that merge mid-loop.
+
+So a partial resolution is baseline-of-record for its participants, and for everyone else only once
+they declare it. Article VI applied literally: the sangha exercises the minimum authority needed,
+and a subset does not move a position that was not in tension with it.
+
+Three consequences worth stating plainly, because each is a state a reader might otherwise mistake
+for a defect:
+
+- **Holding a settlement you have not declared is expected.** Every branch is in that state today.
+  Your position is measured against your last declaration; your tree carries whatever `main` has
+  settled. `elector-holds-unadopted` reports the gap at Info — it is a prompt to decide, and it
+  clears by declaring.
+- **A baseline several resolutions old is not stale.** Divergence is normal and expected; it is not
+  a violation.
+- **A resolution older than your seat is inherited, not abstained from.** You cannot have sat out a
+  settlement that predates your registration, including the resolution that registered you.
+
+Write the merge with git's own subject — which the commit check exempts — and put the declaration
+in a trailer:
+
+```
+git switch ma/<elector>
+git merge --no-ff --no-edit main
+git commit --amend --no-edit --trailer "Baseline: rigpa/<evolution>@<short-hash>"
+```
+
+The merge is not an adoption and wants no verb of its own; the trailer is the adoption, and it is
+what a later reader can check. See
+[RFC-0011](https://github.com/goedelsoup/yidam/blob/main/docs/rfcs/0011-partial-sangha.md).
+
+Until a branch declares one, `elector-baseline-undeclared` reports at Info **and names the
+evolution the branch holds through** — which is derivable from the settlements, and is what to
+write in the trailer.

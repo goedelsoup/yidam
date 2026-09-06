@@ -49,6 +49,10 @@ dist/
 # Node / TypeScript
 node_modules/
 dist/
+# The render assertions build the docs site into directories of their own, so a fixture
+# render can never become the thing that deploys (#467). The script removes them; a failed
+# run leaves them behind.
+dist-*/
 .pnpm-store/
 *.tsbuildinfo
 
@@ -101,6 +105,15 @@ yidam/prelude/sdks/spec/.lake/
 # `ci_reporting.rs` asserts the config is tracked in git rather than merely present on disk,
 # because that is the difference the local machine cannot see.
 !/.config/
+
+# The reporter's fixtures, for the same reason and found the same way.
+#
+# `cli.lcov` is a *fixture* — a hand-written coverage record the golden test reads — and
+# `*.lcov` is in the same global gitignore this repository has already been bitten by. It was
+# invisible to `git status`, absent from the commit, and the two tests that read it failed on
+# the runner and nowhere else. `quality_report.rs` now asserts every fixture is tracked,
+# because the local machine cannot see the difference.
+!/yidam/tests/harness/ci-report/tests/fixtures/**
 
 # mise
 .mise.local.toml

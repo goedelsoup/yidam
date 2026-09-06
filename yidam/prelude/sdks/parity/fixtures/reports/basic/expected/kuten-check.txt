@@ -1,0 +1,3 @@
+No kuten declared.
+
+This repository runs on the template's defaults and declares nothing about what its work is aimed at. That is a supported state, and it is not a finding.

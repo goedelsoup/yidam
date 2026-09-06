@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- An ordinary green gate, and the one a page has to render differently from the
+     fully-skipped suite above despite both being "not failing". -->
+<testsuites name="nextest-run" tests="1" failures="0">
+  <testsuite name="yidam-harness::judge" tests="1" failures="0">
+    <testcase name="the_baselines_still_agree" classname="yidam-harness::judge" time="1.250"/>
+  </testsuite>
+</testsuites>

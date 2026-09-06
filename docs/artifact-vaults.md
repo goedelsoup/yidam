@@ -23,11 +23,11 @@ graph *is* the git history:
 - **Garbage collection is exactly computable**, because the live set is the set the working
   tree names.
 
-## Nothing is configured, and that is a working state
+## The default: no vault configured
 
 A corpus with no vault keeps its artifacts in a machine-wide cache and nowhere else. That is
-every corpus until somebody configures a store, and it is not degraded — `yidam vault put`,
-`path` and `verify` all work against the cache with no repository and no configuration at all.
+every corpus until somebody configures a store, and it is not degraded. `yidam vault put`,
+`path` and `verify` all work against the cache, with no repository and no configuration at all.
 
 ```sh
 yidam vault put ~/Downloads/pearl-2009.pdf   # prints the content address
@@ -38,7 +38,7 @@ The cache lives at `$XDG_CACHE_HOME/yidam/vault` (or `YIDAM_VAULT_CACHE`) and is
 **not** partitioned by vault or by repository — two corpora citing the same paper store it
 once. A cache hit answers *do I have these bytes*, never *may I send them*.
 
-## Declaring a store
+## Declare a store
 
 ```toml
 [vault.default]
@@ -47,7 +47,7 @@ audience = "Who can read this store, and why that is acceptable."
 ```
 
 `audience` is required and nothing can check it. That is `.yidam/publishable`'s argument
-applied to a store: it is not a security control, it is a statement of intent that lives in the
+applied to a store. It is a statement of intent, not a security control — one that lives in the
 repository and outlasts the person who made it. What is enforced is that somebody wrote one.
 
 `s3://bucket/prefix` works too, with `region`, `endpoint` and `path_style` for anything
@@ -55,7 +55,7 @@ S3-compatible. **Credentials come from the environment only** — `.yidam/config
 committed and must never carry one. See [CLI reference](cli-reference.md#s3-compatible-stores)
 for the variables.
 
-## Two audiences need two stores
+## Use two stores for two audiences
 
 A repository's own index and a licensed PDF it obtained have different readerships, and one
 store cannot express both. Each vault declares what it `holds`:
@@ -73,14 +73,14 @@ holds    = ["catalog"]
 ```
 
 With more than one vault, **every** vault declares `holds`. A vault claiming nothing would have
-to be the catch-all for whatever the others did not take, and routing by default is how a
-licensed document ends up in the store meant for public output.
+to be the catch-all for whatever the others did not take. Routing by default is how a licensed
+document ends up in the store meant for public output.
 
-A record's own `vault:` overrides the route its kind would take, and `vault: none` is a route —
-the local cache and nowhere else — spelled rather than omitted, so that *nobody has decided* and
-*decided to keep it here* are different states.
+A record's own `vault:` overrides the route its kind would take. `vault: none` is a route — the
+local cache and nowhere else — spelled rather than omitted. That keeps *nobody has decided* and
+*decided to keep it here* as different states.
 
-## What refuses to leave
+## What `vault push` refuses to send
 
 `vault push` is the first egress channel yidam itself opens, and two independent rules gate it.
 Neither implies the other; an artifact clears both or neither.
@@ -100,14 +100,14 @@ verbatim. So `push --index` asks whether *everything it was derived from* may le
 | `bundle` | those, plus `.yidam/skills`, `.yidam/decisions` |
 
 A path `.yidam/private-paths` declares private that intersects one of those refuses the push
-and names it — the same rule the release workflow applies to a bundle, for the reason it gives:
-*the artifact outlives the access.*
+and names it. That is the same rule the release workflow applies to a bundle, for the reason it
+gives: *the artifact outlives the access.*
 
-**`.yidam/private-paths` applies over the top of both**, and is checked first: it is a statement
-about this repository that the person running the command can act on, while a licence is a fact
-about a third party they may not be able to change at all.
+**`.yidam/private-paths` applies over the top of both**, and is checked first. It is a
+statement about this repository that the person running the command can act on. A licence is a
+fact about a third party they may not be able to change at all.
 
-## The index, which the binary you installed cannot build
+## Share the vector index through a vault
 
 `.yidam/index/` is built only by a binary compiled `--features index` — protoc plus an ONNX
 runtime — and nothing keeps it in git. So the index exists on whichever machine could build it
@@ -120,8 +120,8 @@ yidam vault pull --index                     # anywhere else
 ```
 
 `.yidam/index.lock` names **the store as well as the hash**. A pull reads the store from there
-rather than re-deriving it from `holds`, because a routing edit made after the push would
-otherwise send it somewhere the bytes are not — a mutable ref wearing a lock file's clothes.
+rather than re-deriving it from `holds`. A routing edit made after the push would otherwise
+send it somewhere the bytes are not — a mutable ref wearing a lock file's clothes.
 
 An index is a directory and a vault stores one object, so it is packed into a single
 deterministic archive and hashed as a whole. A `corpus.arrow` from one build beside a
@@ -135,9 +135,9 @@ inexpressible is better than checking for it.
 >
 > `--features vector-read` is the build that completes it. It reads an index and answers over
 > it, and it needs **no protoc** — that is `lancedb`'s requirement, and `lancedb` is only ever
-> used to *write* an index. See [Installation](installation.md#which-build-you-have).
+> used to *write* an index. See [Installation](installation.md#check-which-build-you-have).
 
-## Opening a file, and reclaiming the space
+## Materialize a file, and reclaim the space
 
 Content addressing is right for storage and useless for opening. `yidam vault materialize`
 hardlinks cached artifacts into `.yidam/vault/<entry slug>/<slug>.<ext>` so a person, a

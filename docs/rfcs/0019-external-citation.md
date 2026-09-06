@@ -1,11 +1,13 @@
 # RFC-0019 — Citing a corpus you cannot revise (`cites:`)
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I14
-- **Relates to:** RFC-0018 (the query this must not silently widen), RFC-0002 (the node
-  model a citation is a field of), RFC-0001 (the report contract the checks emit on),
-  RFC-0003 (the light binary this must run in), RFC-0005 (the MCP surface that already
-  distinguishes foreign nodes by `origin`)
+- **Relates to:**
+  - RFC-0018 (the query this must not silently widen)
+  - RFC-0002 (the node model a citation is a field of)
+  - RFC-0001 (the report contract the checks emit on)
+  - RFC-0003 (the light binary this must run in)
+  - RFC-0005 (the MCP surface that already distinguishes foreign nodes by `origin`)
 - **Versioning layers touched:** template (the node model gains a field; `prelude/guidelines`
   gains a rule) / tooling (`yidam` CLI implements the checks) — **no parity-surface change and
   no MCP contract change**; see [What this does not touch](#what-this-does-not-touch)
@@ -112,7 +114,7 @@ ERROR [dangling-edge] Edge pointing at nothing — 1 finding(s)
 ```
 
 `dangling_edge` is a filesystem `exists()` test
-([`checks.rs:486-503`](../../yidam/cli/src/cmd/lint/checks.rs#L486-L503)). `unlicensed-edge`
+([`checks.rs:533-550`](../../yidam/cli/src/cmd/lint/checks.rs#L533-L550)). `unlicensed-edge`
 and `edge-target-class` never see the link at all, because `instance_links` drops every target
 that does not resolve to another instance. So the failure mode of the obvious syntax is: an
 Error, from the check with the least to say about it, and silence from the two checks whose
@@ -184,7 +186,7 @@ Stated as prohibitions because each one is a thing a reader will assume:
   `instance_links` — the gate's own edge reader, and RFC-0018's — never sees it. `--across`
   (#268) queries the dependency set as a *scope*; it does not follow citations.
 - **Not licensed by `edge_policy`.** `unlicensed-edge`'s own rationale draws this line
-  already ([`checks.rs:965`](../../yidam/cli/src/cmd/lint/checks.rs#L965)): *a link to the
+  already ([`checks.rs:1562-1564`](../../yidam/cli/src/cmd/lint/checks.rs#L1562-L1564)): *a link to the
   class file or into the catalog is a citation, not a relationship.*
   A class's `edges:` bounds relationships; a citation is not one, and asking a class to
   declare which foreign corpora its instances may cite would be asking the ontology a

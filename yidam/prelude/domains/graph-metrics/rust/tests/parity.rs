@@ -1,4 +1,4 @@
-use yidam_domain_graph_metrics::{density, degree_centrality};
+use yidam_domain_graph_metrics::{degree_centrality, density};
 
 fn fixture_dir(function: &str) -> std::path::PathBuf {
     // CARGO_MANIFEST_DIR = prelude/domains/graph-metrics/rust/
@@ -32,7 +32,10 @@ fn load_fixtures(function: &str) -> Vec<toml::Value> {
 #[test]
 fn parity_density() {
     let fixtures = load_fixtures("graph_metrics.density");
-    assert!(!fixtures.is_empty(), "no graph_metrics.density fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no graph_metrics.density fixtures found"
+    );
 
     for fx in &fixtures {
         let inp = &fx["input"];
@@ -49,7 +52,10 @@ fn parity_density() {
 #[test]
 fn parity_degree_centrality() {
     let fixtures = load_fixtures("graph_metrics.degree_centrality");
-    assert!(!fixtures.is_empty(), "no graph_metrics.degree_centrality fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no graph_metrics.degree_centrality fixtures found"
+    );
 
     for fx in &fixtures {
         let inp = &fx["input"];

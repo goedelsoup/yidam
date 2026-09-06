@@ -62,10 +62,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `mcpb_platform` is what makes a target eligible for an `.mcpb` bundle, and
+          # its two absences below are the fact rather than an omission: Claude Desktop
+          # runs on macOS and Windows only, so a Linux bundle would install nowhere, and
+          # this matrix builds no Windows target for one to be made from. It is carried as
+          # matrix data rather than an `if:` on the target name so that `mcpb_bundle.rs`
+          # can read which platforms are packaged instead of re-deriving the rule.
           - target: aarch64-apple-darwin
             os: macos-latest
+            mcpb_platform: darwin
           - target: x86_64-apple-darwin
             os: macos-latest
+            mcpb_platform: darwin
           # ── ubuntu-22.04, not ubuntu-latest ──────────────────────────
           #
           # A glibc binary runs on the glibc it was LINKED against or newer, and
@@ -163,6 +171,44 @@ jobs:
           tar -czf "$name.tar.gz" -C "$(dirname "$staging")" "$name"
           shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
           echo "name=$name" >> "$GITHUB_OUTPUT"
+          # The bundle step renders a manifest carrying this same version. Exported rather
+          # than re-derived there, so the two cannot come to disagree about what `dev` means.
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # ── the same binary, as a file a person double-clicks ────────────────────
+      #
+      # #421. Every other channel this workflow feeds ends with a binary on a PATH and a
+      # client config file to hand-write; `docs/mcp-server.md` spent a subsection on the
+      # `sh -c 'cd … && exec …'` form needed to say WHICH corpus you meant. An `.mcpb` is
+      # a zip holding a manifest and this binary, installed by dragging it onto Claude
+      # Desktop, and the manifest turns that shell incantation into a directory picker.
+      #
+      # A zip built with `zip`, not `mcpb pack`: the format is a zip with `manifest.json`
+      # at its root, and the official CLI is an npm install this workflow otherwise has no
+      # use for. What it would buy is manifest validation, which `mcpb_bundle.rs` does
+      # here — where a failure is a red test rather than a bad release.
+      - name: Package the MCPB bundle
+        id: mcpb
+        if: matrix.mcpb_platform != ''
+        run: |
+          set -eu
+          name="${{ steps.pkg.outputs.name }}"
+          staging="$(mktemp -d)/bundle"
+          mkdir -p "$staging/server"
+          cp "yidam/cli/target/${{ matrix.target }}/release/yidam" "$staging/server/"
+          cp LICENSE "$staging/"
+          ./render-manifest.sh "${{ steps.pkg.outputs.version }}" "${{ matrix.mcpb_platform }}" \
+            > "$staging/manifest.json"
+          out="$PWD/$name.mcpb"
+          # `-r` from inside the staging directory, never `-j`: flattening would put the
+          # binary at the archive root and break `entry_point`, and the paths inside the
+          # archive are part of the manifest's contract rather than an arrangement.
+          (cd "$staging" && zip -qr "$out" .)
+          # `if-no-files-found: error` on the upload cannot speak for this file: the
+          # tarball matches the pattern set on its own, so a bundle that was never written
+          # uploads a green step and a release missing the one asset #421 is about.
+          [ -s "$out" ] || { echo "::error::no bundle at $out"; exit 1; }
+          shasum -a 256 "$name.mcpb" > "$name.mcpb.sha256"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -170,6 +216,8 @@ jobs:
           path: |
             ${{ steps.pkg.outputs.name }}.tar.gz
             ${{ steps.pkg.outputs.name }}.tar.gz.sha256
+            ${{ steps.pkg.outputs.name }}.mcpb
+            ${{ steps.pkg.outputs.name }}.mcpb.sha256
           if-no-files-found: error
 
   publish:
@@ -248,20 +296,87 @@ jobs:
       # on answering the question they always answered for install.sh, the tap
       # and `[yidam-build]` — integrity, not origin. This step is the origin
       # half, and it is the half `gh attestation verify` and mise both want.
-      - name: Attest build provenance for the release tarballs
+      #
+      # The `.mcpb` bundles ARE subjects, on the same grounds the tarballs are:
+      # each carries a `yidam` binary, and it is the one channel whose installer
+      # is a person dragging a downloaded file onto an application. A checksum
+      # covers the bytes; only this covers where they came from.
+      - name: Attest build provenance for the release artifacts
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: 'dist/*.tar.gz'
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.mcpb
 
+      # ── the notes carry the upgrade note, or they carry only titles ──────────
+      #
+      # `--generate-notes` produces a flat list of merged PR titles and there is
+      # nowhere in it for prose. So a change that breaks a working configuration
+      # arrived as one `fix(serve): …` line among twenty, indistinguishable from a
+      # docs fix — which is how a reader upgrading learns nothing until their
+      # server stops coming up (#549).
+      #
+      # The generated list is still the body. `docs/upgrading.md`'s section for
+      # THIS tag goes above it, because the person who needs it is reading the top
+      # of the page and stops there. A release with no section prepends nothing and
+      # looks exactly as it did before; `release.sh` is what refuses a note staged
+      # under `## Unreleased` rather than filed under the tag.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
+          # Which release these notes start from, asked per layer rather than left to
+          # GitHub. Omitting `previous_tag_name` let it pick `cli/v0.7.0` for
+          # `cli/v0.9.0` — past `cli/v0.8.0`, which exists and is an ancestor — and the
+          # published notes listed 37 pull requests where 16 belonged to the release
+          # (#555). The same call answers correctly for `cli/v0.8.0`, so the heuristic is
+          # right for one release and wrong for the next with nothing visible between
+          # them.
+          previous=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            | .github/scripts/previous-release-tag.sh "$GITHUB_REF_NAME")
+
+          if [ -n "$previous" ]; then
+            echo "notes start from $previous"
+            gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+              -f tag_name="$GITHUB_REF_NAME" \
+              -f previous_tag_name="$previous" --jq .body > generated.md
+          else
+            # The first release of a layer has no predecessor, and an empty
+            # `previous_tag_name` is not the way to say so.
+            echo "no earlier release of this layer; generating from the beginning"
+            gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+              -f tag_name="$GITHUB_REF_NAME" --jq .body > generated.md
+          fi
+
+          # The lines under `## <tag>` up to the next `## ` heading. `-v` rather
+          # than interpolating the tag into the program: a tag holds `/` and `.`,
+          # and `cli/v0.9.0` as an awk regex would match `cli/v0X9Y0`.
+          awk -v tag="## $GITHUB_REF_NAME" '
+            $0 == tag { inside = 1; next }
+            /^## / { inside = 0 }
+            inside { print }
+          ' docs/upgrading.md > upgrade.md
+
+          if [ -s upgrade.md ]; then
+            {
+              echo "## Before you upgrade"
+              cat upgrade.md
+              echo
+              echo "---"
+              echo
+            } > notes.md
+            cat generated.md >> notes.md
+            echo "prepended $(wc -l < upgrade.md) line(s) of upgrade notes for $GITHUB_REF_NAME"
+          else
+            cp generated.md notes.md
+            echo "no upgrade-notes section for $GITHUB_REF_NAME; publishing the generated list alone"
+          fi
+
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
-            --generate-notes \
-            dist/*.tar.gz dist/*.sha256 dist/SHA256SUMS
+            --notes-file notes.md \
+            dist/*.tar.gz dist/*.mcpb dist/*.sha256 dist/SHA256SUMS
 
   # ── The Homebrew tap ────────────────────────────────────────────────────────
   #

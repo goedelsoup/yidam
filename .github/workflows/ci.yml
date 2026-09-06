@@ -25,6 +25,21 @@ on:
     # Weekly full-feature build (Mondays 06:00 UTC) — catches gated-code breakage
     # and arrow/lancedb version-lock rot that the light PR builds never compile.
     - cron: '0 6 * * 1'
+  # `ci (mutants)` has guarded on `workflow_dispatch` since it was written and this trigger
+  # was not here, so that arm of its condition was unreachable: the job could be reached by
+  # the Monday schedule and by nothing else. The heavy jobs — mutants, and the full-feature
+  # build — are exactly the ones worth running against a branch on purpose, which is also how
+  # #539 was measured rather than guessed at.
+  #
+  # `mutants` is opt-in rather than implied, because it is a 180-minute job and the reason to
+  # dispatch is usually one of the other twelve. The first dispatch of this workflow started
+  # it by accident twice; a trigger whose cheap use costs three hours is one nobody dares use.
+  workflow_dispatch:
+    inputs:
+      mutants:
+        description: 'Also run ci (mutants) — mutation testing, up to 180 minutes'
+        type: boolean
+        default: false
 
 # Cancel superseded runs on the same ref (e.g. a force-push to a PR branch).
 # Never cancel main — keep its history green.
@@ -49,7 +64,11 @@ jobs:
     name: ci (${{ matrix.workspace }})
     runs-on: ubuntu-latest
     steps:
+      # Full history: the summary's diff-coverage step needs the merge base, and a shallow
+      # clone has no commit to diff against.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: jdx/mise-action@v2
       # When the mise cache hits, `mise install` is a no-op and the rust
       # toolchain gets auto-installed by rustup at the first cargo call —
@@ -72,6 +91,11 @@ jobs:
             yidam/tests/harness
           key: ${{ matrix.workspace }}
       - run: mise run ci-${{ matrix.workspace }}
+      # Coverage on the CLI row only. The harness is 82 tests over a test harness; the
+      # instrumented rebuild would cost more than the number is worth there.
+      - name: Measure coverage
+        if: matrix.workspace == 'cli'
+        run: mise run coverage
       - uses: ./.github/actions/test-summary
         if: always()
         with:
@@ -79,6 +103,37 @@ jobs:
           junit: ${{ matrix.path }}/target/nextest/ci/junit.xml
           manifest: ${{ matrix.path }}/Cargo.toml
           artifact: test-results-${{ matrix.workspace }}
+          json: "true"
+          lcov: ${{ matrix.workspace == 'cli' && 'yidam/cli/target/coverage.lcov' || '' }}
+          src: ${{ matrix.workspace == 'cli' && 'yidam/cli/src' || '' }}
+          # The default set, spelled where the reader of a number can see it.
+          # `coverage_reporting.rs::the_reported_feature_set_is_the_one_the_gate_builds`
+          # is what keeps this list and `[features] default` in step — it reads this line
+          # and the manifest and requires them equal. (It used to say `light_build.rs`,
+          # which never read this file.)
+          features: ${{ matrix.workspace == 'cli' && 'reports,tonpa,vault-s3,export-graph,serve-http' || '' }}
+
+  domains:
+    # #590: `cargo fmt --all` in a derived repo reaches these crates too, by path, because
+    # that is where the prelude vendors them — and nothing upstream formatted them. This is
+    # the fix: format them here, on what gets vendored, so a derived repo's gate never
+    # depends on whether the pin it is on happens to be clean.
+    #
+    # `mise run ci-domains` glob-discovers `yidam/prelude/domains/*/rust/Cargo.toml` rather
+    # than naming the 14 crates, so a fifteenth domain is covered the day it lands.
+    #
+    # Its own job, not a leg of the `ci` matrix above: these are 14 standalone crates with no
+    # shared workspace and no clippy/test wiring here (that is `domain-parity`'s job), so
+    # there is no JUnit for the summary step to read — just fmt-check, like `design` and
+    # `supply-chain` below.
+    name: ci (domains)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - name: Ensure rustfmt for the pinned toolchain
+        run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component rustfmt
+      - run: mise run ci-domains
 
   vscode:
     # The editor client. Separate from the Rust matrix because it shares no toolchain
@@ -101,8 +156,11 @@ jobs:
       # binary that speaks the contract, not the full feature set.
       - name: Install the yidam CLI so the contract tests have something to read
         run: cargo install --path yidam/cli --locked
-      - run: npm install
-        working-directory: yidam/editors/vscode
+      # No `npm install` step: every npm-backed mise task installs when `node_modules`
+      # is absent, through `scripts/npm-ensure.sh`. One recipe rather than two that can
+      # disagree — and the workflow step was what kept #646 invisible, since CI was the
+      # only place the packages were ever populated before a task ran.
+      #
       # Skipping is a courtesy to contributors without the CLI; it must never be how
       # this job goes green. This turns an absent or stale binary into a failure.
       - run: mise run ci-vscode
@@ -118,6 +176,42 @@ jobs:
           gate: ci (vscode)
           junit: yidam/editors/vscode/junit.xml
           artifact: test-results-vscode
+          json: "true"
+
+  editor-web:
+    # The web editor surface (RFC-0030, #606). Separate from `vscode` above for the reason
+    # that job is separate from the Rust matrix — no shared toolchain — and separate from the
+    # docs site because that one is built and deployed by `docs.yml`.
+    #
+    # It needs **no yidam binary**, unlike `vscode`. Everything this package asserts is a
+    # property of the package: the RFC-0016 boundary gates read its own import graph, the
+    # parity test compares its two copied modules against the extension's, and the flag and
+    # origin tests are pure functions. That is deliberate rather than lucky — a gate that
+    # needed a corpus to run is a gate that gets skipped on the day it matters.
+    #
+    # `ci-editor-web` builds before it tests. The build is what proves `app.css`'s relative
+    # `@import` of `yidam/design/` still resolves, which no unit test here can see.
+    name: ci (editor-web)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      # No `npm install` step: every npm-backed mise task installs when `node_modules`
+      # is absent, through `scripts/npm-ensure.sh`. One recipe rather than two that can
+      # disagree — and the workflow step was what kept #646 invisible, since CI was the
+      # only place the packages were ever populated before a task ran.
+      - run: mise run ci-editor-web
+      # No `manifest`, for the reason the extension gives one job up: node's JUnit reporter
+      # writes no `<system-out>`, so a runtime skip would be invisible to the census however
+      # it were counted. This package has no environment-gated suite, and every test in it is
+      # meant to run everywhere.
+      - uses: ./.github/actions/test-summary
+        if: always()
+        with:
+          gate: ci (editor-web)
+          junit: yidam/editors/web/junit.xml
+          artifact: test-results-editor-web
+          json: "true"
 
   parity:
     # The cross-language parity suites, which nothing ran. `ci-cli` builds only the CLI's
@@ -144,8 +238,6 @@ jobs:
             yidam/prelude/sdks/rust
             yidam/tests/harness
           key: parity
-      - run: npm install
-        working-directory: yidam/prelude/sdks/typescript
       # `parity` depends on `parity-check`, which enforces the fixture rules in both
       # directions: every parity function has a fixture, and every fixture directory has a
       # runner that reads it.
@@ -157,9 +249,14 @@ jobs:
         if: always()
         with:
           gate: ci (parity · rust sdk)
+          # The heading is the Rust arm; the job runs all three. Without this the merge has
+          # no job named `ci (parity · rust sdk)` to match and the gate's conclusion stays
+          # unknown for ever — which is how the mismatch was found (#516).
+          job: ci (parity)
           junit: yidam/prelude/sdks/rust/target/nextest/ci/junit.xml
           manifest: yidam/prelude/sdks/rust/Cargo.toml
           artifact: test-results-parity
+          json: "true"
 
   verify:
     # The formal specs — 658 lines of Dafny and LEAN that `mise.toml` has named since it was
@@ -195,6 +292,21 @@ jobs:
           test: false
           lint: false
       - run: mise run verify
+
+  design:
+    # The adherence lint, which nothing invoked and which would not have loaded if anything
+    # had — it carried a key oxlint rejects outright (#465). It reads JS and JSX; the two
+    # CSS consumers that had actually drifted are guarded from the Rust side, by
+    # `design_tokens.rs` in the `ci (cli)` gate.
+    #
+    # Its own job rather than a step in `ci (vscode)`: no shared toolchain, and a design
+    # change should not need the extension's npm install to report.
+    name: ci (design system)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - run: mise run design-lint
 
   supply-chain:
     # Advisories, licences, bans, sources, and unused dependencies. On pull requests: the
@@ -337,6 +449,40 @@ jobs:
     name: ci (cli · full features)
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    env:
+      # Job-wide, and it was step-wide once. #539 measured this job dying for memory during
+      # `coverage-full` and capped the jobs THERE — the step that happened to be failing. On
+      # d596634 it was killed again, one step earlier, in `ci-cli-full`. So the cap belongs to
+      # the job: fixing the instance bought three green runs and then failed somewhere else.
+      #
+      # What the d596634 log actually shows, which is not what the first reading of it assumed:
+      #
+      #   02:27:08  $ cargo clippy --all-features        Finished in 8.51s
+      #   02:27:17  $ cargo nextest run --all-features   Compiling yidam, yidam-core, ci-report
+      #   02:29:03  ERROR sh exited with non-zero status: killed by SIGTERM   (exit 143)
+      #
+      # No dependency is compiled anywhere in the run — `Swatinem/rust-cache` restores the
+      # whole `--all-features` tree, which is why the clippy CHECK above finishes in 8.5s. The
+      # expensive step is the one after it, and what it does is codegen and LINK the 59
+      # integration test binaries under `yidam/cli/tests/`, each of which statically contains
+      # lancedb, lance, datafusion, arrow and ort with debuginfo.
+      #
+      # `-j` is the lever because it bounds how many of those link units run at once, not
+      # because it slows a dependency build that is not happening. A 4-vCPU runner defaults to
+      # `-j 4`; #539 measured the peak at ~15.5GB of 16 with four, so a unit costs roughly
+      # 3.5GB and 3 would leave about a gigabyte of headroom on a machine that had just proved
+      # it has none.
+      #
+      # THE KILL IS MARGINAL, NOT DETERMINISTIC, and a reader who misses that will read one
+      # green run as proof. df1b713 — docs-only, on top of the commit that failed, with this
+      # cap still step-scoped — ran the same `--all-features` step for its full 5m22s at `-j 4`
+      # and passed; d596634 was killed 105 seconds into it. Roughly three failures in seven
+      # main runs. So the evidence for `2` is headroom, not a reproduction: df1b713's samples
+      # of `coverage-full`, which #539 had already capped, floor at 5.7Gi where the same step
+      # at `-j 4` reached 0.5Gi. Disk never went below 38G in either.
+      #
+      # The cost is that this job's heaviest step gets slower — about 5m22s to 8 minutes.
+      CARGO_BUILD_JOBS: '2'
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
@@ -346,7 +492,11 @@ jobs:
         with:
           workspaces: yidam/cli
           key: cli-full
-      - run: mise run ci-cli-full
+      # Where the runner died on d596634, with no line in the log naming a resource — the
+      # sampler was on `coverage-full`, two steps later. Every heavy step in this job goes
+      # through the wrapper now, and `ci_reporting.rs` asserts that rather than trusting it.
+      - name: Full-feature build and tests, with a resource sampler
+        run: .github/scripts/with-sampler.sh mise run ci-cli-full
       - uses: ./.github/actions/test-summary
         if: always()
         with:
@@ -354,10 +504,376 @@ jobs:
           junit: yidam/cli/target/nextest/ci/junit.xml
           manifest: yidam/cli/Cargo.toml
           artifact: test-results-cli-full
+          json: "true"
       # #264: "Run it in CI against `examples/streamflow`." It lives here rather than in the
       # light gate because `bench` refuses to measure against keyword search, and the vector
       # arm of `retrieve` is `--features index`. So the benchmark runs where the full build
       # runs — main push and the weekly schedule — and not on pull requests. That is one
       # commit later than the "every PR" the issue imagined, and it is the latest it can be
       # without the number being about keyword matching.
-      - run: mise run bench-example
+      # `--features index` is a third feature set, so this is a third codegen-and-link of the
+      # binary, not a cache hit on the two above. It had no sampler at all, which is the same
+      # hole one step over: a kill here would leave the log d596634 left.
+      - name: Benchmark against examples/streamflow, with a resource sampler
+        run: .github/scripts/with-sampler.sh mise run bench-example
+      # The number that covers the gated paths. Retained rather than only summarised: P7's
+      # series is a sequence of these, and a series cannot start later than its first point.
+      #
+      # ── CARGO_BUILD_JOBS, and the measurement that chose it ──────────────────
+      #
+      # This step was where the runner died on `d01cb87` and every commit after it: every test
+      # passed, then the job stopped mid-crate with exit 137 and "the runner has received a
+      # shutdown signal". No cargo error, no `No space left on device`, no OOM line — nothing
+      # in the log named the resource, so memory and disk were equally good guesses and they
+      # take opposite fixes. The sampler below was added first, alone, and measured it (#539):
+      #
+      #   [res] 20:34:37 mem_avail=13.6Gi disk_avail=39G   ← start of the coverage build
+      #   [res] 20:38:37 mem_avail=0.6Gi  disk_avail=34G
+      #   [res] 20:40:38 mem_avail=0.5Gi  disk_avail=29G   ← last line before the kill
+      #
+      # Memory, decisively. Disk never went below 29G, so freeing the preinstalled images or
+      # splitting the job — the two disk fixes — would have changed nothing.
+      #
+      # The runner has 4 vCPU, so cargo defaults to `-j 4`, and four rustc processes each
+      # holding an instrumented LLVM module for lancedb/lance/datafusion do not fit in 16GB.
+      # `d01cb87` is where it began because that is where arrow went 52.2.0 → 53.4.1 and
+      # datafusion 41 → 44, underneath the crate being compiled when the VM went away.
+      #
+      # 2 rather than 3: at 4 jobs the peak was ~15.5GB of 16, so a job costs roughly 3.5GB
+      # and 3 would leave about a gigabyte of headroom on a machine that had just proved it
+      # has none. This step gets slower; nothing else does, and the run it replaces produced
+      # no coverage number at all.
+      #
+      # ── the sampler stays, and why it writes to stdout ───────────────────────
+      #
+      # It is what made this diagnosable, and it is what makes the next regression legible
+      # rather than another silent kill. A file in /tmp would die with the VM, and a post-step
+      # with `if: always()` does not run when the runner agent is the thing that was killed —
+      # so the last `[res]` line to reach the log survives precisely the failure it explains.
+      - name: Coverage (full features), with a resource sampler
+        run: .github/scripts/with-sampler.sh mise run coverage-full
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-full-lcov
+          path: yidam/cli/target/coverage-full.lcov
+          if-no-files-found: warn
+
+  quality:
+    # One `quality-report.json` out of every gate's fragment (#467).
+    #
+    # The gates run on separate runners and cannot see each other, so each writes a fragment
+    # — its own whole envelope — and this joins them. The alternative, a job that re-runs
+    # every suite in order to report on them, is the same tests twice.
+    #
+    # `always()`, because a failing gate is the one whose numbers the report most needs. A
+    # report assembled only from green runs is a report in which nothing ever fails.
+    #
+    # It runs on pull requests too, where nothing publishes it. That is deliberate: the merge
+    # is the step most likely to break silently — a renamed artifact, a fragment nobody
+    # uploaded — and the failure would otherwise appear on main, one commit after the change
+    # that caused it. `ci-report merge` refuses an empty set rather than writing an empty
+    # document, so a run that collected nothing is red here rather than a page saying nothing
+    # failed.
+    name: ci (quality report)
+    if: always()
+    needs: [ci, vscode, editor-web, parity, cli-full]
+    # Declared rather than inherited. The repository's default is read-all today, which grants
+    # the jobs API by accident; a settings change to "restricted" would take it away and the
+    # step that reads conclusions would fail with a report that still merges — quietly losing
+    # the field again. `contents` is here because declaring any permission replaces the whole
+    # default set, and this job checks out.
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: yidam/tests/harness
+          key: quality
+      - name: Build the reporter
+        run: |
+          mise exec -- cargo build --locked \
+            --manifest-path yidam/tests/harness/Cargo.toml \
+            --package ci-report
+      # Every gate's fragment, flattened into one directory. `merge-multiple` is why the
+      # composite action names each file after its gate: two files called `fragment.json`
+      # would leave a report describing half a run.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: quality-test-results-*
+          path: ${{ runner.temp }}/fragments
+          merge-multiple: true
+      # What each job of this run concluded (#516).
+      #
+      # A gate's numbers come from JUnit, and JUnit describes test cases. A job that fails
+      # outside its tests is invisible to every number in the report: on run 33527632095 this
+      # document said `failed: 0` while `ci (cli · full features)` was red, because its tests
+      # had all passed and it died afterwards on a coverage flag. A page saying nothing failed
+      # about a run that failed is the thing #459 exists to remove.
+      #
+      # The API rather than `needs.<job>.result`, for two reasons. A matrix job has ONE result
+      # for every leg, so `ci (cli)` and `ci (harness)` could not be told apart. And `needs`
+      # only carries the four jobs this one waits on, while the run has fourteen — a failure
+      # in `ci (supply chain)` would be as absent as it is today.
+      #
+      # `per_page=100` because the endpoint paginates at 30 and a short page hides jobs;
+      # `parse_jobs` refuses a list whose length disagrees with `total_count` rather than
+      # under-reporting. `continue-on-error` because a report without conclusions is worse
+      # than one with them and better than no report at all — the merge below says which it
+      # got, and the pages draw an unknown as an unknown rather than as a pass.
+      - name: What each job of this run concluded
+        id: jobs
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100" \
+            > "${RUNNER_TEMP}/jobs.json"
+
+      - name: Merge
+        run: |
+          set -euo pipefail
+          args=()
+          if [ -s "${RUNNER_TEMP}/jobs.json" ]; then
+            args+=(--jobs "${RUNNER_TEMP}/jobs.json")
+          else
+            echo "::warning::the run's job conclusions were not fetched; the report will say \
+              every gate's outcome is unknown rather than assume it passed"
+          fi
+          yidam/tests/harness/target/debug/ci-report merge \
+            --from "${RUNNER_TEMP}/fragments" \
+            --out quality-report.json \
+            "${args[@]}"
+      # Retained on every run, not only on main. `docs.yml` reads the most recent one from
+      # main; a pull request's own copy is what makes the artifact downloadable by whoever is
+      # reviewing the change that moved a number.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quality-report
+          path: quality-report.json
+          if-no-files-found: error
+
+  series:
+    # One record per push to main — the history the gates never kept (#468).
+    #
+    # Every run before this computed its numbers, displayed them, and threw them away. There
+    # was no way to see that a suite had been shrinking, or that coverage moved three weeks
+    # ago and nobody noticed.
+    #
+    # ── why an orphan branch ─────────────────────────────────────────────────
+    #
+    # RFC-0025 left the store open and asked for it to be settled here, "because the answer is
+    # hard to change once there is a year of them". Git, because git is the one store this
+    # repository already trusts and a Pages-side artifact has no history older than the last
+    # deploy. An *orphan branch* rather than a file on main, because a bot commit per push
+    # would land in `git log main` beside real work, would race a human push, and — this
+    # workflow being `on: push: branches: [main]` — would re-trigger the run that wrote it.
+    #
+    # Nothing reads the series to decide whether CI passes. If a number in it disagrees with a
+    # gate, the gate is right and this has a bug.
+    #
+    # It fails loudly rather than warning. A series that quietly stopped recording looks
+    # exactly like a repository nobody pushed to, which is the shape of every defect this
+    # epic has found.
+    name: ci (series)
+    # `always()` is load-bearing, and its absence is what kept the first record from ever
+    # being written. A job whose `if` carries no status function gets an implicit `success()`,
+    # and GitHub evaluates that over the whole ancestry rather than the direct `needs`: on the
+    # merge that landed #468, `cli-full` failed, `quality` ran anyway on its own `always()`
+    # and succeeded, and this was skipped regardless. The `quality-series` branch was never
+    # created and nothing said why.
+    #
+    # The explicit condition is also the correct one. A run with a failing gate is exactly the
+    # run whose numbers the series most needs; one that records only green pipelines describes
+    # a repository where nothing ever breaks, which is this epic's own subject.
+    if: >-
+      always()
+      && needs.quality.result == 'success'
+      && github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
+    needs: quality
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # One writer at a time. Two pushes to main landing together would otherwise race on the
+    # same ref; queued rather than cancelled, because a cancelled run is a lost record.
+    concurrency:
+      group: quality-series
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: yidam/tests/harness
+          key: quality
+      - name: Build the reporter
+        run: |
+          mise exec -- cargo build --locked \
+            --manifest-path yidam/tests/harness/Cargo.toml \
+            --package ci-report
+      - uses: actions/download-artifact@v4
+        with:
+          name: quality-report
+          path: ${{ runner.temp }}
+
+      # The branch, or the first one. `checkout` has already configured credentials for
+      # `origin`, so this reuses them rather than putting a token on a command line.
+      - name: Check out the series branch
+        run: |
+          set -euo pipefail
+          dir="${RUNNER_TEMP}/series"
+          if git ls-remote --exit-code --heads origin quality-series >/dev/null 2>&1; then
+            git fetch --depth=1 origin quality-series
+            git worktree add "$dir" FETCH_HEAD
+            git -C "$dir" checkout -B quality-series
+          else
+            echo "::notice::quality-series does not exist yet; starting it"
+            git worktree add --detach "$dir"
+            git -C "$dir" checkout --orphan quality-series
+            git -C "$dir" rm -rf . >/dev/null 2>&1 || true
+          fi
+
+      - name: Append this run
+        run: |
+          set -euo pipefail
+          dir="${RUNNER_TEMP}/series"
+          yidam/tests/harness/target/debug/ci-report series \
+            --report "${RUNNER_TEMP}/quality-report.json" \
+            --file "$dir/series.jsonl" \
+            --bench yidam/cli/tests/goldens/bench/scaling.json
+          cp yidam/tests/harness/ci-report/series-branch-README.md "$dir/README.md"
+
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          dir="${RUNNER_TEMP}/series"
+          cd "$dir"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add series.jsonl README.md
+          if git diff --cached --quiet; then
+            echo "::notice::this commit is already recorded; nothing to push"
+            exit 0
+          fi
+          git commit -qm "chore(series): ${GITHUB_SHA:0:7}"
+          git push origin quality-series
+
+  mutants:
+    # The mutation testing this repository has been doing by hand (#468).
+    #
+    # RFC-0024's testing section prescribes it per call site — "delete the guard, keep the
+    # comment, confirm red" — and every phase of #459 has carried it out by remembering to.
+    # This catches the ones nobody thought to do.
+    #
+    # ── weekly, and scoped by a measured cost ────────────────────────────────
+    #
+    # One mutant is roughly 80 seconds here: a 28-second build and a 56-second test run,
+    # measured rather than guessed. `cmd/lint/` alone holds 586 mutants — thirteen hours — so
+    # the scope is the modules where a survivor means something rather than the codebase.
+    # `vault/policy.rs` decides what leaves a machine and `cmd/lint/commits.rs` decides what
+    # a derived repository is allowed to commit; a mutant surviving in either is a rule that
+    # is not enforced.
+    #
+    # ── --in-place, and why it is safe here and not on a laptop ──────────────
+    #
+    # cargo-mutants copies the package directory and builds the copy. `yidam/cli` dev-depends
+    # on `../tests/harness/ci-report`, which is outside that directory, so the copy cannot
+    # resolve it and the baseline build fails before any mutant runs. `--in-place` mutates the
+    # checkout instead. On a disposable runner that costs nothing; on a working tree an
+    # interrupted run leaves a mutated file behind, which is why `mise run mutants` says so.
+    #
+    # `NEXTEST_PROFILE` is cleared for the same class of reason: mise sets it to `ci`
+    # globally, and the config that defines that profile is only found through the explicit
+    # `--config-file` every gate passes. cargo-mutants builds its baseline with its own
+    # command line and never sees the flag.
+    name: ci (mutants)
+    # Dispatch runs it only when asked. `inputs.mutants` is absent on a schedule run, so the
+    # first clause is what keeps Monday's run intact.
+    if: github.event_name == 'schedule' || inputs.mutants
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: yidam/cli
+          key: mutants
+      - name: Hunt
+        id: hunt
+        run: |
+          set -uo pipefail
+          mise exec "cargo:cargo-mutants@25.3.1" -- env NEXTEST_PROFILE=default \
+            cargo mutants \
+              --manifest-path yidam/cli/Cargo.toml \
+              --cargo-arg=--locked \
+              --in-place \
+              --test-tool nextest \
+              --timeout 300 \
+              --file src/vault/policy.rs \
+              --file src/cmd/lint/commits.rs \
+              --output "${RUNNER_TEMP}/mutants"
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          # 0 = every mutant caught. 2 = some survived, which is a finding and not a failure:
+          # this reports, it does not gate. Anything else — a usage error, a baseline whose
+          # tests already fail — means the run tested nothing, and a run that tested nothing
+          # reports no survivors and reads exactly like a clean bill of health. That is the
+          # failure mode #468 names, so it is the one thing here that goes red.
+          case "$code" in
+            0|2) exit 0 ;;
+            *) echo "::error::cargo-mutants exited $code — the run did not test mutants"; exit 1 ;;
+          esac
+
+      - name: Report
+        if: always()
+        run: |
+          set -euo pipefail
+          # `--output DIR` writes into `DIR/mutants.out/`, not `DIR/`. Reading the wrong level
+          # found nothing, took the "nothing was tested" branch, and left the job green with an
+          # empty summary — the failure this job exists to detect, produced by the code meant
+          # to report it. Found by running it.
+          out="${RUNNER_TEMP}/mutants/mutants.out"
+          {
+            echo "### ci (mutants)"
+            echo
+            if [ ! -f "$out/caught.txt" ]; then
+              echo "The run produced no outcome files, so nothing was tested."
+              exit 0
+            fi
+            caught=$(wc -l < "$out/caught.txt")
+            missed=$(wc -l < "$out/missed.txt" 2>/dev/null || echo 0)
+            timeout=$(wc -l < "$out/timeout.txt" 2>/dev/null || echo 0)
+            unviable=$(wc -l < "$out/unviable.txt" 2>/dev/null || echo 0)
+            echo "| caught | survived | timed out | unviable |"
+            echo "|---|---|---|---|"
+            echo "| $caught | $missed | $timeout | $unviable |"
+            echo
+            # Stated rather than omitted when empty, for the reason the skip census is: an
+            # absent section reads as "nothing to say", and "no survivors" is the sentence a
+            # broken run also produces.
+            if [ "$missed" -eq 0 ]; then
+              echo "No mutant survived. $caught were introduced and every one failed a test."
+            else
+              echo "#### Survivors ($missed)"
+              echo
+              echo 'These changes to the source were not caught by any test.'
+              echo
+              echo '```'
+              cat "$out/missed.txt"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutants
+          path: ${{ runner.temp }}/mutants
+          if-no-files-found: warn

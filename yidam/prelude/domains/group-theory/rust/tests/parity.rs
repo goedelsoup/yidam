@@ -1,4 +1,4 @@
-use yidam_domain_group_theory::{modular_add, modular_mul, additive_order};
+use yidam_domain_group_theory::{additive_order, modular_add, modular_mul};
 
 fn fixture_dir(function: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -28,7 +28,10 @@ fn load_fixtures(function: &str) -> Vec<toml::Value> {
 #[test]
 fn parity_modular_add() {
     let fixtures = load_fixtures("group_theory.modular_add");
-    assert!(!fixtures.is_empty(), "no group_theory.modular_add fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no group_theory.modular_add fixtures found"
+    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let a = inp["a"].as_integer().unwrap();
@@ -42,7 +45,10 @@ fn parity_modular_add() {
 #[test]
 fn parity_modular_mul() {
     let fixtures = load_fixtures("group_theory.modular_mul");
-    assert!(!fixtures.is_empty(), "no group_theory.modular_mul fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no group_theory.modular_mul fixtures found"
+    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let a = inp["a"].as_integer().unwrap();
@@ -56,7 +62,10 @@ fn parity_modular_mul() {
 #[test]
 fn parity_additive_order() {
     let fixtures = load_fixtures("group_theory.additive_order");
-    assert!(!fixtures.is_empty(), "no group_theory.additive_order fixtures found");
+    assert!(
+        !fixtures.is_empty(),
+        "no group_theory.additive_order fixtures found"
+    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let a = inp["a"].as_integer().unwrap();

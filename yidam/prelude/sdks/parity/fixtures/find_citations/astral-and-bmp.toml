@@ -1,0 +1,12 @@
+function = "find_citations"
+description = "sorted means code-point order: an astral path sorts after a BMP one above U+E000"
+
+[input]
+node_path = "corpus/target.md"
+edges = [
+  { from = "corpus/🌍.md", to = "corpus/target.md" },
+  { from = "corpus/ｱ.md", to = "corpus/target.md" },
+]
+
+[expected]
+citations = ["corpus/ｱ.md", "corpus/🌍.md"]
