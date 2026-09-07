@@ -95,6 +95,10 @@ revision exists to survive.
 It also adds the `AGENTS.md` section when that file has none. The scaffold carrying that
 section is deleted at genesis, so repositories predating the layer never received it.
 
+Where there is no `AGENTS.md` at all, it writes none. Conjuring one reaches past what was
+asked. It says so instead, and prints the section to paste. `doctor`'s `kuten-read` check
+warns until a file carries the block.
+
 It refuses when a record already exists. Changing a kuten is a `decide:` commit carrying a
 superseding record.
 

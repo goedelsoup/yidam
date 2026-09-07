@@ -315,7 +315,23 @@ fn record(name: &str, revision: u32, gloss: &str) -> String {
     out
 }
 
-/// Give `AGENTS.md` the kuten REGEN block if it has none. Returns the path it wrote.
+/// What `AGENTS.md` was in, when `adopt` went looking for somewhere to put the declaration.
+///
+/// Three states, and two of them used to be one `Ok(None)` — which is how a repository
+/// adopted a kuten into a repository with no document to declare it in, and every surface
+/// reported that as fine (#694). Skipping the write is still right; saying nothing is not.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Section {
+    /// The file existed without the marker, and now carries it.
+    Added,
+    /// The marker was already there, so [`write_block`] fills it and there is nothing to say.
+    AlreadyThere,
+    /// There is no `AGENTS.md` at all. Nothing in the loop carries the declaration, and
+    /// nothing will until a person makes somewhere for it to go.
+    NoFile,
+}
+
+/// Give `AGENTS.md` the kuten REGEN block if it has none. Returns what it found.
 ///
 /// Appended rather than placed: the scaffold puts the section near the top of a file it also
 /// wrote, and this is editing a document somebody else has been keeping. Appending cannot
@@ -325,14 +341,14 @@ fn record(name: &str, revision: u32, gloss: &str) -> String {
 /// A repository with no `AGENTS.md` at all gets none written. That file is the derived
 /// repository's own, and conjuring one from a command that was asked to record a decision
 /// would be reaching well past what was asked.
-fn ensure_agents_section(root: &std::path::Path) -> Result<Option<String>> {
+fn ensure_agents_section(root: &std::path::Path) -> Result<Section> {
     let path = root.join("AGENTS.md");
     if !path.exists() {
-        return Ok(None);
+        return Ok(Section::NoFile);
     }
     let text = std::fs::read_to_string(&path)?;
     if text.contains(AGENTS_MARKER) {
-        return Ok(None);
+        return Ok(Section::AlreadyThere);
     }
     let mut updated = text;
     if !updated.ends_with('\n') {
@@ -341,7 +357,7 @@ fn ensure_agents_section(root: &std::path::Path) -> Result<Option<String>> {
     updated.push('\n');
     updated.push_str(AGENTS_SECTION);
     std::fs::write(&path, updated)?;
-    Ok(Some("AGENTS.md".to_string()))
+    Ok(Section::Added)
 }
 
 /// `yidam kuten adopt <name>` — declare a vendored profile as this corpus's practice.
@@ -400,8 +416,27 @@ pub fn adopt(name: &str) -> Result<()> {
     // centrepiece. The scaffold puts this section in a new repository's AGENTS.md and is then
     // deleted, so a corpus that already existed has no marker — and `update_file_regen` on a
     // file with no marker writes nothing and reports nothing.
-    if let Some(added) = ensure_agents_section(&root)? {
-        println!("added the kuten section to {added}");
+    //
+    // And the absent-file arm says so. It used to be the same silence as *the marker is
+    // already there*, so a repository that adopted with no `AGENTS.md` got a four-line report
+    // identical to a repository that had one — and nothing it could run afterwards would tell
+    // it either (#694). The write is still declined; only the silence is.
+    match ensure_agents_section(&root)? {
+        Section::Added => println!("added the kuten section to AGENTS.md"),
+        Section::AlreadyThere => {}
+        Section::NoFile => {
+            println!();
+            println!("There is no AGENTS.md here, so nothing an agent reads carries this");
+            println!("declaration — which is the failure this layer exists to prevent.");
+            println!();
+            println!("Create one holding this section, and `yidam kuten` fills it from then on:");
+            println!();
+            for line in AGENTS_SECTION.lines() {
+                println!("    {line}");
+            }
+            println!();
+            println!("`yidam doctor` reports this until a file carries the marker.");
+        }
     }
     // And fill it, rather than leaving the repository one step from done. An adopted kuten
     // whose block still reads "Run `yidam kuten` to populate" is a repository that has
@@ -529,6 +564,36 @@ mod tests {
             AGENTS_SECTION.contains(AGENTS_MARKER),
             "the inserted section carries no `{AGENTS_MARKER}` marker, so `yidam kuten` \
              would write nothing into it — silently, which is how it fails"
+        );
+    }
+
+    /// The three states `adopt` can find `AGENTS.md` in are three answers, and two of them
+    /// used to be the same silence (#694).
+    ///
+    /// The absent-file arm is the one that mattered: it is the state one of the two day-one
+    /// adopters was left in, and its report was character-for-character the report of a
+    /// repository whose section was already there.
+    #[test]
+    fn the_three_states_agents_md_can_be_in_are_distinguishable() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        assert_eq!(ensure_agents_section(root).unwrap(), Section::NoFile);
+
+        std::fs::write(root.join("AGENTS.md"), "# Agents\n\nSome guidance.\n").unwrap();
+        assert_eq!(ensure_agents_section(root).unwrap(), Section::Added);
+        let text = std::fs::read_to_string(root.join("AGENTS.md")).unwrap();
+        assert!(text.contains(AGENTS_MARKER), "{text}");
+        assert!(
+            text.starts_with("# Agents"),
+            "appended, not replaced: {text}"
+        );
+
+        // Idempotent, and for the reason the marker exists: a second append would give the
+        // file two blocks and `update_file_regen` would fill whichever it met first.
+        assert_eq!(ensure_agents_section(root).unwrap(), Section::AlreadyThere);
+        assert_eq!(
+            std::fs::read_to_string(root.join("AGENTS.md")).unwrap(),
+            text
         );
     }
 
