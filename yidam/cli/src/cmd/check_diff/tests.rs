@@ -29,6 +29,7 @@ fn class(name: &str, properties: &[&str], edges: &[&str]) -> Class {
             .collect(),
         edge_policy: Default::default(),
         max_lines: None,
+        prose: Vec::new(),
         implemented_by: None,
         foundational_type: None,
         dead_alignment_fields: vec![],

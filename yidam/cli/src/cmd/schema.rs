@@ -57,7 +57,15 @@ pub fn corpus_node_schema() -> Value {
                 }
             }
         },
-        "required": ["class", "label", "description", "links"],
+        // `description` is **not** here, and its absence is the schema keeping step with the
+        // gate. `missing-description` no longer asks for that key by name: it asks whether the
+        // node has prose in any field the ontology declared, so a corpus writing `summary`
+        // satisfies it. A schema still demanding `description` would underline, in the editor,
+        // a node the build is happy with — the drift arriving from the direction nobody
+        // watches, which is the failure the whole file is commented against.
+        //
+        // Nothing is lost that was being enforced: the check is `Warn` and has never gated.
+        "required": ["class", "label", "links"],
         // Permissive, because nothing that reads a node enforces otherwise and a real corpus
         // does not look like the closed shape this used to declare.
         //
@@ -172,6 +180,18 @@ pub fn corpus_ontology_schema() -> Value {
                                 reads an unrecognized value as absent rather than gating on \
                                 a typo."
             },
+            "prose": {
+                "type": "array",
+                "default": [],
+                "items": { "type": "string", "minLength": 1 },
+                "description": "Top-level keys this class's instances carry as prose, beyond \
+                                `description` — `summary`, `findings`, `analytic_note`. What \
+                                a length ceiling counts and what `missing-description` looks \
+                                in. `description` is always prose and never has to be listed; \
+                                naming other keys does not unname it. Declared because a \
+                                blessed list of names is what rejected 117 nodes of 117 in a \
+                                corpus that had coined its own."
+            },
             "max_lines": {
                 "type": "integer",
                 "minimum": 1,
@@ -250,6 +270,17 @@ pub fn corpus_universal_schema() -> Value {
                         ontology each year to permit the next one. Absent is the common case.",
         "type": "object",
         "properties": {
+            "prose": {
+                "type": "array",
+                "default": [],
+                "items": { "type": "string", "minLength": 1 },
+                "description": "Top-level keys any class's instances may carry as prose. The \
+                                same argument the property list makes, one axis over: a \
+                                `summary` every class writes would otherwise be declared \
+                                sixteen times, and a seventeenth class would silently not \
+                                have it. Unioned with each class's own `prose:`, and with \
+                                `description`, which is always prose."
+            },
             "properties": {
                 "type": "array",
                 "default": [],
@@ -774,13 +805,77 @@ mod tests {
         assert_eq!(corpus_node_schema()["properties"]["links"]["minItems"], 1);
     }
 
+    /// A declaration the gate reads must also be one the published schema accepts. The
+    /// universal file's top level is closed, so a `prose:` nobody added here would be
+    /// underlined in the editor while the build read it — the drift this file is commented
+    /// against, arriving from the direction nobody watches.
     #[test]
-    fn a_node_requires_class_label_description_and_links() {
+    fn both_schemas_accept_the_prose_declaration_the_gate_reads() {
+        let class: Value = serde_yaml::from_str(
+            "class: finding\nlabel: Finding\ndescription: A thing asserted.\nprose: [summary, findings]\n",
+        )
+        .unwrap();
+        let validator = jsonschema::validator_for(&corpus_ontology_schema()).unwrap();
+        assert!(
+            validator.validate(&class).is_ok(),
+            "a class declaring `prose:` must validate: {:?}",
+            validator
+                .iter_errors(&class)
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+        );
+
+        let universal: Value = serde_yaml::from_str("prose: [summary]\n").unwrap();
+        let validator = jsonschema::validator_for(&corpus_universal_schema()).unwrap();
+        assert!(
+            validator.validate(&universal).is_ok(),
+            "a universal file declaring `prose:` must validate: {:?}",
+            validator
+                .iter_errors(&universal)
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// And a node keeping its prose in a declared field validates without a `description`.
+    #[test]
+    fn a_node_validates_with_prose_in_a_declared_field_and_no_description() {
+        let node: Value = serde_yaml::from_str(
+            "class: finding\nlabel: L\nsummary: It says this.\nlinks:\n  - target: ../finding.ont.yml\n    relationship: instance-of\n",
+        )
+        .unwrap();
+        let validator = jsonschema::validator_for(&corpus_node_schema()).unwrap();
+        assert!(
+            validator.validate(&node).is_ok(),
+            "{:?}",
+            validator
+                .iter_errors(&node)
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_node_requires_class_label_and_links() {
         let req = corpus_node_schema()["required"].clone();
         let req: Vec<String> = serde_json::from_value(req).unwrap();
-        for field in ["class", "label", "description", "links"] {
+        for field in ["class", "label", "links"] {
             assert!(req.contains(&field.to_string()), "{field} must be required");
         }
+    }
+
+    /// The schema may not be stricter than the gate. `missing-description` asks for prose in
+    /// any declared field, so a corpus that declares `summary` and writes it has satisfied
+    /// the check — and a schema demanding `description` by name would reject the node anyway,
+    /// in the editor, where the disagreement is least visible.
+    #[test]
+    fn a_node_does_not_have_to_carry_description_by_name() {
+        let req = corpus_node_schema()["required"].clone();
+        let req: Vec<String> = serde_json::from_value(req).unwrap();
+        assert!(
+            !req.contains(&"description".to_string()),
+            "the gate accepts prose in any declared field; the schema must too"
+        );
     }
 
     #[test]

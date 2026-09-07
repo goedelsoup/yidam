@@ -120,6 +120,7 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
         vec![]
     };
 
+    let prose_fields = crate::prose::ProseFields::load(&corpus_dir);
     let instances = walk_corpus_instances(&corpus_dir);
     if instances.is_empty() && sources.is_empty() {
         println!("No corpus instances found in {}.", corpus_dir.display());
@@ -150,7 +151,10 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
             .to_string();
 
         let label = inst.label.as_deref().unwrap_or("").to_string();
-        let description = inst.description.as_deref().unwrap_or("").to_string();
+        // Every declared prose field. A node whose substance is in `summary` and `findings`
+        // was embedded on its label and its edge names alone — retrievable by title and by
+        // nothing it says.
+        let description = inst.prose_text(prose_fields.for_class(&class));
         let links = inst.links.as_deref().unwrap_or(&[]);
         let text = compose_text(&label, &description, links);
 

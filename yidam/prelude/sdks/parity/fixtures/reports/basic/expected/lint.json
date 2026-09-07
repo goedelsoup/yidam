@@ -199,7 +199,7 @@
       "id": "missing-description",
       "title": "Instance with no description",
       "severity": "warn",
-      "rationale": "The description is the node's content. An instance with properties and links but nothing said about it records that something exists without recording what is known about it.",
+      "rationale": "The prose is the node's content. An instance with properties and links but nothing said about it records that something exists without recording what is known about it. What counts as prose is what the ontology declares — a node carrying a `summary` and no `description` has said something, and reporting it here would report the corpus using a vocabulary it declared.",
       "violations": []
     },
     {

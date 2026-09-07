@@ -146,6 +146,57 @@ still `edge-target-class`'s question, and that check does not read the policy at
 declares them, so the licensing checks read only links landing on another corpus instance.
 A link that resolves to nothing is `dangling-edge`'s finding and is not reported twice.
 
+### Which keys hold prose
+
+`description` was the only key anything read as prose, and corpora write more than one.
+Closing the node schema over the top level rejected **117 nodes of 117** in one derived
+repository — `summary`, `findings`, `revisions`, `unfilled` — and a projecting consumer 199
+of 199. None of those keys reached the parsed node, so the checks that read a *field* saw a
+fraction of what the node says while the ones that scan the *file* saw all of it. On one
+corpus the two answer **118 lines against 21**.
+
+So a class says which of its top-level keys carry prose, and the corpus may say it once for
+every class:
+
+```yaml
+# <class>.ont.yml — a key this class's instances carry
+prose: [findings]
+```
+
+```yaml
+# universal.yml — apparatus every class may carry
+prose: [summary, findings]
+```
+
+The effective set is `{description} ∪ universal ∪ class`, and two things about it are
+deliberate.
+
+**Union rather than override.** Universal *properties* let a class win, and must, because two
+declarations of one property's `type` contradict each other. Two declarations that a key holds
+prose agree, so there is nothing for the more specific one to win.
+
+**`description` is always in the set**, including for a class that declares `prose:` and omits
+it. Silence is not a contract, here as everywhere: naming `findings` says findings is prose,
+and never said *and description is not*. Reading it as the second would let one added line
+silently stop measuring the field every corpus writes.
+
+Absent both declarations the set is `[description]`, which is every corpus written before this
+existed — nothing changes for them.
+
+| Reads the declared set | What changes |
+|---|---|
+| `node-too-long` | counts every declared prose field; the finding says `lines of prose`, not of `description` |
+| `missing-description` | reports a node with prose in **no** declared field. A node carrying a `summary` and no `description` has said something |
+| `yidam embed` | embeds all the prose. A node whose substance is in `summary` was retrievable by its title and by nothing it says |
+
+The claim counter is unchanged, and that is the point: `count_in_node` and `is_open_question`
+always read the whole file, so they always saw every prose field. What this closes is the gap
+between them and the field readers, which is where the two numbers came from.
+
+`description` is **not** in the node schema's `required` list, because the check no longer asks
+for that key by name. A schema demanding it would reject, in the editor, a node the build
+accepts.
+
 ### Properties every class may carry
 
 `.yidam/corpus/universal.yml` is the corpus speaking about itself rather than about one of

@@ -51,12 +51,22 @@ impl UniversalProperty {
 /// Every universal property this corpus declares. Empty when the file is absent, which is
 /// every corpus that has not needed one.
 #[derive(Default)]
-pub struct Universal(Vec<UniversalProperty>);
+pub struct Universal {
+    properties: Vec<UniversalProperty>,
+    /// Top-level keys any class's instances may carry as prose.
+    ///
+    /// The same argument the property list makes, one axis over: `summary` is apparatus that
+    /// applies to every class, and declaring it per class would be sixteen copies of one
+    /// decision with a seventeenth class silently missing it. See [`crate::prose`].
+    prose: Vec<String>,
+}
 
 #[derive(Default, serde::Deserialize)]
 struct File {
     #[serde(default)]
     properties: Vec<Declared>,
+    #[serde(default)]
+    prose: Vec<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -75,7 +85,10 @@ struct Declared {
 impl Universal {
     /// A corpus that declares nothing universal, without touching a disk.
     pub const fn empty() -> Self {
-        Self(Vec::new())
+        Self {
+            properties: Vec::new(),
+            prose: Vec::new(),
+        }
     }
 
     pub fn path(root: &Path) -> std::path::PathBuf {
@@ -92,22 +105,35 @@ impl Universal {
     /// pattern is underlined where it is being typed.
     pub fn parse(text: &str) -> Self {
         let file: File = serde_yaml::from_str(text).unwrap_or_default();
-        Self(
-            file.properties
-                .into_iter()
-                .filter_map(|d| {
-                    let pattern = match d.pattern.as_deref() {
-                        None => None,
-                        Some(p) => Some(Regex::new(p).ok()?),
-                    };
-                    (d.name.is_some() || pattern.is_some()).then_some(UniversalProperty {
-                        name: d.name,
-                        pattern,
-                        r#type: d.r#type,
-                    })
+        let properties = file
+            .properties
+            .into_iter()
+            .filter_map(|d| {
+                let pattern = match d.pattern.as_deref() {
+                    None => None,
+                    Some(p) => Some(Regex::new(p).ok()?),
+                };
+                (d.name.is_some() || pattern.is_some()).then_some(UniversalProperty {
+                    name: d.name,
+                    pattern,
+                    r#type: d.r#type,
                 })
+            })
+            .collect();
+        Self {
+            properties,
+            prose: file
+                .prose
+                .into_iter()
+                .map(|k| k.trim().to_string())
+                .filter(|k| !k.is_empty())
                 .collect(),
-        )
+        }
+    }
+
+    /// The top-level prose keys every class may carry.
+    pub fn prose(&self) -> &[String] {
+        &self.prose
     }
 
     pub fn load(root: &Path) -> Self {
@@ -116,7 +142,7 @@ impl Universal {
 
     /// The type declared for this property name, if any class may carry it.
     pub fn declared_type(&self, key: &str) -> Option<&str> {
-        self.0
+        self.properties
             .iter()
             .find(|p| p.matches(key))
             .map(|p| p.r#type.as_str())
@@ -124,12 +150,12 @@ impl Universal {
 
     /// Whether any class may carry this property name.
     pub fn covers(&self, key: &str) -> bool {
-        self.0.iter().any(|p| p.matches(key))
+        self.properties.iter().any(|p| p.matches(key))
     }
 
     /// The exact-named declarations, for the schema compiler to fold into each class.
     pub fn named(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.0
+        self.properties
             .iter()
             .filter_map(|p| Some((p.name.as_deref()?, p.r#type.as_str())))
     }
@@ -137,13 +163,18 @@ impl Universal {
     /// The pattern declarations, as `(regex source, type)` — JSON Schema's
     /// `patternProperties` is keyed by the pattern itself.
     pub fn patterns(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.0
+        self.properties
             .iter()
             .filter_map(|p| Some((p.pattern.as_ref()?.as_str(), p.r#type.as_str())))
     }
 
+    /// Whether the corpus declared nothing universal at all — properties or prose.
+    ///
+    /// Both axes, deliberately. A reader asking whether this file says anything is asking
+    /// about the file, and answering from the property list alone would report a corpus that
+    /// declares only `prose:` as having declared nothing.
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.properties.is_empty() && self.prose.is_empty()
     }
 }
 
