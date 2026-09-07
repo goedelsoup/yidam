@@ -466,6 +466,28 @@
         }
       }
     },
+    "classes_with_issues": {
+      "type": "array",
+      "description": "`graph-check` only. Class files whose bytes did not parse, in the same shape as `nodes_with_issues`. Gates: a corpus whose schema cannot be read is not a graph anything has checked.",
+      "items": {
+        "type": "object",
+        "required": [
+          "node",
+          "issues"
+        ],
+        "properties": {
+          "node": {
+            "type": "string"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
     "classes_without_instances": {
       "type": "array",
       "items": {
