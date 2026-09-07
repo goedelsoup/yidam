@@ -85,7 +85,7 @@ dropped by every consumer of the parsed node.
 That is not a tidiness complaint, because two families of check disagree as a result.
 [`node_too_long`](../../yidam/cli/src/cmd/lint/checks.rs#L1344) reads the parsed field — the
 comment at [`checks.rs:1328-1333`](../../yidam/cli/src/cmd/lint/checks.rs#L1328-L1333) is explicit
-that this is the intent — while [`count_in_node`](../../yidam/cli/src/claims.rs#L813) takes the
+that this is the intent — while [`count_in_node`](../../yidam/cli/src/claims.rs#L892) takes the
 file's whole text. Two definitions of *the node's prose* inside one binary, and #674 measures the
 gap on a real corpus: median 118 lines read as the file, 21 read as `description`, 34 read as
 `summary` + `description` + `findings`. The band that judges it was fitted on the first and the
@@ -149,7 +149,7 @@ for one reason:
 > — [`claims.rs:389-391`](../../yidam/cli/src/claims.rs#L389-L391)
 
 Beside it: `starts_a_block`, telling a YAML key from a wrapped prose line;
-[`stop_is_lexical`](../../yidam/cli/src/claims.rs#L454), a hand-rolled sentence segmenter with
+[`stop_is_lexical`](../../yidam/cli/src/claims.rs#L528), a hand-rolled sentence segmenter with
 four rules and a pinned 0.09% residue; and `is_narrated`, a grammar heuristic deciding mention
 from use — adopted after the typographic rule it replaced made a corpus publish 26 open questions
 against a true 72, in a generated block on its front page.
@@ -451,10 +451,10 @@ is worth more than the phase it declined: if a corpus's prose is 66% of its byte
 of nodes keep prose in nested properties as well, then **`prose:` wants to reach a nested key**,
 which Phase 1 does not do and which is a cheaper change than a format.
 
-#### 3.2.1 A soft-wrapped line beginning `word:` truncates a claim
+#### 3.2.1 A soft-wrapped line beginning `word:` truncated a claim — fixed (#736)
 
-Found by the deletion above and true today, in the YAML form, with no format change in prospect.
-[`starts_a_block`](../../yidam/cli/src/claims.rs#L420) reads any line whose head is a bare token
+Found by the deletion above, and true in the YAML form with no format change in prospect.
+[`starts_a_block`](../../yidam/cli/src/claims.rs#L496) read any line whose head is a bare token
 followed by a colon as a new YAML key, and a wrapped prose line is often exactly that shape:
 
 ```text
@@ -462,12 +462,18 @@ followed by a colon as a new YAML key, and a wrapped prose line is often exactly
 decades: there were still 22,498 acres of them in 1954. [verified] — the 1954 volume.
 ```
 
-The claim is served as *"there were still 22,498 acres of them in 1954"* — the subject is on the
-line above, and the boundary is a wrap column, which is the same defect
-[`ends_statement`](../../yidam/cli/src/claims.rs#L530) was rewritten to remove. At least 115 of
-16,045 served claims (0.72%) are truncated this way across the population, which is the same
-order as the 179 lexical-stop truncations `stop_is_lexical` was given four rules to fix. Filed
-separately; it is not this RFC's to fix.
+The claim was served as *"there were still 22,498 acres of them in 1954"* — the subject is on
+the line above, and the boundary is a wrap column, which is the same defect
+[`ends_statement`](../../yidam/cli/src/claims.rs#L608) was rewritten to remove. It cut 125 of
+16,297 served claims (0.77%) across the population, the same order as the 179 lexical-stop
+truncations `stop_is_lexical` was given four rules to fix.
+
+The fix is [`continues_prose`](../../yidam/cli/src/claims.rs#L472): a key-shaped line is a
+wrapped sentence when the line above it is prose — not blank, not a key, not a list item, not a
+comment — and it does not stand to the left of that line. Ground truth came from a YAML
+tokenizer rather than from the served claims: of 41,248 key-shaped lines in the population, 404
+carry no real key, and the rule leaves 35 while misreading no real key as prose. All 125 claims
+come back longer and none shorter.
 
 ### 3.3 Either way, the second model goes
 
