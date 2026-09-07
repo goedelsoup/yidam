@@ -84,6 +84,13 @@ impl YidamBlock {
         if cfg!(feature = "vault-s3") {
             features.push("vault-s3".to_string());
         }
+        // Not a subcommand gate: `catalog-fetch` exists in every build and follows a
+        // `kind: file` location in all of them. This says whether it can follow a `url` or a
+        // `url_template` — which is the difference between a corpus that can re-fetch its
+        // sources and one that can only re-read what it already holds.
+        if cfg!(feature = "catalog-fetch") {
+            features.push("catalog-fetch".to_string());
+        }
         Self {
             version: env!("CARGO_PKG_VERSION").to_string(),
             commit: env!("YIDAM_BUILD_COMMIT").to_string(),

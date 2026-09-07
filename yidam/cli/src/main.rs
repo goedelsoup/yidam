@@ -130,6 +130,59 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// Follow a catalog entry's declared address and record what came back.
+    ///
+    /// Fetches the bytes, files them in the local vault cache under their content address,
+    /// appends an `artifacts:` record to the entry, and commits it as `refresh:`.
+    ///
+    /// It stops there, and the boundary is RFC-0026's: a run authors operational commits
+    /// directly and never authors a node. Turning a payload into concepts is `establish:`,
+    /// which is a person's act. Uploading to a remote store is `yidam vault push`.
+    ///
+    /// `kind: file` locations need no network. `url` and `url_template` need the
+    /// `catalog-fetch` feature, which is in the default build.
+    #[command(name = "catalog-fetch")]
+    CatalogFetch {
+        /// One entry, by file stem or `name:`. Absent means every entry with an address.
+        entry: Option<String>,
+        /// One location, by its index in that entry's own `location:` list — the same index
+        /// an artifact record's `from:` carries.
+        #[arg(long)]
+        location: Option<usize>,
+        /// Fill a `url_template` slot: `--bind site=09380000`. Repeatable.
+        ///
+        /// Every slot must be bound. A template fetched with a slot still in it would
+        /// retrieve whatever the server makes of a literal `{site}`, and that would be
+        /// committed as something this corpus obtained.
+        #[arg(long, value_name = "NAME=VALUE")]
+        bind: Vec<String>,
+        /// Resolve every address and report what would be fetched. Writes nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
+    /// Bring a catalog entry's `used-by` list back into agreement with the citations.
+    ///
+    /// The citations are authoritative — they cannot drift from the corpus and a
+    /// hand-maintained list can — so this is a substitution, and it commits as `reconcile:`.
+    ///
+    /// An entry declaring no `used-by` is left alone: absence is not drift, and writing one
+    /// would be this command deciding an entry should make a claim it never made.
+    #[command(name = "catalog-reconcile")]
+    CatalogReconcile {
+        /// One entry, by file stem or `name:`. Absent means every entry that declares a list.
+        entry: Option<String>,
+        /// Report the substitution and write nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Index the domain agents in `.yidam/agents/`.
     ///
     /// Writes the `<!-- REGEN: yidam agents-index -->` block in the repository's README.
@@ -825,6 +878,34 @@ fn main() -> Result<()> {
         } => yidam::index_verify(index, provider, runtime, format),
         Command::IndexStatus { format } => yidam::index_status(format),
         Command::CatalogAudit { format } => yidam::catalog_audit(format),
+        Command::CatalogFetch {
+            entry,
+            location,
+            bind,
+            dry_run,
+            format,
+        } => {
+            let bind = bind
+                .iter()
+                .map(|b| yidam::parse_binding(b))
+                .collect::<Result<Vec<_>>>()?;
+            yidam::catalog_fetch(&yidam::FetchOptions {
+                entry,
+                location,
+                bind,
+                dry_run,
+                format,
+            })
+        }
+        Command::CatalogReconcile {
+            entry,
+            dry_run,
+            format,
+        } => yidam::catalog_reconcile(&yidam::ReconcileOptions {
+            entry,
+            dry_run,
+            format,
+        }),
         Command::AgentsIndex => yidam::agents_index(),
         Command::SkillsIndex => yidam::skills_index(),
         Command::CratesIndex => yidam::crates_index(),

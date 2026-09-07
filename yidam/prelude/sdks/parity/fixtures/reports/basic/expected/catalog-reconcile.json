@@ -1,0 +1,29 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "reconciled": [
+    {
+      "entry": "stage-discharge",
+      "drift": {
+        "claimed_not_citing": [
+          "mixing-zone.yml"
+        ],
+        "citing_not_claimed": [
+          "tailwater.yml"
+        ]
+      },
+      "used_by": [
+        "../corpus/concept/low-flow.yml",
+        "../corpus/concept/tailwater.yml"
+      ],
+      "commit": null
+    }
+  ]
+}

@@ -152,7 +152,15 @@ pub const GROUPS: &[Group] = &[
         // this keeps the bytes a corpus rests on or produces. Nor with the index commands,
         // which build an artifact rather than store one.
         title: "Artifacts — bytes kept outside git, addressed by content",
-        commands: &[w("vault")],
+        // `catalog-fetch` sits here and not with the REGEN blocks beside `catalog-audit`,
+        // because what it produces is bytes and a commit rather than a table: it follows an
+        // entry's address, files what comes back under its digest, and records that. Its
+        // nearest neighbour is `vault`, which is where those bytes then live.
+        //
+        // `catalog-reconcile` sits beside it because the pair is the point — one keeps what a
+        // source gave, the other keeps what the corpus says about it — and separating them
+        // would put the two halves of `catalog:`'s row in #460's table in different groups.
+        commands: &[w("vault"), w("catalog-fetch"), w("catalog-reconcile")],
     },
     Group {
         // Its own group rather than beside the gates. Every command there answers *is this

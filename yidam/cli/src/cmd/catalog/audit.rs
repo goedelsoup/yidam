@@ -50,9 +50,9 @@ use crate::walk::{walk_corpus_instances, walk_md_files};
 /// file, so one file linking to the same entry twice is one citation and always was. The
 /// counts are `len()` of these, which is what keeps the two from ever disagreeing.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct Cited {
+pub(super) struct Cited {
     /// Corpus instances that link here. **The list every gate's count reads.**
-    nodes: Vec<String>,
+    pub(super) nodes: Vec<String>,
     /// Other files under `.yidam/corpus/` that link here — class definitions and READMEs.
     ///
     /// Reported beside [`Self::nodes`] and never added to it. A claim resting on a source and
@@ -148,7 +148,7 @@ struct CatalogReport {
 ///
 /// Keyed by every link target, not only catalog entries. Filtering to the catalog would mean
 /// deciding here what a catalog path looks like, and the caller already holds the entries.
-fn draws_on(root: &Path, corpus: &Path) -> HashMap<PathBuf, Cited> {
+pub(super) fn draws_on(root: &Path, corpus: &Path) -> HashMap<PathBuf, Cited> {
     // What counts as a node comes from the one function that answers that, rather than from
     // a filter written again here. The duplicated *walk* is the whole of this defect.
     let instances: HashSet<PathBuf> = walk_corpus_instances(corpus)

@@ -285,6 +285,7 @@ The binary is partitioned by cargo feature so the common case stays cheap to ins
 | `vault-s3` *(default)* | The `s3://` transport for `yidam vault` — the rest of the vault is ungated | hmac + reqwest (rustls) + tokio |
 | `export-graph` *(default)* | `export --format rdf` | Pure Rust |
 | `serve-http` *(default)* | `serve --mcp --http` — MCP over a URL, the transport every remote agent platform needs | hyper 1.x server features. **+1 package** (`httpdate`); hyper is already here for reqwest |
+| `catalog-fetch` *(default)* | `catalog-fetch` against a `url` or `url_template` location — the `kind: file` path is ungated and works without it | **+0 packages**; reqwest and tokio are already here for `tonpa` and `vault-s3` |
 | `full` | All of the above | |
 
 `tonpa` is in the default set even though it costs an HTTP stack, because it is the only

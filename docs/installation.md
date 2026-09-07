@@ -147,6 +147,7 @@ artifacts — the script, the tap, binstall — carry the **default** set.
 | `vault-s3` *(default)* | The `s3://` transport for `yidam vault`. The rest of the vault — addressing, cache, `file://` — is ungated | hmac + reqwest (rustls) + tokio |
 | `export-graph` *(default)* | `export --format rdf` | Pure Rust |
 | `serve-http` *(default)* | `serve --mcp --http` — MCP over a URL, the transport every remote agent platform needs | hyper 1.x server features. **+1 package** (`httpdate`); hyper is already here for reqwest |
+| `catalog-fetch` *(default)* | `catalog-fetch` against a `url` or `url_template` location. The `kind: file` path — and everything that decides *what* would be fetched — is ungated | **+0 packages**; reqwest and tokio are already here for `tonpa` and `vault-s3` |
 | `full` | All of the above | |
 
 Two things follow from that table that are easy to get backwards.

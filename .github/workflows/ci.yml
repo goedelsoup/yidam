@@ -111,7 +111,7 @@ jobs:
           # is what keeps this list and `[features] default` in step — it reads this line
           # and the manifest and requires them equal. (It used to say `light_build.rs`,
           # which never read this file.)
-          features: ${{ matrix.workspace == 'cli' && 'reports,tonpa,vault-s3,export-graph,serve-http' || '' }}
+          features: ${{ matrix.workspace == 'cli' && 'reports,tonpa,vault-s3,export-graph,serve-http,catalog-fetch' || '' }}
 
   domains:
     # #590: `cargo fmt --all` in a derived repo reaches these crates too, by path, because

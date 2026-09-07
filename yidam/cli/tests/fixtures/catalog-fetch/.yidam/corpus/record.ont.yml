@@ -1,0 +1,12 @@
+class: record
+label: Record
+description: |
+  A count this corpus takes from a published table, together with what the publisher means
+  by the thing being counted.
+properties:
+  - name: edition
+    type: string
+    description: The edition of the source table the count was read from.
+  - name: claim_tag
+    type: claim
+    description: The evidence standing of this node, as a tag rather than as prose.

@@ -13,7 +13,7 @@
     "format_version": {
       "type": "string",
       "const": "1",
-      "description": "Contract major version. A consumer reading an unknown value MUST degrade loudly — disable verdict features and say why — and MUST NOT attempt to parse the rest."
+      "description": "Contract major version. A consumer reading an unknown value MUST degrade loudly \u2014 disable verdict features and say why \u2014 and MUST NOT attempt to parse the rest."
     },
     "yidam": {
       "type": "object",
@@ -47,7 +47,7 @@
     },
     "gate": {
       "type": "object",
-      "description": "`lint` only. The verdict — a consumer MUST NOT recompute it.",
+      "description": "`lint` only. The verdict \u2014 a consumer MUST NOT recompute it.",
       "required": [
         "passed",
         "new_violations",
@@ -70,7 +70,7 @@
         },
         "stale_baseline_entries": {
           "type": "array",
-          "description": "Baseline entries with no corresponding violation. These fail CI too — a baseline permitted to be wrong drifts.",
+          "description": "Baseline entries with no corresponding violation. These fail CI too \u2014 a baseline permitted to be wrong drifts.",
           "items": {
             "type": "object",
             "required": [
@@ -89,7 +89,7 @@
         },
         "expired_baseline_entries": {
           "type": "array",
-          "description": "Entries that have outlived the expiry the baseline declares, and so no longer forgive the violation they list. These fail CI. Separate from `new_violations` although both fail: an introduced violation is something this change did, an expired one is something the repository agreed to deal with and has not — and a consumer telling somebody they introduced a finding that has sat in their baseline for two hundred commits would be wrong.",
+          "description": "Entries that have outlived the expiry the baseline declares, and so no longer forgive the violation they list. These fail CI. Separate from `new_violations` although both fail: an introduced violation is something this change did, an expired one is something the repository agreed to deal with and has not \u2014 and a consumer telling somebody they introduced a finding that has sat in their baseline for two hundred commits would be wrong.",
           "items": {
             "type": "object",
             "required": [
@@ -115,7 +115,7 @@
     },
     "checks": {
       "type": "array",
-      "description": "`lint` AND `doctor`, and the two emit different item shapes under this one key — which went unstated until #645's recursive gate read it. `lint`'s check carries `title`, `severity`, `rationale` and `violations`; `doctor`'s carries `question`, `verdict`, `detail` and `remedy`. Both carry `id`, which is the only field required here for the same reason the envelope requires only three at the top level: this schema is a flat union across commands, and a `required` naming one command's shape would declare the other command's output invalid. Consumers key on `id` and read the fields their command emits. In both, every check that ran is present including those that found nothing — a check that vanishes when it passes cannot be told from one that never ran.",
+      "description": "`lint` AND `doctor`, and the two emit different item shapes under this one key \u2014 which went unstated until #645's recursive gate read it. `lint`'s check carries `title`, `severity`, `rationale` and `violations`; `doctor`'s carries `question`, `verdict`, `detail` and `remedy`. Both carry `id`, which is the only field required here for the same reason the envelope requires only three at the top level: this schema is a flat union across commands, and a `required` naming one command's shape would declare the other command's output invalid. Consumers key on `id` and read the fields their command emits. In both, every check that ran is present including those that found nothing \u2014 a check that vanishes when it passes cannot be told from one that never ran.",
       "items": {
         "type": "object",
         "required": [
@@ -141,7 +141,7 @@
               "fail",
               "skipped"
             ],
-            "description": "`doctor` only. `warn` is actionable and a normal state to be in, and does not affect the exit code without `--strict`; `fail` is wrong now and exits nonzero; `skipped` is not answerable, almost always because the repository check already failed and there is nothing to answer about. A consumer MUST NOT read `skipped` as `ok`. Every question `doctor` asks is reported on both paths, so a `skipped` check is how the answerable set stays the same shape — one check was absent from the unanswerable path rather than skipped on it until #656, and no fixture emitted this value at all, which left renaming it here undetectable."
+            "description": "`doctor` only. `warn` is actionable and a normal state to be in, and does not affect the exit code without `--strict`; `fail` is wrong now and exits nonzero; `skipped` is not answerable, almost always because the repository check already failed and there is nothing to answer about. A consumer MUST NOT read `skipped` as `ok`. Every question `doctor` asks is reported on both paths, so a `skipped` check is how the answerable set stays the same shape \u2014 one check was absent from the unanswerable path rather than skipped on it until #656, and no fixture emitted this value at all, which left renaming it here undetectable."
           },
           "detail": {
             "type": "string",
@@ -152,7 +152,7 @@
               "string",
               "null"
             ],
-            "description": "`doctor` only. The command or edit that resolves this finding. **Null on `ok` and on `skipped`** — a verdict with no finding has nothing to resolve — and null-iff-actionable is held by construction rather than by agreement: the constructors for those two verdicts take no remedy. It was NOT an invariant until #656, when the prelude and policy checks each named one alongside `verdict: ok`. The text renderer suppressed them and the JSON did not, so the same green check reached a person with nothing to do and a consumer with an action against it. Advice worth reading on a healthy check goes in `detail`, which is rendered on every line — that is where the prelude check's pointer at the one networked command now lives."
+            "description": "`doctor` only. The command or edit that resolves this finding. **Null on `ok` and on `skipped`** \u2014 a verdict with no finding has nothing to resolve \u2014 and null-iff-actionable is held by construction rather than by agreement: the constructors for those two verdicts take no remedy. It was NOT an invariant until #656, when the prelude and policy checks each named one alongside `verdict: ok`. The text renderer suppressed them and the JSON did not, so the same green check reached a person with nothing to do and a consumer with an action against it. Advice worth reading on a healthy check goes in `detail`, which is rendered on every line \u2014 that is where the prelude check's pointer at the one networked command now lives."
           },
           "severity": {
             "enum": [
@@ -160,7 +160,7 @@
               "warn",
               "info"
             ],
-            "description": "`lint` only. The severity the check is DECLARED at — not necessarily the severity of its findings, which is `violations[].severity` below. A consumer filtering gate-relevant findings on this field drops every escalated one: `missing-property` is declared `warn` and gates the properties a class marked `required: true`, and any corpus-state check can escalate on age. This said 'Only `error` gates, and only `error` is ever baselined' until #650, which contradicted the field 30 lines down and is how the consumers named there came to read the wrong one."
+            "description": "`lint` only. The severity the check is DECLARED at \u2014 not necessarily the severity of its findings, which is `violations[].severity` below. A consumer filtering gate-relevant findings on this field drops every escalated one: `missing-property` is declared `warn` and gates the properties a class marked `required: true`, and any corpus-state check can escalate on age. This said 'Only `error` gates, and only `error` is ever baselined' until #650, which contradicted the field 30 lines down and is how the consumers named there came to read the wrong one."
           },
           "rationale": {
             "type": "string",
@@ -168,7 +168,7 @@
           },
           "violations": {
             "type": "array",
-            "description": "`lint` only. Every finding the check raised, including none — a check that vanishes when it passes cannot be told from one that never ran.",
+            "description": "`lint` only. Every finding the check raised, including none \u2014 a check that vanishes when it passes cannot be told from one that never ran.",
             "items": {
               "type": "object",
               "required": [
@@ -187,7 +187,7 @@
                 },
                 "in_baseline": {
                   "type": "boolean",
-                  "description": "Whether the committed baseline already records this violation. ONLY MEANINGFUL WHEN severity IS error — the baseline records error-severity violations and nothing else, so a warn or info violation is always false here. Read this together with `severity`, never alone."
+                  "description": "Whether the committed baseline already records this violation. ONLY MEANINGFUL WHEN severity IS error \u2014 the baseline records error-severity violations and nothing else, so a warn or info violation is always false here. Read this together with `severity`, never alone."
                 },
                 "severity": {
                   "enum": [
@@ -195,7 +195,7 @@
                     "warn",
                     "info"
                   ],
-                  "description": "This violation's effective severity, and the one that decides whether it GATES. Normally the check's, and not always: `Check::severity_of` returns the finding's own override or an age escalation before falling back to the check's level, so `missing-property` is declared `warn` and raises the one property a class marked `required: true` to `error`. Read it here and never from the check — that is also what `in_baseline` above means by 'together with `severity`'. A consumer that reads the check's level renders the one finding whose whole purpose is to gate as advisory: that is what the VS Code extension, the web editor and the LSP each did until #655, undetected because no fixture held a violation whose severity was not its check's. `reports/basic` now does. This field went undeclared until #645 because the contract gate compared only the envelope's top level; a client older than that MAY find it absent, and MUST then fall back to the check's severity, which is what that binary's own gate used."
+                  "description": "This violation's effective severity, and the one that decides whether it GATES. Normally the check's, and not always: `Check::severity_of` returns the finding's own override or an age escalation before falling back to the check's level, so `missing-property` is declared `warn` and raises the one property a class marked `required: true` to `error`. Read it here and never from the check \u2014 that is also what `in_baseline` above means by 'together with `severity`'. A consumer that reads the check's level renders the one finding whose whole purpose is to gate as advisory: that is what the VS Code extension, the web editor and the LSP each did until #655, undetected because no fixture held a violation whose severity was not its check's. `reports/basic` now does. This field went undeclared until #645 because the contract gate compared only the envelope's top level; a client older than that MAY find it absent, and MUST then fall back to the check's severity, which is what that binary's own gate used."
                 },
                 "age": {
                   "type": "object",
@@ -212,7 +212,7 @@
                     },
                     "first_day": {
                       "type": "string",
-                      "description": "The `YYYY-MM-DD` of that commit — the same day the text report prints."
+                      "description": "The `YYYY-MM-DD` of that commit \u2014 the same day the text report prints."
                     },
                     "commits": {
                       "type": "integer",
@@ -222,7 +222,7 @@
                 },
                 "span": {
                   "type": "object",
-                  "description": "Best-effort location. Output-only and never part of the violation's identity: a line number in the baseline's comparison would make it churn on every edit above a violation. Absent is a normal outcome — anchor at line 1.",
+                  "description": "Best-effort location. Output-only and never part of the violation's identity: a line number in the baseline's comparison would make it churn on every edit above a violation. Absent is a normal outcome \u2014 anchor at line 1.",
                   "required": [
                     "line"
                   ],
@@ -241,7 +241,7 @@
     },
     "passed": {
       "type": "boolean",
-      "description": "`graph-check`, `regen --check`, `index-verify` and `doctor`. The gate verdict. A consumer MUST NOT recompute it. On `due` it is true unless `--strict` was passed and a clock is due — being owed is not a failure, and this field is here so a consumer does not infer one."
+      "description": "`graph-check`, `regen --check`, `index-verify` and `doctor`. The gate verdict. A consumer MUST NOT recompute it. On `due` it is true unless `--strict` was passed and a clock is due \u2014 being owed is not a failure, and this field is here so a consumer does not infer one."
     },
     "failed": {
       "type": "integer",
@@ -249,11 +249,11 @@
     },
     "warned": {
       "type": "integer",
-      "description": "`doctor` only. Checks that are actionable and a normal state to be in — a light build with no vector index, a pin from last season. They gate only under `--strict`, because a doctor that goes red on the normal state of a normal install is one people learn to pass `|| true`."
+      "description": "`doctor` only. Checks that are actionable and a normal state to be in \u2014 a light build with no vector index, a pin from last season. They gate only under `--strict`, because a doctor that goes red on the normal state of a normal install is one people learn to pass `|| true`."
     },
     "branch": {
       "type": "string",
-      "description": "`propose` only. The `propose/<head>` ref the proposals are written to. Reported whether or not the run wrote — on `--dry-run` it is where they would have gone."
+      "description": "`propose` only. The `propose/<head>` ref the proposals are written to. Reported whether or not the run wrote \u2014 on `--dry-run` it is where they would have gone."
     },
     "head": {
       "type": "string",
@@ -261,7 +261,7 @@
     },
     "proposals": {
       "type": "array",
-      "description": "`propose` only. Each drafted commit, in the order it is committed. Three verbs only — `open`, `withdraw`, `close` — because nothing merges itself and nothing synthesizes; see RFC-0020.",
+      "description": "`propose` only. Each drafted commit, in the order it is committed. Three verbs only \u2014 `open`, `withdraw`, `close` \u2014 because nothing merges itself and nothing synthesizes; see RFC-0020.",
       "items": {
         "type": "object",
         "required": [
@@ -326,7 +326,7 @@
           },
           "reason": {
             "type": "string",
-            "description": "Why no proposal could be drafted — a `description:` that is not a block scalar, an entry with no closing frontmatter fence, or a message that would not carry its finding."
+            "description": "Why no proposal could be drafted \u2014 a `description:` that is not a block scalar, an entry with no closing frontmatter fence, or a message that would not carry its finding."
           }
         }
       }
@@ -336,7 +336,7 @@
         "object",
         "null"
       ],
-      "description": "`propose` only. What reached the repository. Null on `--dry-run` and on a run with nothing to propose — the two states a consumer must not read as a write.",
+      "description": "`propose` only. What reached the repository. Null on `--dry-run` and on a run with nothing to propose \u2014 the two states a consumer must not read as a write.",
       "required": [
         "branch",
         "commits"
@@ -350,7 +350,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Short shas, oldest first — the order `git log --reverse` prints them in."
+          "description": "Short shas, oldest first \u2014 the order `git log --reverse` prints them in."
         }
       }
     },
@@ -389,7 +389,7 @@
               "undeclared",
               "unmeasurable"
             ],
-            "description": "`due` is not a defect. A corpus with three expired sources is owed, not unhealthy — `doctor` is the report that answers whether anything is wrong. `undeclared` means this corpus set no interval, so the clock can never come due; `unmeasurable` means it set one and there is nothing to measure against, which is a gap in bookkeeping rather than a stale subject."
+            "description": "`due` is not a defect. A corpus with three expired sources is owed, not unhealthy \u2014 `doctor` is the report that answers whether anything is wrong. `undeclared` means this corpus set no interval, so the clock can never come due; `unmeasurable` means it set one and there is nothing to measure against, which is a gap in bookkeeping rather than a stale subject."
           },
           "interval": {
             "type": [
@@ -411,7 +411,7 @@
               "string",
               "null"
             ],
-            "description": "The command or act that discharges it — or, on an `undeclared` clock, the key that would set it. Null when there is nothing to do."
+            "description": "The command or act that discharges it \u2014 or, on an `undeclared` clock, the key that would set it. Null when there is nothing to do."
           }
         }
       }
@@ -430,7 +430,7 @@
     },
     "corpus_empty": {
       "type": "boolean",
-      "description": "`graph-check` only. Neither instances nor class definitions — a fresh repository, not a failure."
+      "description": "`graph-check` only. Neither instances nor class definitions \u2014 a fresh repository, not a failure."
     },
     "total_instances": {
       "type": "integer",
@@ -478,10 +478,10 @@
         "array",
         "integer"
       ],
-      "description": "An array in `corpus-index` (index rows), `graph` (nodes with their resolved edges) and `diff` (changed nodes); an integer in `status` (how many there are). Two shapes under one name, which the field-presence check could not see until #650 gave this file a validating reader — the hazard this description named while nothing enforced it.",
+      "description": "An array in `corpus-index` (index rows), `graph` (nodes with their resolved edges) and `diff` (changed nodes); an integer in `status` (how many there are). Two shapes under one name, which the field-presence check could not see until #650 gave this file a validating reader \u2014 the hazard this description named while nothing enforced it.",
       "items": {
         "type": "object",
-        "description": "A flat union across the emitting commands, for the reason `checks` above is one: `graph` carries `description` and `links`, `corpus-index` carries the counts and `lines`, and `required` therefore names only what both carry. `diff`'s shape is unexercised — its array is empty in the fixture — so nothing here is invented for it.",
+        "description": "A flat union across the emitting commands, for the reason `checks` above is one: `graph` carries `description` and `links`, `corpus-index` carries the counts and `lines`, and `required` therefore names only what both carry. `diff`'s shape is unexercised \u2014 its array is empty in the fixture \u2014 so nothing here is invented for it.",
         "required": [
           "node"
         ],
@@ -521,7 +521,7 @@
                 },
                 "resolved": {
                   "type": "string",
-                  "description": "Corpus-relative path of the resolved target, or empty when it lands outside the corpus. Resolution is `normalize(dir.join(target))` — the rule `dangling-edge` and `orphan-in` apply."
+                  "description": "Corpus-relative path of the resolved target, or empty when it lands outside the corpus. Resolution is `normalize(dir.join(target))` \u2014 the rule `dangling-edge` and `orphan-in` apply."
                 },
                 "exists": {
                   "type": "boolean",
@@ -558,7 +558,7 @@
         "array",
         "integer"
       ],
-      "description": "An array in `open-questions` (the nodes carrying one); an integer in `status` (how many there are). Two shapes under one name, the same hazard `nodes` above records — and the same one that went unseen while this contract was checked by field presence alone.",
+      "description": "An array in `open-questions` (the nodes carrying one); an integer in `status` (how many there are). Two shapes under one name, the same hazard `nodes` above records \u2014 and the same one that went unseen while this contract was checked by field presence alone.",
       "items": {
         "type": "object",
         "required": [
@@ -579,7 +579,7 @@
     },
     "sources": {
       "type": "array",
-      "description": "`catalog-audit` only. One row per catalog entry. Each carries THREE citation counts and they mean different things: `nodes` is corpus instances linking to the entry — the number every gate reads, and what `catalog-uncited` means by \"no corpus node draws on this source\"; `elsewhere` is other files under .yidam/corpus/ that link to it, which is class definitions and README prose; `citations` is their sum, retained with exactly the meaning it had before the two were separated. A consumer deciding whether a claim rests on a source MUST read `nodes`, never `citations`. Each row also names WHICH nodes cite it (`cited_by`) and how the entry's own hand-written `used-by` list disagrees with them (`drift`), so a consumer navigating from a node to its sources never re-resolves the corpus's links to find out.",
+      "description": "`catalog-audit` only. One row per catalog entry. Each carries THREE citation counts and they mean different things: `nodes` is corpus instances linking to the entry \u2014 the number every gate reads, and what `catalog-uncited` means by \"no corpus node draws on this source\"; `elsewhere` is other files under .yidam/corpus/ that link to it, which is class definitions and README prose; `citations` is their sum, retained with exactly the meaning it had before the two were separated. A consumer deciding whether a claim rests on a source MUST read `nodes`, never `citations`. Each row also names WHICH nodes cite it (`cited_by`) and how the entry's own hand-written `used-by` list disagrees with them (`drift`), so a consumer navigating from a node to its sources never re-resolves the corpus's links to find out.",
       "items": {
         "type": "object",
         "required": [
@@ -620,14 +620,14 @@
           },
           "elsewhere": {
             "type": "integer",
-            "description": "Non-instance corpus files linking to this entry — class definitions and READMEs. Never added to `nodes`: a claim resting on a source and a page linking to one are different things."
+            "description": "Non-instance corpus files linking to this entry \u2014 class definitions and READMEs. Never added to `nodes`: a claim resting on a source and a page linking to one are different things."
           },
           "cited_by": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "Repo-relative paths of the corpus instances linking to this entry, sorted. Exactly `nodes` of them — the count is this list's length, so the two cannot come to disagree. Instances only: a class definition or a README linking here is counted in `elsewhere` and not named, because it is not a node and has no row in a corpus view to sit under."
+            "description": "Repo-relative paths of the corpus instances linking to this entry, sorted. Exactly `nodes` of them \u2014 the count is this list's length, so the two cannot come to disagree. Instances only: a class definition or a README linking here is counted in `elsewhere` and not named, because it is not a node and has no row in a corpus view to sit under."
           },
           "used_by": {
             "type": "array",
@@ -641,7 +641,7 @@
               "object",
               "null"
             ],
-            "description": "How `used_by` disagrees with `cited_by`, compared by basename — or null when the entry declares no list, since absent is not drift. An object with two empty arrays is the different answer: a list was declared and it holds. Computed by the same function `catalog-used-by-drift` gates on, so the report and the gate cannot disagree about what drift is. A consumer MUST NOT recompute it.",
+            "description": "How `used_by` disagrees with `cited_by`, compared by basename \u2014 or null when the entry declares no list, since absent is not drift. An object with two empty arrays is the different answer: a list was declared and it holds. Computed by the same function `catalog-used-by-drift` gates on, so the report and the gate cannot disagree about what drift is. A consumer MUST NOT recompute it.",
             "required": [
               "claimed_not_citing",
               "citing_not_claimed"
@@ -665,7 +665,7 @@
           },
           "artifacts": {
             "type": "array",
-            "description": "The entry's fetched artifacts, as its record declares them. Empty when the record declares no `artifacts:` key at all — NOT when it names no bytes, a different condition this file stated wrongly until #650, since `catalog.rs` reserves 'names bytes' for an artifact carrying a non-empty `sha256`. A catalog entry is a record about a source and does not have to have fetched one.",
+            "description": "The entry's fetched artifacts, as its record declares them. Empty when the record declares no `artifacts:` key at all \u2014 NOT when it names no bytes, a different condition this file stated wrongly until #650, since `catalog.rs` reserves 'names bytes' for an artifact carrying a non-empty `sha256`. A catalog entry is a record about a source and does not have to have fetched one.",
             "items": {
               "type": "object",
               "description": "Every field is optional so that a malformed record parses and is REPORTED rather than making the whole entry unreadable: an entry that fails to load takes its citations, its TTL and its `used-by` down with it, which is a large penalty for one bad field.",
@@ -675,7 +675,7 @@
                     "string",
                     "null"
                   ],
-                  "description": "The content address — 64 lowercase hex characters."
+                  "description": "The content address \u2014 64 lowercase hex characters."
                 },
                 "bytes": {
                   "type": [
@@ -696,7 +696,7 @@
                     "string",
                     "null"
                   ],
-                  "description": "When these bytes were obtained. Distinct from the entry's own `retrieved:`, which is about the record — an entry can be revised without re-fetching anything."
+                  "description": "When these bytes were obtained. Distinct from the entry's own `retrieved:`, which is about the record \u2014 an entry can be revised without re-fetching anything."
                 },
                 "from": {
                   "type": [
@@ -704,21 +704,21 @@
                     "string",
                     "null"
                   ],
-                  "description": "Where it came from: an index into this entry's `location` list, or a literal URL. An untagged enum over the two, so a consumer branches on the JSON type. Declared with a description and no `type` until #650, which under draft 2020-12 is the empty schema and asserts nothing — `yidam schema` has always been stricter about the same field."
+                  "description": "Where it came from: an index into this entry's `location` list, or a literal URL. An untagged enum over the two, so a consumer branches on the JSON type. Declared with a description and no `type` until #650, which under draft 2020-12 is the empty schema and asserts nothing \u2014 `yidam schema` has always been stricter about the same field."
                 },
                 "vault": {
                   "type": [
                     "string",
                     "null"
                   ],
-                  "description": "Which vault these bytes may be stored in. `none` means the local cache and nowhere else. Routing, and not permission — `redistributable` is the other question and overrides this one."
+                  "description": "Which vault these bytes may be stored in. `none` means the local cache and nowhere else. Routing, and not permission \u2014 `redistributable` is the other question and overrides this one."
                 },
                 "redistributable": {
                   "type": [
                     "boolean",
                     "null"
                   ],
-                  "description": "Whether these bytes may leave this machine at all — the licensing bit, which overrides `vault` above. Declared with no `type` until #650, and it is the field where an unasserted contract costs the most."
+                  "description": "Whether these bytes may leave this machine at all \u2014 the licensing bit, which overrides `vault` above. Declared with no `type` until #650, and it is the field where an unasserted contract costs the most."
                 }
               }
             }
@@ -773,11 +773,11 @@
     },
     "range": {
       "type": "string",
-      "description": "`diff`, `check-diff`, `log` and `log-epistemic`. The git range reported on, unnormalised, so what was compared is what the report says. Usually exactly as the caller gave it; `check-diff` may be run with no range, and then this is the default it resolved to — the merge-base with the default branch — rather than a blank."
+      "description": "`diff`, `check-diff`, `log` and `log-epistemic`. The git range reported on, unnormalised, so what was compared is what the report says. Usually exactly as the caller gave it; `check-diff` may be run with no range, and then this is the default it resolved to \u2014 the merge-base with the default branch \u2014 rather than a blank."
     },
     "vocabulary": {
       "type": "integer",
-      "description": "`check-diff` only. How many names the ontology declares — classes, properties and relationships together. All three, because a domain concept can arrive in the ontology as a property of something else or as the name of a relationship, and a check reading only class names would ask about a concept the corpus already models."
+      "description": "`check-diff` only. How many names the ontology declares \u2014 classes, properties and relationships together. All three, because a domain concept can arrive in the ontology as a property of something else or as the name of a relationship, and a check reading only class names would ask about a concept the corpus already models."
     },
     "introduced": {
       "type": "integer",
@@ -789,7 +789,7 @@
     },
     "findings": {
       "type": "array",
-      "description": "`check-diff` only. Types the diff introduces that the ontology does not name. This report never gates: a consumer must not read a non-empty array as a failure. The item shape below was prose here until #650 — a description of a shape is not a declaration of it, and nothing could check the difference.",
+      "description": "`check-diff` only. Types the diff introduces that the ontology does not name. This report never gates: a consumer must not read a non-empty array as a failure. The item shape below was prose here until #650 \u2014 a description of a shape is not a declaration of it, and nothing could check the difference.",
       "items": {
         "type": "object",
         "required": [
@@ -823,7 +823,7 @@
           },
           "nearest": {
             "type": "object",
-            "description": "A declared name this one shares a root with, when the vocabulary holds one. A LEAD AND NEVER A VERDICT: two names sharing a four-character prefix is a fact about two strings, arrived at without a model, and the finding exists whether or not a candidate was found — so a consumer must not render this as a confidence, a score, or a proposed fix. Absent when nothing shares a root.",
+            "description": "A declared name this one shares a root with, when the vocabulary holds one. A LEAD AND NEVER A VERDICT: two names sharing a four-character prefix is a fact about two strings, arrived at without a model, and the finding exists whether or not a candidate was found \u2014 so a consumer must not render this as a confidence, a score, or a proposed fix. Absent when nothing shares a root.",
             "required": [
               "name",
               "shared"
@@ -856,7 +856,7 @@
           },
           "question": {
             "type": "string",
-            "description": "Phrased as a question, deliberately — the answer is a person's. Matching is by name, so a type that matches nothing may be a genuine gap in the ontology or a helper the ontology has no reason to know about. The check cannot tell, and must not phrase itself as though it could."
+            "description": "Phrased as a question, deliberately \u2014 the answer is a person's. Matching is by name, so a type that matches nothing may be a genuine gap in the ontology or a helper the ontology has no reason to know about. The check cannot tell, and must not phrase itself as though it could."
           },
           "region": {
             "type": "string",
@@ -883,12 +883,16 @@
     },
     "state": {
       "type": "string",
-      "enum": ["active", "settled", "position"],
+      "enum": [
+        "active",
+        "settled",
+        "position"
+      ],
       "description": "`phases` only. What one inquiry ref currently is."
     },
     "replay": {
       "type": "array",
-      "description": "`replay` only. Corpus health at each commit that touched the corpus, oldest first — the series every other report cannot give, because every other report answers about now. Always the whole series; `--every` samples the text rendering and never this.",
+      "description": "`replay` only. Corpus health at each commit that touched the corpus, oldest first \u2014 the series every other report cannot give, because every other report answers about now. Always the whole series; `--every` samples the text rendering and never this.",
       "items": {
         "type": "object",
         "required": [
@@ -913,7 +917,7 @@
           },
           "orphans": {
             "type": "integer",
-            "description": "Nodes nothing points at, excluding classes the ontology says nothing should point at — the same population `orphan-in` reports."
+            "description": "Nodes nothing points at, excluding classes the ontology says nothing should point at \u2014 the same population `orphan-in` reports."
           },
           "by_class": {
             "type": "object",
@@ -951,7 +955,7 @@
                     "boolean",
                     "null"
                   ],
-                  "description": "Whether the class is behaving as it declared. `null` when it declared nothing — there is no expectation to meet, and scoring a class against one it never stated is how a corpus with an unfilled ontology gets reported as failing. A consumer MUST NOT read `null` as false."
+                  "description": "Whether the class is behaving as it declared. `null` when it declared nothing \u2014 there is no expectation to meet, and scoring a class against one it never stated is how a corpus with an unfilled ontology gets reported as failing. A consumer MUST NOT read `null` as false."
                 }
               }
             }
@@ -1024,7 +1028,7 @@
     },
     "stale_nodes": {
       "type": "integer",
-      "description": "`index-status` only. Corpus files modified since the build. This is the freshness verdict — a consumer MUST NOT recompute it by comparing mtimes itself."
+      "description": "`index-status` only. Corpus files modified since the build. This is the freshness verdict \u2014 a consumer MUST NOT recompute it by comparing mtimes itself."
     },
     "collective": {
       "type": "boolean",
@@ -1032,7 +1036,7 @@
     },
     "electors": {
       "type": "array",
-      "description": "`sangha` only. Rows of `electors.md` whose branch cell names a `ma/*` ref — which is what PROTOCOL.md defines an elector as.",
+      "description": "`sangha` only. Rows of `electors.md` whose branch cell names a `ma/*` ref \u2014 which is what PROTOCOL.md defines an elector as.",
       "items": {
         "type": "object",
         "required": [
@@ -1051,7 +1055,7 @@
           },
           "role": {
             "type": "string",
-            "description": "The Role cell verbatim, markdown and all — it is prose written for a reader."
+            "description": "The Role cell verbatim, markdown and all \u2014 it is prose written for a reader."
           },
           "kind": {
             "type": "string",
@@ -1059,7 +1063,7 @@
           },
           "model": {
             "type": "string",
-            "description": "What produced this seat's positions, for an agent elector. Recorded, never privileged — Article II governs weight and Article III governs record."
+            "description": "What produced this seat's positions, for an agent elector. Recorded, never privileged \u2014 Article II governs weight and Article III governs record."
           },
           "version": {
             "type": "string",
@@ -1071,7 +1075,7 @@
           },
           "key": {
             "type": "string",
-            "description": "The seat's SSH public key in `authorized_keys` form — the key, not a fingerprint. `yidam lint` generates the `gpg.ssh.allowedSignersFile` from this column at verification time, so the registry is the trust root and a key it does not carry verifies nothing. Empty means the seat declares its commits unverifiable."
+            "description": "The seat's SSH public key in `authorized_keys` form \u2014 the key, not a fingerprint. `yidam lint` generates the `gpg.ssh.allowedSignersFile` from this column at verification time, so the registry is the trust root and a key it does not carry verifies nothing. Empty means the seat declares its commits unverifiable."
           },
           "branch_present": {
             "type": "boolean",
@@ -1085,7 +1089,7 @@
         "array",
         "integer"
       ],
-      "description": "An array in `sangha` (files in `positions/`, attributed by the `<elector>-<question>` naming convention); an integer in `status` (standing `ma/*` elector positions, which are neither active work nor drift — divergence from the baseline is what a position is for). This key was declared TWICE in this object until #650, once per shape. Every JSON parser keeps the last, so the `status` declaration and its description were dead text that read as coverage. `items` below therefore applies to the `sangha` shape only.",
+      "description": "An array in `sangha` (files in `positions/`, attributed by the `<elector>-<question>` naming convention); an integer in `status` (standing `ma/*` elector positions, which are neither active work nor drift \u2014 divergence from the baseline is what a position is for). This key was declared TWICE in this object until #650, once per shape. Every JSON parser keeps the last, so the `status` declaration and its description were dead text that read as coverage. `items` below therefore applies to the `sangha` shape only.",
       "items": {
         "type": "object",
         "required": [
@@ -1104,7 +1108,7 @@
           },
           "question": {
             "type": "string",
-            "description": "The rest of the stem — the `rigpa/<evolution>` a resolution would carry."
+            "description": "The rest of the stem \u2014 the `rigpa/<evolution>` a resolution would carry."
           }
         }
       }
@@ -1137,7 +1141,7 @@
             "items": {
               "type": "string"
             },
-            "description": "The `ma/*` tips the record says it read, verbatim — `ma/<elector>@<short-hash>`."
+            "description": "The `ma/*` tips the record says it read, verbatim \u2014 `ma/<elector>@<short-hash>`."
           },
           "branch_present": {
             "type": "boolean",
@@ -1148,18 +1152,18 @@
             "items": {
               "type": "string"
             },
-            "description": "The `synthesized-by:` seats — the elector branch that executed the synthesis, and a list where it was joint. NOT REQUIRED, deliberately: a released CLI predates the field and emits records without it, and every record written before the field existed carries none, so a consumer that assumes it is present is wrong in two directions at once. Empty means the record does not say who executed it, which is a finding (`resolution-executor-unrecorded`) rather than a gap in this report."
+            "description": "The `synthesized-by:` seats \u2014 the elector branch that executed the synthesis, and a list where it was joint. NOT REQUIRED, deliberately: a released CLI predates the field and emits records without it, and every record written before the field existed carries none, so a consumer that assumes it is present is wrong in two directions at once. Empty means the record does not say who executed it, which is a finding (`resolution-executor-unrecorded`) rather than a gap in this report."
           }
         }
       }
     },
     "source": {
       "type": "string",
-      "description": "`vocabulary` only. Repository-relative path of the GRAPH.md the **When** prose came from — the vendored copy if present, otherwise `yidam/prelude/`. Empty when neither exists, which costs the prose and nothing else."
+      "description": "`vocabulary` only. Repository-relative path of the GRAPH.md the **When** prose came from \u2014 the vendored copy if present, otherwise `yidam/prelude/`. Empty when neither exists, which costs the prose and nothing else."
     },
     "verbs": {
       "type": "array",
-      "description": "`vocabulary` only. The closed commit vocabulary. MEMBERSHIP AND KIND COME FROM THE PARITY-CERTIFIED LISTS, not from GRAPH.md — a consumer that decided either from the document would be a second implementation of the predicate `lint --commits` gates on, and could green-light a verb CI then reports. GRAPH.md supplies `when` and nothing else.",
+      "description": "`vocabulary` only. The closed commit vocabulary. MEMBERSHIP AND KIND COME FROM THE PARITY-CERTIFIED LISTS, not from GRAPH.md \u2014 a consumer that decided either from the document would be a second implementation of the predicate `lint --commits` gates on, and could green-light a verb CI then reports. GRAPH.md supplies `when` and nothing else.",
       "items": {
         "type": "object",
         "required": [
@@ -1193,7 +1197,7 @@
     },
     "subject": {
       "type": "object",
-      "description": "`vocabulary --check` only. One subject line checked the way `lint --commits` checks a committed one — but before the commit exists. Absent when `--check` was not given.",
+      "description": "`vocabulary --check` only. One subject line checked the way `lint --commits` checks a committed one \u2014 but before the commit exists. Absent when `--check` was not given.",
       "required": [
         "text",
         "verb",
@@ -1215,7 +1219,7 @@
             "epistemic",
             "operational"
           ],
-          "description": "What the commit would be filed as. Total: every subject gets a kind, including one whose verb is unrecognized — which is precisely how a scoped operational verb ends up filed as Epistemic."
+          "description": "What the commit would be filed as. Total: every subject gets a kind, including one whose verb is unrecognized \u2014 which is precisely how a scoped operational verb ends up filed as Epistemic."
         },
         "recognized": {
           "type": "boolean"
@@ -1244,7 +1248,7 @@
                   "warn",
                   "info"
                 ],
-                "description": "Read from the `unrecognized-verb` lint check rather than restated — all three rules are sub-cases of it. A consumer MUST render at this severity and not escalate: a squiggle stricter than the gate is an editor asserting a verdict nobody agreed to."
+                "description": "Read from the `unrecognized-verb` lint check rather than restated \u2014 all three rules are sub-cases of it. A consumer MUST render at this severity and not escalate: a squiggle stricter than the gate is an editor asserting a verdict nobody agreed to."
               },
               "message": {
                 "type": "string"
@@ -1256,7 +1260,7 @@
     },
     "corpus_dir": {
       "type": "string",
-      "description": "`corpus-index`, `graph`, `neighbors` and `rename`. Repository-relative corpus root; every `node` path in the same report is relative to it. Emitted so a consumer never hardcodes `.yidam/corpus` — the one path in this contract a repository could plausibly move."
+      "description": "`corpus-index`, `graph`, `neighbors` and `rename`. Repository-relative corpus root; every `node` path in the same report is relative to it. Emitted so a consumer never hardcodes `.yidam/corpus` \u2014 the one path in this contract a repository could plausibly move."
     },
     "classes": {
       "type": "array",
@@ -1273,7 +1277,7 @@
         "properties": {
           "class": {
             "type": "string",
-            "description": "The `class:` field, falling back to the filename — `<class>.ont.yml` is what `graph-check` matches an instance's directory against, so the filename is the name that actually governs."
+            "description": "The `class:` field, falling back to the filename \u2014 `<class>.ont.yml` is what `graph-check` matches an instance's directory against, so the filename is the name that actually governs."
           },
           "label": {
             "type": "string"
@@ -1296,14 +1300,14 @@
                 },
                 "type": {
                   "type": "string",
-                  "description": "`string`, `date`, `ref`, or `text` — see `yidam schema`."
+                  "description": "`string`, `date`, `ref`, or `text` \u2014 see `yidam schema`."
                 },
                 "description": {
                   "type": "string"
                 },
                 "required": {
                   "type": "boolean",
-                  "description": "Whether every instance of the class must carry this property. `missing-property` GATES on a property declared true and reports the rest, so this is the difference between a finding that fails CI and one that does not — and until #606 this report did not carry it, which made `yidam schema`'s claim that one declaration decides both, 'so the editor and the gate cannot disagree', false along this route. Always emitted, including when false: a client is versioned independently of the binary it talks to, so an absent field would be ambiguous between 'this property is optional' and 'this binary predates the field', and it was the second reading that produced a page claiming every property in a corpus was optional. Absent therefore means the binary is older than the field, never that the property is optional."
+                  "description": "Whether every instance of the class must carry this property. `missing-property` GATES on a property declared true and reports the rest, so this is the difference between a finding that fails CI and one that does not \u2014 and until #606 this report did not carry it, which made `yidam schema`'s claim that one declaration decides both, 'so the editor and the gate cannot disagree', false along this route. Always emitted, including when false: a client is versioned independently of the binary it talks to, so an absent field would be ambiguous between 'this property is optional' and 'this binary predates the field', and it was the second reading that produced a page claiming every property in a corpus was optional. Absent therefore means the binary is older than the field, never that the property is optional."
                 }
               }
             }
@@ -1357,11 +1361,11 @@
     },
     "depth": {
       "type": "integer",
-      "description": "`neighbors` only. The maximum hop count the traversal was allowed — not a per-neighbour distance; see `neighbors[].hops`."
+      "description": "`neighbors` only. The maximum hop count the traversal was allowed \u2014 not a per-neighbour distance; see `neighbors[].hops`."
     },
     "neighbors": {
       "type": "array",
-      "description": "`neighbors` only. Breadth-first over the UNDIRECTED view of the graph: each reached node once, at its shortest hop distance, carrying the direction of the edge it was reached by. This is the same traversal `serve --mcp`'s `neighbors` tool performs, from the same function — half the interesting connections are inbound, which is why `orphan-in` exists at all.",
+      "description": "`neighbors` only. Breadth-first over the UNDIRECTED view of the graph: each reached node once, at its shortest hop distance, carrying the direction of the edge it was reached by. This is the same traversal `serve --mcp`'s `neighbors` tool performs, from the same function \u2014 half the interesting connections are inbound, which is why `orphan-in` exists at all.",
       "items": {
         "type": "object",
         "required": [
@@ -1404,7 +1408,7 @@
           },
           "is_node": {
             "type": "boolean",
-            "description": "False for an `.ont.yml` target or a broken edge — reached, and not a corpus node. Reported rather than dropped: a neighbourhood that hid them would disagree with the graph it came from."
+            "description": "False for an `.ont.yml` target or a broken edge \u2014 reached, and not a corpus node. Reported rather than dropped: a neighbourhood that hid them would disagree with the graph it came from."
           }
         }
       }
@@ -1423,7 +1427,7 @@
     },
     "moves": {
       "type": "array",
-      "description": "`rename` only. The file move — one entry, or none when blocked.",
+      "description": "`rename` only. The file move \u2014 one entry, or none when blocked.",
       "items": {
         "type": "object",
         "required": [
@@ -1452,7 +1456,7 @@
     },
     "edits": {
       "type": "array",
-      "description": "`rename` only. Every `target:` rewrite, located. Covers inbound edges AND the moved node's own outgoing links, which need re-relativizing when it changes class — a same-directory target survives a rename inside one class and breaks the moment the node leaves it.",
+      "description": "`rename` only. Every `target:` rewrite, located. Covers inbound edges AND the moved node's own outgoing links, which need re-relativizing when it changes class \u2014 a same-directory target survives a rename inside one class and breaks the moment the node leaves it.",
       "items": {
         "type": "object",
         "required": [
@@ -1512,11 +1516,11 @@
     },
     "commit_subject": {
       "type": "string",
-      "description": "`rename` only. A suggested subject in the closed commit vocabulary. `migrate:` and not `rename:` — RFC-0014's own example uses a verb that is in no list, which `lint --commits` reports and which makes `classify_commit` file an operational commit as Epistemic."
+      "description": "`rename` only. A suggested subject in the closed commit vocabulary. `migrate:` and not `rename:` \u2014 RFC-0014's own example uses a verb that is in no list, which `lint --commits` reports and which makes `classify_commit` file an operational commit as Epistemic."
     },
     "stale": {
       "type": "array",
-      "description": "`regen --check` only. REGEN blocks whose committed content is not what their generator produces. Empty when `passed`. Computed by running the same generator list `yidam regen` runs — a check walking its own list would be the third list that command exists to have prevented.",
+      "description": "`regen --check` only. REGEN blocks whose committed content is not what their generator produces. Empty when `passed`. Computed by running the same generator list `yidam regen` runs \u2014 a check walking its own list would be the third list that command exists to have prevented.",
       "items": {
         "type": "object",
         "required": [
@@ -1542,7 +1546,7 @@
         "mismatch",
         "unverifiable"
       ],
-      "description": "`index-verify` only. `match` — same vector space. `known-delta` — a DIFFERENT space, within a bound that runtime declared in advance; passes, and is meant to be surfaced rather than swallowed. `mismatch` — beyond every bound, or the wrong shape; degrade to keyword search. `unverifiable` — the index carries no witness, which is every index built before the field existed and is not the consumer's fault."
+      "description": "`index-verify` only. `match` \u2014 same vector space. `known-delta` \u2014 a DIFFERENT space, within a bound that runtime declared in advance; passes, and is meant to be surfaced rather than swallowed. `mismatch` \u2014 beyond every bound, or the wrong shape; degrade to keyword search. `unverifiable` \u2014 the index carries no witness, which is every index built before the field existed and is not the consumer's fault."
     },
     "index": {
       "type": "string",
@@ -1558,7 +1562,7 @@
     },
     "max_drift": {
       "type": "number",
-      "description": "`index-verify` only. Largest per-element difference between the provider's embedding and the witness. Absent when nothing was compared — a wrong dimensionality is not drift."
+      "description": "`index-verify` only. Largest per-element difference between the provider's embedding and the witness. Absent when nothing was compared \u2014 a wrong dimensionality is not drift."
     },
     "tolerance": {
       "type": "number",
@@ -1566,7 +1570,7 @@
     },
     "runtime": {
       "type": "string",
-      "description": "`index-verify` only. The runtime a `known-delta` verdict was granted to. A consumer that does not name itself is held to the strict tolerance — inferring a bound would make the declaration a discount."
+      "description": "`index-verify` only. The runtime a `known-delta` verdict was granted to. A consumer that does not name itself is held to the strict tolerance \u2014 inferring a bound would make the declaration a discount."
     },
     "problems": {
       "type": "array",
@@ -1585,7 +1589,7 @@
     },
     "total": {
       "type": "integer",
-      "description": "`log` only. Commits in the range BEFORE filtering — a filtered view still reports what it hid."
+      "description": "`log` only. Commits in the range BEFORE filtering \u2014 a filtered view still reports what it hid."
     },
     "epistemic": {
       "type": "integer",
@@ -1654,7 +1658,7 @@
       "properties": {
         "held": {
           "type": "boolean",
-          "description": "Whether this repository declares a kuten at all. `false` is a supported state and not a finding — it was all eighteen corpora the layer was measured over."
+          "description": "Whether this repository declares a kuten at all. `false` is a supported state and not a finding \u2014 it was all eighteen corpora the layer was measured over."
         },
         "name": {
           "type": [
@@ -1690,7 +1694,7 @@
         },
         "vintage": {
           "type": "object",
-          "description": "What the repository's VENDORED prelude could have produced. A metric that prelude could not have produced is reported as `vintage` and never as divergence — a repository whose GRAPH.md has no `phase` verb has not stopped running phases.",
+          "description": "What the repository's VENDORED prelude could have produced. A metric that prelude could not have produced is reported as `vintage` and never as divergence \u2014 a repository whose GRAPH.md has no `phase` verb has not stopped running phases.",
           "required": [
             "has_phase_verb",
             "vocabulary_is_closed",
@@ -1741,7 +1745,7 @@
             },
             "open_questions": {
               "type": "integer",
-              "description": "Instance nodes the corpus currently holds open as questions, by the same predicate `open-questions` reports. NOT required: a CLI released before the question-pressure slot emits a measurement without it, and its output must still validate. Corpus state and deliberately not `open:` commits — two of the six repositories the layer was extracted from have written none while holding open questions in the corpus."
+              "description": "Instance nodes the corpus currently holds open as questions, by the same predicate `open-questions` reports. NOT required: a CLI released before the question-pressure slot emits a measurement without it, and its output must still validate. Corpus state and deliberately not `open:` commits \u2014 two of the six repositories the layer was extracted from have written none while holding open questions in the corpus."
             }
           }
         },
@@ -1799,7 +1803,7 @@
     },
     "score": {
       "type": "object",
-      "description": "`score` only. One range of commits read against the criteria this corpus's kuten declares, or against the template's own where it holds none (RFC-0028, #286). Advisory by construction: there is no overall number, no verdict and no band, and the command exits zero however it reads — a consumer MUST NOT derive a pass or a failure from any row. A range spanning a kuten revision is refused rather than answered.",
+      "description": "`score` only. One range of commits read against the criteria this corpus's kuten declares, or against the template's own where it holds none (RFC-0028, #286). Advisory by construction: there is no overall number, no verdict and no band, and the command exits zero however it reads \u2014 a consumer MUST NOT derive a pass or a failure from any row. A range spanning a kuten revision is refused rather than answered.",
       "required": [
         "range",
         "base",
@@ -1826,7 +1830,7 @@
         },
         "held": {
           "type": "boolean",
-          "description": "Whether the criteria are this corpus's own. `false` means they are the template's, which is every repository today — the same criteria, and a different answer to whose selection they are."
+          "description": "Whether the criteria are this corpus's own. `false` means they are the template's, which is every repository today \u2014 the same criteria, and a different answer to whose selection they are."
         },
         "kuten": {
           "type": [
@@ -1848,7 +1852,7 @@
         },
         "commits": {
           "type": "integer",
-          "description": "Authored, non-merge commits in the range — the same reader and the same merge predicate `lint --commits` uses."
+          "description": "Authored, non-merge commits in the range \u2014 the same reader and the same merge predicate `lint --commits` uses."
         },
         "added_nodes": {
           "type": "integer",
@@ -1856,7 +1860,7 @@
         },
         "rows": {
           "type": "array",
-          "description": "Exactly one per declared criterion, in declaration order — including the ones that could not be read. A criterion that vanished when it had no denominator could not be told from one that was never declared.",
+          "description": "Exactly one per declared criterion, in declaration order \u2014 including the ones that could not be read. A criterion that vanished when it had no denominator could not be told from one that was never declared.",
           "items": {
             "type": "object",
             "required": [
@@ -1884,7 +1888,7 @@
                   },
                   "value": {
                     "type": "number",
-                    "description": "The share, 0.0–1.0. Present only when `kind` is `measured`."
+                    "description": "The share, 0.0\u20131.0. Present only when `kind` is `measured`."
                   },
                   "shown": {
                     "type": "string",
@@ -1901,14 +1905,14 @@
                 "items": {
                   "type": "string"
                 },
-                "description": "The items the reading was drawn from, marked — capped, with a final line saying how many were left out. Non-empty whenever `kind` is `measured`: a number with nothing behind it is a claim nobody can check."
+                "description": "The items the reading was drawn from, marked \u2014 capped, with a final line saying how many were left out. Non-empty whenever `kind` is `measured`: a number with nothing behind it is a claim nobody can check."
               },
               "note": {
                 "type": [
                   "string",
                   "null"
                 ],
-                "description": "What a reader has to know to read the number correctly — the legibility precondition beside `register`, or the reason `questions` is never a threshold."
+                "description": "What a reader has to know to read the number correctly \u2014 the legibility precondition beside `register`, or the reason `questions` is never a threshold."
               }
             }
           }
@@ -1919,6 +1923,195 @@
             "type": "string"
           },
           "description": "The judged questions, when `--brief` asked for them. Scored by nothing, and deliberately: each turns on whether an assertion is warranted, and no corpus fact decides it. Empty otherwise."
+        }
+      }
+    },
+    "fetched": {
+      "type": "array",
+      "description": "`catalog-fetch` only. One row per catalog entry the run had something to do about \u2014 an entry declaring no `location:`, or only locations nothing can follow, is absent rather than present-and-empty. NOT `entries`, which this contract already gives to `log`'s commits. Two lists per row and they answer different questions: `obtained` is what was followed and cached, `skipped` is a declared address that was not, with the reason. A `kind: address` sitting beside a followable location is in neither \u2014 a records office is a real way to hold a source, not a failure, and reporting it as one on every run would train a reader to ignore the list.",
+      "items": {
+        "type": "object",
+        "required": [
+          "entry",
+          "obtained",
+          "skipped",
+          "commit"
+        ],
+        "properties": {
+          "entry": {
+            "type": "string",
+            "description": "The catalog entry's file stem."
+          },
+          "obtained": {
+            "type": "array",
+            "description": "One row per location followed. Empty under `--dry-run` is not the empty case \u2014 the rows are present with `sha256` blank, because a dry run resolves every address and fetches none.",
+            "items": {
+              "type": "object",
+              "required": [
+                "location",
+                "declared",
+                "followed",
+                "sha256",
+                "bytes",
+                "media_type",
+                "cached",
+                "route"
+              ],
+              "properties": {
+                "location": {
+                  "type": "integer",
+                  "description": "Index into the entry's own `location:` list \u2014 the same index an artifact record's `from:` carries."
+                },
+                "declared": {
+                  "type": "string",
+                  "description": "The address as the entry writes it, template slots unfilled."
+                },
+                "followed": {
+                  "type": "string",
+                  "description": "What was actually followed: the bound URL, or the resolved path. Equal to `declared` for a plain `url`."
+                },
+                "sha256": {
+                  "type": "string",
+                  "description": "Content address of the bytes, 64 lowercase hex. Empty under `--dry-run`."
+                },
+                "bytes": {
+                  "type": "integer",
+                  "description": "Size as fetched. 0 under `--dry-run`."
+                },
+                "media_type": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The server's `Content-Type`, parameters stripped. Null where the server said nothing and for every local file \u2014 guessing from an extension would put a claim in a committed record that no server made."
+                },
+                "cached": {
+                  "type": "boolean",
+                  "description": "Whether the cache already held these bytes. True is a re-fetch that found no change, and is why the run may write no commit."
+                },
+                "route": {
+                  "type": "string",
+                  "description": "Where `vault push` would send it, as prose, from the config's `holds`. NEVER a credential, and never a claim that anything was sent \u2014 a fetch ends at the local cache."
+                }
+              }
+            }
+          },
+          "skipped": {
+            "type": "array",
+            "description": "Declared addresses this run did not follow, each with the reason. The commonest is a `url_template` whose slots nothing bound, and the reason names them so a reader can supply `--bind`.",
+            "items": {
+              "type": "object",
+              "required": [
+                "location",
+                "declared",
+                "why"
+              ],
+              "properties": {
+                "location": {
+                  "type": "integer"
+                },
+                "declared": {
+                  "type": "string"
+                },
+                "why": {
+                  "type": "string",
+                  "description": "Written for someone reading a terminal, and repairs itself where it can."
+                }
+              }
+            }
+          },
+          "commit": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The commit this run authored, or null when nothing changed. A re-run that finds the same bytes, or a `used-by` already in agreement, writes no commit at all \u2014 an empty commit asserting that a fetch happened would be provenance invented rather than recorded. Always an OPERATIONAL verb: `catalog-fetch` writes `refresh:` and `catalog-reconcile` writes `reconcile:`, and the writer checks its own subject against `classify_commit` before it runs, because RFC-0026 confines a run to operational commits and sends every epistemic one to a proposal branch.",
+            "required": [
+              "sha",
+              "subject"
+            ],
+            "properties": {
+              "sha": {
+                "type": "string",
+                "description": "Short sha of the commit, as this repository's object count makes it."
+              },
+              "subject": {
+                "type": "string",
+                "description": "The subject line, leading verb included."
+              }
+            }
+          }
+        }
+      }
+    },
+    "reconciled": {
+      "type": "array",
+      "description": "`catalog-reconcile` only. One row per entry whose declared `used-by` disagreed with the citations. An entry declaring no list is absent rather than reported: absence is not drift, `catalog-used-by-drift` stays silent about it, and writing one would be a command deciding an entry should make a claim it never made. NOT `entries`, which this contract already gives to `log`'s commits.",
+      "items": {
+        "type": "object",
+        "required": [
+          "entry",
+          "drift",
+          "used_by",
+          "commit"
+        ],
+        "properties": {
+          "entry": {
+            "type": "string",
+            "description": "The catalog entry's file stem."
+          },
+          "drift": {
+            "type": "object",
+            "description": "The disagreement BEFORE the repair, in the same shape `catalog-audit` reports it and from the same `used_by_drift` the gate calls. Two consumers of one function, so a repair cannot come to disagree with the gate about what drifted.",
+            "required": [
+              "claimed_not_citing",
+              "citing_not_claimed"
+            ],
+            "properties": {
+              "claimed_not_citing": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Names the list claimed that no node citing this entry carries. Removed by the repair \u2014 keeping them would be keeping the drift."
+              },
+              "citing_not_claimed": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Nodes that cite this entry and the list omitted. Added."
+              }
+            }
+          },
+          "used_by": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The list as it now stands, written entry-relative (`../corpus/\u2026`) because that is the form every hand-written list uses. Under `--dry-run` this is what would be written."
+          },
+          "commit": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The commit this run authored, or null when nothing changed. A re-run that finds the same bytes, or a `used-by` already in agreement, writes no commit at all \u2014 an empty commit asserting that a fetch happened would be provenance invented rather than recorded. Always an OPERATIONAL verb: `catalog-fetch` writes `refresh:` and `catalog-reconcile` writes `reconcile:`, and the writer checks its own subject against `classify_commit` before it runs, because RFC-0026 confines a run to operational commits and sends every epistemic one to a proposal branch.",
+            "required": [
+              "sha",
+              "subject"
+            ],
+            "properties": {
+              "sha": {
+                "type": "string",
+                "description": "Short sha of the commit, as this repository's object count makes it."
+              },
+              "subject": {
+                "type": "string",
+                "description": "The subject line, leading verb included."
+              }
+            }
+          }
         }
       }
     }

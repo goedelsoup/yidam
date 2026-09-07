@@ -1,0 +1,14 @@
+# One store, and it claims the catalog.
+#
+# The URL points at a directory that does not exist, on purpose. A fetch lands bytes in the
+# machine-local cache and never in a store — sending them is `yidam vault push`, which
+# consults `redistributable` and is a separate decision a person makes — so a store nothing
+# can reach is the right shape for a fixture that asserts the fetch does not try to reach one.
+#
+# What it buys is a route to report: `catalog-fetch` prints where `vault push` would send what
+# it obtained, and with no vault declared that line would read "nowhere yet" and assert
+# nothing about routing.
+[vault.sources]
+url      = "file://.vault/sources"
+audience = "This test, and nothing else. The store is never created."
+holds    = ["catalog"]

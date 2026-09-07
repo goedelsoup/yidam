@@ -68,7 +68,7 @@ Fields per entry: slug, source type (paper/dataset/API/database/other), descript
                   corpus citation count (used-by).
 ```
 
-[`cmd/catalog.rs:207`](../../yidam/cli/src/cmd/catalog.rs) emits six columns and none of them
+[`cmd/catalog/audit.rs:207`](../../yidam/cli/src/cmd/catalog/audit.rs) emits six columns and none of them
 is that one:
 
 ```
