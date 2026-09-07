@@ -290,7 +290,7 @@ relationship the class does not declare resolves as:
 
 The first row is load-bearing and is easy to omit. `unlicensed_edge` short-circuits on an empty
 edge list **before** it consults the policy
-([`checks.rs:1730-1732`](../../yidam/cli/src/cmd/lint/checks.rs#L1730-L1732)):
+([`checks.rs:1728-1730`](../../yidam/cli/src/cmd/lint/checks.rs#L1728-L1730)):
 
 ```rust
 if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic { continue; }
