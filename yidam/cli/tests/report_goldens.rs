@@ -937,6 +937,47 @@ fn every_live_report_field_is_declared_in_the_schema() {
     assert_contract(&found, &invalid, LIVE_WITNESSES, "live reports");
 }
 
+/// The `skipped` verdict, against the contract that declares it.
+///
+/// Every run in this file is made against the staged fixture, where the repository check
+/// passes and all fourteen questions are answerable — so `skipped` was declared in
+/// `report.schema.json`, described there as the value a consumer MUST NOT read as `ok`, and
+/// emitted by nothing any gate looked at. Renaming it in the schema moved nothing red (#656).
+///
+/// A directory that is not a derived repository is the arm that emits it, and it is checked
+/// the way [`every_live_report_field_is_declared_in_the_schema`] checks the rest rather than
+/// against a golden: `doctor`'s `build` line carries this binary's version and features in
+/// its `detail`, so a committed golden would drift on a version bump and differ between the
+/// light and `--all-features` builds.
+#[test]
+fn the_skipped_verdict_is_emitted_and_declared() {
+    let schema = schema();
+    let outside = tempfile::tempdir().unwrap();
+    let r = run(outside.path(), &["doctor", "--format", "json"]);
+    let doc: serde_json::Value = serde_json::from_str(&r.stdout)
+        .unwrap_or_else(|e| panic!("doctor did not emit JSON: {e}\n{}", r.stdout));
+
+    let verdicts: BTreeSet<&str> = doc["checks"]
+        .as_array()
+        .expect("checks")
+        .iter()
+        .map(|c| c["verdict"].as_str().expect("a verdict"))
+        .collect();
+    assert!(
+        verdicts.contains("skipped"),
+        "the one run that reaches the unanswerable arm reported no `skipped` check: {verdicts:?}"
+    );
+
+    let invalid = schema_violations(&validator(&schema), "doctor (outside a repository)", &doc);
+    let found = contract_problems(&schema, "doctor (outside a repository)", &doc);
+    assert_contract(
+        &found,
+        &invalid,
+        LIVE_WITNESSES,
+        "doctor outside a repository",
+    );
+}
+
 /// The walk's own branches, tested directly.
 ///
 /// The two end-to-end tests can only see a branch that wrongly *reports*. A branch that

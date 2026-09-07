@@ -76,6 +76,68 @@ impl Verdict {
     }
 }
 
+/// What one check concluded, before it is attached to the question it answers.
+///
+/// Split from [`Check`] because the id and the wording belong to [`ROSTER`], which names
+/// each question once. Every check function used to spell both on every return, and
+/// [`diagnose`]'s early-return arm spelled them a second time — which is how `vault` came to
+/// ask about "its vault" on one path and "its vaults" on the other, and how `policy` came to
+/// be absent from one path entirely (#656).
+struct Answer {
+    verdict: Verdict,
+    detail: String,
+    remedy: Option<String>,
+}
+
+impl Answer {
+    /// Nothing to do — and therefore **no remedy**, which is the point of this constructor
+    /// taking none. `remedy` answers *what resolves this finding*, so a verdict with no
+    /// finding has none to give.
+    ///
+    /// Advice worth reading on a green line goes in `detail`, which is rendered on every
+    /// line. [`check_catalog`] has always put it there; [`check_prelude`]'s pointer at the
+    /// one networked command and [`check_policy`]'s at `yidam policy test` now do too. Both
+    /// used to be remedies on an `ok` verdict, which the text renderer dropped — so the
+    /// reader they were written for never saw them — and every JSON consumer kept, which is
+    /// how a healthy check came to carry an action (#656).
+    fn ok(detail: impl Into<String>) -> Self {
+        Self {
+            verdict: Verdict::Ok,
+            detail: detail.into(),
+            remedy: None,
+        }
+    }
+
+    /// Not answerable, and why. Almost always because the repository check already failed;
+    /// [`check_path`] with no PATH to read is the other case.
+    fn skipped(why: impl Into<String>) -> Self {
+        Self {
+            verdict: Verdict::Skipped,
+            detail: why.into(),
+            remedy: None,
+        }
+    }
+
+    /// Actionable, and a normal state to be in.
+    fn warn(detail: impl Into<String>, remedy: Option<&str>) -> Self {
+        Self {
+            verdict: Verdict::Warn,
+            detail: detail.into(),
+            remedy: remedy.map(str::to_string),
+        }
+    }
+
+    /// Wrong now. The remedy is optional because a check that could not be *computed* has
+    /// nothing to suggest — see [`check_regen`]'s error arm.
+    fn fail(detail: impl Into<String>, remedy: Option<&str>) -> Self {
+        Self {
+            verdict: Verdict::Fail,
+            detail: detail.into(),
+            remedy: remedy.map(str::to_string),
+        }
+    }
+}
+
 /// One question, its answer, and what to do about it.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Check {
@@ -86,7 +148,11 @@ pub struct Check {
     pub verdict: Verdict,
     /// What was actually found.
     pub detail: String,
-    /// The command or edit that resolves it. `None` when there is nothing to do.
+    /// The command or edit that resolves this finding. **`None` on `ok` and on `skipped`**,
+    /// by construction: [`Answer::ok`] and [`Answer::skipped`] take no remedy, so a healthy
+    /// check cannot reach a consumer that reads `remedy != null` as *there is something to
+    /// do*. Two did until #656 — the prose suppressed them at render time and the JSON did
+    /// not, and the invariant was in neither contract.
     pub remedy: Option<String>,
 }
 
@@ -105,26 +171,6 @@ impl Check {
     const POLICY: &'static str = "policy";
     const GOVERNANCE: &'static str = "governance";
     const KUTEN: &'static str = "kuten";
-
-    fn new(
-        id: &'static str,
-        question: &'static str,
-        verdict: Verdict,
-        detail: impl Into<String>,
-        remedy: Option<&str>,
-    ) -> Self {
-        Self {
-            id,
-            question,
-            verdict,
-            detail: detail.into(),
-            remedy: remedy.map(str::to_string),
-        }
-    }
-
-    fn skipped(id: &'static str, question: &'static str, why: &str) -> Self {
-        Self::new(id, question, Verdict::Skipped, why, None)
-    }
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -176,25 +222,16 @@ impl DoctorReport {
 /// many tests in this workspace use as an isolated sandbox for an unrelated check —
 /// `vault.rs`'s `repo()` helper among them. Only a directory that actually looks like a
 /// stopped bootstrap should read as one.
-fn check_repository(root: &Path) -> Check {
+fn check_repository(root: &Path) -> Answer {
     if root.join(".yidam").is_dir() {
         if has_corpus_content(root) && head_is_unborn(root) {
-            return Check::new(
-                Check::REPOSITORY,
-                "Am I in a derived repository?",
-                Verdict::Fail,
+            return Answer::fail(
                 "bootstrapped but never committed — .yidam/ holds corpus content and HEAD \
                  has no commits yet",
                 Some("finish bootstrap step 8: write the genesis commit"),
             );
         }
-        return Check::new(
-            Check::REPOSITORY,
-            "Am I in a derived repository?",
-            Verdict::Ok,
-            format!("{}", root.display()),
-            None,
-        );
+        return Answer::ok(format!("{}", root.display()));
     }
     let in_git = std::process::Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
@@ -212,13 +249,7 @@ fn check_repository(root: &Path) -> Check {
             "run this from inside a derived repository",
         )
     };
-    Check::new(
-        Check::REPOSITORY,
-        "Am I in a derived repository?",
-        Verdict::Fail,
-        detail,
-        Some(remedy),
-    )
+    Answer::fail(detail, Some(remedy))
 }
 
 /// Does `.yidam/` hold anything a bootstrap actually writes — a class definition or a
@@ -271,35 +302,22 @@ fn head_is_unborn(root: &Path) -> bool {
 /// A repository with no recorded origin cannot be upgraded: there is no baseline to compute
 /// a forward change against. `yidam-build` refuses outright, which is a good failure at the
 /// wrong moment — this is the moment.
-fn check_provenance(root: &Path) -> Check {
-    const Q: &str = "Does this repository record where it came from?";
+fn check_provenance(root: &Path) -> Answer {
     let manifest = root.join(MANIFEST);
     let Ok(text) = std::fs::read_to_string(&manifest) else {
-        return Check::new(
-            Check::PROVENANCE,
-            Q,
-            Verdict::Fail,
+        return Answer::fail(
             format!("no {MANIFEST}"),
             Some("mise run yidam-vendor-update"),
         );
     };
     let pin = ManifestPin::parse(&text);
     match pin.commit.as_deref() {
-        Some(commit) if commit != "unknown" => Check::new(
-            Check::PROVENANCE,
-            Q,
-            Verdict::Ok,
-            format!(
-                "pinned {} ({})",
-                &commit[..commit.len().min(12)],
-                pin.template.as_deref().unwrap_or("untagged")
-            ),
-            None,
-        ),
-        _ => Check::new(
-            Check::PROVENANCE,
-            Q,
-            Verdict::Fail,
+        Some(commit) if commit != "unknown" => Answer::ok(format!(
+            "pinned {} ({})",
+            &commit[..commit.len().min(12)],
+            pin.template.as_deref().unwrap_or("untagged")
+        )),
+        _ => Answer::fail(
             format!("{MANIFEST} records no resolvable commit"),
             Some("mise run yidam-vendor-update"),
         ),
@@ -307,30 +325,17 @@ fn check_provenance(root: &Path) -> Check {
 }
 
 /// Is the running binary the one this repository pins?
-fn check_binary(root: &Path, running: Option<&Path>) -> Check {
-    const Q: &str = "Is the running binary the one this repository pins?";
+fn check_binary(root: &Path, running: Option<&Path>) -> Answer {
     match pinned_binary(root, running) {
-        Pinned::Unpinned => Check::new(
-            Check::BINARY,
-            Q,
-            Verdict::Ok,
-            "this repository pins no binary — nothing can be shadowed",
-            None,
-        ),
-        Pinned::Running => Check::new(
-            Check::BINARY,
-            Q,
-            Verdict::Ok,
-            format!("running the pin at {}", yidam_bin_path(root).display()),
-            None,
-        ),
+        Pinned::Unpinned => Answer::ok("this repository pins no binary — nothing can be shadowed"),
+        Pinned::Running => Answer::ok(format!(
+            "running the pin at {}",
+            yidam_bin_path(root).display()
+        )),
         // Fail, not warn. This is the failure that reads as success: an older binary
         // missing a subcommand exits with `unrecognized subcommand`, which a script with
         // output redirected cannot tell from having done the work.
-        Pinned::Shadowed { pinned, running } => Check::new(
-            Check::BINARY,
-            Q,
-            Verdict::Fail,
+        Pinned::Shadowed { pinned, running } => Answer::fail(
             format!(
                 "running {}, but this repository pins {}",
                 running.display(),
@@ -358,52 +363,37 @@ fn first_yidam_on_path(path_var: &std::ffi::OsStr) -> Option<PathBuf> {
 /// asks what the next invocation will resolve, and catches the case `check_binary` cannot:
 /// a pinned binary invoked by absolute path, in a shell where the next `yidam` typed by
 /// hand will come from somewhere else entirely.
-fn check_path(root: &Path, path_var: Option<&std::ffi::OsStr>) -> Check {
-    const Q: &str = "Is `.yidam/bin` ahead on PATH?";
+fn check_path(root: &Path, path_var: Option<&std::ffi::OsStr>) -> Answer {
+    const AHEAD: &str = "add `_.path = [\".yidam/bin\"]` under `[env]` in this repo's mise.toml";
     let pinned = yidam_bin_path(root);
     if !pinned.is_file() {
-        return Check::new(
-            Check::PATH,
-            Q,
-            Verdict::Ok,
-            "this repository pins no binary — PATH order does not matter",
-            None,
-        );
+        return Answer::ok("this repository pins no binary — PATH order does not matter");
     }
     let Some(path_var) = path_var else {
-        return Check::skipped(Check::PATH, Q, "PATH is unset");
+        return Answer::skipped("PATH is unset");
     };
     let real = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
     match first_yidam_on_path(path_var) {
-        Some(first) if real(&first) == real(&pinned) => Check::new(
-            Check::PATH,
-            Q,
-            Verdict::Ok,
-            format!("PATH resolves yidam to the pin at {}", pinned.display()),
-            None,
-        ),
-        Some(first) => Check::new(
-            Check::PATH,
-            Q,
-            Verdict::Fail,
+        Some(first) if real(&first) == real(&pinned) => Answer::ok(format!(
+            "PATH resolves yidam to the pin at {}",
+            pinned.display()
+        )),
+        Some(first) => Answer::fail(
             format!(
                 "PATH resolves yidam to {}, ahead of the pin at {}",
                 first.display(),
                 pinned.display()
             ),
-            Some("add `_.path = [\".yidam/bin\"]` under `[env]` in this repo's mise.toml"),
+            Some(AHEAD),
         ),
         // Not a failure: the pin exists and is reachable, just not by bare name. Every
         // command run through `mise run` still resolves it.
-        None => Check::new(
-            Check::PATH,
-            Q,
-            Verdict::Warn,
+        None => Answer::warn(
             format!(
                 "no yidam on PATH at all; the pin at {} is reachable only by path",
                 pinned.display()
             ),
-            Some("add `_.path = [\".yidam/bin\"]` under `[env]` in this repo's mise.toml"),
+            Some(AHEAD),
         ),
     }
 }
@@ -413,14 +403,17 @@ fn check_path(root: &Path, path_var: Option<&std::ffi::OsStr>) -> Check {
 /// Local only, on purpose — see this module's header. `committed` is the author date of the
 /// pinned commit, not the date this repository ran the vendor step, so it answers how old
 /// the prelude is rather than how recently someone typed a command.
-fn check_prelude(root: &Path, today: i64) -> Check {
-    const Q: &str = "How stale is the vendored prelude?";
+fn check_prelude(root: &Path, today: i64) -> Answer {
+    /// Where the question this command declines to answer *is* asked. Said on both
+    /// verdicts, because whether the origin has moved is worth knowing at any pin age —
+    /// and said in the `detail` on the healthy one, since that is the half of the line a
+    /// reader is shown when nothing is wrong. It was a remedy on both until #656, which
+    /// meant the green case named it to a JSON consumer and to nobody else.
+    const ORIGIN: &str = "whether the origin has moved is `mise run yidam-vendor-status`, \
+                          which needs network";
     let vendored = root.join(".yidam").join(".vendor").join("prelude");
     if !vendored.is_dir() {
-        return Check::new(
-            Check::PRELUDE,
-            Q,
-            Verdict::Warn,
+        return Answer::warn(
             "no .yidam/.vendor/prelude/ — this repository carries no vendored prelude",
             Some("mise run yidam-vendor-update"),
         );
@@ -429,89 +422,63 @@ fn check_prelude(root: &Path, today: i64) -> Check {
         .map(|t| ManifestPin::parse(&t))
         .unwrap_or_default();
     let Some(committed) = pin.committed.filter(|c| c != "unknown") else {
-        return Check::new(
-            Check::PRELUDE,
-            Q,
-            Verdict::Warn,
+        return Answer::warn(
             format!("{MANIFEST} records no pin date — age is unknowable"),
             Some("mise run yidam-vendor-status"),
         );
     };
     let Some(days) = crate::dates::days_from_civil_str(&committed).map(|d| today - d) else {
-        return Check::new(
-            Check::PRELUDE,
-            Q,
-            Verdict::Warn,
+        return Answer::warn(
             format!("{MANIFEST} records an unparseable pin date: {committed}"),
             Some("mise run yidam-vendor-status"),
         );
     };
-    let verdict = if days > STALE_PRELUDE_DAYS {
-        Verdict::Warn
+    let age = format!("pinned {committed} — {days} day(s) ago");
+    if days > STALE_PRELUDE_DAYS {
+        Answer::warn(
+            age,
+            Some("mise run yidam-vendor-status (compares against the origin)"),
+        )
     } else {
-        Verdict::Ok
-    };
-    Check::new(
-        Check::PRELUDE,
-        Q,
-        verdict,
-        format!("pinned {committed} — {days} day(s) ago"),
-        // Named on both verdicts: whether the origin has moved is a question this command
-        // deliberately does not answer, and the reader should know where it is asked.
-        Some("mise run yidam-vendor-status (compares against the origin; needs network)"),
-    )
+        Answer::ok(format!("{age}; {ORIGIN}"))
+    }
 }
 
 /// Is the index built, and is it stale against the corpus?
 ///
 /// Never a failure. A light `reports` build cannot build one, and a repository that has no
 /// use for semantic search is not misconfigured for lacking it.
-fn check_index(root: &Path) -> Check {
-    const Q: &str = "Is the index built, and is it current?";
+fn check_index(root: &Path) -> Answer {
+    const BUILD: &str = "yidam index-build (needs the `index` feature)";
     let data = crate::cmd::index_status_data(root);
     if !data.index_present {
-        return Check::new(
-            Check::INDEX,
-            Q,
-            Verdict::Warn,
+        return Answer::warn(
             format!("no {}", yidam_index_dir(root).display()),
-            Some("yidam index-build (needs the `index` feature)"),
+            Some(BUILD),
         );
     }
     if !data.meta_present {
-        return Check::new(
-            Check::INDEX,
-            Q,
-            Verdict::Warn,
+        return Answer::warn(
             "index present, but it carries no readable meta.json",
-            Some("yidam index-build (needs the `index` feature)"),
+            Some(BUILD),
         );
     }
     if data.stale_nodes > 0 {
-        return Check::new(
-            Check::INDEX,
-            Q,
-            Verdict::Warn,
+        return Answer::warn(
             format!(
                 "built {}, and {} corpus file(s) have changed since",
                 data.built.clone().unwrap_or_default(),
                 data.stale_nodes
             ),
-            Some("yidam index-build (needs the `index` feature)"),
+            Some(BUILD),
         );
     }
-    Check::new(
-        Check::INDEX,
-        Q,
-        Verdict::Ok,
-        format!(
-            "built {}, {} node(s), model {}",
-            data.built.clone().unwrap_or_default(),
-            data.node_count.unwrap_or(0),
-            data.model.clone().unwrap_or_default()
-        ),
-        None,
-    )
+    Answer::ok(format!(
+        "built {}, {} node(s), model {}",
+        data.built.clone().unwrap_or_default(),
+        data.node_count.unwrap_or(0),
+        data.model.clone().unwrap_or_default()
+    ))
 }
 
 /// Are the REGEN blocks current?
@@ -519,32 +486,18 @@ fn check_index(root: &Path) -> Check {
 /// Borrows `regen --check`'s non-writing mode rather than reimplementing the generator
 /// list. That is the whole reason [`crate::cmd::stale_blocks`] exists as a
 /// function: a second list would be the third one that command was written to prevent.
-fn check_regen() -> Check {
-    const Q: &str = "Are the REGEN blocks current?";
+fn check_regen() -> Answer {
     match crate::cmd::stale_blocks() {
-        Err(e) => Check::new(
-            Check::REGEN,
-            Q,
-            Verdict::Fail,
-            format!("could not be computed: {e:#}"),
-            None,
-        ),
-        Ok(stale) if stale.is_empty() => Check::new(
-            Check::REGEN,
-            Q,
-            Verdict::Ok,
-            "every REGEN block holds what its generator produces",
-            None,
-        ),
+        Err(e) => Answer::fail(format!("could not be computed: {e:#}"), None),
+        Ok(stale) if stale.is_empty() => {
+            Answer::ok("every REGEN block holds what its generator produces")
+        }
         Ok(stale) => {
             let names: Vec<String> = stale
                 .iter()
                 .map(|s| format!("{} ({})", s.file, s.generator))
                 .collect();
-            Check::new(
-                Check::REGEN,
-                Q,
-                Verdict::Fail,
+            Answer::fail(
                 format!("{} block(s) stale: {}", stale.len(), names.join(", ")),
                 Some("yidam regen, committed as a `regen:` commit"),
             )
@@ -557,23 +510,171 @@ fn check_regen() -> Check {
 /// Never a verdict — a light build is the recommended install. It is here because
 /// "command not found" and "this binary cannot do that" are different diagnoses that look
 /// identical from a script, and this is the line that separates them.
-fn check_build() -> Check {
+fn check_build() -> Answer {
     let b = crate::report::YidamBlock::current();
-    Check::new(
-        Check::BUILD,
-        "Which yidam is this, and what can it do?",
-        Verdict::Ok,
-        format!(
-            "{} ({}) with features: {}",
-            b.version,
-            b.commit,
-            b.features.join(", ")
-        ),
-        None,
-    )
+    Answer::ok(format!(
+        "{} ({}) with features: {}",
+        b.version,
+        b.commit,
+        b.features.join(", ")
+    ))
 }
 
 // ── assembly ──────────────────────────────────────────────────────────────────
+
+/// What the checks are answered about.
+///
+/// Carried as one value so every question has one signature and can sit in [`ROSTER`]
+/// beside its id and its wording. `running` and `path_var` are held rather than read from
+/// the environment so the two environment-sensitive checks are testable; production hands
+/// them [`std::env::current_exe`] and `$PATH`.
+struct Subject {
+    root: PathBuf,
+    running: Option<PathBuf>,
+    path_var: Option<std::ffi::OsString>,
+    today: i64,
+}
+
+/// Whether a question can be answered about a directory that is not a derived repository.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Asked {
+    /// Anywhere. `repository` *is* the question, and `build` is about the binary rather
+    /// than about the repository — it is exactly what a person debugging "it says this is
+    /// not a repository" needs to see.
+    Anywhere,
+    /// Only of a derived repository. Answering these against a directory that is not one
+    /// produces confident nonsense — "no index", "no provenance" — that reads as a list of
+    /// things to fix rather than as one thing. A `.yidam/` with an unborn HEAD (#579) fails
+    /// the same test for a different reason and is just as unanswerable: most of these read
+    /// git history, which does not exist yet either.
+    ///
+    /// Reported `skipped` and never dropped — a check that vanishes cannot be told from one
+    /// that never ran, which is what the report contract says about `checks` and what
+    /// `policy` did on this path until #656.
+    OfARepository,
+}
+
+/// One question `doctor` asks: its stable id, its wording, and what answers it.
+struct Question {
+    id: &'static str,
+    text: &'static str,
+    asked: Asked,
+    answer: fn(&Subject) -> Answer,
+}
+
+impl Question {
+    /// Ask it — or report it `skipped`, when `unanswerable` says why.
+    fn ask(&self, subject: &Subject, unanswerable: Option<&'static str>) -> Check {
+        let answer = match unanswerable {
+            Some(why) if self.asked == Asked::OfARepository => Answer::skipped(why),
+            _ => (self.answer)(subject),
+        };
+        Check {
+            id: self.id,
+            question: self.text,
+            verdict: answer.verdict,
+            detail: answer.detail,
+            remedy: answer.remedy,
+        }
+    }
+}
+
+/// Every question `doctor` asks, in the order it reports them.
+///
+/// **One list.** There were two — this one, and a hand-written roster of ids and questions
+/// the early-return path built when the repository check failed — and keeping them in step
+/// was nobody's job. They had come apart in both available ways (#656): `policy` was in the
+/// first and not the second, so on a directory that is not a derived repository the check
+/// did not appear *at all* rather than appearing as `skipped`; and `vault` asked about "its
+/// vault" on one path and "its vaults" on the other. `KUTEN_QUESTION` was a const invented
+/// to stop exactly that drift for exactly one of the fourteen; this is that fix, generalized
+/// by removing the second list rather than by mirroring it more carefully.
+const ROSTER: &[Question] = &[
+    Question {
+        id: Check::REPOSITORY,
+        text: "Am I in a derived repository?",
+        asked: Asked::Anywhere,
+        answer: |s| check_repository(&s.root),
+    },
+    Question {
+        id: Check::PROVENANCE,
+        text: "Does this repository record where it came from?",
+        asked: Asked::OfARepository,
+        answer: |s| check_provenance(&s.root),
+    },
+    Question {
+        id: Check::BINARY,
+        text: "Is the running binary the one this repository pins?",
+        asked: Asked::OfARepository,
+        answer: |s| check_binary(&s.root, s.running.as_deref()),
+    },
+    Question {
+        id: Check::PATH,
+        text: "Is `.yidam/bin` ahead on PATH?",
+        asked: Asked::OfARepository,
+        answer: |s| check_path(&s.root, s.path_var.as_deref()),
+    },
+    Question {
+        id: Check::PRELUDE,
+        text: "How stale is the vendored prelude?",
+        asked: Asked::OfARepository,
+        answer: |s| check_prelude(&s.root, s.today),
+    },
+    Question {
+        id: Check::INDEX,
+        text: "Is the index built, and is it current?",
+        asked: Asked::OfARepository,
+        answer: |s| check_index(&s.root),
+    },
+    Question {
+        id: Check::REGEN,
+        text: "Are the REGEN blocks current?",
+        asked: Asked::OfARepository,
+        answer: |_| check_regen(),
+    },
+    Question {
+        id: Check::CATALOG,
+        text: "Have any source records aged out?",
+        asked: Asked::OfARepository,
+        answer: |s| check_catalog(&s.root, s.today),
+    },
+    Question {
+        id: Check::CORPORA,
+        text: "Did the corpora this repository depends on arrive?",
+        asked: Asked::OfARepository,
+        answer: |s| check_corpora(&s.root),
+    },
+    Question {
+        id: Check::VAULT,
+        text: "Can this repository reach its vaults?",
+        asked: Asked::OfARepository,
+        answer: |s| check_vault(&s.root),
+    },
+    Question {
+        id: Check::POLICY,
+        text: "Do this repository's own rules compile, and which are its own?",
+        asked: Asked::OfARepository,
+        answer: |s| check_policy(&s.root),
+    },
+    Question {
+        id: Check::GOVERNANCE,
+        text: "Is this repository's governance mode carrying its own weight?",
+        asked: Asked::OfARepository,
+        answer: |s| check_governance(&s.root),
+    },
+    Question {
+        id: Check::KUTEN,
+        text: "Which kuten does this repository hold, and at what revision?",
+        asked: Asked::OfARepository,
+        answer: |s| check_kuten(&s.root),
+    },
+    Question {
+        id: Check::BUILD,
+        text: "Which yidam is this, and what can it do?",
+        asked: Asked::Anywhere,
+        answer: |_| check_build(),
+    },
+];
 
 /// Run every check against `root`.
 ///
@@ -585,72 +686,30 @@ pub(crate) fn diagnose(
     path_var: Option<&std::ffi::OsStr>,
     today: i64,
 ) -> Vec<Check> {
-    let repository = check_repository(root);
-    // Every remaining check asks something *about* a derived repository. Answering them
-    // against a directory that is not one produces confident nonsense — "no index", "no
-    // provenance" — that reads as a list of things to fix rather than as one thing. A
-    // `.yidam/` with an unborn HEAD (#579) fails the same test for a different reason, and
-    // the remaining checks are just as unanswerable — most of them read git history, which
-    // does not exist yet either.
-    if repository.verdict == Verdict::Fail {
-        let why = if root.join(".yidam").is_dir() {
-            "bootstrapped but never committed"
-        } else {
-            "not a yidam repository"
-        };
-        return vec![
-            repository,
-            Check::skipped(
-                Check::PROVENANCE,
-                "Does this repository record where it came from?",
-                why,
-            ),
-            Check::skipped(
-                Check::BINARY,
-                "Is the running binary the one this repository pins?",
-                why,
-            ),
-            Check::skipped(Check::PATH, "Is `.yidam/bin` ahead on PATH?", why),
-            Check::skipped(Check::PRELUDE, "How stale is the vendored prelude?", why),
-            Check::skipped(Check::INDEX, "Is the index built, and is it current?", why),
-            Check::skipped(Check::REGEN, "Are the REGEN blocks current?", why),
-            Check::skipped(Check::CATALOG, "Have any source records aged out?", why),
-            Check::skipped(
-                Check::CORPORA,
-                "Did the corpora this repository depends on arrive?",
-                why,
-            ),
-            Check::skipped(Check::VAULT, "Can this repository reach its vault?", why),
-            Check::skipped(
-                Check::GOVERNANCE,
-                "Is this repository's governance mode carrying its own weight?",
-                why,
-            ),
-            Check::skipped(Check::KUTEN, KUTEN_QUESTION, why),
-            check_build(),
-        ];
+    let subject = Subject {
+        root: root.to_path_buf(),
+        running: running.map(Path::to_path_buf),
+        path_var: path_var.map(std::ffi::OsStr::to_os_string),
+        today,
+    };
+    // Set the moment the repository check fails, which is what makes the rest of the roster
+    // unanswerable. Every later question sees it; the two that can be asked anywhere ignore
+    // it. See [`Asked`] for why this is the discriminator.
+    let mut unanswerable: Option<&'static str> = None;
+    let mut checks = Vec::with_capacity(ROSTER.len());
+    for question in ROSTER {
+        let check = question.ask(&subject, unanswerable);
+        if question.id == Check::REPOSITORY && check.verdict == Verdict::Fail {
+            unanswerable = Some(if root.join(".yidam").is_dir() {
+                "bootstrapped but never committed"
+            } else {
+                "not a yidam repository"
+            });
+        }
+        checks.push(check);
     }
-    vec![
-        repository,
-        check_provenance(root),
-        check_binary(root, running),
-        check_path(root, path_var),
-        check_prelude(root, today),
-        check_index(root),
-        check_regen(),
-        check_catalog(root, today),
-        check_corpora(root),
-        check_vault(root),
-        check_policy(root),
-        check_governance(root),
-        check_kuten(root),
-        check_build(),
-    ]
+    checks
 }
-
-/// The question `doctor` asks about the kuten, in one place so the skipped arm and the
-/// answered arm cannot ask two different things.
-const KUTEN_QUESTION: &str = "Which kuten does this repository hold, and at what revision?";
 
 /// Which declaration this repository adopted, and whether the vendored profile still matches
 /// it — RFC-0028 §9.
@@ -662,68 +721,41 @@ const KUTEN_QUESTION: &str = "Which kuten does this repository hold, and at what
 /// vendored, or one whose revision has moved out from under it. Without the revision, `score`
 /// would score a repository against a kuten it may not hold and `fit` would compare two
 /// holding different ones — A0's own confound designed into A0's deliverable.
-fn check_kuten(root: &Path) -> Check {
+fn check_kuten(root: &Path) -> Answer {
     let declaration = match crate::kuten::read_declaration(root) {
         Ok(d) => d,
         Err(e) => {
-            return Check::new(
-                Check::KUTEN,
-                KUTEN_QUESTION,
-                Verdict::Warn,
+            return Answer::warn(
                 e.to_string(),
                 Some("fix the decision record, or delete it to hold no kuten"),
             )
         }
     };
     let Some(declaration) = declaration else {
-        return Check::new(
-            Check::KUTEN,
-            KUTEN_QUESTION,
-            Verdict::Ok,
-            "none — the loop runs on the template's defaults",
-            None,
-        );
+        return Answer::ok("none — the loop runs on the template's defaults");
     };
     match crate::kuten::read_profile(root, &declaration.name) {
-        Err(e) => Check::new(
-            Check::KUTEN,
-            KUTEN_QUESTION,
-            Verdict::Warn,
-            e.to_string(),
-            Some("re-vendor the prelude"),
-        ),
-        Ok(None) => Check::new(
-            Check::KUTEN,
-            KUTEN_QUESTION,
-            Verdict::Warn,
+        Err(e) => Answer::warn(e.to_string(), Some("re-vendor the prelude")),
+        Ok(None) => Answer::warn(
             format!(
                 "`{}` is declared and no profile is vendored for it",
                 declaration.name
             ),
             Some("mise run yidam-vendor-update"),
         ),
-        Ok(Some(profile)) if profile.revision != declaration.revision => Check::new(
-            Check::KUTEN,
-            KUTEN_QUESTION,
-            Verdict::Warn,
+        Ok(Some(profile)) if profile.revision != declaration.revision => Answer::warn(
             format!(
                 "`{}` at revision {}, vendored at revision {}",
                 declaration.name, declaration.revision, profile.revision
             ),
             Some("re-vendor, or record a superseding `decide:` decision"),
         ),
-        Ok(Some(profile)) => Check::new(
-            Check::KUTEN,
-            KUTEN_QUESTION,
-            Verdict::Ok,
-            format!(
-                "`{}`, revision {} — {}",
-                profile.name,
-                profile.revision,
-                object_state(profile.object.as_ref())
-            ),
-            None,
-        ),
+        Ok(Some(profile)) => Answer::ok(format!(
+            "`{}`, revision {} — {}",
+            profile.name,
+            profile.revision,
+            object_state(profile.object.as_ref())
+        )),
     }
 }
 
@@ -761,15 +793,14 @@ fn object_state(object: Option<&crate::kuten::Object>) -> String {
 /// - a repository whose rules are all inherited is **Ok** and says so in one line;
 /// - a repository with local rules is **Ok** as well, and they are *named*. An override is a
 ///   decision the repository is entitled to make, and this is not the place that objects to
-///   it — `lint`'s `policy-override` reports each one at `Info` and gates on nothing.
-fn check_policy(root: &Path) -> Check {
-    const Q: &str = "Do this repository's own rules compile, and which are its own?";
-
+///   it — `lint`'s `policy-override` reports each one at `Info` and gates on nothing. What
+///   `yidam policy test` is for is said in the `detail` for that reason: it is what is
+///   available to a reader who has overridden something, not an action owed by a repository
+///   that has done nothing wrong. It was a remedy on an `ok` verdict until #656, which the
+///   prose dropped and every JSON consumer showed as a thing to do.
+fn check_policy(root: &Path) -> Answer {
     let policies = match crate::policy::Policies::load(root) {
-        Err(e) => return Check::new(
-            Check::POLICY,
-            Q,
-            Verdict::Fail,
+        Err(e) => return Answer::fail(
             first_line(&e.to_string()),
             Some("`yidam policy check` names the file; a rule that cannot answer refuses nothing."),
         ),
@@ -778,19 +809,13 @@ fn check_policy(root: &Path) -> Check {
 
     match policies.disallowed_builtins() {
         Err(e) => {
-            return Check::new(
-                Check::POLICY,
-                Q,
-                Verdict::Fail,
+            return Answer::fail(
                 first_line(&e.to_string()),
                 Some("`yidam policy check` reports the same thing with the file and the call."),
             )
         }
         Ok(found) if !found.is_empty() => {
-            return Check::new(
-                Check::POLICY,
-                Q,
-                Verdict::Fail,
+            return Answer::fail(
                 format!(
                     "{} call(s) to a builtin this build does not carry, first: {} in {}",
                     found.len(),
@@ -814,28 +839,14 @@ fn check_policy(root: &Path) -> Check {
     let total = policies.origins().count();
 
     if local.is_empty() {
-        return Check::new(
-            Check::POLICY,
-            Q,
-            Verdict::Ok,
-            format!("{total} decision(s), all inherited"),
-            None,
-        );
+        return Answer::ok(format!("{total} decision(s), all inherited"));
     }
-    Check::new(
-        Check::POLICY,
-        Q,
-        Verdict::Ok,
-        format!(
-            "{} of {total} decided by this repository: {}",
-            local.len(),
-            local.join(", ")
-        ),
-        Some(
-            "`yidam policy test` runs the inherited cases against your rules and reports which \
-             expectations they no longer meet.",
-        ),
-    )
+    Answer::ok(format!(
+        "{} of {total} decided by this repository: {}; `yidam policy test` runs the inherited \
+         cases against them and reports which expectations they no longer meet",
+        local.len(),
+        local.join(", ")
+    ))
 }
 
 /// How many commits `HEAD` carries. `0` on anything that cannot be counted, which reads the
@@ -871,61 +882,33 @@ const GOVERNANCE_HISTORY_THRESHOLD: usize = 20;
 /// electors and no resolution yet has done nothing wrong. This never fails — carrying
 /// unused scaffolding is a cost, not a corruption — and only warns once enough history has
 /// passed that "never" starts to mean something.
-fn check_governance(root: &Path) -> Check {
-    const Q: &str = "Is this repository's governance mode carrying its own weight?";
+fn check_governance(root: &Path) -> Answer {
     let electors_path = crate::paths::yidam_sangha_dir(root).join("electors.md");
     let Ok(text) = std::fs::read_to_string(&electors_path) else {
-        return Check::new(
-            Check::GOVERNANCE,
-            Q,
-            Verdict::Ok,
-            "single-elector — no .yidam/sangha/electors.md",
-            None,
-        );
+        return Answer::ok("single-elector — no .yidam/sangha/electors.md");
     };
     let electors = crate::cmd::sangha::parse_electors(&text);
     if electors.is_empty() {
-        return Check::new(
-            Check::GOVERNANCE,
-            Q,
-            Verdict::Ok,
-            "electors.md present, but no ma/* elector is registered yet",
-            None,
-        );
+        return Answer::ok("electors.md present, but no ma/* elector is registered yet");
     }
     let has_resolution = crate::git::phase_refs(root)
         .iter()
         .any(|r| r.kind == crate::git::RefKind::Evolution);
     if has_resolution {
-        return Check::new(
-            Check::GOVERNANCE,
-            Q,
-            Verdict::Ok,
-            format!(
-                "{} elector(s) registered; at least one rigpa/* resolution exists",
-                electors.len()
-            ),
-            None,
-        );
+        return Answer::ok(format!(
+            "{} elector(s) registered; at least one rigpa/* resolution exists",
+            electors.len()
+        ));
     }
     let commits = commit_count(root);
     if commits < GOVERNANCE_HISTORY_THRESHOLD {
-        return Check::new(
-            Check::GOVERNANCE,
-            Q,
-            Verdict::Ok,
-            format!(
-                "{} elector(s) registered, no resolution yet, {commits} commit(s) in — too \
-                 early to tell",
-                electors.len()
-            ),
-            None,
-        );
+        return Answer::ok(format!(
+            "{} elector(s) registered, no resolution yet, {commits} commit(s) in — too early \
+             to tell",
+            electors.len()
+        ));
     }
-    Check::new(
-        Check::GOVERNANCE,
-        Q,
-        Verdict::Warn,
+    Answer::warn(
         format!(
             "{} elector(s) registered under collective governance; zero rigpa/* resolutions \
              in {commits} commits — the sangha scaffold is carrying no weight",
@@ -959,15 +942,11 @@ fn check_governance(root: &Path) -> Check {
 /// exported nothing for it, and it is quietly running on the account meant for public output.
 /// The two are indistinguishable from here, so this reports the shape and lets the reader
 /// decide, which is the only honest thing available.
-fn check_vault(root: &Path) -> Check {
-    const Q: &str = "Can this repository reach its vaults?";
+fn check_vault(root: &Path) -> Answer {
     let config = crate::config::load_yidam_config(root).unwrap_or_default();
     let vaults =
         match crate::vault::resolve(&config.vault) {
-            Err(e) => return Check::new(
-                Check::VAULT,
-                Q,
-                Verdict::Fail,
+            Err(e) => return Answer::fail(
                 first_line(&e.to_string()),
                 Some(
                     "Fix `[vault.…]` in `.yidam/config.toml`; `yidam vault list` shows the shape.",
@@ -981,12 +960,9 @@ fn check_vault(root: &Path) -> Check {
         // No vault is the common case and is not a defect — unless the corpus has already
         // started recording artifacts, which means it is relying on somewhere to keep them.
         return if named.is_empty() {
-            Check::new(Check::VAULT, Q, Verdict::Ok, "none declared", None)
+            Answer::ok("none declared")
         } else {
-            Check::new(
-                Check::VAULT,
-                Q,
-                Verdict::Warn,
+            Answer::warn(
                 format!("{} artifact(s) recorded and no vault declared", named.len()),
                 Some(
                     "Declare `[vault.default]` in `.yidam/config.toml`, or the bytes live \
@@ -1013,10 +989,7 @@ fn check_vault(root: &Path) -> Check {
             crate::vault::Route::Unroutable(w) => first_line(&w),
             _ => unreachable!("filtered to unroutable"),
         };
-        return Check::new(
-            Check::VAULT,
-            Q,
-            Verdict::Warn,
+        return Answer::warn(
             format!("{} artifact(s) have no route — {why}", stranded.len()),
             Some(
                 "Add the kind to a vault's `holds` in `.yidam/config.toml`, or route the \
@@ -1033,10 +1006,7 @@ fn check_vault(root: &Path) -> Check {
             continue;
         }
         if let Err(e) = crate::vault::credentials_available(name) {
-            return Check::new(
-                Check::VAULT,
-                Q,
-                Verdict::Warn,
+            return Answer::warn(
                 first_line(&e.to_string()),
                 Some(
                     "Credentials come from the environment only — `.yidam/config.toml` is \
@@ -1051,10 +1021,7 @@ fn check_vault(root: &Path) -> Check {
     // The access key id is compared and never printed: it identifies the account, and naming
     // it in a report that gets pasted into an issue helps nobody.
     if let Some((_, shared)) = principals.iter().find(|(_, v)| v.len() > 1) {
-        return Check::new(
-            Check::VAULT,
-            Q,
-            Verdict::Warn,
+        return Answer::warn(
             format!(
                 "{} resolve to the same credentials",
                 shared
@@ -1074,10 +1041,7 @@ fn check_vault(root: &Path) -> Check {
     let cache = match crate::vault::Cache::resolve(|k| std::env::var(k).ok()) {
         Ok(c) => c,
         Err(e) => {
-            return Check::new(
-                Check::VAULT,
-                Q,
-                Verdict::Warn,
+            return Answer::warn(
                 first_line(&e.to_string()),
                 Some("Set YIDAM_VAULT_CACHE to say where artifacts should live."),
             )
@@ -1090,10 +1054,7 @@ fn check_vault(root: &Path) -> Check {
     );
     let uncached = named.iter().filter(|a| !cache.contains(&a.hash)).count();
     if uncached > 0 {
-        return Check::new(
-            Check::VAULT,
-            Q,
-            Verdict::Warn,
+        return Answer::warn(
             format!(
                 "{configured}; {uncached} of {} recorded artifact(s) not cached",
                 named.len()
@@ -1104,13 +1065,7 @@ fn check_vault(root: &Path) -> Check {
             ),
         );
     }
-    Check::new(
-        Check::VAULT,
-        Q,
-        Verdict::Ok,
-        format!("{configured}; {} artifact(s) cached", named.len()),
-        None,
-    )
+    Answer::ok(format!("{configured}; {} artifact(s) cached", named.len()))
 }
 
 /// The first line of an error, for a one-line verdict.
@@ -1143,8 +1098,7 @@ fn first_line(s: &str) -> String {
 /// **Read-only.** `cmd_install` writes `tonpa.lock` when anything changed; this shares the
 /// *verification* and not the command, the way [`check_regen`] borrows `stale_blocks` rather
 /// than reimplementing the generator list.
-fn check_corpora(root: &Path) -> Check {
-    const Q: &str = "Did the corpora this repository depends on arrive?";
+fn check_corpora(root: &Path) -> Answer {
     const REMEDY: &str = "mise run tonpa-install";
 
     let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root));
@@ -1152,7 +1106,7 @@ fn check_corpora(root: &Path) -> Check {
         // Not a warning, and not "0 missing". A repository that depends on nothing is not
         // half-provisioned, and a line reporting a count here would read as a verdict on a
         // question nobody put — the same reason check_catalog stays quiet without a TTL.
-        return Check::new(Check::CORPORA, Q, Verdict::Ok, "none declared", None);
+        return Answer::ok("none declared");
     }
 
     let tonpa_dir = crate::paths::tonpa_dir(root);
@@ -1213,11 +1167,11 @@ fn check_corpora(root: &Path) -> Check {
     let detail = detail.join("; ");
 
     if !missing.is_empty() || !corrupt.is_empty() {
-        Check::new(Check::CORPORA, Q, Verdict::Fail, detail, Some(REMEDY))
+        Answer::fail(detail, Some(REMEDY))
     } else if !unlocked.is_empty() {
-        Check::new(Check::CORPORA, Q, Verdict::Warn, detail, Some(REMEDY))
+        Answer::warn(detail, Some(REMEDY))
     } else {
-        Check::new(Check::CORPORA, Q, Verdict::Ok, detail, None)
+        Answer::ok(detail)
     }
 }
 
@@ -1230,8 +1184,7 @@ fn check_corpora(root: &Path) -> Check {
 /// Silent where no TTL applies, which is every corpus that has not asked. A `doctor` line
 /// saying "0 expired" on a repository that never declared a TTL would read as a clean bill of
 /// health on a question nobody put.
-fn check_catalog(root: &Path, today: i64) -> Check {
-    const Q: &str = "Have any source records aged out?";
+fn check_catalog(root: &Path, today: i64) -> Answer {
     let dir = crate::paths::yidam_catalog_dir(root);
     let sources = crate::cmd::lint::checks::load_sources(
         root,
@@ -1251,29 +1204,17 @@ fn check_catalog(root: &Path, today: i64) -> Check {
 
     let governed = ages.iter().filter(|a| a.ttl_days.is_some()).count();
     if governed == 0 {
-        return Check::new(
-            Check::CATALOG,
-            Q,
-            Verdict::Ok,
-            format!(
-                "no TTL declared — {} source(s) never expire. Set `[catalog] ttl_days` or \
-                 declare `ttl_days:` on an entry.",
-                ages.len()
-            ),
-            None,
-        );
+        return Answer::ok(format!(
+            "no TTL declared — {} source(s) never expire. Set `[catalog] ttl_days` or declare \
+             `ttl_days:` on an entry.",
+            ages.len()
+        ));
     }
     let expired: Vec<&crate::cmd::lint::ttl::Age> =
         ages.iter().filter(|a| a.overdue_days().is_some()).collect();
     let undatable = ages.iter().filter(|a| a.undatable()).count();
     if expired.is_empty() && undatable == 0 {
-        return Check::new(
-            Check::CATALOG,
-            Q,
-            Verdict::Ok,
-            format!("{governed} source(s) under a TTL, none expired"),
-            None,
-        );
+        return Answer::ok(format!("{governed} source(s) under a TTL, none expired"));
     }
     let mut detail = Vec::new();
     if let Some(worst) = expired
@@ -1292,10 +1233,7 @@ fn check_catalog(root: &Path, today: i64) -> Check {
             "{undatable} under a TTL with no date to measure against"
         ));
     }
-    Check::new(
-        Check::CATALOG,
-        Q,
-        Verdict::Warn,
+    Answer::warn(
         detail.join("; "),
         Some("yidam lint  # catalog-expired names each one"),
     )
@@ -1305,12 +1243,13 @@ pub(crate) fn render(report: &DoctorReport, root: &Path) -> String {
     let mut out = format!("yidam doctor — {}\n\n", root.display());
     for c in &report.checks {
         let _ = writeln!(out, "  {:<5} {:<12} {}", c.verdict.tag(), c.id, c.detail);
-        // The remedy is only shown where it is owed. Printing one under every green line
-        // is how a report becomes something people skim past.
+        // Printed wherever there is one, which is only ever a `warn` or a `fail`: a remedy
+        // under a green line is how a report becomes something people skim past, and that
+        // rule is [`Answer::ok`]'s now. It used to be enforced a second time here, and the
+        // two halves disagreed for as long as both existed — the suppression was the
+        // renderer's alone, so the JSON carried what this hid (#656).
         if let Some(remedy) = &c.remedy {
-            if matches!(c.verdict, Verdict::Warn | Verdict::Fail) {
-                let _ = writeln!(out, "  {:<5} {:<12} → {remedy}", "", "",);
-            }
+            let _ = writeln!(out, "  {:<5} {:<12} → {remedy}", "", "",);
         }
     }
     out.push('\n');
@@ -1402,6 +1341,22 @@ mod tests {
 
     fn find<'a>(checks: &'a [Check], id: &str) -> &'a Check {
         checks.iter().find(|c| c.id == id).expect("check present")
+    }
+
+    /// One question from [`ROSTER`], asked the way [`diagnose`] asks it. `unanswerable` is
+    /// what the repository check's failure would have set.
+    fn ask(id: &str, unanswerable: Option<&'static str>) -> Check {
+        let subject = Subject {
+            root: PathBuf::from("/r"),
+            running: None,
+            path_var: None,
+            today: 20_000,
+        };
+        ROSTER
+            .iter()
+            .find(|q| q.id == id)
+            .expect("a question with that id")
+            .ask(&subject, unanswerable)
     }
 
     /// A repository declaring corpora, with control over what is on disk and in the lock.
@@ -1574,23 +1529,32 @@ mod tests {
 
     /// The case this whole command exists for: run it somewhere that is not a derived
     /// repository and get one answer, not seven.
+    ///
+    /// **Every question is still reported**, and against [`ROSTER`] rather than against a
+    /// list written here — which is the whole repair. `policy` was missing from the
+    /// hand-written roster this path used to build, so it did not appear at all rather than
+    /// appearing as `skipped`, and the two states are exactly what the report contract says
+    /// `checks` must keep apart (#656). A list in this test would have been the third copy
+    /// and would have gone on agreeing with whichever one it was written from.
     #[test]
     fn outside_a_derived_repository_only_the_first_question_is_answered() {
         let tmp = TempDir::new().unwrap();
         let checks = diagnose(tmp.path(), None, None, 20_000);
+
+        let asked: Vec<&str> = checks.iter().map(|c| c.id).collect();
+        let roster: Vec<&str> = ROSTER.iter().map(|q| q.id).collect();
+        assert_eq!(
+            asked, roster,
+            "a question that vanishes here cannot be told from one that never ran"
+        );
+
         assert_eq!(find(&checks, Check::REPOSITORY).verdict, Verdict::Fail);
-        for id in [
-            Check::PROVENANCE,
-            Check::BINARY,
-            Check::PATH,
-            Check::PRELUDE,
-            Check::INDEX,
-            Check::REGEN,
-        ] {
+        for question in ROSTER.iter().filter(|q| q.asked == Asked::OfARepository) {
             assert_eq!(
-                find(&checks, id).verdict,
+                find(&checks, question.id).verdict,
                 Verdict::Skipped,
-                "{id} should not be answered outside a repository"
+                "{} should not be answered outside a repository",
+                question.id
             );
         }
         // Which binary is answering is knowable anywhere, and is exactly what a person
@@ -1846,15 +1810,32 @@ mod tests {
         assert_eq!(check_prelude(tmp.path(), today).verdict, Verdict::Warn);
     }
 
-    /// The remedy is named whether or not the pin is old, because "has the origin moved"
-    /// is a question this command deliberately declines to answer.
+    /// The networked command is named whether or not the pin is old, because "has the origin
+    /// moved" is a question this command deliberately declines to answer.
+    ///
+    /// **On the healthy verdict it is named in the `detail`**, which is the half of the line
+    /// a reader is shown when nothing is wrong. It was a remedy on both verdicts until #656,
+    /// and the renderer prints a remedy only where something is owed — so the sentence
+    /// written to tell a reader where the question is asked reached no reader, and reached
+    /// every JSON consumer as an action against a healthy check.
     #[test]
     fn the_prelude_check_always_points_at_the_networked_command() {
         let today = crate::dates::days_from_civil_str("2026-08-23").unwrap();
-        let tmp = repo_with_prelude("2026-08-01");
-        assert!(check_prelude(tmp.path(), today)
+
+        let fresh = check_prelude(repo_with_prelude("2026-08-01").path(), today);
+        assert_eq!(fresh.verdict, Verdict::Ok);
+        assert!(fresh.remedy.is_none(), "{:?}", fresh.remedy);
+        assert!(
+            fresh.detail.contains("yidam-vendor-status"),
+            "the green line must still say where the question is asked: {}",
+            fresh.detail
+        );
+
+        let stale = check_prelude(repo_with_prelude("2026-01-01").path(), today);
+        assert_eq!(stale.verdict, Verdict::Warn);
+        assert!(stale
             .remedy
-            .unwrap()
+            .unwrap_or_default()
             .contains("yidam-vendor-status"));
     }
 
@@ -1977,10 +1958,18 @@ mod tests {
 
     // ── report ───────────────────────────────────────────────────────────────
 
+    /// Checks built past [`Answer`], because these are about how a report *counts* its
+    /// verdicts and not about what any question answered.
     fn checks_with(verdicts: &[Verdict]) -> Vec<Check> {
         verdicts
             .iter()
-            .map(|v| Check::new("x", "q", *v, "d", Some("r")))
+            .map(|v| Check {
+                id: "x",
+                question: "q",
+                verdict: *v,
+                detail: "d".into(),
+                remedy: Some("r".into()),
+            })
             .collect()
     }
 
@@ -2014,16 +2003,35 @@ mod tests {
     }
 
     /// Remedies are the reason to read this output, and a remedy under a green line is
-    /// noise. The prelude check carries one on every verdict precisely so this rule has to
-    /// be enforced at render time rather than at construction.
+    /// noise. Asserted at construction, which is where the rule now lives: the renderer used
+    /// to drop a remedy it was handed on an `ok` verdict, so the rule held for the prose and
+    /// for nothing else — the same check reached a JSON consumer with an action on it
+    /// (#656). A verdict with no finding now has no remedy to render.
     #[test]
-    fn a_remedy_is_rendered_only_where_something_is_wrong() {
-        let checks = vec![
-            Check::new("green", "q", Verdict::Ok, "fine", Some("do-not-print-me")),
-            Check::new("red", "q", Verdict::Fail, "broken", Some("print-me")),
-        ];
+    fn a_verdict_with_no_finding_carries_no_remedy() {
+        assert!(Answer::ok("fine").remedy.is_none());
+        assert!(Answer::skipped("not answerable").remedy.is_none());
+
+        let skipped = ask(Check::PRELUDE, Some("not a yidam repository"));
+        assert!(skipped.remedy.is_none(), "{skipped:?}");
+        let text = render(&DoctorReport::new(vec![skipped], false), Path::new("/r"));
+        assert!(
+            !text.contains('→'),
+            "nothing is owed, so nothing is offered:\n{text}"
+        );
+    }
+
+    /// And a remedy that *is* owed is still printed.
+    #[test]
+    fn a_remedy_is_rendered_where_something_is_wrong() {
+        let checks = vec![Check {
+            id: "red",
+            question: "q",
+            verdict: Verdict::Fail,
+            detail: "broken".into(),
+            remedy: Some("print-me".into()),
+        }];
         let text = render(&DoctorReport::new(checks, false), Path::new("/r"));
-        assert!(!text.contains("do-not-print-me"), "{text}");
         assert!(text.contains("→ print-me"), "{text}");
     }
 

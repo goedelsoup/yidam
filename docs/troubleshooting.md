@@ -28,9 +28,9 @@ yidam doctor — /home/you/my-domain
 2 failing check(s), 2 warning(s).
 ```
 
-Every check names its own remedy. **It exits nonzero on what is wrong now**; warnings — no
-index, an old pin — are reported and do not affect the exit code unless you pass `--strict`,
-which is the reading a CI job wants.
+Each finding names its own remedy; a check with nothing to do names none. **It exits nonzero
+on what is wrong now**; warnings — no index, an old pin — are reported and do not affect the
+exit code unless you pass `--strict`, which is the reading a CI job wants.
 
 | Check | The question |
 |---|---|

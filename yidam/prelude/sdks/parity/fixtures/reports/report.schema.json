@@ -141,7 +141,7 @@
               "fail",
               "skipped"
             ],
-            "description": "`doctor` only. `warn` is actionable and a normal state to be in, and does not affect the exit code without `--strict`; `fail` is wrong now and exits nonzero; `skipped` is not answerable, almost always because the repository check already failed and there is nothing to answer about. A consumer MUST NOT read `skipped` as `ok`."
+            "description": "`doctor` only. `warn` is actionable and a normal state to be in, and does not affect the exit code without `--strict`; `fail` is wrong now and exits nonzero; `skipped` is not answerable, almost always because the repository check already failed and there is nothing to answer about. A consumer MUST NOT read `skipped` as `ok`. Every question `doctor` asks is reported on both paths, so a `skipped` check is how the answerable set stays the same shape — one check was absent from the unanswerable path rather than skipped on it until #656, and no fixture emitted this value at all, which left renaming it here undetectable."
           },
           "detail": {
             "type": "string",
@@ -152,7 +152,7 @@
               "string",
               "null"
             ],
-            "description": "`doctor` only. The command or edit that resolves it. NOT null-iff-healthy: two checks emit a remedy alongside `verdict: ok` — the prelude and policy checks name one on both verdicts deliberately. The text renderer prints a remedy only for `warn` and `fail`, so the invariant a reader might infer holds for the prose and has never held for this field. #656 tracks whether that is the JSON's bug or the renderer's."
+            "description": "`doctor` only. The command or edit that resolves this finding. **Null on `ok` and on `skipped`** — a verdict with no finding has nothing to resolve — and null-iff-actionable is held by construction rather than by agreement: the constructors for those two verdicts take no remedy. It was NOT an invariant until #656, when the prelude and policy checks each named one alongside `verdict: ok`. The text renderer suppressed them and the JSON did not, so the same green check reached a person with nothing to do and a consumer with an action against it. Advice worth reading on a healthy check goes in `detail`, which is rendered on every line — that is where the prelude check's pointer at the one networked command now lives."
           },
           "severity": {
             "enum": [
