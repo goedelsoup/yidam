@@ -149,7 +149,7 @@ toml = "1.1"
 # `ast` costs zero additional packages (measured) and is what lets `policy check`
 # find a disallowed builtin by walking the parse tree rather than by grepping the
 # source, which a comment mentioning `http.send` would answer just as well.
-regorus = { version = "0.11", default-features = false, features = ["arc", "ast", "regex"] }
+regorus = { version = "0.12", default-features = false, features = ["arc", "ast", "regex"] }
 # Parity SDK — reference implementations of classify_commit etc.; the CLI
 # must not re-implement the parity surface (see prelude/sdks/parity/README.md).
 yidam-core = { path = "../prelude/sdks/rust", version = "0.4.0" }
@@ -185,16 +185,16 @@ yidam-core = { path = "../prelude/sdks/rust", version = "0.4.0" }
 #
 # Revisit when transformers.js ships an ONNX Runtime that answers the way rc.13 does; the two
 # move back into one space then, and the fixture moves once, deliberately, for both.
-fastembed = { version = "4", optional = true }
+fastembed = { version = "6", optional = true }
 lancedb = { version = "0.15", optional = true }
 futures = { version = "0.3", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
 # Arrow decodes the vector index (model::index_rows); shared by `index` and
 # `export-sqlite`. Versions must match lancedb's transitive dependency — update
 # together if bumping either.
-arrow-array = { version = "53", optional = true }
-arrow-schema = { version = "53", optional = true }
-arrow-ipc = { version = "53", optional = true }
+arrow-array = { version = "54", optional = true }
+arrow-schema = { version = "54", optional = true }
+arrow-ipc = { version = "54", optional = true }
 
 # ── optional: `export-sqlite` — `export --format sqlite`. `bundled` compiles
 #    SQLite from C source. ──────────────────────────────────────────────────
@@ -421,7 +421,7 @@ toml = "1.1"
 serde_yaml = "0.9"
 quick-xml = "0.42"
 tempfile = "3"
-jsonschema = { version = "0.52.1", default-features = false }
+jsonschema = { version = "0.53.0", default-features = false }
 
 # ── cargo-binstall ────────────────────────────────────────────────────────────
 #

@@ -577,7 +577,7 @@ does not propose to move it.
   invisible to it. #611 keeps the general question.
 - ~~**The design system's React components have never been hydrated.**~~ **Answered 2026-09-06:
   they survive.** No `client:*` directive appeared on any quality page —
-  [`astro.config.mjs:243-246`](../../yidam/web/docs/astro.config.mjs#L243-L246): *"this is a
+  [`astro.config.mjs:244-247`](../../yidam/web/docs/astro.config.mjs#L244-L247): *"this is a
   build-time renderer: React produces HTML and none of it is shipped to a reader."* This surface
   is now the first consumer to ship them to a browser, and the spike was run rather than
   reasoned about: `mise run edit-dev` against the reports golden corpus, driven with headless

@@ -62,6 +62,13 @@ Runs all three language implementations of each domain function against every fi
 in this directory. Rust is the reference; TypeScript and Python must produce identical
 outputs. Any divergence is a parity failure.
 
+It is run by the `ci (domains)` job on every push and pull request — which it was not
+until #682. Until then every mention of this task in the repository, including the one
+you are reading, described a gate that no workflow invoked; and the task's own loop had
+no `set -e`, so running it by hand exited 0 with a domain failing inside. What that cost
+is recorded in #683: `geodesics.haversine_km` was wrong by 2 km, in the one fixture of
+that function that was not a geometric identity, and nothing found it.
+
 ## Adding a domain function
 
 1. Implement the function in all three language SDKs for the domain

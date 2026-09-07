@@ -1,0 +1,15 @@
+function = "geodesics.central_angle_deg"
+description = "Paris to London subtends ≈ 3.09° at the Earth's centre"
+
+# The other two cases here are geometric identities — a quarter turn is 90° and a
+# point is 0° from itself, for any implementation with the right shape. This one
+# exercises the trigonometry, which is the gap #683 found on haversine_km: its only
+# non-identity fixture was the wrong one.
+[input]
+lat1 = 48.8566
+lon1 = 2.3522
+lat2 = 51.5074
+lon2 = -0.1278
+
+[expected]
+degrees = 3.0896738790901788

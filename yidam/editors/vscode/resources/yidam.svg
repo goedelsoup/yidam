@@ -1,14 +1,6 @@
-<!--
-  The activity-bar icon: a node with three edges leaving it.
-
-  Monochrome and stroke-only on purpose — VS Code recolours activity-bar icons to the
-  theme's foreground, and anything with a fill reads as a smudge at 24px in half the
-  themes people use.
--->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
-  <circle cx="12" cy="12" r="3"/>
-  <circle cx="4.5" cy="5" r="1.8"/>
-  <circle cx="19.5" cy="6.5" r="1.8"/>
-  <circle cx="17" cy="19.5" r="1.8"/>
-  <path d="M9.9 9.9 5.8 6.3M14.6 10.6l3.5-2.6M13.6 14.6l2.6 3.4"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <path d="M4.5 18.25H19.5M4.5 18.25 12 5.75M12 5.75 19.5 18.25" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+  <circle cx="4.5" cy="18.25" r="2.8" fill="currentColor"/>
+  <circle cx="19.5" cy="18.25" r="2.8" fill="currentColor"/>
+  <circle cx="12" cy="5.75" r="2.8" fill="currentColor"/>
 </svg>
