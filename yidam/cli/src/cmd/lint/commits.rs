@@ -215,8 +215,27 @@ pub fn unrecognized_verb(subjects: &[Subject], registers: &Registers) -> Check {
             let short = &s.hash[..s.hash.len().min(8)];
             // The hash is already the node; repeating it here would print it twice.
             //
+            // Three details rather than two (#673). A verb wearing a scope is off the
+            // vocabulary for the same reason as a coinage and is *not the same mistake*:
+            // the author reached for a verb that exists and spelled it in a form GRAPH.md
+            // forbids, so the repair is typographic and the finding can say what it is.
+            // `check_subject` has told a caller this since the contract froze `scope-suffix`
+            // as its own rule; the gate reading the same history said only "not in the
+            // vocabulary", which sends a reader hunting for a verb that is already correct.
+            //
+            // Recognition itself does not move, and nothing here may make it: the suffixed
+            // commit is still counted off-vocabulary, exactly as `split_scope`'s contract
+            // requires. What changes is only what the finding *says*.
             let detail = if s.verb.is_empty() {
                 format!("no `verb: ` prefix — {:?}", truncate(&s.text))
+            } else if let Some((base, scope)) =
+                split_scope(&s.verb).filter(|(base, _)| is_recognized_verb(base))
+            {
+                format!(
+                    "`{}` is `{base}` wearing a conventional-commits scope, which GRAPH.md \
+                     forbids — write `{base}: {scope} …`",
+                    s.verb
+                )
             } else {
                 format!("`{}` is not in the vocabulary", s.verb)
             };
@@ -359,6 +378,46 @@ mod tests {
             "one capital letter changed whether the same act costs a finding"
         );
         assert!(!unrecognized_verb(&capital).passed());
+    }
+
+    /// #673: a valid verb wearing a scope is still off the vocabulary, and the finding now
+    /// says which mistake it is.
+    ///
+    /// The two halves are asserted together on purpose. Softening recognition is the one
+    /// repair `split_scope`'s contract forbids — it is what A0's extraction script did by
+    /// accident — so a test that only checked the wording would keep passing through
+    /// exactly the regression that matters.
+    #[test]
+    fn a_suffixed_verb_is_named_as_one_and_still_counted() {
+        let s = vec![subj(
+            "aaaaaaaa",
+            "phase(a-flat-grant): the factor stopped fitting",
+        )];
+        let c = unrecognized_verb(&s);
+
+        assert_eq!(c.violations.len(), 1, "recognition moved; it must not");
+        let d = &c.violations[0].detail;
+        assert!(d.contains("`phase`"), "does not name the base verb: {d}");
+        assert!(
+            d.contains("phase: a-flat-grant"),
+            "does not give the repair: {d}"
+        );
+    }
+
+    /// A coinage keeps the older wording: there is no base verb to point at, so advice of
+    /// the form "write `corpus: …`" would be recommending a second verb that is also not in
+    /// the list.
+    #[test]
+    fn a_coined_verb_wearing_a_scope_is_not_called_a_suffix_mistake() {
+        let s = vec![subj("aaaaaaaa", "corpus(ohio): the appropriation rows")];
+        let c = unrecognized_verb(&s);
+
+        assert_eq!(c.violations.len(), 1);
+        assert!(
+            c.violations[0].detail.contains("is not in the vocabulary"),
+            "{}",
+            c.violations[0].detail
+        );
     }
 
     /// The narrowing must not hand out exemptions to authored subjects that merely open

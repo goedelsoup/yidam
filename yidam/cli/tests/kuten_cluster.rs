@@ -226,6 +226,9 @@ impl Member {
             commits: self.authored,
             phase_commits: self.phase,
             off_vocabulary_commits: self.off_vocabulary,
+            // The stored members were measured before this field existed; zero is the
+            // honest reading, and it never reaches a band — nothing compares against it.
+            suffixed_commits: 0,
             nodes: self.instances,
             median_node_lines: Some(self.median_lines),
             open_questions: self.open_questions,
