@@ -40,7 +40,7 @@ The rule was unenforceable until a corpus existed on which some tier goes unback
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.17.0",
+    "contract": "0.18.0",
     "corpus": {
       "domain": "streamflow",
       "commit": "a1b2c3d",
@@ -159,6 +159,37 @@ express. Eleven classes across six measured corpora are shaped that way.
 A malformed stored value orders against nothing. The type is checked on write and the check
 reports rather than gates, so a query has to survive meeting one; guessing an answer for it
 would be the undercount's louder twin.
+
+## The other closed set (contract 0.18.0)
+
+`query` carries three closed vocabularies. Until 0.18.0 two of them were frozen by name here
+and one was not:
+
+| field | before | now |
+|---|---|---|
+| `rejected.code` | enumerated, compared | unchanged |
+| `absence.code` | enumerated, reached by cases | unchanged |
+| `diagnostics[].code` | **described in prose, enumerated nowhere** | enumerated, compared |
+| `diagnostics[].level` | **shape stated, values not** | `warn` or `info`, compared |
+
+`Diagnostic::code` in the CLI said *from a closed set, so a client can branch without
+matching prose* the whole time. The set was closed nowhere a client could read: three of the
+five codes were named in no document at all, and the two the contract did describe were
+described in English without the string a `match` would need.
+
+That is the same defect `rejected.code` had for nine versions, with **less** protection —
+there was no enumeration to diverge from, so nothing could be compared and nothing could go
+red. Each of the three unnamed codes arrived in a feature PR that changed no contract:
+`corpus-excluded` with `--across`, `ontology-moved` with `--at`, `trivial-predicate` with the
+operator rules.
+
+`ontology-moved` stays **out** of the frozen set, for the reason `anchor-at-revision` does: it
+reports that the vocabulary moved between the revision asked about and HEAD, and no MCP call
+names a revision.
+
+The levels are frozen for the same reason the codes are. RFC-0018 says an error is not a
+diagnostic — it is the rejection — and a server writing `error` here tells a client a query
+was refused, on the field that exists to say it ran.
 
 ### What the 0.15.0 gate did not catch
 

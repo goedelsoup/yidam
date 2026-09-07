@@ -34,12 +34,111 @@ use crate::universal::Universal;
 /// query diagnostic has no check id, no node, and no baseline — it is about a *step*.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Diagnostic {
-    /// `warn` or `info`. An error is not a diagnostic — it is the rejection.
-    pub level: &'static str,
+    /// From [`level`]. An error is not a diagnostic — it is the rejection.
+    pub level: Level,
     pub step: usize,
-    /// From a closed set, so a client can branch without matching prose.
-    pub code: &'static str,
+    /// From [`diagnostic_code`], which is the set `tools.json` freezes.
+    ///
+    /// It said *from a closed set, so a client can branch without matching prose* while the
+    /// set was closed nowhere a client could read: three of the five codes were named in no
+    /// document, and two more were described in the contract's prose without the string a
+    /// `match` would need. Frozen at contract 0.18.0.
+    pub code: DiagnosticCode,
     pub message: String,
+}
+
+/// A diagnostic's severity — one of [`level`]'s two, and nothing else.
+///
+/// Separate from [`DiagnosticCode`] and from [`Code`] for the reason all three are newtypes:
+/// the wrong vocabulary in the right field is exactly the mistake that does not announce
+/// itself. RFC-0018 says an error is not a diagnostic, and until 0.18.0 nothing held a server
+/// to the two values that leaves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+#[serde(transparent)]
+pub struct Level(&'static str);
+
+impl std::fmt::Display for Level {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl PartialEq<&str> for Level {
+    fn eq(&self, other: &&str) -> bool {
+        self.0 == *other
+    }
+}
+
+/// The two severities a diagnostic can carry.
+pub mod level {
+    use super::Level;
+
+    /// Something is probably wrong and the step ran anyway.
+    pub const WARN: Level = Level("warn");
+    /// Nothing is wrong; something was decided, and the caller could not otherwise see it.
+    pub const INFO: Level = Level("info");
+
+    /// Both of them. An `error` would be a rejection, which is a different field.
+    pub const FROZEN: &[Level] = &[WARN, INFO];
+}
+
+/// A diagnostic code — one of [`diagnostic_code`]'s, and nothing else.
+///
+/// A separate type from [`Code`] rather than a second roster behind one: a rejection code in
+/// a `Diagnostic` would compile, serialise, and tell a client that a query it ran was refused.
+/// Two closed sets are two types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+#[serde(transparent)]
+pub struct DiagnosticCode(&'static str);
+
+impl std::fmt::Display for DiagnosticCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl PartialEq<&str> for DiagnosticCode {
+    fn eq(&self, other: &&str) -> bool {
+        self.0 == *other
+    }
+}
+
+/// Every `code` a diagnostic can carry, named once.
+///
+/// The vocabulary `rejected.code`'s freeze (#732) did not look at. It had the same shape and
+/// less protection: no enumeration in the contract to diverge *from*, so there was nothing to
+/// compare and nothing could go red. Three of the five were named in no document at all, and
+/// each of those three arrived in a feature PR that changed no contract — `corpus-excluded`
+/// with `--across`, `ontology-moved` with `--at`, `trivial-predicate` with the operator rules.
+/// That is exactly how three lint check ids got into `query`'s rejection list and stayed for
+/// nine versions.
+pub mod diagnostic_code {
+    use super::DiagnosticCode;
+
+    /// `!=` against a value the type cannot hold: true of every node carrying the property.
+    pub const TRIVIAL_PREDICATE: DiagnosticCode = DiagnosticCode("trivial-predicate");
+    /// A relationship the class does not declare, under a non-exhaustive `edge_policy`.
+    pub const UNDECLARED_RELATIONSHIP: DiagnosticCode = DiagnosticCode("undeclared-relationship");
+    /// `*` narrowed to the classes its predicate can be asked of, naming those it skipped.
+    pub const NARROWED: DiagnosticCode = DiagnosticCode("narrowed");
+    /// A dependency whose own ontology cannot answer the query, named rather than failed.
+    pub const CORPUS_EXCLUDED: DiagnosticCode = DiagnosticCode("corpus-excluded");
+    /// The vocabulary moved between the revision asked about and HEAD.
+    pub const ONTOLOGY_MOVED: DiagnosticCode = DiagnosticCode("ontology-moved");
+
+    /// The codes a caller of the MCP `query` tool can receive, and the set the contract
+    /// freezes — compared against `tools.json` in both directions by `serve::tools`.
+    ///
+    /// [`ONTOLOGY_MOVED`] is deliberately absent, for the reason `anchor-at-revision` is
+    /// absent from the rejection set: it says the ontology moved *between the revision asked
+    /// about and HEAD*, and no MCP call names a revision. Freezing it would put a branch in a
+    /// client's `match` that nothing can take.
+    pub const SURFACED: &[DiagnosticCode] = &[
+        TRIVIAL_PREDICATE,
+        UNDECLARED_RELATIONSHIP,
+        NARROWED,
+        CORPUS_EXCLUDED,
+    ];
 }
 
 /// A rejection code — one of [`code`]'s, and nothing else.
@@ -347,9 +446,9 @@ fn check_pred(
         // carries the property. Legal, and worth saying.
         (Op::Ne, Some(why)) => {
             out.push(Diagnostic {
-                level: "warn",
+                level: level::WARN,
                 step: step_index,
-                code: "trivial-predicate",
+                code: diagnostic_code::TRIVIAL_PREDICATE,
                 message: format!(
                     "`{} != {}` is true of every `{}` that carries the property: {why}",
                     pred.prop, pred.value, class.name
@@ -473,9 +572,9 @@ fn check_hop(
 
     for class in undeclared_by {
         out.push(Diagnostic {
-            level: "warn",
+            level: level::WARN,
             step: step_index,
-            code: "undeclared-relationship",
+            code: diagnostic_code::UNDECLARED_RELATIONSHIP,
             message: format!(
                 "`{relationship}` is not declared by `{class}` (edge_policy: unstated){}",
                 authored_note(relationship, &class, schema)
@@ -590,9 +689,9 @@ pub fn check(query: &Query, schema: &Schema) -> Result<Checked, Rejection> {
                     classes.iter().filter(|c| !kept.contains(c)).collect();
                 skipped.sort();
                 diagnostics.push(Diagnostic {
-                    level: "info",
+                    level: level::INFO,
                     step: index,
-                    code: "narrowed",
+                    code: diagnostic_code::NARROWED,
                     // **The predicate, not the property name.** Declaring it was the only way
                     // to fail this loop until the ordering operators arrived (#725); now a
                     // class can be skipped for declaring `began` as `type: string`, and a

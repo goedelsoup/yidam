@@ -433,9 +433,9 @@ pub fn divergence(
     let at = super::short(&revision.commit);
     match (then, now) {
         (Ok(_), Err(rejection)) => vec![super::check::Diagnostic {
-            level: "info",
+            level: super::check::level::INFO,
             step: rejection.step.unwrap_or(0),
-            code: "ontology-moved",
+            code: super::check::diagnostic_code::ONTOLOGY_MOVED,
             message: format!(
                 "this typechecks against the ontology at {at} and would be rejected against \
                  HEAD's ({}): {}",
@@ -443,9 +443,9 @@ pub fn divergence(
             ),
         }],
         (Err(rejection), Ok(_)) => vec![super::check::Diagnostic {
-            level: "info",
+            level: super::check::level::INFO,
             step: rejection.step.unwrap_or(0),
-            code: "ontology-moved",
+            code: super::check::diagnostic_code::ONTOLOGY_MOVED,
             message: format!(
                 "this typechecks against HEAD's ontology and not against the one at {at}, \
                  which is the schema that commit's data obeys — so the rejection stands"
@@ -465,9 +465,9 @@ pub fn divergence(
         (Ok(a), Ok(b)) => {
             let note = |message: String| {
                 vec![super::check::Diagnostic {
-                    level: "info",
+                    level: super::check::level::INFO,
                     step: 0,
-                    code: "ontology-moved",
+                    code: super::check::diagnostic_code::ONTOLOGY_MOVED,
                     message,
                 }]
             };

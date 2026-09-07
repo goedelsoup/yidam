@@ -476,6 +476,23 @@ fn query(state: &ServerState, args: &Value) -> Result<Value, String> {
         "`query` answered `{:?}`, which the contract does not freeze",
         report.rejected.as_ref().map(|r| r.code)
     );
+    // The same, one field over. `diagnostics` is where the revision-only vocabulary would
+    // leak from if `run_on` ever grew a history path: `ontology-moved` is emitted by `at`,
+    // is not frozen, and would arrive here reading as an ordinary note about a query that
+    // ran. Both halves are checked, because a `level` outside the two is the same defect —
+    // an `error` on the field that exists to say the query was not refused.
+    debug_assert!(
+        report.diagnostics.iter().all(|d| {
+            crate::cmd::query::check::diagnostic_code::SURFACED.contains(&d.code)
+                && crate::cmd::query::check::level::FROZEN.contains(&d.level)
+        }),
+        "`query` reported a diagnostic the contract does not freeze: {:?}",
+        report
+            .diagnostics
+            .iter()
+            .map(|d| (d.level, d.code))
+            .collect::<Vec<_>>()
+    );
     serde_json::to_value(&report).map_err(|e| e.to_string())
 }
 
@@ -1433,8 +1450,20 @@ mod tests {
     /// marker is the part of it that may not be reworded without moving this constant.
     const FROZEN_CODES: &str = "the codes are the contract's own (";
 
-    /// The rejection codes `tools.json` freezes for one tool, read out of its notes.
-    fn frozen_rejection_codes(contract: &Value, tool: &str) -> BTreeSet<String> {
+    /// The same, for `diagnostics[].code` — a distinct clause, because both live in one
+    /// `notes` string and a marker that is a substring of the other would read whichever
+    /// came first.
+    const FROZEN_DIAGNOSTIC_CODES: &str = "the diagnostic codes are frozen too (";
+
+    /// And for `diagnostics[].level`, whose two values are as much a closed set as the codes.
+    const FROZEN_LEVELS: &str = "The level is one of (";
+
+    /// A frozen set `tools.json` states in prose, read out of one tool's notes.
+    ///
+    /// The marker must occur **exactly once**. Reading the first of several would silently
+    /// compare the wrong list, which is a gate that passes for the wrong reason — the failure
+    /// this whole family exists to prevent, arriving through the gate itself.
+    fn frozen_set(contract: &Value, tool: &str, marker: &str) -> BTreeSet<String> {
         let notes = contract["tools"]
             .as_array()
             .unwrap()
@@ -1442,16 +1471,20 @@ mod tests {
             .find(|t| t["name"] == tool)
             .and_then(|t| t["response"]["notes"].as_str())
             .unwrap_or_else(|| panic!("{tool} documents its response"));
-        let open = notes.find(FROZEN_CODES).unwrap_or_else(|| {
-            panic!(
-                "`{tool}`'s notes no longer contain `{FROZEN_CODES}`. That sentence is where \
-                 the frozen rejection codes live and it is the only machine-readable copy of \
-                 them; reword it and nothing compares the contract to the server again."
-            )
-        }) + FROZEN_CODES.len();
+        let found: Vec<usize> = notes.match_indices(marker).map(|(i, _)| i).collect();
+        assert_eq!(
+            found.len(),
+            1,
+            "`{tool}`'s notes contain `{marker}` {} times. That clause is the only \
+             machine-readable copy of the set it introduces: reword it and nothing compares \
+             the contract to the server again, state it twice and this reads whichever came \
+             first.",
+            found.len()
+        );
+        let open = found[0] + marker.len();
         let close = notes[open..]
             .find(')')
-            .expect("the frozen code enumeration closes its parenthesis")
+            .expect("the frozen enumeration closes its parenthesis")
             + open;
         notes[open..close]
             .split('`')
@@ -1459,6 +1492,28 @@ mod tests {
             .step_by(2)
             .map(str::to_string)
             .collect()
+    }
+
+    /// The names in a roster, as the strings the wire carries.
+    fn wire(roster: impl IntoIterator<Item = impl ToString>) -> BTreeSet<String> {
+        roster.into_iter().map(|c| c.to_string()).collect()
+    }
+
+    /// Both directions of one frozen set, with the two failures named apart.
+    fn assert_agrees(what: &str, frozen: &BTreeSet<String>, emitted: &BTreeSet<String>) {
+        let unfrozen: Vec<&String> = emitted.difference(frozen).collect();
+        assert!(
+            unfrozen.is_empty(),
+            "`query` answers with {unfrozen:?} and the contract freezes no such {what} — a \
+             client branching on it reaches its `else` arm on something this server considers \
+             routine"
+        );
+        let unemitted: Vec<&String> = frozen.difference(emitted).collect();
+        assert!(
+            unemitted.is_empty(),
+            "the contract freezes the {what} {unemitted:?} and nothing carries it — a client \
+             that implemented the list as written has a branch that is never taken"
+        );
     }
 
     /// The rejection codes the contract freezes are the ones `query` answers with.
@@ -1479,22 +1534,48 @@ mod tests {
     fn the_contract_freezes_the_rejection_codes_query_answers_with() {
         use crate::cmd::query::check::code;
 
-        let frozen = frozen_rejection_codes(&contract(), "query");
-        let surfaced: BTreeSet<String> = code::SURFACED.iter().map(|c| (*c).to_string()).collect();
-
-        let unfrozen: Vec<&String> = surfaced.difference(&frozen).collect();
-        assert!(
-            unfrozen.is_empty(),
-            "`query` answers with {unfrozen:?} and the contract freezes no such code — a \
-             client branching on `rejected.code` reaches its `else` arm on a rejection this \
-             server considers routine"
+        assert_agrees(
+            "rejection code",
+            &frozen_set(&contract(), "query", FROZEN_CODES),
+            &wire(code::SURFACED.iter().copied()),
         );
+    }
 
-        let unemitted: Vec<&String> = frozen.difference(&surfaced).collect();
-        assert!(
-            unemitted.is_empty(),
-            "the contract freezes {unemitted:?} and no rejection carries it — a client that \
-             implemented the list as written has a branch that is never taken"
+    /// The same, for the vocabulary the 0.15.0 freeze did not look at.
+    ///
+    /// `diagnostics[].code` had the shape `rejected.code` had and less protection: no
+    /// enumeration to diverge from, so nothing could be compared and nothing could go red.
+    /// Three of the five codes were named in no document at all, and each arrived in a
+    /// feature PR that changed no contract — which is how three lint check ids got into the
+    /// rejection list and stayed for nine versions.
+    ///
+    /// `Diagnostic::code`'s own doc said *from a closed set, so a client can branch without
+    /// matching prose* the whole time. This is the sentence becoming true.
+    #[test]
+    fn the_contract_freezes_the_diagnostic_codes_query_answers_with() {
+        use crate::cmd::query::check::diagnostic_code;
+
+        assert_agrees(
+            "diagnostic code",
+            &frozen_set(&contract(), "query", FROZEN_DIAGNOSTIC_CODES),
+            &wire(diagnostic_code::SURFACED.iter().copied()),
+        );
+    }
+
+    /// Two levels, and the contract names both.
+    ///
+    /// RFC-0018 says an error is not a diagnostic — it is the rejection — and until this the
+    /// contract stated the `{level, step, code, message}` shape without saying what `level`
+    /// may hold. A server emitting `error` there tells a client a query was refused on the
+    /// field that exists to say it ran.
+    #[test]
+    fn the_contract_freezes_the_diagnostic_levels() {
+        use crate::cmd::query::check::level;
+
+        assert_agrees(
+            "diagnostic level",
+            &frozen_set(&contract(), "query", FROZEN_LEVELS),
+            &wire(level::FROZEN.iter().copied()),
         );
     }
 
@@ -1512,16 +1593,24 @@ mod tests {
     /// that repair is wrong on.
     #[test]
     fn the_contract_does_not_freeze_a_code_only_the_cli_can_answer() {
-        use crate::cmd::query::check::code;
+        use crate::cmd::query::check::{code, diagnostic_code};
 
-        let frozen = frozen_rejection_codes(&contract(), "query");
+        let rejections = frozen_set(&contract(), "query", FROZEN_CODES);
         for cli_only in [code::ANCHOR_AT_REVISION, code::HISTORY_UNREADABLE] {
             assert!(
-                !frozen.contains(&cli_only.to_string()),
+                !rejections.contains(&cli_only.to_string()),
                 "the contract freezes `{cli_only}`, which is reachable only through `--at` \
                  or `--between` — no MCP call can supply either, so the code is a branch no \
                  client will ever take"
             );
         }
+        // `ontology-moved` says the vocabulary moved *between the revision asked about and
+        // HEAD*, and no MCP call names a revision. Same argument, one field over.
+        let diagnostics = frozen_set(&contract(), "query", FROZEN_DIAGNOSTIC_CODES);
+        assert!(
+            !diagnostics.contains(&diagnostic_code::ONTOLOGY_MOVED.to_string()),
+            "the contract freezes `{}`, which only a `--at` or `--between` run can produce",
+            diagnostic_code::ONTOLOGY_MOVED
+        );
     }
 }

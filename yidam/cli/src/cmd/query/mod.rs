@@ -827,9 +827,9 @@ fn run_checked(
             Ok(checked) => checked,
             Err(rejection) => {
                 diagnostics.push(check::Diagnostic {
-                    level: "info",
+                    level: check::level::INFO,
                     step: rejection.step.unwrap_or(0),
-                    code: "corpus-excluded",
+                    code: check::diagnostic_code::CORPUS_EXCLUDED,
                     message: format!(
                         "`{}` was not queried: {} ({})",
                         foreign.package, rejection.message, rejection.code
