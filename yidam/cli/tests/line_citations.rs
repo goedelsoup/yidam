@@ -19,11 +19,16 @@
 //!   copies agree.
 //!
 //! The remaining one — a citation with neither anchor — is Info by design and not gated
-//! on. It is still by far the largest group: 104 of this repository's 150 line citations,
-//! checked for existence and nothing else. 119 carry no quote and 15 of those are held by
+//! on. It is still by far the largest group: 108 of this repository's 180 line citations,
+//! checked for existence and nothing else. 135 carry no quote and 27 of those are held by
 //! their label instead, which is the whole of what the documents themselves make
 //! decidable; the rest label a line number, and a line number that agrees with itself
 //! anchors nothing.
+//!
+//! Three of the 45 that do carry a quote carry it in a fenced block the document introduces
+//! rather than in quotation marks, and were counted in the paragraph above until #758 —
+//! `is_boundary` ends a paragraph at a fence, so the most explicit way of writing a quote
+//! down was the one form nothing read.
 //!
 //! When this goes red after an innocent edit, the edit moved a cited passage: re-point
 //! the citation at the passage's new lines. **The finding names them** when the passage

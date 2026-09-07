@@ -28,14 +28,14 @@
 //!
 //! A fifth check stands outside that partition because it never opens the target file.
 //! The house style states the range twice — `[`file.rs:12-19`](../file.rs#L12-L19)` — and
-//! **`citation-range-stated-twice`** holds the two copies to each other. 134 of the 149
+//! **`citation-range-stated-twice`** holds the two copies to each other. 150 of the 180
 //! line citations this repository's own gate can see write both; nothing had ever read
 //! the left-hand one, so half a repair would have shipped silently (#622).
 //!
 //! # The anchor, and why the label is one
 //!
-//! A quote is the strong anchor and most citations do not carry one: 119 of this
-//! repository's 150 line citations quote nothing, and for as long as that was the whole
+//! A quote is the strong anchor and most citations do not carry one: 135 of this
+//! repository's 180 line citations quote nothing, and for as long as that was the whole
 //! story every one of them was checked for existence and nothing else. A range that slides
 //! onto lines that are neither blank nor quoted is invisible to the two enforcing halves
 //! at once — it exists, so it is not dead; nothing quotes it, so nothing can say it slid.
@@ -47,7 +47,7 @@
 //! and the coordinate in the fragment, so the label is a claim about the target that a
 //! check can decide. It is read only where nothing quotes the passage, because a quote is
 //! better evidence and should decide alone. See [`label_symbols`] for what counts, and what
-//! deliberately does not — 104 of the 119 label a line number rather than a symbol, and a
+//! deliberately does not — 108 of the 135 label a line number rather than a symbol, and a
 //! label that restates the coordinate anchors nothing.
 //!
 //! # Naming the repair
@@ -77,12 +77,22 @@
 //!
 //! - in quotation marks (or italics) immediately before the link: `"…" ([cite])`;
 //! - immediately after it, introduced by a colon or dash: `([cite]): "…"`;
-//! - as the body of a blockquote whose attribution line carries the link: `> — [cite]`.
+//! - as the body of a blockquote whose attribution line carries the link: `> — [cite]`;
+//! - as a fenced block the citation introduces, where the fence's tag names the cited
+//!   file's language: ``([cite]):`` and then ```` ```rust ```` (#758).
 //!
 //! Adjacency is what makes the pairing trustworthy. An early version adopted the nearest
 //! quoted span in the paragraph and promptly paired one citation's quote with its
 //! neighbour's link; requiring the gap between quote and link to be pure punctuation
 //! removed every mispairing in the measured population without losing a real quote.
+//!
+//! The fenced form was invisible for as long as the other three were readable, because
+//! `is_boundary` ends a paragraph at a fence — so a document that had written its quote
+//! down in the most explicit way available fell to `unverified-line-citation`, checked for
+//! existence and nothing else. Four citations under `docs/` were in that shape and three of
+//! them had already rotted, one of them arriving by a merge of two branches that were each
+//! green (#723, #758, #760). The tag is what separates a transcription from a rendering;
+//! see [`fence_names`], which is also why the fourth is still not read.
 //!
 //! # How a quote is compared
 //!
@@ -250,7 +260,7 @@ pub fn collect(
             false => "",
         };
         let quotes = match link.line >= 1 && link.line <= citing.len() {
-            true => quotes_beside(&citing, link.line - 1, link.span),
+            true => quotes_beside(&citing, link.line - 1, link.span, &link.resolved),
             false => Vec::new(),
         };
         let label = label_of(on_line, link.span);
@@ -383,9 +393,78 @@ fn spans(text: &str) -> Vec<Span> {
     out
 }
 
+/// The info string of a line that opens a fence — `rust` for ```` ```rust ````, `""` for a
+/// bare fence — or `None` for a line that opens none.
+fn fence_info(line: &str) -> Option<&str> {
+    let t = line.trim();
+    let rest = t.strip_prefix("```").or_else(|| t.strip_prefix("~~~"))?;
+    Some(rest.trim())
+}
+
+/// Whether a fence's info string says its body is a transcription of `target`.
+///
+/// The tag has to name the target's language, and that is the whole of the rule. The house
+/// tags every fence, and it uses `text` and `console` for what a program *printed* — where
+/// a format string's `{}` has become a value, and the words are legitimately not the words
+/// in the file. RFC-0020 shows `3 question(s) opened by this update` against a source line
+/// reading `"{} question(s) opened by this update`; adopting that as a quote would report a
+/// drift that no repair could clear. A rendering is evidence about behaviour, not about the
+/// lines it was rendered from.
+///
+/// Unknown tags are not quotations. This decides whether a citation is *held to* something,
+/// so failing closed leaves it exactly where it was — at `unverified-line-citation`, Info.
+fn fence_names(info: &str, target: &Path) -> bool {
+    let Some(ext) = target.extension().and_then(|e| e.to_str()) else {
+        return false;
+    };
+    // Only the tags this repository writes, and only where the tag names a language a file
+    // is written in. `text`, `console` and `output` are deliberately absent.
+    let exts: &[&str] = match info.split_whitespace().next().unwrap_or("") {
+        "rust" | "rs" => &["rs"],
+        "toml" => &["toml"],
+        "yaml" | "yml" => &["yml", "yaml"],
+        "json" => &["json"],
+        "jsonc" => &["json", "jsonc"],
+        "js" | "javascript" => &["js", "mjs", "cjs"],
+        "ts" | "typescript" => &["ts", "mts", "cts"],
+        "python" | "py" => &["py"],
+        "sh" | "bash" | "zsh" => &["sh", "bash", "zsh"],
+        "markdown" | "md" => &["md"],
+        "lua" => &["lua"],
+        "rego" => &["rego"],
+        "astro" => &["astro"],
+        _ => return false,
+    };
+    exts.contains(&ext)
+}
+
+/// The body of the fence opened at `open_idx`, or `None` when nothing closes it.
+fn fence_body(lines: &[String], open_idx: usize) -> Option<String> {
+    let marker = match lines[open_idx].trim().starts_with("~~~") {
+        true => "~~~",
+        false => "```",
+    };
+    let mut body = Vec::new();
+    for line in &lines[open_idx + 1..] {
+        if line.trim().starts_with(marker) {
+            return Some(body.join("\n"));
+        }
+        body.push(line.as_str());
+    }
+    None
+}
+
 /// The quote candidates beside the link at `(line_idx, span)` — see the module doc for
 /// what "beside" means and why nearness is not enough.
-fn quotes_beside(lines: &[String], line_idx: usize, span: (usize, usize)) -> Vec<String> {
+///
+/// `target` decides only the fenced form: a fence is read as a quotation of the file it
+/// cites when its tag names that file's language. See [`fence_names`].
+fn quotes_beside(
+    lines: &[String],
+    line_idx: usize,
+    span: (usize, usize),
+    target: &Path,
+) -> Vec<String> {
     let mut out = Vec::new();
     let line = &lines[line_idx];
 
@@ -441,6 +520,36 @@ fn quotes_beside(lines: &[String], line_idx: usize, span: (usize, usize)) -> Vec
         let gap = &after[..s.start];
         if gap.chars().all(is_gap_char) && gap.contains([':', '—', '–']) {
             out.push(s.text);
+        }
+    }
+
+    // A fenced block the citation introduces: `([cite]):` and then the passage, shown
+    // rather than quoted inline. `is_boundary` ends the paragraph at the fence, so this is
+    // the one quote candidate that has to be looked for past it.
+    //
+    // Adjacency is the same rule the branch above uses and for the same reason: everything
+    // between the link and the fence must be punctuation, and it must contain the colon or
+    // dash that introduces it. A paragraph that says something in words before its fence is
+    // introducing an example, not quoting the lines it cited — RFC-0031 cites
+    // `starts_a_block` and then shows the *input* that defeated it, which under a looser
+    // rule would be read as a quotation of the function.
+    let mut fence = hi + 1;
+    while fence < lines.len() && lines[fence].trim().is_empty() {
+        fence += 1;
+    }
+    if let Some(info) = lines.get(fence).and_then(|l| fence_info(l)) {
+        if fence_names(info, target) {
+            let gap: Vec<&str> = std::iter::once(line.get(end_col..).unwrap_or(""))
+                .chain(lines[line_idx + 1..fence].iter().map(String::as_str))
+                .collect();
+            let gap = gap.join("\n");
+            if gap.chars().all(is_gap_char) && gap.contains([':', '—', '–']) {
+                if let Some(body) = fence_body(lines, fence) {
+                    if !body.trim().is_empty() {
+                        out.push(body);
+                    }
+                }
+            }
         }
     }
 
@@ -715,7 +824,14 @@ pub fn slid_line_citation(citations: &[LineCitation]) -> Check {
          hold text, and the text is now something else. Twelve citations rotted that way \
          at once, silently, and two came to point at words written long after the \
          arguments that cite them. Where the document quotes the passage it cites — the \
-         house style — the quote decides. Matched on words, in order, elisions honoured, \
+         house style — the quote decides. That includes a fenced block the citation \
+         introduces, where the fence's tag names the cited file's language: the paragraph \
+         ends at the fence, so for as long as this read only inline quotes, the most \
+         explicit way of writing a quote down was the one form nothing checked, and three \
+         citations rotted inside it (#758). A `text` fence is a rendering rather than a \
+         transcription and is still not read — a format string's `{}` has become a value, \
+         and holding the file to the words it printed would report a drift no repair can \
+         clear. Matched on words, in order, elisions honoured, \
          so wrapping, emphasis and comment markers cannot manufacture a drift. Where the \
          passage is still in the file and in exactly one place, the finding names the \
          range it moved to: the same matching that found the drift decides it, and \
@@ -751,7 +867,7 @@ pub fn citation_label_not_cited(citations: &[LineCitation]) -> Check {
         "citation-label-not-cited",
         "A citation's label names something its lines do not say",
         Severity::Error,
-        "The strong anchor is a quote, and 119 of this repository's 150 line citations \
+        "The strong anchor is a quote, and 135 of this repository's 180 line citations \
          carry none. Each of those was checked for existence and nothing else, which \
          leaves the whole of the interesting failure uncovered: a range that slides onto \
          lines that are neither blank nor quoted is invisible to `dead-line-citation` and \
@@ -763,7 +879,7 @@ pub fn citation_label_not_cited(citations: &[LineCitation]) -> Check {
          target's content that a check can decide. Read only where nothing quotes the \
          passage — a quote is better evidence and decides alone — and only where the label \
          names a symbol rather than restating the line number, which is the other house \
-         form and 104 of the 119. Matched on words exactly as a quote is, so wrapping, \
+         form and 108 of the 135. Matched on words exactly as a quote is, so wrapping, \
          emphasis and an argument list cannot manufacture a drift, and any one `::` segment \
          is enough. Error, under the baseline ratchet like every other citation defect a \
          person here can fix: this is a latch on a population that is already correct, not \
@@ -832,7 +948,7 @@ pub fn citation_range_stated_twice(citations: &[LineCitation]) -> Check {
         "A citation's label and its link name different lines",
         Severity::Error,
         "The house style states the cited range twice — `[`file.rs:12-19`](../file.rs#L12-L19)` \
-         — and 134 of the 149 line citations in this repository write both copies. Until \
+         — and 150 of the 180 line citations in this repository write both copies. Until \
          #622 nothing read the left-hand one, so the two could disagree indefinitely: the \
          scan sees the fragment, and the label is what a reader's eye lands on. The failure \
          this forecloses is half a repair. A citation that slid is fixed by editing a \
@@ -1039,6 +1155,138 @@ a trailing line
 > [`target.md:2`](../target.md#L2) and the rest moved on.
 ";
         let (_tmp, c) = cite(TARGET, doc);
+        assert!(c[0].quotes.is_empty(), "{:?}", c[0].quotes);
+    }
+
+    // ── The fenced form (#758) ──────────────────────────────────────────────
+
+    const GUARD: &str = "\
+fn unlicensed_edge() {
+    // a class with no `edges:` has named no relationships
+    if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic {
+        continue;
+    }
+}
+";
+
+    /// The house's other way of quoting a passage: introduce it with a colon and show it.
+    /// `is_boundary` ends the paragraph at the fence, so this is the one candidate that has
+    /// to be looked for past a boundary — and for as long as it was not, a document that had
+    /// written its quote down in the most explicit form available was read as quoting
+    /// nothing.
+    #[test]
+    fn a_fence_the_citation_introduces_is_a_quote() {
+        let doc = "\
+`unlicensed_edge` short-circuits on an empty edge list
+([`t.rs:3-5`](../t.rs#L3-L5)):
+
+```rust
+if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic { continue; }
+```
+";
+        let (_tmp, c) = cite_named("t.rs", GUARD, doc);
+        assert_eq!(c[0].quotes.len(), 1, "{:?}", c[0].quotes);
+        assert!(slid_line_citation(&c).passed());
+        // And it is no longer in the group that is taken on trust.
+        assert!(unverified_line_citation(&c).passed());
+    }
+
+    /// The failure this exists for: #723's two and #758's two all still resolved, still held
+    /// text, and the text was something else. The fenced quote is what decides it, and the
+    /// finding names the range to transcribe — the floor, as always, being where the words
+    /// are: the guard's closing brace holds none, so the suggestion stops at `continue;` and
+    /// widening it back out to the whole statement is the author's call.
+    #[test]
+    fn a_fenced_quote_that_slid_is_reported_with_its_new_range() {
+        let doc = "\
+`unlicensed_edge` short-circuits on an empty edge list
+([`t.rs:1-2`](../t.rs#L1-L2)):
+
+```rust
+if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic { continue; }
+```
+";
+        let (_tmp, c) = cite_named("t.rs", GUARD, doc);
+        let check = slid_line_citation(&c);
+        assert_eq!(check.violations.len(), 1);
+        assert!(
+            check.violations[0]
+                .detail
+                .contains("the passage is now at L3-L4"),
+            "{}",
+            check.violations[0].detail
+        );
+    }
+
+    /// A rendering is not a transcription. RFC-0020 shows `3 question(s) opened by this
+    /// update` against a source line reading `"{} question(s) opened by this update` — the
+    /// words are legitimately not the file's words, so adopting a `text` fence as a quote
+    /// would report a drift no repair could clear.
+    #[test]
+    fn a_fence_tagged_for_a_rendering_is_not_a_quote() {
+        let target = "\
+    let mut out = format!(
+        \"{} question(s) opened by this update — nothing was changed\",
+        movements.len()
+    );
+";
+        let doc = "\
+The renderer is explicit about the temptation it is refusing
+([`t.rs:1-4`](../t.rs#L1-L4)):
+
+```text
+3 question(s) opened by this update — nothing was changed
+```
+";
+        let (_tmp, c) = cite_named("t.rs", target, doc);
+        assert!(c[0].quotes.is_empty(), "{:?}", c[0].quotes);
+        assert!(slid_line_citation(&c).passed());
+        assert_eq!(unverified_line_citation(&c).violations.len(), 1);
+    }
+
+    /// Adjacency, on the side the fence is on. RFC-0031 cites `starts_a_block` and then
+    /// shows the *input* that defeated it; a paragraph that says something in words before
+    /// its fence is introducing an example, not quoting the lines it cited.
+    #[test]
+    fn a_fence_introduced_in_words_is_not_adopted() {
+        let doc = "\
+[`t.rs:3-5`](../t.rs#L3-L5) read any line whose head is a bare token as a key,
+and a wrapped prose line is often exactly that shape:
+
+```rust
+decades: there were still 22,498 acres of them in 1954.
+```
+";
+        let (_tmp, c) = cite_named("t.rs", GUARD, doc);
+        assert!(c[0].quotes.is_empty(), "{:?}", c[0].quotes);
+    }
+
+    /// The tag names a language, and the language has to be the cited file's. A Rust
+    /// snippet beside a citation of a `.md` file is an illustration of something.
+    #[test]
+    fn a_fence_naming_another_language_is_not_a_quote() {
+        let doc = "\
+The rule reads as ([`target.md:2`](../target.md#L2)):
+
+```rust
+if class.edges.is_empty() { continue; }
+```
+";
+        let (_tmp, c) = cite(TARGET, doc);
+        assert!(c[0].quotes.is_empty(), "{:?}", c[0].quotes);
+    }
+
+    /// An unterminated fence has no body to hold anything to, and guessing where it ends
+    /// would be inventing the quote.
+    #[test]
+    fn an_unclosed_fence_yields_no_quote() {
+        let doc = "\
+`unlicensed_edge` short-circuits ([`t.rs:3-5`](../t.rs#L3-L5)):
+
+```rust
+if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic { continue; }
+";
+        let (_tmp, c) = cite_named("t.rs", GUARD, doc);
         assert!(c[0].quotes.is_empty(), "{:?}", c[0].quotes);
     }
 
