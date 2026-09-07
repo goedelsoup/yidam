@@ -21,6 +21,38 @@ updates:
     groups:
       cargo-cli:
         patterns: ["*"]
+    # **fastembed is held at 4, and this is what makes the hold hold.**
+    #
+    # The argument is in `yidam/cli/Cargo.toml` beside the dependency and is a measurement:
+    # fastembed 6 embeds the same sentence to a different vector, `transformers.js` agrees
+    # with 4.9.1 and not with 6, and re-recording the fixture would relabel the outlier as
+    # the reference and make the TypeScript SDK non-conforming to its own parity contract.
+    # #536 holds it open.
+    #
+    # That argument was written in a comment one line above the dependency, and a bump took
+    # the dependency to 6 anyway — comments are not a mechanism. It broke `ci (cli · full
+    # features)` on main, which is the one job PR CI never runs, so it was invisible until
+    # after the merge and stayed red across two more commits.
+    #
+    # Major only. Patch and minor releases within 4 are wanted, and are the releases that
+    # will carry the fix this hold is waiting for.
+    # **arrow must match lancedb's transitive dependency**, which `Cargo.toml` states one line
+    # above the declaration: *"update together if bumping either."* The same bump moved
+    # arrow 53 → 54 and left lancedb at 0.15, which pins 53 — so `index_build` handed a
+    # lancedb builder a `RecordBatchIterator` of the wrong arrow, and `IntoArrow` went
+    # unsatisfied. Two arrow majors in one binary, from a version bump that read as routine.
+    #
+    # A major arrow bump is only ever correct alongside a lancedb release that took the same
+    # one, so it is not a thing to propose on its own.
+    ignore:
+      - dependency-name: fastembed
+        update-types: [version-update:semver-major]
+      - dependency-name: arrow-array
+        update-types: [version-update:semver-major]
+      - dependency-name: arrow-schema
+        update-types: [version-update:semver-major]
+      - dependency-name: arrow-ipc
+        update-types: [version-update:semver-major]
   - package-ecosystem: cargo
     directory: /yidam/prelude/sdks/rust
     schedule: { interval: weekly, day: monday }
