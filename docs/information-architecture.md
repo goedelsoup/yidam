@@ -114,7 +114,7 @@ it. It carries two extra fields on top of the shape above:
 id: kuten
 summary: <one line>
 kuten: inquiry
-revision: 1
+revision: 2
 ```
 
 `yidam kuten`, `kuten check` and `doctor` read `kuten:` and `revision:`; the rest of the

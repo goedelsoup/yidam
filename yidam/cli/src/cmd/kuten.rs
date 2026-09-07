@@ -105,15 +105,9 @@ pub fn render_block(
             share_band(phases.commit_share)
         );
     }
-    if let Some(classes) = &profile.classes {
-        let _ = writeln!(
-            out,
-            "- **Shape** — {} nodes per commit, and a median node of {:.0}–{:.0} lines.",
-            classes.nodes_per_commit.describe(),
-            classes.median_node_lines.low,
-            classes.median_node_lines.high
-        );
-    }
+    // No **Shape** line: the `classes` bands were retired at revision 2 (#692), because both
+    // measured how old a repository is. An agent reading this at session start was being told
+    // its corpus's stage as though it were its practice.
     if let Some(vocabulary) = &profile.vocabulary {
         let _ = writeln!(
             out,

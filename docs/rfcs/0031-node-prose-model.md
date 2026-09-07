@@ -655,11 +655,13 @@ RFC-0030 shipping first.
    band would be a second answer to a question a class contract already answers. Minting one
    would be the surface-with-no-consumer failure #572's own scope decision 2 names. What the run
    did find in the kuten's neighbourhood is that the member which set
-   `median_node_lines: {high: 62}` measures 66 one day after the fit. That is divergence, not a
-   wrong extraction, and `kuten_cluster.rs` says so in as many words — but it follows from the
-   estimator rather than from a change of practice: a band quoted as the observed range has no
-   headroom at either endpoint, so the extremal member diverges on its next ordinary commit.
-   Filed separately as a question about the estimator.
+   `median_node_lines: {high: 62}` measures 66 one day after the fit. That reads as divergence
+   and follows from the estimator rather than from a change of practice: a band quoted as the
+   observed range has no headroom at either endpoint, so the extremal member diverges on its next
+   ordinary commit. **Answered further by #692: the estimator was not the whole cause.** That
+   band and `nodes_per_commit` were both monotone in repository age, so the exit was not
+   divergence at all, and both were retired at profile revision 2 — see RFC-0028, "A0's
+   `classes` bands, retired".
 
 5. **What does Phase 3 do to `.ont.yml` itself?** A class definition is prose in four places, which
    the class scanner already reads as bytes for the reason §1.1 describes

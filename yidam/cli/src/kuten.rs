@@ -82,11 +82,17 @@ pub struct Vocabulary {
     pub off_vocabulary_share: Band,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct Classes {
-    pub nodes_per_commit: Band,
-    pub median_node_lines: Band,
-}
+// The `classes` slot is not here, and its absence is #692's finding. It declared bands on
+// nodes-per-commit and median node length, and both measured a repository's **age**: nothing
+// read them at matched maturity, `compare` takes no age term, and the fit spanned an 18x age
+// range — rho(authored, nodes_per_commit) = -0.886 over the six members. A band on a quantity
+// monotone in age is a window every member passes through and then exits, including all six
+// that defined it.
+//
+// The quantities are still measured and still reported: [`Measurement::nodes_per_commit`] and
+// [`Measurement::median_node_lines`] are in every report. What is retired is judging them
+// against a range. The profile's comment where the slot used to be carries the argument, and
+// RFC-0028's "A0's `classes` bands, retired" carries it beside the correction it supersedes.
 
 /// The direction of the arrow between corpus and object — RFC-0028 §6.
 ///
@@ -375,8 +381,10 @@ pub struct Profile {
     pub phases: Option<Phases>,
     #[serde(default)]
     pub vocabulary: Option<Vocabulary>,
-    #[serde(default)]
-    pub classes: Option<Classes>,
+    // No `classes` — retired at revision 2 (#692). A profile that still declares the key parses
+    // and is not read, which is what an older vendored revision needs: unknown keys are ignored
+    // here by design, so a repository holding revision 1 gets the two findings dropped rather
+    // than a profile it cannot read.
     #[serde(default)]
     pub object: Option<Object>,
     #[serde(default)]
@@ -741,13 +749,9 @@ fn percent(v: f64) -> String {
     format!("{:.0}%", v * 100.0)
 }
 
-fn two_places(v: f64) -> String {
-    format!("{v:.2}")
-}
-
-fn lines(v: f64) -> String {
-    format!("{v:.0} lines")
-}
+// `two_places` and `lines` rendered the two `classes` values and went with them (#692). A
+// metric's renderer is per-metric by construction, so a retired band takes its renderer out of
+// the binary rather than leaving one nothing calls.
 
 /// Read a repository against its declared kuten. **Pure, and total.**
 ///
@@ -809,40 +813,12 @@ pub fn compare(profile: &Profile, m: &Measurement, vintage: &Vintage) -> Vec<Fin
         );
     }
 
-    if let Some(classes) = &profile.classes {
-        // No vintage gate on either: a corpus of any vintage accretes nodes, and both bands
-        // read the working tree rather than a capability the prelude had to grant.
-        out.push(
-            Metric {
-                slot: "classes",
-                id: "nodes-per-commit",
-                band: classes.nodes_per_commit,
-                vintage: None,
-                render: two_places,
-                question: |got, want| {
-                    format!(
-                        "this corpus accretes {got} nodes per commit, against {want}. Nodes per \
-                         commit halves over a repository's life, so read it against this \
-                         repository's age."
-                    )
-                },
-            }
-            .read(m.nodes_per_commit()),
-        );
-        out.push(
-            Metric {
-                slot: "classes",
-                id: "median-node-lines",
-                band: classes.median_node_lines,
-                vintage: None,
-                render: lines,
-                question: |got, want| {
-                    format!("the median node here is {got}, against a declared {want}.")
-                },
-            }
-            .read(m.median_node_lines),
-        );
-    }
+    // The two `classes` metrics stood here, and their own question said what was wrong with
+    // them: *"nodes per commit halves over a repository's life, so read it against this
+    // repository's age."* Nothing did — the reader was asked to make the correction the band
+    // needed in order to mean anything, by hand, every time. #692 measured what that costs and
+    // the bands are retired; `m.nodes_per_commit()` and `m.median_node_lines` are still
+    // reported under `measurement`, judged by nobody.
 
     if let Some(pressure) = &profile.question_pressure {
         out.push(question_pressure_finding(pressure, m));
@@ -1148,7 +1124,7 @@ mod tests {
     #[test]
     fn a_conforming_repository_produces_a_finding_for_every_band() {
         let f = compare(&inquiry(), &conformant(), &current());
-        assert_eq!(f.len(), 4, "one finding per declared band: {f:?}");
+        assert_eq!(f.len(), 2, "one finding per declared band: {f:?}");
         assert!(f.iter().all(|f| f.verdict == Verdict::Conforming), "{f:?}");
         assert!(
             f.iter().all(|f| f.question.is_none()),
@@ -1237,20 +1213,38 @@ mod tests {
         assert_eq!(vocab.verdict, Verdict::Vintage);
     }
 
-    /// The vintage exemption is not a blanket one. Node shape is measurable at every
-    /// vintage, so an old prelude buys no exemption from it.
+    /// The vintage exemption reaches exactly the two metrics an old prelude could not have
+    /// produced, and it is a *reason* rather than a silence: both still report, as
+    /// `Unmeasurable`, naming the vendored prelude.
+    ///
+    /// This used to assert the other half against `nodes-per-commit` — measurable at every
+    /// vintage, so an old prelude bought no exemption from it. That band is retired (#692), and
+    /// with both survivors gated the reachable statement is that the gate fires with its reason
+    /// and never as a divergence.
     #[test]
     fn vintage_exempts_only_the_two_metrics_the_prelude_gates() {
         let mut m = conformant();
-        m.nodes = 1100;
+        m.phase_commits = 0;
+        m.off_vocabulary_commits = m.commits;
         let old = Vintage {
             has_phase_verb: false,
             vocabulary_is_closed: false,
             graph_present: true,
         };
         let f = compare(&inquiry(), &m, &old);
-        let npc = f.iter().find(|f| f.metric == "nodes-per-commit").unwrap();
-        assert_eq!(npc.verdict, Verdict::Divergent);
+        assert_eq!(f.len(), 2, "{f:?}");
+        for gated in ["phase-commit-share", "off-vocabulary-share"] {
+            let finding = f.iter().find(|f| f.metric == gated).unwrap();
+            assert_eq!(
+                finding.verdict,
+                Verdict::Vintage,
+                "a prelude that could not do this is not a corpus that stopped: {finding:?}"
+            );
+            assert!(
+                finding.measured.contains("prelude"),
+                "the exemption names its reason: {finding:?}"
+            );
+        }
     }
 
     #[test]

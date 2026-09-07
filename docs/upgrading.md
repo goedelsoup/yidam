@@ -28,6 +28,27 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### The `inquiry` kuten is at revision 2, and two bands are gone
+
+`nodes-per-commit` and `median-node-lines` measured how old a repository is, not how it works.
+Nothing read them at matched maturity, and every member of the fit exits both bands by ageing.
+One left both within six hours of the fit that used it.
+
+**Who this affects.** Any repository holding `inquiry`. Nothing is broken and nothing gates.
+
+**What changes.** `kuten check` reports three findings where it reported five. The `AGENTS.md`
+block loses its **Shape** line. The two numbers are still measured and still in the report; no
+band judges them.
+
+**The repair.** Re-vendor, then record a superseding decision:
+
+```sh
+mise run yidam-vendor-update
+```
+
+Until you do, `doctor` warns that your record names revision 1 and the vendored profile is at 2.
+That is the revision model working, not a fault.
+
 ## cli/v0.10.0
 
 ### A corpus can declare what its practice is aimed at

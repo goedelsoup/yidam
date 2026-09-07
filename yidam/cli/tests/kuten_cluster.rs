@@ -170,11 +170,16 @@ fn six_shapes_define_the_cluster_and_the_rest_are_controls() {
 
 /// The obligation, run backward: every shape inside the cluster is recognized.
 ///
-/// Five findings and not four since A3: the four bands, plus the kind-shaped
-/// `question-pressure` finding, which is read against the corpus's open questions rather than
-/// against an interval. The obligation covers it exactly as it covers the bands — a rule that
-/// reports divergence against a repository which defined the profile is a wrong extraction,
-/// whatever shape the rule is.
+/// Three findings since #692: the two surviving bands — `phase-commit-share` and
+/// `off-vocabulary-share` — plus the kind-shaped `question-pressure` finding, which is read
+/// against the corpus's open questions rather than against an interval. The obligation covers
+/// it exactly as it covers the bands: a rule that reports divergence against a repository
+/// which defined the profile is a wrong extraction, whatever shape the rule is.
+///
+/// It was five until the two `classes` bands were retired. They passed this obligation on the
+/// day they were fitted and failed it six hours later, which is what #692 is: an obligation
+/// checked against frozen rows is a test of the snapshot date unless the band is about
+/// something that does not move on its own.
 #[test]
 fn every_shape_in_the_cluster_conforms() {
     let profile = inquiry();
@@ -182,8 +187,8 @@ fn every_shape_in_the_cluster_conforms() {
         let findings = compare(&profile, &f.measurement, &f.vintage);
         assert_eq!(
             findings.len(),
-            5,
-            "{}: four bands and the question-pressure kind, five findings",
+            3,
+            "{}: two bands and the question-pressure kind, three findings",
             f.name
         );
         for finding in &findings {
@@ -293,8 +298,8 @@ fn every_band_contains_the_measurements_it_was_fitted_from() {
         let findings = compare(&profile, &member.measurement(), &vintage);
         assert_eq!(
             findings.len(),
-            5,
-            "member {i}: four bands and the question-pressure kind, five findings"
+            3,
+            "member {i}: two bands and the question-pressure kind, three findings"
         );
         for finding in &findings {
             assert_eq!(
@@ -590,6 +595,20 @@ fn node(open: bool) -> String {
     format!("title: a node\ndescription: |\n{body}")
 }
 
+/// The revision the shipped profile is at, read from the profile.
+///
+/// The fixtures below declare *this* rather than a literal, so that a profile revision bumped
+/// upstream — #692 bumped it to 2 — is not a wall of skew warnings in tests whose subject is
+/// something else entirely. The deliberate-skew fixture passes a number no profile will ever
+/// carry, which is what keeps that case honest.
+fn shipped_revision() -> u32 {
+    let text = std::fs::read_to_string(repo_root().join("yidam/prelude/kuten/inquiry/kuten.yml"))
+        .expect("the shipped profile");
+    yidam::kuten::Profile::parse(&text)
+        .expect("the binary can read the shipped profile")
+        .revision
+}
+
 /// A repository holding a kuten: the vendored profile, the decision record, a corpus, and a
 /// history built out of the closed vocabulary.
 fn stage(declared_revision: u32) -> tempfile::TempDir {
@@ -665,7 +684,7 @@ fn stage(declared_revision: u32) -> tempfile::TempDir {
 /// The whole command, over a repository that holds one: read-only, exit zero, conforming.
 #[test]
 fn a_repository_holding_inquiry_is_read_against_it_and_nothing_is_written() {
-    let tmp = stage(1);
+    let tmp = stage(shipped_revision());
     let before = std::fs::read_to_string(tmp.path().join("AGENTS.md")).unwrap();
 
     let r = run(tmp.path(), &["kuten", "check", "--format", "json"]);
@@ -675,7 +694,7 @@ fn a_repository_holding_inquiry_is_read_against_it_and_nothing_is_written() {
     assert_eq!(v["kuten"]["name"], "inquiry");
     assert_eq!(v["kuten"]["revision_skew"], false);
     assert_eq!(v["kuten"]["conforming"], true, "{}", r.stdout);
-    assert_eq!(v["kuten"]["findings"].as_array().unwrap().len(), 5);
+    assert_eq!(v["kuten"]["findings"].as_array().unwrap().len(), 3);
 
     assert_eq!(
         std::fs::read_to_string(tmp.path().join("AGENTS.md")).unwrap(),
@@ -742,7 +761,7 @@ fn written(before: &BTreeMap<PathBuf, Vec<u8>>, after: &BTreeMap<PathBuf, Vec<u8
 /// outside `.git` is compared byte for byte before and after.
 #[test]
 fn the_question_pressure_slot_authors_nothing() {
-    let tmp = stage(1);
+    let tmp = stage(shipped_revision());
     // Strip the one node that carries an open question, so the check runs with something to
     // say. A repository already holding questions would exercise the silent arm.
     std::fs::write(tmp.path().join(".yidam/corpus/concept/n0.yml"), node(false)).unwrap();
@@ -811,7 +830,7 @@ fn commits(root: &Path, subjects: &[&str]) {
 /// are asserted into both counts, into opposite verdicts, and into `lint --commits`.
 #[test]
 fn a_scoped_phase_commit_is_counted_by_the_band_and_still_reported_off_vocabulary() {
-    let tmp = stage(1);
+    let tmp = stage(shipped_revision());
     let root = tmp.path();
 
     // Two subjects written the way the field corpus wrote 73 of them, and four in the closed
@@ -912,7 +931,7 @@ fn a_revision_the_profile_has_moved_past_is_annotated() {
 /// `yidam kuten` fills its block, and `regen --check` then agrees.
 #[test]
 fn the_agents_block_is_written_by_the_generator_and_checked_by_the_gate() {
-    let tmp = stage(1);
+    let tmp = stage(shipped_revision());
     let stale = run(tmp.path(), &["regen", "--check"]);
     assert_eq!(stale.code, 1, "a stale block has to fail: {}", stale.stdout);
     assert!(stale.stdout.contains("(kuten)"), "{}", stale.stdout);
@@ -921,7 +940,10 @@ fn the_agents_block_is_written_by_the_generator_and_checked_by_the_gate() {
     assert_eq!(wrote.code, 0, "{}", wrote.stdout);
     let agents = std::fs::read_to_string(tmp.path().join("AGENTS.md")).unwrap();
     assert!(agents.contains("`inquiry`"), "{agents}");
-    assert!(agents.contains("revision 1"), "{agents}");
+    assert!(
+        agents.contains(&format!("revision {}", shipped_revision())),
+        "{agents}"
+    );
     assert!(!agents.contains("_stale_"), "{agents}");
 
     let after = run(tmp.path(), &["regen", "--check"]);
@@ -941,7 +963,7 @@ fn the_agents_block_is_written_by_the_generator_and_checked_by_the_gate() {
 /// be a contract change made in passing.
 #[test]
 fn doctor_reports_which_kuten_is_held_and_which_way_the_arrow_runs() {
-    let tmp = stage(1);
+    let tmp = stage(shipped_revision());
     let read_detail = |root: &Path| {
         let r = run(root, &["doctor", "--format", "json"]);
         let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("valid JSON");
@@ -957,7 +979,10 @@ fn doctor_reports_which_kuten_is_held_and_which_way_the_arrow_runs() {
     };
 
     let detail = read_detail(tmp.path());
-    assert!(detail.contains("revision 1"), "{detail}");
+    assert!(
+        detail.contains(&format!("revision {}", shipped_revision())),
+        "{detail}"
+    );
     assert!(
         detail.contains("authored"),
         "the direction is what closes #582: an undeclared untracked corpus is otherwise \
@@ -985,7 +1010,7 @@ fn doctor_reports_which_kuten_is_held_and_which_way_the_arrow_runs() {
 /// Holding none is a supported state, and `doctor` does not call it a fault.
 #[test]
 fn a_repository_holding_no_kuten_reports_as_one() {
-    let tmp = stage(1);
+    let tmp = stage(shipped_revision());
     std::fs::remove_file(tmp.path().join(".yidam/decisions/kuten.yml")).unwrap();
 
     let r = run(tmp.path(), &["kuten", "check"]);

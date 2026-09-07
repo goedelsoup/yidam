@@ -640,11 +640,16 @@ fn the_inquiry_profile_is_readable_by_the_binary() {
     assert_eq!(phases.commit_share.low, 0.12);
     assert_eq!(phases.commit_share.high, 0.27);
 
-    let classes = profile.classes.expect("the classes slot is populated");
-    assert_eq!(classes.nodes_per_commit.low, 0.50);
-    assert_eq!(classes.nodes_per_commit.high, 1.12);
-    assert_eq!(classes.median_node_lines.low, 35.0);
-    assert_eq!(classes.median_node_lines.high, 62.0);
+    // The `classes` slot is gone at revision 2 (#692) and its two bands with it: both measured
+    // a repository's age rather than its practice, and nothing read them at matched maturity.
+    // Asserted as an absence, because a slot that quietly came back would restore a window
+    // every member of the fit passes through and then exits.
+    let doc: Value = serde_yaml::from_str(&text).expect("the profile is YAML");
+    assert!(
+        doc.get("classes").is_none(),
+        "the `classes` slot is retired (#692); a band on a quantity monotone in age reports a \
+         corpus's stage as its practice"
+    );
 
     // The phase *types* are not counted here. A `len() == 4` was the only thing catching a
     // dropped type, and it caught it by knowing the answer — so it went on passing while

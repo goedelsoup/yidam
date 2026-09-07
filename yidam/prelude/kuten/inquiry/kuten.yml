@@ -1,12 +1,17 @@
 # The `inquiry` kuten — the declaration a tool reads.
 #
 # KUTEN.md beside this file is the document a person reads, and it opens with the binding
-# rule this profile is held to. Every *band* here — the four `{low, high}` pairs, under
-# `phases`, `vocabulary` and `classes` — was measured over eighteen derived corpora before it
-# was written down; not one of those four was chosen. That claim covers the bands and nothing
-# else in this file. The scalars under `clocks` were chosen, from yidam's own configuration
-# documentation, and the comment above them says so — along with what the population turned
-# out to hold, and what would retire them.
+# rule this profile is held to. Every *band* here — the two `{low, high}` pairs, under
+# `phases` and `vocabulary` — was measured over eighteen derived corpora before it was written
+# down; neither was chosen. That claim covers the bands and nothing else in this file. The
+# scalars under `clocks` were chosen, from yidam's own configuration documentation, and the
+# comment above them says so — along with what the population turned out to hold, and what
+# would retire them.
+#
+# **Two of the original four were retired at revision 2 (#692), and the reason is worth more
+# than the bands were.** Measuring before writing a number down is not enough: a band can be
+# fitted correctly to real measurements and still be a claim about the wrong thing. The two
+# under `classes` were, and the comment where they used to sit is the record of it.
 #
 # One thing about a band *is* chosen, and pretending otherwise is what broke two of them:
 # the precision it is quoted at. A ratio is not two decimal places, so quoting one is a
@@ -18,7 +23,7 @@
 # A comment in this file satisfies nothing. The guards upstream parse the document, so what
 # is asserted is the tree below and never the prose around it.
 kuten: inquiry
-revision: 1
+revision: 2
 gloss: the corpus grows through sustained inquiry — questions opened, and settled
 
 # Where the numbers came from, so a reader can ask whether they still hold.
@@ -132,16 +137,31 @@ vocabulary:
   # it is not this band's to close.
   off_vocabulary_share: {low: 0.0, high: 0.02}
 
-# The shape of corpus this practice accretes. Both bands are read at matched maturity:
-# nodes per commit halves over a repository's life, so an unmatched comparison measures age.
+# The `classes` slot is gone, and its absence is the finding (#692, revision 2).
 #
-# Observed 0.5061 to 1.1096 and 35 to 62 on 2026-09-06. These two are the pair A0 got right,
-# and only the first of them by luck: 0.5061 and 1.1096 happen to round outward at two
-# decimals, where 0.1250 and 0.2623 happen to round inward. The line medians are whole
-# numbers, so the rounding rule is a no-op on them and they are the measurement exactly.
-classes:
-  nodes_per_commit: {low: 0.50, high: 1.12}
-  median_node_lines: {low: 35, high: 62}
+# It declared two bands — `nodes_per_commit: {0.50, 1.12}` and `median_node_lines: {35, 62}` —
+# and both measured **how old a repository is**, not how it works. The comment that stood here
+# said they were "read at matched maturity", and nothing read them at matched maturity:
+# `compare` takes no age term and the fit spans 73 to 1,312 authored commits, so the band width
+# *was* the age range.
+#
+# Measured over the six rows below: Spearman rho(authored, nodes_per_commit) = **-0.886**. The
+# endpoints are the extremes of age rather than of practice — the 1.12 ceiling comes from the
+# youngest member (81/73) and the 0.50 floor from the second-oldest (125/247). Both metrics
+# are monotone in age *within* a single repository too: `allen-county-ohio` entered the median
+# band around commit 250 and left it around 1,300, and it left both bands within six hours of
+# the fit that used it, having changed nothing about its practice.
+#
+# So a band on either one is a window every member passes through and then exits, and
+# `divergent` on it reports a corpus's stage. Widening it would not help: a wider window is
+# still a window, and this profile forbids numbers chosen to fit.
+#
+# **The quantities are still measured and still reported** — `kuten check`'s `measurement`
+# carries `nodes` and `median_node_lines`, and `instances` and `median_lines` stay in the rows
+# below. What is withdrawn is the claim that a number outside a range says anything about
+# practice. What would replace them is an age-invariant statistic — accretion over a trailing
+# window, or a curve with distance from it reported instead of a box — and choosing between
+# those needs a measurement across all eighteen corpora that #288's instrument is for.
 
 # Which way the arrow between corpus and object runs. `authored` is the default and the only
 # value this profile proposes: the corpus is written in git, GRAPH.md's premise holds, and

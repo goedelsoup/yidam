@@ -160,8 +160,11 @@ read-only, says two of them never did.
 |---|---|---|---|
 | `phases.commit_share` | 0.13–0.26 | **0.1250–0.2623** | **0.12–0.27** |
 | `vocabulary.off_vocabulary_share` | 0.0–0.0 | **0.0–0.0164** | **0.0–0.02** |
-| `classes.nodes_per_commit` | 0.50–1.11 | 0.5061–1.1096 | 0.50–**1.12** |
-| `classes.median_node_lines` | 35–62 | 35–62 | 35–62 |
+| ~~`classes.nodes_per_commit`~~ | 0.50–1.11 | 0.5061–1.1096 | ~~0.50–**1.12**~~ |
+| ~~`classes.median_node_lines`~~ | 35–62 | 35–62 | ~~35–62~~ |
+
+**The bottom two rows are retired — see "A0's `classes` bands, retired" below.** This
+correction fixed how they were quoted, and they were measuring the wrong thing.
 
 **One cause, applied twice.** A0 quoted a min/max band to two decimal places and rounded
 **inward**: 0.2623 became "0.26", 0.1250 became "0.13", 0.0164 became "0.0". Each rounding put
@@ -186,6 +189,55 @@ down — *the observed range, quoted to two decimal places, rounded outward* —
 date, and the six measurements are recorded in the profile under `measured.members`. A guard reads
 them back through `compare` and holds every band to containing its own evidence, which is the half
 of §9's obligation that can run in CI while the corpora themselves cannot.
+
+#### A0's `classes` bands, retired (2026-09-07, #692, profile revision 2)
+
+The correction above is right and was not enough, and the reasoning it recorded is what this
+supersedes. It stated:
+
+> ~~a repository that changes its practice moves off a correctly-fitted band, and that is
+> divergence rather than a wrong extraction~~
+
+`allen-county-ohio` is one of the six that **defined** those bands. It left both of them within
+**six hours** of the fit that used it — `measured.members` row 6 is that repository at `abd6ecd`
+(12:58), and a clean clone at `9ed2281` (18:40 the same day) reads 1,372 commits, 683 nodes and a
+64-line median, which `kuten check` reports as `[diverges]` on both. Its practice did not change.
+It aged sixty commits along a trend it has been on for its entire life.
+
+**The two `classes` bands measured how old a repository is.** The profile's own comment said they
+were read at matched maturity; nothing read them at matched maturity. `compare(profile,
+measurement, vintage)` takes no age term, and the fit spans 73 to 1,312 authored commits — an 18×
+range — so the band width *was* the age range.
+
+| | Measured over the six `measured.members` rows |
+|---|---|
+| Spearman rho(authored, nodes-per-commit) | **-0.886** |
+| Band ceiling 1.12 | the **youngest** member, 81 nodes / 73 commits |
+| Band floor 0.50 | the second-**oldest**, 125 / 247 |
+
+Both quantities are monotone in age *within* one repository as well as across the six, so a band
+on either is a window every member passes through and then exits — including all six that defined
+it. Two derived corpora traverse `[0.50, 1.12]` and leave through the bottom; both traverse
+`[35, 62]` and leave through the top.
+
+**What it cost.** `divergent` on either metric was uninformative about practice: it reported a
+corpus's stage. And §9's falsifier —
+`every_band_contains_the_measurements_it_was_fitted_from`, which reads `measured.members` back
+through `compare` — was a test of the **snapshot date** for these two rather than of the band. It
+was green only because the rows are frozen at the fit.
+
+**Retired rather than widened**, on the profile's own rule: a wider window is still a window, and
+numbers chosen to fit are what this layer forbids. The quantities remain measured and reported
+under `measurement`; nothing judges them. What replaces them is an age-invariant statistic — a
+trailing-window accretion rate, or a declared decay curve with distance from it reported instead
+of a box — and choosing between those needs the eighteen-corpus re-measurement A7 (#288) is the
+instrument for. **The profile is at revision 2**, so a repository holding revision 1 is told its
+declaration and its vendored profile disagree, which is the revision model doing its job.
+
+The general lesson is the one worth carrying past this row: **measuring before writing a number
+down is not sufficient.** Both bands were fitted correctly, from real measurements, over a real
+cluster. What was never asked is whether the quantity they measure is a property of the practice
+or of the calendar.
 
 ### The vocabulary has three failure causes, not one
 
@@ -271,7 +323,7 @@ The slot inventory, with A0's verdicts as #572 records them:
 |---|---|---|
 | **phases** — the valid phase types | real (0–26% use among the nine with the verb) | A3, §3 |
 | **vocabulary** — the registers, and a glossed subset | real, and specified wrongly by the plan: register scoping is the primary job, narrowing the secondary benefit | A3, §4 |
-| **classes** — the shape of the corpus the practice accretes | real (A0's extraction target: 0.50–1.11 nodes/commit, 35–62 line medians; re-fitted 2026-09-06 to 0.50–1.12 and 35–62) | A2 |
+| **classes** — the shape of the corpus the practice accretes | ~~real (A0's extraction target: 0.50–1.11 nodes/commit, 35–62 line medians; re-fitted 2026-09-06 to 0.50–1.12 and 35–62)~~ — **retired 2026-09-07 at profile revision 2 (#692)**: both bands were monotone in repository age, so the slot measured stage rather than practice. The verdict stands as A0 recorded it; what was never asked is whether the quantity belongs to the practice or to the calendar | A2 |
 | **object** — the artifact outside the corpus, and its direction | real — the one axis that breaks conformance | A3 §6, A6 |
 | **dialogue** — what the bootstrap asks | real | A2 |
 | **skills** — what the practice routes through | real | A2 |
