@@ -1,0 +1,9 @@
+class: tenure
+label: Still open
+description: >-
+  A holding that started before the date and has not ended. `ended` is absent rather than
+  null or empty, which is how the eleven measured classes encode it. Absence never matches
+  an operator, so this row is in the answer only through the `>?` affix.
+properties:
+  began: "1892-03-14"
+links: []

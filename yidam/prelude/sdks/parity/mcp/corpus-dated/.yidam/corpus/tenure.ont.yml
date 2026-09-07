@@ -1,0 +1,28 @@
+class: tenure
+label: Tenure
+description: |
+  One person's holding of one office over one interval.
+
+  The shape #725 measured eleven times across six real corpora: a start date, an end date,
+  and the end absent exactly when the holding is still open. `allen-county-ohio` states the
+  query in its own `ACTIONS.md` — *"Tenures open at a date: `began` on or before it, `ended`
+  after it or absent"* — over 83 instances it could not ask, because the ordering operators
+  did not exist and the type was checked on write and read by nothing.
+
+  It is a class in THIS directory because no property in `corpus/` is `type: date`, so the
+  branch that compares two dates is unreachable from every case beside it. A server can
+  implement no ordering at all, or implement it as a comparison of text, and pass the whole
+  suite over that corpus.
+properties:
+  # Written at the precision the corpus knows, which is the reason the comparison rule is
+  # worth a case at all. `partial.yml` knows the year and not the day, and that is not a
+  # defect to be cleaned up before querying — it is the state 71 values were in when #725
+  # counted them.
+  - name: began
+    type: date
+    description: When the holding started.
+  # Absent while the holding is open. Absence is half the interval question and no
+  # conjunction of `=`, `!=` and `~` can express it, which is what the `>?` affix is for.
+  - name: ended
+    type: date
+    description: When the holding ended, absent while it continues.
