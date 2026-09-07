@@ -271,7 +271,7 @@ So a query naming a class the corpus does not declare can only ever match nothin
 **rejected** with the declared class list and the nearest name.
 
 The one exception is the one `unknown_class` itself carves out
-([`checks.rs:477-481`](../../yidam/cli/src/cmd/lint/checks.rs#L477-L481)): a corpus with no `.ont.yml`
+([`checks.rs:986-990`](../../yidam/cli/src/cmd/lint/checks.rs#L986-L990)): a corpus with no `.ont.yml`
 files at all has no schema layer, which is a different problem from a misspelling. There, class
 names are not checked and the report says the corpus is unschematised.
 
@@ -290,7 +290,7 @@ relationship the class does not declare resolves as:
 
 The first row is load-bearing and is easy to omit. `unlicensed_edge` short-circuits on an empty
 edge list **before** it consults the policy
-([`checks.rs:1109`](../../yidam/cli/src/cmd/lint/checks.rs#L1109)):
+([`checks.rs:1730-1732`](../../yidam/cli/src/cmd/lint/checks.rs#L1730-L1732)):
 
 ```rust
 if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic { continue; }
