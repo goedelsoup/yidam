@@ -70,13 +70,13 @@ at depth 2 and all of it at depth 3.
 ([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L963), Error), the properties it may
 and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1214),
 [`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1375)), the type of each value
-([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1637)), which relationships a class
-licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1697)), and which class
+([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1635)), which relationships a class
+licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1695)), and which class
 each relationship may land on
-([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1762), Error).
+([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1760), Error).
 
 `unlicensed-edge`'s own rationale states the gap in as many words
-([`checks.rs:1712`](../../yidam/cli/src/cmd/lint/checks.rs#L1712)):
+([`checks.rs:1710`](../../yidam/cli/src/cmd/lint/checks.rs#L1710)):
 
 > a relationship in no declaration is worth seeing, because **a traversal that walks by
 > relationship will not find it**
