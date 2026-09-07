@@ -415,6 +415,27 @@ run = [
   "bash scripts/design-lint-selftest.sh",
 ]
 
+# ── the logo ──────────────────────────────────────────────────────────────
+#
+# Every logo asset is generated from one geometry in `scripts/mark-generate.mjs`. Before that
+# there were three hand-kept copies of the mark that had drifted, two shipped assets with no
+# consumer at all, and a second unrelated mark in the editor that nobody had decided on.
+#
+# Both tasks need `rsvg-convert` (librsvg): the generator only for the Marketplace PNG, the
+# guard for all of it, because the gate is measured on real renders rather than argued about.
+
+[tasks.mark-generate]
+description = "Regenerate every logo asset from one geometry, and the Marketplace PNG from its SVG."
+run = [
+  "node scripts/mark-generate.mjs",
+  # vsce refuses an SVG for `icon`, so the Marketplace tile is a raster and has to be built.
+  "rsvg-convert -w 128 -h 128 yidam/editors/vscode/resources/icon.svg -o yidam/editors/vscode/resources/icon.png",
+]
+
+[tasks.mark-guard]
+description = "One mark: generated, unduplicated, and legible from 16px up."
+run = "bash scripts/mark-guard.sh"
+
 # ── coverage (#464) ───────────────────────────────────────────────────────
 #
 # 35,806 lines of Rust had no coverage measurement of any kind. What lands in the job summary

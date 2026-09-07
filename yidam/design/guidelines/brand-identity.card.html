@@ -4,6 +4,15 @@
 <head>
 <meta charset="utf-8">
 <link rel="stylesheet" href="../styles.css">
+<!--
+  Every specimen here is the shipped file. The card used to rebuild the lockup out of an
+  <img> and a styled <span>, which is why `logo.svg` and `wordmark.svg` could sit in the
+  repository with no consumer and no one notice they had drifted from it.
+
+  The dark specimen is `logo-dark.svg`, not the light one under a CSS filter. The filter it
+  replaces — brightness(0) invert(1) — also turned the accent white, so what it showed was
+  never an asset anyone could ship.
+-->
 <style>
   body { margin: 0; padding: 20px 28px; background: var(--surface-base);
     display: flex; align-items: center; gap: 40px; }
@@ -11,6 +20,8 @@
   .label { font-family: var(--font-ui); font-size: 11px; color: var(--text-tertiary);
     margin-top: 6px; text-align: center; }
   .item { display: flex; flex-direction: column; align-items: center; gap: 0; }
+  .on-dark { background: var(--ink-900); padding: 10px 16px; border-radius: var(--radius-md);
+    display: flex; align-items: center; }
 </style>
 </head>
 <body>
@@ -20,23 +31,17 @@
   </div>
   <div class="divider"></div>
   <div class="item">
-    <span style="font-family:'Cormorant Garamond',Georgia,serif;font-size:26px;font-weight:400;letter-spacing:0.06em;color:var(--ink-900);">yidam</span>
+    <img src="../assets/wordmark.svg" height="20" alt="yidam">
     <div class="label">wordmark</div>
   </div>
   <div class="divider"></div>
   <div class="item">
-    <div style="display:flex;align-items:center;gap:14px;">
-      <img src="../assets/logo-mark.svg" height="26" alt="">
-      <span style="font-family:'Cormorant Garamond',Georgia,serif;font-size:24px;font-weight:400;letter-spacing:0.06em;color:var(--ink-900);">yidam</span>
-    </div>
+    <img src="../assets/logo.svg" height="26" alt="yidam">
     <div class="label">lockup</div>
   </div>
   <div class="divider"></div>
   <div class="item">
-    <div style="background:var(--ink-900);padding:10px 16px;border-radius:var(--radius-md);display:flex;align-items:center;gap:12px;">
-      <img src="../assets/logo-mark.svg" height="22" alt="" style="filter:brightness(0)invert(1)">
-      <span style="font-family:'Cormorant Garamond',Georgia,serif;font-size:20px;font-weight:400;letter-spacing:0.06em;color:var(--ink-50);">yidam</span>
-    </div>
+    <div class="on-dark"><img src="../assets/logo-dark.svg" height="22" alt="yidam"></div>
     <div class="label">on dark</div>
   </div>
 </body>
