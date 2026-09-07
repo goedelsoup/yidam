@@ -95,6 +95,10 @@ revision exists to survive.
 It also adds the `AGENTS.md` section when that file has none. The scaffold carrying that
 section is deleted at genesis, so repositories predating the layer never received it.
 
+Where there is no `AGENTS.md` at all, it writes none. Conjuring one reaches past what was
+asked. It says so instead, and prints the section to paste. `doctor`'s `kuten-read` check
+warns until a file carries the block.
+
 It refuses when a record already exists. Changing a kuten is a `decide:` commit carrying a
 superseding record.
 
@@ -132,6 +136,15 @@ The range is required, as `diff`'s is. A default range answers about a scope nob
 
 **The criteria come from the kuten's `rubric` slot.** Where a repository holds no kuten, the
 template's own criteria are used. The report says which, every time.
+
+It also says *why*. The report names one of four states:
+
+- the criteria are the corpus's own;
+- the repository holds no kuten;
+- the range ends before the adoption the repository now holds;
+- a kuten is declared and no profile is vendored for it.
+
+The last is a warning, the same one `kuten check` and `doctor` give.
 
 `--brief` adds four questions a person answers. Nothing scores them.
 

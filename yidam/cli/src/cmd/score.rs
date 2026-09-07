@@ -44,6 +44,34 @@ use crate::kuten;
 use crate::report::Format;
 use crate::score::{self, CommitFact, Contribution, NodeFact, Row};
 
+/// Why the criteria are what they are — a closed set, so a consumer branches on it rather
+/// than on prose.
+///
+/// `held` alone collapsed three different situations into one sentence, and two of them were
+/// false about the repository (#695). Only one is derivable from the rest of the payload:
+/// telling *the range predates the adoption* from *this corpus declares none* needs the
+/// working tree's record, which nothing else here reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Source {
+    /// The range's tip declares a kuten and its profile is vendored. The criteria are the
+    /// corpus's own.
+    Kuten,
+    /// Neither the range's tip nor the working tree declares one. The supported state, and
+    /// what every derived corpus was in until the layer shipped.
+    NoKuten,
+    /// The tip declares none and the working tree does. The criteria are correctly the
+    /// template's — the range is older than the decision — and the repository holds one.
+    ///
+    /// The dominant case in the field: both repositories that adopted did so in the last two
+    /// commits of 1,300-commit histories, so nearly every range a maintainer would score is
+    /// this one.
+    PredatesAdoption,
+    /// The tip declares one and no profile is vendored for it. The criteria fall back to the
+    /// template's, which `check` and `doctor` both report and this used to do silently.
+    UnreadableProfile,
+}
+
 /// The whole answer `yidam score` gives.
 #[derive(Debug, serde::Serialize)]
 pub struct Report {
@@ -54,11 +82,34 @@ pub struct Report {
     /// The commit it ends at.
     pub tip: String,
     /// Whether the criteria are this corpus's or the template's.
+    ///
+    /// `true` exactly when [`Self::source`] is [`Source::Kuten`]. Kept beside it because it is
+    /// the question most consumers are asking, and because it is in the frozen required set.
     pub held: bool,
+    /// Which of the four situations the range is in.
+    pub source: Source,
     /// The kuten the criteria came from, where one was held.
     pub kuten: Option<String>,
-    /// The revision the decision record names **at the tip of the range**.
+    /// The revision of the profile the criteria came from.
+    ///
+    /// **Null whenever `held` is false**, including when the range's tip names a revision this
+    /// repository cannot read. The record used to carry `held: false` beside `revision: 1`,
+    /// which says two contradictory things about the same range; what the tip declared now
+    /// lives in [`Self::declared`], where it does not have to agree with a criteria source
+    /// that does not exist.
     pub revision: Option<u32>,
+    /// What the decision record at the range's **tip** names, whatever the criteria became.
+    ///
+    /// Present in exactly two states: alongside the criteria in [`Source::Kuten`], and alone
+    /// in [`Source::UnreadableProfile`], which is the disagreement stated rather than resolved.
+    pub declared: Option<Declared>,
+    /// The kuten the **working tree** declares, where that is not what the range was scored
+    /// against.
+    ///
+    /// The one fact in this report that is about now rather than about the range, and it is
+    /// here for the one distinction the range cannot make on its own: a tip that predates an
+    /// adoption and a corpus that has adopted nothing are the same commit-shaped absence.
+    pub holds_now: Option<String>,
     /// Whether the vendored profile the criteria came from is at another revision.
     ///
     /// `kuten check`'s field, for its reason: a comparison across revisions is annotated
@@ -73,6 +124,13 @@ pub struct Report {
     pub rows: Vec<Row>,
     /// The judged questions, when `--brief` asked for them. Scored by nothing.
     pub questions: Vec<&'static str>,
+}
+
+/// A decision record's contents, as the range's tip carries them.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Declared {
+    pub name: String,
+    pub revision: u32,
 }
 
 /// The payload, nested under one key — `kuten check`'s shape, for its reason.
@@ -221,15 +279,41 @@ fn measure(
 // ── rendering ─────────────────────────────────────────────────────────────────
 
 /// Who chose the criteria, in the words the difference actually turns on.
+///
+/// Four states, four sentences. The criteria selection was already right in every one of
+/// them; what was wrong was a single sentence claiming, in the present tense about the
+/// repository, something that was only ever true of the range (#695).
 fn source_line(r: &Report) -> String {
-    match (&r.kuten, r.revision) {
-        (Some(name), Some(revision)) => format!(
-            "Criteria: the `{name}` kuten's rubric, at revision {revision} — this corpus's own \
-             selection."
-        ),
-        _ => "Criteria: the template's own. This repository holds no kuten, so the selection \
-              below is not this corpus's — it is what yidam would ask of any corpus."
+    match r.source {
+        Source::Kuten => match (&r.kuten, r.revision) {
+            (Some(name), Some(revision)) => format!(
+                "Criteria: the `{name}` kuten's rubric, at revision {revision} — this corpus's \
+                 own selection."
+            ),
+            // Unreachable by construction, and stated rather than unwrapped: `Kuten` is set
+            // from the same profile that fills both fields.
+            _ => "Criteria: this corpus's own kuten.".to_string(),
+        },
+        Source::NoKuten => "Criteria: the template's own. This repository holds no kuten, so the \
+                            selection below is not this corpus's — it is what yidam would ask of \
+                            any corpus."
             .to_string(),
+        Source::PredatesAdoption => format!(
+            "Criteria: the template's own. This range predates the {}kuten this repository now \
+             holds, so the criteria are the ones that applied then.",
+            match &r.holds_now {
+                Some(name) => format!("`{name}` "),
+                None => String::new(),
+            }
+        ),
+        Source::UnreadableProfile => format!(
+            "Criteria: the template's own. This range declares {}, and no profile is vendored \
+             for it — so the selection below is not this corpus's.",
+            match &r.declared {
+                Some(d) => format!("`{}` at revision {}", d.name, d.revision),
+                None => "a kuten".to_string(),
+            }
+        ),
     }
 }
 
@@ -241,6 +325,16 @@ pub(crate) fn render(r: &Report) -> String {
         r.added_nodes,
         source_line(r)
     );
+    // The same sentence `kuten check` and `doctor` give for the same state. Three surfaces,
+    // one answer: this was the only one of them that fell back in silence (#695).
+    if r.source == Source::UnreadableProfile {
+        let name = r.declared.as_ref().map(|d| d.name.as_str()).unwrap_or("it");
+        let _ = write!(
+            out,
+            "⚠ `{name}` is declared and no profile is vendored for it. Re-vendor the prelude, \
+             or record a superseding decision.\n\n"
+        );
+    }
     if r.revision_skew {
         out.push_str(
             "⚠ The vendored profile the criteria came from is at another revision than the \
@@ -300,15 +394,37 @@ pub fn score(range: &str, format: Format, brief: bool) -> Result<()> {
     };
     let criteria = kuten::Profile::criteria(profile.as_ref());
 
+    // Read only to name the state, never to choose criteria: a range is scored against what
+    // its own tip declared, and the refusal above is what makes that meaningful. Taking the
+    // criteria from here would be the walk-past the refusal exists to prevent.
+    let holds_now = kuten::read_declaration(&root)?.map(|d| d.name);
+    let source = match (&declaration, &profile) {
+        (Some(_), Some(_)) => Source::Kuten,
+        (Some(_), None) => Source::UnreadableProfile,
+        (None, _) if holds_now.is_some() => Source::PredatesAdoption,
+        (None, _) => Source::NoKuten,
+    };
+
     let git_range = format!("{before}..{after}");
     let contribution = measure(&root, &git_range, &base, &tip)?;
     let report = Report {
         range: range.to_string(),
         base: base.commit.clone(),
         tip: tip.commit.clone(),
-        held: profile.is_some(),
+        held: source == Source::Kuten,
+        source,
         kuten: profile.as_ref().map(|p| p.name.clone()),
-        revision: declaration.as_ref().map(|(_, r)| *r),
+        // The criteria's revision, and null where there are no corpus criteria — see the
+        // field. `revision_skew` below is what says the record named a different one.
+        revision: declaration
+            .as_ref()
+            .map(|(_, r)| *r)
+            .filter(|_| profile.is_some()),
+        declared: declaration.as_ref().map(|(name, revision)| Declared {
+            name: name.clone(),
+            revision: *revision,
+        }),
+        holds_now: holds_now.filter(|_| source != Source::Kuten),
         revision_skew: match (&declaration, &profile) {
             (Some((_, declared)), Some(p)) => *declared != p.revision,
             _ => false,
@@ -337,13 +453,37 @@ mod tests {
     use crate::score::Criterion;
 
     fn report(kuten: Option<(&str, u32)>, rows: Vec<Row>) -> Report {
+        let source = match kuten {
+            Some(_) => Source::Kuten,
+            None => Source::NoKuten,
+        };
+        in_state(source, kuten, None, rows)
+    }
+
+    /// A report in any of the four states, built the way `score` builds one.
+    ///
+    /// `declared` is what the range's tip named; it is the criteria's source in the held arm
+    /// and the unreadable profile's name in the arm that has no criteria of its own.
+    fn in_state(
+        source: Source,
+        declared: Option<(&str, u32)>,
+        holds_now: Option<&str>,
+        rows: Vec<Row>,
+    ) -> Report {
+        let held = source == Source::Kuten;
         Report {
             range: "HEAD~5..HEAD".to_string(),
             base: "a".repeat(40),
             tip: "b".repeat(40),
-            held: kuten.is_some(),
-            kuten: kuten.map(|(n, _)| n.to_string()),
-            revision: kuten.map(|(_, r)| r),
+            held,
+            source,
+            kuten: declared.filter(|_| held).map(|(n, _)| n.to_string()),
+            revision: declared.filter(|_| held).map(|(_, r)| r),
+            declared: declared.map(|(name, revision)| Declared {
+                name: name.to_string(),
+                revision,
+            }),
+            holds_now: holds_now.map(str::to_string),
             revision_skew: false,
             commits: 5,
             added_nodes: 2,
@@ -392,6 +532,92 @@ mod tests {
         for c in Criterion::ALL {
             assert!(text.contains(c.id()), "`{}` missing from {text}", c.id());
         }
+    }
+
+    /// **The case the field is in.** Both repositories that adopted did so in the last two
+    /// commits of 1,300-commit histories, so nearly every range a maintainer scores predates
+    /// the adoption — and every one of them used to be told the repository holds no kuten.
+    #[test]
+    fn a_range_predating_the_adoption_does_not_say_the_repository_holds_none() {
+        let text = render(&in_state(
+            Source::PredatesAdoption,
+            None,
+            Some("inquiry"),
+            rows(),
+        ));
+        assert!(
+            !text.contains("holds no kuten"),
+            "the repository holds one — {text}"
+        );
+        assert!(text.contains("predates the `inquiry` kuten"), "{text}");
+        // The criteria selection was never the defect: the template's are correct here.
+        assert!(text.contains("the template's own"), "{text}");
+    }
+
+    /// Three surfaces, one answer. `check` says the profile cannot be read and `doctor` warns;
+    /// this fell back to the template's criteria in silence.
+    #[test]
+    fn an_unreadable_profile_warns_the_way_check_and_doctor_do() {
+        let text = render(&in_state(
+            Source::UnreadableProfile,
+            Some(("inquiry", 1)),
+            None,
+            rows(),
+        ));
+        assert!(
+            text.contains("`inquiry` is declared and no profile is vendored for it"),
+            "the wording `doctor` uses — {text}"
+        );
+        assert!(text.contains("⚠"), "it is a warning, not a remark — {text}");
+        assert!(!text.contains("holds no kuten"), "{text}");
+    }
+
+    /// The record may not say two contradictory things about one range. `held: false` beside
+    /// `revision: 1` was the shipped shape, and it validated against the report schema.
+    #[test]
+    fn a_report_that_holds_nothing_names_no_criteria_revision() {
+        for r in [
+            in_state(Source::NoKuten, None, None, rows()),
+            in_state(Source::PredatesAdoption, None, Some("inquiry"), rows()),
+            in_state(
+                Source::UnreadableProfile,
+                Some(("inquiry", 1)),
+                None,
+                rows(),
+            ),
+            in_state(Source::Kuten, Some(("inquiry", 1)), None, rows()),
+        ] {
+            let json = serde_json::to_value(&r).expect("serializes");
+            assert_eq!(
+                r.held,
+                !json["revision"].is_null(),
+                "held and revision disagree in {:?}: {json}",
+                r.source
+            );
+            assert_eq!(
+                r.held,
+                !json["kuten"].is_null(),
+                "held and kuten disagree in {:?}: {json}",
+                r.source
+            );
+            assert_eq!(r.held, r.source == Source::Kuten, "{:?}", r.source);
+        }
+    }
+
+    /// What the tip declared survives the criteria not coming from it — otherwise the
+    /// unreadable-profile arm reports a fallback and never says what it fell back *from*.
+    #[test]
+    fn the_declaration_is_reported_even_where_it_could_not_be_read() {
+        let r = in_state(
+            Source::UnreadableProfile,
+            Some(("inquiry", 1)),
+            None,
+            rows(),
+        );
+        let json = serde_json::to_value(&r).expect("serializes");
+        assert_eq!(json["declared"]["name"], "inquiry");
+        assert_eq!(json["declared"]["revision"], 1);
+        assert_eq!(json["source"], "unreadable-profile");
     }
 
     /// No verdict, in the report and in the words. A score that read as a pass or a failure

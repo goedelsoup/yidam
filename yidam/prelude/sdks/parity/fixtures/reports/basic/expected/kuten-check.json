@@ -24,6 +24,7 @@
       "commits": 3,
       "phase_commits": 0,
       "off_vocabulary_commits": 0,
+      "suffixed_commits": 0,
       "nodes": 4,
       "median_node_lines": 11.5,
       "open_questions": 3

@@ -52,6 +52,12 @@ pub fn read_subjects(root: &Path, range: Option<&str>) -> Vec<Subject> {
         "log".to_string(),
         "--format=%x1e%H%x00%P%x00%s".to_string(),
         "--name-only".to_string(),
+        // Rename detection is on by default and `--name-only` prints only a rename's
+        // destination, so a commit moving a node *out* of the corpus register reads as
+        // touching object paths alone — `Touch::ObjectOnly`, declined without a word. Git
+        // has the pre-image; this reader wants the paths a commit touched, and a rename is
+        // a presentation of a diff rather than a fact about them (#697).
+        "--no-renames".to_string(),
     ];
     if let Some(r) = range {
         args.push(r.to_string());
@@ -125,20 +131,52 @@ pub(crate) fn split_scope(verb: &str) -> Option<(&str, &str)> {
 
 /// Whether this commit's subject is one git generated rather than one somebody chose.
 ///
-/// Exemption turns on **parent count plus a generated-looking subject**, not on the subject
-/// alone. Matching prefixes was the first implementation and it under-matched: `git merge
-/// rigpa/electoral-purpose` produces the bare `Merge <ref>` form, which starts with neither
-/// `Merge branch` nor `Merge pull request`, and a derived repository wrote ten of them —
-/// every one reported as a commit with no verb, which is true and is not the author's fault.
+/// Exemption turns on **parent count plus a subject git actually writes**, not on the
+/// subject alone. Parent count alone would over-match: a merge is a synthesis event and
+/// `git merge -m` takes a real subject, so exempting every merge would stop checking the
+/// verb on the commits most worth checking it on, since a merge is where two inquiry
+/// threads join.
 ///
-/// Parent count alone would over-match in the other direction. A merge is a synthesis event
-/// and `git merge -m` takes a real subject; the same repository wrote 23 of those. Exempting
-/// every merge would stop checking the verb on the commits most worth checking it on, since
-/// a merge is where two inquiry threads join. So: a merge whose subject still looks
-/// git-generated is exempt, and a merge whose author wrote something is checked like any
-/// other commit.
+/// # Why the prefixes are enumerated rather than `starts_with("Merge ")`
+///
+/// The loose test read `Merge ` and nothing else, so **capitalisation decided the
+/// question** (#671). The same act — taking a settled `rigpa/*` baseline in — was exempt
+/// written `Merge rigpa/x` and a finding written `merge rigpa/x — the settled baseline`.
+/// One derived repository carried 92 of its 134 `unrecognized-verb` findings on lowercase
+/// merges, against 10 capitalised ones that were the same act and cost nothing: the
+/// cheapest way to clear the check was to capitalise a letter, or to write a *worse*
+/// message, and a check a coin-flip of typography satisfies is not measuring what it names.
+///
+/// The loose test was defended by the claim that `git merge rigpa/electoral-purpose`
+/// produces a bare `Merge <ref>` subject. **It does not.** Probed against git 2.50.1, every
+/// generated form carries a qualifier and quotes the ref:
+///
+/// | invocation | subject |
+/// |---|---|
+/// | `git merge <branch>` | `Merge branch '<branch>'` |
+/// | `git merge refs/heads/<b>` | `Merge branch 'refs/heads/<b>'` |
+/// | `git merge <tag>` | `Merge tag '<tag>'` |
+/// | `git merge <sha>` | `Merge commit '<sha>'` |
+/// | `git merge <remote>/<b>` | `Merge remote-tracking branch '<remote>/<b>'` |
+/// | GitHub's merge button | `Merge pull request #<n> from <owner>/<branch>` |
+///
+/// So a bare `Merge rigpa/electoral-purpose` is *authored*, and those ten were exempted on
+/// a premise that was never true. Enumerating what git writes makes the two hand-written
+/// forms agree — both are checked — and leaves git's own untouched.
 pub(crate) fn is_merge(subject: &str, parents: usize) -> bool {
-    parents >= 2 && subject.starts_with("Merge ")
+    // Every generated form quotes the ref, and the opening quote is carried in each prefix
+    // deliberately: without it `Merge tag` also matches the authored `Merge tagging notes`,
+    // which is the same class of over-match this function was just narrowed to stop.
+    // `Merge branches '` is the octopus form, verified at three parents.
+    const GENERATED: [&str; 6] = [
+        "Merge branch '",
+        "Merge branches '",
+        "Merge remote-tracking branch '",
+        "Merge tag '",
+        "Merge commit '",
+        "Merge pull request #",
+    ];
+    parents >= 2 && GENERATED.iter().any(|p| subject.starts_with(p))
 }
 
 /// The corpus vocabulary, checked against the commits the corpus register governs.
@@ -176,8 +214,28 @@ pub fn unrecognized_verb(subjects: &[Subject], registers: &Registers) -> Check {
         .map(|s| {
             let short = &s.hash[..s.hash.len().min(8)];
             // The hash is already the node; repeating it here would print it twice.
+            //
+            // Three details rather than two (#673). A verb wearing a scope is off the
+            // vocabulary for the same reason as a coinage and is *not the same mistake*:
+            // the author reached for a verb that exists and spelled it in a form GRAPH.md
+            // forbids, so the repair is typographic and the finding can say what it is.
+            // `check_subject` has told a caller this since the contract froze `scope-suffix`
+            // as its own rule; the gate reading the same history said only "not in the
+            // vocabulary", which sends a reader hunting for a verb that is already correct.
+            //
+            // Recognition itself does not move, and nothing here may make it: the suffixed
+            // commit is still counted off-vocabulary, exactly as `split_scope`'s contract
+            // requires. What changes is only what the finding *says*.
             let detail = if s.verb.is_empty() {
                 format!("no `verb: ` prefix — {:?}", truncate(&s.text))
+            } else if let Some((base, scope)) =
+                split_scope(&s.verb).filter(|(base, _)| is_recognized_verb(base))
+            {
+                format!(
+                    "`{}` is `{base}` wearing a conventional-commits scope, which GRAPH.md \
+                     forbids — write `{base}: {scope} …`",
+                    s.verb
+                )
             } else {
                 format!("`{}` is not in the vocabulary", s.verb)
             };
@@ -285,16 +343,98 @@ mod tests {
 
     #[test]
     fn git_generated_merge_subjects_are_exempt() {
-        // git authors these; there is no verb to choose.
+        // git authors these; there is no verb to choose. Every one was produced by running
+        // the invocation against git 2.50.1 rather than recalled — the form this list used
+        // to carry, a bare `Merge <ref>`, is not among them because git does not write it.
         let s = vec![
             merge_subj("aaaaaaaa", "Merge branch 'phase/outcome-axis'", 2),
             merge_subj("bbbbbbbb", "Merge pull request #12 from x/y", 2),
-            // The bare form, from `git merge rigpa/x`. The prefix test missed this and a
-            // derived repository wrote ten of them.
-            merge_subj("cccccccc", "Merge rigpa/electoral-purpose", 2),
-            merge_subj("dddddddd", "Merge remote-tracking branch 'origin/main'", 2),
+            merge_subj("cccccccc", "Merge remote-tracking branch 'origin/main'", 2),
+            merge_subj("dddddddd", "Merge tag 'cli/v0.10.0'", 2),
+            merge_subj("eeeeeeee", "Merge commit '21ae014f6097d4a97027be9c1ea0'", 2),
+            merge_subj("ffffffff", "Merge branches 'one' and 'two'", 3),
         ];
         assert!(unrecognized_verb(&s).passed());
+    }
+
+    /// #671: the same act, typed two ways, landed on opposite sides of the check.
+    ///
+    /// Both of these are authored — git writes `Merge branch 'rigpa/x'` for
+    /// `git merge rigpa/x`, never the bare ref — so neither may be exempt. The assertion
+    /// that matters is that they agree with each other; which side they agree on is the
+    /// separate question the enumeration answers.
+    #[test]
+    fn capitalisation_does_not_decide_whether_a_merge_is_checked() {
+        let capital = vec![merge_subj("aaaaaaaa", "Merge rigpa/electoral-purpose", 2)];
+        let lower = vec![merge_subj(
+            "bbbbbbbb",
+            "merge rigpa/electoral-purpose — the settled baseline",
+            2,
+        )];
+
+        assert_eq!(
+            unrecognized_verb(&capital).violations.len(),
+            unrecognized_verb(&lower).violations.len(),
+            "one capital letter changed whether the same act costs a finding"
+        );
+        assert!(!unrecognized_verb(&capital).passed());
+    }
+
+    /// #673: a valid verb wearing a scope is still off the vocabulary, and the finding now
+    /// says which mistake it is.
+    ///
+    /// The two halves are asserted together on purpose. Softening recognition is the one
+    /// repair `split_scope`'s contract forbids — it is what A0's extraction script did by
+    /// accident — so a test that only checked the wording would keep passing through
+    /// exactly the regression that matters.
+    #[test]
+    fn a_suffixed_verb_is_named_as_one_and_still_counted() {
+        let s = vec![subj(
+            "aaaaaaaa",
+            "phase(a-flat-grant): the factor stopped fitting",
+        )];
+        let c = unrecognized_verb(&s);
+
+        assert_eq!(c.violations.len(), 1, "recognition moved; it must not");
+        let d = &c.violations[0].detail;
+        assert!(d.contains("`phase`"), "does not name the base verb: {d}");
+        assert!(
+            d.contains("phase: a-flat-grant"),
+            "does not give the repair: {d}"
+        );
+    }
+
+    /// A coinage keeps the older wording: there is no base verb to point at, so advice of
+    /// the form "write `corpus: …`" would be recommending a second verb that is also not in
+    /// the list.
+    #[test]
+    fn a_coined_verb_wearing_a_scope_is_not_called_a_suffix_mistake() {
+        let s = vec![subj("aaaaaaaa", "corpus(ohio): the appropriation rows")];
+        let c = unrecognized_verb(&s);
+
+        assert_eq!(c.violations.len(), 1);
+        assert!(
+            c.violations[0].detail.contains("is not in the vocabulary"),
+            "{}",
+            c.violations[0].detail
+        );
+    }
+
+    /// The narrowing must not hand out exemptions to authored subjects that merely open
+    /// with a generated form's first word.
+    #[test]
+    fn an_authored_subject_resembling_a_generated_one_is_still_checked() {
+        for text in [
+            "Merge tagging notes into the phase record",
+            "Merge branching strategy — two threads, one baseline",
+            "Merge commits from the auditor's fork by hand",
+        ] {
+            let s = vec![merge_subj("aaaaaaaa", text, 2)];
+            assert!(
+                !unrecognized_verb(&s).passed(),
+                "exempted an authored subject: {text}"
+            );
+        }
     }
 
     #[test]
