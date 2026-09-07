@@ -222,6 +222,7 @@ fn the_json_report_carries_the_envelope_and_every_check() {
         "regen",
         "catalog",
         "corpora",
+        "corpus",
         "vault",
         "policy",
         "governance",

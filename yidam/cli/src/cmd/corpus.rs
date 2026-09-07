@@ -2,6 +2,8 @@ use anyhow::Result;
 use std::fmt::Write as _;
 use std::path::Path;
 
+use crate::cmd::lint::checks::{load_classes, load_nodes};
+use crate::cmd::lint::Overlay;
 use crate::paths::{repo_root, yidam_corpus_dir};
 use crate::regen::update_file_regen;
 use crate::walk::{line_count, walk_corpus_instances, walk_ont_files};
@@ -112,6 +114,19 @@ pub struct GraphCheckReport {
     pub clean_instances: usize,
     pub classes_defined: usize,
     pub nodes_with_issues: Vec<NodeIssues>,
+    /// Class files whose bytes did not parse, and why — #721.
+    ///
+    /// Its own list rather than a row in [`Self::nodes_with_issues`], because that list is
+    /// about instances and `clean_instances` is counted against it. A class file in there
+    /// would be filed under a heading that says "instances" and would make the arithmetic
+    /// wrong at the same time.
+    ///
+    /// **Reported here as well as by `lint`, deliberately.** The alternative — leave it to
+    /// `malformed-yaml` and say nothing — is what left this gate green over a corpus with an
+    /// unreadable class file, and `graph-check` is the one job a derived repository's CI runs
+    /// unconditionally. Two gates disagreeing about whether a file is readable is the defect;
+    /// both answering the same way is the fix.
+    pub classes_with_issues: Vec<NodeIssues>,
     /// Classes with a schema and no instances. Reported, never gated.
     pub classes_without_instances: Vec<String>,
 }
@@ -128,6 +143,7 @@ pub(crate) fn graph_check_data(root: &Path, corpus: &Path) -> GraphCheckReport {
             clean_instances: 0,
             classes_defined: 0,
             nodes_with_issues: vec![],
+            classes_with_issues: vec![],
             classes_without_instances: vec![],
         };
     }
@@ -142,12 +158,44 @@ pub(crate) fn graph_check_data(root: &Path, corpus: &Path) -> GraphCheckReport {
         })
         .collect();
 
+    // Class files, read for one question only: did they parse? Their *contents* are not
+    // consulted — `defined_classes` above is derived from filenames, and deliberately stays
+    // that way, so a typo inside `gage.ont.yml` does not make every instance of `gage`
+    // report an unknown class. That would be the same contradiction one layer up.
+    let mut classes_with_issues: Vec<NodeIssues> = Vec::new();
+    for class in load_classes(root, &ont_files, &Overlay::default()) {
+        if let Some(why) = &class.malformed {
+            classes_with_issues.push(NodeIssues {
+                node: slash_path(Path::new(&class.rel)),
+                issues: vec![format!("unreadable: {why}")],
+            });
+        }
+    }
+
     let mut nodes_with_issues: Vec<NodeIssues> = Vec::new();
 
-    for path in &instances {
-        let text = std::fs::read_to_string(path).unwrap_or_default();
-        let inst = crate::parse::parse_instance(&text);
+    // Through the lint model's loader rather than this command's own read-and-deserialize.
+    // The two were the same three lines, and this copy was the one that still ended in
+    // `unwrap_or_default()` after #676 fixed the other: a file nobody could read arrived
+    // here as an *empty record*, and the checks below then reported `missing 'class:'`
+    // about a file whose first line is a `class:` field (#721). `Node::parse` records the
+    // parse outcome where the parse happens, so going through it gets the answer for free.
+    for node in load_nodes(root, &instances, &Overlay::default()) {
+        let path = &node.path;
+        let inst = &node.inst;
         let mut node_issues = Vec::new();
+
+        // Everything below reads fields off a record. When the bytes did not parse, that
+        // record is empty and describes nothing, so this is the whole finding for the file
+        // — the same suppression `lint` applies, for the same reason: adding six findings
+        // derived from the emptiness buries the one that can be acted on.
+        if let Some(why) = &node.malformed {
+            nodes_with_issues.push(NodeIssues {
+                node: slash_path(path.strip_prefix(root).unwrap_or(path)),
+                issues: vec![format!("unreadable: {why}")],
+            });
+            continue;
+        }
 
         match &inst.class {
             None => node_issues.push("missing 'class:' field".to_string()),
@@ -162,12 +210,13 @@ pub(crate) fn graph_check_data(root: &Path, corpus: &Path) -> GraphCheckReport {
             node_issues.push("missing 'label:' field".to_string());
         }
 
-        let links = inst.links.unwrap_or_default();
+        // Borrowed rather than moved: `inst` belongs to the loaded node now.
+        let links = inst.links.as_deref().unwrap_or_default();
         if links.is_empty() {
             node_issues.push("orphan node: no outgoing links".to_string());
         } else {
             let dir = path.parent().unwrap_or(path);
-            for link in &links {
+            for link in links {
                 match &link.target {
                     None => node_issues.push("link entry missing 'target:' field".to_string()),
                     Some(target) => {
@@ -208,12 +257,17 @@ pub(crate) fn graph_check_data(root: &Path, corpus: &Path) -> GraphCheckReport {
     let total = instances.len();
     let issue_count = nodes_with_issues.len();
     GraphCheckReport {
-        passed: issue_count == 0,
+        // An unreadable class file gates too. It is not an instance, so it is not in
+        // `clean_instances` — but a corpus whose schema cannot be read is not a graph
+        // anyone has checked, and returning `passed: true` over one is the false negative
+        // this fix exists to remove.
+        passed: issue_count == 0 && classes_with_issues.is_empty(),
         corpus_empty: false,
         total_instances: total,
         clean_instances: total - issue_count,
         classes_defined: defined_classes.len(),
         nodes_with_issues,
+        classes_with_issues,
         classes_without_instances,
     }
 }
@@ -253,6 +307,21 @@ pub(crate) fn render_graph_check_text(r: &GraphCheckReport, corpus: &Path) -> St
         for n in &r.nodes_with_issues {
             let _ = write!(out, "\n  {}", n.node);
             for issue in &n.issues {
+                let _ = write!(out, "\n    - {issue}");
+            }
+        }
+    }
+
+    // Before the advisory line below, because this one gates and that one does not.
+    if !r.classes_with_issues.is_empty() {
+        let _ = write!(
+            out,
+            "\n\n{} class file(s) could not be read:",
+            r.classes_with_issues.len()
+        );
+        for c in &r.classes_with_issues {
+            let _ = write!(out, "\n\n  {}", c.node);
+            for issue in &c.issues {
                 let _ = write!(out, "\n    - {issue}");
             }
         }
@@ -385,6 +454,7 @@ pub fn graph_check(format: crate::report::Format) -> Result<()> {
     let corpus = yidam_corpus_dir(&root);
     let data = graph_check_data(&root, &corpus);
     let issue_count = data.nodes_with_issues.len();
+    let unreadable_classes = data.classes_with_issues.len();
 
     if format.is_json() {
         crate::report::emit(&root, data)?;
@@ -392,16 +462,159 @@ pub fn graph_check(format: crate::report::Format) -> Result<()> {
         println!("{}", render_graph_check_text(&data, &corpus));
     }
 
-    // The gate, unchanged and shared: the verdict cannot depend on the rendering.
-    if issue_count > 0 {
-        anyhow::bail!("{issue_count} instance(s) have issues")
+    // The gate, shared: the verdict cannot depend on the rendering. Both counts are named
+    // in the message rather than summed, because they are findings about different things
+    // and a single number would leave a reader guessing which.
+    match (issue_count, unreadable_classes) {
+        (0, 0) => Ok(()),
+        (n, 0) => anyhow::bail!("{n} instance(s) have issues"),
+        (0, c) => anyhow::bail!("{c} class file(s) could not be read"),
+        (n, c) => {
+            anyhow::bail!("{n} instance(s) have issues and {c} class file(s) could not be read")
+        }
     }
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── #721: a file that does not parse ────────────────────────────────────────
+
+    /// A corpus of two linked instances and one class, with control over the bytes of one
+    /// instance and of the class file.
+    ///
+    /// The pair is the measurement: an arm hands over sound bytes or the same bytes with
+    /// one unclosed quote, and **nothing else differs**. A fixture per outcome would prove
+    /// only that two different corpora produce two different reports.
+    fn repo_with(instance: &str, schema: &str) -> tempfile::TempDir {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let corpus = tmp.path().join(".yidam/corpus");
+        let class = corpus.join("gage");
+        std::fs::create_dir_all(&class).unwrap();
+        std::fs::write(corpus.join("gage.ont.yml"), schema).unwrap();
+        std::fs::write(class.join("canyon-outlet.yml"), instance).unwrap();
+        std::fs::write(
+            class.join("valley-bridge.yml"),
+            "class: gage\nlabel: valley-bridge\ndescription: A gage.\nlinks:\n  \
+             - target: canyon-outlet.yml\n    relationship: refines\n",
+        )
+        .unwrap();
+        tmp
+    }
+
+    const SOUND_INSTANCE: &str = "class: gage\nlabel: canyon-outlet\ndescription: A gage.\nlinks:\n  - target: valley-bridge.yml\n    relationship: refines\n";
+    /// The same instance with one unclosed quote in `label:`. Nothing else differs.
+    const BROKEN_INSTANCE: &str = "class: gage\nlabel: \"canyon-outlet\ndescription: A gage.\nlinks:\n  - target: valley-bridge.yml\n    relationship: refines\n";
+    const SOUND_SCHEMA: &str = "class: gage\nlabel: Gage\n";
+    /// The same class file with one unclosed quote in `label:`.
+    const BROKEN_SCHEMA: &str = "class: gage\nlabel: \"Gage\n";
+
+    fn check(root: &Path) -> GraphCheckReport {
+        graph_check_data(root, &root.join(".yidam/corpus"))
+    }
+
+    /// **The report contradicted the file.** An instance nobody could read arrived here as
+    /// an empty record, and the checks below then described the emptiness: `missing
+    /// 'class:'` about a file whose first line is a `class:` field, plus `missing 'label:'`
+    /// and `orphan node: no outgoing links` about a file that has both.
+    ///
+    /// Asserted as *suppression* rather than as "one issue is present", because a fix that
+    /// added a fourth issue beside the three wrong ones would satisfy the weaker form while
+    /// leaving the reader everything they had before.
+    #[test]
+    fn an_unreadable_instance_is_reported_once_and_not_described_from_its_emptiness() {
+        let sound = repo_with(SOUND_INSTANCE, SOUND_SCHEMA);
+        assert!(check(sound.path()).passed, "the sound arm must be clean");
+
+        let broken = repo_with(BROKEN_INSTANCE, SOUND_SCHEMA);
+        let r = check(broken.path());
+        assert!(!r.passed);
+        assert_eq!(r.nodes_with_issues.len(), 1, "{:?}", r.nodes_with_issues);
+        let n = &r.nodes_with_issues[0];
+        assert!(n.node.ends_with("canyon-outlet.yml"), "{}", n.node);
+        assert_eq!(n.issues.len(), 1, "one finding, not four: {:?}", n.issues);
+        assert!(n.issues[0].starts_with("unreadable: "), "{}", n.issues[0]);
+        // The three the file itself refutes.
+        let joined = n.issues.join(" ");
+        for wrong in ["missing 'class:'", "missing 'label:'", "orphan node"] {
+            assert!(!joined.contains(wrong), "{wrong} still reported: {joined}");
+        }
+    }
+
+    /// A class file nobody can read gates, and does not take its instances down with it.
+    ///
+    /// `defined_classes` is derived from filenames, so the class is still *defined* and its
+    /// instances still resolve. That is deliberate: making the class vanish would report
+    /// `unknown class 'gage'` against every instance of it — the same contradiction one
+    /// layer up, and the shape #676 found in `lint`.
+    #[test]
+    fn an_unreadable_class_file_gates_without_orphaning_its_instances() {
+        let broken = repo_with(SOUND_INSTANCE, BROKEN_SCHEMA);
+        let r = check(broken.path());
+        assert!(
+            !r.passed,
+            "a schema nothing can read is not a checked graph"
+        );
+        assert_eq!(
+            r.classes_with_issues.len(),
+            1,
+            "{:?}",
+            r.classes_with_issues
+        );
+        assert!(r.classes_with_issues[0].node.ends_with("gage.ont.yml"));
+        assert!(r.classes_with_issues[0].issues[0].starts_with("unreadable: "));
+        assert!(
+            r.nodes_with_issues.is_empty(),
+            "the instances are readable and resolve: {:?}",
+            r.nodes_with_issues
+        );
+    }
+
+    /// **The sharper assertion from #721**: `lint` and `graph-check` on the identical
+    /// corpus must not disagree about whether a file is readable.
+    ///
+    /// Two commands describing the same file two different ways is worse than either answer
+    /// on its own, and it is the state this repository was in — `lint` reporting one
+    /// `malformed-yaml` finding while `graph-check` reported three findings that the file
+    /// refutes. Written against both reports rather than against either one's wording, so
+    /// it stays true if either changes how it phrases the finding.
+    #[test]
+    fn lint_and_graph_check_agree_about_which_files_are_readable() {
+        for (instance, schema) in [
+            (SOUND_INSTANCE, SOUND_SCHEMA),
+            (BROKEN_INSTANCE, SOUND_SCHEMA),
+            (SOUND_INSTANCE, BROKEN_SCHEMA),
+            (BROKEN_INSTANCE, BROKEN_SCHEMA),
+        ] {
+            let tmp = repo_with(instance, schema);
+            let root = tmp.path();
+
+            let lint_says: std::collections::BTreeSet<String> =
+                crate::cmd::lint::run_checks(root, &crate::cmd::lint::Options::default())
+                    .into_iter()
+                    .find(|c| c.id == "malformed-yaml")
+                    .expect("malformed-yaml reports even when it passes")
+                    .violations
+                    .iter()
+                    .map(|v| v.node.replace('\\', "/"))
+                    .collect();
+
+            let r = check(root);
+            let graph_says: std::collections::BTreeSet<String> = r
+                .nodes_with_issues
+                .iter()
+                .chain(r.classes_with_issues.iter())
+                .filter(|n| n.issues.iter().any(|i| i.starts_with("unreadable: ")))
+                .map(|n| n.node.clone())
+                .collect();
+
+            assert_eq!(
+                lint_says, graph_says,
+                "lint and graph-check disagree about which files are readable"
+            );
+        }
+    }
 
     fn node(dir: &Path, class: &str, name: &str) {
         let d = dir.join(class);
