@@ -32,6 +32,7 @@
 
 use anyhow::Result;
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use crate::paths::{pinned_binary, repo_root, yidam_bin_path, yidam_index_dir, Pinned};
@@ -1303,33 +1304,35 @@ fn check_catalog(root: &Path, today: i64) -> Check {
 pub(crate) fn render(report: &DoctorReport, root: &Path) -> String {
     let mut out = format!("yidam doctor — {}\n\n", root.display());
     for c in &report.checks {
-        out.push_str(&format!(
-            "  {:<5} {:<12} {}\n",
-            c.verdict.tag(),
-            c.id,
-            c.detail
-        ));
+        let _ = writeln!(out, "  {:<5} {:<12} {}", c.verdict.tag(), c.id, c.detail);
         // The remedy is only shown where it is owed. Printing one under every green line
         // is how a report becomes something people skim past.
         if let Some(remedy) = &c.remedy {
             if matches!(c.verdict, Verdict::Warn | Verdict::Fail) {
-                out.push_str(&format!("  {:<5} {:<12} → {remedy}\n", "", "",));
+                let _ = writeln!(out, "  {:<5} {:<12} → {remedy}", "", "",);
             }
         }
     }
     out.push('\n');
     match (report.failed, report.warned) {
         (0, 0) => out.push_str("Everything checks out."),
-        (0, w) => out.push_str(&format!(
-            "{w} warning(s), nothing broken.{}",
-            if report.strict {
-                " --strict: exiting nonzero."
-            } else {
-                ""
-            }
-        )),
-        (f, 0) => out.push_str(&format!("{f} failing check(s).")),
-        (f, w) => out.push_str(&format!("{f} failing check(s), {w} warning(s).")),
+        (0, w) => {
+            let _ = write!(
+                out,
+                "{w} warning(s), nothing broken.{}",
+                if report.strict {
+                    " --strict: exiting nonzero."
+                } else {
+                    ""
+                }
+            );
+        }
+        (f, 0) => {
+            let _ = write!(out, "{f} failing check(s).");
+        }
+        (f, w) => {
+            let _ = write!(out, "{f} failing check(s), {w} warning(s).");
+        }
     }
     out
 }

@@ -19,6 +19,7 @@
 
 use anyhow::{Context, Result};
 use serde::Serialize;
+use std::fmt::Write as _;
 
 use yidam_core::git::{classify_commit, CommitKind};
 
@@ -162,15 +163,16 @@ pub(crate) fn render_text(r: &LogReport) -> String {
             "epistemic" => "E",
             _ => "O",
         };
-        out.push_str(&format!("{}  [{}]  {}\n", e.short, tag, e.subject));
+        let _ = writeln!(out, "{}  [{}]  {}", e.short, tag, e.subject);
     }
     // What the view left out, so a filtered log is honest about being filtered.
-    out.push_str(&format!(
+    let _ = write!(
+        out,
         "\n{} commit(s): {} epistemic, {} operational",
         r.total, r.epistemic, r.operational
-    ));
+    );
     if r.filter != "all" {
-        out.push_str(&format!(" — showing {}", r.filter));
+        let _ = write!(out, " — showing {}", r.filter);
     }
     out
 }

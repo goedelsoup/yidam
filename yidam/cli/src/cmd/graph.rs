@@ -23,6 +23,7 @@
 //! `yidam schema` already describes.
 
 use anyhow::Result;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use crate::parse::CorpusInstance;
@@ -407,9 +408,9 @@ pub(crate) fn render_neighbors(r: &NeighborsReport) -> String {
         r.depth
     );
     for n in &r.neighbors {
-        out.push_str(&format!(
-            "  {}{} {} {}  ({})
-",
+        let _ = writeln!(
+            out,
+            "  {}{} {} {}  ({})",
             "  ".repeat(n.hops - 1),
             if n.direction == "out" { "-→" } else { "←-" },
             n.relationship,
@@ -419,7 +420,7 @@ pub(crate) fn render_neighbors(r: &NeighborsReport) -> String {
                 &n.label
             },
             n.node
-        ));
+        );
     }
     out.trim_end().to_string()
 }
@@ -458,8 +459,9 @@ pub(crate) fn render_graph(r: &GraphReport) -> String {
     );
     for n in &r.nodes {
         for l in &n.links {
-            out.push_str(&format!(
-                "  {} -[{}]-> {}{}\n",
+            let _ = writeln!(
+                out,
+                "  {} -[{}]-> {}{}",
                 n.node,
                 l.relationship,
                 if l.resolved.is_empty() {
@@ -468,7 +470,7 @@ pub(crate) fn render_graph(r: &GraphReport) -> String {
                     &l.resolved
                 },
                 if l.exists { "" } else { "  (missing)" }
-            ));
+            );
         }
     }
     out.trim_end().to_string()

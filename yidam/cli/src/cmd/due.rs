@@ -51,6 +51,7 @@
 //! than this command growing a `--propose` that would shell into a command a reader can run.
 
 use anyhow::Result;
+use std::fmt::Write as _;
 use std::path::Path;
 
 use crate::paths::{repo_root, require_yidam_repo, yidam_catalog_dir, yidam_corpus_dir};
@@ -289,7 +290,7 @@ fn clock_catalog(root: &Path, today: i64) -> Clock {
     // knows.
     let mut measured = format!("{governed} of {} source(s) under a TTL", ages.len());
     if undatable > 0 {
-        measured.push_str(&format!("; {undatable} with no date to measure against"));
+        let _ = write!(measured, "; {undatable} with no date to measure against");
     }
 
     let Some(worst) = expired
@@ -466,7 +467,7 @@ fn clock_phases(root: &Path, after: Option<u32>, today: i64) -> Clock {
     let Some((worst, days)) = overdue.first().copied() else {
         let mut detail = format!("{} in flight, none past {after} day(s)", active.len());
         if unmeasured > 0 {
-            detail.push_str(&format!("; {unmeasured} with no readable start date"));
+            let _ = write!(detail, "; {unmeasured} with no readable start date");
         }
         let state = match unmeasured {
             0 => State::Ok,
@@ -538,17 +539,12 @@ pub fn due(strict: bool, format: crate::report::Format) -> Result<()> {
 pub(crate) fn render(report: &DueReport, root: &Path) -> String {
     let mut out = format!("yidam due — {}\n\n", root.display());
     for c in &report.clocks {
-        out.push_str(&format!(
-            "  {:<5} {:<10} {}\n",
-            c.state.tag(),
-            c.id,
-            c.detail
-        ));
+        let _ = writeln!(out, "  {:<5} {:<10} {}", c.state.tag(), c.id, c.detail);
         // Shown where it is owed, and on an unset clock — where the thing to do is to set
         // it. Printing one under every line is how a report becomes something people skim.
         if let Some(remedy) = &c.remedy {
             if matches!(c.state, State::Due | State::Undeclared) {
-                out.push_str(&format!("  {:<5} {:<10} → {remedy}\n", "", ""));
+                let _ = writeln!(out, "  {:<5} {:<10} → {remedy}", "", "");
             }
         }
     }
@@ -579,7 +575,7 @@ pub(crate) fn render(report: &DueReport, root: &Path) -> String {
                       owed, because you asked it to."
             .to_string(),
     };
-    out.push_str(&format!("{head}{unset}\n{line}"));
+    let _ = write!(out, "{head}{unset}\n{line}");
     out
 }
 

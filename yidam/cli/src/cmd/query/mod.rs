@@ -28,6 +28,7 @@ pub mod exec;
 pub mod lang;
 
 use anyhow::Result;
+use std::fmt::Write as _;
 
 use crate::paths::{repo_root, yidam_corpus_dir};
 use crate::retrieval::Retrieval;
@@ -957,8 +958,9 @@ pub fn render_series(report: &SeriesReport) -> String {
         // The marker is the point of the report. Two hundred rows of "3 result(s)" and one
         // "4 result(s)" is a series a reader scans; the same rows with the changed one
         // unmarked is a series a reader gives up on.
-        out.push_str(&format!(
-            "  {} {}  {}{}\n",
+        let _ = writeln!(
+            out,
+            "  {} {}  {}{}",
             short(&row.commit),
             row.date,
             answer,
@@ -966,18 +968,13 @@ pub fn render_series(report: &SeriesReport) -> String {
                 true => "  ← changed",
                 false => "",
             }
-        ));
+        );
         // **Rendered, not computed and dropped.** Without these a series over a class the
         // corpus grew into prints a column of `rejected (unknown-class)` with nothing saying
         // the name is a perfectly good class today — the exact misreading the rejection-path
         // diagnostic loop was added one function earlier to prevent.
         for d in &row.diagnostics {
-            out.push_str(&format!(
-                "    [{}] step {}: {}\n",
-                d.level,
-                d.step + 1,
-                d.message
-            ));
+            let _ = writeln!(out, "    [{}] step {}: {}", d.level, d.step + 1, d.message);
         }
         // Only when nothing has already said it: an `ontology-moved` note on an unschematised
         // row is this sentence with the comparison attached, and printing both is one line of
@@ -1024,12 +1021,7 @@ fn render_rejection(
     // most in: a query refused at a past commit that would be accepted today. Returning
     // early here printed the refusal and swallowed the reason it is not the user's typo.
     for d in diagnostics {
-        out.push_str(&format!(
-            "\n  [{}] step {}: {}",
-            d.level,
-            d.step + 1,
-            d.message
-        ));
+        let _ = write!(out, "\n  [{}] step {}: {}", d.level, d.step + 1, d.message);
     }
     out
 }
@@ -1060,8 +1052,9 @@ pub fn render(report: &QueryReport) -> String {
                 .to_string()
         };
         let (node, label) = (field("node"), field("label"));
-        out.push_str(&format!(
-            "  {}{}{}\n",
+        let _ = writeln!(
+            out,
+            "  {}{}{}",
             // #268's requirement is that a foreign result be distinguishable *at every point
             // of presentation*. The qualified id carries the attribution and sits at the end
             // of the line, where a reader scanning a list does not look; this puts it where
@@ -1081,14 +1074,15 @@ pub fn render(report: &QueryReport) -> String {
                 .filter(|(k, _)| !["node", "class", "label", "origin"].contains(&k.as_str()))
                 .map(|(k, v)| format!("  {k}={}", v.as_str().unwrap_or("—")))
                 .collect::<String>()
-        ));
+        );
     }
     if let Some(a) = &report.anchor {
         // Which nodes it entered on, always — an answer that surprises is usually an anchor
         // that landed somewhere else, and that is one line away rather than a `--format json`
         // away.
-        out.push_str(&format!(
-            "  anchored on {} — {}\n",
+        let _ = writeln!(
+            out,
+            "  anchored on {} — {}",
             match a.entries.is_empty() {
                 true => "nothing".to_string(),
                 false => a
@@ -1103,33 +1097,30 @@ pub fn render(report: &QueryReport) -> String {
                     format!("keyword search, not similarity ({reason}); {repair}"),
                 _ => "semantic search".to_string(),
             }
-        ));
+        );
     }
     // Before the diagnostics rather than after: this is the answer to the question a reader
     // of an empty result is actually holding, and burying it under a list of notes about
     // steps that ran fine is how it gets skimmed past.
     if let Some(a) = &report.absence {
-        out.push_str(&format!(
-            "  [absent] step {}: {} ({})\n",
+        let _ = writeln!(
+            out,
+            "  [absent] step {}: {} ({})",
             a.step + 1,
             a.message,
             a.code
-        ));
+        );
     }
     for d in &report.diagnostics {
-        out.push_str(&format!(
-            "  [{}] step {}: {}\n",
-            d.level,
-            d.step + 1,
-            d.message
-        ));
+        let _ = writeln!(out, "  [{}] step {}: {}", d.level, d.step + 1, d.message);
     }
     if report.unschematised {
         out.push_str("  [info] this corpus declares no classes, so class names were not checked\n");
     }
     let c = &report.cost;
-    out.push_str(&format!(
-        "{} step(s), {} edge(s) walked, {} of {} node(s) read, ~{} token(s){}\n",
+    let _ = writeln!(
+        out,
+        "{} step(s), {} edge(s) walked, {} of {} node(s) read, ~{} token(s){}",
         c.steps,
         c.edges_walked,
         c.nodes_read,
@@ -1142,7 +1133,7 @@ pub fn render(report: &QueryReport) -> String {
             "across" => " — across the dependency set",
             _ => "",
         }
-    ));
+    );
     out.trim_end().to_string()
 }
 

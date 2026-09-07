@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::fmt::Write as _;
 use std::path::Path;
 
 use crate::git::{genesis_date, phase_tally};
@@ -96,10 +97,10 @@ pub fn status(format: crate::report::Format) -> Result<()> {
     // shown, because zero active phases is a real and readable state.
     let mut phase_cell = format!("{} active phase(s)", phases.active);
     if phases.settled > 0 {
-        phase_cell.push_str(&format!(" · {} settled", phases.settled));
+        let _ = write!(phase_cell, " · {} settled", phases.settled);
     }
     if phases.positions > 0 {
-        phase_cell.push_str(&format!(" · {} position(s)", phases.positions));
+        let _ = write!(phase_cell, " · {} position(s)", phases.positions);
     }
 
     let sources_cell = match catalog_expired {

@@ -32,6 +32,7 @@ pub mod draft;
 pub mod write;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::path::Path;
 
 use anyhow::Result;
@@ -344,19 +345,16 @@ fn render(r: &ProposeReport, dry_run: bool) -> String {
     let mut current = String::new();
     for p in &r.proposals {
         if p.node != current {
-            out.push_str(&format!("\n  {}\n", p.node));
+            let _ = write!(out, "\n  {}\n", p.node);
             current = p.node.clone();
         }
-        out.push_str(&format!("    {}: {}\n", p.verb, p.subject));
+        let _ = writeln!(out, "    {}: {}", p.verb, p.subject);
     }
 
     if !r.skipped.is_empty() {
-        out.push_str(&format!(
-            "\n{} finding(s) with no proposal:\n",
-            r.skipped.len()
-        ));
+        let _ = write!(out, "\n{} finding(s) with no proposal:\n", r.skipped.len());
         for s in &r.skipped {
-            out.push_str(&format!("    [{}] {} — {}\n", s.check, s.node, s.reason));
+            let _ = writeln!(out, "    [{}] {} — {}", s.check, s.node, s.reason);
         }
     }
 

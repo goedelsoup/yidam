@@ -27,6 +27,8 @@
 //! deciding where it goes and whether it writes. That is the maintainable part — not the
 //! rendering.
 
+use std::fmt::Write as _;
+
 /// One command's placement.
 pub struct Entry {
     /// The subcommand name, exactly as clap knows it.
@@ -229,7 +231,7 @@ pub fn render(available: &[(String, String)]) -> String {
         if rows.is_empty() {
             continue;
         }
-        out.push_str(&format!("{}:\n", group.title));
+        let _ = writeln!(out, "{}:", group.title);
         for entry in rows {
             placed.push(entry.name);
             out.push_str(&row(entry.name, entry.writes, about(entry.name), width));
@@ -249,10 +251,11 @@ pub fn render(available: &[(String, String)]) -> String {
         out.push('\n');
     }
 
-    out.push_str(&format!(
+    let _ = write!(
+        out,
         "  {WRITES} rewrites files in the repository it is run against. Everything else\n\
          \x20   only reads — `yidam <command> --help` says exactly what.\n"
-    ));
+    );
     out
 }
 

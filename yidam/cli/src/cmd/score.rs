@@ -31,6 +31,7 @@
 //! and an integration test drives a range across a revision change and asserts that it does.
 
 use std::collections::HashSet;
+use std::fmt::Write as _;
 use std::path::Path;
 use std::process::Command;
 
@@ -247,26 +248,22 @@ pub(crate) fn render(r: &Report) -> String {
         );
     }
     for row in &r.rows {
-        out.push_str(&format!(
-            "  {:<12} {}\n",
-            row.criterion,
-            row.reading.shown()
-        ));
+        let _ = writeln!(out, "  {:<12} {}", row.criterion, row.reading.shown());
         if let crate::score::Reading::Unmeasurable { why } = &row.reading {
-            out.push_str(&format!("      — {why}\n"));
+            let _ = writeln!(out, "      — {why}");
         }
         if let Some(note) = &row.note {
-            out.push_str(&format!("      — {note}\n"));
+            let _ = writeln!(out, "      — {note}");
         }
         for line in &row.evidence {
-            out.push_str(&format!("      · {line}\n"));
+            let _ = writeln!(out, "      · {line}");
         }
         out.push('\n');
     }
     if !r.questions.is_empty() {
         out.push_str("For a person to answer. Nothing below is scored:\n");
         for q in &r.questions {
-            out.push_str(&format!("  · {q}\n"));
+            let _ = writeln!(out, "  · {q}");
         }
         out.push('\n');
     }

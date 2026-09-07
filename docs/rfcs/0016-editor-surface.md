@@ -71,7 +71,7 @@ links:
 ```
 
 resolved as `dir.join(target)` against the instance's own directory
-([`corpus.rs:110-112`](../../yidam/cli/src/cmd/corpus.rs#L110-L112)). To VS Code that is an
+([`corpus.rs:111-113`](../../yidam/cli/src/cmd/corpus.rs#L111-L113)). To VS Code that is an
 opaque scalar: no ctrl-click, no completion, no squiggle on a typo, and — the expensive one — no
 rename. The docs warn three separate times that renaming a node severs edges, and RFC-0014
 exists because the manual repair is unreliable. The editor is where renames actually happen, and

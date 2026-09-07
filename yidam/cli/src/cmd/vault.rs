@@ -30,6 +30,7 @@
 //! assertion this repository makes.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
@@ -911,33 +912,36 @@ fn render_vault_status(root: &Path) -> Result<String> {
     }
 
     let mut out = String::new();
-    out.push_str(&format!(
-        "{} vault{} · {} artifact{} named by the catalog\n",
+    let _ = writeln!(
+        out,
+        "{} vault{} · {} artifact{} named by the catalog",
         vaults.len(),
         if vaults.len() == 1 { "" } else { "s" },
         named.len(),
         if named.len() == 1 { "" } else { "s" }
-    ));
+    );
 
     for (name, cfg) in vaults.iter() {
         let routed = named
             .iter()
             .filter(|a| matches!(vaults.route(&a.kind, a.vault.as_deref()), Route::To(n, _) if n == name))
             .count();
-        out.push_str(&format!("\n`{name}` — {}\n", cfg.audience()));
-        out.push_str(&format!(
-            "- holds {} · {routed} catalog artifact{} routed here\n",
+        let _ = write!(out, "\n`{name}` — {}\n", cfg.audience());
+        let _ = writeln!(
+            out,
+            "- holds {} · {routed} catalog artifact{} routed here",
             cfg.holds_display(),
             if routed == 1 { "" } else { "s" }
-        ));
+        );
         for d in vault::Derived::ALL {
             if let Some(e) = lock.get(d).filter(|e| e.vault == name) {
-                out.push_str(&format!(
-                    "- {} `{}` ({})\n",
+                let _ = writeln!(
+                    out,
+                    "- {} `{}` ({})",
                     d.kind(),
                     &e.sha256[..12.min(e.sha256.len())],
                     human_size(e.bytes)
-                ));
+                );
             }
         }
     }
@@ -947,10 +951,11 @@ fn render_vault_status(root: &Path) -> Result<String> {
         .filter(|a| matches!(vaults.route(&a.kind, a.vault.as_deref()), Route::Local))
         .count();
     if local > 0 {
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "\n{local} artifact{} recorded `vault: none` — the local cache and nowhere else.\n",
             if local == 1 { "" } else { "s" }
-        ));
+        );
     }
     Ok(out.trim_end().to_string())
 }

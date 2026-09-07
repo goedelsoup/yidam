@@ -21,6 +21,7 @@
 
 use anyhow::Result;
 use clap::Subcommand;
+use std::fmt::Write as _;
 
 use crate::kuten::{self, Report};
 use crate::report::Format;
@@ -88,42 +89,47 @@ pub fn render_block(
         stopped(&profile.gloss)
     );
     if declaration.revision != profile.revision {
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "\n> The vendored profile is at revision {}, and the decision record names {}. \
              Re-vendor, or record a superseding decision.\n",
             profile.revision, declaration.revision
-        ));
+        );
     }
     out.push('\n');
     if let Some(phases) = &profile.phases {
-        out.push_str(&format!(
-            "- **Phases** — {}. Between {} of commits settle one.\n",
+        let _ = writeln!(
+            out,
+            "- **Phases** — {}. Between {} of commits settle one.",
             phases.types.join(", "),
             share_band(phases.commit_share)
-        ));
+        );
     }
     if let Some(classes) = &profile.classes {
-        out.push_str(&format!(
-            "- **Shape** — {} nodes per commit, and a median node of {:.0}–{:.0} lines.\n",
+        let _ = writeln!(
+            out,
+            "- **Shape** — {} nodes per commit, and a median node of {:.0}–{:.0} lines.",
             classes.nodes_per_commit.describe(),
             classes.median_node_lines.low,
             classes.median_node_lines.high
-        ));
+        );
     }
     if let Some(vocabulary) = &profile.vocabulary {
-        out.push_str(&format!(
-            "- **Vocabulary** — {} verbs, and between {} of commits outside them.\n",
+        let _ = writeln!(
+            out,
+            "- **Vocabulary** — {} verbs, and between {} of commits outside them.",
             vocabulary.verbs.len(),
             share_band(vocabulary.off_vocabulary_share)
-        ));
+        );
     }
     if let Some(object) = &profile.object {
         // The direction, and the consequence a reader needs in the same breath. An
         // `authored` corpus is what every history-derived surface already assumes; a
         // `projected` one is the state that made those surfaces answer nothing, and saying
         // only the word would leave the reader to re-derive what it means (RFC-0028 §6).
-        out.push_str(&format!(
-            "- **Object** — {}, so its history is {}.\n",
+        let _ = writeln!(
+            out,
+            "- **Object** — {}, so its history is {}.",
             object.direction.describe(),
             match object.direction {
                 kuten::Direction::Authored => "the record",
@@ -131,14 +137,15 @@ pub fn render_block(
                     "the project's and not the corpus's: `replay`, `--at`, `log --epistemic` \
                      and the residence clocks do not apply",
             }
-        ));
+        );
     }
     if let Some(pressure) = &profile.question_pressure {
-        out.push_str(&format!(
+        let _ = writeln!(
+            out,
             "- **Questions** — this practice presses toward {} ones. It creates the pressure \
-             and authors nothing.\n",
+             and authors nothing.",
             pressure.kind.name()
-        ));
+        );
     }
     if let Some(rubric) = &profile.rubric {
         // **The block, and not `check`.** The criteria are read by `yidam score <range>`,
@@ -147,11 +154,12 @@ pub fn render_block(
         // about a range somebody chose. What the block owes the reader is *which* criteria
         // the next session will be read against — before the session, where an agent meets
         // it — so the slot's reader is `block`.
-        out.push_str(&format!(
+        let _ = writeln!(
+            out,
             "- **Contribution** — a session's work is read against {}. `yidam score <range>` \
-             reports one row each, with the evidence, and no overall number.\n",
+             reports one row each, with the evidence, and no overall number.",
             list(&criteria_glosses(&rubric.criteria))
-        ));
+        );
     }
     out.push_str(
         "\nIt narrows the loop and may not widen the model, and it binds nobody: divergence \
@@ -282,23 +290,25 @@ const AGENTS_MARKER: &str = "<!-- REGEN: yidam kuten";
 fn record(name: &str, revision: u32, gloss: &str) -> String {
     let mut out = String::new();
     out.push_str("id: kuten\n");
-    out.push_str(&format!(
-        "summary: the `{name}` kuten, adopted at revision {revision}\n"
-    ));
-    out.push_str(&format!("kuten: {name}\n"));
-    out.push_str(&format!("revision: {revision}\n"));
+    let _ = writeln!(
+        out,
+        "summary: the `{name}` kuten, adopted at revision {revision}"
+    );
+    let _ = writeln!(out, "kuten: {name}");
+    let _ = writeln!(out, "revision: {revision}");
     out.push_str("decision: |\n");
     let gloss = stopped(gloss);
     if gloss.is_empty() {
-        out.push_str(&format!("  This corpus's practice is `{name}`.\n"));
+        let _ = writeln!(out, "  This corpus's practice is `{name}`.");
     } else {
-        out.push_str(&format!("  This corpus's practice is `{name}`: {gloss}\n"));
+        let _ = writeln!(out, "  This corpus's practice is `{name}`: {gloss}");
     }
     out.push_str("\n  Adopted with `yidam kuten adopt` against the profile vendored at\n");
-    out.push_str(&format!(
-        "  `{}/{name}/kuten.yml`, at revision {revision}.\n",
+    let _ = writeln!(
+        out,
+        "  `{}/{name}/kuten.yml`, at revision {revision}.",
         kuten::VENDORED_DIR
-    ));
+    );
     out.push_str("  The revision is copied from that profile, and every consumer reads the\n");
     out.push_str("  kuten at the vintage this repository holds rather than at upstream's\n");
     out.push_str("  current one.\n");
@@ -435,24 +445,27 @@ pub(crate) fn render_check(r: &Report) -> String {
         r.declared_revision.unwrap_or_default()
     );
     if r.revision_skew {
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "\n⚠ The vendored profile is at revision {}. A comparison across revisions is \
              annotated rather than made: re-vendor, or record a superseding decision.\n",
             r.vendored_revision.unwrap_or_default()
-        ));
+        );
     }
-    out.push_str(&format!(
+    let _ = write!(
+        out,
         "\n{} commit(s), {} node(s) measured.\n\n",
         r.measurement.commits, r.measurement.nodes
-    ));
+    );
     for f in &r.findings {
-        out.push_str(&format!(
-            "  [{}] {:<22} declared {:<12} measured {}\n",
+        let _ = writeln!(
+            out,
+            "  [{}] {:<22} declared {:<12} measured {}",
             f.verdict.tag(),
             f.metric,
             f.declared,
             f.measured
-        ));
+        );
     }
     let questions: Vec<&String> = r
         .findings
@@ -465,7 +478,7 @@ pub(crate) fn render_check(r: &Report) -> String {
     }
     out.push_str("\nQuestions for a person — none of these is a defect:\n");
     for q in questions {
-        out.push_str(&format!("  · {q}\n"));
+        let _ = writeln!(out, "  · {q}");
     }
     out.push_str(
         "\nA kuten binds nobody. Answer the question, revise the practice, or record a \

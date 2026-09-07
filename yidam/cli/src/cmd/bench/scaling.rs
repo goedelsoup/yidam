@@ -30,6 +30,7 @@
 //! graph and a per-node size, not a directory of YAML nobody reads.
 
 use anyhow::{bail, Result};
+use std::fmt::Write as _;
 
 use super::{ArmReport, CorpusShape, CLAIMED_NARROWING_FLOOR};
 
@@ -467,8 +468,9 @@ pub fn render(report: &ScalingReport) -> String {
         report.standing_reason,
         report.flat_excluded_because,
     );
-    out.push_str(&format!(
-        "{:>6}  {:>7}  {:>7}  {:>5}  {:>12}  {:>10}  {:>13}  {:>10}  {:>9}\n",
+    let _ = writeln!(
+        out,
+        "{:>6}  {:>7}  {:>7}  {:>5}  {:>12}  {:>10}  {:>13}  {:>10}  {:>9}",
         "N",
         "classes",
         "ceiling",
@@ -478,12 +480,13 @@ pub fn render(report: &ScalingReport) -> String {
         "focused tok",
         "precision",
         "narrowing"
-    ));
+    );
     for row in &report.rows {
         let full = row.full_scan.tokens.unwrap_or(0);
         let focused = row.focused_scan.tokens.unwrap_or(0);
-        out.push_str(&format!(
-            "{:>6}  {:>7}  {:>6.1}x  {:>5.1}  {:>12}  {:>9.2}%  {:>13}  {:>9.2}%  {:>8.1}x\n",
+        let _ = writeln!(
+            out,
+            "{:>6}  {:>7}  {:>6.1}x  {:>5.1}  {:>12}  {:>9.2}%  {:>13}  {:>9.2}%  {:>8.1}x",
             row.corpus.nodes,
             row.corpus.classes,
             row.corpus.narrowing_ceiling,
@@ -496,7 +499,7 @@ pub fn render(report: &ScalingReport) -> String {
                 0 => 0.0,
                 f => full as f64 / f as f64,
             },
-        ));
+        );
     }
     out.push_str("\nanchored arm: not run — ");
     out.push_str(&super::one_line(ANCHORED_PENDING));

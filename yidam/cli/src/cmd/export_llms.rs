@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::Path;
 
 use super::export::unix_to_iso;
@@ -334,15 +335,10 @@ pub(crate) fn trailer(omitted_by_class: &BTreeMap<String, usize>, elided: usize)
             .filter(|(_, n)| **n > 0)
             .map(|(class, n)| format!("{class}: {n}"))
             .collect();
-        s.push_str(&format!(
-            "# Omitted: {omitted} nodes ({})\n",
-            breakdown.join(", ")
-        ));
+        let _ = writeln!(s, "# Omitted: {omitted} nodes ({})", breakdown.join(", "));
     }
     if elided > 0 {
-        s.push_str(&format!(
-            "# Elided: {elided} descriptions (label and links kept)\n"
-        ));
+        let _ = writeln!(s, "# Elided: {elided} descriptions (label and links kept)");
     }
     s
 }

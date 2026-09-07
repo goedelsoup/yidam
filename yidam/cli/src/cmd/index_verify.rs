@@ -22,6 +22,7 @@
 //! could run.
 
 use anyhow::{Context, Result};
+use std::fmt::Write as _;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -145,27 +146,33 @@ pub(crate) fn build_report(
 
 pub(crate) fn render_verify(r: &VerifyReport) -> String {
     let mut out = format!("{} — {} ({} dims)\n", r.index, r.model_id, r.embedding_dim);
-    out.push_str(&match r.verdict {
-        "match" if r.max_drift.is_some() => format!(
-            "same vector space (drift {:.2e}, tolerance {:.0e})",
-            r.max_drift.unwrap_or(0.0),
-            r.tolerance.unwrap_or(0.0)
-        ),
-        "match" => "witness present; pass --provider to check a consumer against it".to_string(),
-        "known-delta" => format!(
-            "DIFFERENT vector space, within the bound `{}` declared for it\n  \
-             drift {:.2e}, allowed {:.0e}\n  \
-             Retrieval works and is measurably not identical. This is the expected \
-             degradation, named.",
-            r.runtime.clone().unwrap_or_default(),
-            r.max_drift.unwrap_or(0.0),
-            r.tolerance.unwrap_or(0.0)
-        ),
-        "unverifiable" => "no witness — this index cannot be checked against".to_string(),
-        _ => "MISMATCH".to_string(),
-    });
+    match r.verdict {
+        "match" if r.max_drift.is_some() => {
+            let _ = write!(
+                out,
+                "same vector space (drift {:.2e}, tolerance {:.0e})",
+                r.max_drift.unwrap_or(0.0),
+                r.tolerance.unwrap_or(0.0)
+            );
+        }
+        "match" => out.push_str("witness present; pass --provider to check a consumer against it"),
+        "known-delta" => {
+            let _ = write!(
+                out,
+                "DIFFERENT vector space, within the bound `{}` declared for it\n  \
+                 drift {:.2e}, allowed {:.0e}\n  \
+                 Retrieval works and is measurably not identical. This is the expected \
+                 degradation, named.",
+                r.runtime.clone().unwrap_or_default(),
+                r.max_drift.unwrap_or(0.0),
+                r.tolerance.unwrap_or(0.0)
+            );
+        }
+        "unverifiable" => out.push_str("no witness — this index cannot be checked against"),
+        _ => out.push_str("MISMATCH"),
+    }
     for p in &r.problems {
-        out.push_str(&format!("\n  {p}"));
+        let _ = write!(out, "\n  {p}");
     }
     out
 }

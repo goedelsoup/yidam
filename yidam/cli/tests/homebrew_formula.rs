@@ -10,6 +10,7 @@
 //! that this file can exist: a step inlined in `release.yml` is testable only by cutting a
 //! release.
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -44,7 +45,7 @@ fn combined(dir: &Path, version: &str, targets: &[&str]) -> PathBuf {
     let mut body = String::new();
     for (n, t) in targets.iter().enumerate() {
         let hash = format!("{}", n + 1).repeat(64);
-        body.push_str(&format!("{hash}  yidam-{version}-{t}.tar.gz\n"));
+        let _ = writeln!(body, "{hash}  yidam-{version}-{t}.tar.gz");
     }
     let path = dir.join("SHA256SUMS");
     std::fs::write(&path, body).unwrap();
@@ -368,12 +369,13 @@ fn the_combined_file_matches_the_asset_name_whole() {
     let decoy = "d".repeat(64);
     let mut body = String::new();
     // First, so a substring matcher stopping at its first hit takes this one.
-    body.push_str(&format!("{decoy}  yidam-1.2.3-{}.tar.gz.sig\n", TARGETS[0]));
+    let _ = writeln!(body, "{decoy}  yidam-1.2.3-{}.tar.gz.sig", TARGETS[0]);
     for (n, t) in TARGETS.iter().enumerate() {
-        body.push_str(&format!(
-            "{}  yidam-1.2.3-{t}.tar.gz\n",
+        let _ = writeln!(
+            body,
+            "{}  yidam-1.2.3-{t}.tar.gz",
             format!("{}", n + 1).repeat(64)
-        ));
+        );
     }
     std::fs::write(&sums, body).unwrap();
 

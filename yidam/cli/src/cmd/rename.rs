@@ -33,6 +33,7 @@
 //! is whether anybody was told.
 
 use anyhow::Result;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use crate::paths::{repo_root, yidam_corpus_dir};
@@ -359,7 +360,7 @@ pub(crate) fn render_rename(r: &RenameReport) -> String {
     if !r.blocked.is_empty() {
         let mut out = format!("Cannot rename {} → {}:\n", r.from, r.to);
         for b in &r.blocked {
-            out.push_str(&format!("  {b}\n"));
+            let _ = writeln!(out, "  {b}");
         }
         return out.trim_end().to_string();
     }
@@ -376,18 +377,19 @@ pub(crate) fn render_rename(r: &RenameReport) -> String {
             .len()
     );
     for e in &r.edits {
-        out.push_str(&format!("  {}:{}  {} → {}\n", e.file, e.line, e.from, e.to));
+        let _ = writeln!(out, "  {}:{}  {} → {}", e.file, e.line, e.from, e.to);
     }
     if !r.unhandled.is_empty() {
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "\n{} prose reference(s) NOT rewritten — check these by hand:\n",
             r.unhandled.len()
-        ));
+        );
         for u in &r.unhandled {
-            out.push_str(&format!("  {}:{}  {}\n", u.file, u.line, u.text));
+            let _ = writeln!(out, "  {}:{}  {}", u.file, u.line, u.text);
         }
     }
-    out.push_str(&format!("\ncommit: {}", r.commit_subject));
+    let _ = write!(out, "\ncommit: {}", r.commit_subject);
     out.trim_end().to_string()
 }
 

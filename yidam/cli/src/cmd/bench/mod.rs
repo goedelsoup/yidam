@@ -40,6 +40,7 @@ pub mod scaling;
 
 use anyhow::{bail, Result};
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 
 use crate::cmd::serve::{tools, ServerState};
 use crate::paths::{repo_root, yidam_bench_dir};
@@ -728,20 +729,21 @@ pub fn render(report: &BenchReport) -> String {
         report.standing_reason,
     );
     for goal in &report.goals {
-        out.push_str(&format!(
-            "  {}{}\n",
+        let _ = writeln!(
+            out,
+            "  {}{}",
             goal.id,
             match goal.counts_toward_ratio {
                 true => String::new(),
                 false => "  (reported, not compared)".to_string(),
             }
-        ));
+        );
         out.push_str(&render_arm(&goal.flat));
         out.push_str(&render_arm(&goal.full_scan));
         out.push_str(&render_arm(&goal.anchored));
     }
     let s = &report.summary;
-    out.push_str(&format!(
+    let _ = write!(out,
         "\n{} goal(s) compared, {} reported only\n  flat       mean precision {}  mean recall {}\n  full-scan  mean precision {}  mean recall {}\n  anchored   mean precision {}  mean recall {}\n",
         s.compared,
         s.reported_only,
@@ -751,7 +753,7 @@ pub fn render(report: &BenchReport) -> String {
         pct(s.full_scan_mean_recall),
         pct(s.anchored_mean_precision),
         pct(s.anchored_mean_recall),
-    ));
+    );
     out.trim_end().to_string()
 }
 

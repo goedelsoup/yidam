@@ -16,6 +16,7 @@
 
 use anyhow::Result;
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 
 use crate::cmd::lint::history::Expectation;
 use crate::paths::repo_root;
@@ -146,10 +147,11 @@ pub(crate) fn render(rows: &[ReplayRow], every: usize) -> String {
         } else {
             r.orphans * 100 / r.nodes
         };
-        out.push_str(&format!(
-            "{:<10}   {:<7}   {:>5}   {:>7}   {:>7}%\n",
+        let _ = writeln!(
+            out,
+            "{:<10}   {:<7}   {:>5}   {:>7}   {:>7}%",
             r.date, r.commit, r.nodes, r.orphans, pct
-        ));
+        );
     }
     // The two counts here are different populations and both are called "uncited", so the
     // difference is stated rather than left to be inferred. The series counts what
@@ -160,12 +162,13 @@ pub(crate) fn render(rows: &[ReplayRow], every: usize) -> String {
          point at. The breakdown below counts every uncited node, those included.\n",
     );
     if shown.len() < rows.len() {
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "\n{} of {} commits shown. --every 0 for all; --format json carries every row and \
              the per-class breakdown.\n",
             shown.len(),
             rows.len()
-        ));
+        );
     }
 
     // A corpus-wide number cannot say whether a class is behaving as its ontology declared,
@@ -182,13 +185,14 @@ pub(crate) fn render(rows: &[ReplayRow], every: usize) -> String {
             named.sort_by(|a, b| b.1.uncited.cmp(&a.1.uncited).then(a.0.cmp(b.0)));
             out.push_str("\nUncited at HEAD, by class, against what the class declares\n");
             for (name, c) in named {
-                out.push_str(&format!(
-                    "  {:<24} {:>3} of {:<3}  {}\n",
+                let _ = writeln!(
+                    out,
+                    "  {:<24} {:>3} of {:<3}  {}",
                     name,
                     c.uncited,
                     c.nodes,
                     verdict(c)
-                ));
+                );
             }
         }
     }

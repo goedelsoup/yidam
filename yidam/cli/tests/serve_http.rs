@@ -12,6 +12,7 @@
 #![cfg(feature = "serve-http")]
 
 use serde_json::{json, Value};
+use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
@@ -143,7 +144,7 @@ fn request(addr: &str, method: &str, path: &str, headers: &[(&str, &str)], body:
         body.len()
     );
     for (k, v) in headers {
-        req.push_str(&format!("{k}: {v}\r\n"));
+        let _ = write!(req, "{k}: {v}\r\n");
     }
     req.push_str("\r\n");
     req.push_str(body);

@@ -847,6 +847,7 @@ pub fn citation_range_stated_twice(citations: &[LineCitation]) -> Check {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt::Write as _;
 
     fn frag(s: &str) -> Option<(usize, usize)> {
         parse_fragment(s).map(|f| (f.start, f.end))
@@ -1486,20 +1487,18 @@ a trailing line
             "`.ont.yml` now declares, and lint now enforces: the class an instance belongs to\n",
         );
         for (i, (label, _, _)) in REPOINTED.iter().enumerate() {
-            s.push_str(&format!(
-                "([`{label}`](../checks.rs#L{}), Error), and\n",
-                pick(i)
-            ));
+            let _ = writeln!(s, "([`{label}`](../checks.rs#L{}), Error), and", pick(i));
         }
         let (a, b) = match before {
             true => (1460, 1462),
             false => (1495, 1497),
         };
-        s.push_str(&format!(
+        let _ = write!(
+            s,
             "\n`unlicensed-edge`'s own rationale draws this line already \
              ([`checks.rs:{a}-{b}`](../checks.rs#L{a}-L{b})): *a link to the class file or \
              into the catalog is a citation, not a relationship.*\n"
-        ));
+        );
         s
     }
 

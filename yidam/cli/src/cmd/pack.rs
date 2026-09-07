@@ -29,6 +29,7 @@
 //! same corpus differently. `the_two_packs_render_a_node_the_same_way` holds them together.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 
 use anyhow::Result;
 
@@ -271,13 +272,14 @@ pub(crate) fn from_report(
     // a line whose inclusion changes the measurement would be circular.
     let over_budget = opts.budget.is_some_and(|t| body.len() / 4 > t);
     if over_budget {
-        body.push_str(&format!(
+        let _ = writeln!(
+            body,
             "# Over budget: {} tokens asked for, and the account above costs {}. \
              Nothing was dropped to fit it — a pack that hid its own receipt would read as a \
-             corpus with nothing to say.\n",
+             corpus with nothing to say.",
             opts.budget.unwrap_or(0),
             body.len() / 4,
-        ));
+        );
     }
 
     let omitted: usize = filled.omitted_by_class.values().sum();
@@ -332,17 +334,19 @@ fn header(
     // "all of them", and the reserve below is computed from this string before `written` is
     // known — a conditional that gets *longer* when the budget bites would under-reserve
     // exactly when the reservation matters.
-    s.push_str(&format!(
-        "# Scope: {} | Nodes: {written} of {reachable}{}\n",
+    let _ = writeln!(
+        s,
+        "# Scope: {} | Nodes: {written} of {reachable}{}",
         report.scope,
         match budget {
             Some(b) => format!(" | Token budget: {b} ({BASIS})"),
             None => format!(" | Unbudgeted ({BASIS})"),
         },
-    ));
+    );
     if let Some(a) = &report.anchor {
-        s.push_str(&format!(
-            "# Anchored on {} — {}\n",
+        let _ = writeln!(
+            s,
+            "# Anchored on {} — {}",
             match a.entries.is_empty() {
                 true => "nothing".to_string(),
                 false => a
@@ -357,27 +361,23 @@ fn header(
                     format!("keyword search, not similarity ({reason}); {repair}"),
                 _ => "semantic search".to_string(),
             }
-        ));
+        );
     }
     // The pack's most important line when it is there. A pack with no sections and no
     // explanation is a context window that says the corpus has nothing on the subject, which
     // is the invention #283 is about — arriving in the one artefact an agent reads as though
     // it were the corpus.
     if let Some(a) = &report.absence {
-        s.push_str(&format!(
-            "# Absent ({}) at step {}: {}\n",
+        let _ = writeln!(
+            s,
+            "# Absent ({}) at step {}: {}",
             a.code,
             a.step + 1,
             a.message
-        ));
+        );
     }
     for d in &report.diagnostics {
-        s.push_str(&format!(
-            "# [{}] step {}: {}\n",
-            d.level,
-            d.step + 1,
-            d.message
-        ));
+        let _ = writeln!(s, "# [{}] step {}: {}", d.level, d.step + 1, d.message);
     }
     s.push('\n');
     s

@@ -92,6 +92,17 @@ unsafe_code = "deny"
 # rather than a silent addition to a published API, and `lib.rs` re-exports about fifty
 # names out of the private `cmd` module already.
 [lints.clippy]
+# `s.push_str(&format!(…))` allocates a `String` per push and drops it. 130 sites across
+# roughly thirty command modules that build human-readable output by repeated append, the
+# heaviest being `cmd/kuten.rs` (17), `cmd/migrate.rs` (9) and `cmd/query/mod.rs` (8).
+#
+# The replacement is `write!(s, …)` into the buffer that already exists, and it is written
+# `let _ = write!(…)` rather than `.unwrap()` for a reason that is measured elsewhere in this
+# file: `panic_paths.rs` ratchets production panic paths at 23 and may not rise, so 129
+# infallible unwraps would have cost more than the allocation they removed. Writing to a
+# `String` cannot fail — `fmt::Write for String` returns `Ok` unconditionally — so the
+# discarded result is the honest form and not a swallowed error.
+format_push_string = "deny"
 # Mechanical, `--fix`-able, and 152 sites. Named here so it stays done.
 use_self = "deny"
 
