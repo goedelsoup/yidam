@@ -500,7 +500,7 @@ pub fn run_between(
     let mut series = Vec::new();
     // The previous row's answer, as the pair that identifies one: why it was refused, if it
     // was, and every node that matched if it was not.
-    let mut previous: Option<(Option<&'static str>, Vec<String>)> = None;
+    let mut previous: Option<(Option<check::Code>, Vec<String>)> = None;
     for revision in commits {
         let graph = Graph::at_with(root, &revision.commit, &mut blobs)?;
         let ctx = Context {

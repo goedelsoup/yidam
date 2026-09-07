@@ -42,44 +42,77 @@ pub struct Diagnostic {
     pub message: String,
 }
 
-/// Every `code` a rejection can carry, named once.
+/// A rejection code — one of [`code`]'s, and nothing else.
 ///
-/// The set is the MCP contract's — `tools.json` freezes it and says, in those words, that *a
-/// client branches on them*. Both halves of that promise were string literals: one written at
-/// a `Rejection` site here and in `query::mod`, the other inside a `notes` paragraph. Nothing
-/// compared them, and they diverged — three of the nine names the contract froze are lint
-/// check ids no rejection has ever carried, and four codes this crate emits were not frozen
-/// at all. Two of the four are near-misses of a frozen name, which is why reading the lists
-/// side by side did not catch it: `unknown-property` and `undeclared-property` are the same
-/// thing to a person and different strings to a `match`.
+/// **The field is this type rather than `&'static str` so that a literal does not compile.**
+/// A roster of constants was the first attempt and it did not hold: the ordering operators
+/// landed one commit later with `unordered-property` written at its call site, which the
+/// roster could not see and the contract gate therefore passed, because both lists agreed
+/// about a code neither had heard of. Naming the codes in one place only helps if nothing can
+/// name one somewhere else, and that is a property of the type rather than of the discipline.
 ///
-/// So the codes are named here and the sites refer to them, because a literal at a call site
-/// is invisible to the comparison `serve::tools` now makes against the contract.
+/// The inner field is private, so `code` is the only module that can mint one. It serialises
+/// as the bare string it wraps, compares against `&str`, and renders as itself, so every
+/// reader — the JSON envelope, `assert_eq!`, the rendered `rejected (…)` line — is unchanged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+#[serde(transparent)]
+pub struct Code(&'static str);
+
+impl std::fmt::Display for Code {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+/// So a test may say what a caller says: `assert_eq!(e.code, "unknown-class")`. Comparing
+/// against the wire string is the assertion worth writing — one against another `Code` would
+/// restate a constant to itself and pin nothing a client can see.
+impl PartialEq<&str> for Code {
+    fn eq(&self, other: &&str) -> bool {
+        self.0 == *other
+    }
+}
+
+/// Every `code` a rejection can carry, named once — and, since [`Code`]'s field is private,
+/// the only place one can be named at all.
+///
+/// The set is the MCP contract's: `tools.json` freezes it and says, in those words, that *a
+/// client branches on them*. Both halves of that promise used to be string literals, one at a
+/// `Rejection` site and one inside a `notes` paragraph, and nothing compared them. They
+/// diverged — three of the nine names the contract froze were lint check ids no rejection has
+/// ever carried, and four codes this crate emits were frozen nowhere. Two of the four were
+/// near-misses of a frozen name, which is why reading the lists side by side did not catch
+/// it: `unknown-property` and `undeclared-property` are the same thing to a person and
+/// different strings to a `match`.
 pub mod code {
+    use super::Code;
+
     /// The query text is not a path.
-    pub const PARSE: &str = "parse";
+    pub const PARSE: Code = Code("parse");
     /// A step names a class the corpus does not declare.
-    pub const UNKNOWN_CLASS: &str = "unknown-class";
+    pub const UNKNOWN_CLASS: Code = Code("unknown-class");
     /// A predicate names a property no candidate class declares.
-    pub const UNDECLARED_PROPERTY: &str = "undeclared-property";
-    /// `=` against a value the declared type cannot hold: a query that could never match.
-    pub const UNSATISFIABLE_PREDICATE: &str = "unsatisfiable-predicate";
+    pub const UNDECLARED_PROPERTY: Code = Code("undeclared-property");
+    /// An ordering operator against a property whose declared type has no order (#725).
+    pub const UNORDERED_PROPERTY: Code = Code("unordered-property");
+    /// An operand the declared type cannot hold: a query that could never match.
+    pub const UNSATISFIABLE_PREDICATE: Code = Code("unsatisfiable-predicate");
     /// A hop no class on the authoring side licenses, by policy or by target.
-    pub const UNLICENSED_HOP: &str = "unlicensed-hop";
+    pub const UNLICENSED_HOP: Code = Code("unlicensed-hop");
     /// `select` names a field that is not projectable.
-    pub const UNKNOWN_FIELD: &str = "unknown-field";
+    pub const UNKNOWN_FIELD: Code = Code("unknown-field");
     /// An anchor on a step that is arrived at rather than entered.
-    pub const ANCHOR_NOT_ENTRY: &str = "anchor-not-entry";
+    pub const ANCHOR_NOT_ENTRY: Code = Code("anchor-not-entry");
     /// An anchor with no index supplied to resolve it against.
-    pub const ANCHOR_UNAVAILABLE: &str = "anchor-unavailable";
+    pub const ANCHOR_UNAVAILABLE: Code = Code("anchor-unavailable");
     /// An index was supplied and the anchor did not resolve against it.
-    pub const ANCHOR_UNRESOLVABLE: &str = "anchor-unresolvable";
+    pub const ANCHOR_UNRESOLVABLE: Code = Code("anchor-unresolvable");
     /// An anchored query asked to span dependencies the local index does not cover.
-    pub const ANCHOR_ACROSS: &str = "anchor-across";
+    pub const ANCHOR_ACROSS: Code = Code("anchor-across");
     /// An anchor asked for as of a past commit, which the index cannot answer.
-    pub const ANCHOR_AT_REVISION: &str = "anchor-at-revision";
+    pub const ANCHOR_AT_REVISION: Code = Code("anchor-at-revision");
     /// The corpus at the requested revision or range could not be reconstructed.
-    pub const HISTORY_UNREADABLE: &str = "history-unreadable";
+    pub const HISTORY_UNREADABLE: Code = Code("history-unreadable");
 
     /// The codes a caller of the MCP `query` tool can receive, and the set the contract
     /// freezes. `serve::tools` compares this against `tools.json` in both directions — a code
@@ -93,10 +126,15 @@ pub mod code {
     /// `--between` they answer. Freezing them would put two more names in a client's `match`
     /// that no conforming server can reach, which is the failure the list already had three
     /// of.
-    pub const SURFACED: &[&str] = &[
+    ///
+    /// A new code has to be added here to be frozen, and that is now the *only* omission
+    /// possible: it cannot be written at a call site instead, so the failure mode is a
+    /// contract gate that goes red rather than a code nobody knew to look for.
+    pub const SURFACED: &[Code] = &[
         PARSE,
         UNKNOWN_CLASS,
         UNDECLARED_PROPERTY,
+        UNORDERED_PROPERTY,
         UNSATISFIABLE_PREDICATE,
         UNLICENSED_HOP,
         UNKNOWN_FIELD,
@@ -110,12 +148,13 @@ pub mod code {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Rejection {
     pub step: Option<usize>,
-    /// From [`code`], which is the set `tools.json` freezes.
-    pub code: &'static str,
+    /// From [`code`], which is the set `tools.json` freezes — and, because [`Code`] cannot be
+    /// built outside it, the only set this field can hold.
+    pub code: Code,
     pub message: String,
 }
 
-fn reject(code: &'static str, step: Option<usize>, message: impl Into<String>) -> Rejection {
+fn reject(code: Code, step: Option<usize>, message: impl Into<String>) -> Rejection {
     Rejection {
         step,
         code,
@@ -271,7 +310,7 @@ fn check_pred(
     // because nothing here knows what its order is.
     if pred.op.is_ordering() && declared != "date" {
         return Err(reject(
-            "unordered-property",
+            code::UNORDERED_PROPERTY,
             Some(step_index),
             format!(
                 "`{}` is `type: {declared}` on `{}`, and `{}` is defined on `date` only — \
@@ -290,7 +329,7 @@ fn check_pred(
         // wrong about, and `property_type_violation`'s own sentence says what a date is —
         // which is the sentence the corpus already gets when it writes one wrong.
         (op, Some(why)) if op.is_ordering() => Err(reject(
-            "unsatisfiable-predicate",
+            code::UNSATISFIABLE_PREDICATE,
             Some(step_index),
             format!(
                 "`{}` cannot be compared against that value: {why}",
