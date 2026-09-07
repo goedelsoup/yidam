@@ -415,6 +415,9 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     let [baseline_unmet, baseline_undeclared, holds_unadopted] = lineage::checks(&standings);
 
     let mut all = vec![
+        // First, because it is the finding that says whether the rest of the report is about
+        // the corpus or about what serde made of a file it could not read.
+        checks::malformed_yaml(&nodes, &classes),
         checks::missing_class(&nodes),
         checks::unknown_class(&nodes, &defined),
         checks::orphan_out(&nodes),
@@ -478,7 +481,75 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         all.push(commits::unrecognized_verb(&subjects, &registers));
     }
 
+    suppress_unparsed(&mut all, &nodes, &classes);
     all
+}
+
+/// Drop every finding about a file whose bytes did not parse, except the one that says so.
+///
+/// **The second half of [`checks::malformed_yaml`], and the half without which it makes the
+/// report worse.** A file the parser rejected reached every other check as an empty record,
+/// and what those checks reported is what they made of the emptiness rather than of the file:
+/// one unclosed quote produced eight findings across six checks, opening with `missing-class`
+/// against a file whose first line is a `class:` field. Adding a ninth finding and leaving the
+/// eight in place would bury the only one that can be acted on.
+///
+/// **Applied to the report rather than to the inputs**, and that is the design decision. The
+/// obvious alternative — keep the unparsed files out of the slices the checks are handed —
+/// changes what those checks conclude about *other* files. `unlicensed-edge` and
+/// `edge-target-class` resolve link targets through an index built from the node list, so
+/// withholding one node would silently stop checking every well-formed node that points at
+/// it. `citations` reads a node's markdown links straight out of its bytes and does not need
+/// the parse at all, so withholding one would throw away citations that are still perfectly
+/// legible. Both are new mistakes about files that parse, made in order to hide findings about
+/// one that does not. Filtering the findings themselves cannot do that: nothing but the
+/// unreadable file's own entries changes.
+///
+/// **What still gets through, and should.** A check whose subject is a different file is left
+/// alone even when the unreadable one is why it fired. Breaking one instance in
+/// `examples/streamflow` leaves `catalog-used-by-drift` reporting that `usgs-nwis.md` claims a
+/// node that does not cite it — because the citation is a `links:` entry, and while the file
+/// does not parse there is no reading under which it does cite. That is a true statement about
+/// what the corpus can be shown to say, it is a Warn and does not gate, and it goes away when
+/// the quote is closed. Suppressing it would mean deciding that an unreadable file is evidence
+/// for the claims made about it, which is the whole mistake #676 is about.
+///
+/// It also cannot fall behind the registry. A check added next year is covered without knowing
+/// this function exists, which a per-check `if malformed { continue }` in thirty-seven places
+/// could not promise for long.
+fn suppress_unparsed(all: &mut [Check], nodes: &[checks::Node], classes: &[checks::Class]) {
+    let unparsed: HashSet<&str> = nodes
+        .iter()
+        .filter(|n| n.malformed.is_some())
+        .map(|n| n.rel.as_str())
+        .chain(
+            classes
+                .iter()
+                .filter(|c| c.malformed.is_some())
+                .map(|c| c.rel.as_str()),
+        )
+        .collect();
+    if unparsed.is_empty() {
+        return;
+    }
+    for check in all.iter_mut().filter(|c| c.id != checks::MALFORMED_YAML) {
+        check
+            .violations
+            .retain(|v| !unparsed.contains(file_of(&v.node)));
+    }
+}
+
+/// The file a finding is about, where the finding names a line inside it.
+///
+/// `claim-tag-malformed` and the line-citation checks report against `path:line`, because the
+/// point of those findings is to go and fix that line. Comparing the whole string against a
+/// path would leave exactly those findings behind on an unreadable file — the ones scanning
+/// its prose, which is the part of it that still reads.
+/// Through [`json::node_line`], because the report already had to answer this: a second copy
+/// of what a `path:line` identity means is how the suppression and the span come to disagree
+/// about which file a finding names.
+fn file_of(node: &str) -> &str {
+    json::node_line(node).map_or(node, |(file, _)| file)
 }
 
 /// [`checks::orphan_in`], with each finding dated and aged.
@@ -930,6 +1001,189 @@ decision := {"allow": true, "deny": []}
 
     fn check<'a>(all: &'a [Check], id: &str) -> &'a Check {
         all.iter().find(|c| c.id == id).expect(id)
+    }
+
+    // ── #676: a file that does not parse ────────────────────────────────────────
+
+    /// A corpus whose class declares a property its instances do not carry.
+    ///
+    /// `schema` is the whole class file, so an arm can hand over a sound one or one with a
+    /// typo in it and change *nothing else*. The instance defect is identical either way,
+    /// which is what makes the pair a measurement rather than two fixtures.
+    fn repo_with_a_declared_property(schema: &str) -> TempDir {
+        let tmp = TempDir::new().unwrap();
+        let corpus = tmp.path().join(".yidam/corpus");
+        let class = corpus.join("gage");
+        fs::create_dir_all(&class).unwrap();
+        fs::write(corpus.join("gage.ont.yml"), schema).unwrap();
+        for (name, other) in [
+            ("canyon-outlet", "valley-bridge"),
+            ("valley-bridge", "canyon-outlet"),
+        ] {
+            fs::write(
+                class.join(format!("{name}.yml")),
+                format!(
+                    "class: gage\nlabel: {name}\ndescription: A gage.\nlinks:\n  \
+                     - target: {other}.yml\n    relationship: refines\n"
+                ),
+            )
+            .unwrap();
+        }
+        tmp
+    }
+
+    /// Declares one property, so an instance without it is a finding.
+    const SOUND_SCHEMA: &str =
+        "class: gage\nlabel: Gage\nproperties:\n  - name: parameter\n    type: string\n";
+    /// The same file, with one unclosed quote in `label:`. Nothing else differs.
+    const BROKEN_SCHEMA: &str =
+        "class: gage\nlabel: \"Gage\nproperties:\n  - name: parameter\n    type: string\n";
+
+    /// **The controlled pair from #676, and the arm that reported nothing at all.**
+    ///
+    /// A one-character typo in a class file dropped every declared property, which switched
+    /// off each check that reads them — `missing-property`, `undeclared-property`,
+    /// `property-type`, `edge-target-class`, `unlicensed-edge` — and left `lint` printing
+    /// `0 finding(s), no errors` over a corpus carrying the defect the sound arm reports. A
+    /// false negative in a gate, produced by a typo, and nothing in the report could say it
+    /// had happened.
+    ///
+    /// The assertion is deliberately about the *dependent* check rather than about the parse:
+    /// a check that grepped the bytes for a broken quote would satisfy half this test while
+    /// reading nothing, so both arms are measured through `missing-property`.
+    #[test]
+    fn a_class_file_that_does_not_parse_gates_instead_of_declaring_nothing() {
+        let sound = repo_with_a_declared_property(SOUND_SCHEMA);
+        let all = run_checks(sound.path(), &Options::default());
+        assert_eq!(
+            check(&all, "missing-property").violations.len(),
+            2,
+            "the sound arm must have a finding to lose"
+        );
+        assert!(check(&all, "malformed-yaml").passed());
+
+        let broken = repo_with_a_declared_property(BROKEN_SCHEMA);
+        let all = run_checks(broken.path(), &Options::default());
+        let c = check(&all, "malformed-yaml");
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        assert!(
+            c.violations[0].node.ends_with("gage.ont.yml"),
+            "{}",
+            c.violations[0].node
+        );
+        // What the unreadable schema actually cost, stated rather than inferred: the class
+        // declares nothing the tool can see, so the check that reads the declaration has
+        // nothing to report and is right not to.
+        assert!(check(&all, "missing-property").passed());
+        // And the whole point — this run used to exit 0.
+        assert!(errors(&all) > 0, "a schema nobody can read must gate");
+    }
+
+    /// **The instance arm: one finding, and the rest of the report stays quiet about it.**
+    ///
+    /// One unclosed quote used to produce eight findings across six checks, opening with
+    /// `missing-class` against a file whose first line is a `class:` field. Every one of them
+    /// described the empty record `serde_yaml` returned rather than the file. Adding a ninth
+    /// finding and leaving the eight would have buried the only one worth reading.
+    ///
+    /// The prose carries a near-miss evidence tag, and that is the load-bearing part of the
+    /// fixture rather than decoration. `claim-tag-malformed` reads the *bytes*, so it is the
+    /// one check with something to say about a file the parser rejected — and it reports
+    /// against `alpha.yml:3`. The sound arm pins that it fires at all; without it this case
+    /// would pass against a suppression that never handled a finding naming a line.
+    #[test]
+    fn a_node_that_does_not_parse_gets_one_finding_and_no_others() {
+        let rel = ".yidam/corpus/reach/alpha.yml";
+        let tagged = |label: &str| {
+            format!("class: reach\nlabel: {label}\ndescription: Settled [verified — Pearl 2009].\n")
+        };
+
+        let sound = clean_repo();
+        fs::write(sound.path().join(rel), tagged("Alpha")).unwrap();
+        let tag = check(
+            &run_checks(sound.path(), &Options::default()),
+            "claim-tag-malformed",
+        )
+        .violations
+        .iter()
+        .map(|v| v.node.clone())
+        .collect::<Vec<_>>();
+        assert_eq!(tag, vec![format!("{rel}:3")], "the finding this suppresses");
+
+        // The same file with one unclosed quote in `label:`.
+        let tmp = clean_repo();
+        fs::write(tmp.path().join(rel), tagged("\"Alpha")).unwrap();
+        let all = run_checks(tmp.path(), &Options::default());
+
+        let c = check(&all, "malformed-yaml");
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        assert_eq!(c.violations[0].node, rel);
+        // The parser's own reason, which is what makes the finding actionable: it names
+        // line 2 column 8, where the quote was opened.
+        assert!(
+            c.violations[0].detail.contains("line 2 column 8"),
+            "{}",
+            c.violations[0].detail
+        );
+
+        // `starts_with` and deliberately not `file_of`: an assertion written through the
+        // function under test agrees with it by construction, and a `path:line` finding
+        // slipping past the suppression is exactly what it would then fail to see.
+        let elsewhere: Vec<(&str, &str)> = all
+            .iter()
+            .filter(|c| c.id != checks::MALFORMED_YAML)
+            .flat_map(|c| c.violations.iter().map(move |v| (c.id, v.node.as_str())))
+            .filter(|(_, node)| node.starts_with(rel))
+            .collect();
+        assert!(
+            elsewhere.is_empty(),
+            "a file nobody could read is described by these too: {elsewhere:?}"
+        );
+    }
+
+    /// The suppression is about one file, not about the run.
+    ///
+    /// The guard on the case above: a filter that reached one finding too far would make an
+    /// unreadable node into a way of quieting the gate about everything beside it, which is
+    /// the defect #676 reports rather than a fix for it.
+    #[test]
+    fn a_neighbour_that_does_not_parse_does_not_quiet_the_findings_about_a_file_that_does() {
+        let tmp = clean_repo();
+        fs::write(
+            tmp.path().join(".yidam/corpus/reach/alpha.yml"),
+            "class: reach\nlabel: \"Alpha\n",
+        )
+        .unwrap();
+        // A real, unrelated defect on a file that parses perfectly.
+        fs::write(
+            tmp.path().join(".yidam/corpus/reach/beta.yml"),
+            "class: reach\nlabel: Beta\ndescription: B.\nlinks:\n  \
+             - target: nowhere.yml\n    relationship: refines\n",
+        )
+        .unwrap();
+
+        let all = run_checks(tmp.path(), &Options::default());
+        let dangling = check(&all, "dangling-edge");
+        assert_eq!(dangling.violations.len(), 1, "{:?}", dangling.violations);
+        assert!(dangling.violations[0].node.ends_with("beta.yml"));
+    }
+
+    /// A file with nothing in it has not contradicted anything.
+    ///
+    /// `serde_yaml` reads no bytes as the absent value rather than as a failure, and this pins
+    /// that: `missing-class` and its siblings already describe an empty file correctly, and
+    /// reporting it as unparseable would additionally suppress them. It is also what keeps
+    /// `Overlay::read`'s unreadable-file-as-`""` out of this check's scope.
+    #[test]
+    fn an_empty_node_file_is_described_by_the_ordinary_checks_and_not_by_this_one() {
+        let tmp = clean_repo();
+        fs::write(tmp.path().join(".yidam/corpus/reach/alpha.yml"), "").unwrap();
+        let all = run_checks(tmp.path(), &Options::default());
+        assert!(check(&all, "malformed-yaml").passed());
+        assert!(check(&all, "missing-class")
+            .violations
+            .iter()
+            .any(|v| v.node.ends_with("alpha.yml")));
     }
 
     /// A file with one link that goes nowhere, at `rel` under the repo.

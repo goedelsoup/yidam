@@ -123,7 +123,11 @@ pub struct AgeOut {
 /// checks — because a file can trip them many times and the path alone would collapse
 /// those into one. That line is exact, so it is the best span available and costs nothing
 /// to recover.
-fn node_line(node: &str) -> Option<(&str, usize)> {
+///
+/// Shared with [`super::suppress_unparsed`], which asks the same question for a different
+/// reason — *which file is this finding about?* — and would otherwise leave a second copy of
+/// the convention in the module that decides what a finding's identity is.
+pub(crate) fn node_line(node: &str) -> Option<(&str, usize)> {
     let (path, line) = node.rsplit_once(':')?;
     Some((path, line.parse().ok()?))
 }

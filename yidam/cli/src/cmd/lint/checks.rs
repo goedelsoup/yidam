@@ -25,6 +25,57 @@ pub struct Node {
     /// contents are the wrong answer and which may not exist at all. `load_nodes` already
     /// had this string in hand and threw it away.
     pub text: String,
+    /// Why the bytes did not parse, when they did not. See [`parse_or_default`].
+    pub malformed: Option<String>,
+}
+
+impl Node {
+    /// Build one from an instance file's bytes and where it came from.
+    ///
+    /// The only constructor, for the reason [`Class::parse`] is the only one for a class:
+    /// [`Self::text`] and [`Self::inst`] must come from the same string, and a caller holding
+    /// both could hand over a mismatched pair with nothing to say so. It is also what makes
+    /// [`Self::malformed`] unforgeable — the parse outcome is recorded where the parse
+    /// happens, and there is no other way to build one.
+    pub(crate) fn parse(path: PathBuf, rel: impl Into<String>, text: impl Into<String>) -> Self {
+        let text = text.into();
+        let (inst, malformed) = parse_or_default(&text);
+        Self {
+            path,
+            rel: rel.into(),
+            inst,
+            text,
+            malformed,
+        }
+    }
+}
+
+/// A YAML document read into `T`, and the reason if it could not be.
+///
+/// **The one place the lint model turns bytes into a record**, and it is one place because it
+/// was five — each of them `serde_yaml::from_str(&text).unwrap_or_default()`, each of them
+/// turning a file nobody could read into an *empty* record that the checks then read as fact.
+/// One unclosed quote in an instance produced eight findings across six checks, the first of
+/// which said the file declared no `class:` about a file whose first line is a `class:` field.
+/// The same typo in a `<class>.ont.yml` dropped every declared property, which switched off
+/// `missing-property`, `undeclared-property`, `property-type`, `edge-target-class` and
+/// `unlicensed-edge` at once and left the gate reporting a clean corpus (#676).
+///
+/// The default is still returned, because the checks downstream are written against a record
+/// and a half-read file is better described as empty than guessed at. What changes is that
+/// the failure comes back with it, so [`malformed_yaml`] can report the file and the rest of
+/// the report can stay quiet about it.
+///
+/// **An empty document is not a failure.** `serde_yaml` reads no bytes at all as the absent
+/// value, and a file with nothing in it has not contradicted anything — `missing-class` and
+/// its siblings already describe that file correctly. Keeping it out of scope is also what
+/// keeps `Overlay::read`'s unreadable-file-as-`""` out of scope, which is a different
+/// question with a different blast radius.
+fn parse_or_default<T: Default + serde::de::DeserializeOwned>(text: &str) -> (T, Option<String>) {
+    match serde_yaml::from_str(text) {
+        Ok(parsed) => (parsed, None),
+        Err(e) => (T::default(), Some(e.to_string())),
+    }
 }
 
 /// Whether a class's `edges:` list bounds what may be said about it, or merely describes it.
@@ -146,6 +197,15 @@ pub struct Class {
     /// Dead alignment spellings this class file carries, as written. Empty for almost every
     /// class; [`foundational_field_misspelled`] is the only reader.
     pub dead_alignment_fields: Vec<&'static str>,
+    /// Why the bytes did not parse, when they did not. See [`parse_or_default`].
+    ///
+    /// **The arm this field exists for.** An unreadable instance produces findings that
+    /// contradict the file it names; an unreadable *class* produces no findings at all,
+    /// because every check that reads a declaration reads an empty list and has nothing to
+    /// say. Nothing else on this struct can tell a class that declares no properties from a
+    /// class nobody could read, and the two are opposite: the first is an ontology that has
+    /// not been filled in, the second is a gate that has been switched off.
+    pub malformed: Option<String>,
 }
 
 /// One typed field a class declares.
@@ -376,7 +436,7 @@ impl Class {
     pub(crate) fn parse(rel: impl Into<String>, text: impl Into<String>) -> Self {
         let rel = rel.into();
         let text = text.into();
-        let fields: ClassFields = serde_yaml::from_str(&text).unwrap_or_default();
+        let (fields, malformed): (ClassFields, _) = parse_or_default(&text);
         Self {
             name: Path::new(&rel)
                 .file_name()
@@ -405,6 +465,7 @@ impl Class {
             .into_iter()
             .flatten()
             .collect(),
+            malformed,
         }
     }
 }
@@ -448,15 +509,7 @@ fn rel_of(root: &Path, path: &Path) -> String {
 pub fn load_nodes(root: &Path, paths: &[PathBuf], overlay: &super::Overlay) -> Vec<Node> {
     paths
         .iter()
-        .map(|p| {
-            let text = overlay.read(p);
-            Node {
-                path: p.clone(),
-                rel: rel_of(root, p),
-                inst: serde_yaml::from_str(&text).unwrap_or_default(),
-                text,
-            }
-        })
+        .map(|p| Node::parse(p.clone(), rel_of(root, p), overlay.read(p)))
         .collect()
 }
 
@@ -792,6 +845,68 @@ pub fn foundational_type_malformed(classes: &[Class]) -> Check {
          four field names. The `type:` itself is not checked against BFO or UFO: their term \
          sets are theirs to revise, and a copy of them in this binary would start refusing \
          terms a corpus is right to use.",
+        violations,
+    )
+}
+
+/// The id of [`malformed_yaml`], named once so the suppression it licenses cannot come to
+/// mean a check that no longer exists.
+pub const MALFORMED_YAML: &str = "malformed-yaml";
+
+/// A corpus file whose bytes are not the document the model reads them as.
+///
+/// **The check that has to run before the others can be believed.** Every other check in this
+/// module reads an instance or a class through a parsed record, and until #676 a file that
+/// did not parse produced an *empty* record — so the rest of the report described a file
+/// nobody had read, in whichever direction the empty record happened to point.
+///
+/// It failed both ways, and the second is the serious half. One unclosed quote in an instance
+/// reported eight findings across six checks, opening with `missing-class` against a file
+/// whose first line is `class: gage`. The same typo in that class's `<class>.ont.yml` reported
+/// **nothing**: an unreadable class declares no properties and licenses no edges, so
+/// `missing-property`, `undeclared-property`, `property-type`, `edge-target-class` and
+/// `unlicensed-edge` each found nothing to check and passed. Measured on a controlled pair
+/// whose instances carried an identical defect, the sound schema reported one finding and the
+/// broken one exited 0.
+///
+/// # Error, and the only finding the file gets
+///
+/// Error, because the class arm is a gate reporting clean on a corpus it did not read, and
+/// there is no legacy-debt argument to weigh against it — a file that is not YAML is not a
+/// judgement call, and no corpus ever declared it acceptable.
+///
+/// The suppression is the other half and lives in [`super::suppress_unparsed`]: every other
+/// check's findings about an unparsed file are dropped. Without it the instance arm keeps its
+/// eight contradictory findings and merely gains a ninth, and the ninth is the only one worth
+/// reading. What is *not* suppressed is a finding whose subject is a different file, even
+/// where the unreadable one is why it fired — a catalog entry whose `used-by` list names a
+/// node that can no longer be shown to cite it still says so. See there for why.
+pub fn malformed_yaml(nodes: &[Node], classes: &[Class]) -> Check {
+    // Instances then classes, the order [`prose_views`] reads the corpus in.
+    let violations = nodes
+        .iter()
+        .map(|n| (&n.rel, &n.malformed))
+        .chain(classes.iter().map(|c| (&c.rel, &c.malformed)))
+        .filter_map(|(rel, why)| {
+            Some(Violation::new(
+                rel,
+                format!("does not parse as YAML: {}", why.as_ref()?),
+            ))
+        })
+        .collect();
+    Check::new(
+        MALFORMED_YAML,
+        "File that is not the YAML it is read as",
+        Severity::Error,
+        "A file the parser rejects reaches every other check as an empty record, and an \
+         empty record is not the same claim as an empty file. On an instance that reads as a \
+         node declaring nothing, so the report contradicts the file it names. On a \
+         `<class>.ont.yml` it reads as a class declaring no properties and licensing no \
+         edges, which is indistinguishable from an ontology nobody has filled in — and five \
+         checks that gate on those declarations find nothing to check and pass. That is a \
+         false negative in a gate, produced by a typo, and nothing else in the report can \
+         say it happened. Every other finding about the file is suppressed: fix the parse \
+         error and they come back, correct this time.",
         violations,
     )
 }
@@ -1867,6 +1982,14 @@ fn near_miss_tags(text: &str) -> Vec<(usize, String)> {
 /// counter and `catalog-audit`'s. Both reported a node that merely *named* a source as one
 /// that cites it, which the conventions do not say and a reader chasing the finding does not
 /// find. A third copy is where the next divergence goes.
+///
+/// **The `unwrap_or_default` below stays, and #676 is why it can.** This answers a question
+/// about bytes — *what does this text point at?* — and half of the answer, the markdown links,
+/// does not need the parse at all. A node whose YAML is broken still cites what its prose
+/// cites, and the `links:` half being empty is the most this function can honestly say. What
+/// used to be wrong was that nobody was told; [`malformed_yaml`] reports the file now, so the
+/// degradation here is a stated consequence rather than a silent one. Reporting it a second
+/// time would put a finding about a corpus node on the catalog entry that happens to be asking.
 pub fn linked_paths(node_path: &Path, rel: &str, text: &str) -> HashSet<PathBuf> {
     let dir = node_path.parent().unwrap_or(node_path);
     let inst: crate::parse::CorpusInstance = serde_yaml::from_str(text).unwrap_or_default();
@@ -2628,12 +2751,11 @@ mod tests {
     const NONE: crate::universal::Universal = crate::universal::Universal::empty();
 
     fn node(rel: &str, yaml: &str) -> Node {
-        Node {
-            path: PathBuf::from(rel),
-            rel: rel.to_string(),
-            inst: serde_yaml::from_str(yaml).unwrap(),
-            text: yaml.to_string(),
-        }
+        let n = Node::parse(PathBuf::from(rel), rel, yaml);
+        // What the `.unwrap()` here used to say: a fixture that does not parse would exercise
+        // the empty record rather than the case its test is named after.
+        assert!(n.malformed.is_none(), "fixture: {:?}", n.malformed);
+        n
     }
 
     fn edge(relationship: &str, target: &str, direction: &str) -> ClassEdge {
@@ -2642,6 +2764,71 @@ mod tests {
             target: target.into(),
             direction: Some(direction.into()),
         }
+    }
+
+    // ── the parse outcome the model used to throw away (#676) ───────────────────
+
+    /// The two constructors record why, and the reason reaches the finding.
+    ///
+    /// Both halves matter. A `Some` that carried no detail would report *that* a file is
+    /// unreadable without saying where to look, and the parser's own message names the line
+    /// and column the quote was opened at — the only part of this a person can act on.
+    #[test]
+    fn a_file_that_does_not_parse_carries_the_parsers_reason() {
+        let n = Node::parse(
+            PathBuf::from("c/x.yml"),
+            "c/x.yml",
+            "class: c\nlabel: \"unclosed\n",
+        );
+        let why = n.malformed.as_deref().expect("an unclosed quote");
+        assert!(why.contains("line 2"), "{why}");
+        // And the record it fell back to is the empty one, which is what every check
+        // downstream reads and what the suppression exists to stop them reporting on.
+        assert!(n.inst.class.is_none());
+
+        let c = Class::parse(
+            "c.ont.yml",
+            "class: c\nproperties: [{name: p, type: string}]\n",
+        );
+        assert_eq!(c.malformed, None);
+        assert_eq!(c.properties.len(), 1);
+    }
+
+    /// **An empty file is not a parse failure**, and the distinction is the whole reason the
+    /// adjacent `Overlay::read` case stays out of scope: an unreadable file becomes `""`
+    /// there, and reporting `""` as malformed YAML would fold a question about file
+    /// permissions into a check about syntax.
+    #[test]
+    fn an_empty_document_is_the_absent_value_rather_than_a_failure() {
+        for text in ["", "\n", "# a comment and nothing else\n"] {
+            let n = Node::parse(PathBuf::from("c/x.yml"), "c/x.yml", text);
+            assert_eq!(n.malformed, None, "{text:?}");
+            assert!(
+                Class::parse("c.ont.yml", text).malformed.is_none(),
+                "{text:?}"
+            );
+        }
+    }
+
+    /// Both populations, in the order the corpus is read in.
+    #[test]
+    fn the_check_reports_instances_and_classes_alike() {
+        let broken = Node::parse(PathBuf::from("c/x.yml"), "c/x.yml", "label: \"unclosed\n");
+        let sound = node("c/y.yml", "class: c\n");
+        let c = malformed_yaml(
+            &[broken, sound],
+            &[
+                Class::parse("c.ont.yml", "class: c\n"),
+                Class::parse("d.ont.yml", "label: \"unclosed\n"),
+            ],
+        );
+        let named: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
+        assert_eq!(named, vec!["c/x.yml", "d.ont.yml"]);
+        assert_eq!(
+            c.severity,
+            Severity::Error,
+            "a gate that cannot read a file"
+        );
     }
 
     /// `None` and an empty drift are different answers, and the report emits them as
@@ -3041,18 +3228,11 @@ mod tests {
     fn orphan_in_sees_through_relative_traversal() {
         // `../reach/a.yml` from reach/ must match `reach/a.yml`, or every cross-class
         // edge would look like it points somewhere else.
-        let a = Node {
-            path: PathBuf::from("corpus/reach/a.yml"),
-            rel: "corpus/reach/a.yml".into(),
-            inst: serde_yaml::from_str("class: c\nlinks: []\n").unwrap(),
-            text: "class: c\nlinks: []\n".to_string(),
-        };
-        let b = Node {
-            path: PathBuf::from("corpus/other/b.yml"),
-            rel: "corpus/other/b.yml".into(),
-            inst: serde_yaml::from_str("class: c\nlinks:\n  - target: ../reach/a.yml\n").unwrap(),
-            text: "class: c\nlinks:\n  - target: ../reach/a.yml\n".to_string(),
-        };
+        let a = node("corpus/reach/a.yml", "class: c\nlinks: []\n");
+        let b = node(
+            "corpus/other/b.yml",
+            "class: c\nlinks:\n  - target: ../reach/a.yml\n",
+        );
         let c = orphan_in(&[a, b], &[]);
         let flagged: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
         assert_eq!(
@@ -3082,18 +3262,19 @@ mod tests {
             implemented_by: None,
             foundational_type: None,
             dead_alignment_fields: vec![],
+            malformed: None,
         };
-        let node = |class: &str, file: &str| Node {
-            path: PathBuf::from(format!("corpus/{class}/{file}.yml")),
-            rel: format!("corpus/{class}/{file}.yml"),
-            inst: serde_yaml::from_str("class: c\nlinks: []\n").unwrap(),
-            text: "class: c\nlinks: []\n".to_string(),
+        let instance = |class: &str, file: &str| {
+            node(
+                &format!("corpus/{class}/{file}.yml"),
+                "class: c\nlinks: []\n",
+            )
         };
 
         // `person` declares only outbound edges; `recording` declares an inbound one.
         let classes = [ont("person", "out"), ont("recording", "in")];
         let c = orphan_in(
-            &[node("person", "harris"), node("recording", "scum")],
+            &[instance("person", "harris"), instance("recording", "scum")],
             &classes,
         );
 
@@ -3126,6 +3307,7 @@ mod tests {
             implemented_by: None,
             foundational_type: None,
             dead_alignment_fields: vec![],
+            malformed: None,
         };
         let concept = Class {
             rel: ".yidam/corpus/concept.ont.yml".into(),
@@ -3139,6 +3321,7 @@ mod tests {
             implemented_by: None,
             foundational_type: None,
             dead_alignment_fields: vec![],
+            malformed: None,
         };
         let classes = [gage, concept];
         let sources = source_classes(&edge_views(&classes));
@@ -3172,6 +3355,7 @@ mod tests {
             implemented_by: None,
             foundational_type: None,
             dead_alignment_fields: vec![],
+            malformed: None,
         };
         let classes = [reach];
         assert!(source_classes(&edge_views(&classes)).contains("reach"));
@@ -3197,6 +3381,7 @@ mod tests {
             implemented_by: None,
             foundational_type: None,
             dead_alignment_fields: vec![],
+            malformed: None,
         };
         let b = Class {
             rel: ".yidam/corpus/b.ont.yml".into(),
@@ -3210,6 +3395,7 @@ mod tests {
             implemented_by: None,
             foundational_type: None,
             dead_alignment_fields: vec![],
+            malformed: None,
         };
         let classes = [a, b];
         assert!(source_classes(&edge_views(&classes)).is_empty());
@@ -3233,19 +3419,17 @@ mod tests {
             implemented_by: None,
             foundational_type: None,
             dead_alignment_fields: vec![],
+            malformed: None,
         };
         assert!(
             source_classes(&edge_views(std::slice::from_ref(&silent))).is_empty(),
             "a class that declared nothing was read as declaring nothing points at it"
         );
 
-        let node = Node {
-            path: PathBuf::from("corpus/concept/x.yml"),
-            rel: "corpus/concept/x.yml".into(),
-            inst: serde_yaml::from_str("class: c\nlinks: []\n").unwrap(),
-            text: "class: c\nlinks: []\n".to_string(),
-        };
-        let c = orphan_in(&[node], &[silent]);
+        let c = orphan_in(
+            &[node("corpus/concept/x.yml", "class: c\nlinks: []\n")],
+            &[silent],
+        );
         assert_eq!(
             c.violations.len(),
             1,
@@ -3384,14 +3568,12 @@ mod tests {
     /// A node that names the malformed shape in order to warn about it is not committing it.
     #[test]
     fn a_masked_mention_is_not_a_near_miss() {
-        let node = Node {
-            path: PathBuf::from("/tmp/x.yml"),
-            rel: "x.yml".to_string(),
-            inst: Default::default(),
-            text: "description: Never write `[verified — source]`; the counter reads it as \
-                   untagged.\n"
-                .to_string(),
-        };
+        let node = Node::parse(
+            PathBuf::from("/tmp/x.yml"),
+            "x.yml",
+            "description: Never write `[verified — source]`; the counter reads it as \
+             untagged.\n",
+        );
         let c = claim_tag_malformed(&prose_views(std::slice::from_ref(&node), &[]));
         assert_eq!(c.violations.len(), 0, "{:?}", c.violations);
     }
@@ -3399,13 +3581,11 @@ mod tests {
     /// The violation names the line, because the point is to go and fix that line.
     #[test]
     fn a_near_miss_is_reported_against_its_line() {
-        let node = Node {
-            path: PathBuf::from("/tmp/x.yml"),
-            rel: ".yidam/corpus/c/x.yml".to_string(),
-            inst: Default::default(),
-            text: "class: c\nlabel: X\ndescription: |\n  Settled [verified — Pearl 2009].\n"
-                .to_string(),
-        };
+        let node = Node::parse(
+            PathBuf::from("/tmp/x.yml"),
+            ".yidam/corpus/c/x.yml",
+            "class: c\nlabel: X\ndescription: |\n  Settled [verified — Pearl 2009].\n",
+        );
         let c = claim_tag_malformed(&prose_views(std::slice::from_ref(&node), &[]));
         assert_eq!(c.violations.len(), 1);
         assert!(
@@ -3780,12 +3960,11 @@ mod tests {
     }
 
     fn corpus_node(name: &str, yaml: &str) -> Node {
-        Node {
-            path: PathBuf::from(format!("/repo/.yidam/corpus/concept/{name}.yml")),
-            rel: format!(".yidam/corpus/concept/{name}.yml"),
-            inst: serde_yaml::from_str(yaml).unwrap_or_default(),
-            text: yaml.to_string(),
-        }
+        Node::parse(
+            PathBuf::from(format!("/repo/.yidam/corpus/concept/{name}.yml")),
+            format!(".yidam/corpus/concept/{name}.yml"),
+            yaml,
+        )
     }
 
     /// The reported case. A catalog entry whose slug collides with a connector crate — the
@@ -4230,6 +4409,7 @@ mod tests {
             implemented_by: None,
             foundational_type: None,
             dead_alignment_fields: vec![],
+            malformed: None,
         }
     }
 
@@ -4377,6 +4557,7 @@ mod tests {
             implemented_by: impl_by.map(str::to_string),
             foundational_type: None,
             dead_alignment_fields: vec![],
+            malformed: None,
         }
     }
 
