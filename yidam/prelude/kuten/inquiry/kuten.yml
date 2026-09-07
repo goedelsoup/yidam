@@ -68,6 +68,14 @@ measured:
 # profile quoted it verbatim, which rounded **inward at both ends** and put the two members
 # that set the endpoints outside the band their own numbers defined. That is the rounding
 # rule under `measured.estimator`, and it is why it is written down.
+#
+# **The `phase` counts under `measured.members` predate #691 and were taken with the strict
+# reading**, which counted `phase:` and not `phase(x):`. The band is unmoved and the rows are
+# left exactly as they were measured — editing a recorded measurement to match a later
+# predicate is the one thing this table exists to prevent — but the next re-fit is counting a
+# slightly wider thing, and two of the six carry a scoped verb apiece (see `vocabulary`
+# below). If either of those is a `phase(x):`, that member's share rises and the ceiling is
+# the endpoint at risk. Re-measure before re-quoting; do not reconcile on paper.
 phases:
   types: [Investigation, Extraction, Synthesis, Assessment]
   commit_share: {low: 0.12, high: 0.27}

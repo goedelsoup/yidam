@@ -100,6 +100,29 @@ fn verb_of(subject: &str) -> String {
     }
 }
 
+/// `vendor(yidam)` → `("vendor", "yidam")`. None when there is no parenthesised suffix.
+///
+/// Beside [`verb_of`] because it reads the same parse from the other end: `verb_of` says
+/// where the verb ends, and this says what the author meant by the part of it GRAPH.md
+/// forbids. Two callers need that answer for two unrelated reasons — `yidam vocabulary`, to
+/// name the cost in its finding, and [`crate::kuten::settles_a_phase`], to answer a question
+/// about practice rather than about spelling — and a second copy could disagree with the
+/// finding about what a scope even is.
+///
+/// **This is not a step in recognising a verb, and nothing here may make it one.**
+/// `is_recognized_verb` never sees this function, `classify_commit` never sees it, and
+/// `lint --commits` still reports `phase(x):` as outside the vocabulary. Stripping the suffix
+/// before matching is the rule GRAPH.md's commit-vocabulary section forbids, and it is what
+/// A0's extraction script did by accident — reading exactly zero off-vocabulary commits out
+/// of a population that held four (#644).
+pub(crate) fn split_scope(verb: &str) -> Option<(&str, &str)> {
+    let open = verb.find('(')?;
+    if !verb.ends_with(')') || open == 0 {
+        return None;
+    }
+    Some((&verb[..open], &verb[open + 1..verb.len() - 1]))
+}
+
 /// Whether this commit's subject is one git generated rather than one somebody chose.
 ///
 /// Exemption turns on **parent count plus a generated-looking subject**, not on the subject

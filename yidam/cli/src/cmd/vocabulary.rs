@@ -30,6 +30,7 @@ use yidam_core::git::{
     classify_commit, is_recognized_verb, CommitKind, EPISTEMIC_VERBS, OPERATIONAL_VERBS,
 };
 
+use crate::cmd::lint::commits::split_scope;
 use crate::paths::repo_root;
 
 #[derive(Debug, serde::Serialize)]
@@ -177,15 +178,6 @@ fn kind_of(verb: &str) -> &'static str {
     } else {
         "epistemic"
     }
-}
-
-/// `vendor(yidam)` → `("vendor", "yidam")`. None when there is no parenthesised suffix.
-fn split_scope(verb: &str) -> Option<(&str, &str)> {
-    let open = verb.find('(')?;
-    if !verb.ends_with(')') || open == 0 {
-        return None;
-    }
-    Some((&verb[..open], &verb[open + 1..verb.len() - 1]))
 }
 
 /// Check one subject line the way `lint --commits` checks a committed one.
