@@ -50,8 +50,8 @@ pub enum Dated {
 impl Dated {
     pub fn as_str(self) -> &'static str {
         match self {
-            Dated::Declared => "declared",
-            Dated::Committed => "from git",
+            Self::Declared => "declared",
+            Self::Committed => "from git",
         }
     }
 }

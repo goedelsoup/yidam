@@ -362,7 +362,7 @@ impl Graph {
     /// callers reconstruct HEAD as well as the commit asked about, and the two trees overlap
     /// almost entirely; a wrapper that started empty would have made the cheaper call the
     /// longer one to write.
-    pub fn at_with(root: &Path, commit: &str, blobs: &mut Blobs) -> Result<Graph> {
+    pub fn at_with(root: &Path, commit: &str, blobs: &mut Blobs) -> Result<Self> {
         // Classified before anything is read, so the `cat-file` below asks for the objects
         // this reconstruction will actually parse. A corpus directory also holds READMEs,
         // ACTIONS.md files and attachments; requesting them read every one of them at every
@@ -405,7 +405,7 @@ impl Graph {
         nodes.sort_by(|a, b| a.path.cmp(&b.path));
         classes.sort_by(|a, b| a.rel.cmp(&b.rel));
 
-        Ok(Graph {
+        Ok(Self {
             nodes,
             classes,
             universal,

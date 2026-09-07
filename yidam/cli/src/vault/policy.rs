@@ -75,7 +75,7 @@ pub enum Disposition {
 
 impl Disposition {
     pub fn is_push(&self) -> bool {
-        matches!(self, Disposition::Push)
+        matches!(self, Self::Push)
     }
 }
 

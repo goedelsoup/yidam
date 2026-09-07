@@ -234,9 +234,9 @@ pub enum Expectation {
 impl Expectation {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Expectation::Uncited => "uncited",
-            Expectation::Cited => "cited",
-            Expectation::Unstated => "unstated",
+            Self::Uncited => "uncited",
+            Self::Cited => "cited",
+            Self::Unstated => "unstated",
         }
     }
 }

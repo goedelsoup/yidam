@@ -67,6 +67,34 @@ path = "src/main.rs"
 # assuming. `sqlite_ffi.rs` in the test suite is the guard that would have caught it.
 unsafe_code = "deny"
 
+# The crate had never been run against `pedantic` or `nursery` until #681, which measured
+# 1,366 findings and took the ones that are mechanical rather than the ones that are large.
+# Most of the rest stays off and the reasons are worth keeping: `must_use_candidate`,
+# `missing_errors_doc` and `doc_markdown` are a wide diff for no behavioural gain, and
+# `option_if_let_else` regularly reads worse than what it replaces.
+#
+# Every entry here is `deny` and every one landed in the same commit as its fixes, which is
+# the whole reason it is in the manifest rather than on a CI command line: a level here is
+# read by every invocation, so `cargo clippy` locally and `cargo clippy` in CI are the same
+# check, and the count cannot regrow between the fix and the escalation.
+#
+# **Measure a candidate with `--all-targets`, and measure it twice.** `[lints]` covers the
+# whole package, tests included, so a count taken without `--all-targets` is the count of
+# the first CI run's *surprise*. And the two clippy legs see different code: `ci-cli-full`
+# passes `--all-features`, which compiles out everything behind `#[cfg(not(feature = …))]`
+# — two `use_self` sites in `retrieval/mod.rs` live there and only the default-feature leg
+# can see them.
+#
+# `redundant_pub_crate` was the third cluster #681 named and is deliberately NOT here. Its
+# 196 sites are real, but clippy's fix for it is `pub(crate)` → **`pub`**, which widens
+# rather than narrows — the opposite of the reason the issue gave for taking it. The
+# item-level `pub(crate)` is what currently makes a `pub use` of it in `lib.rs` an E0364
+# rather than a silent addition to a published API, and `lib.rs` re-exports about fifty
+# names out of the private `cmd` module already.
+[lints.clippy]
+# Mechanical, `--fix`-able, and 152 sites. Named here so it stays done.
+use_self = "deny"
+
 [dependencies]
 # ── base: the light `reports` build — the four reports + all pure-Rust
 #    commands. No protoc, no native libraries, no ML runtime. ───────────────

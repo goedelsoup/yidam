@@ -249,7 +249,7 @@ impl ServerState {
             }),
         };
         let dependencies = dependencies(root, &dep_nodes);
-        Ok(ServerState {
+        Ok(Self {
             domain: model.provenance.domain,
             commit: model.provenance.commit,
             nodes,
@@ -504,7 +504,7 @@ pub(crate) struct RpcError {
 
 impl RpcError {
     pub(crate) fn invalid_params(message: impl Into<String>) -> Self {
-        RpcError {
+        Self {
             code: -32602,
             message: message.into(),
         }

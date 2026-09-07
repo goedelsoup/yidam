@@ -65,43 +65,39 @@ impl Criterion {
     ///
     /// Also the neutral arm's selection: a repository holding no kuten is scored on all of
     /// them, and the report says the selection is the template's rather than that corpus's.
-    pub const ALL: &'static [Criterion] = &[
-        Criterion::Register,
-        Criterion::Landing,
-        Criterion::Questions,
-    ];
+    pub const ALL: &'static [Self] = &[Self::Register, Self::Landing, Self::Questions];
 
     pub fn id(self) -> &'static str {
         match self {
-            Criterion::Register => "register",
-            Criterion::Landing => "landing",
-            Criterion::Questions => "questions",
+            Self::Register => "register",
+            Self::Landing => "landing",
+            Self::Questions => "questions",
         }
     }
 
     /// One line a reader of `AGENTS.md` can act on.
     pub fn gloss(self) -> &'static str {
         match self {
-            Criterion::Register => {
+            Self::Register => {
                 "of the commits whose verb the vocabulary recognizes, how many carry testimony \
                  rather than housekeeping"
             }
-            Criterion::Landing => {
+            Self::Landing => {
                 "of the nodes this range added and left standing, how many something points at"
             }
-            Criterion::Questions => {
+            Self::Questions => {
                 "how many of those nodes are open questions — a number, never a threshold"
             }
         }
     }
 
-    pub fn from_id(id: &str) -> Option<Criterion> {
-        Criterion::ALL.iter().copied().find(|c| c.id() == id)
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.iter().copied().find(|c| c.id() == id)
     }
 
     /// The ids of every criterion, in declaration order.
     pub fn all_ids() -> Vec<String> {
-        Criterion::ALL.iter().map(|c| c.id().to_string()).collect()
+        Self::ALL.iter().map(|c| c.id().to_string()).collect()
     }
 }
 
@@ -198,23 +194,23 @@ pub enum Reading {
 }
 
 impl Reading {
-    fn measured(value: f64, shown: String) -> Reading {
-        Reading::Measured { value, shown }
+    fn measured(value: f64, shown: String) -> Self {
+        Self::Measured { value, shown }
     }
 
-    fn unmeasurable(why: impl Into<String>) -> Reading {
-        Reading::Unmeasurable { why: why.into() }
+    fn unmeasurable(why: impl Into<String>) -> Self {
+        Self::Unmeasurable { why: why.into() }
     }
 
     pub fn is_measured(&self) -> bool {
-        matches!(self, Reading::Measured { .. })
+        matches!(self, Self::Measured { .. })
     }
 
     /// What prints in the value column.
     pub fn shown(&self) -> &str {
         match self {
-            Reading::Measured { shown, .. } => shown,
-            Reading::Unmeasurable { .. } => "unmeasurable",
+            Self::Measured { shown, .. } => shown,
+            Self::Unmeasurable { .. } => "unmeasurable",
         }
     }
 }

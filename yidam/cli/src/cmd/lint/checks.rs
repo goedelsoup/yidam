@@ -373,11 +373,11 @@ impl Class {
     /// It takes the *text* and deserializes here rather than taking a parsed [`ClassFields`],
     /// so that [`Self::text`] and the fields cannot come from different strings. A caller
     /// holding both could pass a mismatched pair, and nothing would say so.
-    pub(crate) fn parse(rel: impl Into<String>, text: impl Into<String>) -> Class {
+    pub(crate) fn parse(rel: impl Into<String>, text: impl Into<String>) -> Self {
         let rel = rel.into();
         let text = text.into();
         let fields: ClassFields = serde_yaml::from_str(&text).unwrap_or_default();
-        Class {
+        Self {
             name: Path::new(&rel)
                 .file_name()
                 .map(|f| f.to_string_lossy().replace(".ont.yml", ""))

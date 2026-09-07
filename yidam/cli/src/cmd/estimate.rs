@@ -73,7 +73,7 @@ pub struct Options {
 
 impl Default for Options {
     fn default() -> Self {
-        Options {
+        Self {
             select: query::DEFAULT_SELECT.split(',').map(String::from).collect(),
             limit: query::DEFAULT_LIMIT,
             budget: None,

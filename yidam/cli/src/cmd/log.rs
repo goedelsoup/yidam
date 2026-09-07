@@ -44,9 +44,9 @@ pub enum Filter {
 impl Filter {
     fn admits(self, kind: &CommitKind) -> bool {
         match self {
-            Filter::All => true,
-            Filter::Epistemic => matches!(kind, CommitKind::Epistemic),
-            Filter::Operational => matches!(kind, CommitKind::Operational),
+            Self::All => true,
+            Self::Epistemic => matches!(kind, CommitKind::Epistemic),
+            Self::Operational => matches!(kind, CommitKind::Operational),
         }
     }
 }

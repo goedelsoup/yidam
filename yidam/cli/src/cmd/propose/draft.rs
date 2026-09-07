@@ -71,9 +71,9 @@ pub enum Verb {
 impl Verb {
     pub fn as_str(self) -> &'static str {
         match self {
-            Verb::Withdraw => "withdraw",
-            Verb::Open => "open",
-            Verb::Close => "close",
+            Self::Withdraw => "withdraw",
+            Self::Open => "open",
+            Self::Close => "close",
         }
     }
 }
@@ -90,7 +90,7 @@ pub enum Change {
 impl Change {
     pub fn path(&self) -> &str {
         match self {
-            Change::Write { path, .. } | Change::Remove { path } => path,
+            Self::Write { path, .. } | Self::Remove { path } => path,
         }
     }
 }

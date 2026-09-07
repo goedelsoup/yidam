@@ -96,7 +96,7 @@ impl RefKind {
     /// A position is not: an elector's ref is *meant* to sit ahead of the baseline forever,
     /// so asking whether it has been merged is a category error rather than a hygiene check.
     pub fn settles(self) -> bool {
-        matches!(self, RefKind::Evolution | RefKind::Phase)
+        matches!(self, Self::Evolution | Self::Phase)
     }
 }
 

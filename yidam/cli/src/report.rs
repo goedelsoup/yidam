@@ -154,7 +154,7 @@ pub enum Format {
 
 impl Format {
     pub fn is_json(self) -> bool {
-        matches!(self, Format::Json)
+        matches!(self, Self::Json)
     }
 }
 

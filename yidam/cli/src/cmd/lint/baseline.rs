@@ -148,7 +148,7 @@ impl Baseline {
     /// `head` empty — a repository with no commits, or a git call that failed — stamps
     /// nothing. An entry with no clock never expires, which fails toward the ratchet's
     /// existing behaviour rather than toward a deadline nobody set.
-    pub fn from_checks(checks: &[Check], previous: &Baseline, head: &str) -> Self {
+    pub fn from_checks(checks: &[Check], previous: &Self, head: &str) -> Self {
         let mut violations: BTreeMap<String, Vec<Entry>> = BTreeMap::new();
         for check in checks {
             // Per violation, not per check: residence time can escalate one finding of an
