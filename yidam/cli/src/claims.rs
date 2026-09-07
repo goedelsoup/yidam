@@ -408,7 +408,80 @@ fn starts_with_list_marker(line: &str) -> bool {
         .is_some_and(|rest| rest.starts_with(char::is_whitespace))
 }
 
-/// Whether `line` opens a new block rather than continuing the one above it.
+/// `key:` or `key: value` — the shape of a YAML mapping key.
+///
+/// A shape and not a fact: wrapped prose has it too, which is what [`continues_prose`] is for.
+fn has_key_shape(line: &str) -> bool {
+    line.split_once(':').is_some_and(|(key, rest)| {
+        is_key_token(key) && (rest.is_empty() || rest.starts_with(char::is_whitespace))
+    })
+}
+
+/// A line's leading whitespace, in bytes.
+///
+/// Bytes rather than columns, and they are the same number here: YAML forbids a tab in
+/// indentation, so every byte this counts is one space.
+fn indent_of(line: &str) -> usize {
+    line.len() - line.trim_start().len()
+}
+
+/// Whether the key-shaped `next` is a sentence wrapped onto this line rather than a new key.
+///
+/// **Prose wraps, and a wrapped line is often exactly the shape of a key.** Reading
+/// `decades:` below as a key ends the statement at the wrap and serves the claim without its
+/// subject:
+///
+/// ```text
+///   The oats outlasted the horses by
+///   decades: there were still 22,498 acres of them in 1954. [verified]
+/// ```
+///
+/// That is the defect [`ends_statement`] was rewritten to remove — *a wrap column is not a
+/// sentence length* — surviving in the one case where the break carries a colon with it.
+/// Across sixteen derived corpora, 2,765 nodes and 16,297 served claims, **125 claims (0.77%)
+/// are truncated this way**, and every repair is a claim getting longer: not one served claim
+/// in the population loses text.
+///
+/// **Deleting the arm instead is not available.** It changes 1,559 of the 16,297 (9.57%),
+/// nearly all by letting a statement run back over a real key — `class: gage label: Riffle
+/// description: |` served as part of what the corpus asserted. So the job is to tell the two
+/// apart, and the answer is that a wrapped line is known by **what stands above it and where**.
+///
+/// Ground truth for that is the YAML tokenizer, which says exactly which lines carry a real
+/// key. Of 41,248 key-shaped lines in the population, **404 are not keys**; the two tests
+/// below leave 35, and misread **no real key as prose**:
+///
+/// - **Structure above means structure here.** A sentence can only wrap onto this line if the
+///   line above it was prose. A blank line, a key, a list item and a `#` comment are each a
+///   line no sentence continues from. This alone takes 404 down to 31 — and calls 6,209 real
+///   keys prose, because a key's predecessor is often a plain multi-line scalar.
+/// - **A dedent is a key.** Block-scalar content is indented past the header that opened it,
+///   so a line standing to the left of the one above it has left the block the prose was in.
+///   That is what separates a wrap from `still_in_force:` returning to the mapping, and it
+///   costs 4 of the 35: 31 to 35, and 6,209 real keys misread to none.
+///
+/// A third rule was measured and dropped: vetoing a predecessor that ends in `.`, `!` or `?`
+/// on the ground that its sentence is already over. It is sound and it is redundant — the
+/// scan in [`statement_around`] stops at that stop anyway — and it costs 19 of the 35 repairs
+/// for no served claim either way.
+///
+/// The residue is 35 lines, and it is one shape: a paragraph that genuinely opens
+/// `Sources: […]` or `Corollary: …`, below a blank line or below a display equation indented
+/// further than it is. Both predecessors are the ones that say "structure", and a rule that
+/// read them as prose would give back the 6,209.
+fn continues_prose(prev: &str, next: &str) -> bool {
+    let above = prev.trim();
+    if above.is_empty()
+        || has_key_shape(above)
+        || starts_with_list_marker(above)
+        || above.starts_with('#')
+    {
+        return false;
+    }
+    indent_of(next) >= indent_of(prev)
+}
+
+/// Whether `next` opens a new block rather than continuing the one above it.
 ///
 /// **A heading, a table row and a block quote are deliberately not here.** They were, and
 /// measurement removed them: across seven derived corpora the arm changed 12 of 12,739 served
@@ -417,11 +490,12 @@ fn starts_with_list_marker(line: &str) -> bool {
 /// continuation at least as often as a start — the arm cut sentences in half mid-clause
 /// (`> and equipment sufficient for all students…`). What made it nearly inert is that a real
 /// heading or table almost always has a blank line above it, which the arm below already reads.
-fn starts_a_block(line: &str) -> bool {
-    starts_with_list_marker(line)
-        || line.split_once(':').is_some_and(|(key, rest)| {
-            is_key_token(key) && (rest.is_empty() || rest.starts_with(char::is_whitespace))
-        })
+///
+/// **`prev` is read, and only for the key arm.** A list marker is decidable from its own line;
+/// a key is not. See [`continues_prose`].
+fn starts_a_block(prev: &str, next: &str) -> bool {
+    let line = next.trim_start();
+    starts_with_list_marker(line) || (has_key_shape(line) && !continues_prose(prev, next))
 }
 
 /// Whether the stop at `at` is part of a word rather than the end of a sentence.
@@ -527,12 +601,17 @@ fn sentence_end(text: &str, at: usize) -> Option<usize> {
 /// What ends a statement is a **block** boundary, in the sense markdown already means: a blank
 /// line, a new list item, a heading, a table row, a block quote, a new YAML key — or, looking
 /// backwards, the block-scalar header that opened the block this statement is in.
+///
+/// **A new YAML key is not decidable from its own line**, because wrapped prose is shaped like
+/// one, so the line above is read too. That is [`continues_prose`], and it is where the wrap
+/// column was still deciding 125 of the population's claims after the rewrite above.
 fn ends_statement(text: &str, at: usize) -> bool {
-    if is_block_scalar_header(line_before(text, at)) {
+    let prev = line_before(text, at);
+    if is_block_scalar_header(prev) {
         return true;
     }
-    let next = line_after(text, at).trim_start();
-    next.is_empty() || starts_a_block(next)
+    let next = line_after(text, at);
+    next.trim_start().is_empty() || starts_a_block(prev, next)
 }
 
 /// Where the block containing `from` ends: the first line break that closes it, or the end
@@ -1393,6 +1472,99 @@ mod tests {
             c[0].text,
             "The gauge is read weekly and the reason for that is simple: nobody funds a second visit."
         );
+    }
+
+    /// **A wrapped prose line beginning `word:` is not a key**, and reading it as one served
+    /// this claim without its subject — `there were still 22,498 acres of them in 1954`, with
+    /// *the oats* on the line above. 125 of 16,297 claims in sixteen corpora were cut here.
+    ///
+    /// The fixture is the shape and not merely the text: the line above `decades:` is prose
+    /// that stops mid-clause, and no rule that reads `decades:` alone can tell it from a key.
+    #[test]
+    fn a_wrapped_line_beginning_with_a_word_and_a_colon_is_not_a_key() {
+        let c = claims_in_node(
+            "description: |\n  The oats outlasted the horses by\n  decades: there were still 22,498 acres of them in 1954. [verified]\n",
+            &[],
+        );
+        assert_eq!(c.len(), 1, "{c:#?}");
+        assert_eq!(
+            c[0].text,
+            "The oats outlasted the horses by decades: there were still 22,498 acres of them in 1954."
+        );
+    }
+
+    /// The counterweight, and the one the arm exists for: a key standing to the *left* of the
+    /// prose above it has left the block, so it still ends the statement.
+    ///
+    /// Without this the fix above misreads 6,209 real keys as wrapped prose, and a served
+    /// claim runs back over the structure of the node it came from.
+    #[test]
+    fn a_key_that_dedents_out_of_a_block_still_ends_it() {
+        let c = claims_in_node(
+            "properties:\n  finding: |\n    the reach is regulated and the gauge is read\n    weekly by the district [verified]\n  standing: open\n",
+            &[],
+        );
+        assert_eq!(c.len(), 1, "{c:#?}");
+        assert_eq!(
+            c[0].text,
+            "the reach is regulated and the gauge is read weekly by the district"
+        );
+    }
+
+    /// A key is a key below anything that is **not** prose: a blank line, another key, a list
+    /// item, a comment.
+    ///
+    /// Each of the four is load-bearing, and what each is worth was measured over the
+    /// population's 41,248 key-shaped lines by asking a YAML tokenizer which of them carry a
+    /// real key. Dropping one arm misreads that many real keys as wrapped prose:
+    ///
+    /// | arm | real keys misread without it |
+    /// |---|---|
+    /// | another key above | 20,974 |
+    /// | a list item above | 12,219 — a `- target:` item's own `relationship:` |
+    /// | a blank line above | 207 |
+    /// | a comment above | 2 |
+    ///
+    /// **Pinned at the boundary and not through a served claim**, because the mistake each
+    /// one prevents is at a break no marker sits near: every one of these fixtures serves the
+    /// same claim under a rule that gets the boundary wrong, and a test that passes under
+    /// both rules pins neither.
+    #[test]
+    fn a_key_is_a_key_below_anything_that_is_not_prose() {
+        for (above, text, key) in [
+            (
+                "a key",
+                "first: a gauge sits at the riffle\nsecond: the reach is regulated\n",
+                "\nsecond:",
+            ),
+            (
+                "a list item",
+                "links:\n  - target: ../place/lima.yml\n    relationship: nested-in\n",
+                "\n    relationship:",
+            ),
+            (
+                "a blank line",
+                "description: |\n  the reach is regulated\n\nproperties:\n",
+                "\nproperties:",
+            ),
+            (
+                "a comment",
+                "properties:\n  # `measured` names the property that carries the total.\n  property: measured\n",
+                "\n  property:",
+            ),
+        ] {
+            let at = text.find(key).unwrap();
+            assert!(
+                ends_statement(text, at),
+                "a key below {above} did not end the statement above it"
+            );
+        }
+
+        // And the counterexample the four are held against: the same key shape, at the same
+        // indent, below prose — a wrap, and not a boundary.
+        let wrapped = "properties:\n  the total is carried by the\n  property: measured\n";
+        let at = wrapped.find("\n  property").unwrap();
+        assert!(!ends_statement(wrapped, at));
     }
 
     /// A sibling key ends the value above it. Neither line carries a full stop, so the key is
