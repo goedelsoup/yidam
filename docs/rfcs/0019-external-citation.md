@@ -114,7 +114,7 @@ ERROR [dangling-edge] Edge pointing at nothing — 1 finding(s)
 ```
 
 `dangling_edge` is a filesystem `exists()` test
-([`checks.rs:533-550`](../../yidam/cli/src/cmd/lint/checks.rs#L533-L550)). `unlicensed-edge`
+([`checks.rs:586-603`](../../yidam/cli/src/cmd/lint/checks.rs#L586-L603)). `unlicensed-edge`
 and `edge-target-class` never see the link at all, because `instance_links` drops every target
 that does not resolve to another instance. So the failure mode of the obvious syntax is: an
 Error, from the check with the least to say about it, and silence from the two checks whose

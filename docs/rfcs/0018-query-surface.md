@@ -234,7 +234,7 @@ for an anchored entry, whose entry nodes are ordered by score.
 
 An edge is traversable when it is authored on an instance, resolves inside the corpus, and
 lands on **another instance** — the same set `instance_links` reads
-([`checks.rs:761-786`](../../yidam/cli/src/cmd/lint/checks.rs#L761-L786)), and the same rule
+([`checks.rs:814-839`](../../yidam/cli/src/cmd/lint/checks.rs#L814-L839)), and the same rule
 `unlicensed-edge` states: *a link to the class file or into the catalog is a citation, not a
 relationship.*
 
@@ -277,7 +277,7 @@ names are not checked and the report says the corpus is unschematised.
 
 #### Relationships are closed only as far as `edge_policy` closed them
 
-`EdgePolicy` ([`checks.rs:38`](../../yidam/cli/src/cmd/lint/checks.rs#L38)) is the field E1
+`EdgePolicy` ([`checks.rs:89`](../../yidam/cli/src/cmd/lint/checks.rs#L89)) is the field E1
 added precisely because a non-empty `edges:` does not claim completeness. A hop naming a
 relationship the class does not declare resolves as:
 
@@ -344,7 +344,7 @@ If a class declares the relationship but only toward class C, a hop asking for c
 **rejected**, naming the declared targets. `edge-target-class` is Error severity for the same
 reason: an edge to the wrong thing resolves, traverses, and exports, and is simply false. A
 declaration with an empty `target` licenses every class, exactly as the check reads it
-([`checks.rs:1142`](../../yidam/cli/src/cmd/lint/checks.rs#L1142)), and so does a query hop
+([`checks.rs:1257`](../../yidam/cli/src/cmd/lint/checks.rs#L1257)), and so does a query hop
 against it. `*` on the target side is the query-side twin of that empty `target:` and licenses
 every class in the same way.
 
@@ -356,7 +356,7 @@ so `seeded_because` and `fy2024_profile` are queryable without being declared on
 classes. An undeclared name is **rejected** with the class's declared list.
 
 Predicate *values* are a separate question from predicate *names*, and the operator decides it.
-`property_type_violation` ([`checks.rs:903`](../../yidam/cli/src/cmd/lint/checks.rs#L903))
+`property_type_violation` ([`checks.rs:1018`](../../yidam/cli/src/cmd/lint/checks.rs#L1018))
 takes a declared type and a value and no operator — it answers *may the corpus store this*, not
 *may someone ask about this*. Using it operator-blind rejects satisfiable predicates:
 `reach[claim_tag!=maybe]` is satisfied by every reach in `examples/streamflow`, and
@@ -375,7 +375,7 @@ Three further rules the naive version leaves undefined:
   nothing here and makes `!=` mean two things depending on the corpus.
 - **A list value matches if any element matches.** `claim_tag: [open]` is legal YAML that the
   claim counter reads as one claim, and `property_type_violation` accepts it
-  ([`checks.rs:931-938`](../../yidam/cli/src/cmd/lint/checks.rs#L931-L938)); a predicate must read the
+  ([`checks.rs:1046-1053`](../../yidam/cli/src/cmd/lint/checks.rs#L1046-L1053)); a predicate must read the
   same bytes the same way.
 - **`=` on a `date` compares at the precision written**, so `observed_on=2026-08` matches every
   day in that month. Ordering operators do not exist — see the open questions.

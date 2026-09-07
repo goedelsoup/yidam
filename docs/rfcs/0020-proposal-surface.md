@@ -80,7 +80,7 @@ each of those is a decision that leaves a trace.
 Three corrections, each measured.
 
 **(a) The ontology names a class, not a node.** `ClassEdge` carries `relationship`, `target`
-and `direction` ([`checks.rs:101-110`](../../yidam/cli/src/cmd/lint/checks.rs#L101-L110)), and
+and `direction` ([`checks.rs:152-161`](../../yidam/cli/src/cmd/lint/checks.rs#L152-L161)), and
 `target` is *"the class at the other end"*. So for an orphaned node the ontology narrows the
 candidates to a set of classes, and every instance of those classes is equally licensed.
 
@@ -96,7 +96,7 @@ is authoring an edge, and an edge is a claim.
 
 **(b) In the worked example the check cannot fire at all.** `is_source_class` reads only the
 class's *own* edge list, and is true when that list is non-empty and holds no `direction: in`
-entry ([`checks.rs:132-139`](../../yidam/cli/src/cmd/lint/checks.rs#L132-L139)). Every class in
+entry ([`checks.rs:183-190`](../../yidam/cli/src/cmd/lint/checks.rs#L183-L190)). Every class in
 `examples/streamflow` declares outbound edges only, so all three derive as source classes and
 every instance is exempt.
 
