@@ -499,7 +499,8 @@ pub struct Measurement {
     /// Commits with an authored subject — git-generated merge subjects are excluded, because
     /// nobody chose their verb.
     pub commits: usize,
-    /// Commits whose leading verb is `phase`.
+    /// Commits that settle a phase — counted with [`settles_a_phase`], which reads the base
+    /// verb and so counts `phase(x):` alongside `phase:`.
     pub phase_commits: usize,
     /// Commits whose leading verb is outside the closed vocabulary.
     ///
@@ -950,6 +951,42 @@ pub fn read_profile(root: &Path, name: &str) -> anyhow::Result<Option<Profile>> 
     })?))
 }
 
+/// Whether this commit settles a phase — the base verb, with a `(scope)` suffix ignored.
+///
+/// **The one count in this repository that looks past the suffix, and the reason is that it
+/// is the one asking a different question.** `phase-commit-share` asks *is this corpus still
+/// bounding its work into phases* — a question about practice. `off-vocabulary-share` and
+/// `lint --commits` ask *is the verb spelled the way GRAPH.md closed the list* — a question
+/// about conformance. `phase(section-nine): …` settles a phase and is spelled wrong; both
+/// are true, and one parse answering both made them contradict each other.
+///
+/// The contradiction was field-visible (#691). A derived corpus wrote 73 `phase(x):` commits
+/// and 2 bare `phase:` ones, and `kuten check` told it **0% of commits settle a phase** in
+/// the same binary, in the same repository, in which `yidam phases` listed 22 in flight and
+/// `due` reported them healthy — because the strict count read 2/430 where the base verb
+/// reads 75/430, which is inside the declared 0.12–0.27. Worse, the same 73 commits were
+/// counted twice in opposite directions: absent from the phase share *and* driving a 49%
+/// off-vocabulary divergence. Two of the four divergences that corpus was shown were one
+/// suffix.
+///
+/// This is also the reading every sibling surface already takes. `yidam phases` walks
+/// `phase/*` refs, `due` clocks those refs, and the branch model in `PHASES.md` never sees a
+/// subject line at all — none of the three has ever cared how the settling commit was
+/// spelled, and the band was the only surface that did.
+///
+/// **This is not "strip scopes before matching a verb".** That rule is what
+/// [`crate::cmd::lint::commits::split_scope`] warns against and what A0's extraction script
+/// did by accident (#644); it would silently file an operational commit as Epistemic and
+/// take `lint --commits` quiet on a form GRAPH.md forbids. Nothing about recognition moves:
+/// `verb_of` is untouched, `is_recognized_verb` never sees a split verb, and the very
+/// commits this counts are still reported off-vocabulary by the check beside it.
+pub(crate) fn settles_a_phase(verb: &str) -> bool {
+    match crate::cmd::lint::commits::split_scope(verb) {
+        Some((base, _)) => base == "phase",
+        None => verb == "phase",
+    }
+}
+
 /// Measure a repository: its authored history, and the corpus it has accreted.
 ///
 /// The commit half goes through the same reader **and the same merge predicate** that
@@ -957,6 +994,12 @@ pub fn read_profile(root: &Path, name: &str) -> anyhow::Result<Option<Profile>> 
 /// subjects git wrote rather than a person. A second copy of `is_merge` here would be a
 /// second answer to a question the model already settled — a bare `Merge <ref>` is
 /// git-generated and a `phase: …` merge is not, and one repository wrote ten of the first.
+///
+/// The two counts taken off that one reading then diverge on purpose, and only here:
+/// `off_vocabulary_commits` reads the verb as parsed, and `phase_commits` goes through
+/// [`settles_a_phase`]. A commit can be both — that is the intended reading of `phase(x): …`
+/// and not a defect, and it is pinned as one fact rather than two so the two questions
+/// cannot be re-merged quietly.
 ///
 /// The corpus half walks the instances once and asks two questions of each: how long it is,
 /// and whether it is an open question. The second goes through
@@ -989,7 +1032,7 @@ pub fn measure(root: &Path) -> Measurement {
 
     Measurement {
         commits: authored.len(),
-        phase_commits: authored.iter().filter(|s| s.verb == "phase").count(),
+        phase_commits: authored.iter().filter(|s| settles_a_phase(&s.verb)).count(),
         off_vocabulary_commits: authored
             .iter()
             .filter(|s| !yidam_core::git::is_recognized_verb(&s.verb))
@@ -1135,6 +1178,24 @@ mod tests {
         let phases = f.iter().find(|f| f.metric == "phase-commit-share").unwrap();
         assert_eq!(phases.verdict, Verdict::Divergent);
         assert!(phases.question.is_some(), "divergence asks a question");
+    }
+
+    /// The base verb settles the phase, and the suffix is the only thing looked past.
+    ///
+    /// The negatives are the point: this is not a prefix match and not a general scope
+    /// strip. `rephase(x)` and `phases` are different verbs, and a verb wearing something
+    /// that is not a parenthesised suffix is read whole.
+    #[test]
+    fn a_scoped_phase_verb_still_settles_a_phase() {
+        assert!(settles_a_phase("phase"));
+        assert!(settles_a_phase("phase(section-nine)"));
+        assert!(settles_a_phase("phase(per-district-trough)"));
+
+        assert!(!settles_a_phase("phases"));
+        assert!(!settles_a_phase("rephase(x)"));
+        assert!(!settles_a_phase("(phase)"));
+        assert!(!settles_a_phase("phase(unclosed"));
+        assert!(!settles_a_phase(""));
     }
 
     /// The whole lesson of A0's retraction, as an assertion.

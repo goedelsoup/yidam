@@ -775,6 +775,122 @@ fn the_question_pressure_slot_authors_nothing() {
     );
 }
 
+/// Append commits to a staged repository, one file each, at the fixture's frozen date.
+fn commits(root: &Path, subjects: &[&str]) {
+    for (n, subject) in subjects.iter().enumerate() {
+        std::fs::create_dir_all(root.join("later")).unwrap();
+        std::fs::write(root.join(format!("later/{n}.md")), "a step\n").unwrap();
+        for args in [
+            vec!["add", "-A"],
+            vec!["commit", "-q", "--no-gpg-sign", "-m", subject],
+        ] {
+            Command::new("git")
+                .current_dir(root)
+                .args(args)
+                .env("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z")
+                .env("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
+                .status()
+                .unwrap();
+        }
+    }
+}
+
+/// **One suffix, two questions, and the report answers both at once** — #691.
+///
+/// `phase(section-nine): …` settles a phase and is spelled wrong. Before this, one parse
+/// answered both questions and they contradicted each other in the field: a derived corpus
+/// with 73 such commits was told **0% of commits settle a phase** by the same binary whose
+/// `yidam phases` listed 22 in flight, while those same 73 commits drove its off-vocabulary
+/// divergence. Two of the four divergences it was shown were the one suffix, counted twice
+/// in opposite directions.
+///
+/// So the two halves are pinned in **one** test rather than two. Separate tests would each
+/// keep passing while the questions were quietly re-merged — the band going strict again
+/// reads as a phase-count test failing, the check going lenient reads as a lint test
+/// failing, and nothing would say that the pair is the invariant. Here the same two commits
+/// are asserted into both counts, into opposite verdicts, and into `lint --commits`.
+#[test]
+fn a_scoped_phase_commit_is_counted_by_the_band_and_still_reported_off_vocabulary() {
+    let tmp = stage(1);
+    let root = tmp.path();
+
+    // Two subjects written the way the field corpus wrote 73 of them, and four in the closed
+    // vocabulary. Twelve authored commits: three settle a phase — 0.25, inside 0.12–0.27 —
+    // and two are outside the vocabulary, which 0.00–0.02 does not admit.
+    commits(
+        root,
+        &[
+            "phase(section-nine): the last checkable block, and it half-answers",
+            "phase(per-district-trough): a statewide number becomes 607 of them",
+            "establish: a second node",
+            "revise: the second node",
+            "open: a second question",
+            "close: the second question",
+        ],
+    );
+
+    let r = run(root, &["kuten", "check", "--format", "json"]);
+    assert_eq!(r.code, 0, "{}", r.stdout);
+    let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("valid JSON");
+    let m = &v["kuten"]["measurement"];
+    assert_eq!(m["commits"], 12, "{m}");
+    assert_eq!(
+        m["phase_commits"], 3,
+        "the band asks whether this corpus bounds its work into phases, and two of these \
+         three commits bounded one. Counting only `phase:` answers a question about spelling \
+         with a number about practice: {m}"
+    );
+    assert_eq!(
+        m["off_vocabulary_commits"], 2,
+        "and the same two commits are still outside the vocabulary. A phase count that \
+         looked past the suffix *for recognition* would read zero here, which is A0's \
+         extraction error (#644) rebuilt inside the binary: {m}"
+    );
+
+    let verdict = |metric: &str| {
+        v["kuten"]["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["metric"] == metric)
+            .unwrap_or_else(|| panic!("a {metric} finding: {}", r.stdout))["verdict"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(verdict("phase-commit-share"), "conforming");
+    assert_eq!(verdict("off-vocabulary-share"), "divergent");
+
+    // And the surface a person is asked to act on says so too. The remedy for these commits
+    // is the vocabulary finding, and it is the only one that should be naming them.
+    let lint = run(root, &["lint", "--commits", "--format", "json"]);
+    let report: serde_json::Value =
+        serde_json::from_str(&lint.stdout).unwrap_or_else(|e| panic!("{e}: {}", lint.stdout));
+    let reported: Vec<String> = report["checks"]
+        .as_array()
+        .expect("the report lists checks")
+        .iter()
+        .find(|c| c["id"] == "unrecognized-verb")
+        .expect("`lint --commits` runs the vocabulary check")["violations"]
+        .as_array()
+        .map(|vs| {
+            vs.iter()
+                .filter_map(|v| v["detail"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert_eq!(
+        reported.len(),
+        2,
+        "`lint --commits` must go on reporting a scoped verb whatever the band counts: \
+         {reported:?}"
+    );
+    assert!(
+        reported.iter().all(|msg| msg.contains("phase(")),
+        "and it must name these two: {reported:?}"
+    );
+}
+
 /// A comparison across revisions is annotated rather than silently made.
 #[test]
 fn a_revision_the_profile_has_moved_past_is_annotated() {
