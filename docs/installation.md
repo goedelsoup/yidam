@@ -26,6 +26,15 @@ deliberate failure, not a fallback. It warns if the install directory is not on 
 | `YIDAM_BIN_DIR` | Install somewhere other than `~/.local/bin` |
 | `YIDAM_VERSION` | Install a specific tag instead of the latest — e.g. `cli/v0.4.0` |
 | `YIDAM_REPO` | Resolve releases from a fork instead of `goedelsoup/yidam` |
+| `GITHUB_TOKEN` | Optional. Raises the rate limit on the release lookup — see below |
+| `YIDAM_API` | Point the release lookup at a GitHub Enterprise host |
+
+**If the install fails with a rate-limit error.** The script asks the GitHub API which
+release is newest. That call is anonymous. GitHub allows 60 anonymous calls an hour, per IP
+address. Behind a shared address, that allowance belongs to everyone on it. So the call can
+be refused with HTTP 403. The script tells you when this has happened, and when the limit
+resets. Set `GITHUB_TOKEN` to any token you hold, and the limit rises. Or set
+`YIDAM_VERSION` to a tag, and the lookup is skipped.
 
 ## Homebrew
 

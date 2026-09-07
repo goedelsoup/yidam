@@ -49,10 +49,55 @@ esac
 # any other layer more recently broke `curl | sh` for everyone — `editor/v0.1.0`,
 # nine seconds after `cli/v0.4.0`, did exactly that. The list is returned
 # newest-first, so the first `cli/v*` row in it is the answer.
+#
+# The API rate-limits anonymous callers at 60 requests an hour, per IP, and answers 403
+# when that is spent — which reads here as "there is no release" unless it is told apart.
+# It is not hypothetical: this script is run from CI runners and from behind shared NAT,
+# where the hour's allowance belongs to everyone on the address. So: use a token when the
+# environment already has one, never require one, and when it fails say which failure it
+# was. `YIDAM_VERSION=cli/v1.2.3` skips the call entirely and is the answer for anyone the
+# throttle keeps catching.
 tag="${YIDAM_VERSION:-}"
 if [ -z "$tag" ]; then
-  tag=$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=100" \
-        | sed -n 's/.*"tag_name": *"\(cli\/v[^"]*\)".*/\1/p' | head -1)
+  tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' EXIT
+  token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+  # Overridable so the failure branches below are reachable by a test, and because a
+  # GitHub Enterprise host answers the same API at a different origin.
+  api="${YIDAM_API:-https://api.github.com}/repos/$REPO/releases?per_page=100"
+  # No `-f`: it turns every HTTP error into exit 22 with no body and no headers, which is
+  # the information this needs. A transport failure still exits nonzero, and `status`
+  # stays 000 so the two are told apart below.
+  if [ -n "$token" ]; then
+    status=$(curl -sSL -o "$tmp/releases.json" -D "$tmp/headers" -w '%{http_code}' \
+             -H "Authorization: Bearer $token" "$api") || status=000
+  else
+    status=$(curl -sSL -o "$tmp/releases.json" -D "$tmp/headers" -w '%{http_code}' "$api") || status=000
+  fi
+  if [ "$status" != "200" ]; then
+    remaining=$(sed -n 's/^[Xx]-[Rr]ate[Ll]imit-[Rr]emaining: *\([0-9]*\).*/\1/p' "$tmp/headers" | tail -1)
+    if [ "$status" = "403" ] || [ "$status" = "429" ]; then
+      if [ "${remaining:-}" = "0" ]; then
+        reset=$(sed -n 's/^[Xx]-[Rr]ate[Ll]imit-[Rr]eset: *\([0-9]*\).*/\1/p' "$tmp/headers" | tail -1)
+        # BSD `date` and GNU `date` spell this differently and neither accepts the other's
+        # flag, so both are tried and the raw epoch is the fallback. A reader told to wait
+        # should be told until when.
+        if [ -n "${reset:-}" ]; then
+          reset=$(date -r "$reset" 2>/dev/null || date -d "@$reset" 2>/dev/null || printf 'epoch %s' "$reset")
+        fi
+        fail "GitHub is rate-limiting this address (HTTP $status, allowance spent${reset:+, resets $reset}).
+       This is a throttle, not a missing release. Either set GITHUB_TOKEN to raise the
+       limit, or skip the lookup: YIDAM_VERSION=cli/vX.Y.Z sh install.sh"
+      fi
+      fail "GitHub refused the release listing with HTTP $status. If this address is not
+       rate-limited (remaining: ${remaining:-unknown}), the refusal is something else and
+       the response is: $(head -c 200 "$tmp/releases.json")"
+    fi
+    [ "$status" = "000" ] && fail "could not reach $api"
+    fail "the release listing for $REPO answered HTTP $status"
+  fi
+  tag=$(sed -n 's/.*"tag_name": *"\(cli\/v[^"]*\)".*/\1/p' "$tmp/releases.json" | head -1)
+  [ -n "$tag" ] || fail "$REPO has published no cli/v* release (the listing held $(grep -c tag_name "$tmp/releases.json") releases)"
 fi
 [ -n "$tag" ] || fail "could not resolve the latest CLI release of $REPO"
 case "$tag" in
@@ -66,8 +111,9 @@ url="https://github.com/$REPO/releases/download/$tag/$name.tar.gz"
 
 printf 'yidam %s (%s)\n' "$version" "$target"
 
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+# Created above when the tag was resolved through the API; a `YIDAM_VERSION` run skips
+# that branch and arrives here with none.
+[ -n "${tmp:-}" ] || { tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT; }
 
 curl -fsSL "$url" -o "$tmp/$name.tar.gz" || fail "download failed: $url"
 
