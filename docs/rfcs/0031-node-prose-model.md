@@ -7,7 +7,8 @@
   - RFC-0013 (which closed RFC-0002's five questions, is recorded `Implemented`, and specified two functions that do not exist)
   - RFC-0020 (whose `propose` writes findings into prose; this changes where they land, not what they may say)
   - RFC-0030 (whose `yidam edit` is the first surface that could supply node validation without an editor extension — see §3)
-- **Versioning layers touched:** template / SDK+parity / tooling. **Phase 1 and 2 touch no on-disk format.** Phase 3 does, and is deliberately gated behind a measurement.
+- **Versioning layers touched:** template / SDK+parity / tooling. **Phase 1 and 2 touch no on-disk format.** Phase 3 does, and was deliberately gated behind a measurement.
+- **Amended 2026-09-07:** Phases 1 and 2 have landed (#711, #712). The measurement §3.1 required has run (#713) and **Phase 3 is declined**; §3.2 carries the result and the per-corpus table it rests on.
 - **Downstream reference case:** `goedelsoup/ohio-education-funding` (#674, 129 nodes), and the repository behind #587 (1,972 links)
 
 ## Summary
@@ -30,6 +31,13 @@ node stays a YAML document or becomes Markdown with frontmatter — and it is st
 decision procedure with a measurement in front of it, not as a recommendation. The reason for
 that order is that Phases 1 and 2 are worth doing under either answer, and Phase 3's cost is
 concentrated in a place the tree already documents.
+
+That measurement has since run over sixteen corpora and 2,762 nodes, and it declined the phase —
+for the opposite of the anticipated reason. Prose is 66% of a node's bytes, so the format is
+carrying what §3 said it was. But two thirds of nodes keep prose in *nested* properties as well,
+so a node in Markdown form is still a YAML document with block scalars in it: 13.25% of served
+claims still depend on the block-scalar handling the move was meant to retire, against 22.68%
+today. §3.2 is the record.
 
 ## Problem
 
@@ -328,7 +336,131 @@ answer and Phase 3 is not worth its cost. If prose dominates and corpora keep co
 format is fighting its content and Phase 3 is the honest fix. **The measurement is a child of
 this RFC's epic and its result is reported back here before Phase 3 is accepted.**
 
-### 3.2 Either way, the second model goes
+### 3.2 What it decided — measured 2026-09-07 (#713)
+
+The measurement ran, read-only, over the eighteen corpora on disk at that day's HEADs, with both
+A0 controls applied. **Phase 3 is declined on the record**, and not for the reason §3.1
+anticipated. Prose does dominate — the half of the rule that pointed toward the format. What
+fails is the benefit: moving prose out of the YAML document does not retire the YAML-awareness
+in `claims.rs` that was Phase 3's principal technical argument, because most of a node's prose
+that is not `description` is not top-level either.
+
+**The population, and what two corpora are excluded from.** Eighteen repositories hold a
+`.yidam/`. One is a bootstrapped tree with no commits and no nodes. One — the public
+`the-watermark-directory` — declares itself a non-vendoring consumer whose `.yidam/corpus/` is a
+**git-ignored projection** written by its own exporter; it tracks zero corpus files. Only files
+git tracks were read, so no generator's output could be counted as a practice. Sixteen corpora
+and **2,762 tracked instance nodes** remain. Private and unpublished repositories are unnamed
+here, as they are in the kuten profile and for the same reason; the three public ones are named
+so that the aggregate has a falsifier somebody else can run.
+
+| # | corpus | kuten | nodes | median lines | `description` %B | declared-set %B |
+|---:|---|---|---:|---:|---:|---:|
+| 1 | `ohio-budget` | pre | 777 | 28 | 41.8 | 41.8 |
+| 2 | `allen-county-ohio` | cluster | 693 | 66 | 78.1 | 78.1 |
+| 3 | *unpublished* | pre | 194 | 42 | 64.5 | 64.5 |
+| 4 | *unpublished* | pre | 183 | 52 | 66.6 | 66.6 |
+| 5 | *unpublished* | pre | 134 | 25 | 61.4 | 61.4 |
+| 6 | `ohio-education-funding` | vintage | 129 | 118 | **21.8** | **50.5** |
+| 7 | *unpublished* | cluster | 125 | 59 | 65.9 | 65.9 |
+| 8 | *unpublished* | vintage | 106 | 69 | 82.2 | 82.2 |
+| 9 | *unpublished* | cluster | 97 | 44 | 63.0 | 63.0 |
+| 10 | *unpublished* | cluster | 81 | 35 | 62.0 | 62.0 |
+| 11 | *unpublished* | cluster | 71 | 57 | 39.0 | 39.0 |
+| 12 | *unpublished* | cluster | 51 | 62 | 63.3 | 63.3 |
+| 13 | *unpublished* | vintage | 43 | 36 | 88.6 | 88.6 |
+| 14 | *unpublished* | pre | 37 | 46 | 62.0 | 62.0 |
+| 15 | *unpublished* | pre | 31 | 18 | 42.5 | 42.5 |
+| 16 | *unpublished* | pre | 10 | 16 | 26.3 | 26.3 |
+
+`cluster` is A0's six-member `inquiry` cluster, `vintage` is the other three whose vendored
+prelude closes the vocabulary, `pre` vendored before it did. `%B` is the share of a node's bytes
+inside the field, summed over a corpus; `declared-set` adds the free-text keys that corpus coined.
+
+**1. Prose dominates, and it grows rather than shrinking.** Over all 2,762 nodes, `description`
+alone holds **62.6% of bytes and 51.9% of lines**; under Phase 1's declared set the prose share
+is **65.8% of bytes**. The per-corpus range is **0.21 to 0.89** of bytes, quoted to two decimals
+and rounded outward by the estimator the kuten profile writes down. `description` is a block
+scalar in fourteen of the sixteen; the two exceptions write it inline and are the two oldest
+prototypes, which is what the vintage control is for, and no claim about shape rests on them.
+
+Under the maturity control — each corpus re-measured at commit index 73 and again at HEAD, by
+`ls-tree` rather than by checkout — prose share holds or rises in ten of the twelve corpora with
+that much history, by as much as 17 points. One falls by under two points. The twelfth is #674's
+own corpus, and it falls by 39, which is the next finding rather than a counter-example.
+
+**2. Coining is one corpus of sixteen, and the projecting consumer has stopped.** The three data
+points [`schema.rs:78-80`](../../yidam/cli/src/cmd/schema.rs#L78-L80) and #674 rest on are one
+corpus and one generator. Re-measured: that corpus — `ohio-education-funding`, public and already
+named upstream as the divergence canary — still coins, now on 129 nodes of 129 (`summary` on all
+of them, `findings` on 91, plus `figures`, `revisions` and `unfilled`). The projecting consumer
+emits `class`, `label`, `description`, `properties` and `links` across 489 nodes and coins
+nothing; the *"199 of 199"* in that comment is stale. In the other fifteen corpora the only
+coined key anywhere is one inline `analytic` on two nodes.
+
+So the second half of §3.1's rule — *corpora keep coining* — is false. And the first half is
+false about that corpus in a way that indicts the instrument rather than the format: measured on
+`description` it is the most structure-heavy corpus in the population at 21.8%, and measured on
+what it actually declares as prose it is **50.5%**, a factor of 2.3. Its prose did not shrink
+between commit 73 and HEAD; it moved into keys `CorpusInstance` was dropping. **That is Phase 1's
+thesis, confirmed against the one corpus that motivated the format question.**
+
+**3. The YAML-awareness does not leave with the format.** Measured by deletion, not by reading:
+`is_block_scalar_header` was stubbed to `false` and the YAML-key arm of `starts_a_block` removed,
+and every tracked node was served twice — once as committed, and once projected into the
+frontmatter-plus-body form §3 proposes, prose dedented and nothing reworded.
+
+| | claims served | changed by the deletion |
+|---|---:|---:|
+| the node as committed | 16,045 | **3,639 (22.68%)** |
+| the same node as Markdown + frontmatter | 16,045 | **2,126 (13.25%)** |
+
+Twelve of the sixty-three `claims` unit tests fail under the deletion, all of them by serving a
+block-scalar header as part of what the corpus asserted. That much was expected.
+
+What was not: **1,942 of the 2,126 residual changes — 91% — are claims inside the frontmatter**,
+after the format move. **1,892 of 2,719 nodes (69.6%) hold a nested block scalar** inside
+`properties:`, a `location_description: |` or its equivalent, which the projection does not touch
+because `properties` stays YAML under every version of this proposal. A node in Markdown form is
+still a YAML document with block scalars in it, and `ends_statement` still has to read them.
+
+The remaining 184 changes (1.15%) are in the Markdown body, and every one of them is the
+deletion *repairing* a claim rather than breaking one — see §3.2.1.
+
+**Why this declines Phase 3.** Its cost is unchanged: editor validation, 624 `.yml` references,
+and a migration of every corpus, the largest of which now holds 693 nodes at 78% prose. Against
+that, the benefit is measured at **42% of what §3 claimed** — 22.68% of served claims depend on
+the YAML arms today, 13.25% still would afterwards — and the motivation is one corpus, which
+Phase 1 already serves. A format break that leaves the parser it was meant to simplify still
+reading YAML block scalars for two thirds of its nodes is not worth a template-layer major.
+
+**What this does not decide.** Phases 1 and 2 stand on their own evidence and are shipped
+(#711, #712). §3.3 stands: the second node model still has to go, and by the declined branch —
+`parse_instance` built as RFC-0013 promised, `parse_node` retired from the parity surface,
+RFC-0013's status corrected. That is #714. And the finding this measurement turned up in passing
+is worth more than the phase it declined: if a corpus's prose is 66% of its bytes and two thirds
+of nodes keep prose in nested properties as well, then **`prose:` wants to reach a nested key**,
+which Phase 1 does not do and which is a cheaper change than a format.
+
+#### 3.2.1 A soft-wrapped line beginning `word:` truncates a claim
+
+Found by the deletion above and true today, in the YAML form, with no format change in prospect.
+[`starts_a_block`](../../yidam/cli/src/claims.rs#L420) reads any line whose head is a bare token
+followed by a colon as a new YAML key, and a wrapped prose line is often exactly that shape:
+
+```text
+… The oats outlasted the horses by
+decades: there were still 22,498 acres of them in 1954. [verified] — the 1954 volume.
+```
+
+The claim is served as *"there were still 22,498 acres of them in 1954"* — the subject is on the
+line above, and the boundary is a wrap column, which is the same defect
+[`ends_statement`](../../yidam/cli/src/claims.rs#L530) was rewritten to remove. At least 115 of
+16,045 served claims (0.72%) are truncated this way across the population, which is the same
+order as the 179 lexical-stop truncations `stop_is_lexical` was given four rules to fix. Filed
+separately; it is not this RFC's to fix.
+
+### 3.3 Either way, the second model goes
 
 Whatever Phase 3 decides, `corpus.rs`'s Markdown model cannot keep being certified by parity and
 called by nothing. If Phase 3 is declined, `parse_instance` is built as RFC-0013 promised and
@@ -413,9 +545,17 @@ RFC-0030 shipping first.
    accepted findings, with its own clock. These may want to be one mechanism, and this RFC has
    not established that they do.
 
-4. **Does the measurement in §3.1 belong to `kuten`?** It is a corpus-population measurement over
-   the eighteen, which is what the kuten layer is for. If it does, its result becomes a band and
-   Phase 3's decision has a published instrument behind it rather than a one-off study.
+4. ~~**Does the measurement in §3.1 belong to `kuten`?**~~ **Answered no, 2026-09-07 (#713).**
+   The numbers would quote as a band — prose share spreads 2.0x across the six-member cluster,
+   which is inside the spread of the widest band the profile already carries. What is missing is
+   a consumer. The ceiling on a node's prose is already declared per class as `max_lines:`, which
+   is where #367 put it *because* 40 was a genesis norm corpora grow out of, and a practice-level
+   band would be a second answer to a question a class contract already answers. Minting one
+   would be the surface-with-no-consumer failure #572's own scope decision 2 names. What the run
+   did find in the kuten's neighbourhood is that `median_node_lines: {high: 62}` no longer
+   contains its own evidence: the member that set that ceiling is at 66 one day after the fit,
+   and the guard reads the recorded row rather than the corpus, so it cannot see the drift.
+   Filed separately.
 
 5. **What does Phase 3 do to `.ont.yml` itself?** A class definition is prose in four places, which
    the class scanner already reads as bytes for the reason §1.1 describes
