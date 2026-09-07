@@ -58,7 +58,7 @@ pub struct Options {
 
 impl Default for Options {
     fn default() -> Self {
-        Options {
+        Self {
             select: DEFAULT_SELECT.split(',').map(String::from).collect(),
             limit: DEFAULT_LIMIT,
             anchor_k: DEFAULT_ANCHOR_K,
@@ -107,7 +107,7 @@ pub struct Foreign {
 }
 
 impl Graph {
-    pub fn load(root: &std::path::Path) -> Graph {
+    pub fn load(root: &std::path::Path) -> Self {
         let corpus_dir = yidam_corpus_dir(root);
         let overlay = crate::cmd::lint::Overlay::default();
         let nodes = crate::cmd::lint::checks::load_nodes(
@@ -122,7 +122,7 @@ impl Graph {
             .unwrap_or(&corpus_dir)
             .to_string_lossy()
             .replace('\\', "/");
-        Graph {
+        Self {
             nodes,
             classes,
             universal: crate::universal::Universal::load(root),
@@ -137,10 +137,10 @@ impl Graph {
     /// A dependency's `universal.yml` is read from its own bundle, not inherited from here:
     /// a corpus-wide property declaration is that corpus's, and applying this repository's to
     /// a dependency's nodes would accept property names it never declared.
-    pub fn across(root: &std::path::Path) -> Graph {
-        Graph {
+    pub fn across(root: &std::path::Path) -> Self {
+        Self {
             across: Self::foreign(root),
-            ..Graph::load(root)
+            ..Self::load(root)
         }
     }
 

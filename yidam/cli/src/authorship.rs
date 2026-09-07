@@ -60,9 +60,9 @@ pub enum Kind {
 impl Kind {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Kind::Generated => "generated",
-            Kind::Imported => "imported",
-            Kind::Excluded => "excluded",
+            Self::Generated => "generated",
+            Self::Imported => "imported",
+            Self::Excluded => "excluded",
         }
     }
 
@@ -71,7 +71,7 @@ impl Kind {
     /// `excluded` is the only kind that means *do not look*. The other two name a party who
     /// can act — a generator, an upstream — and a finding addressed to them is not noise.
     pub fn reportable(&self) -> bool {
-        !matches!(self, Kind::Excluded)
+        !matches!(self, Self::Excluded)
     }
 }
 

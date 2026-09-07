@@ -58,7 +58,7 @@ pub struct Options {
 
 impl Default for Options {
     fn default() -> Self {
-        Options {
+        Self {
             budget: None,
             anchor_k: query::DEFAULT_ANCHOR_K,
         }

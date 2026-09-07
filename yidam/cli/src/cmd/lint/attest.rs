@@ -185,7 +185,7 @@ impl Generated {
             std::process::id()
         ));
         std::fs::write(&path, content).ok()?;
-        Some(Generated(path))
+        Some(Self(path))
     }
 }
 

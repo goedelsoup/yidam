@@ -40,9 +40,9 @@ pub enum Op {
 impl Op {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Op::Eq => "=",
-            Op::Ne => "!=",
-            Op::Contains => "~",
+            Self::Eq => "=",
+            Self::Ne => "!=",
+            Self::Contains => "~",
         }
     }
 }

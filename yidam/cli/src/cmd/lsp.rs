@@ -287,7 +287,7 @@ impl Server {
                     // The client's workspace wins over the cwd: an editor opened elsewhere
                     // still means the folder it was pointed at.
                     if root.join(".yidam").is_dir() {
-                        *self = Server::new(root);
+                        *self = Self::new(root);
                     }
                 }
                 reply(out, id.unwrap_or(Value::Null), self.capabilities());

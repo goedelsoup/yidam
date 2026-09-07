@@ -82,10 +82,10 @@ pub enum State {
 impl State {
     fn tag(self) -> &'static str {
         match self {
-            State::Due => "due",
-            State::Ok => "ok",
-            State::Undeclared => "—",
-            State::Unmeasurable => "?",
+            Self::Due => "due",
+            Self::Ok => "ok",
+            Self::Undeclared => "—",
+            Self::Unmeasurable => "?",
         }
     }
 }

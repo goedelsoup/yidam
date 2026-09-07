@@ -88,10 +88,10 @@ impl Retrieval {
     pub(crate) fn degraded_reason(&self) -> Option<&'static str> {
         match self {
             #[cfg(feature = "vector-read")]
-            Retrieval::Vector(_) => None,
-            Retrieval::NoIndex => Some("no_index"),
+            Self::Vector(_) => None,
+            Self::NoIndex => Some("no_index"),
             #[cfg(not(feature = "vector-read"))]
-            Retrieval::NoVectorSupport => Some("no_vector_support"),
+            Self::NoVectorSupport => Some("no_vector_support"),
         }
     }
 
@@ -100,10 +100,10 @@ impl Retrieval {
     pub(crate) fn repair(&self) -> Option<&'static str> {
         match self {
             #[cfg(feature = "vector-read")]
-            Retrieval::Vector(_) => None,
-            Retrieval::NoIndex => Some("run `yidam embed && yidam index-build` to build one"),
+            Self::Vector(_) => None,
+            Self::NoIndex => Some("run `yidam embed && yidam index-build` to build one"),
             #[cfg(not(feature = "vector-read"))]
-            Retrieval::NoVectorSupport => {
+            Self::NoVectorSupport => {
                 Some("reinstall with `--features vector-read` to read the index this corpus has")
             }
         }

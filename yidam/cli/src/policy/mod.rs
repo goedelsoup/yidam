@@ -124,7 +124,7 @@ pub enum Origin {
 
 impl Origin {
     pub fn is_local(&self) -> bool {
-        matches!(self, Origin::Local(_))
+        matches!(self, Self::Local(_))
     }
 }
 

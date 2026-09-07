@@ -78,52 +78,52 @@ impl Refusal {
     /// something the type system already knows.
     pub(crate) fn status(self) -> StatusCode {
         match self {
-            Refusal::OriginNotAllowed => StatusCode::FORBIDDEN,
-            Refusal::MalformedProtocolVersion => StatusCode::BAD_REQUEST,
-            Refusal::NoSseStream | Refusal::NoSessionToDelete | Refusal::MethodNotAllowed => {
+            Self::OriginNotAllowed => StatusCode::FORBIDDEN,
+            Self::MalformedProtocolVersion => StatusCode::BAD_REQUEST,
+            Self::NoSseStream | Self::NoSessionToDelete | Self::MethodNotAllowed => {
                 StatusCode::METHOD_NOT_ALLOWED
             }
-            Refusal::UnknownEndpoint => StatusCode::NOT_FOUND,
+            Self::UnknownEndpoint => StatusCode::NOT_FOUND,
         }
     }
 
     /// The frozen token, and then a sentence saying what to do about it.
     pub(crate) fn token(self) -> &'static str {
         match self {
-            Refusal::OriginNotAllowed => "origin-not-allowed",
-            Refusal::MalformedProtocolVersion => "malformed-protocol-version",
-            Refusal::NoSseStream => "no-sse-stream",
-            Refusal::NoSessionToDelete => "no-session-to-delete",
-            Refusal::MethodNotAllowed => "method-not-allowed",
-            Refusal::UnknownEndpoint => "unknown-endpoint",
+            Self::OriginNotAllowed => "origin-not-allowed",
+            Self::MalformedProtocolVersion => "malformed-protocol-version",
+            Self::NoSseStream => "no-sse-stream",
+            Self::NoSessionToDelete => "no-session-to-delete",
+            Self::MethodNotAllowed => "method-not-allowed",
+            Self::UnknownEndpoint => "unknown-endpoint",
         }
     }
 
     pub(crate) fn message(self) -> String {
         match self {
-            Refusal::OriginNotAllowed => format!(
+            Self::OriginNotAllowed => format!(
                 "{}: this request carried an Origin this server was not started with. Pass \
                  `--allow-origin <url>` for each browser origin that may reach it.",
                 self.token()
             ),
-            Refusal::MalformedProtocolVersion => format!(
+            Self::MalformedProtocolVersion => format!(
                 "{}: MCP-Protocol-Version must be a dated version such as 2025-06-18.",
                 self.token()
             ),
-            Refusal::NoSseStream => format!(
+            Self::NoSseStream => format!(
                 "{}: this server sends no messages a client did not ask for, so it opens no \
                  event stream. POST {ENDPOINT} instead.",
                 self.token()
             ),
-            Refusal::NoSessionToDelete => format!(
+            Self::NoSessionToDelete => format!(
                 "{}: this server assigns no Mcp-Session-Id, so there is no session to end.",
                 self.token()
             ),
-            Refusal::MethodNotAllowed => format!(
+            Self::MethodNotAllowed => format!(
                 "{}: {ENDPOINT} answers POST, carrying one JSON-RPC message as its body.",
                 self.token()
             ),
-            Refusal::UnknownEndpoint => {
+            Self::UnknownEndpoint => {
                 format!("{}: the MCP endpoint is {ENDPOINT}.", self.token())
             }
         }

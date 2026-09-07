@@ -108,16 +108,16 @@ pub enum Direction {
 impl Direction {
     pub fn name(self) -> &'static str {
         match self {
-            Direction::Authored => "authored",
-            Direction::Projected => "projected",
+            Self::Authored => "authored",
+            Self::Projected => "projected",
         }
     }
 
     /// The state in the words a reader of `doctor` or `AGENTS.md` needs.
     pub fn describe(self) -> &'static str {
         match self {
-            Direction::Authored => "the corpus is authored in git",
-            Direction::Projected => "the corpus is projected from its object",
+            Self::Authored => "the corpus is authored in git",
+            Self::Projected => "the corpus is projected from its object",
         }
     }
 }
@@ -200,7 +200,7 @@ impl Registers {
     /// paths and `None` for one without — and `lint --commits` reports exactly what it
     /// reported before this existed.
     pub fn corpus_only() -> Self {
-        Registers { object: Vec::new() }
+        Self { object: Vec::new() }
     }
 
     /// `[object] paths` from `.yidam/config.toml`.
@@ -213,12 +213,12 @@ impl Registers {
         let paths = crate::config::load_yidam_config(root)
             .map(|c| c.object.paths)
             .unwrap_or_default();
-        Registers::of_globs(paths)
+        Self::of_globs(paths)
     }
 
     /// The registers a given set of object globs describes.
     pub fn of_globs(object: Vec<String>) -> Self {
-        Registers {
+        Self {
             object: object
                 .into_iter()
                 .map(|g| g.trim().trim_end_matches('/').to_string())
@@ -320,12 +320,12 @@ impl PressureKind {
     ///
     /// The layer document carries the same set as a table, and a guard asserts the two agree
     /// — so a kind that exists in one place and not the other cannot ship.
-    pub const ALL: &'static [PressureKind] = &[PressureKind::Epistemic, PressureKind::Coverage];
+    pub const ALL: &'static [Self] = &[Self::Epistemic, Self::Coverage];
 
     pub fn name(self) -> &'static str {
         match self {
-            PressureKind::Epistemic => "epistemic",
-            PressureKind::Coverage => "coverage",
+            Self::Epistemic => "epistemic",
+            Self::Coverage => "coverage",
         }
     }
 }
@@ -392,7 +392,7 @@ impl Profile {
     /// state every repository is in: nothing retrofits a kuten into an existing corpus, and 0
     /// of 18 derived corpora hold one. The neutral arm runs the same criteria — what differs
     /// is whose selection it is, and the report says which.
-    pub fn criteria(profile: Option<&Profile>) -> Vec<String> {
+    pub fn criteria(profile: Option<&Self>) -> Vec<String> {
         profile
             .and_then(|p| p.rubric.as_ref())
             .map(|r| r.criteria.clone())
@@ -580,10 +580,10 @@ pub enum Verdict {
 impl Verdict {
     pub fn tag(self) -> &'static str {
         match self {
-            Verdict::Conforming => "ok",
-            Verdict::Divergent => "diverges",
-            Verdict::Vintage => "vintage",
-            Verdict::Unmeasurable => "unmeasured",
+            Self::Conforming => "ok",
+            Self::Divergent => "diverges",
+            Self::Vintage => "vintage",
+            Self::Unmeasurable => "unmeasured",
         }
     }
 }

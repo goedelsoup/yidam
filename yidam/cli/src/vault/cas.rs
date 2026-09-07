@@ -75,14 +75,14 @@ impl ContentHash {
             }
             bail!("not a sha256: {t:?} contains {bad:?}, which is not lowercase hex");
         }
-        Ok(ContentHash(t.to_string()))
+        Ok(Self(t.to_string()))
     }
 
     /// The digest of bytes already in memory.
     pub fn of_bytes(bytes: &[u8]) -> Self {
         let mut h = Sha256::new();
         h.update(bytes);
-        ContentHash(hex::encode(h.finalize()))
+        Self(hex::encode(h.finalize()))
     }
 
     /// The digest of a file, read in chunks.
@@ -106,7 +106,7 @@ impl ContentHash {
             }
             hasher.update(&buf[..n]);
         }
-        Ok(ContentHash(hex::encode(hasher.finalize())))
+        Ok(Self(hex::encode(hasher.finalize())))
     }
 
     pub fn as_str(&self) -> &str {

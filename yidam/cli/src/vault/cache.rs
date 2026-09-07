@@ -55,7 +55,7 @@ impl Cache {
     /// so the environment logic is testable without setting process-wide variables, which
     /// two tests running in the same process cannot do independently.
     pub fn at(root: impl Into<PathBuf>) -> Self {
-        Cache { root: root.into() }
+        Self { root: root.into() }
     }
 
     /// The cache this machine uses, from the environment.
@@ -71,7 +71,7 @@ impl Cache {
     /// attempted.
     pub fn resolve(lookup: impl Fn(&str) -> Option<String>) -> Result<Self> {
         if let Some(explicit) = lookup("YIDAM_VAULT_CACHE").filter(|s| !s.trim().is_empty()) {
-            return Ok(Cache::at(PathBuf::from(explicit)));
+            return Ok(Self::at(PathBuf::from(explicit)));
         }
         let base = match lookup("XDG_CACHE_HOME").filter(|s| !s.trim().is_empty()) {
             Some(x) => PathBuf::from(x),
@@ -84,7 +84,7 @@ impl Cache {
                 PathBuf::from(home).join(".cache")
             }
         };
-        Ok(Cache::at(base.join("yidam").join("vault")))
+        Ok(Self::at(base.join("yidam").join("vault")))
     }
 
     pub fn root(&self) -> &Path {

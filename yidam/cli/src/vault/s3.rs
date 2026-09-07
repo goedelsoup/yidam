@@ -100,7 +100,7 @@ impl S3Store {
             .enable_all()
             .build()
             .context("building the runtime for the S3 transport")?;
-        Ok(S3Store {
+        Ok(Self {
             location,
             region,
             endpoint,

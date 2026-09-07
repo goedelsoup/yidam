@@ -76,26 +76,26 @@ impl Operation {
     /// The kind, as the migration record and the report name it.
     pub fn kind(&self) -> &'static str {
         match self {
-            Operation::ClassRename { .. } => "class-rename",
-            Operation::PropertyRename { .. } => "property-rename",
-            Operation::PropertyRetype { .. } => "property-retype",
-            Operation::EdgeRetarget { .. } => "edge-retarget",
+            Self::ClassRename { .. } => "class-rename",
+            Self::PropertyRename { .. } => "property-rename",
+            Self::PropertyRetype { .. } => "property-retype",
+            Self::EdgeRetarget { .. } => "edge-retarget",
         }
     }
 
     /// One line, for the commit subject and the record's summary.
     pub fn summary(&self) -> String {
         match self {
-            Operation::ClassRename { old, new } => format!("class `{old}` → `{new}`"),
-            Operation::PropertyRename { class, old, new } => {
+            Self::ClassRename { old, new } => format!("class `{old}` → `{new}`"),
+            Self::PropertyRename { class, old, new } => {
                 format!("`{class}.{old}` → `{class}.{new}`")
             }
-            Operation::PropertyRetype {
+            Self::PropertyRetype {
                 class,
                 property,
                 new_type,
             } => format!("`{class}.{property}` is now `{new_type}`"),
-            Operation::EdgeRetarget {
+            Self::EdgeRetarget {
                 class,
                 relationship,
                 new_target,

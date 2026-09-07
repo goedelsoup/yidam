@@ -24,7 +24,7 @@ struct Run {
 }
 
 impl Run {
-    fn ok(&self) -> &Run {
+    fn ok(&self) -> &Self {
         assert_eq!(
             self.code, 0,
             "expected success\n{}{}",
@@ -32,7 +32,7 @@ impl Run {
         );
         self
     }
-    fn failed(&self) -> &Run {
+    fn failed(&self) -> &Self {
         assert_ne!(
             self.code, 0,
             "expected a nonzero exit\n{}{}",

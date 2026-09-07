@@ -67,10 +67,10 @@ pub enum Verdict {
 impl Verdict {
     fn tag(self) -> &'static str {
         match self {
-            Verdict::Ok => "ok",
-            Verdict::Warn => "warn",
-            Verdict::Fail => "fail",
-            Verdict::Skipped => "skip",
+            Self::Ok => "ok",
+            Self::Warn => "warn",
+            Self::Fail => "fail",
+            Self::Skipped => "skip",
         }
     }
 }

@@ -108,7 +108,7 @@ impl McpClient {
             .expect("spawning yidam serve --mcp");
         let stdin = child.stdin.take().unwrap();
         let stdout = BufReader::new(child.stdout.take().unwrap());
-        McpClient {
+        Self {
             child,
             stdin,
             stdout,

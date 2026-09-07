@@ -47,41 +47,41 @@ pub enum Derived {
 }
 
 impl Derived {
-    pub const ALL: [Derived; 3] = [Derived::Index, Derived::Embeddings, Derived::Bundle];
+    pub const ALL: [Self; 3] = [Self::Index, Self::Embeddings, Self::Bundle];
 
     /// The routing vocabulary name — what a vault's `holds` lists.
     pub fn kind(self) -> &'static str {
         match self {
-            Derived::Index => super::config::INDEX_KIND,
-            Derived::Embeddings => super::config::EMBEDDINGS_KIND,
-            Derived::Bundle => super::config::BUNDLE_KIND,
+            Self::Index => super::config::INDEX_KIND,
+            Self::Embeddings => super::config::EMBEDDINGS_KIND,
+            Self::Bundle => super::config::BUNDLE_KIND,
         }
     }
 
-    pub fn parse(s: &str) -> Option<Derived> {
-        Derived::ALL.into_iter().find(|d| d.kind() == s)
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|d| d.kind() == s)
     }
 
     /// Where it sits in a working tree.
     pub fn path(self, root: &Path) -> PathBuf {
         match self {
-            Derived::Index => crate::paths::yidam_index_dir(root),
-            Derived::Embeddings => crate::paths::yidam_embeddings_dir(root),
-            Derived::Bundle => root.join(".yidam").join("bundle.yiz"),
+            Self::Index => crate::paths::yidam_index_dir(root),
+            Self::Embeddings => crate::paths::yidam_embeddings_dir(root),
+            Self::Bundle => root.join(".yidam").join("bundle.yiz"),
         }
     }
 
     /// Whether it is a directory, and therefore has to be packed to become one object.
     pub fn is_dir(self) -> bool {
-        !matches!(self, Derived::Bundle)
+        !matches!(self, Self::Bundle)
     }
 
     /// What builds it, for a message telling somebody why there is nothing to push.
     pub fn built_by(self) -> &'static str {
         match self {
-            Derived::Index => "yidam index-build",
-            Derived::Embeddings => "yidam embed",
-            Derived::Bundle => "yidam bundle",
+            Self::Index => "yidam index-build",
+            Self::Embeddings => "yidam embed",
+            Self::Bundle => "yidam bundle",
         }
     }
 

@@ -154,7 +154,7 @@ pub struct FileStore {
 
 impl FileStore {
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        FileStore { root: root.into() }
+        Self { root: root.into() }
     }
 
     fn path_of(&self, hash: &ContentHash) -> PathBuf {

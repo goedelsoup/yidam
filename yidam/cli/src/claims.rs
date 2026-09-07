@@ -109,7 +109,7 @@ impl ClaimCounts {
         self.verified + self.inference + self.open
     }
 
-    pub fn add(&mut self, other: ClaimCounts) {
+    pub fn add(&mut self, other: Self) {
         self.verified += other.verified;
         self.inference += other.inference;
         self.open += other.open;
