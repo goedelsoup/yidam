@@ -1755,6 +1755,10 @@
             "off_vocabulary_commits": {
               "type": "integer"
             },
+            "suffixed_commits": {
+              "type": "integer",
+              "description": "How many of `off_vocabulary_commits` are a recognised verb wearing a conventional-commits scope — `phase(a-flat-grant):` rather than a coinage. A STRICT SUBSET, never a second population: every commit counted here is counted there too, and a consumer that subtracts one from the other is performing the suffix-strip GRAPH.md forbids. It exists so a divergence can say which of the two mistakes it found (#673) — one derived repository's 49% was 80 suffixed verbs and 130 genuine coinages, and a reader shown only the share concludes the vocabulary is being ignored rather than misspelled. NOT required, for the reason `open_questions` gives: a CLI released before this field emits a measurement without it, and its output must still validate."
+            },
             "nodes": {
               "type": "integer"
             },

@@ -664,6 +664,7 @@ mod tests {
             commits: 200,
             phase_commits: 0,
             off_vocabulary_commits: 0,
+            suffixed_commits: 0,
             nodes: 160,
             median_node_lines: Some(48.0),
             open_questions: 12,

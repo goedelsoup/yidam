@@ -962,6 +962,7 @@ fn every_populated_slot_has_a_consumer() {
         commits: 100,
         phase_commits: 20,
         off_vocabulary_commits: 0,
+        suffixed_commits: 0,
         nodes: 80,
         median_node_lines: Some(48.0),
         open_questions: 6,
