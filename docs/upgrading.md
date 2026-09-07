@@ -52,6 +52,9 @@ yidam kuten adopt inquiry
 adds the `AGENTS.md` section and fills it, because the scaffold carrying that section is
 consumed at genesis.
 
+Where there is no `AGENTS.md` at all, it writes none and says so. It prints the section for
+you to paste. `yidam doctor` reports it until a file carries the block.
+
 Then `yidam kuten check` reads your history against what you declared. It writes nothing and
 exits zero however far a corpus has drifted.
 

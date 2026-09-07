@@ -227,6 +227,7 @@ fn the_json_report_carries_the_envelope_and_every_check() {
         "policy",
         "governance",
         "kuten",
+        "kuten-read",
         "build",
     ];
     let mut got = ids.clone();
@@ -321,4 +322,98 @@ fn strict_is_what_turns_a_warning_into_a_nonzero_exit() {
 
     let strict = run(tmp.path(), &["doctor", "--strict"]);
     assert_eq!(strict.code, 1, "{}", strict.stdout);
+}
+
+/// **The state #694 found in the field.** A corpus adopted `inquiry` into a repository with
+/// no `AGENTS.md`, and every surface reported it as fine: `regen --check` exits 0, `doctor`
+/// said `ok kuten`, and `yidam kuten` printed the block to stdout and wrote nothing.
+///
+/// `adopt` was right to decline the write — conjuring an `AGENTS.md` from a command asked to
+/// record a decision reaches past what was asked. The defect was that nothing said so, at
+/// adoption or ever after. This is the "ever after" half.
+fn declaring_a_kuten(root: &Path) {
+    let profile =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../prelude/kuten/inquiry/kuten.yml");
+    let vendored = root.join(".yidam/.vendor/prelude/kuten/inquiry");
+    std::fs::create_dir_all(&vendored).unwrap();
+    std::fs::copy(&profile, vendored.join("kuten.yml")).unwrap();
+    std::fs::create_dir_all(root.join(".yidam/decisions")).unwrap();
+    std::fs::write(
+        root.join(".yidam/decisions/kuten.yml"),
+        "id: kuten\nkuten: inquiry\nrevision: 1\n",
+    )
+    .unwrap();
+}
+
+fn check<'a>(v: &'a serde_json::Value, id: &str) -> &'a serde_json::Value {
+    v["checks"]
+        .as_array()
+        .expect("checks")
+        .iter()
+        .find(|c| c["id"] == id)
+        .unwrap_or_else(|| panic!("doctor asks about {id}"))
+}
+
+#[test]
+fn a_kuten_no_document_carries_is_reported_rather_than_passed() {
+    let tmp = stage();
+    declaring_a_kuten(tmp.path());
+    assert!(
+        !tmp.path().join("AGENTS.md").exists(),
+        "the fixture must be in the state the field was in"
+    );
+
+    let r = run(tmp.path(), &["doctor", "--format", "json"]);
+    let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("doctor emits JSON");
+
+    // The declaration itself is sound, and that check must go on saying so — the two
+    // questions are separate, which is why this is a separate id.
+    assert_eq!(
+        check(&v, "kuten")["verdict"],
+        "ok",
+        "{:#?}",
+        check(&v, "kuten")
+    );
+
+    let read = check(&v, "kuten-read");
+    assert_eq!(read["verdict"], "warn", "{read:#?}");
+    assert!(
+        read["detail"].as_str().unwrap().contains("`inquiry`"),
+        "{read:#?}"
+    );
+    assert!(
+        read["remedy"].as_str().unwrap().contains("AGENTS.md"),
+        "a warning must name the repair: {read:#?}"
+    );
+}
+
+/// The same repository once something carries the block. `AGENTS.md` is where `adopt` and the
+/// scaffold put it, and the marker is what decides — not the filename.
+#[test]
+fn a_kuten_a_document_carries_reads_as_held() {
+    let tmp = stage();
+    declaring_a_kuten(tmp.path());
+    std::fs::write(
+        tmp.path().join("AGENTS.md"),
+        "# Agents\n\n<!-- REGEN: yidam kuten\n-->\n_Run `yidam kuten` to populate._\n\
+         <!-- /REGEN -->\n",
+    )
+    .unwrap();
+
+    let r = run(tmp.path(), &["doctor", "--format", "json"]);
+    let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("doctor emits JSON");
+    let read = check(&v, "kuten-read");
+    assert_eq!(read["verdict"], "ok", "{read:#?}");
+    assert_eq!(read["remedy"], serde_json::Value::Null);
+}
+
+/// Holding no kuten skips the question rather than passing it. There is nothing to carry, and
+/// an `ok` would read as *something was checked and found present* — which is the shape of
+/// error this whole check exists to correct.
+#[test]
+fn a_repository_holding_no_kuten_is_not_asked_whether_anything_reads_one() {
+    let tmp = stage();
+    let r = run(tmp.path(), &["doctor", "--format", "json"]);
+    let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("doctor emits JSON");
+    assert_eq!(check(&v, "kuten-read")["verdict"], "skipped");
 }
