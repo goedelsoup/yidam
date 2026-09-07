@@ -364,7 +364,33 @@ pub fn prose_views<'a>(nodes: &'a [Node], classes: &'a [Class]) -> Vec<ProseView
 /// Measured: with self-edges counted, the terminal reach of `examples/streamflow`'s
 /// `downstream-of` chain becomes a finding, and every river has one.
 pub fn source_classes(view: &[EdgeView<'_>]) -> HashSet<String> {
-    // Every class the ontology says something points at, from whichever end said it.
+    let pointed = pointed_classes(view);
+    view.iter()
+        .filter(|v| !v.edges.is_empty() && !pointed.contains(v.name))
+        .map(|v| v.name.to_string())
+        .collect()
+}
+
+/// Every class the ontology says something points at, from whichever end said it.
+///
+/// The reading of `direction:` lives here and nowhere else. It is the half of
+/// [`source_classes`] that is a fact about the *ontology* rather than about which classes are
+/// exempt from a check, and it has a second caller — [`super::history::expectations_of`],
+/// which asks the same question of a class that declares no edges of its own.
+///
+/// **It is one function because it was two.** The replay used to answer "is anything pointed
+/// at this class" with `edges.iter().any(|e| e.target == name)`, which is direction-blind: a
+/// class `C` named as the `target` of `D`'s `direction: in` declaration read as targeted,
+/// when what that declaration says is that `C` points at `D`. `C` then scored against
+/// `uncited == 0` — the exact state `meets_expectation: null` exists to represent, on a class
+/// that had declared nothing at all (#659). The two readings could drift because the rule was
+/// written twice; it is now written once.
+///
+/// The three arms are argued for on [`source_classes`], and they are the same arms: `in` on a
+/// class points at that class, `out` points at its target, and a declaration with no
+/// direction says a relationship exists without saying which way it runs, so it names both
+/// ends. A self-edge names neither.
+pub fn pointed_classes<'a>(view: &[EdgeView<'a>]) -> HashSet<&'a str> {
     let mut pointed: HashSet<&str> = HashSet::new();
     for v in view {
         for e in v.edges.iter().filter(|e| e.target != v.name) {
@@ -382,10 +408,7 @@ pub fn source_classes(view: &[EdgeView<'_>]) -> HashSet<String> {
             }
         }
     }
-    view.iter()
-        .filter(|v| !v.edges.is_empty() && !pointed.contains(v.name))
-        .map(|v| v.name.to_string())
-        .collect()
+    pointed
 }
 
 /// The [`EdgeView`]s of a parsed ontology.

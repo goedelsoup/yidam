@@ -22,7 +22,7 @@ use crate::cmd::lint::history::Expectation;
 use crate::paths::repo_root;
 
 /// One class's standing at one commit, against what the class declares.
-#[derive(serde::Serialize, Clone, Default)]
+#[derive(Debug, serde::Serialize, Clone, Default)]
 pub struct ClassRow {
     pub nodes: usize,
     /// Nodes nothing points at *and* that `orphan-in` reports — zero for a source class,
@@ -390,5 +390,64 @@ mod tests {
         let out = render(&[head], 0);
         assert!(!out.contains("band"), "{out}");
         assert!(out.contains("note"), "{out}");
+    }
+
+    /// The contract's `null`, end to end through `collect` — the field itself rather than
+    /// the frame it is derived from.
+    ///
+    /// `gauge` declares `target: concept, direction: in`, which says instances of a concept
+    /// point at a gauge. It NAMES `concept` and asserts nothing about anything pointing at
+    /// one, so a `concept` carrying no `edges:` has declared nothing and must be scored
+    /// against nothing. It was scored against `uncited == 0` instead, because the reading
+    /// here was direction-blind (#659) — and the instance below is uncited, so the row said
+    /// `false`: a class reported as failing an expectation it never stated, which is the one
+    /// thing the contract says this field must never do.
+    #[test]
+    fn a_class_the_ontology_only_names_is_scored_against_nothing() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        let git = |args: &[&str]| {
+            assert!(
+                std::process::Command::new("git")
+                    .current_dir(root)
+                    .args(args)
+                    .status()
+                    .unwrap()
+                    .success(),
+                "git {args:?}"
+            );
+        };
+        let write = |rel: &str, body: &str| {
+            let p = root.join(".yidam/corpus").join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, body).unwrap();
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.email", "t@t.com"]);
+        git(&["config", "user.name", "T"]);
+
+        write(
+            "gauge.ont.yml",
+            "class: gauge\nedges:\n  - relationship: measured-by\n    target: concept\n    direction: in\n",
+        );
+        write("concept.ont.yml", "class: concept\n");
+        write("concept/a.yml", "class: concept\nlinks: []\n");
+        write("gauge/g.yml", "class: gauge\nlinks: []\n");
+        git(&["add", "-A"]);
+        git(&[
+            "commit",
+            "-q",
+            "-m",
+            "establish: concept, named from the gauge's end",
+        ]);
+
+        let rows = collect(root);
+        let by_class = &rows.last().expect("one commit touched the corpus").by_class;
+        let concept = &by_class["concept"];
+        assert_eq!(concept.uncited, 1, "the premise: nothing points at it");
+        assert_eq!(concept.expectation, "unstated", "{by_class:?}");
+        assert_eq!(concept.meets_expectation, None, "{by_class:?}");
+        // And the class that did declare is still scored, so this is not a blanket `null`.
+        assert_eq!(by_class["gauge"].meets_expectation, Some(false));
     }
 }

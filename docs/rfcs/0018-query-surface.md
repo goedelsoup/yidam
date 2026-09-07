@@ -67,16 +67,16 @@ at depth 2 and all of it at depth 3.
 ### E1 typed the graph and no traversal reads the types
 
 `.ont.yml` now declares, and lint now enforces: the class an instance belongs to
-([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L963), Error), the properties it may
-and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1214),
-[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1375)), the type of each value
-([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1637)), which relationships a class
-licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1697)), and which class
+([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L986), Error), the properties it may
+and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1237),
+[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1398)), the type of each value
+([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1660)), which relationships a class
+licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1720)), and which class
 each relationship may land on
-([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1762), Error).
+([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1785), Error).
 
 `unlicensed-edge`'s own rationale states the gap in as many words
-([`checks.rs:1712`](../../yidam/cli/src/cmd/lint/checks.rs#L1712)):
+([`checks.rs:1735`](../../yidam/cli/src/cmd/lint/checks.rs#L1735)):
 
 > a relationship in no declaration is worth seeing, because **a traversal that walks by
 > relationship will not find it**
@@ -234,7 +234,7 @@ for an anchored entry, whose entry nodes are ordered by score.
 
 An edge is traversable when it is authored on an instance, resolves inside the corpus, and
 lands on **another instance** — the same set `instance_links` reads
-([`checks.rs:832-857`](../../yidam/cli/src/cmd/lint/checks.rs#L832-L857)), and the same rule
+([`checks.rs:855-880`](../../yidam/cli/src/cmd/lint/checks.rs#L855-L880)), and the same rule
 `unlicensed-edge` states: *a link to the class file or into the catalog is a citation, not a
 relationship.*
 
@@ -271,7 +271,7 @@ So a query naming a class the corpus does not declare can only ever match nothin
 **rejected** with the declared class list and the nearest name.
 
 The one exception is the one `unknown_class` itself carves out
-([`checks.rs:454-458`](../../yidam/cli/src/cmd/lint/checks.rs#L454-L458)): a corpus with no `.ont.yml`
+([`checks.rs:477-481`](../../yidam/cli/src/cmd/lint/checks.rs#L477-L481)): a corpus with no `.ont.yml`
 files at all has no schema layer, which is a different problem from a misspelling. There, class
 names are not checked and the report says the corpus is unschematised.
 
@@ -290,7 +290,7 @@ relationship the class does not declare resolves as:
 
 The first row is load-bearing and is easy to omit. `unlicensed_edge` short-circuits on an empty
 edge list **before** it consults the policy
-([`checks.rs:1086`](../../yidam/cli/src/cmd/lint/checks.rs#L1086)):
+([`checks.rs:1109`](../../yidam/cli/src/cmd/lint/checks.rs#L1109)):
 
 ```rust
 if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic { continue; }
@@ -344,7 +344,7 @@ If a class declares the relationship but only toward class C, a hop asking for c
 **rejected**, naming the declared targets. `edge-target-class` is Error severity for the same
 reason: an edge to the wrong thing resolves, traverses, and exports, and is simply false. A
 declaration with an empty `target` licenses every class, exactly as the check reads it
-([`checks.rs:1275`](../../yidam/cli/src/cmd/lint/checks.rs#L1275)), and so does a query hop
+([`checks.rs:1298`](../../yidam/cli/src/cmd/lint/checks.rs#L1298)), and so does a query hop
 against it. `*` on the target side is the query-side twin of that empty `target:` and licenses
 every class in the same way.
 
@@ -356,7 +356,7 @@ so `seeded_because` and `fy2024_profile` are queryable without being declared on
 classes. An undeclared name is **rejected** with the class's declared list.
 
 Predicate *values* are a separate question from predicate *names*, and the operator decides it.
-`property_type_violation` ([`checks.rs:1062`](../../yidam/cli/src/cmd/lint/checks.rs#L1062))
+`property_type_violation` ([`checks.rs:1085`](../../yidam/cli/src/cmd/lint/checks.rs#L1085))
 takes a declared type and a value and no operator — it answers *may the corpus store this*, not
 *may someone ask about this*. Using it operator-blind rejects satisfiable predicates:
 `reach[claim_tag!=maybe]` is satisfied by every reach in `examples/streamflow`, and
@@ -378,7 +378,7 @@ Three further rules the naive version leaves undefined:
   rule stands as the default and `?` after the operator opts one predicate out of it.
 - **A list value matches if any element matches.** `claim_tag: [open]` is legal YAML that the
   claim counter reads as one claim, and `property_type_violation` accepts it
-  ([`checks.rs:1064-1071`](../../yidam/cli/src/cmd/lint/checks.rs#L1064-L1071)); a predicate must read the
+  ([`checks.rs:1087-1094`](../../yidam/cli/src/cmd/lint/checks.rs#L1087-L1094)); a predicate must read the
   same bytes the same way.
 - **`=` on a `date` compares at the precision written**, so `observed_on=2026-08` matches every
   day in that month. Ordering compares at the precision the two sides *share*, which is a
@@ -644,7 +644,7 @@ matter of plumbing:
 | What a query at a commit needs | What `replay` does |
 |---|---|
 | that commit's ontology | `is_instance` excludes `.ont.yml` outright ([`history.rs:41-62`](../../yidam/cli/src/cmd/lint/history.rs#L41-L62)) |
-| declared properties, types, targets, `edge_policy` | `blob_expectation` deserializes **one** field from a class blob — `direction` — into a three-valued `Expectation` ([`history.rs:225-262`](../../yidam/cli/src/cmd/lint/history.rs#L225-L262)) |
+| declared properties, types, targets, `edge_policy` | `blob_expectation` deserializes **one** field from a class blob — `direction` — into a three-valued `Expectation` ([`history.rs:225-267`](../../yidam/cli/src/cmd/lint/history.rs#L225-L267)) |
 | relationship names on edges | `targets_of` drops them: `.filter_map(\|l\| l.target.as_ref())` ([`history.rs:82`](../../yidam/cli/src/cmd/lint/history.rs#L82)) |
 | a revision to stop at | `change_stream` runs `git log --reverse … -- .yidam/corpus` with no revision argument and no parameter to supply one ([`history.rs:95-107`](../../yidam/cli/src/cmd/lint/history.rs#L95-L107)) — genesis to HEAD, always |
 
