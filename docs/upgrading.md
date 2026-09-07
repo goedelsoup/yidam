@@ -189,9 +189,13 @@ paths = ["web/**", "crates/**"]
 
 **Who this affects.** Nobody who leaves the key unset. The default is unchanged.
 
-**One asymmetry, deliberate.** `yidam vocabulary --check` runs in the commit-msg hook, before
-the commit exists. It cannot ask git for paths, so it still warns where `lint` now stays
-quiet. Tracked as #652.
+**One asymmetry, deliberate.** `yidam vocabulary --check` reads a subject line before the
+commit exists. It cannot ask git for paths, so it still warns where `lint` now stays quiet.
+Its callers are a contributor at a terminal, the VS Code commit box, and the MCP tool
+`check_subject`. Tracked as #652.
+
+*Corrected 2026-09-07 (#693): this note first named a commit-msg hook, which this project does
+not ship.*
 
 ### A citation naming a line is held to what the line says
 

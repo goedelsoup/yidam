@@ -578,11 +578,40 @@ RFC, if the register ever genuinely needs to be a parity-visible fact.
 >   lever: declaring every top-level path but `.yidam/` as the object moves matt-huffman from
 >   0.1671 to 0.1291 and ohio-education-funding from 0.4930 to 0.3248.
 >
-> **One asymmetry ships open.** `yidam vocabulary --check` runs in the commit-msg hook, before
+> **One asymmetry ships open.** ~~`yidam vocabulary --check` runs in the commit-msg hook, before
 > the commit exists, and takes no paths — so the hook still reports `feat:` on an artifact
-> while `lint --commits` is silent. Closing it means changing `check_subject`, which is frozen
-> in [`sdks/parity/mcp/tools.json`](../../yidam/prelude/sdks/parity/mcp/tools.json). Recorded
+> while `lint --commits` is silent.~~ **Corrected 2026-09-07 under #693 — see below.** Closing
+> it means changing `check_subject`, which is frozen in
+> [`sdks/parity/mcp/tools.json`](../../yidam/prelude/sdks/parity/mcp/tools.json). Recorded
 > rather than fixed, and filed as its own issue.
+
+#### The asymmetry's consumers, corrected (2026-09-07, #693)
+
+**This project ships no commit-msg hook, and never has.** `git ls-files` names no hook script,
+no installer and no `.githooks/`; none of the four derived repositories that upgraded installs
+one, and `core.hooksPath` is unset in all of them. RFC-0014's open questions record the stance
+the set already held — *"conformance, not hooks"* (RFC-0004), with a local hook merely
+*optional*.
+
+The asymmetry is real and the mechanism above was wrong, which matters because it decides where
+a fix would go. `yidam vocabulary --check` takes a subject line and nothing else, and it has
+three consumers:
+
+| consumer | how it asks |
+|---|---|
+| a contributor at a terminal | `docs/contributing.md` tells them to run `yidam vocabulary --check "fix(cli): …"` by hand |
+| the VS Code commit box | [`vocabulary.ts`](../../yidam/editors/vscode/src/vocabulary.ts) shells to `yidam vocabulary --check <subject> --format json` |
+| the MCP tool `check_subject` | frozen in [`tools.json`](../../yidam/prelude/sdks/parity/mcp/tools.json); its input schema takes `subject` and nothing else |
+
+None of the three has paths to read, because none of them is looking at a commit — all three
+ask about a subject line *before the act*, which is the whole point of the surface. So the
+remedy proposed in #652 — *"the hook reads the staged paths"* via `git diff --cached
+--name-only` — closes nothing: there is no hook, and a contributor typing a subject at a
+terminal has no staged set that means anything about it.
+
+What #652 gates itself on — *"measure whether it misleads anyone"* — is now answerable against
+those three consumers rather than against a script nobody runs, and two derived repositories
+declare `[object] paths` as of 2026-09-07.
 
 ### 5 — The question-pressure slot, and #578's disposition
 
