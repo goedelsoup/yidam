@@ -1520,9 +1520,7 @@ pub fn unimplemented_class(classes: &[Class], types: &TypeIndex) -> Check {
         "unimplemented-class",
         "Class naming an implementation the code does not define",
         Severity::Error,
-        "A class declaring `implemented_by:` has stated a fact about `crates/`,
-            foundational_type: None,
-            dead_alignment_fields: vec![], and a tree \
+        "A class declaring `implemented_by:` has stated a fact about `crates/`, and a tree \
          with no type of that name contradicts it — which is what this check's siblings \
          gate on, and an omission is not. A class that declares nothing is not checked, and \
          that silence is measured rather than timid: across twelve derived corpora 129 of \

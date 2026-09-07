@@ -1019,6 +1019,55 @@ decision := {"allow": true, "deny": []}
         assert!(ids.contains("unimplemented-class"));
     }
 
+    /// **Every rationale is prose, and the prose ships.** `--explain` prints it, `--format
+    /// json` emits it as `checks[].rationale`, and the report golden the SDKs test against
+    /// carries it verbatim — so a slip in a string literal here is a slip in a contract that
+    /// is versioned separately from this binary. `unimplemented-class` shipped two lines of a
+    /// `Class` struct literal spliced into the middle of its opening sentence (#709) and
+    /// nothing complained: the literal is not raw, so an unindented newline and a
+    /// `foundational_type: None,` are as valid to the compiler as any other bytes.
+    ///
+    /// Two shapes, both cheap. A **lone newline** is what unindented source pasted into a
+    /// flowed paragraph looks like — the only break any rationale wants is the blank line
+    /// between paragraphs, and two of them use it. And **Rust tokens outside backticks**: a
+    /// rationale names `implemented_by:` and `vec![]` freely inside a code span, so the spans
+    /// come out before the scan rather than the tokens being banned outright.
+    #[test]
+    fn no_rationale_carries_source_that_leaked_out_of_a_code_span() {
+        let tmp = clean_repo();
+        let opts = Options {
+            // The commit check is the one not in the vec unconditionally, and its rationale
+            // ships like every other.
+            commits: true,
+            ..Options::default()
+        };
+        for c in run_checks(tmp.path(), &opts) {
+            let r = c.rationale;
+            assert!(
+                !r.replace("\n\n", "").contains('\n'),
+                "{}: the rationale breaks a line outside a paragraph break, which is what a \
+                 pasted-in fragment looks like:\n{r}",
+                c.id
+            );
+            assert_eq!(
+                r.matches('`').count() % 2,
+                0,
+                "{}: an unbalanced backtick — the code spans cannot be told from the prose",
+                c.id
+            );
+            // Even segments are outside the spans; odd ones are the spans themselves.
+            let prose = r.split('`').step_by(2).collect::<Vec<_>>().join(" ");
+            for token in ["vec!", ": None", ": Some", "::", "->", "=>"] {
+                assert!(
+                    !prose.contains(token),
+                    "{}: `{token}` is Rust, and it is in the rationale outside a code \
+                     span:\n{prose}",
+                    c.id
+                );
+            }
+        }
+    }
+
     fn check<'a>(all: &'a [Check], id: &str) -> &'a Check {
         all.iter().find(|c| c.id == id).expect(id)
     }
