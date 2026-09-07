@@ -190,9 +190,47 @@ fn check_pred(
             ),
         ));
     };
+    // `prop?` reads whether the node carries the property at all. That is a question about
+    // every declared type equally, it has no operand to typecheck, and the arms below all
+    // concern an operand — so it is answered here rather than falling through them.
+    if pred.op == Op::Absent {
+        return Ok(());
+    }
+    // **The ordering operators are `date` only, and this is the rejection that keeps them
+    // honest.** RFC-0018 deferred them on exactly this ground: the declared types are
+    // `string`, `text`, `date`, `ref` and `claim` with no numeric among them, so an ordering
+    // that fell back to comparing text would be correct on `date` and a trap on the rest —
+    // `length_km<9` would rank `10` below `9`, and say nothing about having done so. A
+    // corpus that coins its own type gets the same refusal rather than a lexical guess,
+    // because nothing here knows what its order is.
+    if pred.op.is_ordering() && declared != "date" {
+        return Err(reject(
+            "unordered-property",
+            Some(step_index),
+            format!(
+                "`{}` is `type: {declared}` on `{}`, and `{}` is defined on `date` only — \
+                 comparing anything else would be a comparison of text, which reads `10` as \
+                 before `9`. Use `=`, `!=` or `~`.",
+                pred.prop,
+                class.name,
+                pred.op.as_str()
+            ),
+        ));
+    }
     let as_yaml = serde_yaml::Value::String(pred.value.clone());
     let bad = crate::cmd::lint::checks::property_type_violation(declared, &as_yaml);
     match (pred.op, bad) {
+        // An ordering needs a date on both sides. The operand's is the half a query can be
+        // wrong about, and `property_type_violation`'s own sentence says what a date is —
+        // which is the sentence the corpus already gets when it writes one wrong.
+        (op, Some(why)) if op.is_ordering() => Err(reject(
+            "unsatisfiable-predicate",
+            Some(step_index),
+            format!(
+                "`{}` cannot be compared against that value: {why}",
+                pred.prop
+            ),
+        )),
         // `=` asks for a value the property can hold. Asking for one it cannot is a query
         // that could never match, which is a rejection and not an empty result.
         (Op::Eq, Some(why)) => Err(reject(
@@ -450,9 +488,14 @@ pub fn check(query: &Query, schema: &Schema) -> Result<Checked, Rejection> {
                     level: "info",
                     step: index,
                     code: "narrowed",
+                    // **The predicate, not the property name.** Declaring it was the only way
+                    // to fail this loop until the ordering operators arrived (#725); now a
+                    // class can be skipped for declaring `began` as `type: string`, and a
+                    // message saying it does not declare `began` would be false about the one
+                    // class it names.
                     message: format!(
-                        "`*` narrowed to the classes declaring `{}`; skipped {}",
-                        pred.prop,
+                        "`*` narrowed to the classes `{}` can be asked of; skipped {}",
+                        pred.spelled(),
                         skipped
                             .iter()
                             .map(|c| format!("`{c}`"))
@@ -721,6 +764,118 @@ mod tests {
     fn containment_against_a_fragment_is_legal_on_every_scalar_type() {
         let f = streamflow();
         assert!(check(&parse("reach[claim_tag~ope]").unwrap(), &f.schema()).is_ok());
+    }
+
+    // ── ordering and absence (#725) ───────────────────────────────────────────
+
+    const TENURE: &str = "class: tenure\nproperties:\n  - name: began\n    type: date\n  \
+                          - name: ended\n    type: date\n  - name: note\n    type: string\n";
+
+    #[test]
+    fn ordering_a_date_property_against_a_date_is_licensed() {
+        let f = Fixture::new(vec![class(TENURE)]);
+        for query in [
+            "tenure[began<=1893]",
+            "tenure[began<1893-04,ended>?1893-04-01]",
+            "tenure[ended?]",
+        ] {
+            let checked = check(&parse(query).unwrap(), &f.schema()).unwrap();
+            assert!(
+                checked.diagnostics.is_empty(),
+                "{query}: {:?}",
+                checked.diagnostics
+            );
+        }
+    }
+
+    /// **The rejection RFC-0018 deferred the operators for.** There is no numeric declared
+    /// type, so an ordering on anything but `date` would silently be a comparison of text.
+    #[test]
+    fn ordering_a_property_that_is_not_a_date_is_rejected_rather_than_answered_lexically() {
+        let f = Fixture::new(vec![class(TENURE)]);
+        let e = check(&parse("tenure[note<9]").unwrap(), &f.schema()).unwrap_err();
+        assert_eq!(e.code, "unordered-property");
+        assert!(e.message.contains("`date` only"), "{}", e.message);
+        assert!(
+            e.message.contains("reads `10` as before `9`"),
+            "{}",
+            e.message
+        );
+    }
+
+    /// A type the corpus coined gets the same refusal. Nothing here knows its order, and
+    /// guessing one is the trap in a different costume.
+    #[test]
+    fn ordering_a_coined_type_is_refused_rather_than_guessed() {
+        let f = Fixture::new(vec![class(
+            "class: measurement\nproperties:\n  - name: flow\n    type: discharge\n",
+        )]);
+        let e = check(&parse("measurement[flow>9]").unwrap(), &f.schema()).unwrap_err();
+        assert_eq!(e.code, "unordered-property");
+        assert!(e.message.contains("type: discharge"), "{}", e.message);
+    }
+
+    /// The other half of an ordering is the operand, and it is the half the query can be
+    /// wrong about. The sentence is `property_type_violation`'s own — the one the corpus
+    /// already gets when it writes a date wrong.
+    #[test]
+    fn ordering_against_an_operand_that_is_not_a_date_is_rejected() {
+        let f = Fixture::new(vec![class(TENURE)]);
+        let e = check(&parse("tenure[began<last-tuesday]").unwrap(), &f.schema()).unwrap_err();
+        assert_eq!(e.code, "unsatisfiable-predicate");
+        assert!(e.message.contains("is not a date"), "{}", e.message);
+    }
+
+    /// `prop?` reads whether the node carries the property, which is a question about every
+    /// declared type equally — and it has no operand to typecheck.
+    #[test]
+    fn the_absence_test_is_legal_on_any_declared_type() {
+        let f = streamflow();
+        for query in ["reach[claim_tag?]", "reach[regulated?]", "gage[parameter?]"] {
+            assert!(
+                check(&parse(query).unwrap(), &f.schema()).is_ok(),
+                "{query}"
+            );
+        }
+        // Still a declared property, though: the affix does not exempt the name.
+        let e = check(&parse("reach[depth?]").unwrap(), &f.schema()).unwrap_err();
+        assert_eq!(e.code, "undeclared-property");
+    }
+
+    /// `*` narrows past a class the predicate cannot be asked of, and is rejected only when
+    /// every class refuses — the rule already in force, now reachable for a second reason.
+    ///
+    /// The message is the half worth pinning. It read *"narrowed to the classes declaring
+    /// `began`"*, which is false about `memo`: `memo` declares `began`, as a string with no
+    /// order. A skipped class named under a wrong reason is worse than one not named.
+    #[test]
+    fn a_star_ordering_narrows_past_a_class_that_declares_the_property_undated() {
+        let f = Fixture::new(vec![
+            class(TENURE),
+            class("class: memo\nproperties:\n  - name: began\n    type: string\n"),
+        ]);
+        let checked = check(&parse("*[began<1893]").unwrap(), &f.schema()).unwrap();
+        assert_eq!(checked.narrowed[0], vec!["tenure"]);
+        let d = &checked.diagnostics[0];
+        assert_eq!(d.code, "narrowed");
+        assert!(d.message.contains("skipped `memo`"), "{}", d.message);
+        assert!(
+            !d.message.contains("declaring"),
+            "`memo` does declare `began` — {}",
+            d.message
+        );
+        assert!(d.message.contains("`began<1893`"), "{}", d.message);
+    }
+
+    /// When no class survives, the rejection is the last one raised rather than the generic
+    /// undeclared-property sentence — so `*` says the ordering was the problem.
+    #[test]
+    fn a_star_ordering_no_class_can_answer_is_rejected_with_the_ordering_reason() {
+        let f = Fixture::new(vec![class(
+            "class: memo\nproperties:\n  - name: began\n    type: string\n",
+        )]);
+        let e = check(&parse("*[began<1893]").unwrap(), &f.schema()).unwrap_err();
+        assert_eq!(e.code, "unordered-property");
     }
 
     // ── `*` ───────────────────────────────────────────────────────────────────

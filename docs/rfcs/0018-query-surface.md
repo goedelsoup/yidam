@@ -70,13 +70,13 @@ at depth 2 and all of it at depth 3.
 ([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L945), Error), the properties it may
 and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1196),
 [`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1355)), the type of each value
-([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1600)), which relationships a class
-licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1660)), and which class
+([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1617)), which relationships a class
+licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1677)), and which class
 each relationship may land on
-([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1725), Error).
+([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1742), Error).
 
 `unlicensed-edge`'s own rationale states the gap in as many words
-([`checks.rs:1675`](../../yidam/cli/src/cmd/lint/checks.rs#L1675)):
+([`checks.rs:1692`](../../yidam/cli/src/cmd/lint/checks.rs#L1692)):
 
 > a relationship in no declaration is worth seeing, because **a traversal that walks by
 > relationship will not find it**
@@ -367,18 +367,22 @@ takes a declared type and a value and no operator — it answers *may the corpus
 | `=` | exact comparison against the value as written | `property_type_violation` — asking for a value the type cannot hold is a rejection |
 | `!=` | the negation of `=` | none; a `warn` diagnostic when the operand could never be a value of the declared type, since the predicate is then trivially true of every node that carries the property |
 | `~` | contiguous, case-insensitive substring containment over the value's serialized text | none — it applies to every scalar type, so `claim_tag~ope` and `observed_on~2026` are both legal |
+| `<` `<=` `>` `>=` | date ordering, at the precision the two sides share (**amended, #725** — see [Ordering, and the trap it was deferred over](#ordering-and-the-trap-it-was-deferred-over)) | the property must be declared `date` and the operand must be one; anything else is `unordered-property` |
+| `?` | as `prop?`, whether the node carries a value for the property at all | none — it reads the node's shape, not a value, so every declared type answers it |
 
 Three further rules the naive version leaves undefined:
 
 - **An absent property never matches**, for any operator including `!=`. A reach with no
   `claim_tag` is not in `reach[claim_tag!=maybe]`. The alternative — three-valued logic — buys
-  nothing here and makes `!=` mean two things depending on the corpus.
+  nothing here and makes `!=` mean two things depending on the corpus. **Amended by #725:** the
+  rule stands as the default and `?` after the operator opts one predicate out of it.
 - **A list value matches if any element matches.** `claim_tag: [open]` is legal YAML that the
   claim counter reads as one claim, and `property_type_violation` accepts it
   ([`checks.rs:1046-1053`](../../yidam/cli/src/cmd/lint/checks.rs#L1046-L1053)); a predicate must read the
   same bytes the same way.
 - **`=` on a `date` compares at the precision written**, so `observed_on=2026-08` matches every
-  day in that month. Ordering operators do not exist — see the open questions.
+  day in that month. Ordering compares at the precision the two sides *share*, which is a
+  different rule for a stated reason — below.
 
 Messages for the rejecting cases are `property_type_violation`'s own, verbatim:
 `claim_tag=maybe` reports *"`maybe` is not an evidence tag — write `verified`, `inference`, or
@@ -386,17 +390,75 @@ Messages for the rejecting cases are `property_type_violation`'s own, verbatim:
 leaves it; a check that failed on vocabulary it had not heard of would make coining impossible,
 and that argument does not weaken because the caller is a query.
 
+#### Ordering, and the trap it was deferred over
+
+*Amended by #725. This RFC shipped without the four ordering operators and recorded why in
+[Open questions](#open-questions): the declared types are `string`, `text`, `date`, `ref` and
+`claim`, with no numeric among them, so **"ordering would be lexical everywhere except `date`,
+which is a trap worth not shipping."***
+
+The measurement that reopened it: across twelve derived repositories, 949 of 2,305 corpus nodes
+(41%) carry a value in a property their class declares `type: date`, 1,115 values over 84
+declared properties, and **eleven classes across six corpora declare both a start and an end
+date** — 292 instances. `lint` validated every one of them on write and no code path read one
+back. `goedelsoup/allen-county-ohio` states the query it cannot run in its own
+`tenure/ACTIONS.md`: *"Tenures open at a date: `began` on or before it, `ended` after it or
+absent."*
+
+The trap is avoided by refusing rather than by widening. **The ordering operators are defined on
+`date` and rejected `unordered-property` on every other declared type, including one the corpus
+coined** — nothing here knows what order a coined type has, and guessing is the trap wearing a
+different name. If a numeric type is ever declared, this is the one rule that has to change, and
+it changes in one place.
+
+Two rules the naive version leaves undefined:
+
+- **A comparison runs at the precision the two sides share.** `began<1900-06-01` holds for a
+  `began: 1893`. This is deliberately *not* `=`'s rule, which compares at the precision the query
+  wrote — and the divergence is the point. An equality asked more precisely than the corpus knows
+  is genuinely unanswerable, so `born=1893-04-01` not matching `born: 1893` is correct. An
+  ordering asked that way usually *is* answerable, and refusing it would make `born<=1900-01-01`
+  drop every person whose birth year alone is known, silently, in the direction of a smaller
+  answer. The consequence to know: where the corpus is coarser than the query, `<=` and `>=` can
+  both hold for a value `=` rejects; at equal precision the three are trichotomous.
+- **A stored value that is not a date orders against nothing.** `property-type` reports a
+  malformed date at Warn and does not gate, so a query meets one. It matches no ordering, and it
+  is not absent either — `?` does not collect it.
+
+**`?` is the affix, and it is the reason the interval question is expressible at all.** The
+filter is a conjunction and *"`ended` after D **or** `ended` absent"* is a disjunction, so no
+arrangement of the operators above states it. Rather than add `or` to the grammar — which is the
+general pattern language this RFC rejected as a first cut — `?` sits between an operator and its
+operand and says *an absent property satisfies this too*:
+
+```
+tenure[began<=1893, ended>?1893] -of-office-> office
+```
+
+It applies to **every** operator, not only the ordering ones. A rule with an exception is harder
+to hold than a rule without, and on `!=` it is precisely the three-valued reading this RFC
+declined to make the default — now available where a reader can see it was asked for, one
+predicate at a time. Written bare as `prop?`, with no operand, it is the absence test itself.
+
+This is **valid time**, and it is not `--at`. `--at` reconstructs what the repository *believed*
+at a commit; this asks what was *true in the world* at a date. A corpus needs both and they are
+different questions, which is why neither flag nor operator is spelled like the other.
+
 #### `*` under every closure rule
 
 `*` matches every class, and each rule above needs its `*` case stated or two implementers will
 disagree about the exit code of one string:
 
 - **As a step's class:** the candidate set is every class.
-- **With a property predicate:** the candidate set narrows to the classes that declare that
-  property, or that a universal declaration covers. If **no** class declares it, the query is
-  **rejected**, exactly as a named class would be. Without this rule `*[regualted=yes]` returns
-  an empty result at exit 0 while `reach[regualted=yes]` is rejected — the same typo, two
-  answers, which is the failure this section exists to close.
+- **With a property predicate:** the candidate set narrows to the classes the predicate can be
+  *asked of* — those declaring the property, or covered by a universal declaration, and since
+  #725 also those declaring it at a type the operator is defined on. If **no** class survives,
+  the query is **rejected** with the last reason raised, exactly as a named class would be.
+  Without this rule `*[regualted=yes]` returns an empty result at exit 0 while
+  `reach[regualted=yes]` is rejected — the same typo, two answers, which is the failure this
+  section exists to close. The narrowing note names the **predicate** rather than the property:
+  a class skipped for declaring `began` as a `string` does declare `began`, and a note saying
+  otherwise would be false about the one class it names.
 - **As a hop's source (`* -rel-> B`):** the hop runs from every class the ladder above admits,
   and is rejected only when **every** class rejects it — that is, no class declares `rel` and
   every class is `exhaustive`. The report names the classes excluded and why.
@@ -771,10 +833,15 @@ class. See the open question for the trigger that would change this.
   relationship, and genuinely where the two benchmark arms converge. Lean: defer until
   `bench --scaling` shows whether a bounded repeat still separates them at N = 512 and above.
   Deciding it before that measurement would be deciding it by taste.
-- **Ordering operators** (`<`, `>`) on `date` and numeric properties. Lean: defer. There is no
+- ~~**Ordering operators** (`<`, `>`) on `date` and numeric properties. Lean: defer. There is no
   numeric property type today — `property_type_violation` knows `string`, `text`, `date`, `ref`
   and `claim` — so ordering would be lexical everywhere except `date`, which is a trap worth
-  not shipping.
+  not shipping.~~ **Settled by #725: shipped, `date` only.** The lean was right about the trap
+  and wrong about the remedy — the trap is avoided by *refusing* the other types rather than by
+  not having the operators, and the deferral cost 41% of twelve corpora's nodes being
+  write-checked and unreadable. See [Ordering, and the trap it was deferred
+  over](#ordering-and-the-trap-it-was-deferred-over). If a numeric type is ever declared, the
+  rule to revisit is one condition in `check_pred`.
 - **Anchor width.** Default `--anchor-k 1` is argued above but not measured. Lean: revisit once
   `bench` can report precision at k ∈ {1, 3, 5}; the answer is a measurement, not an opinion.
 - **The near-miss threshold.** The "within one edit of a declared name" diagnostic needs a

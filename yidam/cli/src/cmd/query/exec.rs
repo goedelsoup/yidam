@@ -94,17 +94,50 @@ fn scalars(value: &serde_yaml::Value) -> Vec<String> {
     }
 }
 
+/// Order two ISO dates **at the precision they share**, or `None` if either is not a date.
+///
+/// The corpus writes a date to whatever precision it knows it — `is_iso_date`'s own rationale
+/// records `formed: "1985"` occurring 71 times in one derived corpus — so a comparison has to
+/// say what it does when the two sides disagree about precision. This one drops both to the
+/// coarser: `1893-04-01 < 1900` is decided on the years alone.
+///
+/// **This is deliberately not `=`'s rule, and the divergence is the point.** `=` compares at
+/// the precision the *query* wrote, so `born=1893-04-01` does not match `born: 1893` — a
+/// day-precision question the corpus cannot answer. Ordering at the query's precision would
+/// make `born<=1900-01-01` skip every person whose birth year alone is known, silently, in
+/// the direction of a smaller answer. An equality asked more precisely than the corpus knows
+/// is genuinely unanswerable; an ordering usually is not — `1893` is before `1900-01-01`
+/// whatever day it fell on — and answering it is the reason the operator exists.
+///
+/// The consequence to know: where the corpus is coarser than the query, `<=` and `>=` can
+/// both hold for a value `=` rejects. When the two sides carry the same precision the three
+/// are trichotomous, which is the case a caller reasons about.
+fn compare_dates(left: &str, right: &str) -> Option<std::cmp::Ordering> {
+    let (left, right) = (
+        crate::cmd::lint::checks::iso_date_parts(left.trim())?,
+        crate::cmd::lint::checks::iso_date_parts(right.trim())?,
+    );
+    let shared = left.len().min(right.len());
+    Some(left[..shared].cmp(&right[..shared]))
+}
+
 /// Whether one predicate holds of one node.
 ///
-/// **An absent property never matches, for any operator including `!=`.** A reach with no
-/// `claim_tag` is not in `reach[claim_tag!=maybe]`. The alternative — three-valued logic —
-/// buys nothing here and makes `!=` mean two different things depending on the corpus.
+/// **An absent property never matches, for any operator including `!=`** — unless the
+/// predicate wrote `?`. A reach with no `claim_tag` is not in `reach[claim_tag!=maybe]`. The
+/// alternative — three-valued logic everywhere — buys nothing here and makes `!=` mean two
+/// different things depending on the corpus. [`Pred::or_absent`] is the same escape hatch
+/// asked for one predicate at a time, where a reader can see it.
 fn pred_holds(node: &Node, pred: &Pred) -> bool {
-    let Some(raw) = property(node, &pred.prop) else {
-        return false;
-    };
-    let values = scalars(raw);
+    let values = property(node, &pred.prop).map(scalars).unwrap_or_default();
+    // **Absence is one condition and not two.** A property the node omits, one written
+    // `null`, and one written as an empty list all carry no value, and the rule above already
+    // treated the three identically by falling out of this same guard. `?` and `prop?` read
+    // that condition rather than a second, narrower one that would disagree with it.
     if values.is_empty() {
+        return pred.op == Op::Absent || pred.or_absent;
+    }
+    if pred.op == Op::Absent {
         return false;
     }
     let wanted = pred.value.to_lowercase();
@@ -119,10 +152,27 @@ fn pred_holds(node: &Node, pred: &Pred) -> bool {
         }
         Op::Ne => v != &pred.value,
         Op::Contains => v.to_lowercase().contains(&wanted),
+        // `check` has already established that the property is declared `date` and that the
+        // operand is one. The *stored* value is a separate question: `property-type` reports
+        // a malformed date and does not gate, so a query has to survive meeting one. It does
+        // not match — ordering prose against a date is not a comparison, and guessing an
+        // answer for it would be the undercount's louder twin.
+        Op::Lt | Op::Le | Op::Gt | Op::Ge => match compare_dates(v, &pred.value) {
+            None => false,
+            Some(ord) => match pred.op {
+                Op::Lt => ord.is_lt(),
+                Op::Le => ord.is_le(),
+                Op::Gt => ord.is_gt(),
+                _ => ord.is_ge(),
+            },
+        },
+        // Unreachable: guarded above, where the node does carry a value. Answered rather than
+        // panicked, because a wrong arm here should return a wrong row and not a crashed query.
+        Op::Absent => false,
     };
     match pred.op {
-        // Any element may satisfy `=` or `~`; `!=` has to hold of all of them, or
-        // `claim_tag: [open, verified]` would satisfy `claim_tag != open`.
+        // Any element may satisfy `=`, `~` or an ordering; `!=` has to hold of all of them,
+        // or `claim_tag: [open, verified]` would satisfy `claim_tag != open`.
         Op::Ne => values.iter().all(matches_one),
         _ => values.iter().any(matches_one),
     }
@@ -582,6 +632,195 @@ mod tests {
         assert!(execute(&q, &checked, &nodes, ".yidam/corpus", None)
             .matched
             .is_empty());
+    }
+
+    // ── ordering and absence (#725) ───────────────────────────────────────────
+
+    /// The shape #725 measured: eleven classes across six real corpora declare a start date
+    /// and an end date, and the end is absent exactly when the interval is still open.
+    ///
+    /// `allen-county-ohio`'s `tenure`, in miniature — including the case that makes the
+    /// feature non-trivial: `partial` knows its start to the year only.
+    fn tenures() -> Vec<Node> {
+        vec![
+            node(
+                "tenure/closed-before.yml",
+                "tenure",
+                &[("began", text("1885-01-05")), ("ended", text("1889-01-07"))],
+                &[],
+            ),
+            node(
+                "tenure/spanning.yml",
+                "tenure",
+                &[("began", text("1891-01-05")), ("ended", text("1895-01-07"))],
+                &[],
+            ),
+            node(
+                "tenure/still-open.yml",
+                "tenure",
+                &[("began", text("1892-01-04"))],
+                &[],
+            ),
+            node(
+                "tenure/partial.yml",
+                "tenure",
+                &[("began", text("1893"))],
+                &[],
+            ),
+            node(
+                "tenure/undated.yml",
+                "tenure",
+                &[("began", text("unknown"))],
+                &[],
+            ),
+        ]
+    }
+
+    fn over_tenures(query: &str) -> Vec<String> {
+        let q = super::super::lang::parse(query).unwrap();
+        let checked = Checked {
+            diagnostics: vec![],
+            unschematised: false,
+            narrowed: vec![vec!["tenure".to_string()]],
+        };
+        execute(&q, &checked, &tenures(), ".yidam/corpus", None).matched
+    }
+
+    /// **The query the corpora wrote down in prose and could not run.**
+    ///
+    /// `allen-county-ohio`'s `tenure/ACTIONS.md`: *"Tenures open at a date: `began` on or
+    /// before it, `ended` after it or absent."* That is this string, and the `?` is the half
+    /// no conjunction of `=`, `!=` and `~` could express.
+    #[test]
+    fn the_canonical_interval_query_answers_who_held_the_office_in_1893() {
+        assert_eq!(
+            over_tenures("tenure[began<=1893,ended>?1893]"),
+            vec![
+                // Ran 1891–1895, so 1893 falls inside it.
+                "tenure/spanning.yml",
+                // Began 1892 and never ended: `?` is why it is here.
+                "tenure/still-open.yml",
+                // Began *in* 1893, known to the year. At the shared precision the corpus has,
+                // it was open — and dropping it would be the silent undercount.
+                "tenure/partial.yml",
+            ]
+        );
+    }
+
+    /// Each half of that query on its own, so a failure says which half moved.
+    #[test]
+    fn ordering_excludes_what_the_interval_query_includes_only_through_the_affix() {
+        // Without `?`, a tenure that never ended is not in the answer — the standing rule.
+        assert_eq!(
+            over_tenures("tenure[began<=1893,ended>1893]"),
+            vec!["tenure/spanning.yml"]
+        );
+        // The complement: everything that ended, before or during 1893.
+        assert_eq!(
+            over_tenures("tenure[ended<=1893]"),
+            vec!["tenure/closed-before.yml"]
+        );
+        assert_eq!(
+            over_tenures("tenure[began<1893]"),
+            vec![
+                "tenure/closed-before.yml",
+                "tenure/spanning.yml",
+                "tenure/still-open.yml",
+            ]
+        );
+    }
+
+    /// `prop?` is the shape of a node, not a value, so it reads a missing key and a key
+    /// holding nothing as the same thing — which is what every other operator already did by
+    /// coming back false for both.
+    #[test]
+    fn the_absence_test_matches_a_missing_key_and_a_valueless_one() {
+        assert_eq!(
+            over_tenures("tenure[ended?]"),
+            vec![
+                "tenure/still-open.yml",
+                "tenure/partial.yml",
+                "tenure/undated.yml",
+            ]
+        );
+        let mut nodes = tenures();
+        let mut mapping = serde_yaml::Mapping::new();
+        mapping.insert(text("began"), text("1885-01-05"));
+        mapping.insert(text("ended"), serde_yaml::Value::Null);
+        nodes[0].inst.properties = Some(mapping);
+        let q = super::super::lang::parse("tenure[ended?]").unwrap();
+        let checked = Checked {
+            diagnostics: vec![],
+            unschematised: false,
+            narrowed: vec![vec!["tenure".to_string()]],
+        };
+        assert!(
+            execute(&q, &checked, &nodes, ".yidam/corpus", None)
+                .matched
+                .contains(&"tenure/closed-before.yml".to_string()),
+            "`ended: null` carries no value and is absent by the same rule"
+        );
+    }
+
+    /// A comparison drops to the coarser side, which is the difference between an answer and
+    /// a silent undercount: `partial` knows only `1893`, and it is genuinely before 1900.
+    #[test]
+    fn a_comparison_runs_at_the_precision_the_two_sides_share() {
+        assert!(over_tenures("tenure[began<1900-06-01]").contains(&"tenure/partial.yml".into()));
+        assert!(over_tenures("tenure[began>1892-06-01]").contains(&"tenure/partial.yml".into()));
+        // The consequence to know, stated as a test rather than left to be discovered: where
+        // the corpus is coarser than the query, `<=` and `>=` can both hold where `=` does not.
+        assert!(over_tenures("tenure[began<=1893-04-01]").contains(&"tenure/partial.yml".into()));
+        assert!(over_tenures("tenure[began>=1893-04-01]").contains(&"tenure/partial.yml".into()));
+        assert!(!over_tenures("tenure[began=1893-04-01]").contains(&"tenure/partial.yml".into()));
+    }
+
+    /// At equal precision the three are trichotomous — exactly one holds — which is the
+    /// property a caller actually reasons with.
+    #[test]
+    fn exactly_one_of_less_equal_and_greater_holds_at_equal_precision() {
+        for probe in ["1885-01-05", "1891-01-05", "1900-01-01"] {
+            let hits = ["<", "=", ">"]
+                .iter()
+                .filter(|op| {
+                    over_tenures(&format!("tenure[began{op}{probe}]"))
+                        .contains(&"tenure/closed-before.yml".to_string())
+                })
+                .count();
+            assert_eq!(hits, 1, "at {probe}");
+        }
+    }
+
+    /// `property-type` reports a malformed date and does not gate, so a query meets one. It
+    /// is not orderable and it is not absent — answering either would be an invention.
+    #[test]
+    fn a_stored_value_that_is_not_a_date_orders_against_nothing() {
+        for query in [
+            "tenure[began<1900]",
+            "tenure[began>1900]",
+            "tenure[began>?1900]",
+        ] {
+            assert!(
+                !over_tenures(query).contains(&"tenure/undated.yml".to_string()),
+                "{query}"
+            );
+        }
+        assert!(!over_tenures("tenure[began?]").contains(&"tenure/undated.yml".to_string()));
+    }
+
+    /// One rule with no exceptions: `?` is the affix on every operator, so the standing
+    /// absent-never-matches rule stays the default and is opted out of one predicate at a time.
+    #[test]
+    fn the_affix_works_on_the_operators_that_predate_it() {
+        assert_eq!(
+            run("gage[claim_tag!=?open]", vec![vec!["gage"]]).matched,
+            vec!["gage/canyon.yml", "gage/valley.yml"],
+            "neither gage carries `claim_tag`, and `?` is the caller asking for that"
+        );
+        assert_eq!(
+            run("gage[claim_tag=?open]", vec![vec!["gage"]]).matched,
+            vec!["gage/canyon.yml", "gage/valley.yml"]
+        );
     }
 
     // ── `*` ───────────────────────────────────────────────────────────────────

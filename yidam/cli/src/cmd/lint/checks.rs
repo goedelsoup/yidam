@@ -1573,20 +1573,37 @@ pub(crate) fn property_type_violation(declared: &str, value: &serde_yaml::Value)
 /// The 45 findings that remain in that corpus are the ones worth having: `[open] No date.`,
 /// `1993. [inference], via [musicbrainz](../../catalog/musicbrainz.md) life-span.`
 fn is_iso_date(s: &str) -> bool {
+    iso_date_parts(s).is_some()
+}
+
+/// The components of an ISO date, in order, or `None` when it is not one.
+///
+/// The whole of [`is_iso_date`]'s rule, returning what it read instead of discarding it, so
+/// that a comparison over dates and the check that admits them cannot come to disagree about
+/// which strings are dates. `query`'s ordering operators are the second reader (#725), and a
+/// second parser there would be a corpus where `lint` accepts a value that `query` will not
+/// order — the quietest possible split.
+///
+/// Every component is fixed-width and zero-padded, so a lexical comparison of the parts is a
+/// numeric one, and the caller needs no integers.
+pub fn iso_date_parts(s: &str) -> Option<Vec<&str>> {
     let mut parts = s.split('-');
     // Year, then optionally month, then optionally day. A trailing separator leaves an
     // empty part, which fails the width test rather than passing as absent — `1985-` is
     // not a year.
     let widths = [4, 2, 2];
-    let mut seen = 0;
+    let mut seen = Vec::with_capacity(3);
     for w in widths {
         match parts.next() {
             None => break,
-            Some(p) if p.len() == w && p.chars().all(|c| c.is_ascii_digit()) => seen += 1,
-            Some(_) => return false,
+            Some(p) if p.len() == w && p.chars().all(|c| c.is_ascii_digit()) => seen.push(p),
+            Some(_) => return None,
         }
     }
-    seen > 0 && parts.next().is_none()
+    match !seen.is_empty() && parts.next().is_none() {
+        true => Some(seen),
+        false => None,
+    }
 }
 
 /// Property values that do not satisfy the type the class declares.

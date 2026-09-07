@@ -30,11 +30,27 @@ use std::fmt;
 /// whitespace, matches any term at any distance, scores the result, and searches three
 /// concatenated fields. Only the single-word case coincides, and a surface that borrowed the
 /// name without the semantics would be the worse kind of consistency.
+///
+/// The four ordering operators are **`date` only**, which is the whole of RFC-0018's reason
+/// for deferring them: the declared types are `string`, `text`, `date`, `ref` and `claim`,
+/// there is no numeric type, so an ordering that fell back to lexical comparison would be
+/// right on one type and a trap on the other four. [`super::check`] rejects them elsewhere
+/// rather than answering lexically.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Op {
     Eq,
     Ne,
     Contains,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    /// `prop?` — the property is absent. Takes no operand.
+    ///
+    /// Distinct from every other operator in that it reads the *shape* of a node rather than
+    /// a value, so it is legal on any declared type. `question[closed?]` is a question nobody
+    /// has closed.
+    Absent,
 }
 
 impl Op {
@@ -43,7 +59,17 @@ impl Op {
             Self::Eq => "=",
             Self::Ne => "!=",
             Self::Contains => "~",
+            Self::Lt => "<",
+            Self::Le => "<=",
+            Self::Gt => ">",
+            Self::Ge => ">=",
+            Self::Absent => "?",
         }
+    }
+
+    /// Whether this is one of the four `date`-only comparisons.
+    pub fn is_ordering(&self) -> bool {
+        matches!(self, Self::Lt | Self::Le | Self::Gt | Self::Ge)
     }
 }
 
@@ -52,6 +78,39 @@ pub struct Pred {
     pub prop: String,
     pub op: Op,
     pub value: String,
+    /// `?` between the operator and the operand: **an absent property satisfies this too**.
+    ///
+    /// One rule with no exceptions rather than a special case on the ordering operators. The
+    /// default — an absent property never matches, for any operator including `!=` — is the
+    /// rule RFC-0018 argued for and it stays; `?` is how a caller opts out of it in the one
+    /// place they mean to, at the predicate, visibly.
+    ///
+    /// It exists because the canonical interval question needs it and the filter language is
+    /// a conjunction: *"tenures open in 1893"* is `began<=1893, ended>?1893`, and the second
+    /// half is a disjunction — after 1893, **or** never ended — that no conjunction of the
+    /// operators above can express. Eleven classes across six measured corpora are shaped
+    /// that way (#725).
+    pub or_absent: bool,
+}
+
+impl Pred {
+    /// The predicate as it would be written, for a report or a diagnosis.
+    ///
+    /// Shared by the report's step view and by the absence diagnosis, which formatted it
+    /// themselves and would otherwise be two spellings of one predicate — and the second copy
+    /// is the one that stops matching the first.
+    pub fn spelled(&self) -> String {
+        format!(
+            "{}{}{}{}",
+            self.prop,
+            self.op.as_str(),
+            match self.or_absent {
+                true => "?",
+                false => "",
+            },
+            self.value
+        )
+    }
 }
 
 /// One step: a class pattern, optionally entered by similarity, optionally filtered.
@@ -275,14 +334,19 @@ fn parse_filter(raw: &str, token: usize) -> Result<Vec<Pred>, ParseError> {
             return Err(err("an empty predicate between commas", Some(token)));
         }
         // First operator character wins, so a value may contain `=` and `~`.
-        let at = part.find(['=', '!', '~']).ok_or_else(|| {
+        //
+        // Widening this set is safe for the same reason the original three were: `ident_ok`
+        // admits none of these characters, so the first one in a predicate is always the
+        // operator and never a byte of the property name. A value may still hold any of them,
+        // because a value is whatever follows the operator.
+        let at = part.find(['=', '!', '~', '<', '>', '?']).ok_or_else(|| {
             err(
                 format!("`{part}` is not a predicate — it has no operator"),
                 Some(token),
             )
         })?;
         let (prop, rest) = part.split_at(at);
-        let (op, value) = match rest.as_bytes() {
+        let (op, rest) = match rest.as_bytes() {
             [b'!', b'=', ..] => (Op::Ne, &rest[2..]),
             [b'!', ..] => {
                 return Err(err(
@@ -290,6 +354,14 @@ fn parse_filter(raw: &str, token: usize) -> Result<Vec<Pred>, ParseError> {
                     Some(token),
                 ))
             }
+            [b'<', b'=', ..] => (Op::Le, &rest[2..]),
+            [b'<', ..] => (Op::Lt, &rest[1..]),
+            [b'>', b'=', ..] => (Op::Ge, &rest[2..]),
+            [b'>', ..] => (Op::Gt, &rest[1..]),
+            // `?` in operator position is the absence test, and it takes no operand. A `?`
+            // *after* an operator is the or-absent affix below, which is a different thing
+            // and is why this arm has to say which one the caller wrote.
+            [b'?', ..] => (Op::Absent, &rest[1..]),
             [b'=', ..] => (Op::Eq, &rest[1..]),
             _ => (Op::Contains, &rest[1..]),
         };
@@ -297,10 +369,37 @@ fn parse_filter(raw: &str, token: usize) -> Result<Vec<Pred>, ParseError> {
         if !ident_ok(prop) {
             return Err(err(format!("`{prop}` is not a property name"), Some(token)));
         }
+        if op == Op::Absent {
+            if !rest.trim().is_empty() {
+                return Err(err(
+                    format!(
+                        "`{prop}?` tests whether the property is absent and takes no value — \
+                         for a comparison that an absent property also satisfies, write the \
+                         `?` after the operator, as `{prop}>?{}`",
+                        rest.trim()
+                    ),
+                    Some(token),
+                ));
+            }
+            // `or_absent` stays false: it is the affix, and `Op::Absent` *is* the test. Both
+            // true would spell the predicate `closed??`.
+            out.push(Pred {
+                prop: prop.to_string(),
+                op,
+                value: String::new(),
+                or_absent: false,
+            });
+            continue;
+        }
+        let (or_absent, value) = match rest.strip_prefix('?') {
+            Some(value) => (true, value),
+            None => (false, rest),
+        };
         out.push(Pred {
             prop: prop.to_string(),
             op,
             value: parse_value(value.trim(), token)?,
+            or_absent,
         });
     }
     Ok(out)
@@ -499,17 +598,20 @@ mod tests {
                 Pred {
                     prop: "regulated".into(),
                     op: Op::Contains,
-                    value: "yes".into()
+                    value: "yes".into(),
+                    or_absent: false
                 },
                 Pred {
                     prop: "length_km".into(),
                     op: Op::Eq,
-                    value: "24".into()
+                    value: "24".into(),
+                    or_absent: false
                 },
                 Pred {
                     prop: "claim_tag".into(),
                     op: Op::Ne,
-                    value: "open".into()
+                    value: "open".into(),
+                    or_absent: false
                 },
             ]
         );
@@ -552,6 +654,83 @@ mod tests {
     fn a_lone_bang_is_diagnosed_rather_than_read_as_contains() {
         let e = parse("reach[claim_tag!open]").unwrap_err();
         assert!(e.message.contains("write `!=`"), "{e}");
+    }
+
+    // ── ordering and absence (#725) ───────────────────────────────────────────
+
+    #[test]
+    fn the_four_ordering_operators_parse_with_their_two_character_forms() {
+        let q = parse("tenure[began<1893,ended<=1893,opened>1893,closed>=1893]").unwrap();
+        let ops: Vec<Op> = q.steps[0].filter.iter().map(|p| p.op).collect();
+        assert_eq!(ops, vec![Op::Lt, Op::Le, Op::Gt, Op::Ge]);
+        // The operand is what follows the whole operator, not what follows its first byte.
+        assert!(q.steps[0].filter.iter().all(|p| p.value == "1893"));
+    }
+
+    /// The predicate this whole feature exists for: the filter language is a conjunction, and
+    /// *ended after 1893 or never ended* is a disjunction. `?` is where it goes.
+    #[test]
+    fn the_or_absent_affix_sits_between_the_operator_and_the_operand() {
+        let q = parse("tenure[began<=1893,ended>?1893]").unwrap();
+        assert_eq!(q.steps[0].filter[0].op, Op::Le);
+        assert!(!q.steps[0].filter[0].or_absent);
+        assert_eq!(q.steps[0].filter[1].op, Op::Gt);
+        assert!(q.steps[0].filter[1].or_absent);
+        assert_eq!(q.steps[0].filter[1].value, "1893");
+    }
+
+    /// One rule and no exceptions: `?` is the affix on every operator, not a special case on
+    /// the ordering ones.
+    #[test]
+    fn the_or_absent_affix_applies_to_every_operator() {
+        let q = parse(r#"reach[claim_tag=?open,claim_tag!=?open,label~?flow]"#).unwrap();
+        assert!(q.steps[0].filter.iter().all(|p| p.or_absent));
+        let ops: Vec<Op> = q.steps[0].filter.iter().map(|p| p.op).collect();
+        assert_eq!(ops, vec![Op::Eq, Op::Ne, Op::Contains]);
+    }
+
+    #[test]
+    fn a_bare_question_mark_is_the_absence_test_and_takes_no_operand() {
+        let q = parse("question[closed?]").unwrap();
+        assert_eq!(q.steps[0].filter[0].op, Op::Absent);
+        assert_eq!(q.steps[0].filter[0].value, "");
+        // Not both: `or_absent` is the affix, and spelling it here would render `closed??`.
+        assert!(!q.steps[0].filter[0].or_absent);
+        assert_eq!(q.steps[0].filter[0].spelled(), "closed?");
+    }
+
+    /// The two spellings of `?` are one character apart and mean different things, so the one
+    /// that is almost certainly a mistake names the other.
+    #[test]
+    fn an_absence_test_carrying_a_value_names_the_affix_it_probably_meant() {
+        let e = parse("tenure[ended?1893]").unwrap_err();
+        assert!(e.message.contains("takes no value"), "{e}");
+        assert!(e.message.contains("ended>?1893"), "{e}");
+    }
+
+    /// The widened operator set may not change how an existing predicate lexes. `ident_ok`
+    /// admits none of the operator characters, so the first one is always the operator — and
+    /// a value is free to contain any of them.
+    #[test]
+    fn a_value_may_still_contain_an_operator_character() {
+        let q = parse("gage[url=https://x/y?a=1,note~>=]").unwrap();
+        assert_eq!(q.steps[0].filter[0].op, Op::Eq);
+        assert_eq!(q.steps[0].filter[0].value, "https://x/y?a=1");
+        assert!(!q.steps[0].filter[0].or_absent);
+        assert_eq!(q.steps[0].filter[1].op, Op::Contains);
+        assert_eq!(q.steps[0].filter[1].value, ">=");
+    }
+
+    /// A predicate is echoed into the report and into the absence diagnosis, and both read
+    /// this. Every operator has to survive the round trip or one of them prints wrong.
+    #[test]
+    fn every_operator_spells_back_to_what_was_parsed() {
+        for written in [
+            "a=1", "a!=1", "a~1", "a<1", "a<=1", "a>1", "a>=1", "a?", "a=?1", "a<=?1", "a>?1",
+        ] {
+            let q = parse(&format!("reach[{written}]")).unwrap();
+            assert_eq!(q.steps[0].filter[0].spelled(), written);
+        }
     }
 
     // ── anchors ───────────────────────────────────────────────────────────────
