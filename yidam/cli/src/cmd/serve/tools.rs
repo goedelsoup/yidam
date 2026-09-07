@@ -1517,7 +1517,7 @@ mod tests {
         let frozen = frozen_rejection_codes(&contract(), "query");
         for cli_only in [code::ANCHOR_AT_REVISION, code::HISTORY_UNREADABLE] {
             assert!(
-                !frozen.contains(cli_only),
+                !frozen.contains(&cli_only.to_string()),
                 "the contract freezes `{cli_only}`, which is reachable only through `--at` \
                  or `--between` — no MCP call can supply either, so the code is a branch no \
                  client will ever take"

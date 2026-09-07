@@ -40,7 +40,7 @@ The rule was unenforceable until a corpus existed on which some tier goes unback
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.15.0",
+    "contract": "0.16.0",
     "corpus": {
       "domain": "streamflow",
       "commit": "a1b2c3d",
@@ -107,6 +107,36 @@ failure this file's own description names. So the sentence beginning *the codes 
 contract's own (* is load-bearing: a gate extracts the names from that parenthesis and
 compares them, in both directions, against what the CLI emits. Reword that clause and the
 gate says so.
+
+## An ordering is `date`-only (contract 0.16.0)
+
+`<`, `<=`, `>` and `>=` arrived on the query language for `type: date` properties, and
+**`unordered-property` is the refusal everywhere else**. The declared types are `string`,
+`text`, `date`, `ref` and `claim`, with no numeric among them — an ordering that fell back to
+comparing text would be correct on `date` and a trap on the rest, ranking `10` before `9` and
+saying nothing about having done so. A plausible ordering of the wrong thing is worse than a
+refusal, and from outside it is indistinguishable from a right one.
+
+Two consequences for a conforming server:
+
+- **`unordered-property` joins the frozen set**, carrying the step, the property's declared
+  type, and the operators that *are* defined on it.
+- **`*` narrows by what its predicate can be asked, not by which classes declare the
+  property.** A class declaring `began` as `type: string` declares it and still cannot be
+  asked `began < 1900`. The `notes` sentence describing the `narrowed` diagnostic said
+  *declaring a property* until 0.16.0 and was false about the one class it named.
+
+### What the 0.15.0 gate did not catch
+
+`unordered-property` shipped in the CLI one commit before the comparison that exists to
+freeze it, written as a string literal at its call site — invisible to the roster of names,
+so both lists agreed about a code neither had heard of and the gate passed.
+
+Naming the codes in one place only helps if nothing can name one somewhere else, which is a
+property of the type rather than of the discipline. The rejection code is now its own type
+with a private constructor: a literal at a call site does not compile, and the roster is the
+only place a code can be minted. The omission still possible is a code left out of the frozen
+list — and that is the one this gate reads.
 
 ## Querying a dependency, on request (contract 0.11.0)
 
