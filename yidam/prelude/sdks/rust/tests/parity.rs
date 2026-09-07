@@ -27,97 +27,37 @@ fn load_fixtures(function: &str) -> Vec<toml::Value> {
     out
 }
 
-// ── parse_node ────────────────────────────────────────────────────────────────
+// ── parse_instance ────────────────────────────────────────────────────────────
 
+/// The instance is compared as **parsed JSON**, for `compile_class_schema`'s reason.
+///
+/// Key order is not part of the contract and three languages will not agree on it. What is
+/// part of the contract is every string value, the key sets of `properties` and `extra`, and
+/// the difference between a key that is absent (`null`) and one that is present and empty.
+///
+/// **Non-string scalar resolution is out of contract, and the fixtures avoid it.** Given
+/// `010`, `serde_yaml` answers the string `"010"`, the `yaml` package answers the number
+/// `10`, and PyYAML answers `8`; `no` is a string in the first two and `false` in the third.
+/// That is YAML 1.1 against 1.2 plus one library's own reading, and no amount of fixture
+/// writing makes three implementations of two specifications agree. The ontology is what
+/// types these values, and every consumer reads them as text. The one such divergence that a
+/// corpus actually hits — the timestamp, on 41% of nodes — is *in* contract and is pinned by
+/// `unquoted-dates-stay-text.toml`.
 #[test]
-fn parity_parse_node() {
-    let fixtures = load_fixtures("parse_node");
-    assert!(!fixtures.is_empty(), "no parse_node fixtures found");
+fn parity_parse_instance() {
+    let fixtures = load_fixtures("parse_instance");
+    assert!(!fixtures.is_empty(), "no parse_instance fixtures found");
 
     for fx in &fixtures {
-        let input = &fx["input"];
-        let expected = &fx["expected"];
+        let description = fx["description"].as_str().unwrap_or("");
+        let content = fx["input"]["content"].as_str().unwrap();
+        let got = corpus::parse_instance(content).to_json();
 
-        let node = corpus::parse_node(
-            input["path"].as_str().unwrap(),
-            input["content"].as_str().unwrap(),
-        );
+        let want: serde_json::Value =
+            serde_json::from_str(fx["expected"]["instance"].as_str().unwrap())
+                .unwrap_or_else(|e| panic!("{description}: fixture instance is not JSON: {e}"));
 
-        assert_eq!(node.path, expected["path"].as_str().unwrap(), "path");
-        assert_eq!(node.title, expected["title"].as_str().unwrap(), "title");
-        assert_eq!(
-            node.kind.as_str(),
-            expected["kind"].as_str().unwrap(),
-            "kind"
-        );
-
-        let exp_claims = expected.get("claims").and_then(|v| v.as_array());
-        let exp_claims = exp_claims.map(|a| a.as_slice()).unwrap_or(&[]);
-        assert_eq!(node.claims.len(), exp_claims.len(), "claim count");
-        for (claim, exp) in node.claims.iter().zip(exp_claims.iter()) {
-            assert_eq!(claim.text, exp["text"].as_str().unwrap(), "claim.text");
-            assert_eq!(
-                claim.tag.as_str(),
-                exp["tag"].as_str().unwrap(),
-                "claim.tag"
-            );
-        }
-
-        let exp_links = expected.get("links").and_then(|v| v.as_array());
-        let exp_links = exp_links.map(|a| a.as_slice()).unwrap_or(&[]);
-        assert_eq!(node.links.len(), exp_links.len(), "link count");
-        for (link, exp) in node.links.iter().zip(exp_links.iter()) {
-            assert_eq!(link.label, exp["label"].as_str().unwrap(), "link.label");
-            assert_eq!(link.target, exp["target"].as_str().unwrap(), "link.target");
-            let exp_anchor = exp.get("anchor").and_then(|v| v.as_str());
-            assert_eq!(link.anchor.as_deref(), exp_anchor, "link.anchor");
-        }
-    }
-}
-
-// ── extract_claims ────────────────────────────────────────────────────────────
-
-#[test]
-fn parity_extract_claims() {
-    let fixtures = load_fixtures("extract_claims");
-    assert!(!fixtures.is_empty(), "no extract_claims fixtures found");
-
-    for fx in &fixtures {
-        let text = fx["input"]["content"].as_str().unwrap();
-        let claims = corpus::extract_claims(text);
-
-        let expected = fx["expected"].as_array().unwrap();
-        assert_eq!(claims.len(), expected.len(), "claim count");
-        for (claim, exp) in claims.iter().zip(expected.iter()) {
-            assert_eq!(claim.text, exp["text"].as_str().unwrap(), "claim.text");
-            assert_eq!(
-                claim.tag.as_str(),
-                exp["tag"].as_str().unwrap(),
-                "claim.tag"
-            );
-        }
-    }
-}
-
-// ── extract_links ─────────────────────────────────────────────────────────────
-
-#[test]
-fn parity_extract_links() {
-    let fixtures = load_fixtures("extract_links");
-    assert!(!fixtures.is_empty(), "no extract_links fixtures found");
-
-    for fx in &fixtures {
-        let text = fx["input"]["content"].as_str().unwrap();
-        let links = corpus::extract_links(text);
-
-        let expected = fx["expected"].as_array().unwrap();
-        assert_eq!(links.len(), expected.len(), "link count");
-        for (link, exp) in links.iter().zip(expected.iter()) {
-            assert_eq!(link.label, exp["label"].as_str().unwrap(), "link.label");
-            assert_eq!(link.target, exp["target"].as_str().unwrap(), "link.target");
-            let exp_anchor = exp.get("anchor").and_then(|v| v.as_str());
-            assert_eq!(link.anchor.as_deref(), exp_anchor, "link.anchor");
-        }
+        assert_eq!(got, want, "{description}");
     }
 }
 

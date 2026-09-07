@@ -1,0 +1,23 @@
+function = "parse_instance"
+description = "A node that declares `links: []` is not the same node as one that declares no links — the first has answered and the second has not, and a parser that collapsed them would make an unanswered question look settled"
+
+[input]
+content = """
+class: concept
+label: Named nothing else
+links: []
+properties: {}
+"""
+
+[expected]
+instance = """
+{
+  "class": "concept",
+  "label": "Named nothing else",
+  "description": null,
+  "properties": {},
+  "links": [],
+  "cites": null,
+  "extra": {}
+}
+"""

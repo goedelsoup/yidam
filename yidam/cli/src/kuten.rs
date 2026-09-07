@@ -1021,7 +1021,7 @@ pub fn measure(root: &Path) -> Measurement {
     for path in crate::walk::walk_corpus_instances(&corpus) {
         lines.push(crate::walk::line_count(&path));
         let text = std::fs::read_to_string(&path).unwrap_or_default();
-        let inst: crate::parse::CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
+        let inst = crate::parse::parse_instance(&text);
         let label = inst.label.unwrap_or_default();
         let class = inst.class.unwrap_or_default();
         if crate::claims::is_open_question(&label, &text, fields.for_class(&class)) {

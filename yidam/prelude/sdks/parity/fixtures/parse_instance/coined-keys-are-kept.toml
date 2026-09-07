@@ -1,0 +1,35 @@
+function = "parse_instance"
+description = "Top-level keys this model does not name are kept in `extra`, not dropped — closing the shape rejected 117 nodes of 117 in one derived repository, and dropping them silently is the failure #674 measured"
+
+[input]
+content = """
+class: policy
+label: The formula
+description: What the statute does.
+summary: One paragraph, at the top, on every node in that corpus.
+findings: |
+  A finding, in prose, where a corpus put it.
+unfilled:
+  - the 2019 table
+revisions:
+  - at: 2026-08-01
+    note: recomputed
+"""
+
+[expected]
+instance = """
+{
+  "class": "policy",
+  "label": "The formula",
+  "description": "What the statute does.",
+  "properties": null,
+  "links": null,
+  "cites": null,
+  "extra": {
+    "summary": "One paragraph, at the top, on every node in that corpus.",
+    "findings": "A finding, in prose, where a corpus put it.\\n",
+    "unfilled": ["the 2019 table"],
+    "revisions": [{ "at": "2026-08-01", "note": "recomputed" }]
+  }
+}
+"""

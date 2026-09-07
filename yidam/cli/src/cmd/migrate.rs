@@ -497,7 +497,7 @@ fn plan_property_retype(
     // accepts, and one that would not is not performed at all.
     for path in instances_of(corpus, class) {
         let text = std::fs::read_to_string(&path).unwrap_or_default();
-        let inst: crate::parse::CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
+        let inst = crate::parse::parse_instance(&text);
         let Some(value) = inst
             .properties
             .as_ref()
@@ -611,7 +611,7 @@ fn plan_edge_retarget(
     for path in instances_of(corpus, class) {
         let id = slash(path.strip_prefix(corpus).unwrap_or(&path));
         let text = std::fs::read_to_string(&path).unwrap_or_default();
-        let inst: crate::parse::CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
+        let inst = crate::parse::parse_instance(&text);
         for link in inst.links.as_deref().unwrap_or(&[]) {
             if link.relationship.as_deref() != Some(relationship) {
                 continue;

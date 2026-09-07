@@ -2,7 +2,6 @@ use anyhow::Result;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use crate::parse::CorpusInstance;
 use crate::paths::{repo_root, yidam_corpus_dir};
 use crate::regen::update_file_regen;
 use crate::walk::{line_count, walk_corpus_instances, walk_ont_files};
@@ -46,7 +45,7 @@ pub(crate) fn render_corpus_index(link_prefix: &str, corpus: &Path) -> String {
     for path in &instances {
         let text = std::fs::read_to_string(path).unwrap_or_default();
         let claims = crate::claims::count_in_source(&text).cell();
-        let inst: CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
+        let inst = crate::parse::parse_instance(&text);
         let class = inst.class.unwrap_or_else(|| "—".to_string());
         let label = inst.label.unwrap_or_else(|| "—".to_string());
         let links = inst.links.unwrap_or_default().len();
@@ -73,7 +72,7 @@ pub(crate) fn render_open_questions(root: &Path, corpus: &Path) -> String {
     let mut items = Vec::new();
     for path in &instances {
         let text = std::fs::read_to_string(path).unwrap_or_default();
-        let inst: CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
+        let inst = crate::parse::parse_instance(&text);
         let label = inst.label.clone().unwrap_or_default();
         let class = inst.class.clone().unwrap_or_default();
         if crate::claims::is_open_question(&label, &text, fields.for_class(&class)) {
@@ -147,7 +146,7 @@ pub(crate) fn graph_check_data(root: &Path, corpus: &Path) -> GraphCheckReport {
 
     for path in &instances {
         let text = std::fs::read_to_string(path).unwrap_or_default();
-        let inst: CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
+        let inst = crate::parse::parse_instance(&text);
         let mut node_issues = Vec::new();
 
         match &inst.class {
@@ -297,7 +296,7 @@ pub(crate) fn corpus_index_data(root: &Path, corpus: &Path) -> CorpusIndexReport
         .iter()
         .map(|path| {
             let text = std::fs::read_to_string(path).unwrap_or_default();
-            let inst: CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
+            let inst = crate::parse::parse_instance(&text);
             let claims = crate::claims::count_in_node(
                 &text,
                 fields.for_class(inst.class.as_deref().unwrap_or_default()),
@@ -338,7 +337,7 @@ pub(crate) fn open_questions_data(root: &Path, corpus: &Path) -> OpenQuestionsRe
         .iter()
         .filter_map(|path| {
             let text = std::fs::read_to_string(path).unwrap_or_default();
-            let inst: CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
+            let inst = crate::parse::parse_instance(&text);
             let label = inst.label.clone().unwrap_or_default();
             let class = inst.class.clone().unwrap_or_default();
             if !crate::claims::is_open_question(&label, &text, fields.for_class(&class)) {

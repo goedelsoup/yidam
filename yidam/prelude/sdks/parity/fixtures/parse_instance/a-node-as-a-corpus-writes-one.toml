@@ -1,0 +1,37 @@
+function = "parse_instance"
+description = "The shape every measured corpus commits: class, label, a block-scalar description, typed properties, and links carrying their standing and source"
+
+[input]
+content = """
+class: organization
+label: Lima Locomotive Works
+description: |
+  The locomotive builder that made Lima's name in railroading. [inference]
+
+  It later became one of the three major American builders of mainline steam. [verified]
+properties:
+  org_type: company
+  industry: locomotive manufacturing
+links:
+  - target: ../place/lima.yml
+    relationship: seated-in
+    claim_tag: inference
+  - target: ../organization.ont.yml
+    relationship: instance-of
+"""
+
+[expected]
+instance = """
+{
+  "class": "organization",
+  "label": "Lima Locomotive Works",
+  "description": "The locomotive builder that made Lima's name in railroading. [inference]\\n\\nIt later became one of the three major American builders of mainline steam. [verified]\\n",
+  "properties": { "org_type": "company", "industry": "locomotive manufacturing" },
+  "links": [
+    { "target": "../place/lima.yml", "relationship": "seated-in", "claim_tag": "inference", "source": null },
+    { "target": "../organization.ont.yml", "relationship": "instance-of", "claim_tag": null, "source": null }
+  ],
+  "cites": null,
+  "extra": {}
+}
+"""

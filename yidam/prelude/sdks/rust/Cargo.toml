@@ -1,6 +1,6 @@
 [package]
 name = "yidam-core"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 description = "Yidam corpus types and parity surface — Rust reference implementation"
 license = "MIT"
@@ -41,7 +41,6 @@ path = "src/lib.rs"
 unsafe_code = "forbid"
 
 [dependencies]
-pulldown-cmark = "0.13"
 serde = { version = "1", features = ["derive"] }
 toml = "1.1"
 # The ontology compiler reads `.ont.yml` and emits JSON Schema. Both are the corpus's own

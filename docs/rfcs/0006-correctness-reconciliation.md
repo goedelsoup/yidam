@@ -5,6 +5,11 @@
 - **Relates to:** RFC-0001, RFC-0002, RFC-0007
 - **Versioning layers touched:** SDK+parity (primary); template (docs, embed contract)
 - **Downstream reference case:** Project BOSC (watermark-directory)
+- **Amended 2026-09-07 (#714):** the fixture paths quoted below —
+  `fixtures/extract_claims/`, `fixtures/parse_node/` — no longer exist, and neither do the
+  functions. The markdown node model they pinned is retired from the parity surface; the
+  spelling finding this RFC made stands, and the files that carried the evidence for it are in
+  git history rather than on disk.
 
 ## Summary
 

@@ -6,6 +6,13 @@
   reconciliation)
 - **Versioning layers touched:** SDK+parity / template / bootstrap protocol
 - **Downstream reference case:** Project BOSC (watermark-directory)
+- **Amended 2026-09-07 (#714):** this document was recorded `Implemented` for the whole time
+  neither function it specifies existed. `parse_instance` now does, in three SDKs with
+  fixtures. Two of its calls are corrected on the record rather than carried: **`project_markdown`
+  is declined** — measured over eighteen derived corpora, there is not one Markdown node, so the
+  ingestion path has no artifact anywhere — and **`deny_unknown_fields` is reversed**, because
+  closing the node shape rejects 117 nodes of 117 in a real corpus. The parser also takes no
+  `path`; see below.
 
 ## Summary
 
@@ -31,7 +38,7 @@ a downstream decision:
 3. **Anchor semantics.** Markdown links carry `#anchor` (`corpus.rs:81-90`); instance links have no
    anchor field. Drop, or grow the schema?
 4. **`properties:` on the parity surface.** The Rust parser drops the free-form `properties:` map
-   silently ([`0002:41`](0002-node-model-unification.md#L41)); surface and type it, or keep it opaque?
+   silently ([`0002:47`](0002-node-model-unification.md#L47)); surface and type it, or keep it opaque?
 5. **Tag spelling.** `[inferred]` (SDK) vs `[inference]` (conduct norms + CLI) — pin at the projection
    or defer entirely to RFC-0006?
 
@@ -45,7 +52,16 @@ parser no SDK offers.
 
 Ratify option (A) as a decision: every node is a `CorpusInstance` on disk; Markdown authoring is a
 supported **ingestion path** (`project_markdown(path, text) → CorpusInstance`), not a co-equal graph
-model. "Two audiences" collapses to **one graph, two input styles.** The parity surface certifies the
+model.
+
+> **Amended 2026-09-07 (#714): the doorway is declined, and the one model stands.** Eighteen
+> derived corpora hold 2,762 instance nodes and **not one Markdown node** — every `.md` under
+> `.yidam/corpus/` is a class `README.md` or `ACTIONS.md`, which is guidance. An ingestion path
+> for an authoring style no corpus uses is the same mistake as the Markdown parser this RFC was
+> written to retire, one function later, so `project_markdown` is not built. `parse_instance`
+> also takes no `path`: its only use was deriving a node's kind from its directory, which is the
+> move RFC-0002 rejected by name, and a parameter carried in so it can be ignored is that model
+> surviving as a signature. "Two audiences" collapses to **one graph, two input styles.** The parity surface certifies the
 instance the products use.
 
 ### Authoring-time projection, one on-disk form *(decides the timing sub-question)*
@@ -75,10 +91,18 @@ that needs to target a sub-part is a signal to make that sub-part its own node.
 
 ### `properties:` surfaced, typed, deny-unknown *(ratifies the standing call)*
 
-`parse_instance` surfaces and types `properties:`, and the parser sets `deny_unknown_fields` so an
-unspecced key is an **error**, not a silent drop. This applies the silent-loss ethic the whole RFC
+~~`parse_instance` surfaces and types `properties:`, and the parser sets `deny_unknown_fields` so an
+unspecced key is an **error**, not a silent drop.~~ **Reversed 2026-09-07 (#714).** `properties:`
+is surfaced and stays untyped — the ontology is the type, and a struct here would be a second,
+weaker declaration of it. Deny-unknown is not merely unratified but wrong: closing the node shape
+rejects **117 nodes of 117** in one derived repository, which writes `summary`, `findings`,
+`revisions` and `unfilled` at the top level, and the same for a projecting consumer. The
+silent-loss ethic this clause invoked is served the other way round — every unnamed top-level key
+is *kept*, in `extra`, because dropping them made one corpus measure 21 lines where it had written
+118 (#674). The open question below asking whether deny-unknown needs a grace period is answered:
+it needed not to ship. This applies the silent-loss ethic the whole RFC
 set is built on — the same ethic that flags "silently dropped" as the cardinal sin
-([`0002:41`](0002-node-model-unification.md#L41), and RFC-0001/0005/0007 throughout). "Settled in
+([`0002:47`](0002-node-model-unification.md#L47), and RFC-0001/0005/0007 throughout). "Settled in
 direction, unratified" becomes ratified: surface and deny-unknown.
 
 ### Tag spelling pinned *(ratifies the standing call)*

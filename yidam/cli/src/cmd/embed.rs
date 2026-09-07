@@ -154,7 +154,7 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
         // Every declared prose field. A node whose substance is in `summary` and `findings`
         // was embedded on its label and its edge names alone — retrievable by title and by
         // nothing it says.
-        let description = inst.prose_text(prose_fields.for_class(&class));
+        let description = crate::prose::text(&inst, prose_fields.for_class(&class));
         let links = inst.links.as_deref().unwrap_or(&[]);
         let text = compose_text(&label, &description, links);
 
@@ -331,6 +331,7 @@ mod tests {
         let links = vec![crate::parse::CorpusLink {
             target: Some("person/matt-huffman.yml".into()),
             relationship: Some("mentions".into()),
+            ..Default::default()
         }];
         assert_eq!(
             compose_text("A label", "A description.", &links),

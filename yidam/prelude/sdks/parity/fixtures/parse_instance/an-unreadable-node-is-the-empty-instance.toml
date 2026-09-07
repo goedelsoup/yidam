@@ -1,0 +1,21 @@
+function = "parse_instance"
+description = "Malformed YAML yields the empty instance rather than an error: one unreadable file must not take a whole corpus's report down, and the gate that reads it is what reports it"
+
+[input]
+content = """
+class: concept
+label: [unclosed
+"""
+
+[expected]
+instance = """
+{
+  "class": null,
+  "label": null,
+  "description": null,
+  "properties": null,
+  "links": null,
+  "cites": null,
+  "extra": {}
+}
+"""

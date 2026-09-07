@@ -5,6 +5,12 @@
 - **Relates to:** RFC-0001 (report contract), RFC-0005 (MCP tool contract), RFC-0006 (correctness reconciliation)
 - **Versioning layers touched:** template / SDK+parity / bootstrap protocol
 - **Downstream reference case:** Project BOSC (watermark-directory)
+- **Amended 2026-09-07 (#714):** recorded `Implemented` from the day it landed, while
+  `parse_instance` — the function its recommendation turns on — existed nowhere. It exists now,
+  in all three SDKs with fixtures, and the Markdown model this RFC opened by naming is retired
+  from the parity surface rather than reframed as `project_markdown`: eighteen derived corpora
+  hold no Markdown node to project. Option (A) is what shipped; the projection half of it is
+  declined, on the record, in RFC-0013.
 
 ## Summary
 

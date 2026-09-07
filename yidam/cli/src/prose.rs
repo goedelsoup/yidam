@@ -48,6 +48,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+use crate::parse::CorpusInstance;
+
 /// The prose keys every node carries whatever anything declares.
 pub const ALWAYS: &str = "description";
 
@@ -157,6 +159,43 @@ impl ProseFields {
             .map(Vec::as_slice)
             .unwrap_or(&self.default)
     }
+}
+
+/// This node's prose, in the keys the ontology declares as prose, in that order.
+///
+/// A free function and not a method, because the type is `yidam_core`'s and the *declaration*
+/// is not: which keys carry prose is a per-class fact this repository reads out of
+/// `<class>.ont.yml`, and an SDK that decided it would be answering a question the ontology
+/// owns.
+///
+/// Reads `description` off its own field and everything else out of [`CorpusInstance::extra`],
+/// so a caller cannot get a different answer depending on which key it asked about. A declared
+/// key the node does not carry, or carries as something other than a string, yields nothing: a
+/// `findings:` holding a list is a real state and not prose, and guessing at a rendering for it
+/// would put words in the corpus's mouth.
+pub fn of<'a>(inst: &'a CorpusInstance, declared: &'a [String]) -> Vec<(&'a str, &'a str)> {
+    declared
+        .iter()
+        .filter_map(|key| {
+            let value = match key.as_str() {
+                ALWAYS => inst.description.as_deref(),
+                other => inst.extra.get(other).and_then(serde_yaml::Value::as_str),
+            }?;
+            (!value.trim().is_empty()).then_some((key.as_str(), value))
+        })
+        .collect()
+}
+
+/// The node's prose as one block, the declared fields joined in order.
+///
+/// What a reader of the whole node reads, which is what a length ceiling and an embedding are
+/// both about.
+pub fn text(inst: &CorpusInstance, declared: &[String]) -> String {
+    of(inst, declared)
+        .into_iter()
+        .map(|(_, v)| v.trim_end())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[cfg(test)]

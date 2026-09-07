@@ -3,7 +3,6 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use crate::git::{genesis_date, phase_tally};
-use crate::parse::CorpusInstance;
 use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir, yidam_index_dir};
 use crate::regen::update_file_regen;
 use crate::walk::{walk_corpus_instances, walk_md_files};
@@ -42,7 +41,7 @@ pub fn status(format: crate::report::Format) -> Result<()> {
         .iter()
         .filter(|p| {
             let text = std::fs::read_to_string(p).unwrap_or_default();
-            let inst: CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
+            let inst = crate::parse::parse_instance(&text);
             let label = inst.label.unwrap_or_default();
             let class = inst.class.unwrap_or_default();
             crate::claims::is_open_question(&label, &text, fields.for_class(&class))
@@ -54,7 +53,7 @@ pub fn status(format: crate::report::Format) -> Result<()> {
     let mut claims = crate::claims::ClaimCounts::default();
     for p in &instances {
         let text = std::fs::read_to_string(p).unwrap_or_default();
-        let inst: CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
+        let inst = crate::parse::parse_instance(&text);
         claims.add(crate::claims::count_in_node(
             &text,
             fields.for_class(inst.class.as_deref().unwrap_or_default()),
