@@ -31,10 +31,14 @@ in `kuten.yml` under `measured.members`.
 
 | Slot | Band | Observed | What the six showed |
 |---|---|---|---|
-| `phases` | 12–27% | 12.50–26.23% | Commits settling a phase, among the nine repositories whose vendored prelude has the verb |
-| `classes` | 0.50–1.12 | 0.5061–1.1096 | Instance nodes per commit, at matched maturity |
-| `classes` | 35–62 lines | 35–62 | Median instance node length |
-| `vocabulary` | 0–2% | 0–1.64% | Off-vocabulary commits: four of them, in two of the six |
+| `phases` | 12%–27% | 12.50–26.23% | Commits settling a phase, among the nine repositories whose vendored prelude has the verb |
+| `vocabulary` | 0%–2% | 0–1.64% | Off-vocabulary commits: four of them, in two of the six |
+
+The bands are written here as `kuten check` renders them, so the table and the report cannot
+be read as quoting two different numbers.
+
+Two more stood here and were **retired at revision 2** — see below. They were fitted correctly
+to real measurements and were still claims about the wrong thing.
 
 ### What the re-fit corrected
 
@@ -62,6 +66,31 @@ properties of the template they hold, not of their practice.
 **Repository maturity.** Nodes per commit halves over a repository's life — one corpus went
 2.07 at commit 69, 0.98 at commit 250, 0.54 at its head. Comparing a 69-commit repository
 against a 1,123-commit one manufactures a difference that is only age.
+
+### The two bands that measured age (retired at revision 2, #692)
+
+The second control names the defect and the profile shipped it anyway. `classes` declared
+nodes-per-commit `0.50–1.12` and median node length `35–62`, with a comment saying both were
+"read at matched maturity" — and **nothing read them at matched maturity**. `compare` takes no
+age term, and the fit spans 73 to 1,312 authored commits, so the band width *was* the age range.
+
+Over the six rows in `measured.members`, Spearman rho(authored, nodes-per-commit) is **-0.886**.
+The endpoints are the extremes of age rather than of practice: the 1.12 ceiling is the youngest
+member's 81/73, and the 0.50 floor the second-oldest's 125/247. Within one repository the same
+monotonicity holds — `allen-county-ohio` entered the median band around commit 250 and left it
+around 1,300 — and it exited **both** bands within six hours of the fit that used it, having
+changed nothing about how it works.
+
+So the earlier correction was incomplete. #644 fixed how the numbers were *quoted*; the numbers
+were about the wrong thing. A band on a quantity monotone in age is a window every member passes
+through and then leaves, and reporting an exit as divergence reports a corpus's **stage** as its
+practice. Widening it is not the repair — a wider window is still a window, and this profile
+forbids numbers chosen to fit.
+
+The quantities are still measured and reported under `measurement`; nothing judges them. What
+would replace them is an age-invariant statistic — accretion over a trailing window, or a curve
+with distance from it reported instead of a box — and choosing between those needs the
+eighteen-corpus re-measurement #288 is for.
 
 ## The direction of the arrow
 

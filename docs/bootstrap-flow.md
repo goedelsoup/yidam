@@ -65,7 +65,7 @@ the other decision records. Two of its fields are read by tools:
 
 ```yaml
 kuten: inquiry
-revision: 1
+revision: 2
 ```
 
 The revision is copied out of the profile, never typed. Every consumer reads the kuten at the

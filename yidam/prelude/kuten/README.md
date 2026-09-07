@@ -58,7 +58,7 @@ mechanical form of the failure this layer keeps finding in itself — a surface 
 |---|---|---|
 | `phases` | The valid phase types, and the share of commits that settle one | `check`, `block` |
 | `vocabulary` | The subset of the closed verb list this practice uses, and the off-vocabulary share it expects | `check`, `block` |
-| `classes` | The shape of corpus this practice accretes — nodes per commit, and node length | `check`, `block` |
+| `classes` | ~~The shape of corpus this practice accretes~~ — **retired at revision 2 (#692)**: both its bands measured a repository's age | `none` |
 | `dialogue` | What the bootstrap asks | `none` |
 | `skills` | What the practice routes through | `none` |
 | `clocks` | Proposed `[due]` intervals — a proposal the corpus's own config holds or declines | `none` |
@@ -104,7 +104,7 @@ in `.yidam/decisions/kuten.yml` together with the revision that was vendored:
 
 ```yaml
 kuten: inquiry
-revision: 1
+revision: 2
 ```
 
 **Every consumer reads the vendored kuten, never upstream's current one.** That is the whole

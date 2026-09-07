@@ -297,7 +297,7 @@ a record naming a profile the user did not adopt is worse than none.
 id: kuten
 summary: <one line — the profile adopted, and the revision vendored with it>
 kuten: inquiry                # the profile confirmed above, by its directory name
-revision: 1                   # that profile's own `revision:`, copied — not typed from memory
+revision: 2                   # that profile's own `revision:`, copied — not typed from memory
 decision: |
   <the profile adopted, and what its gloss says the practice is aimed at>
 rationale: |

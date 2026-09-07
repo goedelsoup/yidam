@@ -44,6 +44,41 @@ warning. `--format json` gains `source`, `declared` and `holds_now`.
 the criteria were the template's. A record could read `held: false` beside `revision: 1`. It is
 now null whenever `held` is false, and what the tip declared is under `declared`.
 
+### The `inquiry` kuten is at revision 2, and two bands are gone
+
+`nodes-per-commit` and `median-node-lines` measured how old a repository is, not how it works.
+Nothing read them at matched maturity, and every member of the fit exits both bands by ageing.
+One left both within six hours of the fit that used it.
+
+**Who this affects.** Any repository holding `inquiry`. Nothing is broken and nothing gates.
+
+**What changes.** `kuten check` reports three findings where it reported five. The `AGENTS.md`
+block loses its **Shape** line. The two numbers are still measured and still in the report; no
+band judges them.
+
+**The repair.** Re-vendor, then record a superseding decision:
+
+```sh
+mise run yidam-vendor-update
+```
+
+Until you do, `doctor` warns that your record names revision 1 and the vendored profile is at 2.
+That is the revision model working, not a fault.
+
+### `kuten check` rows read in one unit, and a divergent row says which side
+
+A row read `declared 0.12–0.27  measured 12%` — two halves of one comparison, in two units.
+Worse, `12%` is inside `0.12–0.27` when you convert it, and the row was reporting divergence.
+
+**Who this affects.** Anyone reading `kuten check`, and any consumer parsing its JSON.
+
+**What changes.** Bands render in the value's unit: `declared 12%–27%`. Shares carry a decimal:
+`measured 11.9%`. A divergent value names the side it fell on: `11.9% (below 12%)`.
+
+**Why the last one.** The verdict compares a float and the display was rounded. So a divergent
+row could show a number that reads as inside its own band. Precision alone cannot close that;
+naming the side can.
+
 ## cli/v0.10.0
 
 ### A corpus can declare what its practice is aimed at

@@ -334,13 +334,20 @@ fn strict_is_what_turns_a_warning_into_a_nonzero_exit() {
 fn declaring_a_kuten(root: &Path) {
     let profile =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../prelude/kuten/inquiry/kuten.yml");
+    let text = std::fs::read_to_string(&profile).expect("the shipped profile");
+    // The record names the revision the profile *actually* ships at, not a literal. These two
+    // tests are about whether a declaration reaches a document; a revision bumped upstream —
+    // #692 bumped it to 2 — would otherwise turn both into skew-warning tests instead.
+    let revision = yidam::kuten::Profile::parse(&text)
+        .expect("the binary can read the shipped profile")
+        .revision;
     let vendored = root.join(".yidam/.vendor/prelude/kuten/inquiry");
     std::fs::create_dir_all(&vendored).unwrap();
-    std::fs::copy(&profile, vendored.join("kuten.yml")).unwrap();
+    std::fs::write(vendored.join("kuten.yml"), &text).unwrap();
     std::fs::create_dir_all(root.join(".yidam/decisions")).unwrap();
     std::fs::write(
         root.join(".yidam/decisions/kuten.yml"),
-        "id: kuten\nkuten: inquiry\nrevision: 1\n",
+        format!("id: kuten\nkuten: inquiry\nrevision: {revision}\n"),
     )
     .unwrap();
 }
