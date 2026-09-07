@@ -17,6 +17,13 @@
   },
   "checks": [
     {
+      "id": "malformed-yaml",
+      "title": "File that is not the YAML it is read as",
+      "severity": "error",
+      "rationale": "A file the parser rejects reaches every other check as an empty record, and an empty record is not the same claim as an empty file. On an instance that reads as a node declaring nothing, so the report contradicts the file it names. On a `<class>.ont.yml` it reads as a class declaring no properties and licensing no edges, which is indistinguishable from an ontology nobody has filled in — and five checks that gate on those declarations find nothing to check and pass. That is a false negative in a gate, produced by a typo, and nothing else in the report can say it happened. Every other finding about the file is suppressed: fix the parse error and they come back, correct this time.",
+      "violations": []
+    },
+    {
       "id": "missing-class",
       "title": "Instance declaring no class",
       "severity": "error",

@@ -32,6 +32,7 @@ fn class(name: &str, properties: &[&str], edges: &[&str]) -> Class {
         implemented_by: None,
         foundational_type: None,
         dead_alignment_fields: vec![],
+        malformed: None,
     }
 }
 

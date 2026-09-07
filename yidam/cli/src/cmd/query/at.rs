@@ -386,12 +386,9 @@ impl Graph {
         for (kind, entry) in &entries {
             let content = blobs.get(&entry.blob, &entry.path)?;
             match kind {
-                Kind::Instance => nodes.push(Node {
-                    path: root.join(&entry.path),
-                    rel: entry.path.clone(),
-                    inst: serde_yaml::from_str(content).unwrap_or_default(),
-                    text: content.to_string(),
-                }),
+                Kind::Instance => {
+                    nodes.push(Node::parse(root.join(&entry.path), &entry.path, content))
+                }
                 Kind::Class => classes.push(Class::parse(&entry.path, content)),
                 // Neither an instance nor a class, and the check reads it for every property
                 // predicate. A reconstruction that skipped it would reject property names a
