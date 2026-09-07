@@ -1,0 +1,41 @@
+function = "parse_instance"
+description = "RFC-0019 citations sit beside `links:` and never inside it — a foreign node may be read and may not be an edge target, so a traversal reading `links` must not encounter one"
+
+[input]
+content = """
+class: measure
+label: A figure read from someone else's corpus
+description: Carried across a boundary.
+links:
+  - target: ../measure.ont.yml
+    relationship: instance-of
+cites:
+  - package: allen-county-ohio
+    node: measure/school-enrolment-2022
+    commit: f793c6c2
+    tag: verified
+    span: "enrolment fell by 412 between 2019 and 2022"
+"""
+
+[expected]
+instance = """
+{
+  "class": "measure",
+  "label": "A figure read from someone else's corpus",
+  "description": "Carried across a boundary.",
+  "properties": null,
+  "links": [
+    { "target": "../measure.ont.yml", "relationship": "instance-of", "claim_tag": null, "source": null }
+  ],
+  "cites": [
+    {
+      "package": "allen-county-ohio",
+      "node": "measure/school-enrolment-2022",
+      "commit": "f793c6c2",
+      "tag": "verified",
+      "span": "enrolment fell by 412 between 2019 and 2022"
+    }
+  ],
+  "extra": {}
+}
+"""

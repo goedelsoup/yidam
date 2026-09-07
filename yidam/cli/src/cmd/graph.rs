@@ -26,7 +26,6 @@ use anyhow::Result;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use crate::parse::CorpusInstance;
 use crate::paths::{repo_root, yidam_corpus_dir};
 use crate::walk::{walk_corpus_instances, walk_ont_files};
 
@@ -235,7 +234,7 @@ pub(crate) fn graph_data(root: &Path, corpus: &Path) -> GraphReport {
         .iter()
         .map(|path| {
             let text = std::fs::read_to_string(path).unwrap_or_default();
-            let inst: CorpusInstance = serde_yaml::from_str(&text).unwrap_or_default();
+            let inst = crate::parse::parse_instance(&text);
             let dir = path.parent().unwrap_or(path);
             let links = inst
                 .links

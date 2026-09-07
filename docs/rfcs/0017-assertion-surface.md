@@ -8,6 +8,7 @@
 - **Versioning layers touched:** SDK+parity (the MCP contract, `mcp/VERSION` 0.4.0 → 0.5.0) /
   template (the Rust CLI implements it)
 - **Parent epic:** #279 (E6)
+- **Amended 2026-09-07 (#714):** `extract_claims` is retired, not merely not-served. See §"The decision".
 
 ## Summary
 
@@ -97,9 +98,19 @@ echo it needs is earlier still — **before** the act, as a call.
 
 **`claims` extracts using `claims.rs`'s rules, not `extract_claims`.**
 
-`extract_claims` keeps its job — it is the SDK's markdown node parser and one of the parity
-functions, and nothing here changes its contract or its fixtures. It is simply not the thing
+~~`extract_claims` keeps its job — it is the SDK's markdown node parser and one of the parity
+functions, and nothing here changes its contract or its fixtures.~~ It is simply not the thing
 to expose for a YAML corpus whose tags are load-bearing.
+
+> **Amended 2026-09-07 (#714): it had no job.** This RFC declined to serve `extract_claims`
+> because it is wrong for a YAML corpus, and left it in place on the reasoning that it was
+> still the SDK's markdown parser. Nothing was ever a markdown corpus: eighteen derived
+> repositories hold 2,762 instance nodes and not one markdown node. So the function had no
+> caller at all, and it is retired from the parity surface along with `parse_node` and
+> `extract_links`. `claims.rs`'s rules — which this RFC chose — are now the only claim reader
+> in the tree, and `parse_instance` is what the surface certifies in its place. The three
+> grounds below stand exactly as written; what changes is that the thing they argued against
+> serving is gone rather than merely unserved.
 
 The rule that follows, and the one to hold on to: **serve the tag or serve nothing.** A claim
 is emitted only where the standing is read, never inferred. There is no `Implicit` arm in

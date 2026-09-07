@@ -1,0 +1,30 @@
+function = "parse_instance"
+description = "An unquoted YAML timestamp is a string carrying its source spelling. PyYAML implements YAML 1.1 and resolves it to `datetime.date`, which `json.dumps` refuses outright; this is what the Python SDK strips its timestamp resolver for, and 41% of the nodes in the measured population carry a date"
+
+[input]
+content = """
+class: event
+label: The first electric car in Lima
+description: A demonstration.
+properties:
+  occurred: 1886-07-04
+  recorded_at: 2020-01-02T03:04:05Z
+  effective_from: "2020"
+"""
+
+[expected]
+instance = """
+{
+  "class": "event",
+  "label": "The first electric car in Lima",
+  "description": "A demonstration.",
+  "properties": {
+    "occurred": "1886-07-04",
+    "recorded_at": "2020-01-02T03:04:05Z",
+    "effective_from": "2020"
+  },
+  "links": null,
+  "cites": null,
+  "extra": {}
+}
+"""

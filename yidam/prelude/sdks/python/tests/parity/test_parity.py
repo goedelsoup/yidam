@@ -18,54 +18,25 @@ def load_fixtures(function: str) -> list[dict]:
     return out
 
 
-def test_parity_parse_node():
-    fixtures = load_fixtures("parse_node")
-    assert fixtures, "no parse_node fixtures"
+def test_parity_parse_instance():
+    """Compared as parsed JSON, for ``compile_class_schema``'s reason.
+
+    Key order is not part of the contract. Non-string scalar resolution is not either, and
+    the fixtures avoid it: ``010`` is the string ``"010"`` to serde_yaml, the number 10 to
+    the ``yaml`` package, and 8 here. The one such divergence a corpus actually hits is the
+    timestamp — on 41% of the nodes in the measured population — and it IS in contract.
+    ``unquoted-dates-stay-text.toml`` is what fails if ``_InstanceLoader`` is replaced by a
+    plain ``SafeLoader``: PyYAML resolves the scalar to ``datetime.date`` and ``json.dumps``
+    refuses it outright, so the failure is an error rather than a wrong value.
+    """
+    fixtures = load_fixtures("parse_instance")
+    assert fixtures, "no parse_instance fixtures"
     for fx in fixtures:
-        inp = fx["input"]
-        exp = fx["expected"]
-        node = corpus.parse_node(inp["path"], inp["content"])
-        assert node.path == exp["path"], "path"
-        assert node.title == exp["title"], "title"
-        assert node.kind.value == exp["kind"], "kind"
-
-        exp_claims = exp.get("claims", [])
-        assert len(node.claims) == len(exp_claims), "claim count"
-        for claim, ec in zip(node.claims, exp_claims):
-            assert claim.text == ec["text"], "claim.text"
-            assert claim.tag.value == ec["tag"], "claim.tag"
-
-        exp_links = exp.get("links", [])
-        assert len(node.links) == len(exp_links), "link count"
-        for link, el in zip(node.links, exp_links):
-            assert link.label == el["label"], "link.label"
-            assert link.target == el["target"], "link.target"
-            assert link.anchor == el.get("anchor"), "link.anchor"
-
-
-def test_parity_extract_claims():
-    fixtures = load_fixtures("extract_claims")
-    assert fixtures, "no extract_claims fixtures"
-    for fx in fixtures:
-        claims = corpus.extract_claims(fx["input"]["content"])
-        expected = fx["expected"]
-        assert len(claims) == len(expected), "claim count"
-        for claim, ec in zip(claims, expected):
-            assert claim.text == ec["text"], "claim.text"
-            assert claim.tag.value == ec["tag"], "claim.tag"
-
-
-def test_parity_extract_links():
-    fixtures = load_fixtures("extract_links")
-    assert fixtures, "no extract_links fixtures"
-    for fx in fixtures:
-        links = corpus.extract_links(fx["input"]["content"])
-        expected = fx["expected"]
-        assert len(links) == len(expected), "link count"
-        for link, el in zip(links, expected):
-            assert link.label == el["label"], "link.label"
-            assert link.target == el["target"], "link.target"
-            assert link.anchor == el.get("anchor"), "link.anchor"
+        got = corpus.instance_to_json(corpus.parse_instance(fx["input"]["content"]))
+        want = json.loads(fx["expected"]["instance"])
+        # Round-tripped through JSON so a value PyYAML resolved to something unserialisable
+        # fails here, where the fixture names it, rather than deeper in a comparison.
+        assert json.loads(json.dumps(got)) == want, fx["description"]
 
 
 def test_parity_classify_commit():

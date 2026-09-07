@@ -57,30 +57,39 @@ that parsers and serializers produce identical values across all three.
 
 ### Corpus types
 
+A node is a YAML document — `.yidam/corpus/<class>/<name>.yml`. It is what the CLI walks,
+what the reports count, and what all eighteen measured derived corpora commit. There is no
+Markdown node type here any more; #714 retired one that three SDKs agreed about exactly and
+no product called.
+
 ```
-CorpusNode
-  path        : string           — relative path from repo root
-  title       : string           — first H1 heading in the file
-  kind        : NodeKind         — Concept | Decision | Authored | Generated
-                                   Concept: path under corpus/; Decision: path under
-                                   decisions/; Authored: any other path; Generated is
-                                   reserved for derived artifacts
-  claims      : Claim[]
-  links       : Link[]           — outbound edges only
+CorpusInstance
+  class       : string?          — as the node declares it, never derived from its directory
+  label       : string?
+  description : string?          — the prose field the model has always named
+  properties  : map?             — the fields the class declares, as the instance wrote them.
+                                   Untyped here because the ontology is the type
+  links       : CorpusLink[]?    — outbound edges only. `null` is "said nothing"; `[]` is
+                                   "declared none", and they are different answers
+  cites       : Citation[]?      — RFC-0019 claims on a dependency's nodes. Beside `links`
+                                   and never inside it: a foreign node is not an edge target
+  extra       : map              — every other top-level key, KEPT. Corpora coin prose keys
+                                   (`summary`, `findings`), and dropping them made one
+                                   corpus measure 21 lines where it had written 118
 
-Claim
-  text        : string           — the claim sentence(s), stripped of the tag
-  tag         : EvidenceTag      — Verified | Inference | Open | Implicit
-  span        : Range            — byte offset in source (for round-trip fidelity)
+CorpusLink
+  target       : string?
+  relationship : string?
+  claim_tag    : any?            — a standing, or a list of them. Carried, not interpreted
+  source       : string?
 
-EvidenceTag = Verified | Inference | Open | Implicit
-  — Implicit: an untagged claim in a direct transcription node; valid but not explicitly marked
-
-Link
-  label       : string           — the visible link text
-  target      : string           — the href (relative path or URL)
-  anchor      : string?          — fragment identifier, if present
+Citation
+  package, node, commit, tag, span : string?
 ```
+
+Values inside `properties` and `extra` are the corpus's own. A YAML timestamp resolves to a
+string carrying its source spelling; how any *other* non-string scalar resolves is outside
+the contract, and `parity/README.md` records the measurements that put it there.
 
 ### Ontology types
 
@@ -240,19 +249,12 @@ in `mise.toml` is the authoritative list; this section is the prose beside it, a
 `compile_class_schema` were on the surface.
 
 ```
-parse_node(text: string) -> CorpusNode
-  Parse a corpus node from its markdown source text.
-  Extracts title (first H1), kind (from directory context or explicit marker),
-  claims (with evidence tags), and outbound links.
-
-extract_claims(text: string) -> Claim[]
-  Find all [verified], [inference], and [open] tags in prose.
-  Each claim is the surrounding sentence(s), the tag stripped from the text, and the byte span.
-  Untagged sentences in direct-transcription nodes are Implicit; in all others they are unmarked.
-
-extract_links(text: string) -> Link[]
-  Find all markdown links [label](target) and [label](target#anchor).
-  Skip image links. Skip reference-style links for now.
+parse_instance(text: string) -> CorpusInstance
+  Parse a corpus node from its YAML source text.
+  Every top-level key the model does not name is kept in `extra` rather than dropped.
+  Unreadable YAML is the empty instance, not an error: one bad file must not take a
+  corpus's whole report down. No path argument — deriving a node's kind from its
+  directory is the Markdown model's move, and RFC-0002 rejected it by name.
 
 classify_commit(message: string) -> CommitEvent
   Parse a commit message into CommitEvent.
@@ -439,14 +441,12 @@ and cannot publish until it is there. See VERSIONING.md, Layer 2.
 
 ```rust
 // yidam_core::corpus
-pub struct CorpusNode { pub path, pub title, pub kind, pub claims, pub links }
-pub struct Claim { pub text, pub tag, pub span }
-pub enum EvidenceTag { Verified, Inference, Open, Implicit }
-pub struct Link { pub label, pub target, pub anchor }
+pub struct CorpusInstance { pub class, pub label, pub description, pub properties, pub links, pub cites, pub extra }
+pub struct CorpusLink { pub target, pub relationship, pub claim_tag, pub source }
+pub struct ExternalCitation { pub package, pub node, pub commit, pub tag, pub span }
 
-pub fn parse_node(text: &str) -> Result<CorpusNode>
-pub fn extract_claims(text: &str) -> Vec<Claim>
-pub fn extract_links(text: &str) -> Vec<Link>
+pub fn parse_instance(text: &str) -> CorpusInstance
+impl CorpusInstance { pub fn to_json(&self) -> serde_json::Value }
 
 pub struct CorpusGraph { nodes: HashMap<PathBuf, CorpusNode>, ... }
 pub fn load_corpus(root: &Path) -> Result<CorpusGraph>
@@ -512,14 +512,12 @@ well-structured agent context without loading the entire corpus into memory.
 
 ```typescript
 // @yidam/core/corpus
-export interface CorpusNode { path, title, kind, claims, links }
-export interface Claim { text, tag, span }
-export type EvidenceTag = 'verified' | 'inference' | 'open' | 'implicit'
-export interface Link { label, target, anchor }
+export interface CorpusInstance { class, label, description, properties, links, cites, extra }
+export interface CorpusLink { target, relationship, claim_tag, source }
+export interface ExternalCitation { package, node, commit, tag, span }
 
-export function parseNode(text: string): CorpusNode
-export function extractClaims(text: string): Claim[]
-export function extractLinks(text: string): Link[]
+export function parseInstance(text: string): CorpusInstance
+export function instanceToJson(i: CorpusInstance): Record<string, unknown>
 
 // @yidam/core/git
 export type CommitKind = 'epistemic' | 'operational'
@@ -614,9 +612,9 @@ here by ecosystem gravity.
 
 ```python
 # yidam_core.corpus — parity surface, same model as other SDKs
-def parse_node(text: str) -> CorpusNode: ...
-def extract_claims(text: str) -> list[Claim]: ...
-def extract_links(text: str) -> list[Link]: ...
+def parse_instance(text: str) -> CorpusInstance: ...
+def instance_to_json(inst: CorpusInstance) -> dict: ...
+# `CorpusInstance.cls`, because `class` is a Python keyword. The wire name is `class`.
 
 # yidam_core.git
 def classify_commit(message: str) -> CommitEvent: ...

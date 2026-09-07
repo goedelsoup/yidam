@@ -548,8 +548,9 @@ holds when something echoes it back inside the act; for a human writing a commit
 asking, rather than by having remembered.
 
 **`claims` serves the tag or serves nothing.** There is no untagged arm, and the rule for what
-counts is the one the reports use — not the SDK's `extract_claims`, which is a line-oriented
-parser for the markdown node model and reads `class: gage` as a claim over a YAML instance.
+counts is the one the reports use — not a line-oriented markdown claim parser, which reads
+`class: gage` as a claim over a YAML instance. The SDK carried one until #714 retired the
+markdown node model it belonged to.
 The full predicate is in `tools.json`'s notes for the tool; the part most easily got wrong is
 that the invariant is *never make the corpus look better-evidenced than it is*, which is not
 the same as "when in doubt, drop it": dropping an `[open]` promotes too.

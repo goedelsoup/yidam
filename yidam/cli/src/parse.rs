@@ -159,111 +159,22 @@ pub fn frontmatter_body(text: &str) -> &str {
     }
 }
 
-/// A corpus instance object (.yml file inside a class subdirectory).
-#[derive(serde::Deserialize, Default)]
-pub struct CorpusInstance {
-    pub class: Option<String>,
-    pub label: Option<String>,
-    pub description: Option<String>,
-    /// The typed fields the class declares, as the instance actually wrote them.
-    ///
-    /// Held untyped because the *ontology* is the type: `properties` is a bag whose keys
-    /// and value shapes are declared per class in `<class>.ont.yml`, so a struct here
-    /// would be a second, weaker declaration of the same thing. The checks in
-    /// `lint::checks` read it against the class; nothing else may assume a shape.
-    #[serde(default)]
-    pub properties: Option<serde_yaml::Mapping>,
-    pub links: Option<Vec<CorpusLink>>,
-    /// What this node leaned on in a corpus this repository does not own (RFC-0019).
-    ///
-    /// **Beside `links:` and never inside it.** A foreign node may be read and may not be an
-    /// edge target — `prelude/guidelines/agent-conduct.md` states the rule and the reason —
-    /// so a citation is a different object from a relationship. Putting it in `links:` would
-    /// have put it in the list `instance_links` reads, and every traversal in the system
-    /// would then have to learn to skip it; one that forgot would cross a corpus boundary
-    /// silently.
-    #[serde(default)]
-    pub cites: Option<Vec<ExternalCitation>>,
-    /// Every other top-level key, kept rather than dropped.
-    ///
-    /// **Because corpora write prose in keys this struct does not name.** Closing the node
-    /// schema over the top level rejected 117 nodes of 117 in one derived repository —
-    /// `summary`, `findings`, `revisions`, `unfilled` — and 199 of 199 in a projecting
-    /// consumer; see [`crate::cmd::schema`]. Serde dropped all of them, so every check
-    /// reading the parsed node measured a fraction of what the node says while the byte
-    /// scanners in [`crate::claims`] measured all of it. On one corpus the two answer 118
-    /// lines against 21 (#674).
-    ///
-    /// Held untyped for the reason [`Self::properties`] is: which of these keys mean what is
-    /// declared per class, not here. [`crate::prose::ProseFields`] says which carry prose,
-    /// and nothing else may assume a shape.
-    #[serde(flatten)]
-    pub extra: serde_yaml::Mapping,
-}
-
-impl CorpusInstance {
-    /// This node's prose, in the keys the ontology declares as prose, in that order.
-    ///
-    /// Reads `description` off its own field and everything else out of [`Self::extra`], so a
-    /// caller cannot get a different answer depending on which key it asked about. A declared
-    /// key the node does not carry, or carries as something other than a string, yields
-    /// nothing: a `findings:` holding a list is a real state and not prose, and guessing at a
-    /// rendering for it would put words in the corpus's mouth.
-    pub fn prose<'a>(&'a self, declared: &'a [String]) -> Vec<(&'a str, &'a str)> {
-        declared
-            .iter()
-            .filter_map(|key| {
-                let value = match key.as_str() {
-                    crate::prose::ALWAYS => self.description.as_deref(),
-                    other => self.extra.get(other).and_then(serde_yaml::Value::as_str),
-                }?;
-                (!value.trim().is_empty()).then_some((key.as_str(), value))
-            })
-            .collect()
-    }
-
-    /// The node's prose as one block, the declared fields joined in order.
-    ///
-    /// What a reader of the whole node reads, which is what a length ceiling and an
-    /// embedding are both about.
-    pub fn prose_text(&self, declared: &[String]) -> String {
-        self.prose(declared)
-            .into_iter()
-            .map(|(_, v)| v.trim_end())
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-}
-
-/// One claim resting on a node in an installed dependency.
+/// The corpus node, from the SDK that defines it.
 ///
-/// `span` is the field the design turns on. A node reference alone rots invisibly — the node
-/// keeps its name while its content is rewritten, and the citation still resolves — and a
-/// span cannot: it either still appears or it does not. It is also the only check available
-/// that does not need the producer's apparatus, which is exactly the apparatus a bundle does
-/// not carry: no sangha, no elector register, no resolution history.
-#[derive(serde::Deserialize, Default, Debug, Clone)]
-pub struct ExternalCitation {
-    /// The dependency, as `.yidam/tonpa.toml` names it.
-    pub package: Option<String>,
-    /// `<class>/<name>` inside that corpus. Unqualified — `package` already says whose.
-    pub node: Option<String>,
-    /// The `manifest.yml` commit this was read at. Absent for a path dependency, which
-    /// cannot be pinned.
-    pub commit: Option<String>,
-    /// The producer's standing, **as observed at that pin**. Recorded, never transferred:
-    /// a foreign tag is the producer's tag, and across this boundary the rule that a derived
-    /// assertion travels only as far as the weakest claim beneath it cannot be computed.
-    pub tag: Option<String>,
-    /// Verbatim text from the cited node.
-    pub span: Option<String>,
-}
-
-#[derive(serde::Deserialize, Default)]
-pub struct CorpusLink {
-    pub target: Option<String>,
-    pub relationship: Option<String>,
-}
+/// **Re-exported rather than declared here, and that is the point of #714.** This file used
+/// to hold its own `CorpusInstance`, `CorpusLink` and `ExternalCitation` while
+/// `yidam_core::corpus` held a Markdown node model — `parse_node`, `extract_claims`,
+/// `extract_links` — that three SDKs agreed about exactly, that parity certified for seven
+/// minor versions, and that no product ever called. RFC-0002 named the split; RFC-0013 closed
+/// it and specified the parser that would end it; nobody wrote the parser, and both documents
+/// were recorded `Implemented` anyway.
+///
+/// So the type the products use and the type the parity surface certifies are now one type.
+/// A second implementation on this side would put the drift straight back.
+///
+/// [`crate::prose`] holds what used to be this struct's inherent methods, because prose is
+/// what an *ontology* declares and the SDK is not where that is decided.
+pub use yidam_core::corpus::{parse_instance, CorpusInstance, CorpusLink, ExternalCitation};
 
 /// A decision record (.yml file in .yidam/decisions/).
 #[derive(serde::Deserialize, Default)]

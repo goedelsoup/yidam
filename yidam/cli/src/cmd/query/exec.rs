@@ -415,6 +415,7 @@ mod tests {
                         .map(|(target, relationship)| CorpusLink {
                             target: Some(target.to_string()),
                             relationship: Some(relationship.to_string()),
+                            ..Default::default()
                         })
                         .collect(),
                 ),

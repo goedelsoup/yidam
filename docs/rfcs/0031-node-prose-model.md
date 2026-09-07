@@ -60,7 +60,7 @@ today. §3.2 is the record.
 
 An instance is a YAML document. `class`, `label`, a `description` block scalar carrying every
 paragraph the node asserts, a `properties` bag typed by the class, and `links`. The parser is
-[`CorpusInstance`](../../yidam/cli/src/parse.rs#L164), and `description` is the only prose field
+[`CorpusInstance`](../../yidam/prelude/sdks/rust/src/corpus.rs#L87), and `description` is the only prose field
 it declares.
 
 Corpora did not stay inside it. The node schema is permissive at the top level, and the comment
@@ -165,7 +165,7 @@ prose. Upstream gives three different answers to those two keys:
 
 | Component | Answer |
 |---|---|
-| [`CorpusLink`](../../yidam/cli/src/parse.rs#L263) | dropped — the struct declares `target` and `relationship`, and sets no `deny_unknown_fields` |
+| [`CorpusLink`](../../yidam/prelude/sdks/rust/src/corpus.rs#L61) | ~~dropped~~ — **kept since #714**: the struct now declares `claim_tag` and `source` beside `target` and `relationship`, carried and not interpreted. What *reads* them is still #587's question |
 | the published schema, [`schema.rs:43-58`](../../yidam/cli/src/cmd/schema.rs#L43-L58) | rejected — `additionalProperties: false` on the link item |
 | `yidam lint` | nothing |
 
@@ -181,11 +181,13 @@ closed its five open questions and specified two functions: `parse_instance`, so
 the parser the products actually use, and `project_markdown`, the doorway. Both RFCs are recorded
 **Implemented**.
 
-Neither function exists. `parse_instance` and `project_markdown` appear nowhere outside those two
-documents. Parity is at 0.9.0 and still certifies
-[`parse_node`](../../yidam/prelude/sdks/rust/src/corpus.rs#L157) — H1 title, path-derived kind,
-line-oriented prose claims, Markdown links — across three languages. No product calls it. Both
-products that came near it wrote down that they were avoiding it:
+Neither function existed when this was written. Parity was at 0.9.0 and certified `parse_node` —
+H1 title, path-derived kind, line-oriented prose claims, Markdown links — across three languages,
+and no product called it. Both products that came near it wrote down that they were avoiding it:
+
+*(Fixed by #714: `parse_instance` is the parity surface's node parser in all three SDKs, the CLI
+calls it, and the Markdown model is retired. `project_markdown` is declined — see RFC-0013's
+amendment.)*
 
 > deliberately not the SDK's `extract_claims`, which is a line-oriented parser for the markdown
 > node model and reads `class: gage` as a claim over a YAML instance.

@@ -990,7 +990,7 @@ pub fn missing_label(nodes: &[Node]) -> Check {
 pub fn missing_description(nodes: &[Node], prose: &crate::prose::ProseFields) -> Check {
     let violations = nodes
         .iter()
-        .filter(|n| n.inst.prose(prose.for_class(&class_of(n))).is_empty())
+        .filter(|n| crate::prose::of(&n.inst, prose.for_class(&class_of(n))).is_empty())
         .map(|n| {
             let fields = prose.for_class(&class_of(n));
             Violation::new(
@@ -1320,7 +1320,7 @@ pub fn node_too_long(
         // and `findings` was measured at 21 lines against a true 34 (#674), which charged
         // the ceiling to the one field this struct happened to name.
         let fields = prose.for_class(&class_of(n));
-        let text = n.inst.prose_text(fields);
+        let text = crate::prose::text(&n.inst, fields);
         if text.is_empty() {
             continue;
         }

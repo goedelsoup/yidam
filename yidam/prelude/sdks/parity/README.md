@@ -8,9 +8,7 @@ is a build error — `mise run parity` enforces it before running any SDK tests.
 
 | Function | Contract |
 |---|---|
-| `parse_node` | Parse a markdown corpus file into a `CorpusNode` |
-| `extract_claims` | Extract `Claim[]` from markdown content, inferring `EvidenceTag` from inline markers |
-| `extract_links` | Extract `Link[]` from markdown content; exclude images and bare URLs |
+| `parse_instance` | Parse a corpus node — `.yidam/corpus/<class>/<name>.yml` — into a `CorpusInstance`, keeping every top-level key it does not name |
 | `classify_commit` | Classify a commit message as `Epistemic` or `Operational` by its verb |
 | `parse_markers` | Parse `REGEN` and `TEMPLATE` markers from file content, and report blocks that took lines which were not theirs |
 | `update_regen` | Replace the content inside a named `REGEN` section, preserving the marker |
@@ -27,6 +25,24 @@ version and updating ALL THREE SDK implementations in the same PR.
 table held ten, and `VERSIONING.md` used to say "the six". A number written beside a list is
 a second copy of the list's length with nothing keeping it honest, so the numbers are gone
 and the rows are what a reader counts.
+
+**A YAML date is a string, and the three libraries do not agree about that.** The node
+parser is the only parity function that reads arbitrary YAML, and scalar resolution is where
+three languages quietly diverge. Given `occurred: 1886-07-04`, `serde_yaml` and the `yaml`
+package both answer the string `"1886-07-04"`; PyYAML implements YAML 1.1 and answers
+`datetime.date`, which `json.dumps` then refuses outright. 41% of the nodes in the measured
+population carry a date, so this is not a corner. The contract is the string, the Python SDK
+strips its timestamp resolver to get there, and `parse_instance/unquoted-dates-stay-text.toml`
+is what fails when it is put back.
+
+**Non-string scalar resolution inside `properties` and `extra` is out of contract**, and the
+fixtures avoid it, for the same reason span fields are excluded. Given `010`, `serde_yaml`
+answers the string `"010"`, the `yaml` package answers `10`, and PyYAML answers `8`; `no` is a
+string to the first two and `false` to the third. That is YAML 1.1 against YAML 1.2 plus one
+library's own reading, and no fixture makes three implementations of two specifications agree.
+The ontology is what types these values — `<class>.ont.yml` declares them — and every consumer
+reads them as text. What *is* in contract is every string value, the key sets of `properties`
+and `extra`, and the difference between an absent key and a present empty one.
 
 **Sorted means code-point order.** Rust sorts a `String` by UTF-8 bytes and Python by code
 point, and those two agree everywhere. JavaScript's default comparator orders by UTF-16 code

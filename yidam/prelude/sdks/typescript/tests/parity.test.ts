@@ -3,7 +3,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse } from 'smol-toml'
 import { describe, it, expect } from 'vitest'
-import { parseNode, extractClaims, extractLinks } from '../src/corpus.ts'
+import { parseInstance, instanceToJson } from '../src/corpus.ts'
 import { classifyCommit, isRecognizedVerb } from '../src/git.ts'
 import { findReachable, findCitations, type GraphEdge } from '../src/graph.ts'
 import { scanMarkers, updateRegen } from '../src/markers.ts'
@@ -23,76 +23,27 @@ function loadFixtures(fn: string): Record<string, unknown>[] {
     .map(f => parse(readFileSync(join(dir, f), 'utf8')) as Record<string, unknown>)
 }
 
-// ── parse_node ────────────────────────────────────────────────────────────────
+// ── parse_instance ────────────────────────────────────────────────────────────
+//
+// Compared as parsed JSON, for `compile_class_schema`'s reason: key order is not part of the
+// contract and three languages will not agree on it.
+//
+// Non-string scalar resolution is out of contract and the fixtures avoid it — `010` is the
+// string "010" to serde_yaml, the number 10 here, and 8 to PyYAML. The one such divergence a
+// corpus actually hits is the timestamp, and it IS in contract:
+// `unquoted-dates-stay-text.toml` fails if this file stops passing `version: '1.2'` or the
+// Python SDK puts its timestamp resolver back.
 
-describe('parity: parse_node', () => {
-  const fixtures = loadFixtures('parse_node')
+describe('parity: parse_instance', () => {
+  const fixtures = loadFixtures('parse_instance')
   it('has fixtures', () => expect(fixtures.length).toBeGreaterThan(0))
 
   for (const fx of fixtures) {
     const inp = fx['input'] as Record<string, string>
-    const exp = fx['expected'] as Record<string, unknown>
-    it(inp['path'], () => {
-      const node = parseNode(inp['path'], inp['content'])
-      expect(node.path).toBe(exp['path'])
-      expect(node.title).toBe(exp['title'])
-      expect(node.kind).toBe(exp['kind'])
-
-      const expClaims = (exp['claims'] as Record<string, string>[] | undefined) ?? []
-      expect(node.claims).toHaveLength(expClaims.length)
-      for (let i = 0; i < expClaims.length; i++) {
-        expect(node.claims[i].text).toBe(expClaims[i]['text'])
-        expect(node.claims[i].tag).toBe(expClaims[i]['tag'])
-      }
-
-      const expLinks = (exp['links'] as Record<string, string>[] | undefined) ?? []
-      expect(node.links).toHaveLength(expLinks.length)
-      for (let i = 0; i < expLinks.length; i++) {
-        expect(node.links[i].label).toBe(expLinks[i]['label'])
-        expect(node.links[i].target).toBe(expLinks[i]['target'])
-        expect(node.links[i].anchor).toBe(expLinks[i]['anchor'])
-      }
-    })
-  }
-})
-
-// ── extract_claims ────────────────────────────────────────────────────────────
-
-describe('parity: extract_claims', () => {
-  const fixtures = loadFixtures('extract_claims')
-  it('has fixtures', () => expect(fixtures.length).toBeGreaterThan(0))
-
-  for (const fx of fixtures) {
-    const inp = fx['input'] as Record<string, string>
-    const expected = fx['expected'] as Record<string, string>[]
+    const exp = fx['expected'] as Record<string, string>
     it(fx['description'] as string, () => {
-      const claims = extractClaims(inp['content'])
-      expect(claims).toHaveLength(expected.length)
-      for (let i = 0; i < expected.length; i++) {
-        expect(claims[i].text).toBe(expected[i]['text'])
-        expect(claims[i].tag).toBe(expected[i]['tag'])
-      }
-    })
-  }
-})
-
-// ── extract_links ─────────────────────────────────────────────────────────────
-
-describe('parity: extract_links', () => {
-  const fixtures = loadFixtures('extract_links')
-  it('has fixtures', () => expect(fixtures.length).toBeGreaterThan(0))
-
-  for (const fx of fixtures) {
-    const inp = fx['input'] as Record<string, string>
-    const expected = fx['expected'] as Record<string, string>[]
-    it(fx['description'] as string, () => {
-      const links = extractLinks(inp['content'])
-      expect(links).toHaveLength(expected.length)
-      for (let i = 0; i < expected.length; i++) {
-        expect(links[i].label).toBe(expected[i]['label'])
-        expect(links[i].target).toBe(expected[i]['target'])
-        expect(links[i].anchor).toBe(expected[i]['anchor'])
-      }
+      const got = instanceToJson(parseInstance(inp['content']))
+      expect(got).toEqual(JSON.parse(exp['instance']))
     })
   }
 })
