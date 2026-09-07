@@ -136,6 +136,51 @@ fn with_no_declaration_every_off_vocabulary_commit_is_reported() {
     }
 }
 
+/// The short hash of `HEAD`, in the form the report writes.
+fn head(root: &Path) -> String {
+    let out = Command::new("git")
+        .current_dir(root)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .expect("git rev-parse");
+    String::from_utf8_lossy(&out.stdout).trim()[..8].to_string()
+}
+
+/// A node moved *out* of the corpus register is corpus work, and the register split may not
+/// read it as the artifact's (#697).
+///
+/// Rename detection is on by default and `--name-only` prints a rename's destination alone,
+/// so this commit presented as touching `web/` and nothing else: `Touch::ObjectOnly`,
+/// declined without a word. Git holds the pre-image either way — the invocation was throwing
+/// it away. The failing case is precisely a corpus node leaving the corpus, which is the
+/// commit a vocabulary check most wants to see.
+///
+/// A pure `git mv` is the strongest form of the defect: at 100% similarity git detects the
+/// rename under any threshold, so the test cannot pass by the pre-image surviving detection.
+#[test]
+fn a_node_moved_out_of_the_corpus_is_still_corpus_work() {
+    let (dir, _) = object_coupled_repo();
+    let root = dir.path();
+    write(
+        root,
+        ".yidam/config.toml",
+        "[object]\npaths = [\"web/**\", \"crates/**\"]\n",
+    );
+    commit(root, "resolve: the object register, declared");
+
+    git(root, &["mv", ".yidam/corpus/funding.md", "web/funding.md"]);
+    commit(root, "feat: move the node into the artifact");
+    let moved = head(root);
+
+    // The declaration is what makes this reachable: without `[object] paths` every commit is
+    // corpus work and `ObjectOnly` never arises.
+    assert!(
+        findings(root).contains(&moved),
+        "the commit that moved a node out of the corpus went unchecked — {:?}",
+        findings(root)
+    );
+}
+
 /// Declaring the object silences the two artifact commits and nothing else.
 #[test]
 fn declaring_the_object_silences_the_artifact_register_and_nothing_else() {
