@@ -171,6 +171,7 @@ impl Check {
     const POLICY: &'static str = "policy";
     const GOVERNANCE: &'static str = "governance";
     const KUTEN: &'static str = "kuten";
+    const CORPUS: &'static str = "corpus";
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -643,6 +644,12 @@ const ROSTER: &[Question] = &[
         text: "Did the corpora this repository depends on arrive?",
         asked: Asked::OfARepository,
         answer: |s| check_corpora(&s.root),
+    },
+    Question {
+        id: Check::CORPUS,
+        text: "Can every corpus file be read?",
+        asked: Asked::OfARepository,
+        answer: |s| check_corpus(&s.root),
     },
     Question {
         id: Check::VAULT,
@@ -1175,6 +1182,50 @@ fn check_corpora(root: &Path) -> Answer {
     }
 }
 
+/// Can every corpus file be read at all?
+///
+/// **The question under all the others.** A file that does not parse reaches a reader as an
+/// *empty record*, and everything computed from it is then a statement about the emptiness
+/// rather than about the file. `lint` learned this in #676 and `graph-check` in #721; this is
+/// the same defect on the surface a person runs first when something is wrong, and where it
+/// showed up as saying nothing at all.
+///
+/// **It does not re-report what `lint` reports.** One line and a count, with `yidam lint` as
+/// the remedy — that command names the files and is the place the finding belongs. What
+/// `doctor` adds is that the question gets *asked* here, so a corpus nothing can read is not
+/// something you discover by noticing that a different command has gone quiet.
+///
+/// Silent on a corpus with no files in it, which is every repository between `bootstrap` and
+/// the first node: `Ok` with `no corpus files yet` says the question was put and had no
+/// subject, which is not the same as a clean bill of health over nothing.
+fn check_corpus(root: &Path) -> Answer {
+    let corpus = crate::paths::yidam_corpus_dir(root);
+    let instances = crate::walk::walk_corpus_instances(&corpus);
+    let ont_files = crate::walk::walk_ont_files(&corpus);
+    let total = instances.len() + ont_files.len();
+    if total == 0 {
+        return Answer::ok("no corpus files yet");
+    }
+
+    let overlay = crate::cmd::lint::Overlay::default();
+    let unreadable = crate::cmd::lint::checks::load_nodes(root, &instances, &overlay)
+        .iter()
+        .filter(|n| n.malformed.is_some())
+        .count()
+        + crate::cmd::lint::checks::load_classes(root, &ont_files, &overlay)
+            .iter()
+            .filter(|c| c.malformed.is_some())
+            .count();
+
+    match unreadable {
+        0 => Answer::ok(format!("{total} file(s), all readable")),
+        n => Answer::fail(
+            format!("{n} of {total} corpus file(s) do not parse"),
+            Some("yidam lint"),
+        ),
+    }
+}
+
 /// Have any source records aged past what the corpus said they may?
 ///
 /// **No network, and none is possible from here.** This reads the entry's own `retrieved:`,
@@ -1380,6 +1431,96 @@ mod tests {
             "[[package]]\nname = \"{name}\"\nurl = \"https://example.com/{name}.yiz\"\nsha256 = \"{}\"\n",
             crate::deps::sha256_hex(bytes)
         )
+    }
+
+    // ── #721: a corpus file that does not parse ─────────────────────────────────
+
+    /// A corpus of one class and one instance, with control over both files' bytes.
+    fn repo_with_corpus(instance: &str, schema: &str) -> TempDir {
+        let tmp = derived_repo();
+        let class = tmp.path().join(".yidam/corpus/gage");
+        std::fs::create_dir_all(&class).unwrap();
+        std::fs::write(tmp.path().join(".yidam/corpus/gage.ont.yml"), schema).unwrap();
+        std::fs::write(class.join("canyon-outlet.yml"), instance).unwrap();
+        tmp
+    }
+
+    const SOUND: &str = "class: gage\nlabel: canyon-outlet\n";
+    /// The same bytes with one unclosed quote in `label:`.
+    const BROKEN: &str = "class: gage\nlabel: \"canyon-outlet\n";
+
+    /// **The arm that said nothing at all.** `doctor` is what a person runs first when
+    /// something is wrong, and a corpus file nothing can read was invisible to it — the
+    /// defect #676 fixed in `lint` and #721 in `graph-check`, on the surface where it read
+    /// as a clean bill of health.
+    #[test]
+    fn a_corpus_file_that_does_not_parse_is_a_finding() {
+        let sound = repo_with_corpus(SOUND, SOUND);
+        let c = check_corpus(sound.path());
+        assert_eq!(c.verdict, Verdict::Ok, "{}", c.detail);
+        assert!(c.detail.contains('2'), "both files counted: {}", c.detail);
+
+        for (instance, schema) in [(BROKEN, SOUND), (SOUND, BROKEN)] {
+            let broken = repo_with_corpus(instance, schema);
+            let c = check_corpus(broken.path());
+            assert_eq!(c.verdict, Verdict::Fail, "{}", c.detail);
+            assert!(c.detail.starts_with("1 of 2"), "{}", c.detail);
+            // The remedy is the command that names the files. `doctor` counts; it does not
+            // re-report what `lint` reports.
+            assert_eq!(c.remedy.as_deref(), Some("yidam lint"));
+        }
+    }
+
+    /// A repository between `bootstrap` and its first node has no corpus files, and that is
+    /// not a clean bill of health over nothing — it is a question with no subject.
+    #[test]
+    fn a_corpus_with_no_files_yet_is_not_graded() {
+        let tmp = derived_repo();
+        let c = check_corpus(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok);
+        assert_eq!(c.detail, "no corpus files yet");
+        assert!(c.remedy.is_none());
+    }
+
+    /// **Every question `doctor` asks is in the table `docs/troubleshooting.md` prints.**
+    ///
+    /// That table was a hand-written list and it had already fallen four behind — `vault`,
+    /// `policy`, `governance` and `kuten` were in [`ROSTER`] and not in the docs, and
+    /// nothing went red as they were added. A list nobody checks stops covering what is new
+    /// without ever failing, so the set is discovered from `ROSTER` here rather than typed
+    /// a third time.
+    ///
+    /// Ids and order, not wording: the docs are free to format a question (`PATH` is
+    /// code-quoted there and not in the roster) and the id is what a consumer keys on.
+    #[test]
+    fn every_doctor_question_is_in_the_troubleshooting_table() {
+        let docs = std::fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/troubleshooting.md"),
+        )
+        .expect("docs/troubleshooting.md");
+
+        // Bounded to the one table, by its header and then by its own last row. Scanning
+        // the whole document picked up a second table further down whose first column is
+        // also code-quoted — and a filter loose enough to exclude those rows by their shape
+        // would be loose enough to drop a real id and pass.
+        let table = docs
+            .split("| Check | The question |")
+            .nth(1)
+            .expect("the check table, headed `| Check | The question |`");
+        // The table ends where markdown says it ends: the blank line after its last row.
+        let table = table.split("\n\n").next().unwrap_or(table);
+        let documented: Vec<String> = table
+            .lines()
+            .filter_map(|l| l.strip_prefix("| `"))
+            .filter_map(|l| l.split('`').next())
+            .map(str::to_string)
+            .collect();
+        let asked: Vec<&str> = ROSTER.iter().map(|q| q.id).collect();
+
+        assert_eq!(
+            documented, asked,
+            "docs/troubleshooting.md's check table does not match the roster"
+        );
     }
 
     /// A repository that depends on nothing is not half-provisioned.
