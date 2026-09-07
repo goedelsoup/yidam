@@ -84,6 +84,27 @@ often sharply.
 yidam lint --bless
 ```
 
+### `yidam propose` records a question instead of writing a sentence
+
+A question this tool opened used to be a paragraph spliced into `description:`. It was found
+again by searching the prose for the sentence it had written. It is a record under the node's
+`yidam:` key now. The key is a digest of the check and the finding's words.
+
+**Who this affects.** Any corpus that has run `yidam propose`.
+
+**What gets better.** A question survives an author rewriting the node's prose — it is closed
+by id. A carried question stops being counted among the corpus's own open questions. And a
+node whose `description:` is a plain scalar can now be asked about at all. It used to be
+refused: a paragraph could not be appended without reformatting a line.
+
+**Nothing strands.** Paragraphs written by an earlier release are still recognised and still
+closed when their finding goes away. Lifting them into records is not automatic; the questions
+stay askable and closable either way.
+
+**One number moves.** The `[open]` claim counts drop by however many questions this tool had
+carried. Those were never the corpus's own. `yidam open-questions` still lists the nodes, so
+what shrinks is the claim tally and not the worklist.
+
 ### Prose is what the ontology declares, and `description` is no longer required by name
 
 `node-too-long` and `missing-description` read `description` and nothing else, while the claim

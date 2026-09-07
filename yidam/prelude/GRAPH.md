@@ -197,6 +197,43 @@ between them and the field readers, which is where the two numbers came from.
 for that key by name. A schema demanding it would reject, in the editor, a node the build
 accepts.
 
+### A question this tool carried
+
+`yidam propose` opens a question by recording the finding on the node it is about. It used to
+do that by splicing a paragraph into the `description:` block and identifying it later by
+searching the prose for the sentence it had written. It records instead:
+
+```yaml
+yidam:
+  findings:
+    - id: 7f3a1c94b2e1
+      check: orphan-in
+      opened_at: 4f2a1c9
+      detail: 'nothing links to this node — uncited since 2026-03-04, 3 commit(s)'
+      standing: open
+```
+
+The `id` is a digest of the check and the finding's own words, so the same finding computes
+the same id at any commit. Four things follow, and each was a defect of the prose form:
+
+| | Prose paragraph | Record |
+|---|---|---|
+| an author rewords the question | unclosable — `close:` matched the sentence | closed by `id` |
+| the corpus counts its open questions | the paragraph ended in `[open]` and was counted as one | counted as nothing the corpus claims |
+| *which questions are open here, from which check, since when* | scan the prose | read the records |
+| a node whose `description:` is a plain scalar | refused — a paragraph would reformat a line somebody wrote | recorded; the prose is not touched |
+
+**Under `yidam:` and not at the top level**, because the obvious key is taken: one derived
+corpus writes a top-level `findings:` holding its own research prose. The tool claims one key,
+named after itself, and the corpus keeps the rest of the top level.
+
+**A carried question is not a claim the corpus makes.** That is the point of the separation:
+`open-questions` and the claim counts report what the corpus asserts, and a question this tool
+carried is not that. It is still reported — by `yidam lint`, which is where it came from — and
+the record is what lets it be closed when the check stops reporting it.
+
+Paragraphs written by an earlier release are still read and still closed. Nothing strands.
+
 ### Properties every class may carry
 
 `.yidam/corpus/universal.yml` is the corpus speaking about itself rather than about one of
