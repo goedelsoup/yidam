@@ -763,8 +763,23 @@ fn two_places(v: f64) -> String {
     format!("{v:.2}")
 }
 
+/// The unit is named in the value itself, and not only in the question beside it (#674).
+///
+/// `median-node-lines` counts **whole-file** lines. `node-too-long` was narrowed in 0.10.0
+/// to measure a node's `description` instead, on the argument that a node recording where
+/// each of its edges came from should not pay for that provenance out of a budget written
+/// to stop prose sprawling. The band here was fitted on file lines across six corpora and
+/// was not narrowed with it, so the two now answer different questions under names a reader
+/// reasonably hears as one: a corpus measured at a median file of 118 has a median
+/// description of 21, and `35–62` is a band about files.
+///
+/// Re-pointing the band at `description` is the real repair and it is not free — the stored
+/// members would have to be refitted across the population, or this corpus's descriptions
+/// would be compared against six repositories' files, which is the error `measured.estimator`
+/// exists to prevent. Until then the honest move is to say which unit this is, everywhere it
+/// is shown.
 fn lines(v: f64) -> String {
-    format!("{v:.0} lines")
+    format!("{v:.0} file lines")
 }
 
 /// Read a repository against its declared kuten. **Pure, and total.**
@@ -872,7 +887,13 @@ pub fn compare(profile: &Profile, m: &Measurement, vintage: &Vintage) -> Vec<Fin
                 vintage: None,
                 render: lines,
                 question: |got, want| {
-                    format!("the median node here is {got}, against a declared {want}.")
+                    format!(
+                        "the median node here is {got}, against a declared {want}. That counts \
+                         the whole file — properties, links and revisions included — and not \
+                         the node's prose, which is what `node-too-long` reads. A corpus that \
+                         records provenance per edge will sit high here without its \
+                         descriptions being long."
+                    )
                 },
             }
             .read(m.median_node_lines),
@@ -1273,6 +1294,27 @@ mod tests {
             .unwrap();
         assert_eq!(v.verdict, Verdict::Conforming);
         assert!(v.question.is_none());
+    }
+
+    /// #674: the unit is in the rendered value, not only in the prose beside it.
+    ///
+    /// Mutating `lines()` back to a bare `{v} lines` must fail here — the whole finding is
+    /// that "118 lines" and "21 lines" are answers to different questions wearing one name.
+    #[test]
+    fn the_node_length_reading_says_which_lines_it_counted() {
+        let mut m = conformant();
+        m.median_node_lines = Some(118.0);
+        let f = compare(&inquiry(), &m, &current());
+        let n = f.iter().find(|f| f.metric == "median-node-lines").unwrap();
+
+        assert_eq!(n.verdict, Verdict::Divergent);
+        assert!(
+            n.measured.contains("file lines"),
+            "the value does not name its unit: {}",
+            n.measured
+        );
+        let q = n.question.clone().unwrap();
+        assert!(q.contains("node-too-long"), "{q}");
     }
 
     /// The base verb settles the phase, and the suffix is the only thing looked past.
