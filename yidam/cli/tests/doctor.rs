@@ -152,6 +152,50 @@ fn outside_a_derived_repository_it_says_so_and_exits_nonzero() {
     assert!(r.stdout.contains("skip"), "{}", r.stdout);
 }
 
+/// **The same questions on both paths**, compared between two runs of the real binary
+/// rather than against a list written down anywhere.
+///
+/// `doctor` had two constructors — a healthy one and an early-return one that built a
+/// hand-written roster of ids to report as `skipped` — and `policy` was in the first and not
+/// the second. So on a directory that is not a derived repository the check did not appear
+/// at all, which the report contract says must be distinguishable from one that ran and
+/// found nothing (#656). A list in this test would be a third copy that agrees with whichever
+/// one it was written from; two runs compared to each other cannot be.
+#[test]
+fn both_paths_ask_the_same_questions_and_the_unanswerable_ones_say_skipped() {
+    let ids = |v: &serde_json::Value| -> Vec<String> {
+        v["checks"]
+            .as_array()
+            .expect("checks")
+            .iter()
+            .map(|c| c["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let report = |root: &Path| -> serde_json::Value {
+        let r = run(root, &["doctor", "--format", "json"]);
+        serde_json::from_str(&r.stdout).expect("valid JSON")
+    };
+
+    let answered = report(stage().path());
+    let outside = report(tempfile::tempdir().unwrap().path());
+    assert_eq!(
+        ids(&answered),
+        ids(&outside),
+        "a question answered in a repository and absent outside one cannot be told from a \
+         question that never ran"
+    );
+
+    // And absent is not what they are: every question that needs a repository says so.
+    for check in outside["checks"].as_array().unwrap() {
+        let id = check["id"].as_str().unwrap();
+        if id == "repository" || id == "build" {
+            continue;
+        }
+        assert_eq!(check["verdict"], "skipped", "{check:#?}");
+        assert!(check["remedy"].is_null(), "{check:#?}");
+    }
+}
+
 /// The report contract, not the prose. A consumer keys on `id` and `verdict`.
 #[test]
 fn the_json_report_carries_the_envelope_and_every_check() {
