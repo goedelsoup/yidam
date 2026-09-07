@@ -948,7 +948,7 @@
                     "uncited",
                     "unstated"
                   ],
-                  "description": "What the ontology declared for this class: `uncited` for a source class nothing is meant to point at, `cited` for a class declaring an inbound edge, `unstated` when it declared neither."
+                  "description": "What the ontology declared for this class, reading both ends of every edge: `uncited` for a source class nothing is meant to point at, `cited` for a class the ontology says something points at, `unstated` when it declared neither. Either end may declare the relationship — `direction: in` on one class and `direction: out` on the other state the same fact — so a class carrying no `edges:` of its own can still be `cited`. Being NAMED is not being pointed at, and the difference is the direction: `gauge` declaring `target: concept, direction: in` says instances of a concept point at a gauge, so it says nothing about anything pointing at a concept, and a `concept` declaring nothing stays `unstated` (#659)."
                 },
                 "meets_expectation": {
                   "type": [

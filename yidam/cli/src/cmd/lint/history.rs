@@ -249,6 +249,11 @@ impl Expectation {
 /// therefore keeps the declarations and derives the answer per frame, through
 /// [`super::checks::source_classes`] — the same function the check calls, so the two cannot
 /// disagree about which classes are exempt.
+///
+/// That guarantee held for *exempt* and not for *pointed at*, which the replay went on to
+/// answer for itself, direction-blind, and got wrong (#659). Both now read
+/// [`super::checks::pointed_classes`], which is where `direction:` is interpreted and the
+/// only place it is.
 fn blob_edges(content: &str) -> Vec<super::checks::ClassEdge> {
     #[derive(Default, serde::Deserialize)]
     struct Fields {
@@ -264,8 +269,18 @@ fn blob_edges(content: &str) -> Vec<super::checks::ClassEdge> {
 ///
 /// Three states, and the third has to survive: a class nothing points at *and* which
 /// declares no edges said nothing at all, which is not the same as saying it is a source
-/// class. A class that declares no edges but which another class targets has been spoken
-/// for, from the other end, and is `Cited`.
+/// class. A class that declares no edges but which the ontology points *at*, from the other
+/// end, has been spoken for and is `Cited`.
+///
+/// **Pointed at, not merely named.** That distinction is the whole of #659. This asked
+/// "does any edge anywhere carry this class as its `target`", which is direction-blind:
+/// `D: {relationship: r, target: C, direction: in}` says instances of `C` point at instances
+/// of `D`, and names `C` while saying nothing about anything pointing at `C`. A `C` that
+/// declared no edges of its own was read as `Cited` on the strength of it and scored against
+/// `uncited == 0` — which is precisely the state the missing entry exists to represent, and
+/// `direction: in` is not hypothetical: the reports fixture's own `concept.ont.yml` uses it.
+/// [`super::checks::pointed_classes`] is the one reading of `direction:`, and both questions
+/// now go through it rather than being answered twice.
 fn expectations_of(
     decls: &BTreeMap<String, Vec<super::checks::ClassEdge>>,
 ) -> HashMap<String, Expectation> {
@@ -274,24 +289,19 @@ fn expectations_of(
         .map(|(name, edges)| super::checks::EdgeView { name, edges })
         .collect();
     let sources = super::checks::source_classes(&view);
+    let pointed = super::checks::pointed_classes(&view);
     decls
         .iter()
         .filter_map(|(name, edges)| {
             if sources.contains(name) {
                 Some((name.clone(), Expectation::Uncited))
-            } else if edges.is_empty() && !is_targeted(name, &view) {
+            } else if edges.is_empty() && !pointed.contains(name.as_str()) {
                 None
             } else {
                 Some((name.clone(), Expectation::Cited))
             }
         })
         .collect()
-}
-
-/// Whether any class declares an edge naming `name` at either end.
-fn is_targeted(name: &str, view: &[super::checks::EdgeView<'_>]) -> bool {
-    view.iter()
-        .any(|v| v.edges.iter().any(|e| e.target == name))
 }
 
 /// The corpus as it stood at one commit.
@@ -729,6 +739,99 @@ mod tests {
             since.get(".yidam/corpus/concept/b.yml").map(|a| day(a.ts)),
             Some("2026-01-09".to_string())
         );
+    }
+
+    // ── declared expectations ─────────────────────────────────────────────────
+    //
+    // What `replay`'s `by_class` rows are scored against. The contract's promise is that a
+    // class which declared nothing carries `"meets_expectation": null` — scoring a class
+    // against an expectation it never stated is how a corpus with an unfilled ontology gets
+    // reported as failing — and `replay.rs` keeps that promise by one `declared.map(…)`, so
+    // a missing entry here is exactly a `null` there.
+
+    /// The fixture's own two classes, with `concept` stripped of its `edges:`.
+    ///
+    /// One class declaring nothing, one declaring a single `measured-by` edge naming it. The
+    /// three cases below differ by `direction` alone, which is the whole of what is at issue.
+    fn named_from_the_gauge(
+        direction: Option<&str>,
+    ) -> BTreeMap<String, Vec<super::super::checks::ClassEdge>> {
+        use super::super::checks::ClassEdge;
+        BTreeMap::from([
+            ("concept".to_string(), Vec::new()),
+            (
+                "gauge".to_string(),
+                vec![ClassEdge {
+                    relationship: "measured-by".to_string(),
+                    target: "concept".to_string(),
+                    direction: direction.map(str::to_string),
+                }],
+            ),
+        ])
+    }
+
+    /// #659. `direction: in` on `gauge` says instances of `concept` point at a gauge — it
+    /// NAMES `concept` and says nothing whatever about anything pointing at one.
+    ///
+    /// The reading used to be `edges.iter().any(|e| e.target == name)`, which cannot see the
+    /// difference, so a `concept` declaring no edges of its own was read as expecting to be
+    /// cited and scored against `uncited == 0` — a class that had declared nothing, judged
+    /// against the one state the missing entry exists to represent.
+    #[test]
+    fn a_class_named_by_an_inbound_declaration_is_not_thereby_pointed_at() {
+        let e = expectations_of(&named_from_the_gauge(Some("in")));
+        assert_eq!(e.get("concept"), None, "{e:?}");
+        // And the class that did declare is still scored: something points at a gauge.
+        assert_eq!(e.get("gauge"), Some(&Expectation::Cited), "{e:?}");
+    }
+
+    /// The arm that must keep working, and the reason this is not fixed by deleting the
+    /// branch: stated from the other end, the same relationship does point at `concept`.
+    #[test]
+    fn a_class_another_class_points_at_is_cited_though_it_declares_nothing() {
+        let e = expectations_of(&named_from_the_gauge(Some("out")));
+        assert_eq!(e.get("concept"), Some(&Expectation::Cited), "{e:?}");
+    }
+
+    /// A declaration with no `direction` names both ends, here as in `source_classes`: it
+    /// says a relationship exists without saying which way it runs, and the safe reading of
+    /// an ambiguous declaration is the one that does not silence a report. One rule, applied
+    /// the same way to both questions — which is the whole of what #659 was about.
+    #[test]
+    fn a_declaration_with_no_direction_names_both_ends() {
+        let e = expectations_of(&named_from_the_gauge(None));
+        assert_eq!(e.get("concept"), Some(&Expectation::Cited), "{e:?}");
+    }
+
+    /// The same case through the walk that computes it, on class blobs read out of git —
+    /// `replay`'s own path, and the one `by_class` is built from.
+    #[test]
+    fn a_class_declaring_nothing_is_scored_against_nothing() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init(root);
+
+        // The fixture's own shape, minus concept's edges: `direction: in` is not
+        // hypothetical, and `.yidam/corpus/concept.ont.yml` uses it.
+        node(
+            root,
+            "gauge.ont.yml",
+            "class: gauge\nedges:\n  - relationship: measured-by\n    target: concept\n    direction: in\n",
+        );
+        node(root, "concept.ont.yml", "class: concept\n");
+        node(root, "concept/a.yml", "class: concept\nlinks: []\n");
+        node(root, "gauge/g.yml", "class: gauge\nlinks: []\n");
+        commit(
+            root,
+            "2026-01-01",
+            "establish: concept named from the gauge's end",
+        );
+
+        let mut seen: Option<HashMap<String, Expectation>> = None;
+        replay(root, |f| seen = Some(f.expectations.clone()));
+        let e = seen.expect("the replay visited the commit");
+        assert_eq!(e.get("concept"), None, "{e:?}");
+        assert_eq!(e.get("gauge"), Some(&Expectation::Cited), "{e:?}");
     }
 
     // ── open questions ────────────────────────────────────────────────────────
