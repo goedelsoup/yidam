@@ -1831,6 +1831,7 @@
         "base",
         "tip",
         "held",
+        "source",
         "revision_skew",
         "commits",
         "added_nodes",
@@ -1852,21 +1853,57 @@
         },
         "held": {
           "type": "boolean",
-          "description": "Whether the criteria are this corpus's own. `false` means they are the template's, which is every repository today \u2014 the same criteria, and a different answer to whose selection they are."
+          "description": "Whether the criteria are this corpus's own. `false` means they are the template's, which is every repository today \u2014 the same criteria, and a different answer to whose selection they are. True exactly when `source` is `kuten`; a consumer that needs to know WHY the criteria are the template's MUST read `source`, because `false` covers three different situations (#695)."
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "kuten",
+            "no-kuten",
+            "predates-adoption",
+            "unreadable-profile"
+          ],
+          "description": "Why the criteria are what they are. A closed set, so a consumer branches without matching prose. `kuten`: the range's tip declares one and its profile is vendored. `no-kuten`: neither the tip nor the working tree declares one. `predates-adoption`: the tip declares none and the working tree does \u2014 the criteria are correctly the template's because the range is older than the decision, and the repository does hold a kuten. `unreadable-profile`: the tip declares one and no profile is vendored for it, which `kuten check` and `doctor` also report. Only `no-kuten` was ever reported honestly by `held` alone."
         },
         "kuten": {
           "type": [
             "string",
             "null"
           ],
-          "description": "The kuten the criteria came from, where one was held."
+          "description": "The kuten the criteria came from. Non-null exactly when `held` is true; what the range's tip DECLARED is `declared`, which does not have to agree."
         },
         "revision": {
           "type": [
             "integer",
             "null"
           ],
-          "description": "The revision the decision record names at the TIP of the range, read from that commit's tree rather than from the working copy."
+          "description": "The revision of the profile the criteria came from, as the record at the TIP of the range names it \u2014 read from that commit's tree rather than from the working copy. Non-null exactly when `held` is true: the record used to carry `held: false` beside a revision, which says two contradictory things about one range (#695)."
+        },
+        "declared": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "name",
+            "revision"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "revision": {
+              "type": "integer"
+            }
+          },
+          "description": "What the decision record at the range's TIP names, whatever the criteria became. Present alongside the criteria under `source: kuten`, and alone under `source: unreadable-profile` \u2014 which is the disagreement stated rather than resolved."
+        },
+        "holds_now": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The kuten the WORKING TREE declares, where that is not what the range was scored against. The one fact in this report about now rather than about the range, and it is here for the one distinction the range cannot make on its own: a tip that predates an adoption and a corpus that has adopted nothing are the same commit-shaped absence."
         },
         "revision_skew": {
           "type": "boolean",
