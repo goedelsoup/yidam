@@ -10,6 +10,6 @@ It contains:
 - **[Graph model](GRAPH.md)** — how the git history encodes knowledge
 - **[Constitution](CONSTITUTION.md)** — the invariant constraints governing sangha resolutions
 - **[Phases](PHASES.md)** — how post-genesis agent inquiry is structured into named units of work
-- **[Guidelines](guidelines/)** — behavioral norms and directory conventions for agents operating in the graph
+- **[Guidelines](guidelines/)** — behavioral norms, how to read the corpus, and directory conventions for agents operating in the graph
 - **[Skills](skills/)** — capabilities provided by yidam, available during bootstrap and beyond
 - **[SDKs](sdks/)** — programmable bindings to the prelude model in Rust, TypeScript, and Python; cross-language parity harness; formal specifications

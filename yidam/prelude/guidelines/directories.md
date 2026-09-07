@@ -373,6 +373,11 @@ traversed in any order.
 **What does not belong here:** Implementation notes, agent prompts, skill definitions, code,
 or anything that describes how the repo operates rather than what it knows.
 
+**How to read it:** with `yidam query`, `neighbors` and `pack` — not with `grep`. This is a
+directory of files and it is also a typed graph, and only the second answers *what is one hop
+from here* or *does this corpus cover that*. See
+[Reading the corpus](reading-the-corpus.md).
+
 **Node conventions:**
 
 - One concept per file; one file per concept

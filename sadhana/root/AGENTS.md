@@ -37,6 +37,8 @@ negotiable from inside the repo:
 - [Graph model](.yidam/.vendor/prelude/GRAPH.md) — how git encodes knowledge
 - [Agent conduct](.yidam/.vendor/prelude/guidelines/agent-conduct.md) — behavioral norms,
   including the `[verified]` / `[inference]` / `[open]` claim tags
+- [Reading the corpus](.yidam/.vendor/prelude/guidelines/reading-the-corpus.md) — the retrieval
+  half of the loop, and why `grep` cannot answer what you are asking
 - [Directory conventions](.yidam/.vendor/prelude/guidelines/directories.md) — what belongs where
 - [Phases](.yidam/.vendor/prelude/PHASES.md) — how a unit of inquiry is bounded and committed
 - [Constitution](.yidam/.vendor/prelude/CONSTITUTION.md) — binding on every resolution event
@@ -97,6 +99,39 @@ on your own branch is one nobody can answer and no corpus node can cite.
 The resolution procedure is a loop: state, transport, read the others, answer, repeat until
 a round adds nothing. One round is a complete cycle. After the resolution, take the new
 baseline by merge, not rebase: `adopt: the baseline after <evolution>`.
+
+## Reading the corpus
+
+**Do not navigate this corpus with `grep`.** It is a typed graph, and there are commands that
+read it as one. `grep` searches text; these answer about nodes, edges and coverage.
+
+```sh
+yidam due                       # what is owed — stale index, expired sources, open questions
+yidam query '<class> -<rel>-> <class>'   # a typed path; `<-rel-` walks it backwards
+yidam neighbors <class>/<node>.yml       # one node's neighbourhood, both directions
+yidam estimate '<query>'                 # what an answer would cost, before paying it
+yidam pack '<query>' --budget 4000       # that answer as prose, filled to a budget
+```
+
+**When `query` comes back empty it says why**, derived from what the corpus states rather than
+guessed — *the class is not declared*, *it is declared and holds nothing*, *it holds instances
+and none carries that value (and here are the values it does carry)*, *nothing authors that
+relationship*. Zero `grep` hits say none of that, and a coverage gap you cannot see is one you
+will fill from memory instead. Read the absence before concluding the corpus is silent.
+
+A misspelled class or relationship is **rejected with the near miss named**, never returned as
+an empty result. `mise run ci` never sees a wrong query, so this is the only thing that will
+tell you.
+
+[Reading the corpus](.yidam/.vendor/prelude/guidelines/reading-the-corpus.md) has the full
+surface and the worked examples.
+
+<!-- TEMPLATE
+Replace the three placeholder queries above with real ones against this corpus's own classes
+and relationships — the ones an agent starting a session here would actually want. Run each
+before pasting it: a documented query that does not parse teaches an agent the surface is
+broken. Delete this block afterwards.
+-->
 
 ## The gate
 

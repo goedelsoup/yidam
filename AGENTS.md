@@ -43,4 +43,6 @@ Read the prelude before taking substantive action:
 - [Identity](yidam/prelude/IDENTITY.md) — what yidam-derived repos are
 - [Graph model](yidam/prelude/GRAPH.md) — how git encodes knowledge
 - [Agent conduct](yidam/prelude/guidelines/agent-conduct.md) — full behavioral norms
+- [Reading the corpus](yidam/prelude/guidelines/reading-the-corpus.md) — the retrieval half of
+  the loop, and why `grep` cannot answer what you are asking
 - [Directory conventions](yidam/prelude/guidelines/directories.md) — what belongs where
