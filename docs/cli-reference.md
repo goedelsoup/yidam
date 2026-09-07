@@ -265,20 +265,21 @@ A step may be filtered by `[…]`, comma-separated. Commas are **and**; there is
 | `<` `<=` `>` `>=` | the date orders that way | **`date` only** |
 | `?` | written as `prop?` — the node carries no value for it | any |
 
-**Ordering is `date` only, and asking for it elsewhere is refused rather than answered.** There is
-no numeric declared type, so comparing a `string` would compare text — ranking `10` before `9` and
-saying nothing about having done so. `yidam query 'reach[length_km<9]'` comes back
-`unordered-property` with that reason.
+**Ordering is `date` only, and asking for it elsewhere is refused rather than answered.** No
+declared type is numeric. Comparing a `string` would compare text, ranking `10` before `9` and
+saying nothing about it. `yidam query 'reach[length_km<9]'` comes back `unordered-property` with
+that reason.
 
-A comparison runs **at the precision the two sides share**: `began<1900-06-01` holds for a
-`began: 1893`, because 1893 is before 1900 whatever day it fell on. This is deliberately not `=`'s
-rule — ordering at the query's precision would silently drop every node the corpus knows only to
-the year.
+A comparison runs **at the precision the two sides share**. `began<1900-06-01` holds for a
+`began: 1893`: 1893 is before 1900 whatever day it fell on. This is deliberately not `=`'s rule.
+Ordering at the query's precision would silently drop every node the corpus knows only to the year.
 
 **`?` after an operator means an absent property satisfies it too.** The standing rule is that an
-absent property never matches, for any operator including `!=`; `?` is how one predicate opts out,
-where a reader can see it. It is what makes the interval question expressible, since the filter is
-a conjunction and *"ended after 1893 **or** never ended"* is not:
+absent property never matches, for any operator including `!=`. `?` is how one predicate opts out
+of it, where a reader can see it.
+
+That is what makes the interval question expressible. The filter is a conjunction, and *"ended
+after 1893 **or** never ended"* is not:
 
 ```sh
 # every tenure open at some point in 1893 — the line of office-holders
@@ -288,8 +289,8 @@ yidam query 'tenure[began<=1893, ended>?1893] -of-office-> office'
 yidam query 'question[closed?]'
 ```
 
-`prop?` and `prop>?D` are one character apart and mean different things: the first tests for
-absence and takes no operand, the second is a comparison an absent property also satisfies.
+`prop?` and `prop>?D` are one character apart and mean different things. The first tests for
+absence and takes no operand. The second is a comparison an absent property also satisfies.
 
 | Flag | Applies to | Effect |
 |---|---|---|
