@@ -28,6 +28,7 @@
 //! shapes and asserted against — the proof obligation #574 sets — without those corpora being
 //! in this checkout. [`measure`] is the thin part that reads a working tree.
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -535,9 +536,26 @@ pub struct Measurement {
     /// declaring `[object] paths` will see the two differ, and that is the intended reading
     /// rather than a defect.
     pub off_vocabulary_commits: usize,
+    /// How many of [`Self::off_vocabulary_commits`] are a **recognised verb wearing a
+    /// conventional-commits scope** — `phase(a-flat-grant):` rather than a coinage.
+    ///
+    /// A strict subset, never a second population: every commit counted here is counted
+    /// there too, and subtracting it would be the suffix-stripping `split_scope` forbids.
+    /// It exists so the divergence can say which of the two mistakes it found (#673). One
+    /// derived repository's 49% was 80 suffixed verbs and 130 genuine coinages, and a
+    /// reader shown only the 49% concludes the vocabulary is being ignored when most of the
+    /// distance is one punctuation habit.
+    ///
+    /// `#[serde(default)]` for the reason [`Self::open_questions`] carries it: a profile
+    /// vendored before this field existed must keep parsing, and zero is the honest reading
+    /// of a member measured before anyone counted this.
+    #[serde(default)]
+    pub suffixed_commits: usize,
     /// Instance nodes in the corpus.
     pub nodes: usize,
-    /// Median instance node length, in lines. `None` when there are no nodes.
+    /// Median instance node length, in lines — **of the whole file**, not of the node's
+    /// prose. See [`Measurement::median_node_lines`]'s reading in `compare` for why the
+    /// unit is named wherever this is shown. `None` when there are no nodes.
     pub median_node_lines: Option<f64>,
     /// Instance nodes the corpus currently holds open as questions.
     ///
@@ -791,26 +809,43 @@ pub fn compare(profile: &Profile, m: &Measurement, vintage: &Vintage) -> Vec<Fin
     }
 
     if let Some(vocabulary) = &profile.vocabulary {
-        out.push(
-            Metric {
-                slot: "vocabulary",
-                id: "off-vocabulary-share",
-                band: vocabulary.off_vocabulary_share,
-                vintage: Some(VintageGate {
-                    holds: vintage.vocabulary_is_closed,
-                    reason: "the vendored prelude does not close the vocabulary, so no commit \
-                             here is outside it",
-                }),
-                render: percent,
-                question: |got, want| {
-                    format!(
-                        "{got} of commits use a verb outside the vocabulary, against {want}. Are \
-                         those commits this corpus's work, or an artifact's?"
-                    )
-                },
-            }
-            .read(m.off_vocabulary_share()),
-        );
+        // Built, then annotated. `Metric::question` is a plain fn pointer — deliberately, so
+        // a metric's prose cannot close over the repository being read — and the suffixed
+        // count is a fact about *this* history. Appending after the fact keeps the band
+        // logic identical for every metric and puts the one exception in view (#673).
+        let mut finding = Metric {
+            slot: "vocabulary",
+            id: "off-vocabulary-share",
+            band: vocabulary.off_vocabulary_share,
+            vintage: Some(VintageGate {
+                holds: vintage.vocabulary_is_closed,
+                reason: "the vendored prelude does not close the vocabulary, so no commit \
+                         here is outside it",
+            }),
+            render: percent,
+            question: |got, want| {
+                format!(
+                    "{got} of commits use a verb outside the vocabulary, against {want}. Are \
+                     those commits this corpus's work, or an artifact's?"
+                )
+            },
+        }
+        .read(m.off_vocabulary_share());
+
+        // Only where a person is already being asked something. A conforming corpus is not
+        // handed a breakdown of a number that agrees with its band, and a vintage-gated one
+        // has no measurement to break down.
+        if let (Some(q), 1..) = (finding.question.as_mut(), m.suffixed_commits) {
+            let n = m.suffixed_commits;
+            let commits = if n == 1 { "commit" } else { "commits" };
+            let _ = write!(
+                q,
+                " {n} of those {commits} carry a verb that *is* in the vocabulary wearing a \
+                 conventional-commits scope, which GRAPH.md forbids — those are a spelling \
+                 to repair, not a vocabulary being ignored."
+            );
+        }
+        out.push(finding);
     }
 
     // The two `classes` metrics stood here, and their own question said what was wrong with
@@ -1013,6 +1048,18 @@ pub fn measure(root: &Path) -> Measurement {
             .iter()
             .filter(|s| !yidam_core::git::is_recognized_verb(&s.verb))
             .count(),
+        // The same predicate `lint --commits` uses to word its finding, so the gate and the
+        // reading cannot disagree about which off-vocabulary commits are a suffix. Filtered
+        // on `!is_recognized_verb` first so this stays a subset of the count above by
+        // construction rather than by the two filters happening to agree.
+        suffixed_commits: authored
+            .iter()
+            .filter(|s| !yidam_core::git::is_recognized_verb(&s.verb))
+            .filter(|s| {
+                crate::cmd::lint::commits::split_scope(&s.verb)
+                    .is_some_and(|(base, _)| yidam_core::git::is_recognized_verb(base))
+            })
+            .count(),
         nodes: lines.len(),
         median_node_lines: median(&lines),
         open_questions,
@@ -1115,6 +1162,7 @@ mod tests {
             commits: 100,
             phase_commits: 20,
             off_vocabulary_commits: 0,
+            suffixed_commits: 0,
             nodes: 80,
             median_node_lines: Some(48.0),
             open_questions: 6,
@@ -1154,6 +1202,70 @@ mod tests {
         let phases = f.iter().find(|f| f.metric == "phase-commit-share").unwrap();
         assert_eq!(phases.verdict, Verdict::Divergent);
         assert!(phases.question.is_some(), "divergence asks a question");
+    }
+
+    /// #673: the divergence names the suffixed share rather than leaving 49% to be read as
+    /// a vocabulary nobody is using.
+    ///
+    /// The count is asserted as a *subset*, not as a correction: the share the band is read
+    /// against must be identical whether or not any of those commits wear a scope. A fix
+    /// that lowered the number would be the suffix-stripping `split_scope` forbids.
+    #[test]
+    fn a_suffixed_share_is_named_without_moving_the_measurement() {
+        let mut plain = conformant();
+        plain.off_vocabulary_commits = 80;
+
+        let mut suffixed = plain;
+        suffixed.suffixed_commits = 73;
+
+        let read = |m: &Measurement| {
+            compare(&inquiry(), m, &current())
+                .into_iter()
+                .find(|f| f.metric == "off-vocabulary-share")
+                .unwrap()
+        };
+        let (a, b) = (read(&plain), read(&suffixed));
+
+        assert_eq!(a.measured, b.measured, "the measurement moved");
+        assert_eq!(a.verdict, b.verdict, "the verdict moved");
+        assert!(
+            !a.question.unwrap().contains("73"),
+            "counted a suffix nobody measured"
+        );
+        let q = b.question.unwrap();
+        assert!(q.contains("73"), "does not name the suffixed count: {q}");
+        assert!(q.contains("spelling to repair"), "{q}");
+    }
+
+    /// A conforming corpus is not handed a breakdown of a number it agrees with.
+    #[test]
+    fn a_conformant_corpus_is_told_nothing_about_suffixes() {
+        let mut m = conformant();
+        m.suffixed_commits = 5;
+        let f = compare(&inquiry(), &m, &current());
+        let v = f
+            .iter()
+            .find(|f| f.metric == "off-vocabulary-share")
+            .unwrap();
+        assert_eq!(v.verdict, Verdict::Conforming);
+        assert!(v.question.is_none());
+    }
+
+    /// #674 asked which lines `median-node-lines` counted, and answered it in the rendered
+    /// value. #692 asked whether the band belonged to the practice at all, and it did not —
+    /// so the finding that carried the unit is retired and this reads no metric. What #674
+    /// found was real: a band fitted on whole files was being read beside `node-too-long`,
+    /// which reads prose. Retiring the band settles that by removing the comparison, and
+    /// [`Measurement::median_node_lines`] is reported as a number nobody judges.
+    #[test]
+    fn the_retired_node_length_band_produces_no_finding() {
+        let mut m = conformant();
+        m.median_node_lines = Some(118.0);
+        let f = compare(&inquiry(), &m, &current());
+        assert!(
+            !f.iter().any(|f| f.metric == "median-node-lines"),
+            "the band is retired at revision 2 (#692): {f:?}"
+        );
     }
 
     /// The base verb settles the phase, and the suffix is the only thing looked past.

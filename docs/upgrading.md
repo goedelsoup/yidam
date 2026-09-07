@@ -28,6 +28,22 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `score` says why the criteria are the template's, in four states
+
+`score` read a range's kuten at the range's tip. Then it wrote a sentence about the
+*repository*. A range ending before your adoption said you hold no kuten. So did a range whose
+declared profile is not vendored. That state is one `kuten check` and `doctor` both warn about.
+
+**Who this affects.** Anyone scoring a range older than their adoption. That is nearly every
+range: both early adopters declared in their last two commits.
+
+**What changes.** The report names one of four states. The unreadable-profile state is now a
+warning. `--format json` gains `source`, `declared` and `holds_now`.
+
+**One JSON field narrows.** `revision` used to carry what the range's tip declared, even where
+the criteria were the template's. A record could read `held: false` beside `revision: 1`. It is
+now null whenever `held` is false, and what the tip declared is under `declared`.
+
 ### The `inquiry` kuten is at revision 2, and two bands are gone
 
 `nodes-per-commit` and `median-node-lines` measured how old a repository is, not how it works.
@@ -72,6 +88,9 @@ yidam kuten adopt inquiry
 `adopt` copies the revision out of the vendored profile rather than asking for it. It also
 adds the `AGENTS.md` section and fills it, because the scaffold carrying that section is
 consumed at genesis.
+
+Where there is no `AGENTS.md` at all, it writes none and says so. It prints the section for
+you to paste. `yidam doctor` reports it until a file carries the block.
 
 Then `yidam kuten check` reads your history against what you declared. It writes nothing and
 exits zero however far a corpus has drifted.
@@ -210,9 +229,13 @@ paths = ["web/**", "crates/**"]
 
 **Who this affects.** Nobody who leaves the key unset. The default is unchanged.
 
-**One asymmetry, deliberate.** `yidam vocabulary --check` runs in the commit-msg hook, before
-the commit exists. It cannot ask git for paths, so it still warns where `lint` now stays
-quiet. Tracked as #652.
+**One asymmetry, deliberate.** `yidam vocabulary --check` reads a subject line before the
+commit exists. It cannot ask git for paths, so it still warns where `lint` now stays quiet.
+Its callers are a contributor at a terminal, the VS Code commit box, and the MCP tool
+`check_subject`. Tracked as #652.
+
+*Corrected 2026-09-07 (#693): this note first named a commit-msg hook, which this project does
+not ship.*
 
 ### A citation naming a line is held to what the line says
 

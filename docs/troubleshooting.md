@@ -48,6 +48,7 @@ exit code unless you pass `--strict`, which is the reading a CI job wants.
 | `policy` | Do this repository's own rules compile, and which are its own? |
 | `governance` | Is this repository's governance mode carrying its own weight? |
 | `kuten` | Which kuten does this repository hold, and at what revision? |
+| `kuten-read` | Can anything in the loop read the kuten this repository holds? |
 | `build` | Which yidam is this, and what can it do? |
 
 A `skip` is not a pass. Every check after `repository` skips when there is no repository to

@@ -201,10 +201,13 @@ today.
 its numbers are read against a band. Scoping them would let a corpus move its own reading by
 widening this list, with no commit written.
 
-**The commit-msg hook is not scoped by it either.** `yidam vocabulary --check` runs before the
-commit exists and has no paths to read. So the hook still warns about `feat:` on an artifact
-while `lint --commits` stays silent. The asymmetry is recorded rather than fixed: closing it
-means changing a frozen MCP tool.
+**`yidam vocabulary --check` is not scoped by it either.** It reads a subject line, and no
+commit exists yet. So it has no paths to read. Three surfaces call it: a contributor at a
+terminal, the VS Code commit box, and the MCP tool `check_subject`. All three still warn about
+`feat:` on an artifact while `lint --commits` stays silent. The asymmetry is recorded rather
+than fixed: closing it means changing a frozen MCP tool.
+
+**This project ships no commit-msg hook.** The stance is conformance, not hooks (RFC-0004).
 
 ## `.yidam/policy/`
 
