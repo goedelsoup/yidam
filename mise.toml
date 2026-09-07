@@ -272,21 +272,41 @@ echo "domain-parity-check: all domain functions covered"
 [tasks.domain-parity]
 description = "Run cross-language parity tests for all domain implementations."
 depends = ["domain-parity-check"]
+# `set -eu` is what makes the rest of this task mean anything. Without it the exit status
+# is the last iteration's, and domains iterate alphabetically: a failure in `geodesics`
+# (5th of 14) was erased by `trade` (14th) passing, so the task reported success while a
+# fixture had been wrong by 2 km for its whole life (#683). `ci-domains`, one screen down,
+# already opens this way.
+#
+# The count guard is the same one `ci-domains` uses, for the same reason: a loop over a
+# glob that matches nothing exits 0 and looks exactly like a loop that checked everything.
 run = """
+set -eu
+count=0
 for domain_dir in yidam/prelude/domains/*/; do
   domain=$(basename "$domain_dir")
   if [ "$domain" = "parity" ]; then continue; fi
   if [ -f "$domain_dir/rust/Cargo.toml" ]; then
     cargo test --manifest-path "$domain_dir/rust/Cargo.toml" -- parity
+    count=$((count + 1))
   fi
   if [ -f "$domain_dir/typescript/package.json" ]; then
     scripts/npm-ensure.sh "$domain_dir/typescript"
     (cd "$domain_dir/typescript" && npm test -- parity)
+    count=$((count + 1))
   fi
   if [ -f "$domain_dir/python/pyproject.toml" ]; then
     (cd "$domain_dir/python" && uv run --extra dev pytest tests/parity/)
+    count=$((count + 1))
   fi
 done
+if [ "$count" -eq 0 ]; then
+  echo "ERROR: no domain suites found under yidam/prelude/domains/*/{rust,typescript,python}"
+  echo "       a gate that discovers nothing passes silently, which is the failure"
+  echo "       mode this task exists to avoid — fix the glob before trusting it"
+  exit 1
+fi
+echo "domain-parity: ran $count domain suites"
 """
 
 [tasks.embed-parity]
