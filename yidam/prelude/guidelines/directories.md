@@ -380,10 +380,12 @@ or anything that describes how the repo operates rather than what it knows.
   well. Do not include dates in filenames; the git history has dates.
 - Size: 2–10 sentences is often right. If a node grows beyond a screen, decompose it. A
   class may make that checkable by declaring `max_lines:` in its `.ont.yml`, and
-  `node-too-long` then reports an instance whose `description` runs over it. The
-  `description` and not the file: a node that records where each of its edges comes from —
-  a `claim_tag` and a `source` per link — should not pay for that provenance out of a budget
-  written to stop prose sprawling. No class carries a default, and that is
+  `node-too-long` then reports an instance whose **prose** runs over it — every field the
+  ontology declares as prose, which is `description` plus whatever the class or
+  `universal.yml` names. The prose and not the file: a node that records where each of its
+  edges comes from — a `claim_tag` and a `source` per link — should not pay for that
+  provenance out of a budget written to stop prose sprawling. Nor should a corpus that keeps
+  its prose in a `summary` and a `findings` be measured on a third of what it wrote. No class carries a default, and that is
   measured rather than timid: the bootstrap rubric caps a node at 40 lines, and across five
   real corpora 335 of 410 nodes exceed it — 86%, 86% and 97% in the three mature ones — while
   the same corpora at their genesis commits run to a median of 35, where 40 is right for

@@ -369,6 +369,7 @@ mod tests {
                         .collect(),
                 ),
                 cites: None,
+                extra: Default::default(),
             },
             // These fixtures build the instance directly rather than from YAML, so there is
             // no source text to keep. `--select body` is the only reader, and no case here

@@ -184,6 +184,55 @@ pub struct CorpusInstance {
     /// silently.
     #[serde(default)]
     pub cites: Option<Vec<ExternalCitation>>,
+    /// Every other top-level key, kept rather than dropped.
+    ///
+    /// **Because corpora write prose in keys this struct does not name.** Closing the node
+    /// schema over the top level rejected 117 nodes of 117 in one derived repository —
+    /// `summary`, `findings`, `revisions`, `unfilled` — and 199 of 199 in a projecting
+    /// consumer; see [`crate::cmd::schema`]. Serde dropped all of them, so every check
+    /// reading the parsed node measured a fraction of what the node says while the byte
+    /// scanners in [`crate::claims`] measured all of it. On one corpus the two answer 118
+    /// lines against 21 (#674).
+    ///
+    /// Held untyped for the reason [`Self::properties`] is: which of these keys mean what is
+    /// declared per class, not here. [`crate::prose::ProseFields`] says which carry prose,
+    /// and nothing else may assume a shape.
+    #[serde(flatten)]
+    pub extra: serde_yaml::Mapping,
+}
+
+impl CorpusInstance {
+    /// This node's prose, in the keys the ontology declares as prose, in that order.
+    ///
+    /// Reads `description` off its own field and everything else out of [`Self::extra`], so a
+    /// caller cannot get a different answer depending on which key it asked about. A declared
+    /// key the node does not carry, or carries as something other than a string, yields
+    /// nothing: a `findings:` holding a list is a real state and not prose, and guessing at a
+    /// rendering for it would put words in the corpus's mouth.
+    pub fn prose<'a>(&'a self, declared: &'a [String]) -> Vec<(&'a str, &'a str)> {
+        declared
+            .iter()
+            .filter_map(|key| {
+                let value = match key.as_str() {
+                    crate::prose::ALWAYS => self.description.as_deref(),
+                    other => self.extra.get(other).and_then(serde_yaml::Value::as_str),
+                }?;
+                (!value.trim().is_empty()).then_some((key.as_str(), value))
+            })
+            .collect()
+    }
+
+    /// The node's prose as one block, the declared fields joined in order.
+    ///
+    /// What a reader of the whole node reads, which is what a length ceiling and an
+    /// embedding are both about.
+    pub fn prose_text(&self, declared: &[String]) -> String {
+        self.prose(declared)
+            .into_iter()
+            .map(|(_, v)| v.trim_end())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 /// One claim resting on a node in an installed dependency.

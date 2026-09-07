@@ -212,6 +212,17 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     // The `type: claim` properties each class declared, so the structural arm of the claim
     // reader sees anything at all. Loaded once and shared: it walks the ontology.
     let claim_fields = crate::claims::ClaimFields::load(&corpus_dir);
+    // Built from the classes already parsed above rather than re-read from disk, and through
+    // the overlay for `universal.yml`, so the editor measures an unsaved declaration. Keyed
+    // by the `.ont.yml` stem, which is the directory an instance's class resolves to — the
+    // same keying `ClaimFields` documents.
+    let prose_fields = crate::prose::ProseFields::from_declarations(
+        universal.prose().to_vec(),
+        classes
+            .iter()
+            .map(|c| (c.name.clone(), c.prose.clone()))
+            .collect::<Vec<_>>(),
+    );
     // How old each source record is, and whether this corpus asked to be told. `today` is
     // resolved once here rather than inside the check, so the one wall-clock report in the
     // tool has a single place its clock enters.
@@ -424,7 +435,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::dangling_edge(&nodes),
         checks::undeclared_property(&nodes, &classes, &universal),
         checks::missing_property(&nodes, &classes),
-        checks::node_too_long(&nodes, &classes),
+        checks::node_too_long(&nodes, &classes, &prose_fields),
         checks::property_type(&nodes, &classes, &universal),
         checks::unimplemented_class(&classes, &types),
         checks::unlicensed_edge(&nodes, &classes),
@@ -437,7 +448,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::catalog_expired(&catalog_ages, &sources, &cites),
         checks::catalog_unobtained_but_cited(&sources, &cites),
         checks::missing_label(&nodes),
-        checks::missing_description(&nodes),
+        checks::missing_description(&nodes, &prose_fields),
         checks::claim_tag_malformed(&tag_prose),
         checks::catalog_used_by_drift(&sources, &cites),
         checks::catalog_location_malformed(&sources),

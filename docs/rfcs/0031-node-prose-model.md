@@ -33,6 +33,14 @@ concentrated in a place the tree already documents.
 
 ## Problem
 
+> **Phase 1 landed (#711).** §1.1 and §2 describe the state that prompted this RFC and are
+> kept in that tense, because the argument is the evidence. What is true now: a class and
+> `universal.yml` declare `prose:`, the effective set is `{description} ∪ universal ∪ class`,
+> and `node-too-long`, `missing-description` and `yidam embed` all read it.
+> `CorpusInstance` keeps every top-level key rather than dropping it, and `description` is no
+> longer in the node schema's `required` list. §1.2 through §1.5 are unchanged and still
+> describe live state.
+
 ### 1.1 The node, and the one field that is blessed
 
 An instance is a YAML document. `class`, `label`, a `description` block scalar carrying every
@@ -46,14 +54,14 @@ that made it so records why:
 > Measured: with `false`, one derived repository was rejected 117 nodes of 117 (`summary`,
 > `findings`, `revisions`, `unfilled` at the top level), a projecting consumer 199 of 199
 >
-> — [`schema.rs:70-72`](../../yidam/cli/src/cmd/schema.rs#L70-L72)
+> — [`schema.rs:78-80`](../../yidam/cli/src/cmd/schema.rs#L78-L80)
 
 `summary` and `findings` are prose. So is `analytic_note`, which `class-asserts-purpose` tells an
 author to move prose *into*. None of them is on `CorpusInstance`, so all of them are silently
 dropped by every consumer of the parsed node.
 
 That is not a tidiness complaint, because two families of check disagree as a result.
-[`node_too_long`](../../yidam/cli/src/cmd/lint/checks.rs#L1277) reads the parsed field — the
+[`node_too_long`](../../yidam/cli/src/cmd/lint/checks.rs#L1303) reads the parsed field — the
 comment at [`checks.rs:1287-1292`](../../yidam/cli/src/cmd/lint/checks.rs#L1287-L1292) is explicit
 that this is the intent — while [`count_in_node`](../../yidam/cli/src/claims.rs#L813) takes the
 file's whole text. Two definitions of *the node's prose* inside one binary, and #674 measures the
@@ -142,7 +150,7 @@ prose. Upstream gives three different answers to those two keys:
 
 | Component | Answer |
 |---|---|
-| [`CorpusLink`](../../yidam/cli/src/parse.rs#L214) | dropped — the struct declares `target` and `relationship`, and sets no `deny_unknown_fields` |
+| [`CorpusLink`](../../yidam/cli/src/parse.rs#L263) | dropped — the struct declares `target` and `relationship`, and sets no `deny_unknown_fields` |
 | the published schema, [`schema.rs:43-58`](../../yidam/cli/src/cmd/schema.rs#L43-L58) | rejected — `additionalProperties: false` on the link item |
 | `yidam lint` | nothing |
 
@@ -193,7 +201,7 @@ prose: [summary, description, findings]
 Absent, the set is `[description]` — which is every corpus written before this field existed, so
 nothing changes for them. This is the shape `claim_tag` already has: the corpus says, and no key
 name is blessed. It is deliberately *not* a fixed list of blessed names, for the reason
-[`schema.rs:70-72`](../../yidam/cli/src/cmd/schema.rs#L70-L72) already measured — a closed set is
+[`schema.rs:78-80`](../../yidam/cli/src/cmd/schema.rs#L78-L80) already measured — a closed set is
 what sent 117 nodes of 117 to be reshaped around a validator.
 
 Then every reader takes the declared set rather than the literal `description`:
@@ -282,7 +290,7 @@ node model that products would, for the first time, actually run.
    > The catalog schema describes frontmatter inside markdown, which yaml-language-server cannot
    > apply to a .md file
    >
-   > — [`schema.rs:503-505`](../../yidam/cli/src/cmd/schema.rs#L503-L505)
+   > — [`schema.rs:534-536`](../../yidam/cli/src/cmd/schema.rs#L534-L536)
 
    Every compiled per-class schema is delivered through `yaml.schemas`. Under Markdown nodes,
    none of them reaches a node in a third-party editor. This is the strongest argument against,
@@ -304,7 +312,7 @@ population already names:
 - **prose-to-structure ratio per node** — what fraction of a node's bytes are inside prose fields.
   #674 is one data point at roughly 34 of 118 lines; one is not a population.
 - **how many corpora already grew top-level prose keys**, and which. Two are known from
-  [`schema.rs:70-72`](../../yidam/cli/src/cmd/schema.rs#L70-L72) and one from #674.
+  [`schema.rs:78-80`](../../yidam/cli/src/cmd/schema.rs#L78-L80) and one from #674.
 - **how much of `claims.rs` is YAML-awareness** rather than claim semantics, measured by deleting
   it against a Markdown fixture set rather than estimated.
 

@@ -67,13 +67,13 @@ at depth 2 and all of it at depth 3.
 ### E1 typed the graph and no traversal reads the types
 
 `.ont.yml` now declares, and lint now enforces: the class an instance belongs to
-([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L931), Error), the properties it may
-and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1170),
-[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1320)), the type of each value
-([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1565)), which relationships a class
-licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1625)), and which class
+([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L945), Error), the properties it may
+and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1196),
+[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1355)), the type of each value
+([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1600)), which relationships a class
+licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1660)), and which class
 each relationship may land on
-([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1690), Error).
+([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1725), Error).
 
 `unlicensed-edge`'s own rationale states the gap in as many words
 ([`checks.rs:1675`](../../yidam/cli/src/cmd/lint/checks.rs#L1675)):
@@ -356,7 +356,7 @@ so `seeded_because` and `fy2024_profile` are queryable without being declared on
 classes. An undeclared name is **rejected** with the class's declared list.
 
 Predicate *values* are a separate question from predicate *names*, and the operator decides it.
-`property_type_violation` ([`checks.rs:1018`](../../yidam/cli/src/cmd/lint/checks.rs#L1018))
+`property_type_violation` ([`checks.rs:1044`](../../yidam/cli/src/cmd/lint/checks.rs#L1044))
 takes a declared type and a value and no operator — it answers *may the corpus store this*, not
 *may someone ask about this*. Using it operator-blind rejects satisfiable predicates:
 `reach[claim_tag!=maybe]` is satisfied by every reach in `examples/streamflow`, and

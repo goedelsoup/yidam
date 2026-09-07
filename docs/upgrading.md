@@ -84,6 +84,40 @@ often sharply.
 yidam lint --bless
 ```
 
+### Prose is what the ontology declares, and `description` is no longer required by name
+
+`node-too-long` and `missing-description` read `description` and nothing else, while the claim
+counter reads the whole file. A corpus keeping prose in a `summary` or a `findings` was
+measured on a fraction of what it wrote. One reads 21 lines a node against a true 34. And a
+node with a `summary` and no `description` was reported as having nothing said about it.
+
+A class now declares which of its top-level keys hold prose. The corpus may declare it once
+for every class:
+
+```yaml
+# <class>.ont.yml
+prose: [findings]
+
+# universal.yml
+prose: [summary, findings]
+```
+
+The effective set is `{description} ∪ universal ∪ class`. `description` never has to be
+listed and naming other keys does not unname it.
+
+**Who this affects.** Any corpus writing prose in a top-level key other than `description`.
+Nothing changes for a corpus that does not: absent both declarations the set is
+`[description]`, exactly as before.
+
+**What changes when you declare.** `node-too-long` counts more lines, so findings may rise —
+this is the number the ceiling was always about. `missing-description` findings fall.
+`yidam embed` composes the full prose, so **re-run `yidam index-build`**. An index built
+before this embedded a node's label and its edge names. It did not embed what the node said.
+
+`description` has also been dropped from the node schema's `required` list. The check no
+longer asks for that key by name. An editor will stop underlining a node that says what it
+knows in a field the corpus declared.
+
 A baseline holding the old counts still passes, so nothing goes red. It also leaves room for
 regressions that nothing will report.
 

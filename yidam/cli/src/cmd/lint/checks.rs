@@ -171,6 +171,12 @@ pub struct Class {
     /// is where that is known. Declaring the number is how it becomes checkable; declining
     /// to declare it leaves the corpus exactly as checked as it was.
     pub max_lines: Option<usize>,
+    /// Top-level keys this class's instances carry as prose, beyond `description`.
+    ///
+    /// Empty is every class written before the field existed, and reads as *this class said
+    /// nothing about prose* rather than as *this class has none* — `description` is prose
+    /// whatever anything declares. See [`crate::prose`].
+    pub prose: Vec<String>,
     /// The type in `crates/` that implements this class — `Intervention`, as written.
     ///
     /// **`None` is the overwhelming default and no check runs, because the ontology is not
@@ -388,6 +394,8 @@ pub(crate) struct ClassFields {
     #[serde(default)]
     max_lines: Option<usize>,
     #[serde(default)]
+    prose: Vec<String>,
+    #[serde(default)]
     implemented_by: Option<String>,
     #[serde(default)]
     foundational_type: Option<FoundationalType>,
@@ -449,6 +457,12 @@ impl Class {
             edges: fields.edges,
             edge_policy: EdgePolicy::parse(fields.edge_policy.as_deref()),
             max_lines: fields.max_lines,
+            prose: fields
+                .prose
+                .into_iter()
+                .map(|k| k.trim().to_string())
+                .filter(|k| !k.is_empty())
+                .collect(),
             // Trimmed, and an empty declaration read as none: `implemented_by: ""` is a
             // field somebody started and did not finish, and gating a build on it would
             // report a class against a type name that cannot match anything.
@@ -973,19 +987,31 @@ pub fn missing_label(nodes: &[Node]) -> Check {
     )
 }
 
-pub fn missing_description(nodes: &[Node]) -> Check {
+pub fn missing_description(nodes: &[Node], prose: &crate::prose::ProseFields) -> Check {
     let violations = nodes
         .iter()
-        .filter(|n| n.inst.description.is_none())
-        .map(|n| Violation::new(&n.rel, "no `description:` field"))
+        .filter(|n| n.inst.prose(prose.for_class(&class_of(n))).is_empty())
+        .map(|n| {
+            let fields = prose.for_class(&class_of(n));
+            Violation::new(
+                &n.rel,
+                if fields.len() == 1 {
+                    "no `description:` field".to_string()
+                } else {
+                    format!("no prose in any of `{}`", fields.join("`, `"))
+                },
+            )
+        })
         .collect();
     Check::new(
         "missing-description",
         "Instance with no description",
         Severity::Warn,
-        "The description is the node's content. An instance with properties and links but \
+        "The prose is the node's content. An instance with properties and links but \
          nothing said about it records that something exists without recording what is \
-         known about it.",
+         known about it. What counts as prose is what the ontology declares — a node \
+         carrying a `summary` and no `description` has said something, and reporting it \
+         here would report the corpus using a vocabulary it declared.",
         violations,
     )
 }
@@ -1274,7 +1300,11 @@ pub fn undeclared_property(
 /// Warn rather than Error even when declared. Length is editorial, the ratchet in
 /// [`super::baseline`] already distinguishes inherited from new, and a node one line over is
 /// not a corpus that has stopped being true.
-pub fn node_too_long(nodes: &[Node], classes: &[Class]) -> Check {
+pub fn node_too_long(
+    nodes: &[Node],
+    classes: &[Class],
+    prose: &crate::prose::ProseFields,
+) -> Check {
     let by_name = classes_by_name(classes);
     let mut violations = Vec::new();
     for n in nodes {
@@ -1284,19 +1314,24 @@ pub fn node_too_long(nodes: &[Node], classes: &[Class]) -> Check {
         let Some(max) = class.max_lines else {
             continue;
         };
-        // The parsed prose block, which `CorpusInstance` already holds apart from
-        // `properties` and `links` — so the thing measured is the thing the ceiling is about.
-        let Some(description) = n.inst.description.as_deref() else {
+        // The parsed prose, which `CorpusInstance` holds apart from `properties` and
+        // `links` — so the thing measured is the thing the ceiling is about. **Every
+        // declared prose field and not `description` alone**: a corpus writing `summary`
+        // and `findings` was measured at 21 lines against a true 34 (#674), which charged
+        // the ceiling to the one field this struct happened to name.
+        let fields = prose.for_class(&class_of(n));
+        let text = n.inst.prose_text(fields);
+        if text.is_empty() {
             continue;
-        };
-        let lines = description.lines().count();
+        }
+        let lines = text.lines().count();
         if lines <= max {
             continue;
         }
         violations.push(Violation::new(
             &n.rel,
             format!(
-                "{lines} lines of `description`; `{}` declares `max_lines: {max}`",
+                "{lines} lines of prose; `{}` declares `max_lines: {max}`",
                 class.rel
             ),
         ));
@@ -3259,6 +3294,7 @@ mod tests {
             edges: vec![edge("cited-by", "recording", dir)],
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
             dead_alignment_fields: vec![],
@@ -3304,6 +3340,7 @@ mod tests {
             edges: vec![edge("sources-from", "concept", "out")],
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
             dead_alignment_fields: vec![],
@@ -3318,6 +3355,7 @@ mod tests {
             edges: vec![edge("refines", "concept", "out")],
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
             dead_alignment_fields: vec![],
@@ -3352,6 +3390,7 @@ mod tests {
             edges: vec![edge("downstream-of", "reach", "out")],
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
             dead_alignment_fields: vec![],
@@ -3378,6 +3417,7 @@ mod tests {
             }],
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
             dead_alignment_fields: vec![],
@@ -3392,6 +3432,7 @@ mod tests {
             edges: vec![edge("other", "c", "out")],
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
             dead_alignment_fields: vec![],
@@ -3416,6 +3457,7 @@ mod tests {
             edges: vec![],
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
             dead_alignment_fields: vec![],
@@ -4406,11 +4448,108 @@ mod tests {
             edges: vec![],
             edge_policy: EdgePolicy::default(),
             max_lines: max,
+            prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
             dead_alignment_fields: vec![],
             malformed: None,
         }
+    }
+
+    /// The declared set, for a class that names prose keys beyond `description`.
+    fn declaring(class: &str, keys: &[&str]) -> crate::prose::ProseFields {
+        crate::prose::ProseFields::from_declarations(
+            Vec::new(),
+            [(
+                class.to_string(),
+                keys.iter().map(|k| (*k).to_string()).collect(),
+            )],
+        )
+    }
+
+    /// #674, in one assertion: the same node measures 3 lines or 7 depending on whether the
+    /// check reads `description` or the prose the corpus actually declared. The band was
+    /// fitted on one number and the ceiling gated on the other.
+    #[test]
+    fn a_ceiling_counts_every_declared_prose_field() {
+        const YAML: &str = "class: finding\nlabel: L\nsummary: |\n  s1\n  s2\ndescription: |\n  d1\n  d2\n  d3\nfindings: |\n  f1\n  f2\n";
+        let classes = [capped("finding", Some(5))];
+        assert!(
+            node_too_long(
+                &[node("finding/a.yml", YAML)],
+                &classes,
+                &Default::default()
+            )
+            .passed(),
+            "reading `description` alone the node is 3 lines and under the ceiling"
+        );
+        let c = node_too_long(
+            &[node("finding/a.yml", YAML)],
+            &classes,
+            &declaring("finding", &["summary", "findings"]),
+        );
+        assert_eq!(
+            c.violations.len(),
+            1,
+            "7 lines of declared prose, ceiling 5"
+        );
+        assert!(
+            c.violations[0].detail.contains("7 lines of prose"),
+            "and it names the unit it counted: {}",
+            c.violations[0].detail
+        );
+    }
+
+    /// A node whose substance is in a declared field is not a node with nothing said about
+    /// it. This was a false positive on every node of a corpus that writes `summary`.
+    #[test]
+    fn a_node_with_declared_prose_and_no_description_is_not_missing_it() {
+        const YAML: &str = "class: finding\nlabel: L\nsummary: |\n  It says this.\n";
+        assert_eq!(
+            missing_description(&[node("finding/a.yml", YAML)], &Default::default())
+                .violations
+                .len(),
+            1,
+            "undeclared, `summary` is not prose and the node has none"
+        );
+        assert!(
+            missing_description(
+                &[node("finding/a.yml", YAML)],
+                &declaring("finding", &["summary"])
+            )
+            .passed(),
+            "declared, the node has said something"
+        );
+    }
+
+    /// The finding names what it looked in, so a reader is not left guessing which field the
+    /// check wanted.
+    #[test]
+    fn the_missing_prose_finding_names_the_declared_fields() {
+        let n = node("finding/a.yml", "class: finding\nlabel: L\n");
+        let c = missing_description(&[n], &declaring("finding", &["summary"]));
+        assert!(
+            c.violations[0].detail.contains("summary")
+                && c.violations[0].detail.contains("description"),
+            "{}",
+            c.violations[0].detail
+        );
+    }
+
+    /// A declared key holding something that is not a string is not prose. Guessing at a
+    /// rendering for a list would put words in the corpus's mouth.
+    #[test]
+    fn a_declared_key_that_is_not_a_string_is_not_prose() {
+        let n = node(
+            "finding/a.yml",
+            "class: finding\nlabel: L\nfindings:\n  - one\n  - two\n",
+        );
+        assert_eq!(
+            missing_description(&[n], &declaring("finding", &["findings"]))
+                .violations
+                .len(),
+            1
+        );
     }
 
     /// An instance of `class` that is `lines` lines long.
@@ -4441,7 +4580,7 @@ mod tests {
     fn a_class_that_declares_no_ceiling_is_not_checked() {
         let nodes = vec![sized("person/a.yml", "person", 200)];
         assert!(
-            node_too_long(&nodes, &[capped("person", None)]).passed(),
+            node_too_long(&nodes, &[capped("person", None)], &Default::default()).passed(),
             "a class that has not said its instances have a length cannot be contradicted"
         );
     }
@@ -4453,11 +4592,11 @@ mod tests {
             sized("person/long.yml", "person", 52),
             sized("person/short.yml", "person", 12),
         ];
-        let c = node_too_long(&nodes, &[capped("person", Some(40))]);
+        let c = node_too_long(&nodes, &[capped("person", Some(40))], &Default::default());
         assert_eq!(c.violations.len(), 1, "only the long one is over");
         assert_eq!(c.violations[0].node, "person/long.yml");
         assert!(
-            c.violations[0].detail.contains("52 lines of `description`")
+            c.violations[0].detail.contains("52 lines of prose")
                 && c.violations[0].detail.contains("max_lines: 40"),
             "the finding must carry both numbers and name the unit, not just a verdict: {}",
             c.violations[0].detail
@@ -4473,7 +4612,7 @@ mod tests {
     #[test]
     fn the_ceiling_is_inclusive() {
         let nodes = vec![sized("person/a.yml", "person", 40)];
-        assert!(node_too_long(&nodes, &[capped("person", Some(40))]).passed());
+        assert!(node_too_long(&nodes, &[capped("person", Some(40))], &Default::default()).passed());
     }
 
     /// One class's ceiling says nothing about another's.
@@ -4482,7 +4621,7 @@ mod tests {
         let nodes = vec![sized("statute/a.yml", "statute", 60)];
         let classes = vec![capped("person", Some(10)), capped("statute", None)];
         assert!(
-            node_too_long(&nodes, &classes).passed(),
+            node_too_long(&nodes, &classes, &Default::default()).passed(),
             "statute declared nothing; person's number is not corpus-wide"
         );
     }
@@ -4524,7 +4663,7 @@ mod tests {
             "the file is long, which is the point of the fixture"
         );
         assert!(
-            node_too_long(&[n], &[capped("tenure", Some(6))]).passed(),
+            node_too_long(&[n], &[capped("tenure", Some(6))], &Default::default()).passed(),
             "four lines of prose is under a six-line ceiling, whatever the file weighs"
         );
     }
@@ -4538,7 +4677,7 @@ mod tests {
         let yaml = "class: person\nlabel: A\nlinks:\n- rel: knows\n  target: ../person/b.yml\n";
         let n = node("person/a.yml", yaml);
         assert!(n.inst.description.is_none());
-        assert!(node_too_long(&[n], &[capped("person", Some(1))]).passed());
+        assert!(node_too_long(&[n], &[capped("person", Some(1))], &Default::default()).passed());
     }
 
     // ── unimplemented-class ───────────────────────────────────────────────────
@@ -4554,6 +4693,7 @@ mod tests {
             edges: vec![],
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            prose: Vec::new(),
             implemented_by: impl_by.map(str::to_string),
             foundational_type: None,
             dead_alignment_fields: vec![],
