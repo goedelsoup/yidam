@@ -24,6 +24,7 @@
 //! same answer in every venue: vacuous in a corpus with no keyed seats — which is every corpus
 //! today, collective mode being opt-in — and armed by the commit that lands a key.
 
+use std::fmt::Write as _;
 use std::path::Path;
 
 use super::model::{Check, Severity, Violation};
@@ -85,7 +86,7 @@ fn is_public_key(cell: &str) -> bool {
 pub(crate) fn allowed_signers(seats: &[Seat]) -> String {
     let mut out = String::new();
     for s in seats.iter().filter(|s| is_public_key(&s.key)) {
-        out.push_str(&format!("{} namespaces=\"git\" {}\n", s.branch, s.key));
+        let _ = writeln!(out, "{} namespaces=\"git\" {}", s.branch, s.key);
     }
     out
 }

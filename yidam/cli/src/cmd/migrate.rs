@@ -40,6 +40,7 @@
 
 use anyhow::Result;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use crate::paths::{repo_root, yidam_corpus_dir};
@@ -845,7 +846,7 @@ pub(crate) fn render_migrate(r: &MigrateReport) -> String {
     if !r.blocked.is_empty() {
         let mut out = format!("Cannot migrate — {}:\n", r.summary);
         for b in &r.blocked {
-            out.push_str(&format!("  {b}\n"));
+            let _ = writeln!(out, "  {b}");
         }
         return out.trim_end().to_string();
     }
@@ -865,33 +866,35 @@ pub(crate) fn render_migrate(r: &MigrateReport) -> String {
             .len()
     );
     for e in &r.edits {
-        out.push_str(&format!("  {}:{}  {} → {}\n", e.file, e.line, e.from, e.to));
+        let _ = writeln!(out, "  {}:{}  {} → {}", e.file, e.line, e.from, e.to);
     }
     for m in &r.moves {
-        out.push_str(&format!("  move  {} → {}\n", m.from, m.to));
+        let _ = writeln!(out, "  move  {} → {}", m.from, m.to);
     }
     if !r.violations.is_empty() {
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "\n{} instance(s) now in violation — this migration cannot decide these:\n",
             r.violations.len()
-        ));
+        );
         for v in &r.violations {
-            out.push_str(&format!("  {}: {}\n", v.node, v.detail));
+            let _ = writeln!(out, "  {}: {}", v.node, v.detail);
         }
     }
     if !r.unhandled.is_empty() {
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "\n{} prose reference(s) NOT rewritten — check these by hand:\n",
             r.unhandled.len()
-        ));
+        );
         for u in &r.unhandled {
-            out.push_str(&format!("  {}:{}  {}\n", u.file, u.line, u.text));
+            let _ = writeln!(out, "  {}:{}  {}", u.file, u.line, u.text);
         }
     }
     if !r.record.is_empty() {
-        out.push_str(&format!("\nrecord: {}", r.record));
+        let _ = write!(out, "\nrecord: {}", r.record);
     }
-    out.push_str(&format!("\ncommit: {}", r.commit_subject));
+    let _ = write!(out, "\ncommit: {}", r.commit_subject);
     out.trim_end().to_string()
 }
 

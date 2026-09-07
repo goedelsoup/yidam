@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
 
 use crate::model::{corpus_nodes, DomainModel};
 
@@ -53,13 +54,15 @@ pub(crate) fn render_graphml(model: &DomainModel) -> Result<String> {
   <key id="type" for="edge" attr.name="type" attr.type="string"/>
 "#,
     );
-    out.push_str(&format!(
-        "  <graph id=\"{}\" edgedefault=\"directed\">\n",
+    let _ = writeln!(
+        out,
+        "  <graph id=\"{}\" edgedefault=\"directed\">",
         xml_escape(&model.provenance.domain)
-    ));
+    );
 
     for node in &nodes {
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "    <node id=\"{}\">\n      <data key=\"label\">{}</data>\n      \
              <data key=\"class\">{}</data>\n      <data key=\"description\">{}</data>\n      \
              <data key=\"commit\">{}</data>\n      <data key=\"outgoing_links\">{}</data>\n      \
@@ -71,7 +74,7 @@ pub(crate) fn render_graphml(model: &DomainModel) -> Result<String> {
             xml_escape(&model.provenance.commit),
             node.links.len(),
             incoming.get(node.id.as_str()).copied().unwrap_or(0),
-        ));
+        );
     }
 
     let mut edge_id = 0usize;
@@ -84,13 +87,14 @@ pub(crate) fn render_graphml(model: &DomainModel) -> Result<String> {
                 );
                 continue;
             }
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "    <edge id=\"e{edge_id}\" source=\"{}\" target=\"{}\">\n      \
                  <data key=\"type\">{}</data>\n    </edge>\n",
                 xml_escape(&node.id),
                 xml_escape(target),
                 xml_escape(relationship),
-            ));
+            );
             edge_id += 1;
         }
     }

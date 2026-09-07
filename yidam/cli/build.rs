@@ -9,6 +9,7 @@
 //! has no commit to report, and `unknown` is the honest answer — the field is never
 //! guessed and never omitted, so a consumer can distinguish "not recorded" from "absent".
 
+use std::fmt::Write as _;
 use std::process::Command;
 
 /// The design system, concatenated into one string the binary can embed.
@@ -57,7 +58,7 @@ fn emit_design_tokens() {
                 path.display()
             )
         });
-        bundle.push_str(&format!("\n/* {rel} */\n"));
+        let _ = write!(bundle, "\n/* {rel} */\n");
         bundle.push_str(&css);
     }
 

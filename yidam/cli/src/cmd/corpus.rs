@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::fmt::Write as _;
 use std::path::Path;
 
 use crate::parse::CorpusInstance;
@@ -236,31 +237,34 @@ pub(crate) fn render_graph_check_text(r: &GraphCheckReport, corpus: &Path) -> St
 
     let mut out = String::new();
     if r.nodes_with_issues.is_empty() {
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "Checked {} instances across {} classes — all clean.",
             r.total_instances, r.classes_defined
-        ));
+        );
     } else {
-        out.push_str(&format!(
-            "Checked {} instances across {} classes — {} clean, {} with issues:\n",
+        let _ = writeln!(
+            out,
+            "Checked {} instances across {} classes — {} clean, {} with issues:",
             r.total_instances,
             r.classes_defined,
             r.clean_instances,
             r.nodes_with_issues.len()
-        ));
+        );
         for n in &r.nodes_with_issues {
-            out.push_str(&format!("\n  {}", n.node));
+            let _ = write!(out, "\n  {}", n.node);
             for issue in &n.issues {
-                out.push_str(&format!("\n    - {issue}"));
+                let _ = write!(out, "\n    - {issue}");
             }
         }
     }
 
     if !r.classes_without_instances.is_empty() {
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "\n\nClasses with schema but no instances: {}",
             r.classes_without_instances.join(", ")
-        ));
+        );
     }
 
     out

@@ -51,7 +51,7 @@ Three things in it are not obvious and are the reason the RFC is longer than the
 
 `walk_neighbors` chains outbound and inbound edges unconditionally and filters on neither
 relationship nor direction
-([`graph.rs:155-164`](../../yidam/cli/src/cmd/graph.rs#L155-L164)):
+([`graph.rs:156-165`](../../yidam/cli/src/cmd/graph.rs#L156-L165)):
 
 ```rust
 let outward = edges.iter().filter(|(from, _, _)| *from == current) …
@@ -252,7 +252,7 @@ citation and one an edge. A query naming the wrong one must not silently return 
 is what the next section is for.
 
 Note also that this is **not** the set `graph.rs` reports: `neighbors` keeps in-corpus links
-whose target file does not exist ([`graph.rs:335`](../../yidam/cli/src/cmd/graph.rs#L335)
+whose target file does not exist ([`graph.rs:336`](../../yidam/cli/src/cmd/graph.rs#L336)
 filters on `resolved`, not on `exists`). A query cannot walk an edge to a file that is not
 there, so it filters on `exists`. The two readers disagree, and this RFC picks the narrower
 one deliberately rather than by accident.
@@ -443,10 +443,10 @@ unproductive the report says so rather than shrugging:
 #### Exit codes
 
 A rejected query **emits its report and exits 1**. That is the shape four commands already
-have — `doctor` ([`doctor.rs:601`](../../yidam/cli/src/cmd/doctor.rs#L601)), `regen`
-([`regen.rs:126`](../../yidam/cli/src/cmd/regen.rs#L126)), `rename`
-([`rename.rs:411`](../../yidam/cli/src/cmd/rename.rs#L411)) and `index-verify`
-([`index_verify.rs:203`](../../yidam/cli/src/cmd/index_verify.rs#L203)) all print, then
+have — `doctor` ([`doctor.rs:602`](../../yidam/cli/src/cmd/doctor.rs#L602)), `regen`
+([`regen.rs:127`](../../yidam/cli/src/cmd/regen.rs#L127)), `rename`
+([`rename.rs:413`](../../yidam/cli/src/cmd/rename.rs#L413)) and `index-verify`
+([`index_verify.rs:210`](../../yidam/cli/src/cmd/index_verify.rs#L210)) all print, then
 `std::process::exit(1)`.
 
 Exit **2** is not available and must not be borrowed. Its only site is `main.rs:614`, inside the
@@ -491,7 +491,7 @@ nobody can reproduce:
 | `edges_walked` | traversable edges the executor followed, summed over hops, counting an edge once per traversal |
 | `nodes_read` | the union of nodes a predicate was evaluated against, nodes a hop's class was tested on, and nodes in the projection |
 | `chars` | serialized size of `results` under the selected projection |
-| `tokens` | `chars / 4`, the approximation `export_llms` documents and names as an approximation ([`export_llms.rs:33`](../../yidam/cli/src/cmd/export_llms.rs#L33)) |
+| `tokens` | `chars / 4`, the approximation `export_llms` documents and names as an approximation ([`export_llms.rs:34`](../../yidam/cli/src/cmd/export_llms.rs#L34)) |
 | `corpus_nodes` | N, carried so `bench` can print the narrowing ratio and its ceiling (#264 decision 3) without recomputing the corpus |
 
 **`nodes_read` is not process I/O.** The executor loads the whole corpus to resolve edges and

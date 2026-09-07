@@ -23,6 +23,7 @@
 //! field rather than a hope.
 
 use anyhow::Result;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use yidam_core::git::{
@@ -318,24 +319,29 @@ pub(crate) fn render_vocabulary(r: &VocabularyReport) -> String {
     }
     let mut out = String::new();
     for kind in ["epistemic", "operational"] {
-        out.push_str(&format!(
-            "{}{}\n",
+        let _ = writeln!(
+            out,
+            "{}{}",
             if out.is_empty() { "" } else { "\n" },
             if kind == "epistemic" {
                 "Epistemic — understanding was added, revised, or retracted"
             } else {
                 "Operational — the pipeline advanced; no understanding changed"
             }
-        ));
+        );
         for v in r.verbs.iter().filter(|v| v.kind == kind) {
             match v.when.is_empty() {
-                true => out.push_str(&format!("  {}\n", v.verb)),
-                false => out.push_str(&format!("  {:<12} {}\n", v.verb, v.when)),
+                true => {
+                    let _ = writeln!(out, "  {}", v.verb);
+                }
+                false => {
+                    let _ = writeln!(out, "  {:<12} {}", v.verb, v.when);
+                }
             }
         }
     }
     for d in &r.drift {
-        out.push_str(&format!("\n[drift] {d}"));
+        let _ = write!(out, "\n[drift] {d}");
     }
     out.trim_end().to_string()
 }
@@ -357,7 +363,7 @@ fn render_subject(s: &SubjectCheck) -> String {
         }
     );
     for v in &s.violations {
-        out.push_str(&format!("  [{}] {}\n", v.rule, v.message));
+        let _ = writeln!(out, "  [{}] {}", v.rule, v.message);
     }
     out.trim_end().to_string()
 }

@@ -16,6 +16,7 @@
 //! resolution would be performing one outside the protocol that routes them.
 
 use anyhow::Result;
+use std::fmt::Write as _;
 use std::path::Path;
 
 use crate::paths::{repo_root, yidam_sangha_dir};
@@ -409,7 +410,7 @@ pub(crate) fn render_sangha(r: &SanghaReport) -> String {
     }
 
     let mut out = String::new();
-    out.push_str(&format!("Electors ({})\n", r.electors.len()));
+    let _ = writeln!(out, "Electors ({})", r.electors.len());
     for e in &r.electors {
         let mark = if e.branch_present {
             ""
@@ -417,10 +418,11 @@ pub(crate) fn render_sangha(r: &SanghaReport) -> String {
             "  (no branch)"
         };
         let held = r.positions.iter().filter(|p| p.elector == e.name).count();
-        out.push_str(&format!(
-            "  {} — {}{}, {held} position(s)\n",
+        let _ = writeln!(
+            out,
+            "  {} — {}{}, {held} position(s)",
             e.name, e.branch, mark
-        ));
+        );
         // What the seat is, on its own line and only when the registry says. A row with no
         // attestation prints exactly what it printed before RFC-0012's columns existed, which
         // is every row in every registry written until one is filled in.
@@ -440,12 +442,13 @@ pub(crate) fn render_sangha(r: &SanghaReport) -> String {
         )
         .collect();
         if !attested.is_empty() {
-            out.push_str(&format!("      {}\n", attested.join(" · ")));
+            let _ = writeln!(out, "      {}", attested.join(" · "));
         }
     }
 
     let orphans = r.positions.iter().filter(|p| p.elector.is_empty()).count();
-    out.push_str(&format!(
+    let _ = write!(
+        out,
         "\nPositions ({}){}\n",
         r.positions.len(),
         if orphans > 0 {
@@ -453,9 +456,9 @@ pub(crate) fn render_sangha(r: &SanghaReport) -> String {
         } else {
             String::new()
         }
-    ));
+    );
 
-    out.push_str(&format!("\nResolutions ({})\n", r.resolutions.len()));
+    let _ = write!(out, "\nResolutions ({})\n", r.resolutions.len());
     for res in &r.resolutions {
         let date = if res.date.is_empty() {
             "—"
@@ -470,11 +473,12 @@ pub(crate) fn render_sangha(r: &SanghaReport) -> String {
         } else {
             format!("by {}", res.synthesized_by.join(", "))
         };
-        out.push_str(&format!(
-            "  {} — {date}, {} tip(s) read, {by}\n",
+        let _ = writeln!(
+            out,
+            "  {} — {date}, {} tip(s) read, {by}",
             res.evolution,
             res.tips.len()
-        ));
+        );
     }
     out.trim_end().to_string()
 }

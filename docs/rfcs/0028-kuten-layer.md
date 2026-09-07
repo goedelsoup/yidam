@@ -206,7 +206,7 @@ Every commit-reading surface here classifies from the subject line alone.
 [`git.rs:81`](../../yidam/prelude/sdks/rust/src/git.rs#L81)'s `classify_commit(hash, message)`
 takes no paths; its totality — Epistemic is the default — is proved in
 [`graph.dfy:5`](../../yidam/prelude/sdks/spec/graph.dfy#L5); `yidam log` consumes it verbatim at
-[`log.rs:118`](../../yidam/cli/src/cmd/log.rs#L118); and `lint --commits` reads
+[`log.rs:119`](../../yidam/cli/src/cmd/log.rs#L119); and `lint --commits` reads
 `--format=%H%x00%P%x00%s` — hash, parents, subject, **no paths** —
 ([`commits.rs:31`](../../yidam/cli/src/cmd/lint/commits.rs#L31)).
 
@@ -779,9 +779,9 @@ And one transcription line, so `due` never grows a precedence rule:
 > **`due` reads only `[due]` keys; the kuten proposes values, never holds live ones.**
 
 `cmd/due.rs` declares its intervals *"never compiled in"* and reads them from
-`.yidam/config.toml` ([`due.rs:217`](../../yidam/cli/src/cmd/due.rs#L217),
-[`356`](../../yidam/cli/src/cmd/due.rs#L356),
-[`444`](../../yidam/cli/src/cmd/due.rs#L444)); the kuten's clock slot is a proposal the
+`.yidam/config.toml` ([`due.rs:218`](../../yidam/cli/src/cmd/due.rs#L218),
+[`357`](../../yidam/cli/src/cmd/due.rs#L357),
+[`445`](../../yidam/cli/src/cmd/due.rs#L445)); the kuten's clock slot is a proposal the
 bootstrap offers and the corpus's config holds or declines. There is exactly one live home for
 an interval, and this RFC adds no second one — the same sentence RFC-0026 wrote about staleness.
 

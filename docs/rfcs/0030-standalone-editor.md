@@ -246,7 +246,7 @@ the original design put all three in the CLI.
   `serve` and wrong about this surface: **`--root` exists on `serve` and `export`, and on
   neither of the five report commands this design spawns** — `lint`, `graph`, `graph-check`,
   `status`, `open-questions`. Those resolve by `git rev-parse --show-toplevel` from the
-  working directory ([`paths.rs:4-8`](../../yidam/cli/src/paths.rs#L4-L8)), which has a
+  working directory ([`paths.rs:5-9`](../../yidam/cli/src/paths.rs#L5-L9)), which has a
   consequence stated below rather than inherited silently — see
   [§ A corpus inside a corpus](#a-corpus-inside-a-corpus).
 - **Loopback only, and not configurable.** The original offered `--bind` for a container; this

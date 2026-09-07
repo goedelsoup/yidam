@@ -38,6 +38,7 @@
 //! entirely from what a query already produces.
 
 use anyhow::Result;
+use std::fmt::Write as _;
 
 use crate::cmd::pack;
 use crate::cmd::query::{self, absence, check, exec};
@@ -296,50 +297,50 @@ pub fn render(estimate: &Estimate) -> String {
         .chain(std::iter::once("a context pack".len()))
         .max()
         .unwrap_or(20);
-    out.push_str(&format!(
-        "  {:<width$}  {:>7}  {:>9}\n",
+    let _ = writeln!(
+        out,
+        "  {:<width$}  {:>7}  {:>9}",
         "select", "chars", "~tokens"
-    ));
+    );
     for p in &estimate.projections {
-        out.push_str(&format!(
-            "  {:<width$}  {:>7}  {:>9}{}\n",
+        let _ = writeln!(
+            out,
+            "  {:<width$}  {:>7}  {:>9}{}",
             p.select,
             p.chars,
             p.tokens,
             verdict(p.fits)
-        ));
+        );
     }
-    out.push_str(&format!(
-        "  {:<width$}  {:>7}  {:>9}{}\n",
+    let _ = writeln!(
+        out,
+        "  {:<width$}  {:>7}  {:>9}{}",
         "a context pack",
         estimate.pack.chars,
         estimate.pack.tokens,
         verdict(estimate.pack.fits)
-    ));
+    );
     // Said every time, not only when a budget is in play. A table of round numbers reads as
     // measurement, and half of these are.
-    out.push_str(&format!(
+    let _ = write!(
+        out,
         "\n  chars are exact; ~tokens is {} — use chars with a real tokenizer\n",
         estimate.basis
-    ));
+    );
 
     if let Some(a) = &estimate.absence {
         // Before the diagnostics and after the table, because it is what makes the table's
         // zeroes mean something. A quote of nothing reads as cheap.
-        out.push_str(&format!(
-            "  [absent] step {}: {} ({})\n",
+        let _ = writeln!(
+            out,
+            "  [absent] step {}: {} ({})",
             a.step + 1,
             a.message,
             a.code
-        ));
+        );
     }
     for d in &estimate.diagnostics {
-        out.push_str(&format!(
-            "  [{}] step {}: {}\n",
-            d.level,
-            d.step + 1,
-            d.message
-        ));
+        let _ = writeln!(out, "  [{}] step {}: {}", d.level, d.step + 1, d.message);
     }
     out.trim_end().to_string()
 }

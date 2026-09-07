@@ -1,6 +1,7 @@
 //! `yidam regen` — refresh every REGEN block in one pass.
 
 use anyhow::{Context, Result};
+use std::fmt::Write as _;
 
 /// Every generator that writes a REGEN block.
 ///
@@ -71,7 +72,7 @@ pub(crate) fn render_regen_check(r: &RegenReport) -> String {
     }
     let mut out = format!("{} REGEN block(s) stale:\n", r.stale.len());
     for s in &r.stale {
-        out.push_str(&format!("  {}  ({})\n", s.file, s.generator));
+        let _ = writeln!(out, "  {}  ({})", s.file, s.generator);
     }
     out.push_str("\nRun `yidam regen` and commit the result as a `regen:` commit.");
     out

@@ -41,6 +41,7 @@ pub mod extract;
 pub mod near;
 
 use std::collections::BTreeSet;
+use std::fmt::Write as _;
 use std::path::Path;
 use std::process::Command;
 
@@ -383,26 +384,28 @@ fn render(r: &CheckDiffReport) -> String {
     let mut current = String::new();
     for f in &r.findings {
         if f.file != current {
-            out.push_str(&format!("\n  {}\n", f.file));
+            let _ = write!(out, "\n  {}\n", f.file);
             current.clone_from(&f.file);
         }
-        out.push_str(&format!(
-            "    line {} [{}] {} — {}\n",
+        let _ = writeln!(
+            out,
+            "    line {} [{}] {} — {}",
             f.span.line, f.severity, f.concept, f.question
-        ));
+        );
         if let Some(region) = &f.region {
-            out.push_str(&format!("      {region}\n"));
+            let _ = writeln!(out, "      {region}");
         }
     }
 
-    out.push_str(&format!(
+    let _ = write!(
+        out,
         "\n{} concept(s) the ontology has not modelled, against the {} name(s) it declares.\n\
          Matching is by name alone: this cannot tell a gap in the ontology from a helper it \
          has no reason to know about, and does not claim to. Nothing was changed, and no \
          class was created.\n",
         r.findings.len(),
         r.vocabulary
-    ));
+    );
     // Only when one was offered. A report that suggested nothing should not explain how it
     // would have — and a reader who sees the sentence has a candidate in front of them to
     // read it against.

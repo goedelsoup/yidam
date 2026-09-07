@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 pub fn repo_root() -> Result<PathBuf> {
@@ -277,11 +278,12 @@ pub fn running_binary_note() -> String {
     if let Ok(root) = repo_root() {
         let pinned = yidam_bin_path(&root);
         if pinned.exists() {
-            note.push_str(&format!(
+            let _ = write!(
+                note,
                 "\nnote: this repository pins {}. If the command exists there and not here, \
                  `.yidam/bin` is not first on PATH.",
                 pinned.display()
-            ));
+            );
         }
     }
     note

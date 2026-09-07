@@ -27,6 +27,7 @@
 //! matters. Everything below reads `.yidam/tonpa/<pkg>/` and `.yidam/tonpa.toml` off disk.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use super::checks::Node;
@@ -990,10 +991,10 @@ pub fn render_movements(movements: &[Movement]) -> String {
     let mut current = String::new();
     for m in movements {
         if m.node != current {
-            out.push_str(&format!("\n  {}\n", m.node));
+            let _ = write!(out, "\n  {}\n", m.node);
             current = m.node.clone();
         }
-        out.push_str(&format!("    [{}] {}\n", m.kind, m.question));
+        let _ = writeln!(out, "    [{}] {}", m.kind, m.question);
     }
     out.push_str(
         "\nThese are findings, not revisions. Answer them in the corpus — a claim that no \
