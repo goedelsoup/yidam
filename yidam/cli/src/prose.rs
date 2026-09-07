@@ -60,27 +60,66 @@ pub const ALWAYS: &str = "description";
 #[derive(Debug, Clone)]
 pub struct ProseFields {
     by_class: BTreeMap<String, Vec<String>>,
+    /// The names under `properties:` a class flagged `prose: true`, in declaration order.
+    ///
+    /// **A second axis and not more entries in the first**, because they are read out of
+    /// different places in the node: a top-level key is read off the document, and these are
+    /// read out of the `properties` mapping. Folding them into one list would make the
+    /// lookup ambiguous the moment a corpus writes a top-level `method` and a property
+    /// `method`, which nothing forbids.
+    ///
+    /// No universal union here. `universal.yml`'s `prose:` names top-level keys, and a
+    /// property belongs to the class that declared it — a corpus cannot flag a property on a
+    /// class that never wrote one.
+    props_by_class: BTreeMap<String, Vec<String>>,
     /// The set for a class that declared none of its own — universal plus [`ALWAYS`].
     default: Vec<String>,
 }
 
-/// The `prose:` list a declaration file names, and the `class:` it named itself, if any.
-fn declared(text: &str) -> (Option<String>, Vec<String>) {
+/// What one class declared about prose: its top-level keys, and its flagged properties.
+///
+/// A named struct rather than a tuple because the two lists are not interchangeable and a
+/// caller passing them in the wrong order would compile.
+pub struct Declaration {
+    pub class: String,
+    /// Top-level keys from the class's `prose:` list.
+    pub keys: Vec<String>,
+    /// Property names the class declared `prose: true`, in declaration order.
+    pub properties: Vec<String>,
+}
+
+/// What a declaration file says about prose: the `class:` it named itself, its `prose:` list,
+/// and the properties it flagged.
+fn declared(text: &str) -> (Option<String>, Vec<String>, Vec<String>) {
     #[derive(Default, serde::Deserialize)]
     struct Fields {
         #[serde(default)]
         class: Option<String>,
         #[serde(default)]
         prose: Vec<String>,
+        #[serde(default)]
+        properties: Vec<Property>,
+    }
+    #[derive(Default, serde::Deserialize)]
+    struct Property {
+        #[serde(default)]
+        name: String,
+        #[serde(default)]
+        prose: bool,
     }
     let f: Fields = serde_yaml::from_str(text).unwrap_or_default();
-    let keys = f
-        .prose
+    let clean = |k: String| {
+        let k = k.trim().to_string();
+        (!k.is_empty()).then_some(k)
+    };
+    let keys = f.prose.into_iter().filter_map(clean).collect();
+    let props = f
+        .properties
         .into_iter()
-        .map(|k| k.trim().to_string())
-        .filter(|k| !k.is_empty())
+        .filter(|p| p.prose)
+        .filter_map(|p| clean(p.name))
         .collect();
-    (f.class.filter(|c| !c.is_empty()), keys)
+    (f.class.filter(|c| !c.is_empty()), keys, props)
 }
 
 fn unioned(universal: &[String], own: &[String]) -> Vec<String> {
@@ -100,6 +139,7 @@ impl Default for ProseFields {
     fn default() -> Self {
         Self {
             by_class: BTreeMap::new(),
+            props_by_class: BTreeMap::new(),
             default: vec![ALWAYS.to_string()],
         }
     }
@@ -113,7 +153,7 @@ impl ProseFields {
             .unwrap_or_default();
         let declarations = crate::walk::walk_ont_files(corpus).into_iter().map(|path| {
             let text = std::fs::read_to_string(&path).unwrap_or_default();
-            let (named, keys) = declared(&text);
+            let (named, keys, properties) = declared(&text);
             let class = named.unwrap_or_else(|| {
                 path.file_name()
                     .and_then(|n| n.to_str())
@@ -121,7 +161,11 @@ impl ProseFields {
                     .unwrap_or_default()
                     .to_string()
             });
-            (class, keys)
+            Declaration {
+                class,
+                keys,
+                properties,
+            }
         });
         Self::from_declarations(universal, declarations)
     }
@@ -136,13 +180,19 @@ impl ProseFields {
     /// records.
     pub fn from_declarations(
         universal: Vec<String>,
-        declarations: impl IntoIterator<Item = (String, Vec<String>)>,
+        declarations: impl IntoIterator<Item = Declaration>,
     ) -> Self {
+        let mut by_class = BTreeMap::new();
+        let mut props_by_class = BTreeMap::new();
+        for d in declarations {
+            by_class.insert(d.class.clone(), unioned(&universal, &d.keys));
+            if !d.properties.is_empty() {
+                props_by_class.insert(d.class, d.properties);
+            }
+        }
         Self {
-            by_class: declarations
-                .into_iter()
-                .map(|(class, own)| (class, unioned(&universal, &own)))
-                .collect(),
+            by_class,
+            props_by_class,
             default: unioned(&universal, &[]),
         }
     }
@@ -159,41 +209,81 @@ impl ProseFields {
             .map(Vec::as_slice)
             .unwrap_or(&self.default)
     }
+
+    /// The properties of `class` whose values are prose, in declaration order.
+    ///
+    /// Empty for a class that flagged none, and empty for a class nothing declared — unlike
+    /// [`Self::for_class`], which falls back to the universal set. There is no universal
+    /// property: `universal.yml` names top-level keys, and a property is declared by the class
+    /// that owns it.
+    pub fn properties_for_class(&self, class: &str) -> &[String] {
+        self.props_by_class
+            .get(class)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
 }
 
-/// This node's prose, in the keys the ontology declares as prose, in that order.
+/// This node's prose: the declared top-level keys, then the properties flagged `prose: true`.
+///
+/// **Takes the whole [`ProseFields`] and the class rather than a key list**, so a caller
+/// cannot ask for one axis and silently miss the other. That is not hypothetical — the
+/// top-level-only reading is what `node-too-long`, `missing-description` and `embed` all had,
+/// and it missed 14.5% of what the measured corpora write (#746).
 ///
 /// A free function and not a method, because the type is `yidam_core`'s and the *declaration*
 /// is not: which keys carry prose is a per-class fact this repository reads out of
 /// `<class>.ont.yml`, and an SDK that decided it would be answering a question the ontology
 /// owns.
 ///
-/// Reads `description` off its own field and everything else out of [`CorpusInstance::extra`],
-/// so a caller cannot get a different answer depending on which key it asked about. A declared
-/// key the node does not carry, or carries as something other than a string, yields nothing: a
-/// `findings:` holding a list is a real state and not prose, and guessing at a rendering for it
-/// would put words in the corpus's mouth.
-pub fn of<'a>(inst: &'a CorpusInstance, declared: &'a [String]) -> Vec<(&'a str, &'a str)> {
-    declared
+/// Reads `description` off its own field, other top-level keys out of
+/// [`CorpusInstance::extra`], and flagged properties out of `properties`, so a caller cannot
+/// get a different answer depending on which key it asked about. A declared key the node does
+/// not carry, or carries as something other than a string, yields nothing: a `findings:`
+/// holding a list is a real state and not prose, and guessing at a rendering for it would put
+/// words in the corpus's mouth.
+///
+/// Property keys come back qualified — `properties.method` — because a corpus may write a
+/// top-level `method` and a property `method`, and a caller rendering the name in a finding
+/// must be able to say which one it means.
+pub fn of<'a>(
+    inst: &'a CorpusInstance,
+    fields: &ProseFields,
+    class: &str,
+) -> Vec<(String, &'a str)> {
+    let mut out: Vec<(String, &'a str)> = fields
+        .for_class(class)
         .iter()
         .filter_map(|key| {
             let value = match key.as_str() {
                 ALWAYS => inst.description.as_deref(),
                 other => inst.extra.get(other).and_then(serde_yaml::Value::as_str),
             }?;
-            (!value.trim().is_empty()).then_some((key.as_str(), value))
+            (!value.trim().is_empty()).then_some((key.clone(), value))
         })
-        .collect()
+        .collect();
+
+    let props = inst.properties.as_ref();
+    out.extend(
+        fields
+            .properties_for_class(class)
+            .iter()
+            .filter_map(|name| {
+                let value = props?.get(name.as_str())?.as_str()?;
+                (!value.trim().is_empty()).then_some((format!("properties.{name}"), value))
+            }),
+    );
+    out
 }
 
 /// The node's prose as one block, the declared fields joined in order.
 ///
 /// What a reader of the whole node reads, which is what a length ceiling and an embedding are
 /// both about.
-pub fn text(inst: &CorpusInstance, declared: &[String]) -> String {
-    of(inst, declared)
+pub fn text(inst: &CorpusInstance, fields: &ProseFields, class: &str) -> String {
+    of(inst, fields, class)
         .into_iter()
-        .map(|(_, v)| v.trim_end())
+        .map(|(_, v)| v.trim_end().to_string())
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -205,9 +295,14 @@ mod tests {
     fn fields(universal: &str, classes: &[(&str, &str)]) -> ProseFields {
         ProseFields::from_declarations(
             declared(universal).1,
-            classes
-                .iter()
-                .map(|(name, text)| ((*name).to_string(), declared(text).1)),
+            classes.iter().map(|(name, text)| {
+                let (_, keys, properties) = declared(text);
+                Declaration {
+                    class: (*name).to_string(),
+                    keys,
+                    properties,
+                }
+            }),
         )
     }
 
@@ -283,5 +378,105 @@ mod tests {
     fn blank_entries_are_not_keys() {
         let f = fields("", &[("gage", "class: gage\nprose: ['  ', ' summary ']\n")]);
         assert_eq!(f.for_class("gage"), ["description", "summary"]);
+    }
+
+    fn inst(yaml: &str) -> CorpusInstance {
+        crate::parse::parse_instance(yaml)
+    }
+
+    /// The whole of #746 in one assertion: a node whose substance is under `properties`.
+    #[test]
+    fn a_flagged_property_is_prose() {
+        let f = fields(
+            "",
+            &[(
+                "measure",
+                "class: measure\nproperties:\n  - name: method\n    type: string\n    prose: true\n",
+            )],
+        );
+        let n =
+            inst("class: measure\nlabel: L\nproperties:\n  method: |\n    How it was computed.\n");
+        assert_eq!(
+            of(&n, &f, "measure"),
+            [("properties.method".to_string(), "How it was computed.\n")]
+        );
+    }
+
+    /// The key comes back qualified, because a corpus may write both and a finding must say
+    /// which one it names.
+    #[test]
+    fn a_top_level_key_and_a_property_of_the_same_name_are_told_apart() {
+        let f = fields(
+            "",
+            &[(
+                "measure",
+                "class: measure\nprose: [method]\nproperties:\n  - name: method\n    prose: true\n",
+            )],
+        );
+        let n = inst("class: measure\nmethod: at the top\nproperties:\n  method: in the bag\n");
+        assert_eq!(
+            of(&n, &f, "measure"),
+            [
+                ("method".to_string(), "at the top"),
+                ("properties.method".to_string(), "in the bag"),
+            ]
+        );
+    }
+
+    /// Top-level prose first, then properties in the order the class declared them.
+    #[test]
+    fn properties_follow_the_declared_keys_in_declaration_order() {
+        let f = fields(
+            "",
+            &[(
+                "measure",
+                "class: measure\nproperties:\n  - name: b\n    prose: true\n  - name: a\n    prose: true\n",
+            )],
+        );
+        let n = inst("class: measure\ndescription: first\nproperties:\n  a: second\n  b: third\n");
+        assert_eq!(
+            text(&n, &f, "measure"),
+            "first\nthird\nsecond",
+            "declaration order, not alphabetical and not the node's own order"
+        );
+    }
+
+    /// A corpus that flags nothing reads exactly as it did before this existed.
+    #[test]
+    fn a_class_flagging_no_property_is_unchanged() {
+        let f = fields(
+            "",
+            &[("measure", "class: measure\nproperties:\n  - name: method\n")],
+        );
+        let n = inst("class: measure\ndescription: only this\nproperties:\n  method: not read\n");
+        assert_eq!(
+            of(&n, &f, "measure"),
+            [("description".to_string(), "only this")]
+        );
+    }
+
+    /// A flagged property holding something other than a string yields nothing, for the
+    /// reason a top-level key holding a list does: it is a real state, not prose.
+    #[test]
+    fn a_flagged_property_that_is_not_a_string_yields_nothing() {
+        let f = fields(
+            "",
+            &[(
+                "measure",
+                "class: measure\nproperties:\n  - name: method\n    prose: true\n",
+            )],
+        );
+        let n = inst("class: measure\nproperties:\n  method:\n    - a list\n");
+        assert!(of(&n, &f, "measure").is_empty());
+    }
+
+    /// There is no universal property. `universal.yml` names top-level keys, and a property
+    /// belongs to the class that declared it.
+    #[test]
+    fn a_class_nothing_declared_has_no_prose_properties() {
+        let f = fields("prose: [summary]", &[("measure", "class: measure\n")]);
+        assert!(f.properties_for_class("measure").is_empty());
+        assert!(f.properties_for_class("never-declared").is_empty());
+        assert_eq!(f.for_class("never-declared"), ["description", "summary"]);
     }
 }

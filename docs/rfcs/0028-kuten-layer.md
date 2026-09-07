@@ -607,7 +607,7 @@ The slot has two halves and only one can be built:
   decision 5). The slot's schema **reserves** `kind: coverage` as a named, unimplemented value —
   naming the state rather than leaving a blank to be invented twice — and the only prose the
   model has about coverage today is one unenforceable sentence about the `scope` verb
-  ([`GRAPH.md:449-450`](../../yidam/prelude/GRAPH.md#L449-L450)).
+  ([`GRAPH.md:482-483`](../../yidam/prelude/GRAPH.md#L482-L483)).
 
 **#578 is unscheduled, on the record.** No track in the current iteration carries it. Two
 conditions would schedule it, either sufficing: a second series-completing corpus appears at a
@@ -675,7 +675,7 @@ by that file's own comments.
 
 | Prohibited | Because | Instead |
 |---|---|---|
-| Add a commit verb | The closed vocabulary ([`GRAPH.md:416-417`](../../yidam/prelude/GRAPH.md#L416-L417)) is what makes `log --epistemic` decidable, and `classify_commit` is a parity function pinned by fixtures in three SDKs | Declare a **subset** and gloss it. A needed-and-absent verb is evidence for #292, not a patch |
+| Add a commit verb | The closed vocabulary ([`GRAPH.md:449-450`](../../yidam/prelude/GRAPH.md#L449-L450)) is what makes `log --epistemic` decidable, and `classify_commit` is a parity function pinned by fixtures in three SDKs | Declare a **subset** and gloss it. A needed-and-absent verb is evidence for #292, not a patch |
 | Add or alter a claim standing | Article V reads the standings as a total order when it licenses lowering a claim at resolution ([`CONSTITUTION.md:72-76`](../../yidam/prelude/CONSTITUTION.md#L72-L76)) | Nothing. This is constitutional |
 | Contradict Articles I–VI | Article I — the prelude is not subject to resolution, and a kuten is vendored prelude | A domain extension appended at genesis, which the constitution already provides for |
 | Change the graph encoding | Files are nodes, links are edges, commits are events. This is the premise, not a policy | Nothing |
@@ -696,7 +696,7 @@ constitutional finding with a stated ground, not a scoping convenience.
 
 1. **RFC-0020, for findings:** a proposal is legal iff it carries what a finding or a corpus
    declaration already said — `transport`'s licence
-   ([`GRAPH.md:547-549`](../../yidam/prelude/GRAPH.md#L547-L549)): *carriage and not synthesis,
+   ([`GRAPH.md:580-582`](../../yidam/prelude/GRAPH.md#L580-L582)): *carriage and not synthesis,
    which is what makes it legal outside a resolution event*, because carrying introduces no
    node, edge or claim its author did not hold.
 2. **RFC-0026, for executions:** a run authors operational commits directly; every epistemic

@@ -139,6 +139,39 @@ before this embedded a node's label and its edge names. It did not embed what th
 longer asks for that key by name. An editor will stop underlining a node that says what it
 knows in a field the corpus declared.
 
+### A property can hold prose too
+
+The declaration above reaches a top-level key. Most prose that is not in `description` is not
+there. Measured over sixteen corpora and 2,763 nodes: 68.6% hold a nested block scalar. 83% of
+that sits under `properties:`. A `method` or a `verbatim` is the node
+saying something. Nothing that read prose could see it.
+
+A property now says so itself:
+
+```yaml
+# <class>.ont.yml
+properties:
+  - name: method
+    type: string
+    prose: true
+    description: How the figure was computed.
+```
+
+**Who this affects.** Any corpus keeping prose in a property. Nothing changes for a corpus that
+flags none: absent means false, exactly as `required:` is.
+
+**What changes when you flag one.** `node-too-long` counts those lines. On one public corpus,
+flagging 14 declarations moved it from 58 findings to 94. That is the length those nodes
+always were.
+`missing-description` stops reporting a node whose substance is a transcription in a property.
+And `yidam embed` composes the property, so **re-run `yidam index-build`**. On that corpus the
+flag adds 10.4% more prose and rewrites the text of 380 nodes of 694.
+
+**What it does not reach.** Prose under `links:`, and prose nested under a coined top-level
+key. Together those are 17% of the nested prose measured. The first belongs to the edge
+vocabulary. The second needs a class contract that describes the key. Neither is in this
+release.
+
 A baseline holding the old counts still passes, so nothing goes red. It also leaves room for
 regressions that nothing will report.
 

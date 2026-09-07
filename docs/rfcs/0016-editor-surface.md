@@ -84,7 +84,7 @@ gating against `.yidam/lint-baseline.yml`
 ([`lint/mod.rs`](../../yidam/cli/src/cmd/lint/mod.rs), and the rationale in its module doc:
 conflating the two "produces a gate that is either permanently red or permanently ignored").
 Two distinct things fail it — a violation not in the baseline, and a baseline entry that no
-longer occurs ([`lint/mod.rs:697-731`](../../yidam/cli/src/cmd/lint/mod.rs#L697-L731)).
+longer occurs ([`lint/mod.rs:706-740`](../../yidam/cli/src/cmd/lint/mod.rs#L706-L740)).
 
 An extension that renders every finding as an Error reproduces exactly the failure the baseline
 was designed to prevent, one layer up: a Problems panel permanently full of inherited debt is a
@@ -103,7 +103,7 @@ is quiet and delayed: the edit works locally, survives review, and disappears at
 ### The one editor integration that exists is a copy-paste
 
 `yidam schema --settings` prints a `yaml.schemas` mapping for the user to paste into
-`.vscode/settings.json` ([`schema.rs:195-232`](../../yidam/cli/src/cmd/schema.rs#L195-L232)).
+`.vscode/settings.json` ([`schema.rs:214-251`](../../yidam/cli/src/cmd/schema.rs#L214-L251)).
 It works, and it is the whole of the editor story. It requires a third-party extension, a manual
 step at genesis, and a second manual step whenever the schema set changes. The doc comment on
 `editor_settings` names Neovim and Helix as targets too — a signal worth keeping (see Phase 3).
@@ -294,7 +294,7 @@ rewritten in one transaction, refused outright if any edge would dangle. That cl
 the docs warn about three times and currently guard zero times.
 
 And it is how Neovim and Helix get all of this for free — users the codebase already names in
-[`schema.rs:191-194`](../../yidam/cli/src/cmd/schema.rs#L191-L194). The VS Code extension becomes
+[`schema.rs:210-213`](../../yidam/cli/src/cmd/schema.rs#L210-L213). The VS Code extension becomes
 a thin LSP client plus the views, decorations, and SCM integration that are genuinely
 VS Code-shaped.
 

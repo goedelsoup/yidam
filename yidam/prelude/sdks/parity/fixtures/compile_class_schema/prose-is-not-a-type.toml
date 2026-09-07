@@ -1,0 +1,49 @@
+function = "compile_class_schema"
+description = "A property declared `prose: true` compiles to exactly the schema it would without the flag. Prose-ness is a fact the reports read (#746); it is not a type, and folding it into `type` would have made this a parity contract change instead of a flag the compiler ignores"
+
+[input]
+name = "measure"
+content = """
+class: measure
+label: Measure
+description: A published figure.
+properties:
+  - name: method
+    type: string
+    prose: true
+    description: How the figure was computed.
+  - name: identifier
+    type: string
+    description: The publisher's code for it.
+"""
+
+[expected]
+schema = """
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "yidam corpus node — measure",
+  "description": "A published figure.",
+  "type": "object",
+  "properties": {
+    "class": { "const": "measure" },
+    "properties": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string",
+          "minLength": 1,
+          "description": "How the figure was computed."
+        },
+        "identifier": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The publisher's code for it."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["class"],
+  "additionalProperties": true
+}
+"""

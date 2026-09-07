@@ -220,7 +220,16 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         universal.prose().to_vec(),
         classes
             .iter()
-            .map(|c| (c.name.clone(), c.prose.clone()))
+            .map(|c| crate::prose::Declaration {
+                class: c.name.clone(),
+                keys: c.prose.clone(),
+                properties: c
+                    .properties
+                    .iter()
+                    .filter(|p| p.prose)
+                    .map(|p| p.name.clone())
+                    .collect(),
+            })
             .collect::<Vec<_>>(),
     );
     // How old each source record is, and whether this corpus asked to be told. `today` is

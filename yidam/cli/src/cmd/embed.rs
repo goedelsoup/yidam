@@ -151,10 +151,15 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
             .to_string();
 
         let label = inst.label.as_deref().unwrap_or("").to_string();
-        // Every declared prose field. A node whose substance is in `summary` and `findings`
-        // was embedded on its label and its edge names alone — retrievable by title and by
-        // nothing it says.
-        let description = crate::prose::text(&inst, prose_fields.for_class(&class));
+        // Every declared prose field, and since #746 the properties a class flagged too. A
+        // node whose substance is in `summary` and `findings` was embedded on its label and
+        // its edge names alone — retrievable by title and by nothing it says. The same was
+        // true of `properties.method`, a block scalar on 341 nodes across 214 KB in the
+        // measured corpora, none of which was in any embedding.
+        //
+        // Node text is what an index is built from, so a corpus that flags a property must
+        // re-embed. That is the change rather than a side effect of it.
+        let description = crate::prose::text(&inst, &prose_fields, &class);
         let links = inst.links.as_deref().unwrap_or(&[]);
         let text = compose_text(&label, &description, links);
 

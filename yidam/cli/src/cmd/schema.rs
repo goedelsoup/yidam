@@ -158,6 +158,25 @@ pub fn corpus_ontology_schema() -> Value {
                                             where the question could not be asked, and \
                                             defaulting to true would demand a declaration \
                                             nobody made."
+                        },
+                        "prose": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "Whether this property's value is prose, and so \
+                                            part of what the node says rather than a field \
+                                            about it. A flagged property is read by \
+                                            `node-too-long`, by `missing-description`, and \
+                                            by `embed` — which means a corpus that flags \
+                                            one must re-embed, because node text is what an \
+                                            index is built from. Measured over sixteen \
+                                            corpora: 68.6% of nodes carry a block scalar \
+                                            nested inside another key and 83% of that is \
+                                            under `properties`, none of which any prose \
+                                            reader could see. Absent means false, for \
+                                            `required`'s reason. It is a flag beside `type` \
+                                            rather than a type of its own because \
+                                            prose-ness is orthogonal to what a value is: \
+                                            `method` and `identifier` are both strings."
                         }
                     },
                     "required": ["name", "type", "description"],

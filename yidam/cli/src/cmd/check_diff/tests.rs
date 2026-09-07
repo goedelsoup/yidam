@@ -15,8 +15,10 @@ fn class(name: &str, properties: &[&str], edges: &[&str]) -> Class {
                 name: p.to_string(),
                 r#type: "string".to_string(),
                 // These fixtures are about which properties a class declares across two
-                // commits, not about whether an instance must carry them.
+                // commits, not about whether an instance must carry them, or whether what
+                // they hold is prose.
                 required: false,
+                prose: false,
             })
             .collect(),
         edges: edges
