@@ -130,7 +130,21 @@ jobs:
     needs: released
     runs-on: macos-latest
     steps:
+      # A token, because this job's subject is the darwin binary and not the throttle.
+      #
+      # `install.sh` resolves the CLI's newest tag through the releases API, which limits
+      # anonymous callers at 60/hour per IP; hosted macOS runners share egress and hit it.
+      # A 403 here says nothing about whether the cross-compiled binary runs, which is the
+      # one question only this runner can answer.
+      #
+      # The anonymous path is not thereby unchecked: `installer-linux` runs the same script
+      # in a clean container with no token and no credentials, which is the shape a reader
+      # of the README is in. `an_installer_job_still_resolves_the_release_anonymously` holds
+      # that division in place, because giving both jobs a token would retire the coverage
+      # silently and each diff would look fine on its own.
       - name: The line the README documents
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh
       - name: yidam --version
         run: |
@@ -608,8 +622,13 @@ jobs:
           chmod +x "unpacked/${entry}"
           bin_version=$("unpacked/${entry}" --version)
           echo "bundled binary: ${bin_version}"
+          # `yidam <version> (<commit>) [<features>]` — clap prefixes the binary name, so a
+          # pattern anchored on the bare version matches nothing. This was `"$expected"*`
+          # from the day the job landed and never ran: the job early-outs while the newest
+          # release predates the bundle step, so `cli/v0.10.0` was the first release to arm
+          # it and the first to reach this line. Arming a check is not exercising it.
           case "$bin_version" in
-            "$expected"*) ;;
+            "yidam $expected "*) ;;
             *)
               echo "::error::the bundle's binary reports '${bin_version}'; ${tag} released ${expected}"
               exit 1

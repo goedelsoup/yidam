@@ -330,6 +330,8 @@ left alone rather than rejected.
 | `YIDAM_BIN_DIR` | `install.sh` | Install target, default `~/.local/bin` |
 | `YIDAM_VERSION` | `install.sh` | Install a specific tag rather than the latest |
 | `YIDAM_REPO` | `install.sh` | Resolve releases from a fork |
+| `GITHUB_TOKEN` | `install.sh` | Optional. Raises the release-listing rate limit; the anonymous limit is 60/hour per IP |
+| `YIDAM_API` | `install.sh` | GitHub API origin, default `https://api.github.com` — for an Enterprise host |
 | `YIDAM_REF` | `yidam-vendor-update` | Re-vendor from a tag or branch instead of the pinned commit |
 | `YIDAM_CODE` | `ext-dev` | The editor CLI, when `code` is not on `PATH` |
 | `YIDAM_REQUIRE_CONTRACT` | extension tests | Turn a missing or stale binary from a skip into a failure; CI sets it |

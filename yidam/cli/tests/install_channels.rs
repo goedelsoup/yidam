@@ -280,6 +280,33 @@ fn workflow_commands(text: &str) -> String {
 ///
 /// Jobs are the two-space keys under `jobs:`, which is how this file is written throughout.
 fn workflow_jobs(text: &str) -> Vec<(String, String)> {
+    workflow_job_bodies(text)
+        .into_iter()
+        .map(|(name, text)| {
+            // `::error::` lines are dropped, and that is the point rather than tidiness. Every
+            // one of these jobs names the expected version in its failure message as well as
+            // in its comparison, so a mutation that deletes the comparison and leaves the
+            // message reads as still checking — measured: `installer-linux`'s
+            // `case "yidam ${{ … }} "*)` was replaced with `case "yidam "*)` and this file
+            // stayed green, because the `::error::` echo below it still carried the string.
+            //
+            // A message that names the release is not a check of it.
+            let commands = workflow_commands(&text)
+                .lines()
+                .filter(|l| !l.contains("::error::"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            (name, commands)
+        })
+        .collect()
+}
+
+/// Every job in the workflow, as (job name, its raw YAML body).
+///
+/// Split out from [`workflow_jobs`] because a `run:` step is not the whole job: `env:`,
+/// `runs-on:` and `with:` are siblings of it, and a guard about what a job is *given* cannot
+/// be written against the commands alone.
+fn workflow_job_bodies(text: &str) -> Vec<(String, String)> {
     let mut jobs: Vec<(String, String)> = Vec::new();
     let body = match text.split_once("\njobs:\n") {
         Some((_, rest)) => rest,
@@ -305,24 +332,7 @@ fn workflow_jobs(text: &str) -> Vec<(String, String)> {
     if let Some(job) = current {
         jobs.push(job);
     }
-    jobs.into_iter()
-        .map(|(name, text)| {
-            // `::error::` lines are dropped, and that is the point rather than tidiness. Every
-            // one of these jobs names the expected version in its failure message as well as
-            // in its comparison, so a mutation that deletes the comparison and leaves the
-            // message reads as still checking — measured: `installer-linux`'s
-            // `case "yidam ${{ … }} "*)` was replaced with `case "yidam "*)` and this file
-            // stayed green, because the `::error::` echo below it still carried the string.
-            //
-            // A message that names the release is not a check of it.
-            let commands = workflow_commands(&text)
-                .lines()
-                .filter(|l| !l.contains("::error::"))
-                .collect::<Vec<_>>()
-                .join("\n");
-            (name, commands)
-        })
-        .collect()
+    jobs
 }
 
 /// Nothing may be documented as an install path without something running it.
@@ -1062,4 +1072,93 @@ fn the_previous_release_resolution_answers_per_layer() {
             "previous release of {tag}: expected {expected:?}, got {got:?}"
         );
     }
+}
+
+/// A job that runs `--version` must compare against the string the binary actually prints.
+///
+/// `yidam --version` answers `yidam 0.10.0 (fc96175) [reports export-graph …]`, because clap
+/// prefixes the binary name and this crate appends the commit and the feature set. Seven jobs
+/// match on `"yidam <version> "*`. The eighth — the `.mcpb` bundle — matched on `"<version>"*`
+/// and could never match anything.
+///
+/// **Nothing caught it for a release cycle, and the reason is the interesting part.** The job
+/// exits green while the newest release predates the bundle step, which is correct and is what
+/// #557's arming fix was for; `cli/v0.10.0` was the first release to arm it. So the assertion
+/// shipped, sat behind an early-out that was working as designed, and ran for the first time
+/// on a scheduled Sunday four days later. A disarmed job proves nothing about the code inside
+/// it, and [`each_channel_asserts_the_released_version`] could not see this: that test asks
+/// whether the job *names* the resolved version, and this one did — in the variable it then
+/// compared wrongly.
+///
+/// The space after `yidam` is load-bearing and is why this reads a quoted prefix rather than
+/// the bare word: the `.mcpb` job builds its asset name as `"yidam-${expected}-…"`, which
+/// contains `yidam` and is not a version comparison.
+#[test]
+fn every_version_comparison_reads_the_name_the_binary_prints() {
+    let jobs = workflow_jobs(&read(".github/workflows/install-channels.yml"));
+    let asking: Vec<&(String, String)> = jobs
+        .iter()
+        .filter(|(_, cmds)| cmds.contains("--version"))
+        .collect();
+    assert!(
+        asking.len() >= 5,
+        "only {} job(s) were found running `--version`; the job split is reading the wrong \
+         thing and this assertion is vacuous",
+        asking.len()
+    );
+    for (name, cmds) in asking {
+        assert!(
+            cmds.contains("\"yidam "),
+            "job `{name}` runs `--version` and never compares against `\"yidam <version> \"` \
+             — the binary prints its own name first, so a pattern anchored on the bare \
+             version matches nothing and the job fails on a correct release"
+        );
+    }
+}
+
+/// One installer job must still resolve the release with no credentials, as a reader does.
+///
+/// `install.sh` resolves the CLI's newest tag through the releases API, which throttles
+/// anonymous callers at 60/hour per IP. Hosted macOS runners share egress and spend it, so
+/// `installer-macos` is given `GITHUB_TOKEN` — its subject is whether the cross-compiled
+/// darwin binary runs, and a throttle answers nothing about that.
+///
+/// The reader of the README has no token. `installer-linux` runs the same script in a clean
+/// container with none, and that is the only thing standing between this repository and an
+/// install path that works exclusively for people holding credentials. Giving the second job a
+/// token would retire that coverage in a diff that looks like a fix.
+#[test]
+fn an_installer_job_still_resolves_the_release_anonymously() {
+    let workflow = read(".github/workflows/install-channels.yml");
+    let commands: Vec<(String, String)> = workflow_jobs(&workflow);
+    let bodies: Vec<(String, String)> = workflow_job_bodies(&workflow);
+
+    let running: Vec<&String> = commands
+        .iter()
+        .filter(|(_, cmds)| cmds.contains("install.sh | sh"))
+        .map(|(name, _)| name)
+        .collect();
+    assert!(
+        running.len() >= 2,
+        "expected both installer jobs to run `install.sh | sh`; found {running:?}"
+    );
+
+    let anonymous: Vec<&String> = running
+        .iter()
+        .copied()
+        .filter(|name| {
+            bodies
+                .iter()
+                .find(|(n, _)| n == *name)
+                .is_some_and(|(_, body)| {
+                    !body.contains("GITHUB_TOKEN") && !body.contains("GH_TOKEN")
+                })
+        })
+        .collect();
+    assert!(
+        !anonymous.is_empty(),
+        "every job running `install.sh | sh` is given a token ({running:?}), so nothing \
+         checks the path a reader of the README is actually on — no credentials, and the \
+         anonymous rate limit in front of the release listing"
+    );
 }
