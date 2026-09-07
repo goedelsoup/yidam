@@ -52,6 +52,12 @@ pub fn read_subjects(root: &Path, range: Option<&str>) -> Vec<Subject> {
         "log".to_string(),
         "--format=%x1e%H%x00%P%x00%s".to_string(),
         "--name-only".to_string(),
+        // Rename detection is on by default and `--name-only` prints only a rename's
+        // destination, so a commit moving a node *out* of the corpus register reads as
+        // touching object paths alone — `Touch::ObjectOnly`, declined without a word. Git
+        // has the pre-image; this reader wants the paths a commit touched, and a rename is
+        // a presentation of a diff rather than a fact about them (#697).
+        "--no-renames".to_string(),
     ];
     if let Some(r) = range {
         args.push(r.to_string());
