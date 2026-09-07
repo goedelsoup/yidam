@@ -108,7 +108,7 @@ pub fn render_block(
     if let Some(classes) = &profile.classes {
         let _ = writeln!(
             out,
-            "- **Shape** — {} nodes per commit, and a median node of {:.0}–{:.0} lines.",
+            "- **Shape** — {} nodes per commit, and a median node file of {:.0}–{:.0} lines.",
             classes.nodes_per_commit.describe(),
             classes.median_node_lines.low,
             classes.median_node_lines.high
