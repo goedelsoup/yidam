@@ -36,21 +36,6 @@ use crate::cmd::lint::model::Check;
 /// `propose` opened, and never one a person wrote.
 pub const MARKER: &str = "Opened by `yidam propose` at ";
 
-/// The framing, appended after the finding and before the tag.
-///
-/// Fixed prose, identical on every proposal. It names the finding as unresolved and says who
-/// is not resolving it; it does not interpret the finding, because interpreting it is the
-/// composition this command exists to refuse.
-const FRAMING: &str = "What follows from that is unresolved here: `yidam propose` carries \
-                       findings into the corpus and does not answer them.";
-
-/// Column the corpus's prose wraps at, block indent included.
-///
-/// Matched to what derived corpora actually write rather than chosen: the worked example's
-/// longest prose line is 92 characters. A paragraph wrapped to a different width than its
-/// neighbours reads as pasted in, which is a true thing to advertise but not this way.
-const WRAP: usize = 95;
-
 /// The three verbs, and the only three.
 ///
 /// Each is in `GRAPH.md`'s closed epistemic vocabulary, so a proposal passes
@@ -269,102 +254,12 @@ fn wrap_at(text: &str, indent: usize, width: usize) -> String {
     out
 }
 
-/// Wrap `text` to [`WRAP`] columns at `indent` spaces — corpus prose.
-fn wrap(text: &str, indent: usize) -> String {
-    wrap_at(text, indent, WRAP)
-}
-
 /// Wrap a commit body, paragraph by paragraph, leaving the blank lines between them.
 fn wrap_body(text: &str) -> String {
     text.split("\n\n")
         .map(|para| wrap_at(para, 0, MESSAGE_WRAP))
         .collect::<Vec<_>>()
         .join("\n\n")
-}
-
-/// The paragraph an `open:` proposal appends, unwrapped.
-fn paragraph(head: &str, check: &str, detail: &str) -> String {
-    format!(
-        "{MARKER}{head} [{check}] — {}. {FRAMING} [open]",
-        detail.trim().trim_end_matches('.')
-    )
-}
-
-/// Where a node's `description:` block scalar begins and ends, and how far it is indented.
-///
-/// Returns `(first content line, one past the last, indent)`. `None` when the node has no
-/// top-level `description:`, or has one that is not a block scalar — which is refused rather
-/// than converted. Rewriting `description: One line.` into a `|` block would reformat a line
-/// a person wrote, and a proposal whose diff is mostly re-indentation is one nobody can
-/// review.
-fn description_block(lines: &[&str]) -> Option<(usize, usize, usize)> {
-    let start = lines.iter().position(|l| {
-        let t = l.trim_end();
-        t.starts_with("description:") && t.len() > "description:".len() && {
-            let v = t["description:".len()..].trim();
-            v == "|" || v == "|-" || v == "|+" || v == ">" || v == ">-"
-        }
-    })?;
-    let indent = lines
-        .get(start + 1)?
-        .chars()
-        .take_while(|c| *c == ' ')
-        .count();
-    if indent == 0 {
-        return None;
-    }
-    let mut end = start + 1;
-    while end < lines.len() {
-        let l = lines[end];
-        // A blank line belongs to the block; only content at or left of the key ends it.
-        if !l.trim().is_empty() && l.chars().take_while(|c| *c == ' ').count() < indent {
-            break;
-        }
-        end += 1;
-    }
-    // Trailing blanks belong to whatever follows, not to the block.
-    while end > start + 1 && lines[end - 1].trim().is_empty() {
-        end -= 1;
-    }
-    Some((start + 1, end, indent))
-}
-
-/// Append a paragraph to a node's `description:` block, leaving every other byte alone.
-///
-/// Textual, not a `serde_yaml` round-trip. Re-emitting the document would rewrite key order,
-/// comments and block style across a file somebody authored, so the diff a reviewer opens
-/// would be the whole node instead of the three lines that were added. A proposal has to be
-/// readable as a diff or the branch is not reviewable, which is the entire premise.
-pub fn append_to_description(text: &str, para: &str) -> Option<String> {
-    let lines: Vec<&str> = text.split('\n').collect();
-    let (_, end, indent) = description_block(&lines)?;
-    let mut out: Vec<String> = lines[..end].iter().map(|s| s.to_string()).collect();
-    out.push(String::new());
-    out.push(wrap(para, indent));
-    out.extend(lines[end..].iter().map(|s| s.to_string()));
-    Some(out.join("\n"))
-}
-
-/// Append a paragraph to the end of a markdown body, after the frontmatter.
-///
-/// A catalog entry is markdown with YAML frontmatter, not an instance with a `description:`
-/// block scalar, so [`append_to_description`] cannot reach it. The question about a source
-/// belongs *on* that source — where `catalog-audit` and the claim counter already read, since
-/// `claims::count_in_source` scans an entry's prose the same way it scans a node's.
-///
-/// `None` when the file has no closing frontmatter fence: appending to something whose shape
-/// is not what it claims would put a question somewhere nobody looks.
-pub fn append_to_body(text: &str, para: &str) -> Option<String> {
-    let body = text.trim_start_matches('\n');
-    if !body.starts_with("---\n") {
-        return None;
-    }
-    body[4..].find("\n---")?;
-    let mut out = text.trim_end().to_string();
-    out.push_str("\n\n");
-    out.push_str(&wrap(para, 0));
-    out.push('\n');
-    Some(out)
 }
 
 /// One paragraph this command wrote, found in a node.
@@ -460,20 +355,21 @@ pub fn strip(text: &str, m: &Marked) -> String {
 /// `withdraw_uncited_after`: no finding says a source should be refreshed, and this corpus
 /// said how long a record may stand before it wants to be asked.
 pub fn open_source_proposal(head: &str, e: &Eligible, text: &str) -> Option<Proposal> {
-    let para = paragraph(head, &e.check, &e.detail);
-    let content = append_to_body(text, &para)?;
+    let f = crate::findings::Finding::open(&e.check, &e.detail, head);
+    let content = crate::findings::add(text, &f)?;
     let subject = format!(
         "{} — {}",
         stem(&e.node),
         subject_tail(&e.detail, stem(&e.node).chars().count() + 9)
     );
     let body = format!(
-        "{}\n\nRecorded on `{}` itself as an [open] paragraph, because the question is about \
-         the source rather than about any one node that draws on it. Nothing was refreshed \
-         and no claim was re-tagged: whether the record still holds is a knowledge event, and \
-         this commit is not one.",
+        "{}\n\nRecorded on `{}` itself as finding `{}`, in its frontmatter, because the \
+         question is about the source rather than about any one node that draws on it. \
+         Nothing was refreshed and no claim was re-tagged: whether the record still holds is \
+         a knowledge event, and this commit is not one.",
         e.detail.trim(),
-        e.node
+        e.node,
+        f.id
     );
     Some(Proposal {
         verb: Verb::Open,
@@ -510,23 +406,26 @@ pub fn drop_used_by(text: &str, node: &str) -> Option<String> {
 /// The `open:` proposal for one gating finding, or `None` when the node cannot take one.
 ///
 /// `None` is the node whose `description:` is a plain scalar. It is a refusal and not a
-/// failure — see [`append_to_description`] — and the run reports it rather than swallowing
+/// failure — the document has no YAML to write into — and the run reports it rather than swallowing
 /// it, because a finding silently not proposed about is the failure mode this command exists
 /// to remove.
 pub fn open_proposal(head: &str, e: &Eligible, text: &str) -> Option<Proposal> {
-    let para = paragraph(head, &e.check, &e.detail);
-    let content = append_to_description(text, &para)?;
+    let f = crate::findings::Finding::open(&e.check, &e.detail, head);
+    let content = crate::findings::add(text, &f)?;
     let subject = format!(
         "{} — {}",
         stem(&e.node),
         subject_tail(&e.detail, stem(&e.node).chars().count() + 9)
     );
     let body = format!(
-        "{}\n\nRecorded against `{}` as an [open] paragraph, so the question is where \
-         `yidam open-questions` and the claim tools already look. Nothing else in the node \
-         was touched, and no claim was re-tagged.",
+        "{}\n\nRecorded against `{}` as finding `{}`, under the node's `yidam:` key. The \
+         finding's own words are the record's `detail`, so this commit carries what the check \
+         said and composes nothing. Nothing else in the node was touched, and no claim was \
+         re-tagged: a question this tool carried is not a claim the corpus makes, and it is no \
+         longer counted as one.",
         e.detail.trim(),
-        e.node
+        e.node,
+        f.id
     );
     Some(Proposal {
         verb: Verb::Open,
@@ -593,7 +492,49 @@ pub fn withdraw_proposal(
     })
 }
 
-/// The `close:` proposal retiring one paragraph this command wrote.
+/// The `close:` proposal retiring one finding record.
+///
+/// Keyed by [`crate::findings::Finding::id`] rather than by a sentence, which is the whole
+/// of what changed: the record survives an author rewriting every word of the node's prose,
+/// and the paragraph did not.
+///
+/// It says what it is doing and what it is not, exactly as its predecessor did: the finding
+/// stopped being reported, which is not the same event as somebody answering the question.
+pub fn close_record_proposal(
+    node: &str,
+    text: &str,
+    f: &crate::findings::Finding,
+) -> Option<Proposal> {
+    let content = crate::findings::remove(text, &f.id)?;
+    Some(Proposal {
+        verb: Verb::Close,
+        subject: format!(
+            "{} — the [{}] finding this question carried is gone",
+            stem(node),
+            f.check
+        ),
+        body: format!(
+            "{}\n\nThe [{}] finding this question carried is no longer reported at `{node}`. \
+             Removing finding `{}` retires the question `yidam propose` opened. It does not \
+             decide that the question was answered, and it never touches prose a person wrote.",
+            f.detail, f.check, f.id
+        ),
+        check: f.check.clone(),
+        node: node.to_string(),
+        detail: f.detail.clone(),
+        changes: vec![Change::Write {
+            path: node.to_string(),
+            content,
+        }],
+    })
+}
+
+/// The `close:` proposal retiring one paragraph an earlier release wrote.
+///
+/// **Legacy.** Questions are recorded structurally now — see [`close_record_proposal`] — and
+/// this path exists so that a corpus carrying paragraphs from before that can still have them
+/// retired. Removing it would strand every question opened by a released binary in the file
+/// it was written into, closable by nothing.
 ///
 /// It says what it is doing and what it is not: the finding stopped being reported, which is
 /// not the same event as somebody answering the question. Conflating them would be this
@@ -694,60 +635,26 @@ mod tests {
         assert!(uncited(&checks).is_empty());
     }
 
-    #[test]
-    fn a_paragraph_lands_at_the_end_of_the_description_and_nowhere_else() {
-        let para = paragraph("8d35441", "orphan-in", "nothing links to this node");
-        let out = append_to_description(NODE, &para).expect("block description");
-        let lines: Vec<&str> = out.split('\n').collect();
-        let at = lines.iter().position(|l| l.contains(MARKER)).unwrap();
-        let props = lines
-            .iter()
-            .position(|l| l.starts_with("properties:"))
-            .unwrap();
-        assert!(
-            at < props,
-            "the paragraph is inside the block, not after it:\n{out}"
-        );
-        assert!(lines[at].starts_with("  "), "it is indented into the block");
-        assert!(
-            out.contains("nothing links to this node"),
-            "the finding is carried verbatim"
-        );
-        assert!(out.contains("[open]"), "and it is tagged as a question");
-        // Every other line is untouched.
-        for original in NODE.split('\n').filter(|l| !l.trim().is_empty()) {
-            assert!(out.contains(original), "rewrote {original:?}");
-        }
-    }
-
-    /// A plain scalar is refused rather than converted. Rewriting it into a block would
-    /// reformat a line somebody wrote, and the diff would stop being reviewable.
-    #[test]
-    fn a_plain_scalar_description_is_refused() {
-        let node = "class: concept\ndescription: One line.\n";
-        assert!(append_to_description(node, "x").is_none());
+    /// A paragraph as a released binary actually wrote one.
+    ///
+    /// A literal fixture, not one this crate composes: the machinery that wrote these is
+    /// gone, and the point of what remains is to read what is already in derived corpora.
+    /// Building the fixture from surviving helpers would test the helpers against
+    /// themselves.
+    fn legacy(check: &str, detail: &str) -> String {
+        NODE.replace(
+            "properties:",
+            &format!(
+                "\n  {MARKER}8d35441 [{check}] — {detail}. What follows from that is\n  \
+                 unresolved here: `yidam propose` carries findings into the corpus and does\n  \
+                 not answer them. [open]\nproperties:"
+            ),
+        )
     }
 
     #[test]
-    fn a_paragraph_wraps_to_the_width_the_corpus_writes_at() {
-        let para = paragraph(
-            "8d35441",
-            "orphan-in",
-            "nothing links to this node — uncited since 2025-11-02, 214 commit(s)",
-        );
-        let out = append_to_description(NODE, &para).unwrap();
-        for line in out.split('\n') {
-            assert!(
-                line.chars().count() <= WRAP,
-                "over {WRAP} columns: {line:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_marked_paragraph_is_found_and_removed_and_leaves_the_node_as_it_was() {
-        let para = paragraph("8d35441", "orphan-in", "nothing links to this node");
-        let with = append_to_description(NODE, &para).unwrap();
+    fn a_legacy_paragraph_is_found_and_removed_and_leaves_the_node_as_it_was() {
+        let with = legacy("orphan-in", "nothing links to this node");
         let found = marked(&with);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].check, "orphan-in");
@@ -767,14 +674,12 @@ mod tests {
     }
 
     #[test]
-    fn two_marked_paragraphs_are_found_separately() {
-        let one = append_to_description(NODE, &paragraph("aaa1111", "orphan-in", "first finding"))
-            .unwrap();
-        let two = append_to_description(
-            &one,
-            &paragraph("bbb2222", "dangling-edge", "second finding"),
-        )
-        .unwrap();
+    fn two_legacy_paragraphs_are_found_separately() {
+        let one = legacy("orphan-in", "first finding");
+        let two = one.replace(
+            "properties:",
+            &format!("\n  {MARKER}bbb2222 [dangling-edge] — second finding. [open]\nproperties:"),
+        );
         let found = marked(&two);
         assert_eq!(found.len(), 2);
         assert_eq!(found[0].check, "orphan-in");

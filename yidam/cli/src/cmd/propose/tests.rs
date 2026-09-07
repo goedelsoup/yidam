@@ -359,10 +359,14 @@ fn a_withdrawal_also_edits_the_catalog_that_listed_the_node() {
     assert!(content.contains("cited.yml"), "the other citation stays");
 }
 
-/// A finding this command cannot draft for is reported, not dropped. A finding silently not
-/// proposed about is the failure mode the whole command exists to remove.
+/// A whole class of refusal that the record removed.
+///
+/// A node whose `description:` is a plain scalar could not take an appended paragraph
+/// without reformatting a line somebody wrote, so the finding about it was reported as
+/// skipped and carried nowhere. A record is not prose and does not care how the prose beside
+/// it is written, so the question now lands.
 #[test]
-fn a_node_with_a_plain_scalar_description_is_reported_as_skipped() {
+fn a_node_with_a_plain_scalar_description_can_now_be_asked() {
     let dir = repo();
     let root = dir.path();
     std::fs::write(
@@ -375,14 +379,19 @@ fn a_node_with_a_plain_scalar_description_is_reported_as_skipped() {
     commit(root, "revise: lonely says it on one line");
 
     let (proposals, skipped) = plan_at(root, None);
-    assert!(proposals.is_empty(), "{:?}", subjects(&proposals));
-    assert_eq!(skipped.len(), 1);
-    assert_eq!(skipped[0].node, ".yidam/corpus/concept/lonely.yml");
+    assert!(skipped.is_empty(), "{skipped:?}");
+    let p = proposals
+        .iter()
+        .find(|p| p.node == ".yidam/corpus/concept/lonely.yml")
+        .expect("the finding is carried");
+    let Some(crate::cmd::propose::Change::Write { content, .. }) = p.changes.first() else {
+        panic!("a write")
+    };
     assert!(
-        skipped[0].reason.contains("block scalar"),
-        "{}",
-        skipped[0].reason
+        content.contains("description: One line, not a block."),
+        "the author's line is untouched: {content}"
     );
+    assert_eq!(crate::findings::parse(content).len(), 1);
 }
 
 /// A finding the baseline forgives is debt the corpus already dispositioned, and re-raising

@@ -176,9 +176,15 @@ fn plan(
             continue;
         }
         let text = read(root, &e.node);
-        let already = asked
-            .entry(e.node.clone())
-            .or_insert_with(|| draft::marked(&text).into_iter().map(|m| m.check).collect());
+        // Records first, legacy paragraphs beside them: a corpus mid-migration carries both,
+        // and a question already asked in either form must not be asked again.
+        let already = asked.entry(e.node.clone()).or_insert_with(|| {
+            crate::findings::parse(&text)
+                .into_iter()
+                .map(|f| f.check)
+                .chain(draft::marked(&text).into_iter().map(|m| m.check))
+                .collect()
+        });
         if already.contains(&e.check) {
             continue;
         }
@@ -190,8 +196,8 @@ fn plan(
             None => skipped.push(Skipped {
                 check: e.check.clone(),
                 node: e.node.clone(),
-                reason: "its `description:` is not a block scalar, so a paragraph cannot be \
-                         appended without reformatting a line somebody wrote"
+                reason: "it already carries this finding, or has no YAML the record could be \
+                         written into"
                     .into(),
             }),
         }
@@ -200,7 +206,11 @@ fn plan(
     // ── open, on the sources themselves ─────────────────────────────────────
     for e in draft::eligible(checks, &licensed) {
         let text = read(root, &e.node);
-        if draft::marked(&text).iter().any(|m| m.check == e.check) {
+        if crate::findings::parse(&text)
+            .iter()
+            .any(|f| f.check == e.check)
+            || draft::marked(&text).iter().any(|m| m.check == e.check)
+        {
             continue;
         }
         match draft::open_source_proposal(head, &e, &text) {
@@ -208,8 +218,8 @@ fn plan(
             None => skipped.push(Skipped {
                 check: e.check.clone(),
                 node: e.node.clone(),
-                reason: "it has no closing frontmatter fence, so a paragraph cannot be \
-                         appended where a reader would find it"
+                reason: "it has no closing frontmatter fence, so the record cannot be written \
+                         where a reader would find it"
                     .into(),
             }),
         }
@@ -229,6 +239,25 @@ fn plan(
             continue;
         }
         let mut text = read(root, &node);
+        // Records, by id. A question whose prose an author rewrote is still closable, which
+        // is the failure the marker could not survive.
+        loop {
+            let Some(f) = crate::findings::parse(&text)
+                .into_iter()
+                .find(|f| !live.contains(&(f.check.clone(), node.clone())))
+            else {
+                break;
+            };
+            let Some(p) = draft::close_record_proposal(&node, &text, &f) else {
+                break;
+            };
+            text = match p.changes.first() {
+                Some(Change::Write { content, .. }) => content.clone(),
+                _ => break,
+            };
+            proposals.push(p);
+        }
+        // Legacy paragraphs, for a corpus carrying questions an earlier release wrote.
         // Re-read after each removal: a second marked paragraph's line numbers move when the
         // first one goes.
         loop {

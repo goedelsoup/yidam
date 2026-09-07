@@ -872,6 +872,17 @@ pub fn is_open_question(label: &str, text: &str, fields: &[String]) -> bool {
         // is not thereby an open question.
         || count_tag(&crate::markdown::mask_fenced(text), OPEN) > 0
         || count_structural(text, fields).open > 0
+        // A question `yidam propose` carried here. RFC-0020 put it where this predicate
+        // looks, deliberately, and moving it out of the prose must not move it out of view:
+        // the whole point of carriage is that somebody meets the finding on the node.
+        //
+        // **Discoverable here and not counted as a claim.** [`count_in_node`] does not read
+        // records, and that asymmetry is the correction rather than an oversight — *is this
+        // node carrying an open question* and *what does this corpus assert* are different
+        // questions, and the paragraph form could only answer them the same way.
+        || crate::findings::parse(text)
+            .iter()
+            .any(|f| f.standing.trim() == "open")
 }
 
 /// Past-tense transitive reporting verbs. A tag that is the object of one is being reported,

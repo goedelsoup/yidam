@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "contract": "0.13.0",
+  "contract": "0.14.0",
   "description": "The frozen MCP tool contract (RFC-0005). Names are bare — no `yidam_` prefix — because the server is already namespaced by its own name in every client that mounts one. `tier` is `core` (every server MUST back it) or a capability name (backed iff the server declares that capability true). This file is the only place the list lives; a harness that restates it is a second freeze, which is how three servers ended up sharing one name out of five capabilities. A TOOL A SERVER DOES NOT BACK MUST REFUSE, NOT MERELY GO UNLISTED (contract 0.11.1). Omitting an unbacked tool from `tools/list` and dispatching it anyway re-opens the hole the capability block exists to close, from the other side: the block is what lets a client learn the holes at connect time rather than through a tool-not-found error, and a server that answers a tool it has just said it does not serve has told a client two things at once. The refusal is an MCP tool error (`isError: true`) whose text begins `capability-not-supported`, and that token is frozen — `unknown tool` is a different repair, and a caller told it will go hunting for a spelling mistake in a name this file froze. It was unenforceable until a fixture corpus existed on which some tier goes unbacked; `corpora.json` ships one.",
   "capabilities": {
     "corpus": {
@@ -116,7 +116,7 @@
     {
       "name": "open_questions",
       "tier": "core",
-      "description": "All nodes flagged as open questions: label starts with \"?\", the body asserts an [open] claim, or a property the node's class declared as `type: claim` holds an open tag.",
+      "description": "All nodes flagged as open questions: label starts with \"?\", the body asserts an [open] claim, a property the node's class declared as `type: claim` holds an open tag, or the node carries a finding record under `yidam.findings` whose `standing` is `open` (contract 0.14.0). The fourth arm is a question a tool carried onto the node rather than a claim the corpus makes, and the distinction is load-bearing in one direction only: it IS an open question here, and it is NOT counted among the claims the corpus asserts. An implementation that counts it as a claim inflates a corpus's own tally with questions it did not raise, which is what the paragraph form this replaced did.",
       "inputSchema": {
         "type": "object",
         "properties": {}

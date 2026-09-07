@@ -38,8 +38,15 @@ concentrated in a place the tree already documents.
 > `universal.yml` declare `prose:`, the effective set is `{description} ∪ universal ∪ class`,
 > and `node-too-long`, `missing-description` and `yidam embed` all read it.
 > `CorpusInstance` keeps every top-level key rather than dropping it, and `description` is no
-> longer in the node schema's `required` list. §1.2 through §1.5 are unchanged and still
-> describe live state.
+> longer in the node schema's `required` list.
+>
+> **Phase 2 landed (#712).** §1.2 likewise describes what prompted the change. What is true
+> now: `propose` records a finding under the node's `yidam:` key with an `id` that is a digest
+> of the check and the finding's words, so a reworded question is still closable; the record is
+> **not** counted among the claims the corpus makes, and **is** still an open question on the
+> node (MCP contract 0.14.0). The splicing machinery is deleted; paragraphs an earlier release
+> wrote are still read and still closed. §1.3 through §1.5 are unchanged and still describe
+> live state.
 
 ### 1.1 The node, and the one field that is blessed
 
@@ -86,18 +93,18 @@ got the same treatment, which is why half its checks read a field that is not al
 `description` block. The paragraph's identity — the only thing that lets a later run find it
 again and close it — is a literal English string, [`MARKER`](../../yidam/cli/src/cmd/propose/draft.rs#L37).
 
-Reading it back out is line arithmetic over a block scalar:
-[`description_block`](../../yidam/cli/src/cmd/propose/draft.rs#L300) locates the block by scanning
-for a key whose value is a block-scalar sigil and measuring the indent of the line beneath it;
-[`append_to_description`](../../yidam/cli/src/cmd/propose/draft.rs#L338) splices; `marked` finds
-its own paragraphs by substring; `strip` removes one by index. That machinery has already been
-wrong in the case that always occurs:
+Reading it back out was line arithmetic over a block scalar: one function located the block by
+scanning for a key whose value is a block-scalar sigil and measuring the indent of the line
+beneath it, another spliced,
+[`marked`](../../yidam/cli/src/cmd/propose/draft.rs#L283) found its own paragraphs by
+substring, and [`strip`](../../yidam/cli/src/cmd/propose/draft.rs#L333) removed one by index.
+That machinery had already been wrong in the case that always occurs:
 
 > Stopping only on the blank was wrong in the one case that always occurs: an appended paragraph
 > is the last thing in `description:`, so the next non-blank line is `properties:` — and the
 > removal took the rest of the node with it.
 >
-> — [`draft.rs:410-412`](../../yidam/cli/src/cmd/propose/draft.rs#L410-L412)
+> — [`draft.rs:305-307`](../../yidam/cli/src/cmd/propose/draft.rs#L305-L307)
 
 Four consequences follow from identity-by-sentence, and none of them is a bug in the code that
 implements it:
