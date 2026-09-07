@@ -159,7 +159,7 @@ fn entry(
     let predicates: Vec<String> = parsed.steps[0]
         .filter
         .iter()
-        .map(|p| format!("{}{}{}", p.prop, p.op.as_str(), p.value))
+        .map(super::lang::Pred::spelled)
         .collect();
     if !predicates.is_empty() {
         return Absence {

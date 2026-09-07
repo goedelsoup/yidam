@@ -264,11 +264,7 @@ fn view(query: &lang::Query, checked: &check::Checked) -> Vec<StepView> {
         .map(|(index, step)| StepView {
             class: step.class.clone(),
             anchor: step.anchor.clone(),
-            predicates: step
-                .filter
-                .iter()
-                .map(|p| format!("{}{}{}", p.prop, p.op.as_str(), p.value))
-                .collect(),
+            predicates: step.filter.iter().map(lang::Pred::spelled).collect(),
             classes: checked.narrowed.get(index).cloned().unwrap_or_default(),
             hop: query.hops.get(index).map(|h| HopView {
                 relationship: h.relationship.clone(),
