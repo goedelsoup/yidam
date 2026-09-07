@@ -1802,10 +1802,12 @@
                 "description": "`divergent` is a question for a person, never a defect. `vintage` means the vendored prelude could not have produced the metric. `unmeasurable` means there was nothing to measure."
               },
               "declared": {
-                "type": "string"
+                "type": "string",
+                "description": "The band this metric declares, rendered in the SAME unit as `measured` \u2014 `12%\u201327%`, not `0.12\u20130.27`. The two halves of one comparison came from different renderers until #696, so a row read `declared 0.12\u20130.27  measured 12%` and the reader had to convert one of them to make the comparison the row is."
               },
               "measured": {
-                "type": "string"
+                "type": "string",
+                "description": "What this repository reads, and on divergence WHICH SIDE it fell on \u2014 `11.9% (below 12%)`. The verdict compares an `f64` and this is rounded, so without the relation a divergent row could render a value that reads as inside the band it is being reported outside of \u2014 and a consumer parsing this back and re-testing it against `declared` would reach the opposite verdict (#696). Higher precision shrinks that window and cannot close it: any finite precision has a value that rounds onto an endpoint from outside."
               },
               "question": {
                 "type": [

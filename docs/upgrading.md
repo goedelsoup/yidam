@@ -28,6 +28,20 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `kuten check` rows read in one unit, and a divergent row says which side
+
+A row read `declared 0.12–0.27  measured 12%` — two halves of one comparison, in two units.
+Worse, `12%` is inside `0.12–0.27` when you convert it, and the row was reporting divergence.
+
+**Who this affects.** Anyone reading `kuten check`, and any consumer parsing its JSON.
+
+**What changes.** Bands render in the value's unit: `declared 12%–27%`. Shares carry a decimal:
+`measured 11.9%`. A divergent value names the side it fell on: `11.9% (below 12%)`.
+
+**Why the last one.** The verdict compares a float and the display was rounded. So a divergent
+row could show a number that reads as inside its own band. Precision alone cannot close that;
+naming the side can.
+
 ### The `inquiry` kuten is at revision 2, and two bands are gone
 
 `nodes-per-commit` and `median-node-lines` measured how old a repository is, not how it works.

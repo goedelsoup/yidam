@@ -31,8 +31,11 @@ in `kuten.yml` under `measured.members`.
 
 | Slot | Band | Observed | What the six showed |
 |---|---|---|---|
-| `phases` | 12–27% | 12.50–26.23% | Commits settling a phase, among the nine repositories whose vendored prelude has the verb |
-| `vocabulary` | 0–2% | 0–1.64% | Off-vocabulary commits: four of them, in two of the six |
+| `phases` | 12%–27% | 12.50–26.23% | Commits settling a phase, among the nine repositories whose vendored prelude has the verb |
+| `vocabulary` | 0%–2% | 0–1.64% | Off-vocabulary commits: four of them, in two of the six |
+
+The bands are written here as `kuten check` renders them, so the table and the report cannot
+be read as quoting two different numbers.
 
 Two more stood here and were **retired at revision 2** — see below. They were fitted correctly
 to real measurements and were still claims about the wrong thing.

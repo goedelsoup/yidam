@@ -627,9 +627,30 @@ struct Metric {
     vintage: Option<VintageGate>,
     /// How the measured value is written for a reader.
     render: fn(f64) -> String,
+    /// How this metric's **band** is written, in the same unit as the value.
+    ///
+    /// Paired with [`Self::render`] rather than universal, which is the half of #696 that is
+    /// not about precision. A row read `declared 0.12–0.27  measured 12%` — two halves of one
+    /// comparison in two different units, because the band came from [`Band::describe`] and
+    /// the value from a per-metric renderer. That is still the fallback for a band no metric
+    /// owns; it is no longer what a metric's row is built from.
+    render_band: fn(Band) -> String,
     /// The question a person is asked when the value falls outside the band. Takes the
     /// rendered value and the rendered band.
     question: fn(&str, &str) -> String,
+}
+
+/// Which side of a band a divergent value fell on.
+///
+/// Rendered into `measured` on divergence, and it is what makes the row **provably** unable to
+/// contradict its own verdict. Precision alone cannot: `{:.2}` of 0.49999 is "0.50", and any
+/// finite precision has a value that rounds onto the endpoint from outside it. Sharpening the
+/// renderer shrinks the window by about 100x; saying *which side* closes it (#696).
+fn relation(band: Band, value: f64) -> &'static str {
+    match value < band.low {
+        true => "below",
+        false => "above",
+    }
 }
 
 /// A vintage precondition: whether it holds, and what to say when it does not.
@@ -640,7 +661,7 @@ struct VintageGate {
 
 impl Metric {
     fn read(&self, measured: Option<f64>) -> Finding {
-        let declared = self.band.describe();
+        let declared = (self.render_band)(self.band);
         if let Some(gate) = &self.vintage {
             if !gate.holds {
                 return Finding {
@@ -665,6 +686,21 @@ impl Metric {
         };
         let shown = (self.render)(value);
         let holds = self.band.holds(value);
+        // On divergence the value carries which side it fell on. `holds` compares the `f64`
+        // and `shown` is rounded, so without this a row could report a value that reads as
+        // inside the band it is being reported outside of — the table row and the prose
+        // question both, and `--format json` too, where a consumer parsing `measured` back and
+        // re-testing it reaches the opposite verdict (#696).
+        let measured = match holds {
+            true => shown.clone(),
+            false => format!("{shown} ({} {})", relation(self.band, value), {
+                let edge = match value < self.band.low {
+                    true => self.band.low,
+                    false => self.band.high,
+                };
+                (self.render)(edge)
+            }),
+        };
         Finding {
             slot: self.slot,
             metric: self.id,
@@ -673,9 +709,9 @@ impl Metric {
             } else {
                 Verdict::Divergent
             },
-            question: (!holds).then(|| (self.question)(&shown, &declared)),
+            question: (!holds).then(|| (self.question)(&measured, &declared)),
             declared,
-            measured: shown,
+            measured,
         }
     }
 }
@@ -745,8 +781,23 @@ fn question_pressure_finding(pressure: &QuestionPressure, m: &Measurement) -> Fi
     )
 }
 
+/// A share, as a reader meets it. One decimal, because the verdict compares an `f64`: at
+/// `{:.0}%` a phase share of 0.1151 rendered "12%" against a band whose floor is 12%, and the
+/// row reported a value that reads as inside the band it was being reported outside of.
+///
+/// One decimal shrinks that window by 10x rather than closing it — 0.11999 still renders
+/// "12.0%" — which is why [`Metric::read`] also names the side on divergence. Precision is the
+/// half that makes the number *useful*; the relation is the half that makes it honest.
 fn percent(v: f64) -> String {
-    format!("{:.0}%", v * 100.0)
+    format!("{:.1}%", v * 100.0)
+}
+
+/// A share band, in the unit its values are rendered in.
+///
+/// Whole percents: a band is a declaration somebody wrote, and `0.12` was written as *twelve
+/// percent*. The values carry the decimal because they are measurements.
+pub fn percent_band(b: Band) -> String {
+    format!("{:.0}%–{:.0}%", b.low * 100.0, b.high * 100.0)
 }
 
 // `two_places` and `lines` rendered the two `classes` values and went with them (#692). A
@@ -779,6 +830,7 @@ pub fn compare(profile: &Profile, m: &Measurement, vintage: &Vintage) -> Vec<Fin
                              ever have been settled with one",
                 }),
                 render: percent,
+                render_band: percent_band,
                 question: |got, want| {
                     format!(
                         "{got} of commits settle a phase, against {want}. Is this corpus still \
@@ -802,6 +854,7 @@ pub fn compare(profile: &Profile, m: &Measurement, vintage: &Vintage) -> Vec<Fin
                              here is outside it",
                 }),
                 render: percent,
+                render_band: percent_band,
                 question: |got, want| {
                     format!(
                         "{got} of commits use a verb outside the vocabulary, against {want}. Are \
@@ -1118,6 +1171,131 @@ mod tests {
             nodes: 80,
             median_node_lines: Some(48.0),
             open_questions: 6,
+        }
+    }
+
+    /// The live numbers from `allen-county-ohio` on 2026-09-07, as #696 records them, with the
+    /// phase count varied. 171 of 1,372 is 0.124636 and conforms; 164 is 0.119534 and diverges.
+    fn allen_county(phase_commits: usize) -> Measurement {
+        Measurement {
+            commits: 1372,
+            phase_commits,
+            off_vocabulary_commits: 2,
+            nodes: 683,
+            median_node_lines: Some(64.0),
+            open_questions: 448,
+        }
+    }
+
+    fn finding_for<'a>(f: &'a [Finding], metric: &str) -> &'a Finding {
+        f.iter()
+            .find(|f| f.metric == metric)
+            .unwrap_or_else(|| panic!("a `{metric}` finding"))
+    }
+
+    /// **The defect, at its sharpest.** One repository, two phase counts seven apart, opposite
+    /// verdicts — and at `{:.0}%` both rendered "12%". A reader given the report could not tell
+    /// the conforming reading from the divergent one, and neither could a consumer parsing
+    /// `measured` back out of the JSON.
+    ///
+    /// This is the assertion the precision half of #696 answers to: revert `percent` to `{:.0}%`
+    /// and it goes red.
+    #[test]
+    fn two_readings_with_opposite_verdicts_cannot_render_the_same_number() {
+        let profile = inquiry();
+        let divergent = compare(&profile, &allen_county(164), &current());
+        let conforming = compare(&profile, &allen_county(171), &current());
+
+        let a = finding_for(&divergent, "phase-commit-share");
+        let b = finding_for(&conforming, "phase-commit-share");
+        assert_eq!(a.verdict, Verdict::Divergent, "{a:?}");
+        assert_eq!(b.verdict, Verdict::Conforming, "{b:?}");
+        assert_ne!(
+            a.measured, b.measured,
+            "0.119534 and 0.124636 render alike, so the display has less resolution than the \
+             verdict and no reader can tell the two apart"
+        );
+        // And the number itself differs, not merely a suffix one of them carries.
+        let number = |f: &Finding| {
+            f.measured
+                .split_whitespace()
+                .next()
+                .expect("a rendered value")
+                .to_string()
+        };
+        assert_ne!(number(a), number(b), "{a:?} vs {b:?}");
+    }
+
+    /// A divergent row may not read as inside the band it is being reported outside of.
+    ///
+    /// Swept across #696's contradiction windows — the values where the rounded display lands
+    /// on or inside an endpoint the `f64` comparison put it outside. Precision alone cannot
+    /// close these: any finite precision has a value that rounds onto the endpoint from
+    /// outside. Naming the side does, so that is what is asserted.
+    #[test]
+    fn a_divergent_row_names_the_side_it_fell_on() {
+        let profile = inquiry();
+        // (phase commits, off-vocabulary commits, out of 10,000) — each pair puts exactly one
+        // metric just outside its band, inside the window where the rendering rounds inward.
+        let cases = [
+            ("phase-commit-share", 1195usize, 0usize, "below"),
+            ("phase-commit-share", 1199, 0, "below"),
+            ("phase-commit-share", 2701, 0, "above"),
+            ("phase-commit-share", 2704, 0, "above"),
+            ("off-vocabulary-share", 2000, 201, "above"),
+            ("off-vocabulary-share", 2000, 204, "above"),
+        ];
+        for (metric, phase_commits, off_vocabulary_commits, side) in cases {
+            let m = Measurement {
+                commits: 10_000,
+                phase_commits,
+                off_vocabulary_commits,
+                nodes: 5_000,
+                median_node_lines: Some(48.0),
+                open_questions: 40,
+            };
+            let f = compare(&profile, &m, &current());
+            let finding = finding_for(&f, metric);
+            assert_eq!(
+                finding.verdict,
+                Verdict::Divergent,
+                "the case has to be divergent or it tests nothing: {finding:?}"
+            );
+            assert!(
+                finding.measured.contains(side),
+                "a divergent row must name the side it fell on, or it reads as inside the band \
+                 it is reported outside of: {finding:?}"
+            );
+            // The question a person reads carries the same string, so the contradiction cannot
+            // survive in the prose after being fixed in the table.
+            assert!(
+                finding
+                    .question
+                    .as_deref()
+                    .is_some_and(|q| q.contains(side)),
+                "{finding:?}"
+            );
+        }
+    }
+
+    /// Both halves of a row are in one unit — in the struct, and so in the JSON, since this is
+    /// what `--format json` serializes. `declared 0.12–0.27  measured 12%` was two halves of
+    /// one comparison in two different units.
+    #[test]
+    fn both_halves_of_a_row_are_in_the_same_unit() {
+        let f = compare(&inquiry(), &allen_county(164), &current());
+        for finding in f.iter().filter(|f| f.slot != "question_pressure") {
+            assert!(
+                finding.declared.ends_with('%'),
+                "the band is a share: {finding:?}"
+            );
+            assert!(
+                finding.measured.contains('%'),
+                "and so is the value: {finding:?}"
+            );
+            let json = serde_json::to_value(finding).expect("a finding serializes");
+            assert_eq!(json["declared"], finding.declared, "{json}");
+            assert_eq!(json["measured"], finding.measured, "{json}");
         }
     }
 

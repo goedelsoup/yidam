@@ -187,8 +187,13 @@ fn list(items: &[String]) -> String {
     }
 }
 
+/// A share band in the `AGENTS.md` block's prose voice — `12% and 27%`, joined by "between".
+///
+/// The percents come from [`kuten::percent_band`] rather than from a second `{:.0}%` here, so
+/// the block and `check`'s table cannot come to quote one band two ways. The same band was
+/// rendering four different ways across the shipped surfaces before #696.
 fn share_band(b: kuten::Band) -> String {
-    format!("{:.0}% and {:.0}%", b.low * 100.0, b.high * 100.0)
+    kuten::percent_band(b).replace('–', " and ")
 }
 
 /// A profile's `gloss:` with a terminal stop, added only if it wrote none.
