@@ -40,7 +40,7 @@ The rule was unenforceable until a corpus existed on which some tier goes unback
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.14.0",
+    "contract": "0.15.0",
     "corpus": {
       "domain": "streamflow",
       "commit": "a1b2c3d",
@@ -70,6 +70,43 @@ to distinguish "not stale" from "a server too old to say".
 the vector index is loaded, which is the same fact `degraded` reports per call. A server that
 declares `vector: false` is promising every `retrieve` will come back `degraded: true`, with
 the `reason` it names here. `reason` is null exactly when `vector` is true.
+
+## The codes a client branches on (contract 0.15.0)
+
+`query`'s `rejected.code` set is frozen and this file says, in as many words, that a client
+branches on it. Until 0.15.0 it froze names no server has ever answered with.
+
+| the reference server emits | 0.14.0 froze |
+|---|---|
+| `undeclared-property` | `unknown-property` |
+| `unlicensed-hop` | `unlicensed-edge` |
+| `unsatisfiable-predicate` | *(nothing)* |
+| `anchor-across` | *(described, never enumerated)* |
+| — | `edge-target-class` |
+
+All three departing names are **lint check ids**. They are what `yidam lint` reports about a
+corpus *file*, borrowed into a vocabulary that is about a rejected *step*, and one string
+cannot mean both. `edge-target-class` is not even a near miss: a declared relationship toward
+the wrong class is rejected `unlicensed-hop`, so no query path ever reached it.
+
+The list moved to the server's names rather than the other way. That is a change to a frozen
+set, and it removes nothing a conforming server could produce — a client that implemented
+`unknown-property` held a branch that could not be taken, which is the same defect as a
+missing one, arriving from the side nobody inspects. The near misses are why it lasted nine
+contract versions: `unknown-property` and `undeclared-property` read as the same thing to a
+person and as different strings to a `match`, so the `else` arm — usually *unknown rejection*
+— is where a misspelled property name arrived.
+
+`anchor-at-revision` and `history-unreadable` are **not** frozen, and a server MUST NOT
+answer with them. Both are about a revision, and no MCP call supplies one: `at` is null for a
+server answering about its loaded corpus.
+
+**The enumeration in `tools.json` is read mechanically.** It stays in the `notes` paragraph,
+because a structured field beside the sentence would be a second freeze of one list — the
+failure this file's own description names. So the sentence beginning *the codes are the
+contract's own (* is load-bearing: a gate extracts the names from that parenthesis and
+compares them, in both directions, against what the CLI emits. Reword that clause and the
+gate says so.
 
 ## Querying a dependency, on request (contract 0.11.0)
 

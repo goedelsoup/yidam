@@ -352,7 +352,7 @@ fn run_scoped(root: &std::path::Path, text: &str, opts: &Options, across: bool) 
             text,
             check::Rejection {
                 step: None,
-                code: "anchor-unresolvable",
+                code: check::code::ANCHOR_UNRESOLVABLE,
                 message: format!("the similarity anchor needs the index, and it did not load: {e}"),
             },
             // The present tense: `run_scoped` is the working-tree path.
@@ -617,7 +617,7 @@ fn precheck(
 ) -> Result<lang::Query, check::Rejection> {
     let parsed = lang::parse(text).map_err(|e| check::Rejection {
         step: e.token,
-        code: "parse",
+        code: check::code::PARSE,
         message: e.message,
     })?;
 
@@ -635,7 +635,7 @@ fn precheck(
     {
         return Err(check::Rejection {
             step: Some(step),
-            code: "anchor-not-entry",
+            code: check::code::ANCHOR_NOT_ENTRY,
             message: "an anchor enters the graph, and only the first step is entered — this \
                       step is reached by a hop. Anchor the first step instead, or filter this \
                       one with a predicate."
@@ -652,7 +652,7 @@ fn precheck(
     if at_revision && parsed.steps.iter().any(|s| s.anchor.is_some()) {
         return Err(check::Rejection {
             step: Some(0),
-            code: "anchor-at-revision",
+            code: check::code::ANCHOR_AT_REVISION,
             message: "the vector index is built from one commit's text, so a similarity \
                       anchor cannot be resolved as of another. Enter at the class and filter \
                       with a predicate, or drop the revision."
@@ -671,7 +671,7 @@ fn precheck(
     if across && parsed.steps.iter().any(|s| s.anchor.is_some()) {
         return Err(check::Rejection {
             step: Some(0),
-            code: "anchor-across",
+            code: check::code::ANCHOR_ACROSS,
             message: "the vector index covers this repository's corpus and not its \
                       dependencies, so an anchored query cannot span them without entering \
                       through local text and answering with foreign rows. Enter at the class \
@@ -687,7 +687,7 @@ fn precheck(
     {
         return Err(check::Rejection {
             step: None,
-            code: "unknown-field",
+            code: check::code::UNKNOWN_FIELD,
             message: format!(
                 "`{bad}` is not a projectable field — {} or `properties.<name>`",
                 KNOWN_FIELDS.join(", ")
@@ -752,7 +752,7 @@ fn run_checked(
                         text,
                         check::Rejection {
                             step: Some(0),
-                            code: "anchor-unavailable",
+                            code: check::code::ANCHOR_UNAVAILABLE,
                             message: "this caller supplied no index, so a similarity anchor \
                                       cannot be resolved"
                                 .to_string(),
@@ -780,7 +780,7 @@ fn run_checked(
                             text,
                             check::Rejection {
                                 step: Some(0),
-                                code: "anchor-unresolvable",
+                                code: check::code::ANCHOR_UNRESOLVABLE,
                                 message,
                             },
                             ctx.at(),
@@ -1163,7 +1163,7 @@ pub enum Scope {
 fn history_unreadable(e: anyhow::Error) -> check::Rejection {
     check::Rejection {
         step: None,
-        code: "history-unreadable",
+        code: check::code::HISTORY_UNREADABLE,
         message: format!("{e:#}"),
     }
 }

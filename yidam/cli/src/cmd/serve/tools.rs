@@ -460,6 +460,22 @@ fn query(state: &ServerState, args: &Value) -> Result<Value, String> {
     // the one refactor RFC-0018 asked for, and this is the call site it was asked for.
     let ctx = crate::cmd::query::Context::now(graph, Some(&state.retrieval));
     let report = crate::cmd::query::run_on(&ctx, text, &opts);
+    // **Nothing translates the code, so the roster is what holds it frozen.** This function
+    // serialises the CLI's report verbatim, which is the right shape — a second answer to
+    // what a rejection is would be the `retrieve` mistake again — and it means `rejected.code`
+    // is whatever `cmd::query` wrote. That is how the contract and the server diverged for
+    // nine versions. The contract gate compares the two lists; this compares the value on the
+    // way out, so a code added to `check` and not to `code::SURFACED` fails here rather than
+    // reaching a client with no arm for it. `run_on` cannot reach the revision-only codes
+    // today — it is not the `--at` path — and that is precisely what this is here to keep true.
+    debug_assert!(
+        report
+            .rejected
+            .as_ref()
+            .is_none_or(|r| crate::cmd::query::check::code::SURFACED.contains(&r.code)),
+        "`query` answered `{:?}`, which the contract does not freeze",
+        report.rejected.as_ref().map(|r| r.code)
+    );
     serde_json::to_value(&report).map_err(|e| e.to_string())
 }
 
@@ -903,6 +919,8 @@ fn claim_tags() -> Value {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::super::tests::test_state;
     use super::*;
 
@@ -1401,6 +1419,108 @@ mod tests {
                 notes.contains(id),
                 "the contract does not name `{id}` — a client branching on the id this \
                  server answers with has nothing frozen to branch on"
+            );
+        }
+    }
+
+    /// The marker the `query` rejection enumeration is read out of.
+    ///
+    /// Reading a set out of a prose paragraph is not the shape a contract check wants, and
+    /// it is the shape this contract has: the enumeration lives in `notes` because that is
+    /// where an SDK author meets it, and restating it in a structured field beside the
+    /// sentence would be a second freeze of the same list — the failure `tools.json`'s own
+    /// description names. So the sentence is load-bearing rather than decorative, and this
+    /// marker is the part of it that may not be reworded without moving this constant.
+    const FROZEN_CODES: &str = "the codes are the contract's own (";
+
+    /// The rejection codes `tools.json` freezes for one tool, read out of its notes.
+    fn frozen_rejection_codes(contract: &Value, tool: &str) -> BTreeSet<String> {
+        let notes = contract["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == tool)
+            .and_then(|t| t["response"]["notes"].as_str())
+            .unwrap_or_else(|| panic!("{tool} documents its response"));
+        let open = notes.find(FROZEN_CODES).unwrap_or_else(|| {
+            panic!(
+                "`{tool}`'s notes no longer contain `{FROZEN_CODES}`. That sentence is where \
+                 the frozen rejection codes live and it is the only machine-readable copy of \
+                 them; reword it and nothing compares the contract to the server again."
+            )
+        }) + FROZEN_CODES.len();
+        let close = notes[open..]
+            .find(')')
+            .expect("the frozen code enumeration closes its parenthesis")
+            + open;
+        notes[open..close]
+            .split('`')
+            .skip(1)
+            .step_by(2)
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// The rejection codes the contract freezes are the ones `query` answers with.
+    ///
+    /// Read in both directions, because the two failures are different and both are silent.
+    /// A code the server emits and the contract does not freeze arrives at a client that was
+    /// told to branch on `rejected.code` and has no arm for it, so a typo'd property name
+    /// comes back as an unclassified failure to the exact caller the code set exists to
+    /// serve. A name the contract freezes and no server emits is worse the other way: it is
+    /// a branch a client wrote, that compiles, that is never taken, and that nothing can
+    /// distinguish from a case that has not come up yet.
+    ///
+    /// This went unnoticed for nine contract versions because three of the frozen names were
+    /// borrowed from lint's vocabulary — `unknown-property`, `unlicensed-edge` and
+    /// `edge-target-class` are check ids, and two of the three are one word away from a code
+    /// `query` really answers with.
+    #[test]
+    fn the_contract_freezes_the_rejection_codes_query_answers_with() {
+        use crate::cmd::query::check::code;
+
+        let frozen = frozen_rejection_codes(&contract(), "query");
+        let surfaced: BTreeSet<String> = code::SURFACED.iter().map(|c| (*c).to_string()).collect();
+
+        let unfrozen: Vec<&String> = surfaced.difference(&frozen).collect();
+        assert!(
+            unfrozen.is_empty(),
+            "`query` answers with {unfrozen:?} and the contract freezes no such code — a \
+             client branching on `rejected.code` reaches its `else` arm on a rejection this \
+             server considers routine"
+        );
+
+        let unemitted: Vec<&String> = frozen.difference(&surfaced).collect();
+        assert!(
+            unemitted.is_empty(),
+            "the contract freezes {unemitted:?} and no rejection carries it — a client that \
+             implemented the list as written has a branch that is never taken"
+        );
+    }
+
+    /// A revision-only code is not frozen, and the contract must not name one.
+    ///
+    /// `anchor-at-revision` and `history-unreadable` answer `--at` and `--between`, and the
+    /// MCP surface supplies neither — the contract's `at` is null for a server answering
+    /// about its loaded corpus. Freezing them would put two more never-taken branches in a
+    /// client's `match`, which is the half of this that is hardest to notice.
+    ///
+    /// **Not implied by the test above.** That one asserts the two lists agree, and would
+    /// stay green if a revision-only code were added to `SURFACED` and to the contract
+    /// together — which is the shape the mistake actually takes, because the repair for a
+    /// failing comparison is to add the missing name to the other side. This says which side
+    /// that repair is wrong on.
+    #[test]
+    fn the_contract_does_not_freeze_a_code_only_the_cli_can_answer() {
+        use crate::cmd::query::check::code;
+
+        let frozen = frozen_rejection_codes(&contract(), "query");
+        for cli_only in [code::ANCHOR_AT_REVISION, code::HISTORY_UNREADABLE] {
+            assert!(
+                !frozen.contains(cli_only),
+                "the contract freezes `{cli_only}`, which is reachable only through `--at` \
+                 or `--between` — no MCP call can supply either, so the code is a branch no \
+                 client will ever take"
             );
         }
     }
