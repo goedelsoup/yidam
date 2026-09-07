@@ -64,7 +64,9 @@ The system encompasses several surfaces:
 
 **Ink** is the primary neutral — a warm, slightly brown-tinted gray scale that evokes aged paper and careful ink. Use for text, borders, and most UI surfaces. See `tokens/colors.css`.
 
-**Gold** (`--gold-500: #b88a00`) is the primary accent. Used sparingly and deliberately: primary buttons, active states, the mark in the logo, earned emphasis. It connotes value and permanence.
+**Gold** (`--gold-500: #b88a00`) is the primary accent. Used sparingly and deliberately: primary buttons, active states, earned emphasis. It connotes value and permanence.
+
+Not the logo, though it was until the mark was redrawn. `--gold-500` on `--ink-0` measures 2.97:1, and the mark has to hold at 16px in a browser tab, where it cannot spend contrast it does not have. The logo is monochrome ink.
 
 **Rigpa blue** (`--rigpa-500: #2d6ac8`) signals settled understanding — resolved states, links, and the `rigpa/*` branch type. Cool, stable, trustworthy.
 
@@ -93,8 +95,8 @@ Tokens that change per theme: `--surface-accent`, `--surface-base` (kal only), `
 ### Typography
 
 Four families, each carrying meaning:
-- **Cormorant Garamond** — display headings, titles, the wordmark. Scholarly and elegant. Use at 24px+ with generous line-height.
-- **Spectral** — body prose, node content, long-form text. Highly readable serif. Use at 14–18px.
+- **Cormorant Garamond** — display headings and titles. Scholarly and elegant. Use at 24px+ with generous line-height, which is also why it is not the wordmark: at 22px tall it holds 37.5% of its ink above half opacity against Spectral's 47.0%.
+- **Spectral** — body prose, node content, long-form text, and the wordmark. Highly readable serif. Use at 14–18px.
 - **DM Sans** — UI labels, controls, navigation, metadata. Clean and neutral. Use at 11–16px.
 - **IBM Plex Mono** — node paths, branch refs, commit hashes, code. Precise and technical. Use at 11–14px.
 
@@ -196,10 +198,13 @@ tokens/                 ← design tokens
   motion.css
   semantic.css
   fonts.css
-assets/
-  logo.svg              ← full logo (mark + wordmark)
+assets/                 ← generated; run `mise run mark-generate`, never hand-edit
+  logo.svg              ← full lockup (mark + wordmark)
+  logo-dark.svg         ← the same, for a dark ground
   logo-mark.svg         ← mark only
-  wordmark.svg          ← text only
+  logo-mark-dark.svg    ← mark only, for a dark ground
+  wordmark.svg          ← outlined text only
+  wordmark-dark.svg     ← the same, for a dark ground
 guidelines/             ← foundation specimen cards (@dsCard)
 components/
   core/                 ← Button, Badge, Tag, Card, Avatar
