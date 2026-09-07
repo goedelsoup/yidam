@@ -8,7 +8,7 @@
   - RFC-0020 (whose `propose` writes findings into prose; this changes where they land, not what they may say)
   - RFC-0030 (whose `yidam edit` is the first surface that could supply node validation without an editor extension — see §3)
 - **Versioning layers touched:** template / SDK+parity / tooling. **Phase 1 and 2 touch no on-disk format.** Phase 3 does, and was deliberately gated behind a measurement.
-- **Amended 2026-09-07:** Phases 1 and 2 have landed (#711, #712). The measurement §3.1 required has run (#713) and **Phase 3 is declined**; §3.2 carries the result and the per-corpus table it rests on.
+- **Amended 2026-09-07:** Phases 1 and 2 have landed (#711, #712) and #714 closed the second node model. The measurement §3.1 required has run (#713) and **Phase 3 is declined**; §3.2 carries the result and the per-corpus table it rests on. That measurement also found the prose Phase 1 cannot reach, which is now **§4**.
 - **Downstream reference case:** `goedelsoup/ohio-education-funding` (#674, 129 nodes), and the repository behind #587 (1,972 links)
 
 ## Summary
@@ -38,6 +38,13 @@ carrying what §3 said it was. But two thirds of nodes keep prose in *nested* pr
 so a node in Markdown form is still a YAML document with block scalars in it: 13.25% of served
 claims still depend on the block-scalar handling the move was meant to retire, against 22.68%
 today. §3.2 is the record.
+
+What it found instead is §4. Prose is not only in the keys Phase 1 taught the ontology to
+declare: 68.6% of nodes keep a block scalar nested inside another key, most of it under
+`properties`, and it is 4.5 times the coined top-level prose Phase 1 was built for. Everything
+that reads prose misses it, including the embedder; the claim counter, which reads bytes, never
+did. That is §1.2's disagreement again, one level down, and the fix is one flag on a property
+declaration rather than a format.
 
 ## Problem
 
@@ -470,6 +477,93 @@ called by nothing. If Phase 3 is declined, `parse_instance` is built as RFC-0013
 against the real format rather than deleted. RFC-0013's status is corrected in the same change,
 because a document recorded `Implemented` that specifies two functions nobody wrote is the
 premise every future reader will build on.
+
+### 4. Phase 4 — the prose Phase 1 still cannot reach
+
+Found by the measurement that declined Phase 3, and larger than the thing Phase 1 was built for.
+
+**Prose is not only in top-level keys.** Over the same sixteen corpora and 2,763 tracked nodes,
+**1,895 of them — 68.6% — hold a block scalar nested inside another key**, 3,625 such keys in
+all. Six corpora do it on every node they have. It is 1,296,713 bytes: **14.5% of all node
+bytes, and 18.2% of every block scalar a corpus writes.**
+
+For scale against Phase 1: the coined *top-level* prose keys that motivated `prose:` —
+`summary`, `findings`, one `analytic` — are **3.2%** of node bytes across the population. Nested
+prose is **4.5 times that**, and it is in twelve more corpora.
+
+| where it lives | share of measured nested prose |
+|---|---|
+| `properties.<key>` | **83%** |
+| a key nested under a coined top-level key — `revisions.was`, `unfilled.why` | 12% |
+| `links.<key>` — `note`, `because` | 5% |
+
+The single largest is `properties.method`, a block scalar on **341 nodes** across 214 KB. Then
+`properties.source_document` (322), `properties.reporting_source` (261),
+`properties.seeded_because` (109), `properties.verbatim` (71).
+
+**And it reopens §1.2's complaint one level down.** [`claims.rs`](../../yidam/cli/src/claims.rs)
+scans the file's bytes, so it has always counted claims inside `properties.method`. Everything
+that reads *prose* reads the declared set, which is top-level only. So the two families
+disagree again, for the same reason and about a different fifth of the corpus:
+
+- `node-too-long` measures the declared set against a class's ceiling.
+- `missing-description` asks whether any declared field carries prose, and a node whose
+  entire substance is a `properties.verbatim` transcription answers *no*.
+- `embed` composes a node's text from its label, its declared prose, and the names of the
+  nodes it links to, and from nothing else — the composition is
+  [`embed.rs:85`](../../yidam/cli/src/cmd/embed.rs#L85). So `properties.method`'s 214 KB is in
+  no embedding anywhere, and a query that would have matched it cannot.
+
+#### 4.1 The declaration already exists
+
+A class declares each property by name, type, description and `required`. Prose-ness is one
+more thing a property declaration can say:
+
+```yaml
+properties:
+  - name: method
+    type: string
+    prose: true
+    description: How the figure was computed.
+```
+
+`prose: true`, absent meaning false, inheriting `required`'s argument verbatim — *"every corpus
+written before this field existed was written under a schema where the question could not be
+asked"* — [`ontology.rs:66-75`](../../yidam/prelude/sdks/rust/src/ontology.rs#L66-L75).
+`ProseFields` gains a second axis, `prose::of` walks `properties` for the names a class flagged,
+and every consumer above gets the same answer without learning a new shape.
+
+**Not a dotted path in the existing `prose:` list.** `prose: [description, properties.method]`
+is one mechanism instead of two and reaches everything — including `links.note` and
+`revisions.was`, which a *class* has no standing to declare. `links` is the corpus's edge
+vocabulary and #587 owns it; `revisions` is a key the class contract never described at all. A
+syntax that lets a class declare prose in a structure it does not own buys 17% of the nested
+bytes and an authority question this RFC has not argued.
+
+**Not `type: prose`.** The ontology's `type` is what a value *is* — string, date, claim — and
+prose-ness is orthogonal to that: `properties.method` is a string, and so is
+`properties.identifier`. Folding the two would also change what `compile_class_schema` emits,
+which is a parity function in three SDKs. A flag beside `type` changes nothing the schema
+compiler reads.
+
+#### 4.2 What it costs, measured
+
+**A ceiling that has been counting a fifth of the node.** Only two of the sixteen corpora
+declare `max_lines` at all. In the one that does across thirteen classes, 694 nodes are subject
+to a ceiling: **60 exceed it today, and 93 would if nested prose counted** — 33 more, a 55%
+increase, median +2 lines and at most +54. That is a gate arriving in a corpus that never
+agreed to it, which is the objection #367 settled `max_lines` on in the first place. The answer
+is the same one: the ceiling is per class and already unset by default, so a corpus adopting
+`prose: true` re-reads its own ceilings in the same commit.
+
+**Re-embedding.** Node text is what an index is built from, and `embed.rs` records the rule —
+a changed composition *"would silently invalidate every existing index."* Any corpus that flags
+a property re-embeds. That is the point of the change rather than a side effect, and it should
+be a visible step rather than a silent drift.
+
+**What it does not reach**, and this is stated so nobody reads the phase as complete: `links.*`
+and prose nested under a coined top-level key, together 17% of measured nested prose. The first
+is #587's; the second needs a class contract to describe a key it currently does not.
 
 ## What this does not touch
 
