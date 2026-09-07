@@ -22,6 +22,22 @@ that govern conduct here and the gate that CI runs.
   commits (a pipeline ran) are written in visibly different styles and never mixed.
 - **`.yidam/.vendor/` is read-only.** Fix prelude defects by re-vendoring
   (`mise run yidam-vendor-update`), never by editing in place.
+- **Read the corpus with `yidam`, not with `grep`.** It is a typed graph and `grep` is a text
+  tool; see below.
+
+## Before writing
+
+```
+yidam due                        # what is owed — stale index, expired sources, open questions
+yidam query 'a -rel-> b'         # a typed path over the graph; says why an empty answer is empty
+yidam neighbors <class>/<node>.yml   # one node's neighbourhood
+yidam pack '<query>' --budget 4000   # that answer as prose, filled to a budget
+```
+
+The loop is **find a gap → retrieve → correct → settle a phase**, and the first two steps are
+these. `grep` finds a string; `query` finds a node, an edge, or a coverage gap — and when it
+matches nothing it says *which kind* of nothing, which a zero-hit `grep` cannot. Full surface:
+[reading the corpus](../.yidam/.vendor/prelude/guidelines/reading-the-corpus.md).
 
 ## Before committing
 

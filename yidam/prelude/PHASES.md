@@ -18,9 +18,10 @@ accountability beyond the individual commit.
 ## Phase types
 
 **Investigation** — An agent explores a question using connectors and calculators. It reads
-the corpus, queries external sources, and produces findings. Output: new corpus nodes, new
-catalog edges, updated open-question nodes. The investigation → distill → commit cycle is
-the standard pattern.
+the corpus — with `yidam query`, `neighbors` and `pack`, not with `grep`; see
+[Reading the corpus](guidelines/reading-the-corpus.md) — queries external sources, and
+produces findings. Output: new corpus nodes, new catalog edges, updated open-question nodes.
+The investigation → distill → commit cycle is the standard pattern.
 
 **Extraction** — Structured data is pulled from a primary source and committed as corpus
 nodes. Output: validated authored or generated nodes linked to catalog entries. Extraction
@@ -33,6 +34,17 @@ knowledge contribution — it can be the primary output of a branch.
 **Assessment** — Competing hypotheses are evaluated against evidence. Output: hypothesis
 nodes updated with evidence cells, open questions narrowed or closed. Assessment phases
 often follow a period of investigation and extraction.
+
+## Where a phase starts
+
+Every phase type above opens by reading, and reading the corpus is a step with commands rather
+than a disposition. `yidam due` says what is owed; `yidam query` finds the gap and, when it
+matches nothing, says *which kind* of nothing — a class nobody has written into, a class with
+instances that lack the value, a relationship nothing authors. That is what an investigation
+is looking for, and a `grep` returning zero lines reports none of it.
+
+[Reading the corpus](guidelines/reading-the-corpus.md) is the surface. The input state a phase
+declares is what those commands answered.
 
 ## Phase discipline
 
