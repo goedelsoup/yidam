@@ -175,6 +175,39 @@ deliberate.
 declarations of one property's `type` contradict each other. Two declarations that a key holds
 prose agree, so there is nothing for the more specific one to win.
 
+### Prose in a property
+
+A fifth of what corpora write is not at the top level at all. Measured over sixteen corpora and
+2,763 nodes: **1,895 of them — 68.6% — hold a block scalar nested inside another key**, and 83%
+of that sits under `properties:`. A `method`, a `verbatim`, a `location_description` is the
+node saying something, and nothing that read prose could see it.
+
+So a property declaration says whether its value is prose:
+
+```yaml
+# <class>.ont.yml
+properties:
+  - name: method
+    type: string
+    prose: true
+    description: How the figure was computed.
+```
+
+**Absent means false**, for the reason `required:` absent means false: a corpus written before
+the field existed never had the chance to say. Flagging one is what a corpus does when the
+substance is there, and it is per class — there is no universal property, because a property
+belongs to the class that declared it.
+
+**It is a flag beside `type:`, not a type.** Prose-ness is orthogonal to what a value *is*:
+`method` and `identifier` are both strings. A `type: prose` would also change the compiled
+class schema, which three SDKs are held to.
+
+**What changes when you flag one.** `node-too-long` counts those lines — on one public corpus,
+flagging 14 property declarations took it from 58 findings to 94, which is the length the nodes
+always were. `missing-description` stops reporting a node whose whole substance is a
+transcription in a property. And `yidam embed` composes it, so **re-run `yidam index-build`**:
+on that same corpus the flag adds 10.4% more prose and changes the text of 380 nodes of 694.
+
 **`description` is always in the set**, including for a class that declares `prose:` and omits
 it. Silence is not a contract, here as everywhere: naming `findings` says findings is prose,
 and never said *and description is not*. Reading it as the second would let one added line

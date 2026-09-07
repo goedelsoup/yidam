@@ -83,8 +83,8 @@ author to move prose *into*. None of them is on `CorpusInstance`, so all of them
 dropped by every consumer of the parsed node.
 
 That is not a tidiness complaint, because two families of check disagree as a result.
-[`node_too_long`](../../yidam/cli/src/cmd/lint/checks.rs#L1303) reads the parsed field — the
-comment at [`checks.rs:1287-1292`](../../yidam/cli/src/cmd/lint/checks.rs#L1287-L1292) is explicit
+[`node_too_long`](../../yidam/cli/src/cmd/lint/checks.rs#L1321) reads the parsed field — the
+comment at [`checks.rs:1305-1310`](../../yidam/cli/src/cmd/lint/checks.rs#L1305-L1310) is explicit
 that this is the intent — while [`count_in_node`](../../yidam/cli/src/claims.rs#L813) takes the
 file's whole text. Two definitions of *the node's prose* inside one binary, and #674 measures the
 gap on a real corpus: median 118 lines read as the file, 21 read as `description`, 34 read as
@@ -314,7 +314,7 @@ node model that products would, for the first time, actually run.
    > The catalog schema describes frontmatter inside markdown, which yaml-language-server cannot
    > apply to a .md file
    >
-   > — [`schema.rs:534-536`](../../yidam/cli/src/cmd/schema.rs#L534-L536)
+   > — [`schema.rs:553-555`](../../yidam/cli/src/cmd/schema.rs#L553-L555)
 
    Every compiled per-class schema is delivered through `yaml.schemas`. Under Markdown nodes,
    none of them reaches a node in a third-party editor. This is the strongest argument against,

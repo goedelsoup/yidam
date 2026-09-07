@@ -230,6 +230,24 @@ pub struct ClassProperty {
     /// corpus that never agreed to it, which is #257 from the other direction.
     #[serde(default)]
     pub required: bool,
+    /// Whether this property's value is prose (#746).
+    ///
+    /// **A fifth of what a corpus writes is here and nothing that reads prose could see it.**
+    /// Measured over sixteen corpora and 2,763 nodes: 1,895 of them — 68.6% — carry a block
+    /// scalar nested inside another key, 14.5% of all node bytes, and 83% of that sits under
+    /// `properties`. `properties.method` alone is a block scalar on 341 nodes across 214 KB.
+    /// [`crate::claims`] scans the file's bytes and has always counted claims in there; every
+    /// check that reads *prose* read the top level only, so `node-too-long` measured a fifth
+    /// less than the node, `missing-description` answered *no prose* about a node whose whole
+    /// substance is a `properties.verbatim` transcription, and `embed` put none of it in an
+    /// embedding.
+    ///
+    /// **Absent means false**, for [`Self::required`]'s reason exactly. It is also why this is
+    /// a flag beside `type` rather than a type of its own: prose-ness is orthogonal to what a
+    /// value *is* — `method` and `identifier` are both strings — and a `type: prose` would
+    /// change what `compile_class_schema` emits, which is a parity function in three SDKs.
+    #[serde(default)]
+    pub prose: bool,
 }
 
 /// One relationship a class declares.
@@ -990,7 +1008,7 @@ pub fn missing_label(nodes: &[Node]) -> Check {
 pub fn missing_description(nodes: &[Node], prose: &crate::prose::ProseFields) -> Check {
     let violations = nodes
         .iter()
-        .filter(|n| crate::prose::of(&n.inst, prose.for_class(&class_of(n))).is_empty())
+        .filter(|n| crate::prose::of(&n.inst, prose, &class_of(n)).is_empty())
         .map(|n| {
             let fields = prose.for_class(&class_of(n));
             Violation::new(
@@ -1314,13 +1332,15 @@ pub fn node_too_long(
         let Some(max) = class.max_lines else {
             continue;
         };
-        // The parsed prose, which `CorpusInstance` holds apart from `properties` and
-        // `links` — so the thing measured is the thing the ceiling is about. **Every
-        // declared prose field and not `description` alone**: a corpus writing `summary`
-        // and `findings` was measured at 21 lines against a true 34 (#674), which charged
-        // the ceiling to the one field this struct happened to name.
-        let fields = prose.for_class(&class_of(n));
-        let text = crate::prose::text(&n.inst, fields);
+        // Every declared prose field and not `description` alone: a corpus writing
+        // `summary` and `findings` was measured at 21 lines against a true 34 (#674), which
+        // charged the ceiling to the one field the struct happened to name.
+        //
+        // **And the properties a class flagged, since #746.** The top-level reading missed
+        // 14.5% of what the measured corpora write — a fifth of all block-scalar prose, most
+        // of it under `properties` — so a ceiling read a node shorter than it is. Where that
+        // changes a verdict it is because the node was always that long.
+        let text = crate::prose::text(&n.inst, prose, &class_of(n));
         if text.is_empty() {
             continue;
         }
@@ -4475,13 +4495,82 @@ mod tests {
 
     /// The declared set, for a class that names prose keys beyond `description`.
     fn declaring(class: &str, keys: &[&str]) -> crate::prose::ProseFields {
+        declaring_with(class, keys, &[])
+    }
+
+    /// The same, for a class that also flags properties as prose.
+    fn declaring_with(
+        class: &str,
+        keys: &[&str],
+        properties: &[&str],
+    ) -> crate::prose::ProseFields {
         crate::prose::ProseFields::from_declarations(
             Vec::new(),
-            [(
-                class.to_string(),
-                keys.iter().map(|k| (*k).to_string()).collect(),
-            )],
+            [crate::prose::Declaration {
+                class: class.to_string(),
+                keys: keys.iter().map(|k| (*k).to_string()).collect(),
+                properties: properties.iter().map(|p| (*p).to_string()).collect(),
+            }],
         )
+    }
+
+    /// #746, in one assertion: a fifth of what the corpora write is under `properties`, and
+    /// the ceiling was reading past it. `properties.method` is a block scalar on 341 nodes
+    /// across 214 KB in the measured population, and none of it counted.
+    #[test]
+    fn a_flagged_property_counts_toward_the_ceiling() {
+        let n = node(
+            "measure/m.yml",
+            "class: measure\nlabel: L\ndescription: |\n  one\n  two\nproperties:\n  method: |\n    three\n    four\n    five\n",
+        );
+        let classes = [capped("measure", Some(4))];
+        assert!(
+            node_too_long(
+                std::slice::from_ref(&n),
+                &classes,
+                &declaring("measure", &[])
+            )
+            .passed(),
+            "unflagged, the node reads as two lines and is under the ceiling"
+        );
+        let c = node_too_long(
+            std::slice::from_ref(&n),
+            &classes,
+            &declaring_with("measure", &[], &["method"]),
+        );
+        assert_eq!(
+            c.violations.len(),
+            1,
+            "flagged, it is five lines against four"
+        );
+        assert!(
+            c.violations[0].detail.contains("5 lines of prose"),
+            "reports what it measured: {}",
+            c.violations[0].detail
+        );
+    }
+
+    /// A node whose entire substance is a transcription in a property is not a node with
+    /// nothing said about it — which is what `missing-description` reported before #746.
+    #[test]
+    fn a_node_whose_only_prose_is_a_flagged_property_is_not_missing_one() {
+        let n = node(
+            "measure/m.yml",
+            "class: measure\nlabel: L\nproperties:\n  verbatim: |\n    What the record says.\n",
+        );
+        assert!(
+            !missing_description(std::slice::from_ref(&n), &declaring("measure", &[])).passed(),
+            "unflagged, the property is invisible and the node reads as saying nothing"
+        );
+        assert!(
+            missing_description(
+                std::slice::from_ref(&n),
+                &declaring_with("measure", &[], &["verbatim"])
+            )
+            .passed(),
+            "flagged, the corpus has said what it knows and reporting it would use a \
+             vocabulary the corpus declared"
+        );
     }
 
     /// #674, in one assertion: the same node measures 3 lines or 7 depending on whether the
