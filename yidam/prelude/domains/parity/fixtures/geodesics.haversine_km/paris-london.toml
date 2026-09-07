@@ -1,5 +1,5 @@
 function = "geodesics.haversine_km"
-description = "Paris to London ≈ 341.55 km"
+description = "Paris to London ≈ 343.56 km"
 
 [input]
 lat1 = 48.8566
@@ -8,4 +8,8 @@ lat2 = 51.5074
 lon2 = -0.1278
 
 [expected]
-km = 341.5495678109161
+# Full precision, not 343.56: this domain compares with EPSILON = 1e-4, which is a
+# tolerance on kilometres — 10 cm — and a two-decimal literal is 3.9 m out. That
+# tightness is what caught the previous value here, which was 2 km wrong and implied
+# an Earth radius of 6333.79 km (#683).
+km = 343.55606034104164
