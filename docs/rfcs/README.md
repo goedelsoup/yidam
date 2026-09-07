@@ -61,6 +61,7 @@ re-deriving it.
 | [0028](0028-kuten-layer.md) | I23 | The form a practice takes — the kuten layer | Accepted |
 | [0029](0029-write-tier.md) | I24 | A write is a capability a server declares, not a transport it happens to have — the MCP write tier | Accepted |
 | [0030](0030-standalone-editor.md) | I25 | The surface is beside the binary, and earns a version (`yidam-edit`) | Draft |
+| [0031](0031-node-prose-model.md) | I26 | A node's prose is not one field, and a finding is not a sentence — the node prose model | Draft |
 
 ## Reading order
 
