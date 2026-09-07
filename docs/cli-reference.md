@@ -133,6 +133,15 @@ The range is required, as `diff`'s is. A default range answers about a scope nob
 **The criteria come from the kuten's `rubric` slot.** Where a repository holds no kuten, the
 template's own criteria are used. The report says which, every time.
 
+It also says *why*. The report names one of four states:
+
+- the criteria are the corpus's own;
+- the repository holds no kuten;
+- the range ends before the adoption the repository now holds;
+- a kuten is declared and no profile is vendored for it.
+
+The last is a warning, the same one `kuten check` and `doctor` give.
+
 `--brief` adds four questions a person answers. Nothing scores them.
 
 **It writes nothing and exits zero however it reads.** A kuten binds nobody. A score that gated

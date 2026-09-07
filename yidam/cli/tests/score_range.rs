@@ -213,6 +213,30 @@ fn revised() -> tempfile::TempDir {
     tmp
 }
 
+/// The field's shape: a history that adopts in its **last** commit.
+///
+/// Both repositories that adopted on day one did so in the last two commits of 1,300-commit
+/// histories, so almost every range a maintainer would score ends before the `decide:`. The
+/// range scored below is exactly that, and it is the case #695 found reporting *"this
+/// repository holds no kuten"* about a repository holding one.
+fn adopts_at_the_tip() -> tempfile::TempDir {
+    let tmp = adopting();
+    let dir = tmp.path();
+    let profile = repo_root().join("yidam/prelude/kuten/inquiry/kuten.yml");
+    write(
+        dir,
+        ".yidam/.vendor/prelude/kuten/inquiry/kuten.yml",
+        &std::fs::read_to_string(&profile).expect("the shipped profile"),
+    );
+    write(
+        dir,
+        ".yidam/decisions/kuten.yml",
+        "kuten: inquiry\nrevision: 1\n",
+    );
+    commit(dir, "decide: this corpus practises inquiry");
+    tmp
+}
+
 struct Run {
     stdout: String,
     stderr: String,
@@ -474,12 +498,75 @@ fn a_range_inside_one_revision_is_scored_and_names_the_practice() {
     let repo = revised();
     let report = json(repo.path(), &["HEAD~2..HEAD~1"]);
     assert_eq!(report["score"]["held"], true);
+    assert_eq!(report["score"]["source"], "kuten");
     assert_eq!(report["score"]["kuten"], "inquiry");
     assert_eq!(report["score"]["revision"], 1);
+    assert_eq!(report["score"]["declared"]["name"], "inquiry");
+    // A fact about now, and this range is what the repository still holds — so nothing to say.
+    assert_eq!(report["score"]["holds_now"], serde_json::Value::Null);
     let got: Vec<String> = rows(&report).into_keys().collect();
     let mut want = criteria();
     want.sort();
     assert_eq!(got, want);
+}
+
+/// **The case the field is in** (#695). A range ending before the adoption is correctly
+/// scored on the template's criteria, and must not say the repository holds none — it holds
+/// one, in the very next commit.
+///
+/// `check` and `doctor` both name `inquiry` against this same working tree. Three surfaces,
+/// one answer.
+#[test]
+fn a_range_predating_the_adoption_says_so_rather_than_denying_the_kuten() {
+    let repo = adopts_at_the_tip();
+    let report = json(repo.path(), &["HEAD~4..HEAD~1"]);
+
+    assert_eq!(report["score"]["source"], "predates-adoption");
+    assert_eq!(report["score"]["held"], false, "the range predates it");
+    assert_eq!(report["score"]["holds_now"], "inquiry");
+    // The criteria selection was never the defect; the prose about it was.
+    assert_eq!(report["score"]["kuten"], serde_json::Value::Null);
+    assert_eq!(report["score"]["revision"], serde_json::Value::Null);
+    assert_eq!(report["score"]["declared"], serde_json::Value::Null);
+
+    let text = score(repo.path(), &["HEAD~4..HEAD~1"]).stdout;
+    assert!(
+        !text.contains("holds no kuten"),
+        "the repository holds `inquiry` — {text}"
+    );
+    assert!(text.contains("predates the `inquiry` kuten"), "{text}");
+}
+
+/// A declared kuten with no profile vendored for it — the state a prelude downgrade leaves,
+/// which `check` and `doctor` both report and `score` used to fall back from in silence.
+///
+/// Not reachable in the field today: `kuten adopt` refuses when nothing is vendored, so it
+/// takes a downgrade or a hand-deletion. Which is why the fixture deletes it by hand. The
+/// range is `revised()`'s, which declares at genesis, because a range spanning an adoption is
+/// refused before any of this is reached.
+#[test]
+fn a_declared_kuten_with_no_vendored_profile_warns_rather_than_falling_back_quietly() {
+    let repo = revised();
+    let dir = repo.path();
+    std::fs::remove_dir_all(dir.join(".yidam/.vendor/prelude/kuten/inquiry"))
+        .expect("the vendored profile is there to remove");
+
+    let report = json(dir, &["HEAD~2..HEAD~1"]);
+    assert_eq!(report["score"]["source"], "unreadable-profile");
+    assert_eq!(report["score"]["held"], false);
+    // The record may not carry a criteria revision it did not read.
+    assert_eq!(report["score"]["revision"], serde_json::Value::Null);
+    assert_eq!(report["score"]["kuten"], serde_json::Value::Null);
+    // But what the range declared survives, or the report cannot say what it fell back from.
+    assert_eq!(report["score"]["declared"]["name"], "inquiry");
+    assert_eq!(report["score"]["declared"]["revision"], 1);
+
+    let text = score(dir, &["HEAD~2..HEAD~1"]).stdout;
+    assert!(
+        text.contains("`inquiry` is declared and no profile is vendored for it"),
+        "the wording `doctor` gives for this state — {text}"
+    );
+    assert!(!text.contains("holds no kuten"), "{text}");
 }
 
 /// A range is required, as `diff`'s is. A default range answers about a scope nobody chose.

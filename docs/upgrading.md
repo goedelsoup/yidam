@@ -28,6 +28,22 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `score` says why the criteria are the template's, in four states
+
+`score` read a range's kuten at the range's tip. Then it wrote a sentence about the
+*repository*. A range ending before your adoption said you hold no kuten. So did a range whose
+declared profile is not vendored. That state is one `kuten check` and `doctor` both warn about.
+
+**Who this affects.** Anyone scoring a range older than their adoption. That is nearly every
+range: both early adopters declared in their last two commits.
+
+**What changes.** The report names one of four states. The unreadable-profile state is now a
+warning. `--format json` gains `source`, `declared` and `holds_now`.
+
+**One JSON field narrows.** `revision` used to carry what the range's tip declared, even where
+the criteria were the template's. A record could read `held: false` beside `revision: 1`. It is
+now null whenever `held` is false, and what the tip declared is under `declared`.
+
 ## cli/v0.10.0
 
 ### A corpus can declare what its practice is aimed at
