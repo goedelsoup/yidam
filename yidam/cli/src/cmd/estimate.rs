@@ -252,7 +252,7 @@ pub fn run(root: &std::path::Path, text: &str, opts: &Options) -> Estimate {
                 text,
                 check::Rejection {
                     step: None,
-                    code: "anchor-unresolvable",
+                    code: check::code::ANCHOR_UNRESOLVABLE,
                     message: format!(
                         "the similarity anchor needs the index, and it did not load: {e}"
                     ),

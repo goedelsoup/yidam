@@ -42,9 +42,75 @@ pub struct Diagnostic {
     pub message: String,
 }
 
+/// Every `code` a rejection can carry, named once.
+///
+/// The set is the MCP contract's — `tools.json` freezes it and says, in those words, that *a
+/// client branches on them*. Both halves of that promise were string literals: one written at
+/// a `Rejection` site here and in `query::mod`, the other inside a `notes` paragraph. Nothing
+/// compared them, and they diverged — three of the nine names the contract froze are lint
+/// check ids no rejection has ever carried, and four codes this crate emits were not frozen
+/// at all. Two of the four are near-misses of a frozen name, which is why reading the lists
+/// side by side did not catch it: `unknown-property` and `undeclared-property` are the same
+/// thing to a person and different strings to a `match`.
+///
+/// So the codes are named here and the sites refer to them, because a literal at a call site
+/// is invisible to the comparison `serve::tools` now makes against the contract.
+pub mod code {
+    /// The query text is not a path.
+    pub const PARSE: &str = "parse";
+    /// A step names a class the corpus does not declare.
+    pub const UNKNOWN_CLASS: &str = "unknown-class";
+    /// A predicate names a property no candidate class declares.
+    pub const UNDECLARED_PROPERTY: &str = "undeclared-property";
+    /// `=` against a value the declared type cannot hold: a query that could never match.
+    pub const UNSATISFIABLE_PREDICATE: &str = "unsatisfiable-predicate";
+    /// A hop no class on the authoring side licenses, by policy or by target.
+    pub const UNLICENSED_HOP: &str = "unlicensed-hop";
+    /// `select` names a field that is not projectable.
+    pub const UNKNOWN_FIELD: &str = "unknown-field";
+    /// An anchor on a step that is arrived at rather than entered.
+    pub const ANCHOR_NOT_ENTRY: &str = "anchor-not-entry";
+    /// An anchor with no index supplied to resolve it against.
+    pub const ANCHOR_UNAVAILABLE: &str = "anchor-unavailable";
+    /// An index was supplied and the anchor did not resolve against it.
+    pub const ANCHOR_UNRESOLVABLE: &str = "anchor-unresolvable";
+    /// An anchored query asked to span dependencies the local index does not cover.
+    pub const ANCHOR_ACROSS: &str = "anchor-across";
+    /// An anchor asked for as of a past commit, which the index cannot answer.
+    pub const ANCHOR_AT_REVISION: &str = "anchor-at-revision";
+    /// The corpus at the requested revision or range could not be reconstructed.
+    pub const HISTORY_UNREADABLE: &str = "history-unreadable";
+
+    /// The codes a caller of the MCP `query` tool can receive, and the set the contract
+    /// freezes. `serve::tools` compares this against `tools.json` in both directions — a code
+    /// missing from the contract is one a client was told to branch on and never sees, and a
+    /// frozen name missing from here is a branch that can never be taken — and checks the
+    /// value on the way out of the tool besides.
+    ///
+    /// [`ANCHOR_AT_REVISION`] and [`HISTORY_UNREADABLE`] are deliberately absent. Both are
+    /// about a revision and the MCP surface has none: the contract's `at` is null for a
+    /// server answering about its loaded corpus, so no call can supply the `--at` or
+    /// `--between` they answer. Freezing them would put two more names in a client's `match`
+    /// that no conforming server can reach, which is the failure the list already had three
+    /// of.
+    pub const SURFACED: &[&str] = &[
+        PARSE,
+        UNKNOWN_CLASS,
+        UNDECLARED_PROPERTY,
+        UNSATISFIABLE_PREDICATE,
+        UNLICENSED_HOP,
+        UNKNOWN_FIELD,
+        ANCHOR_NOT_ENTRY,
+        ANCHOR_UNAVAILABLE,
+        ANCHOR_UNRESOLVABLE,
+        ANCHOR_ACROSS,
+    ];
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Rejection {
     pub step: Option<usize>,
+    /// From [`code`], which is the set `tools.json` freezes.
     pub code: &'static str,
     pub message: String,
 }
@@ -177,7 +243,7 @@ fn check_pred(
         let mut names: Vec<&str> = class.properties.iter().map(|p| p.name.as_str()).collect();
         names.sort_unstable();
         return Err(reject(
-            "undeclared-property",
+            code::UNDECLARED_PROPERTY,
             Some(step_index),
             format!(
                 "`{}` is not a property `{}` declares{}",
@@ -234,7 +300,7 @@ fn check_pred(
         // `=` asks for a value the property can hold. Asking for one it cannot is a query
         // that could never match, which is a rejection and not an empty result.
         (Op::Eq, Some(why)) => Err(reject(
-            "unsatisfiable-predicate",
+            code::UNSATISFIABLE_PREDICATE,
             Some(step_index),
             format!("`{}` cannot hold that value: {why}", pred.prop),
         )),
@@ -360,7 +426,7 @@ fn check_hop(
         // With `*` on the authoring side the hop is refused only when *every* class refuses
         // it; one class that admits the hop is enough to run.
         return Err(reject(
-            "unlicensed-hop",
+            code::UNLICENSED_HOP,
             Some(step_index),
             rejections.join("; "),
         ));
@@ -440,7 +506,7 @@ pub fn check(query: &Query, schema: &Schema) -> Result<Checked, Rejection> {
     for (index, step) in query.steps.iter().enumerate() {
         if !unschematised && step.class != "*" && schema.class(&step.class).is_none() {
             return Err(reject(
-                "unknown-class",
+                code::UNKNOWN_CLASS,
                 Some(index),
                 format!(
                     "`{}` is not a class this corpus declares{}",
@@ -474,7 +540,7 @@ pub fn check(query: &Query, schema: &Schema) -> Result<Checked, Rejection> {
             if kept.is_empty() {
                 return Err(last.unwrap_or_else(|| {
                     reject(
-                        "undeclared-property",
+                        code::UNDECLARED_PROPERTY,
                         Some(index),
                         format!("no class declares `{}`", pred.prop),
                     )
