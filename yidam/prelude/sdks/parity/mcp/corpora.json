@@ -15,6 +15,13 @@
         "ontology": false,
         "dependencies": false
       }
+    },
+    "corpus-dated": {
+      "why": "Four `tenure` instances over an interval — a `began`, an `ended` absent while the holding is open, and one row known to the year rather than the day. It exists because NO property in `corpus/` is `type: date`, so the branch that compares two dates is unreachable from every case beside it: a server can implement no ordering operator at all, or implement one as a comparison of text, and pass the whole suite over that corpus. The shape is the one #725 measured eleven times across six real corpora, and `allen-county-ohio` states the query in its own `ACTIONS.md` over 83 instances it could not ask. What only this corpus can decide is the precision rule — `partial.yml` knows the year and not the day, so it is inside `began>=1893-06-01` on the years the two sides share and outside it as text, and a lexical implementation answers zero rows where a conforming one answers one. It installs no dependency and needs none: nothing here is about composition.",
+      "capabilities": {
+        "ontology": true,
+        "dependencies": false
+      }
     }
   }
 }

@@ -40,7 +40,7 @@ The rule was unenforceable until a corpus existed on which some tier goes unback
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.16.0",
+    "contract": "0.17.0",
     "corpus": {
       "domain": "streamflow",
       "commit": "a1b2c3d",
@@ -125,6 +125,40 @@ Two consequences for a conforming server:
   property.** A class declaring `began` as `type: string` declares it and still cannot be
   asked `began < 1900`. The `notes` sentence describing the `narrowed` diagnostic said
   *declaring a property* until 0.16.0 and was false about the one class it named.
+
+## Comparing two dates (contract 0.17.0)
+
+0.16.0 froze the refusal and left the comparison itself unstated, which is half a
+specification: a server could refuse the right queries and answer the right ones differently.
+`corpus-dated/` is the fixture on which the difference is visible — no property in `corpus/`
+is `type: date`, so a server can implement no ordering at all, or implement one as a
+comparison of text, and pass every case beside it.
+
+**An ordering compares at the precision the two sides share.** A corpus writes a date to
+whatever precision it knows, and both `began: "1893"` and `began: "1893-04-01"` are legal —
+71 year-only values in one corpus #725 measured. So the comparison drops both sides to the
+coarser: `began >= 1893-06-01` **returns** a row that knows only `1893`. As text it does not,
+and a lexical server answers zero rows where a conforming one answers one. That shortfall is
+the dangerous kind: fewer rows reads as a corpus with less in it, not as a query answered
+wrongly.
+
+**This is not `=`'s rule, and the divergence is deliberate.** `=` compares at the precision
+the *query* wrote, so `began=1893-04-01` does not match `began: 1893`. An equality asked more
+precisely than the corpus knows is genuinely unanswerable; an ordering usually is not, since
+1893 falls before or after any day in 1900 whichever day it was. The consequence to know:
+where the corpus is coarser than the query, `<=` and `>=` can both hold for a value `=`
+rejects. `tenure/partial.yml` is in all three.
+
+**Absence takes two forms and they are not spellings of each other.** An absent property
+satisfies no operator, `!=` included — three-valued logic everywhere would make `!=` mean two
+things depending on the corpus. `prop?` tests the node's shape and takes no operand; the
+`prop>?value` affix widens one comparison to admit the absent, and it is the half of *began
+on or before it, ended after it or absent* that no conjunction of `=`, `!=` and `~` can
+express. Eleven classes across six measured corpora are shaped that way.
+
+A malformed stored value orders against nothing. The type is checked on write and the check
+reports rather than gates, so a query has to survive meeting one; guessing an answer for it
+would be the undercount's louder twin.
 
 ### What the 0.15.0 gate did not catch
 

@@ -1,0 +1,10 @@
+class: tenure
+label: Closed before
+description: >-
+  A holding that started and ended before the date every case in this directory asks
+  about. It is the row that must NOT come back from the interval query, and the only one
+  whose `ended` is early enough to answer the complement.
+properties:
+  began: "1885-01-05"
+  ended: "1890-06-30"
+links: []

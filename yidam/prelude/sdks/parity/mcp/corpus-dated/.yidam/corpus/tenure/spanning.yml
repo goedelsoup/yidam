@@ -1,0 +1,10 @@
+class: tenure
+label: Spanning
+description: >-
+  A holding open across the date asked about, at day precision on both ends. The one row
+  the interval query returns without needing the absence affix — so it is what a server
+  that dropped the affix still answers, and the reason the case without `?` exists.
+properties:
+  began: "1891-02-01"
+  ended: "1895-11-30"
+links: []

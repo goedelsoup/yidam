@@ -1,0 +1,10 @@
+class: tenure
+label: Partial
+description: >-
+  A holding known to the YEAR and still open. It is in the answer twice over: through the
+  affix, like `still-open`, and through the precision rule, because `1893` and a day in
+  1893 are compared on the years they share. A server ordering these as text drops it,
+  which is the silent undercount in the direction of a smaller answer.
+properties:
+  began: "1893"
+links: []
