@@ -552,10 +552,12 @@ RFC-0030 shipping first.
    is where #367 put it *because* 40 was a genesis norm corpora grow out of, and a practice-level
    band would be a second answer to a question a class contract already answers. Minting one
    would be the surface-with-no-consumer failure #572's own scope decision 2 names. What the run
-   did find in the kuten's neighbourhood is that `median_node_lines: {high: 62}` no longer
-   contains its own evidence: the member that set that ceiling is at 66 one day after the fit,
-   and the guard reads the recorded row rather than the corpus, so it cannot see the drift.
-   Filed separately.
+   did find in the kuten's neighbourhood is that the member which set
+   `median_node_lines: {high: 62}` measures 66 one day after the fit. That is divergence, not a
+   wrong extraction, and `kuten_cluster.rs` says so in as many words — but it follows from the
+   estimator rather than from a change of practice: a band quoted as the observed range has no
+   headroom at either endpoint, so the extremal member diverges on its next ordinary commit.
+   Filed separately as a question about the estimator.
 
 5. **What does Phase 3 do to `.ont.yml` itself?** A class definition is prose in four places, which
    the class scanner already reads as bytes for the reason §1.1 describes
