@@ -1,0 +1,17 @@
+class: record
+label: Hydrants under county maintenance
+description: |
+  The county's published registry lists four hydrants under its own maintenance for the 2026
+  edition. [verified], against the [county hydrant registry](../../catalog/local-registry.md).
+
+  "Under county maintenance" is the publisher's category and not a description of ownership:
+  a hydrant on private ground can appear here, and one the county owns but has transferred
+  responsibility for does not. [inference]
+properties:
+  edition: "2026"
+  claim_tag: verified
+links:
+  - target: ../record.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/local-registry.md
+    relationship: sourced-from

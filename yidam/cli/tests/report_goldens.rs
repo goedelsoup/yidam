@@ -285,6 +285,23 @@ const COMMANDS: &[(&str, &[&str])] = &[
     // other twenty goldens — and is covered by `kuten_cluster.rs` against the six shapes
     // that defined the profile.
     ("kuten-check", &["kuten", "check"]),
+    // `--dry-run` on both, for the reason stated on LIVE below: these are the first two
+    // commands under `cmd/` besides `propose` that write commits, and they run against the
+    // same staged fixture every other golden reads. A writer would corrupt it for whatever
+    // ran next.
+    //
+    // The fixture's two entries declare no `location:`, so this pins the arm where an entry
+    // records a source it cannot re-fetch — which is every entry in this repository's own
+    // catalog and most entries anywhere. Giving the fixture an address would move the other
+    // twenty goldens and change what six other suites are staged against, so the followable
+    // arm is covered where it belongs: `tests/fixtures/catalog-fetch/`, end to end, through
+    // the binary. Same division `kuten-check` makes just above.
+    ("catalog-fetch", &["catalog-fetch", "--dry-run"]),
+    // This one is not the empty arm. `stage-discharge.md`'s `used-by` is deliberately wrong
+    // in *both* directions — it claims `mixing-zone.yml`, which cites nothing, and omits
+    // `tailwater.yml`, which cites it — so the golden holds a real repair rather than a
+    // "nothing to do".
+    ("catalog-reconcile", &["catalog-reconcile", "--dry-run"]),
 ];
 
 /// Reports checked by running them, because they cannot have a golden.

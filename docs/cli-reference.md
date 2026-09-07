@@ -318,6 +318,86 @@ knowledge claim, only the time to re-fetch.
 | `vault gc` | Report cached artifacts no committed file names; `--yes` deletes them |
 | `vault materialize` | Hardlink cached artifacts into `.yidam/vault/<slug>/` under names a person can open; `--entry` narrows |
 | `vault-status` | Writes the `<!-- REGEN: yidam vault-status -->` block. Committed files only — never the cache, never the network |
+| `catalog-fetch [entry]` * | Follow a catalog entry's declared address, cache the bytes under their digest, record them in `artifacts:`, and commit it as `refresh:`. `--location` narrows to one address; `--bind name=value` fills a `url_template` slot; `--dry-run` resolves and writes nothing |
+| `catalog-reconcile [entry]` * | Rewrite a drifted `used-by` list to the citations, which are authoritative, and commit it as `reconcile:`. `--dry-run` reports and writes nothing |
+
+### Following an address
+
+A catalog entry has always carried a machine-shaped address. The gate has always checked its
+syntax: `catalog-location-malformed` fails a `url_template` with no `{…}` slot. Until #720
+nothing dereferenced one. `url_template` appeared four times in the CLI — twice in the type,
+twice in that check.
+
+`catalog-fetch` is the path between them. Four steps: **address → bytes → cache → record →
+commit.**
+
+```console
+$ yidam catalog-fetch local-registry --location 0
+local-registry
+  location 0 — /repo/sources/registry-2026.csv
+    sha256:9f2c… (118 bytes)
+    push route: sources (s3://newsroom-sources/yidam)
+  a41f3c8 refresh: local-registry from sources/registry-2026.csv
+```
+
+The four location kinds are not equally followable, and the difference is reported rather than
+hidden:
+
+| Kind | What a fetch does |
+|---|---|
+| `file` | Reads it, relative to the repository root. **No network, and no feature gate** — this works in every build |
+| `url` | `GET`s it |
+| `url_template` | `GET`s it once **every** slot is bound. A partly-bound template is refused, naming the slots left |
+| `address` | Nothing. A records office is a real way to hold a source and not an endpoint; it is passed over in silence beside a location that can be followed, and explained when named by `--location` |
+
+A template is refused rather than half-filled. A URL still carrying a literal `{year}` is one a
+server answers with *something*. That something would then be committed as a digest this corpus
+obtained.
+
+```console
+$ yidam catalog-fetch local-registry --location 1
+local-registry
+  location 1 skipped — `https://registry.example/…?year={year}` has a slot nothing bound:
+    `{year}`. Supply it — for example `--bind year=…`
+```
+
+Bindings are not inferred from the corpus. A gage node carrying `properties.parameter: "00060"`
+looks like it could fill a slot of that name. It might. That has not been checked against more
+than one corpus, so nothing guesses.
+
+### Where a fetch stops
+
+**At the record, and at the local cache.** Two boundaries, each closing a shortcut.
+
+It never authors a node. That is `establish:`, which is epistemic. RFC-0026 confines those to a
+person. *A run authors operational commits directly. Every epistemic commit goes to a proposal
+branch.* `refresh:` and `reconcile:` are both operational, so both land on your current branch. The commit writer checks its own subject against `classify_commit` rather than trusting
+its callers.
+
+It never uploads. Bytes land in the machine-wide cache. Sending them is `vault push`, which
+consults `redistributable`. That is a decision a person makes after looking at what arrived.
+
+The record carries the digest, the size, the media type the server declared, the date, and the
+location. It omits two fields deliberately. `vault:` is left out because routing is
+`.yidam/config.toml`'s decision, and freezing it per record would make that routing dead.
+`redistributable:` is left out because it is a licensing fact, and no HTTP 200 establishes one.
+
+Re-running is free. A fetch that finds bytes the entry already records writes nothing and
+commits nothing. That is what makes it safe to put on a `ttl_days` clock. A source that
+*changed* appends a second record beside the first rather than replacing it. Overwriting would
+delete the provenance of every claim resting on the older bytes.
+
+### Reconciling a `used-by` list
+
+`catalog-audit` reports the disagreement between an entry's hand-maintained `used-by` and the
+nodes that actually cite it. It reconciles none of it. `catalog-reconcile` is the other half.
+
+It can be mechanical because one of the two lists cannot be wrong. `catalog-used-by-drift` says
+so of itself: *the citations are authoritative — they cannot drift from the corpus, and a
+hand-maintained list can.* So this is a substitution, not a merge.
+
+An entry declaring no `used-by` is left alone. Absence is not drift, and the gate stays silent
+about it. Writing one would be a command deciding an entry should make a claim it never made.
 
 Every artifact is named by the SHA-256 of its bytes, in lowercase hex. The cache is
 **machine-wide** — `$XDG_CACHE_HOME/yidam/vault`, or `YIDAM_VAULT_CACHE` — so two repositories

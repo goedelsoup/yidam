@@ -274,7 +274,7 @@ tokio-util = { version = "0.7", default-features = false, features = ["io"], opt
 # `unrecognized subcommand`, which is not "this feature is unavailable" but "a
 # documented workflow is impossible". Every other gated feature degrades to a
 # missing capability; this one degraded to a broken instruction.
-default = ["reports", "tonpa", "vault-s3", "export-graph", "serve-http"]
+default = ["reports", "tonpa", "vault-s3", "export-graph", "serve-http", "catalog-fetch"]
 # The name of the base build — and **not a supported feature set on its own.**
 #
 # It gates nothing. `reports = []` enables no dependency, and there is no
@@ -381,6 +381,25 @@ vault-s3 = ["dep:hmac", "dep:reqwest", "dep:tokio", "dep:tokio-util"]
 # linking a web server. `tokio/net` rather than `dep:tokio`: tokio is already pulled by `tonpa`
 # and `vault-s3`, and this needs one more of its features, not another copy of it.
 serve-http = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "tokio/net"]
+# `yidam catalog fetch` against a `url` or `url_template` location. **In the default set,
+# deliberately**, and for the reason `vault-s3`, `export-graph` and `serve-http` each give
+# rather than a new one: anything outside `default` ships code no pull request has compiled.
+# #460 lists that as a named failure mode — *"gated code never compiles in PR CI and breaks at
+# release"* — and this feature is the first thing built against that epic, so shipping it
+# outside the default set would be the epic's own warning arriving in its first child.
+#
+# **It resolves zero new packages.** `reqwest` and `tokio` are already in the default build
+# through `tonpa` and `vault-s3`, so the released binary and the aarch64 cross-compile are
+# untouched. It is a feature rather than an unconditional dependency only so that
+# `--no-default-features --features reports` keeps meaning something: RFC-0003's reports-only
+# binary has no business making outbound requests, and `kind: file` locations — which need no
+# network — are followed in every build regardless.
+#
+# What sits behind it is one function from a URL to bytes. Everything that decides *what would
+# be fetched* — an unbound template slot, a path escaping the repository, a kind nothing can
+# follow — is ungated in `cmd/catalog/location.rs`, which is #460's stated mitigation:
+# anything gated takes gated facts as arguments.
+catalog-fetch = ["dep:reqwest", "dep:tokio"]
 # Everything — reproduces the pre-partition monolith (`cargo install --features full`).
 full = [
   "reports",
@@ -390,6 +409,7 @@ full = [
   "tonpa",
   "vault-s3",
   "serve-http",
+  "catalog-fetch",
 ]
 # `index` implies `vector-read`, so `full` carries it without naming it.
 
