@@ -67,12 +67,51 @@ export interface StaleEntry {
   node: string
 }
 
+/**
+ * A baseline entry that has outlived the expiry the baseline declares.
+ *
+ * It no longer forgives the violation it lists, so that violation gates again — and it is
+ * **not** the same event as an introduced one. The CLI is explicit about the difference: an
+ * introduced violation is something this change did, an expired one is something the
+ * repository agreed to deal with and has not. Telling somebody they introduced a finding
+ * that has sat in their baseline for two hundred commits would be wrong, so these are
+ * rendered apart from `new_violations` and apart from `stale_baseline_entries`.
+ *
+ * The violation itself still carries `in_baseline: true`, because the baseline does still
+ * list it. That is why an expired entry cannot be found by reading the violations alone.
+ */
+export interface ExpiredEntry {
+  check: string
+  node: string
+  /**
+   * Corpus-touching commits it has stood for.
+   *
+   * Commits rather than days, for the reason `AgeOut` gives: a day count is a function of
+   * when you ask, and a commit count is a function of HEAD.
+   */
+  commits: number
+}
+
 export interface LintReport extends Envelope {
   gate: {
     passed: boolean
     new_violations: number
     baselined_violations: number
     stale_baseline_entries: StaleEntry[]
+    /**
+     * Entries the baseline no longer forgives. **These fail the gate.**
+     *
+     * Counted in `baselined_violations` as well — the baseline does list them — so the two
+     * numbers overlap and neither can be derived from the other.
+     *
+     * **Optional because a binary older than the expiry clock does not emit it, not because
+     * a report may lack it.** `report.schema.json` makes it required, and adding a field
+     * does not raise `format_version`, so the handshake cannot tell the two apart — the
+     * same drift `Violation.severity` and `SourceRow.cited_by` document. Absent means *this
+     * binary has no expiry clock*, which is the same answer as an empty list; the `?` is
+     * what makes the compiler require a guard rather than trusting the two agree.
+     */
+    expired_baseline_entries?: ExpiredEntry[]
   }
   checks: Check[]
 }

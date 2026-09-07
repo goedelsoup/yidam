@@ -14,14 +14,19 @@ const envelope = {
   root: '/r',
 }
 
-function lint(checks: Check[], stale: { check: string; node: string }[] = []): LintReport {
+function lint(
+  checks: Check[],
+  stale: { check: string; node: string }[] = [],
+  expired: { check: string; node: string; commits: number }[] = [],
+): LintReport {
   return {
     ...envelope,
     gate: {
-      passed: stale.length === 0,
+      passed: stale.length === 0 && expired.length === 0,
       new_violations: 0,
-      baselined_violations: 0,
+      baselined_violations: expired.length,
       stale_baseline_entries: stale,
+      expired_baseline_entries: expired,
     },
     checks,
   }
@@ -177,6 +182,51 @@ test('a stale baseline entry is a repo condition, never a diagnostic', () => {
   assert.equal(r.conditions.length, 1)
   assert.equal(r.conditions[0].kind, 'stale-baseline')
   assert.match(r.conditions[0].message, /--bless/)
+})
+
+// ── Expired baseline entries ─────────────────────────────────────────────────
+
+/**
+ * The violation is still in the panel and still faded, because `in_baseline` is still true —
+ * the baseline does list it. What changed is that the listing stopped forgiving, and that is
+ * a fact about the baseline rather than about the line. Without the condition the gate fails
+ * with nothing anywhere saying why, which is #657.
+ */
+test('an expired baseline entry is a condition, and its violation stays inherited debt', () => {
+  const r = fromLint(
+    lint(
+      [check('dangling-edge', 'error', [{ node: 'a.yml', detail: 'd', in_baseline: true }])],
+      [],
+      [{ check: 'dangling-edge', node: 'a.yml', commits: 200 }],
+    ),
+  )
+  assert.deepEqual(levels(r), ['hint'], 'expiry is not a re-labelling of the finding')
+  assert.equal(r.conditions.length, 1)
+  assert.equal(r.conditions[0].kind, 'expired-baseline')
+  assert.equal(r.conditions[0].node, 'a.yml')
+  assert.match(r.conditions[0].message, /200 commit\(s\)/)
+})
+
+/**
+ * Blessing carries `since` forward rather than restamping it, so the one remedy the stale
+ * message names is the one that cannot work here. A message that offered it would send the
+ * reader round a loop the CLI explicitly declines to send them round.
+ */
+test('the expired message does not offer blessing', () => {
+  const r = fromLint(lint([], [], [{ check: 'orphan-in', node: 'a.yml', commits: 9 }]))
+  assert.doesNotMatch(r.conditions[0].message, /--bless/)
+  assert.match(r.conditions[0].message, /expire_after/)
+})
+
+/**
+ * A repository pins its binary while this extension auto-updates, and adding a field does
+ * not raise `format_version` — so a report with no `expired_baseline_entries` at all is a
+ * normal state, and it must read as "no expiry clock" rather than throw.
+ */
+test('a report from a binary with no expiry clock still maps', () => {
+  const report = lint([])
+  delete report.gate.expired_baseline_entries
+  assert.deepEqual(fromLint(report).conditions, [])
 })
 
 // ── showBaselined ────────────────────────────────────────────────────────────

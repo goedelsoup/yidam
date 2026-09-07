@@ -1277,9 +1277,13 @@ function render(): void {
   const line = summary ?? describe(handshake!)
   const provenance = `${describe(handshake!)}\nResolved from ${resolution.reason}\n${resolution.command}`
 
-  const stale = conditions.filter((c) => c.kind === 'stale-baseline').length
-  const gate = conditions.some((c) => c.kind === 'graph-gate')
-  if (stale > 0 || gate) {
+  // Every condition alerts, because a condition is by definition something that has no file
+  // to land on: a new violation reaches the Problems panel and needs nothing here, while
+  // these are invisible unless the status bar says so. An expired baseline entry is the
+  // sharpest case — its violation *is* in the panel, faded, as inherited debt — so before
+  // the extension could read that field this line showed a green tick over a failing gate
+  // (#657).
+  if (conditions.length > 0) {
     status.text = `$(alert) ${line}`
     status.tooltip = `${conditions.map((c) => c.message).join('\n\n')}\n\n${provenance}`
     status.show()
