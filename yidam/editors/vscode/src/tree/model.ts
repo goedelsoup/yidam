@@ -653,32 +653,62 @@ export function healthTree(input: HealthInput): TreeNode[] {
     rows.push(unavailable('health:lint', 'Lint'))
   } else {
   const stale = lint.gate.stale_baseline_entries
+  // Absent means a binary with no expiry clock, which answers the same as an empty list.
+  const expired = lint.gate.expired_baseline_entries ?? []
   const lintRow: TreeNode = {
     id: 'health:lint',
     label: 'Lint',
+    // Four counts, and none of them derives another. An expired entry is inherited debt —
+    // it is counted in `baselined_violations` too, because the baseline does still list it
+    // — so a row reading `0 new · 2 inherited` on a red gate was stating the whole of what
+    // it could see and none of what was wrong (#657).
     description: `${lint.gate.new_violations} new · ${lint.gate.baselined_violations} inherited${
-      stale.length > 0 ? ` · ${stale.length} stale` : ''
-    }`,
+      expired.length > 0 ? ` · ${expired.length} expired` : ''
+    }${stale.length > 0 ? ` · ${stale.length} stale` : ''}`,
     tooltip: lint.gate.passed
       ? 'The lint gate agrees with the committed baseline.'
       : 'The lint gate disagrees with the committed baseline.',
     icon: lint.gate.passed ? 'pass' : 'error',
-    expanded: stale.length > 0,
-    children: stale.map((e) => ({
-      id: `health:stale:${e.check}:${e.node}`,
-      label: e.node,
-      description: `${e.check} — no longer violated`,
-      tooltip:
-        'The baseline records this violation and the corpus no longer has it. A baseline ' +
-        'permitted to be wrong drifts, so this fails CI too. Bless to clear it.',
-      icon: 'issue-closed',
-      command: { id: 'yidam.blessBaseline' },
-    })),
+    expanded: stale.length > 0 || expired.length > 0,
+    children: [
+      // Expired first: it is the one of the two that is owed rather than merely untidy.
+      ...expired.map((e) => ({
+        id: `health:expired:${e.check}:${e.node}`,
+        label: e.node,
+        description: `${e.check} — out of time after ${e.commits} commit(s)`,
+        tooltip:
+          'The baseline lists this violation and the time it allowed has run out, so it ' +
+          'gates again. This is not a regression — nothing here introduced it — and it is ' +
+          'not cleared by blessing: `--bless` carries `since` forward rather than ' +
+          'restamping it, so re-recording the debt would forgive it a second time. Fix the ' +
+          'finding, or raise `expire_after` in `.yidam/lint-baseline.yml` and say in the ' +
+          'commit message why this corpus needs longer than it said it did.',
+        icon: 'clock',
+        // The remedy is the finding, so the row opens the node rather than offering an
+        // action. Blessing is the one thing that must not be one click away here.
+        file: e.node,
+      })),
+      ...stale.map((e) => ({
+        id: `health:stale:${e.check}:${e.node}`,
+        label: e.node,
+        description: `${e.check} — no longer violated`,
+        tooltip:
+          'The baseline records this violation and the corpus no longer has it. A baseline ' +
+          'permitted to be wrong drifts, so this fails CI too. Bless to clear it.',
+        icon: 'issue-closed',
+        command: { id: 'yidam.blessBaseline' },
+      })),
+    ],
   }
   // Blessing is offered as the row's action only when the debt is *stale*. A failing gate
   // with new violations is a regression, and one-click blessing would make laundering it
   // into inherited debt the easiest thing on the screen.
-  if (stale.length > 0 && lint.gate.new_violations === 0) {
+  //
+  // An expired entry disqualifies it for a different reason: blessing genuinely would not
+  // work. `since` is carried forward rather than restamped, so the click would rewrite the
+  // file, report success, and leave the gate exactly as red — which is worse than offering
+  // nothing.
+  if (stale.length > 0 && lint.gate.new_violations === 0 && expired.length === 0) {
     lintRow.command = { id: 'yidam.blessBaseline' }
   }
   rows.push(lintRow)

@@ -10,12 +10,15 @@
  */
 
 import assert from 'node:assert/strict'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import { test } from 'node:test'
 
 import { fromLint } from '../src/diagnostics.ts'
 import { hasFeature, readHandshake } from '../src/handshake.ts'
 import type { LintReport } from '../src/reports.ts'
-import { captureStreams, contractBinary, SKIP, stageFixture } from './stage.ts'
+import { healthTree } from '../src/tree/model.ts'
+import { captureStreams, contractBinary, FIXTURE_DIR, SKIP, stageFixture } from './stage.ts'
 
 
 
@@ -123,4 +126,58 @@ test('a finding that fails CI reaches the panel as an Error, whatever its check 
   const rest = findings.filter((f) => !/required: true/.test(f.message))
   assert.ok(rest.length > 0, JSON.stringify(findings, null, 2))
   assert.deepEqual([...new Set(rest.map((f) => f.level))], ['warning'])
+})
+
+test('an expired baseline entry reaches the reader with its cause stated', async (t) => {
+  const dir = stageFixture('yidam-ext-')
+  const bin = await contractBinary(dir)
+  if (!bin) {
+    t.skip(SKIP)
+    return
+  }
+  // The fixture's baseline lists two violations and declares `expire_after: 2`; one entry
+  // carries a `since` three corpus-touching commits back and one carries none at all. So the
+  // gate fails with an expired entry rather than an introduced one — the state that reached
+  // the Health view as a red row with no children and no stated cause, for as long as this
+  // reader's report type omitted the field (#657).
+  const { stdout } = captureStreams(bin, ['lint', '--format', 'json'], dir)
+  const report = JSON.parse(stdout) as LintReport
+
+  // Against the committed golden rather than a transcription of it. RFC-0016 asks for
+  // exactly this — the `reports/` goldens become the repository the extension is exercised
+  // on — and it is also what makes a stale binary say so: `contractBinary`'s probe certifies
+  // `status` alone, so a yidam predating a *lint check* resolves, passes the probe, and then
+  // disagrees here (#752). This names that rather than failing on an arithmetic mismatch,
+  // which is what it did when 0.9.0 was on PATH.
+  const golden = JSON.parse(
+    fs.readFileSync(path.join(FIXTURE_DIR, 'expected/lint.json'), 'utf8'),
+  ) as LintReport
+  assert.deepEqual(
+    report.gate,
+    golden.gate,
+    'this yidam does not reproduce the fixture\'s committed lint gate — it is stale relative ' +
+      'to the fixture. Rebuild it: cargo install --path yidam/cli',
+  )
+  // Two entries, one expired: the counts overlap and neither renders the other.
+  assert.equal(report.gate.baselined_violations, 2)
+  assert.equal(report.gate.expired_baseline_entries!.length, 1)
+  assert.equal(report.gate.passed, false)
+
+  // And the violation itself is inherited debt, which is exactly why reading the violations
+  // cannot find this: it is a Hint in the Problems panel, tagged `yidam (baseline)`.
+  const dangling = report.checks.find((c) => c.id === 'dangling-edge')!
+  assert.equal(dangling.violations[0].in_baseline, true)
+  const finding = fromLint(report).findings.find((f) => f.code === 'dangling-edge')!
+  assert.equal(finding.level, 'hint')
+
+  // What a reader sees instead: a named row under Lint, and a repository-level condition.
+  const row = healthTree({ lint: report, graph: null, index: null, regen: null, doctor: null })
+    .find((r) => r.id === 'health:lint')!
+  assert.match(row.description!, / · 1 expired$/)
+  assert.equal(row.children!.length, 1)
+  assert.equal(row.children![0].file, '.yidam/corpus/concept/low-flow.yml')
+  assert.equal(row.command, undefined, 'blessing cannot clear an expired entry')
+
+  const conditions = fromLint(report).conditions
+  assert.deepEqual(conditions.map((c) => c.kind), ['expired-baseline'])
 })

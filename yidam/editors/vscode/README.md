@@ -235,10 +235,15 @@ up.
 | `warn` / `info`, not baselined | Warning / Information |
 | any severity, **baselined** | Hint, faded, source `yidam (baseline)` |
 | stale baseline entry | **not a diagnostic** — a repository condition with a Bless action |
+| expired baseline entry | **not a diagnostic** — a repository condition, and no Bless action |
 
-The last row matters: a baseline entry that no longer occurs also fails the gate, but its
-problem is that the file *no longer has* a problem. A squiggle would point at a line that is
-now correct.
+The last two rows matter, for opposite reasons. A baseline entry that no longer occurs fails
+the gate, but its problem is that the file *no longer has* a problem — a squiggle would point
+at a line that is now correct. An entry that has run out of time is the mirror image: the
+violation is still there and is still rendered as inherited debt, because the baseline does
+still list it. What is not on any file is the fact that the listing stopped forgiving, and
+until this reader could see that field the gate failed with nothing anywhere saying why
+(#657).
 
 Every diagnostic carries its check id as `code` and its rationale as hover, so `--explain`
 is available without a second command.
@@ -295,6 +300,13 @@ Folding it into red would show an X about the corpus because a subprocess died.
 Blessing the baseline is offered as the Lint row's action only when the debt is **stale and
 nothing is new**. One click that turns fresh violations into inherited debt would make
 laundering a regression the easiest thing on the screen.
+
+**Nor while an entry has expired**, and there for a different reason: blessing would not
+work. `--bless` carries an entry's `since` forward rather than restamping it — otherwise the
+command the clock constrains would be the command that clears it — so the click would rewrite
+the file, report success, and leave the gate exactly as red. The row states the age instead,
+and the two ways out are to fix the finding or to raise `expire_after` in a diff somebody
+reviews.
 
 ### Why two cached groups
 

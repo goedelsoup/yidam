@@ -802,6 +802,95 @@ test('the lint row offers blessing only when the debt is stale and nothing is ne
   assert.equal(regressed.command, undefined, 'a regression is not blessed away in one click')
 })
 
+/** The lint row with only expired debt on it — the state #657 rendered as a bare red row. */
+function expiredOnly(over: Partial<LintReport['gate']> = {}) {
+  return find(
+    healthTree({
+      lint: lintReport({
+        passed: false,
+        baselined_violations: 2,
+        expired_baseline_entries: [
+          { check: 'dangling-edge', node: '.yidam/corpus/concept/low-flow.yml', commits: 3 },
+        ],
+        ...over,
+      }),
+      graph: GRAPH,
+      index: INDEX_STATUS,
+      regen: REGEN,
+      doctor: DOCTOR,
+    }),
+    'health:lint',
+  )!
+}
+
+/**
+ * An expired entry is inherited debt that stopped forgiving, so it is counted in
+ * `baselined_violations` too. A row that said only `0 new · 2 inherited` was stating every
+ * number it could see and none of what was wrong, on a gate that was red.
+ */
+test('an expired entry is a child row with a stated cause', () => {
+  const row = expiredOnly()
+  assert.equal(row.icon, 'error')
+  assert.equal(row.description, '0 new · 2 inherited · 1 expired')
+  assert.equal(row.expanded, true, 'the cause is not behind a disclosure triangle')
+
+  const child = row.children![0]
+  assert.equal(child.label, '.yidam/corpus/concept/low-flow.yml')
+  assert.match(child.description!, /dangling-edge/)
+  assert.match(child.description!, /3 commit\(s\)/)
+  // The remedy is the finding, so the row opens the node.
+  assert.equal(child.file, '.yidam/corpus/concept/low-flow.yml')
+})
+
+/**
+ * Expired and stale both fail the gate and the fixes are opposites: one is fixed by editing
+ * the corpus, the other by editing the baseline. Conflating them tells somebody to bless a
+ * debt that blessing cannot clear.
+ */
+test('expired rows are told apart from stale ones', () => {
+  const row = expiredOnly({
+    stale_baseline_entries: [{ check: 'orphan-in', node: 'gone.yml' }],
+  })
+  assert.equal(row.description, '0 new · 2 inherited · 1 expired · 1 stale')
+  const [expired, stale] = row.children!
+  assert.notEqual(expired.icon, stale.icon)
+  assert.equal(expired.command, undefined)
+  assert.equal(stale.command?.id, 'yidam.blessBaseline')
+  // Distinct ids, or the tree collapses the two rows a node trips at once into one.
+  assert.notEqual(expired.id, stale.id)
+})
+
+/**
+ * `--bless` carries `since` forward rather than restamping it, deliberately — otherwise the
+ * command constrained by the clock would be the command that clears it. So a one-click bless
+ * here would rewrite the file, report success, and leave the gate exactly as red.
+ */
+test('blessing is not offered while an entry is out of time', () => {
+  const row = expiredOnly({
+    stale_baseline_entries: [{ check: 'orphan-in', node: 'gone.yml' }],
+  })
+  assert.equal(row.command, undefined, 'blessing an expired entry changes nothing')
+})
+
+/**
+ * A repository pins its binary while this extension auto-updates, and adding a field does not
+ * raise `format_version` — so a report predating the expiry clock is a normal state.
+ */
+test('a lint report with no expiry clock renders as it always did', () => {
+  const row = find(
+    healthTree({
+      lint: lintReport({ passed: false, new_violations: 2 }),
+      graph: GRAPH,
+      index: INDEX_STATUS,
+      regen: REGEN,
+      doctor: DOCTOR,
+    }),
+    'health:lint',
+  )!
+  assert.equal(row.description, '2 new · 0 inherited')
+  assert.deepEqual(row.children, [])
+})
+
 /**
  * A report that failed to arrive is its own state.
  *

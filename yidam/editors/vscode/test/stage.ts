@@ -57,6 +57,37 @@ export function stageFixture(prefix = 'yidam-ext-'): string {
 }
 
 /**
+ * Resolve `{{commit:N}}` in a written file to the sha of this recipe's Nth commit, 1-indexed.
+ *
+ * One file in the fixture has to name a commit: `.yidam/lint-baseline.yml`, whose `since:` is
+ * read against the corpus history and decides whether an entry has expired. A sha cannot be a
+ * literal in `repo/`, because a commit's sha is a function of the tree it holds — a baseline
+ * shipped inside that tree would have to name itself. So the recipe writes it at a later
+ * commit and refers to an earlier one by position.
+ *
+ * **Unresolvable throws rather than substituting nothing.** A `since` naming no commit reads
+ * as an entry whose clock cannot be established, which the CLI reports as *not expired* — so
+ * a silent failure here would take the arm the fixture exists to reach with it, and every
+ * assertion downstream would go on passing.
+ *
+ * `report_goldens.rs::resolve_commits` is the other half of this; the two must agree, and the
+ * fixture's expired entry is what says so — it is absent from this side's report the moment
+ * they do not.
+ */
+function resolveCommits(content: string, shas: string[], file: string): string {
+  return content.replace(/\{\{commit:(\d+)\}\}/g, (_match, n: string) => {
+    const sha = shas[Number(n) - 1]
+    if (sha === undefined) {
+      throw new Error(
+        `stage.toml: ${file} names commit ${n} and only ${shas.length} have been made — ` +
+          'a recipe can only refer to a commit that already exists',
+      )
+    }
+    return sha
+  })
+}
+
+/**
  * The same repository, at a path you choose.
  *
  * For running the extension by hand: the launch configuration has to name a workspace, and
@@ -80,6 +111,10 @@ export function stageInto(dir: string): string {
   git('config', 'user.email', 'fixture@yidam.test')
   git('config', 'user.name', 'Fixture')
 
+  // The shas this recipe has made so far, oldest first — what `{{commit:N}}` resolves
+  // against. See `resolveCommits`.
+  const shas: string[] = []
+
   for (const commit of recipe.commits) {
     // Edits first, then stage everything: a commit's `replace` and `write` describe the tree
     // as of that commit, not a change made after it.
@@ -94,7 +129,7 @@ export function stageInto(dir: string): string {
     for (const write of commit.write ?? []) {
       const file = path.join(dir, write.file)
       fs.mkdirSync(path.dirname(file), { recursive: true })
-      fs.writeFileSync(file, write.content)
+      fs.writeFileSync(file, resolveCommits(write.content, shas, write.file))
     }
     git('add', '-A')
     // Fixed dates keep `status`'s genesis field stable across runs.
@@ -107,6 +142,11 @@ export function stageInto(dir: string): string {
         GIT_COMMITTER_DATE: '2026-01-01T00:00:00Z',
       },
     })
+    const sha = git('rev-parse', 'HEAD').toString().trim()
+    // Empty would substitute as an empty `since`, which reads as "never expires" — the one
+    // failure this whole mechanism exists to make impossible.
+    if (!sha) throw new Error(`stage.toml: no HEAD after committing ${commit.message}`)
+    shas.push(sha)
   }
 
   for (const branch of recipe.branches) git('branch', branch)

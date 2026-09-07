@@ -66,6 +66,47 @@ message = "regen: REGEN blocks refreshed"
 file = ".yidam/corpus/.gitkeep"
 content = ""
 
+# The baseline, and the one file here that has to name a commit.
+#
+# It is written at the last commit rather than shipped in `repo/` because `since:` is a sha,
+# and a sha is a function of the tree its commit holds — a baseline inside the genesis tree
+# would have to name itself. `{{commit:1}}` is resolved by whichever runner staged this, and
+# naming a commit that does not exist is an error rather than an empty string: a `since` that
+# resolves to nothing reports as *not expired*, which would delete the arm below and leave
+# every golden green while it did.
+#
+# Two entries, and the pair is the point. Both are inherited debt and neither is a regression;
+# only one has run out of time, so `baselined_violations` and `expired_baseline_entries` are
+# two different numbers and a consumer cannot render one from the other. Until this existed
+# the CLI's fifth gate field was `[]` in every golden — the extension's report type simply
+# omitted it for a year, and an expired entry reached the Health view as a red row with no
+# stated cause (#657).
+#
+# `dangling-edge` carries the clock. `expire_after: 2` against a three-commit history means it
+# stood for three corpus-touching commits and was allowed two. The sangha entry carries no
+# `since` at all, which is what a hand-written entry looks like — it has no clock and never
+# expires, and it is what makes "inherited" and "expired" separable here.
+#
+# Blessing does not clear the expired one: `--bless` carries `since` forward rather than
+# restamping it, deliberately. Do not "fix" this fixture by blessing it.
+[[commits.write]]
+file = ".yidam/lint-baseline.yml"
+content = '''
+# Known error-severity lint violations — this corpus's inherited debt.
+#
+# Hand-written, not blessed: see `stage.toml`, which writes this file and resolves the
+# `since` below to a real commit in this repository's history.
+expire_after: 2
+violations:
+  dangling-edge:
+    - node: .yidam/corpus/concept/low-flow.yml
+      detail: "target does not exist: ../concept/assimilative-capacit.yml"
+      since: "{{commit:1}}"
+  resolution-elector-unregistered:
+    - node: .yidam/sangha/resolutions/silt-budget.md
+      detail: "`ma/dredger` is read as a tip and `electors.md` registers no such branch"
+'''
+
 # A domain crate, so `check-diff` has code to read and the golden pins something other than
 # the empty arm. Written by this commit rather than shipped in `repo/`, because the check
 # reads a *diff*: a file that has always been there introduces nothing.

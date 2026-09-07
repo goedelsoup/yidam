@@ -54,6 +54,10 @@ fn apply_recipe(root: &Path, recipe: &Path) {
     git(&["config", "user.email", "fixture@yidam.test"]);
     git(&["config", "user.name", "Fixture"]);
 
+    // The shas this recipe has made so far, oldest first — what `{{commit:N}}` resolves
+    // against. See [`resolve_commits`].
+    let mut shas: Vec<String> = Vec::new();
+
     for commit in spec["commits"].as_array().expect("commits") {
         // Edits first, then stage everything: a commit's `replace` and `write` describe the
         // tree as of that commit, not a change made after it.
@@ -77,9 +81,14 @@ fn apply_recipe(root: &Path, recipe: &Path) {
             .and_then(|v| v.as_array())
             .unwrap_or(&Vec::new())
         {
-            let path = root.join(write["file"].as_str().unwrap());
+            let name = write["file"].as_str().unwrap();
+            let path = root.join(name);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(&path, write["content"].as_str().unwrap()).unwrap();
+            std::fs::write(
+                &path,
+                resolve_commits(write["content"].as_str().unwrap(), &shas, name),
+            )
+            .unwrap();
         }
         git(&["add", "-A"]);
         // Fixed dates keep `status`'s genesis field stable across runs.
@@ -90,6 +99,20 @@ fn apply_recipe(root: &Path, recipe: &Path) {
             .env("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
             .status()
             .unwrap();
+        let out = Command::new("git")
+            .current_dir(root)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap();
+        let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        // Empty would substitute as an empty `since`, which reads as "never expires" — the
+        // one failure this whole mechanism exists to make impossible.
+        assert!(
+            !sha.is_empty(),
+            "no HEAD after committing {:?}",
+            commit["message"]
+        );
+        shas.push(sha);
     }
 
     // Refs the sangha and phase reports read. `ma/gauge-reader` is deliberately absent: the
@@ -98,6 +121,46 @@ fn apply_recipe(root: &Path, recipe: &Path) {
     for branch in spec["branches"].as_array().expect("branches") {
         git(&["branch", branch.as_str().unwrap()]);
     }
+}
+
+/// Resolve `{{commit:N}}` in a written file to the sha of this recipe's Nth commit, 1-indexed.
+///
+/// One file in the fixture has to name a commit: `.yidam/lint-baseline.yml`, whose `since:` is
+/// read against the corpus history and decides whether an entry has expired. A sha cannot be a
+/// literal in `repo/`, because a commit's sha is a function of the tree it holds — a baseline
+/// shipped inside that tree would have to name itself. So the recipe writes it at a later
+/// commit and refers to an earlier one by position.
+///
+/// **Unresolvable is a panic, not an empty string.** A `since` naming no commit reads as an
+/// entry whose clock cannot be established, and `history::commits_since` reports that as *not
+/// expired* — so a silent failure here would delete the arm this fixture exists to reach, and
+/// `UPDATE_GOLDENS=1` would record its absence as the new truth.
+fn resolve_commits(content: &str, shas: &[String], file: &str) -> String {
+    const OPEN: &str = "{{commit:";
+    let mut out = String::with_capacity(content.len());
+    let mut rest = content;
+    while let Some(start) = rest.find(OPEN) {
+        out.push_str(&rest[..start]);
+        let after = start + OPEN.len();
+        let end = rest[after..]
+            .find("}}")
+            .unwrap_or_else(|| panic!("stage.toml: {file}: unterminated `{OPEN}`"));
+        let raw = &rest[after..after + end];
+        let n: usize = raw
+            .parse()
+            .unwrap_or_else(|_| panic!("stage.toml: {file}: `{OPEN}{raw}}}}}` is not a number"));
+        let sha = shas.get(n.wrapping_sub(1)).unwrap_or_else(|| {
+            panic!(
+                "stage.toml: {file} names commit {n} and only {} have been made — a recipe can \
+                 only refer to a commit that already exists",
+                shas.len()
+            )
+        });
+        out.push_str(sha);
+        rest = &rest[after + end + 2..];
+    }
+    out.push_str(rest);
+    out
 }
 
 fn copy_dir(from: &Path, to: &Path) {

@@ -22,8 +22,9 @@ golden nobody reads.
 | `concept/mixing-zone.yml`, `concept/tailwater.yml` | `missing-property` — no `claim_tag` | warn |
 | everything else | nothing — the control | — |
 
-The errors are the ones that matter: they make `gate.passed` false with an empty baseline,
-so the golden pins the failing verdict as well as the shape.
+The errors are the ones that matter: they make `gate.passed` false, so the golden pins the
+failing verdict as well as the shape. Two of the three are in the baseline — see below — so
+the verdict it pins is a mixed one rather than a corpus with no history.
 
 **The `missing-property` block is deliberately mixed, and that is the point of it.** The
 check is declared `warn`; one of its three findings is `error`, because `Check::severity_of`
@@ -65,6 +66,38 @@ present.
 | **An inbound edge two hops out** | The gauge authors `measured-by`, so the neighborhood panel has a direction to group by other than `out`. |
 | **Two phase branches** | `phases` has rows. `ma/gauge-reader` is deliberately absent though the elector is registered, so `branch_present: false` is a golden rather than only a unit test. |
 | **Three commits, one operational** | `diff HEAD~1..HEAD` has a range and a modified node, and the log goldens show the classifier splitting rather than a column of `[E]`. |
+| **A baseline with one expired entry and one that still forgives** | `in_baseline: true`, and `expired_baseline_entries` non-empty. Both were `[]` in every golden, so the four counts the gate reports could not be told apart: a consumer that dropped the expired list entirely rendered a failing gate as `0 new · N inherited`, with nothing anywhere saying what was wrong (#657). See [The baseline](#the-baseline). |
+
+## The baseline
+
+`.yidam/lint-baseline.yml` is written by the last commit in `stage.toml`, not shipped in
+`repo/`. It has to be, because `since:` is a commit sha and a sha is a function of the tree
+its commit holds — a baseline inside the genesis tree would have to name itself. The recipe
+writes `{{commit:1}}` and whichever runner staged the repository resolves it; naming a commit
+that does not exist is an error rather than an empty string, because a `since` resolving to
+nothing reports as *not expired* and would delete the arm below in silence.
+
+| Entry | `since` | Reads as |
+|---|---|---|
+| `dangling-edge` on `concept/low-flow.yml` | the genesis commit | **expired** — it stood for 3 corpus-touching commits and `expire_after` is 2 |
+| `resolution-elector-unregistered` on `sangha/resolutions/silt-budget.md` | none | inherited debt that still forgives — a hand-written entry has no clock and never expires |
+
+The pair is the point. Both are `baselined_violations`, only one is an
+`expired_baseline_entries`, so those two numbers are different and neither can be rendered
+from the other. Until this existed the CLI's fifth gate field was `[]` in every golden and in
+the fixture the extension is exercised on, which is how the extension's report type came to
+omit it entirely: an expired entry reached the Health view as a red row with no children and
+no stated cause, and the schema's `items` declaration for it was read by nothing (#657).
+
+**Do not "fix" this by blessing it.** `--bless` carries `since` forward rather than
+restamping it, deliberately — otherwise the command the clock constrains would be the command
+that clears it. Blessing here rewrites the file, prints a reassuring line, and leaves the gate
+exactly as red. That is the property `report-run.test.ts` asserts and the reason the Health
+row does not offer a one-click Bless while an entry is out of time.
+
+`expire_after: 2` against a three-commit history is small because the history is. The
+arithmetic is in commits rather than days for the same reason the TTL section below gives:
+a golden that moves with the clock is a golden nobody can compare.
 
 ## Why this fixture declares no TTL
 
@@ -85,6 +118,10 @@ commits and two branches while five of the extension's test files staged one com
 branch, so `expected/` described a repository the extension was never exercised on. The
 recipe now has one copy and both runners read it: `apply_recipe` in `report_goldens.rs`, and
 `test/stage.ts` in the extension.
+
+Both also resolve `{{commit:N}}` in a written file to the sha of the recipe's Nth commit,
+1-indexed. One file needs it — the baseline above — and the two implementations must agree:
+the expired entry is what says so, because it is absent from a report the moment they do not.
 
 ## Why the JSON goldens are redacted
 

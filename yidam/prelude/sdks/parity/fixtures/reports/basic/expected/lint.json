@@ -10,10 +10,16 @@
   "root": "<ROOT>",
   "gate": {
     "passed": false,
-    "new_violations": 3,
-    "baselined_violations": 0,
+    "new_violations": 1,
+    "baselined_violations": 2,
     "stale_baseline_entries": [],
-    "expired_baseline_entries": []
+    "expired_baseline_entries": [
+      {
+        "check": "dangling-edge",
+        "node": ".yidam/corpus/concept/low-flow.yml",
+        "commits": 3
+      }
+    ]
   },
   "checks": [
     {
@@ -54,7 +60,7 @@
           "node": ".yidam/corpus/concept/low-flow.yml",
           "detail": "target does not exist: ../concept/assimilative-capacit.yml",
           "severity": "error",
-          "in_baseline": false,
+          "in_baseline": true,
           "span": {
             "line": 9
           }
@@ -336,7 +342,7 @@
           "node": ".yidam/sangha/resolutions/silt-budget.md",
           "detail": "`ma/dredger` is read as a tip and `electors.md` registers no such branch",
           "severity": "error",
-          "in_baseline": false,
+          "in_baseline": true,
           "span": {
             "line": 6
           }

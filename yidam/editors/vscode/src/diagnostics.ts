@@ -45,11 +45,16 @@ export interface Finding {
  * put a squiggle on a file whose problem is that it *no longer has one*. It is a
  * repository-level condition with a repository-level fix, and it belongs in a view with a
  * Bless action, not in the Problems panel.
+ *
+ * `expired-baseline` is here for the mirror-image reason. That violation *is* on a file and
+ * is already in the panel — as a faded Hint, because `in_baseline` is true and the baseline
+ * does still list it. What is not on any file is the fact that the listing stopped
+ * forgiving, and without that the gate fails with nothing anywhere saying why (#657).
  */
 export interface RepoCondition {
-  kind: 'stale-baseline' | 'graph-gate'
+  kind: 'stale-baseline' | 'expired-baseline' | 'graph-gate'
   message: string
-  /** For a stale entry: the check that lists it. */
+  /** For a stale or expired entry: the check that lists it. */
   check?: string
   node?: string
 }
@@ -144,15 +149,32 @@ export function fromLint(report: LintReport, opts: Options = DEFAULT_OPTIONS): M
     }
   }
 
-  const conditions: RepoCondition[] = report.gate.stale_baseline_entries.map((e) => ({
-    kind: 'stale-baseline',
-    check: e.check,
-    node: e.node,
-    message:
-      `${e.check} lists ${e.node}, which no longer occurs. ` +
-      'Fixing a violation is good; leaving it listed is not — a baseline permitted to be ' +
-      'wrong drifts. Run `yidam lint --bless`.',
-  }))
+  const conditions: RepoCondition[] = [
+    // Absent means a binary with no expiry clock, which answers the same as an empty list.
+    ...(report.gate.expired_baseline_entries ?? []).map(
+      (e): RepoCondition => ({
+        kind: 'expired-baseline',
+        check: e.check,
+        node: e.node,
+        message:
+          `${e.check} lists ${e.node}, and the baseline stopped forgiving it after ` +
+          `${e.commits} commit(s). This is not a regression — nothing introduced it — and ` +
+          'blessing will not clear it: `since` is carried forward rather than restamped. ' +
+          'Fix the finding, or raise `expire_after` in `.yidam/lint-baseline.yml`.',
+      }),
+    ),
+    ...report.gate.stale_baseline_entries.map(
+      (e): RepoCondition => ({
+        kind: 'stale-baseline',
+        check: e.check,
+        node: e.node,
+        message:
+          `${e.check} lists ${e.node}, which no longer occurs. ` +
+          'Fixing a violation is good; leaving it listed is not — a baseline permitted to be ' +
+          'wrong drifts. Run `yidam lint --bless`.',
+      }),
+    ),
+  ]
 
   return { findings, conditions }
 }
