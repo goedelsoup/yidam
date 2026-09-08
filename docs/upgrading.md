@@ -28,6 +28,8 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+## cli/v0.11.0
+
 ### `score` says why the criteria are the template's, in four states
 
 `score` read a range's kuten at the range's tip. Then it wrote a sentence about the
@@ -44,99 +46,30 @@ warning. `--format json` gains `source`, `declared` and `holds_now`.
 the criteria were the template's. A record could read `held: false` beside `revision: 1`. It is
 now null whenever `held` is false, and what the tip declared is under `declared`.
 
-### The `inquiry` kuten is at revision 2, and two bands are gone
+### `query`'s rejection codes: three you may be matching on have never fired
 
-`nodes-per-commit` and `median-node-lines` measured how old a repository is, not how it works.
-Nothing read them at matched maturity, and every member of the fit exits both bands by ageing.
-One left both within six hours of the fit that used it.
+`rejected.code` is frozen so a client can branch on it without matching prose. The frozen
+list and the codes `serve --mcp` actually emits had never been compared, and they disagreed
+in both directions for nine contract versions.
 
-**Who this affects.** Any repository holding `inquiry`. Nothing is broken and nothing gates.
+**Three frozen names are `yidam lint` check ids, and no query rejection has ever carried
+one** — `unknown-property`, `unlicensed-edge`, `edge-target-class`. They are gone from the
+list. Five the server does emit were frozen nowhere and are now in it: `undeclared-property`,
+`unlicensed-hop`, `unsatisfiable-predicate`, `unordered-property`, `anchor-across`.
 
-**What changes.** `kuten check` reports three findings where it reported five. The `AGENTS.md`
-block loses its **Shape** line. The two numbers are still measured and still in the report; no
-band judges them.
+**Who this affects.** Anything branching on `rejected.code` — a custom MCP client, or a
+script reading `yidam query --format json`.
 
-**The repair.** Re-vendor, then record a superseding decision:
+**Why this is more than a spelling.** `unknown-property` and `undeclared-property` are the
+same thing to a person and different strings to a `match`. The `else` arm of such a branch is
+usually *unknown rejection*, so a misspelled property name has been arriving unclassified at
+exactly the caller the code set exists to serve — silently, and in the direction that hides
+it.
 
-```sh
-mise run yidam-vendor-update
-```
-
-Until you do, `doctor` warns that your record names revision 1 and the vendored profile is at 2.
-That is the revision model working, not a fault.
-
-### `kuten check` rows read in one unit, and a divergent row says which side
-
-A row read `declared 0.12–0.27  measured 12%` — two halves of one comparison, in two units.
-Worse, `12%` is inside `0.12–0.27` when you convert it, and the row was reporting divergence.
-
-**Who this affects.** Anyone reading `kuten check`, and any consumer parsing its JSON.
-
-**What changes.** Bands render in the value's unit: `declared 12%–27%`. Shares carry a decimal:
-`measured 11.9%`. A divergent value names the side it fell on: `11.9% (below 12%)`.
-
-**Why the last one.** The verdict compares a float and the display was rounded. So a divergent
-row could show a number that reads as inside its own band. Precision alone cannot close that;
-naming the side can.
-
-## cli/v0.10.0
-
-### A corpus can declare what its practice is aimed at
-
-`yidam kuten` is new. A kuten declares what this corpus's work is **for**, as the ontology
-declares what it is *about*.
-
-It ships as vendored prelude and carries a revision. A decision record adopts it. Holding
-none is a supported state, and it reports as one.
-
-**Who this affects.** Every repository, on its next re-vendor. Nothing changes until you
-adopt one.
-
-**The repair.** Nothing is broken. To adopt, re-vendor and then declare:
-
-```sh
-YIDAM_REF=v0.4.0 mise run yidam-vendor-update
-yidam kuten adopt inquiry
-```
-
-`adopt` copies the revision out of the vendored profile rather than asking for it. It also
-adds the `AGENTS.md` section and fills it, because the scaffold carrying that section is
-consumed at genesis.
-
-Where there is no `AGENTS.md` at all, it writes none and says so. It prints the section for
-you to paste. `yidam doctor` reports it until a file carries the block.
-
-Then `yidam kuten check` reads your history against what you declared. It writes nothing and
-exits zero however far a corpus has drifted.
-
-### `yidam score <range>` reads a session's work
-
-The genesis rubric scores a repository's birth, once. Nothing said whether a *session's* work
-was any good.
-
-`score` reports one row per declared criterion, each with the evidence it came from. There is
-no overall number: a single score over a range names somebody's session.
-
-Criteria come from the kuten's `rubric` slot, or from the template where no kuten is held. The
-report says which, every time.
-
-### `node-too-long` counts the description, and your baseline is now loose
-
-The check counted the whole file — frontmatter, properties and links included — while its own
-rationale argues about prose. The two came apart once corpora began recording where their
-edges come from.
-
-One derived corpus reported 212 findings, and 207 came from a single class. Its fixed
-structure runs 18 lines before a word of prose.
-
-**Who this affects.** Any corpus whose nodes record provenance on their links. Findings fall,
-often sharply.
-
-**The repair.** Re-bless after upgrading:
-
-```sh
-yidam lint --bless
-```
+**The repair.** Compare your match arms against the list in
+`yidam/prelude/sdks/parity/mcp/tools.json`. Arms for the three removed names are dead code;
+add the five. `diagnostics[].code` is enumerated in the same file for the first time, so a
+client can branch on that too rather than matching its prose.
 
 ### `yidam propose` records a question instead of writing a sentence
 
@@ -228,6 +161,100 @@ release.
 
 A baseline holding the old counts still passes, so nothing goes red. It also leaves room for
 regressions that nothing will report.
+
+### The `inquiry` kuten is at revision 2, and two bands are gone
+
+`nodes-per-commit` and `median-node-lines` measured how old a repository is, not how it works.
+Nothing read them at matched maturity, and every member of the fit exits both bands by ageing.
+One left both within six hours of the fit that used it.
+
+**Who this affects.** Any repository holding `inquiry`. Nothing is broken and nothing gates.
+
+**What changes.** `kuten check` reports three findings where it reported five. The `AGENTS.md`
+block loses its **Shape** line. The two numbers are still measured and still in the report; no
+band judges them.
+
+**The repair.** Re-vendor, then record a superseding decision:
+
+```sh
+YIDAM_REF=v0.5.0 mise run yidam-vendor-update
+```
+
+Until you do, `doctor` warns that your record names revision 1 and the vendored profile is at 2.
+That is the revision model working, not a fault.
+
+### `kuten check` rows read in one unit, and a divergent row says which side
+
+A row read `declared 0.12–0.27  measured 12%` — two halves of one comparison, in two units.
+Worse, `12%` is inside `0.12–0.27` when you convert it, and the row was reporting divergence.
+
+**Who this affects.** Anyone reading `kuten check`, and any consumer parsing its JSON.
+
+**What changes.** Bands render in the value's unit: `declared 12%–27%`. Shares carry a decimal:
+`measured 11.9%`. A divergent value names the side it fell on: `11.9% (below 12%)`.
+
+**Why the last one.** The verdict compares a float and the display was rounded. So a divergent
+row could show a number that reads as inside its own band. Precision alone cannot close that;
+naming the side can.
+
+## cli/v0.10.0
+
+### A corpus can declare what its practice is aimed at
+
+`yidam kuten` is new. A kuten declares what this corpus's work is **for**, as the ontology
+declares what it is *about*.
+
+It ships as vendored prelude and carries a revision. A decision record adopts it. Holding
+none is a supported state, and it reports as one.
+
+**Who this affects.** Every repository, on its next re-vendor. Nothing changes until you
+adopt one.
+
+**The repair.** Nothing is broken. To adopt, re-vendor and then declare:
+
+```sh
+YIDAM_REF=v0.4.0 mise run yidam-vendor-update
+yidam kuten adopt inquiry
+```
+
+`adopt` copies the revision out of the vendored profile rather than asking for it. It also
+adds the `AGENTS.md` section and fills it, because the scaffold carrying that section is
+consumed at genesis.
+
+Where there is no `AGENTS.md` at all, it writes none and says so. It prints the section for
+you to paste. `yidam doctor` reports it until a file carries the block.
+
+Then `yidam kuten check` reads your history against what you declared. It writes nothing and
+exits zero however far a corpus has drifted.
+
+### `yidam score <range>` reads a session's work
+
+The genesis rubric scores a repository's birth, once. Nothing said whether a *session's* work
+was any good.
+
+`score` reports one row per declared criterion, each with the evidence it came from. There is
+no overall number: a single score over a range names somebody's session.
+
+Criteria come from the kuten's `rubric` slot, or from the template where no kuten is held. The
+report says which, every time.
+
+### `node-too-long` counts the description, and your baseline is now loose
+
+The check counted the whole file — frontmatter, properties and links included — while its own
+rationale argues about prose. The two came apart once corpora began recording where their
+edges come from.
+
+One derived corpus reported 212 findings, and 207 came from a single class. Its fixed
+structure runs 18 lines before a word of prose.
+
+**Who this affects.** Any corpus whose nodes record provenance on their links. Findings fall,
+often sharply.
+
+**The repair.** Re-bless after upgrading:
+
+```sh
+yidam lint --bless
+```
 
 ### `lint --commits` can be scoped to the corpus register
 
