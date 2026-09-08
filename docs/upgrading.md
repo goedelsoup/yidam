@@ -49,8 +49,8 @@ now null whenever `held` is false, and what the tip declared is under `declared`
 ### `query`'s rejection codes: three you may be matching on have never fired
 
 `rejected.code` is frozen so a client can branch on it without matching prose. The frozen
-list and the codes `serve --mcp` actually emits had never been compared, and they disagreed
-in both directions for nine contract versions.
+list and the codes `serve --mcp` actually emits had never been compared. They disagreed in
+both directions for nine contract versions.
 
 **Three frozen names are `yidam lint` check ids, and no query rejection has ever carried
 one** — `unknown-property`, `unlicensed-edge`, `edge-target-class`. They are gone from the
@@ -62,14 +62,13 @@ script reading `yidam query --format json`.
 
 **Why this is more than a spelling.** `unknown-property` and `undeclared-property` are the
 same thing to a person and different strings to a `match`. The `else` arm of such a branch is
-usually *unknown rejection*, so a misspelled property name has been arriving unclassified at
-exactly the caller the code set exists to serve — silently, and in the direction that hides
-it.
+usually *unknown rejection*. So a misspelled property name arrived unclassified at the caller
+the code set exists to serve. Silently, and in the direction that hides it.
 
 **The repair.** Compare your match arms against the list in
 `yidam/prelude/sdks/parity/mcp/tools.json`. Arms for the three removed names are dead code;
-add the five. `diagnostics[].code` is enumerated in the same file for the first time, so a
-client can branch on that too rather than matching its prose.
+add the five. `diagnostics[].code` is enumerated in the same file for the first time. A
+client can branch on that too, rather than matching its prose.
 
 ### `yidam propose` records a question instead of writing a sentence
 
