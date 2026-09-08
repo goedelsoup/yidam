@@ -107,7 +107,7 @@ the binary in one file you drag onto the Extensions pane, which asks which repos
 macOS only, and it gives you the MCP server rather than the CLI:
 
 ```sh
-open yidam-0.10.0-aarch64-apple-darwin.mcpb    # from the latest release; or double-click it
+open yidam-0.11.0-aarch64-apple-darwin.mcpb    # from the latest release; or double-click it
 ```
 
 Or from source, if you would rather. Same light default build, and it needs only a Rust
