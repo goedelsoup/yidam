@@ -110,7 +110,7 @@ agent](mcp-server.md#claude-desktop-as-a-bundle) has the rest.
 ## From source
 
 ```sh
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.10.0 --locked yidam
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.11.0 --locked yidam
 ```
 
 The default build needs **only a Rust toolchain**: no protoc, no system C library, no ML
@@ -188,11 +188,11 @@ To build a heavier set from source:
 
 ```sh
 # Semantic retrieval over an index somebody else built. No protoc.
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.10.0 --locked \
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.11.0 --locked \
   --features vector-read yidam
 
 # Everything, including the ability to build an index.
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.10.0 --locked \
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.11.0 --locked \
   --features full yidam
 ```
 
