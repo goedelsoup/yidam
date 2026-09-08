@@ -94,8 +94,8 @@ terminal anywhere in the process. Download the `.mcpb` for your Mac from the
 pane, or:
 
 ```sh
-open yidam-0.10.0-aarch64-apple-darwin.mcpb    # Apple silicon
-open yidam-0.10.0-x86_64-apple-darwin.mcpb     # Intel
+open yidam-0.11.0-aarch64-apple-darwin.mcpb    # Apple silicon
+open yidam-0.11.0-x86_64-apple-darwin.mcpb     # Intel
 ```
 
 The bundle is a zip holding a manifest and the light `yidam` build, and the installer asks
