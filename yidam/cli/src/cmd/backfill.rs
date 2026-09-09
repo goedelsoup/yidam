@@ -298,4 +298,34 @@ mod tests {
         assert_eq!(slugify("???"), "untitled");
         assert!(slugify(&"x".repeat(100)).len() <= 40);
     }
+
+    /// This repository names nodes in two places — here, and by hand — and `name-not-a-slug`
+    /// now gates the second. A producer that can emit a name its own gate rejects would put a
+    /// red finding in a corpus for a file the tool wrote, so the two are held together rather
+    /// than left to agree by coincidence.
+    ///
+    /// The cases are the ones that could break the agreement: a leading separator, a run of
+    /// them, a trailing one, a truncation that lands on one, and input with no alphanumerics
+    /// at all.
+    #[test]
+    fn every_name_slugify_can_produce_passes_the_gate() {
+        for subject in [
+            "establish: A/B testing!",
+            "???",
+            "  leading space",
+            "trailing punctuation!!!",
+            "many---separators___here",
+            "Ünïcödé and émojis 🎉",
+            &"word ".repeat(30),
+            &format!("{}!", "x".repeat(39)),
+            "",
+            "9",
+        ] {
+            let slug = slugify(subject);
+            assert!(
+                crate::cmd::lint::checks::is_slug(&slug),
+                "slugify({subject:?}) produced {slug:?}, which name-not-a-slug rejects"
+            );
+        }
+    }
 }

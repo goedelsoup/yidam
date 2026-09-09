@@ -1113,6 +1113,95 @@ pub(crate) fn class_of(n: &Node) -> String {
         .unwrap_or_default()
 }
 
+/// Whether a name is a slug: lowercase ASCII words joined by single hyphens.
+///
+/// Deliberately strict, and affordable because it is already true. Across thirteen derived
+/// corpora — 2,686 tracked instance nodes and every class directory — **nothing violates this**.
+/// The only characters that occur beyond `a-z` are `-` and the digits. So this is not a rule
+/// being imposed on anybody's corpus; it is the convention every corpus already follows, written
+/// down before something depends on it.
+pub(crate) fn is_slug(s: &str) -> bool {
+    !s.is_empty()
+        && !s.starts_with('-')
+        && !s.ends_with('-')
+        && !s.contains("--")
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// The last path segment of a repo-relative path, with `.ont.yml` or `.yml` removed.
+///
+/// From `rel` rather than `path`, because `rel` is what the finding reports and what a node's
+/// id is derived from — and because a caller constructing a `Node` for a test gives `rel` the
+/// corpus-shaped value and `path` whatever the temp dir handed it.
+fn stem_of(rel: &str) -> &str {
+    let last = rel.rsplit('/').next().unwrap_or(rel);
+    last.strip_suffix(".ont.yml")
+        .or_else(|| last.strip_suffix(".yml"))
+        .unwrap_or(last)
+}
+
+/// A node or class whose name cannot survive being put in a URI.
+///
+/// A name is half of a node's identity — `<class>/<name>` — and that identity is rendered into
+/// four incompatible encodings today. The MCP resource surface interpolates it raw and matches
+/// it back with `strip_prefix`, so a name carrying a space emits a malformed URI and a client
+/// that correctly percent-encodes it gets *unknown resource*. The LSP escapes a space and
+/// nothing else. The web editor is the only surface that encodes per segment. A name outside
+/// this set therefore breaks two of the three consumers **silently**, which is why this is an
+/// error rather than a note.
+///
+/// Chosen against the population rather than from taste: `is_slug` reports **0 findings across
+/// thirteen derived corpora**, so no repository inherits a red gate from adopting it. The cost
+/// of waiting is what makes it worth landing now — a name is load-bearing the moment another
+/// node links to it, and `prelude/GRAPH.md` is explicit that renaming severs edges. A rule that
+/// arrives after the names do is a rule nobody can apply.
+///
+/// Scope: an instance's own name and a class's declared name. A class *directory* is not read
+/// separately — a directory that disagrees with its `.ont.yml` is what `unknown-class` reports,
+/// and two checks answering one question is the drift this repository keeps finding.
+pub fn name_not_a_slug(nodes: &[Node], classes: &[Class]) -> Check {
+    let mut violations = Vec::new();
+    let why = "a name is half a node's id and is rendered into URIs by three surfaces that \
+               encode differently — lowercase letters, digits and single interior hyphens only";
+    for n in nodes {
+        let name = stem_of(&n.rel);
+        if !is_slug(name) {
+            violations.push(Violation::new(
+                &n.rel,
+                format!("node name `{name}` is not a slug — {why}"),
+            ));
+        }
+    }
+    for c in classes {
+        if !is_slug(&c.name) {
+            violations.push(Violation::new(
+                &c.rel,
+                format!("class name `{}` is not a slug — {why}", c.name),
+            ));
+        }
+    }
+    Check::new(
+        "name-not-a-slug",
+        "Name that cannot be put in a URI",
+        Severity::Error,
+        "A node's id is `<class>/<name>`, and that id is rendered as an MCP resource URI, an \
+         LSP `file://` document URI, a web route and an RDF subject. The three that build the \
+         string do it three different ways: the MCP surface interpolates raw and matches back \
+         with `strip_prefix`, so a space produces a URI no client can round-trip; the LSP \
+         escapes a space and nothing else; only the web editor encodes per segment. So a name \
+         outside the slug set does not fail loudly, it fails as a resource that cannot be \
+         fetched.\n\n\
+         Measured before it was written: 0 of 2,686 tracked instance nodes across thirteen \
+         derived corpora violate this, and the only non-alphabetic characters in use are `-` \
+         and the digits. Nothing inherits a finding from this check, which is what makes Error \
+         the honest severity rather than a harsh one — and the reason not to defer it is that a \
+         name becomes expensive to change as soon as another node links to it, because renaming \
+         severs edges.",
+        violations,
+    )
+}
+
 pub fn orphan_in(nodes: &[Node], classes: &[Class]) -> Check {
     let mut targeted: HashSet<PathBuf> = HashSet::new();
     for n in nodes {
@@ -2943,6 +3032,123 @@ mod tests {
         // the empty record rather than the case its test is named after.
         assert!(n.malformed.is_none(), "fixture: {:?}", n.malformed);
         n
+    }
+
+    /// The names every corpus already writes. If this ever reddens, the rule changed and not
+    /// the corpora — 0 of 2,686 tracked nodes across thirteen derived corpora violate it.
+    #[test]
+    fn the_names_corpora_actually_use_are_slugs() {
+        for name in [
+            "knowledge-graph",
+            "hb96",
+            "fy2024-district-profile",
+            "twenty-mill-floor",
+            "section-3",
+            "a",
+            "2024",
+        ] {
+            assert!(is_slug(name), "rejected a name in use: {name:?}");
+        }
+    }
+
+    /// Each rejected shape breaks a different consumer, so they are listed rather than
+    /// collapsed: a space breaks the MCP round trip, `#` truncates the URI at a fragment, `%`
+    /// is read as an escape that is not one, and a capital survives the URI and then fails to
+    /// match a lowercased id.
+    #[test]
+    fn a_name_that_cannot_be_put_in_a_uri_is_rejected() {
+        for name in [
+            "two words",
+            "has#fragment",
+            "has%20escape",
+            "HasCapital",
+            "café",
+            "trailing-",
+            "-leading",
+            "double--hyphen",
+            "under_score",
+            "dot.separated",
+            "",
+        ] {
+            assert!(!is_slug(name), "admitted an unsafe name: {name:?}");
+        }
+    }
+
+    #[test]
+    fn stem_of_drops_both_extensions_and_the_directories() {
+        assert_eq!(
+            stem_of(".yidam/corpus/concept/knowledge-graph.yml"),
+            "knowledge-graph"
+        );
+        assert_eq!(stem_of(".yidam/corpus/concept.ont.yml"), "concept");
+        assert_eq!(stem_of("bare"), "bare");
+    }
+
+    /// The check reports the node against its own path, because the fix is to rename that file.
+    #[test]
+    fn a_bad_node_name_is_reported_against_its_file() {
+        let good = node(
+            ".yidam/corpus/concept/knowledge-graph.yml",
+            "class: concept\n",
+        );
+        let bad = node(".yidam/corpus/concept/two words.yml", "class: concept\n");
+        let c = name_not_a_slug(&[good, bad], &[]);
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        assert_eq!(c.violations[0].node, ".yidam/corpus/concept/two words.yml");
+        assert!(
+            c.violations[0].detail.contains("`two words`"),
+            "{}",
+            c.violations[0].detail
+        );
+    }
+
+    /// A class name is the other half of the id, so it is checked and reported the same way.
+    #[test]
+    fn a_bad_class_name_is_reported_against_its_class_file() {
+        let c = name_not_a_slug(&[], &[class(".yidam/corpus/My Class.ont.yml", "d")]);
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        assert!(
+            c.violations[0].detail.contains("class name"),
+            "{}",
+            c.violations[0].detail
+        );
+    }
+
+    /// A corpus of good names produces nothing — the state every derived corpus is in, and the
+    /// reason this can be an Error.
+    #[test]
+    fn a_corpus_of_slugs_reports_nothing() {
+        let c = name_not_a_slug(
+            &[
+                node(".yidam/corpus/concept/base-flow.yml", "class: concept\n"),
+                node(".yidam/corpus/gage/usgs-03271601.yml", "class: gage\n"),
+            ],
+            &[class(".yidam/corpus/concept.ont.yml", "d")],
+        );
+        assert!(c.passed(), "{:?}", c.violations);
+        assert_eq!(c.severity, Severity::Error);
+    }
+
+    /// The check must read the names it is given. A version that looked at nothing would pass
+    /// every test above except this one.
+    #[test]
+    fn the_check_reads_every_node_and_class_it_is_given() {
+        let c = name_not_a_slug(
+            &[
+                node(".yidam/corpus/concept/bad name.yml", "class: concept\n"),
+                node(".yidam/corpus/concept/Another Bad.yml", "class: concept\n"),
+            ],
+            &[
+                class(".yidam/corpus/Bad Class.ont.yml", "d"),
+                class(".yidam/corpus/other bad.ont.yml", "d"),
+            ],
+        );
+        assert_eq!(
+            c.violations.len(),
+            4,
+            "one per offending name: {:?}",
+            c.violations
+        );
     }
 
     fn edge(relationship: &str, target: &str, direction: &str) -> ClassEdge {

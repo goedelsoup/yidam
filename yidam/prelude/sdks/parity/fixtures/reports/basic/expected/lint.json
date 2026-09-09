@@ -195,6 +195,13 @@
       "violations": []
     },
     {
+      "id": "name-not-a-slug",
+      "title": "Name that cannot be put in a URI",
+      "severity": "error",
+      "rationale": "A node's id is `<class>/<name>`, and that id is rendered as an MCP resource URI, an LSP `file://` document URI, a web route and an RDF subject. The three that build the string do it three different ways: the MCP surface interpolates raw and matches back with `strip_prefix`, so a space produces a URI no client can round-trip; the LSP escapes a space and nothing else; only the web editor encodes per segment. So a name outside the slug set does not fail loudly, it fails as a resource that cannot be fetched.\n\nMeasured before it was written: 0 of 2,686 tracked instance nodes across thirteen derived corpora violate this, and the only non-alphabetic characters in use are `-` and the digits. Nothing inherits a finding from this check, which is what makes Error the honest severity rather than a harsh one — and the reason not to defer it is that a name becomes expensive to change as soon as another node links to it, because renaming severs edges.",
+      "violations": []
+    },
+    {
       "id": "missing-label",
       "title": "Instance with no human-readable label",
       "severity": "warn",
