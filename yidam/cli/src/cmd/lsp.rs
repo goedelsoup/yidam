@@ -62,33 +62,60 @@ struct Server {
 
 /// `file:///a/b%20c.yml` → `/a/b c.yml`.
 ///
-/// Hand-rolled rather than a `url` dependency: the only scheme an editor sends here is
-/// `file:`, and the only escaping that appears in a corpus path in practice is `%20`.
+/// Hand-rolled rather than a `url` dependency: the only scheme an editor sends here is `file:`.
+///
+/// **A percent-escape is a byte, not a character.** This used to push each decoded byte
+/// straight into a `String` as a `char`, which is Latin-1 and not UTF-8 — so an editor opening
+/// a corpus under `/Users/josé/` sent `%C3%A9` and got back `Ã©`, a path that does not exist.
+/// The same line mangled *un*escaped input for the same reason: every byte of a raw multi-byte
+/// character became its own `char`. So escapes and literal bytes both accumulate into a byte
+/// buffer and the whole thing is decoded once, at the end.
+///
+/// Invalid UTF-8 yields `None` rather than a lossy path. A `file:` URI is required to be
+/// UTF-8, every caller already handles `None`, and the alternative is what this function used
+/// to do: hand back a plausible path naming a different file.
 pub(crate) fn uri_to_path(uri: &str) -> Option<PathBuf> {
     let rest = uri.strip_prefix("file://")?;
-    let mut out = String::with_capacity(rest.len());
     let bytes = rest.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
             if let Ok(byte) = u8::from_str_radix(&rest[i + 1..i + 3], 16) {
-                out.push(byte as char);
+                out.push(byte);
                 i += 3;
                 continue;
             }
         }
-        out.push(bytes[i] as char);
+        out.push(bytes[i]);
         i += 1;
     }
-    Some(PathBuf::from(out))
+    Some(PathBuf::from(String::from_utf8(out).ok()?))
 }
 
+/// `/a/b c.yml` → `file:///a/b%20c.yml`.
+///
+/// **Escapes everything outside RFC 3986's unreserved set**, byte by byte, keeping `/` as the
+/// separator. It used to escape a space and nothing else, which left `#` to truncate the URI at
+/// a fragment, `%` to be read as an escape that is not one, and `?` to open a query — each of
+/// which produces a URI naming some other file, or no file, without erroring.
+///
+/// Byte-wise rather than char-wise so a multi-byte character is emitted as the sequence
+/// [`uri_to_path`] reads back. The two are inverses, and
+/// `a_path_survives_the_round_trip` is what holds them to it.
 pub(crate) fn path_to_uri(path: &Path) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let mut out = String::from("file://");
-    for ch in path.to_string_lossy().chars() {
-        match ch {
-            ' ' => out.push_str("%20"),
-            other => out.push(other),
+    for byte in path.to_string_lossy().as_bytes() {
+        match *byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
+                out.push(*byte as char);
+            }
+            other => {
+                out.push('%');
+                out.push(HEX[(other >> 4) as usize] as char);
+                out.push(HEX[(other & 0x0F) as usize] as char);
+            }
         }
     }
     out
@@ -576,6 +603,71 @@ mod tests {
     use super::*;
     use std::io::Cursor;
     use tempfile::TempDir;
+
+    /// The bug this replaced: a decoded byte pushed as a `char` is Latin-1. A corpus opened
+    /// from a checkout with a non-ASCII path is the ordinary case that hit it.
+    #[test]
+    fn a_percent_escape_decodes_as_utf8_and_not_latin1() {
+        assert_eq!(
+            uri_to_path("file:///Users/jos%C3%A9/repo/x.yml"),
+            Some(PathBuf::from("/Users/josé/repo/x.yml"))
+        );
+        // The same defect on the other arm: raw multi-byte input, no escapes at all.
+        assert_eq!(
+            uri_to_path("file:///Users/josé/repo/x.yml"),
+            Some(PathBuf::from("/Users/josé/repo/x.yml"))
+        );
+    }
+
+    /// A space was the only character escaped on the way out, so every other reserved one
+    /// produced a URI naming a different file — or none — without erroring.
+    #[test]
+    fn every_reserved_character_is_escaped_on_the_way_out() {
+        let uri = path_to_uri(Path::new("/a/b c/d#e/f%g/h?i/j.yml"));
+        assert_eq!(uri, "file:///a/b%20c/d%23e/f%25g/h%3Fi/j.yml");
+        // The invariant, stated rather than spot-checked: nothing outside RFC 3986's unreserved
+        // set survives in the path, and `%` appears only as the head of an escape.
+        for ch in uri[7..].chars() {
+            assert!(
+                ch.is_ascii_alphanumeric() || "-._~/%".contains(ch),
+                "unescaped {ch:?} in {uri}"
+            );
+        }
+    }
+
+    /// The two are inverses, and this is the property that keeps them so. Each case is a
+    /// character class that broke one direction or the other before.
+    #[test]
+    fn a_path_survives_the_round_trip() {
+        for p in [
+            "/plain/path/node.yml",
+            "/with space/node.yml",
+            "/josé/ünïcode/node.yml",
+            "/hash#in/path/node.yml",
+            "/percent%20literal/node.yml",
+            "/question?mark/node.yml",
+            "/emoji🎉/node.yml",
+            "/trailing/",
+            "/",
+        ] {
+            let path = PathBuf::from(p);
+            assert_eq!(
+                uri_to_path(&path_to_uri(&path)),
+                Some(path.clone()),
+                "round trip lost {p:?} via {}",
+                path_to_uri(&path)
+            );
+        }
+    }
+
+    /// Not a `file:` URI at all, and invalid UTF-8 once decoded. Both are `None` rather than a
+    /// path that names something else.
+    #[test]
+    fn what_is_not_a_readable_file_uri_is_none() {
+        assert_eq!(uri_to_path("yidam://corpus/concept/x"), None);
+        assert_eq!(uri_to_path("https://example.com/x.yml"), None);
+        assert_eq!(uri_to_path("file:///bad/%FF%FE/x.yml"), None);
+    }
 
     fn fixture() -> (TempDir, PathBuf) {
         let tmp = TempDir::new().unwrap();
