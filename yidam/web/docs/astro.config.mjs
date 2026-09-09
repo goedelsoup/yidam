@@ -185,6 +185,7 @@ const sidebar = [
       { slug: 'rfcs/0029-write-tier', label: '0029 · The write tier' },
       { slug: 'rfcs/0030-standalone-editor', label: '0030 · The standalone editor' },
       { slug: 'rfcs/0031-node-prose-model', label: '0031 · The node prose model' },
+      { slug: 'rfcs/0032-reference-grammar', label: '0032 · The reference grammar' },
     ],
   },
 ];
