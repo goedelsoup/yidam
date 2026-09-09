@@ -9,8 +9,9 @@
   - RFC-0008 (which measured that a claim has no identity a checker can read; §4.4 is that result written into the grammar as a refusal)
   - RFC-0031 (whose node-prose work owns the *scope* half of the evidence-tag request; this owns the provenance half)
 - **Versioning layers touched:** SDK+parity (one parser, three languages) / tooling (every surface that builds or splits an id) / **MCP contract** (§4.1 adds a slot to the resource namespace — a minor bump, in all three copies). No on-disk format change: `links:` and `cites:` keep their shapes.
-- **Precondition, landed:** `name-not-a-slug` (#775). A grammar over names cannot be specified while a name may contain a space; that check makes the character set an invariant rather than a convention.
-- **Downstream reference case:** `goedelsoup/ohio-education-funding` (129 nodes, 168 crate references folded into evidence-tag details), and the thirteen-corpus population behind the measurements below
+- **Amended 2026-09-09 (#777):** the precondition below is weaker than this RFC first claimed, and §4.1 and §4.6 move with it. Two of sixteen measured corpora do not satisfy it, so the parser reports conformance instead of assuming it.
+- **Precondition, landed:** `name-not-a-slug` (#775). A grammar over names cannot be specified while a name may contain a space; that check makes the character set an invariant **of a corpus that passes lint** — which is not every corpus. See the amendment in §4.1.
+- **Downstream reference case:** `goedelsoup/ohio-education-funding` (129 nodes, 168 crate references folded into evidence-tag details). The tag measurements below are over thirteen corpora, on maturity grounds; §4.1's conformance measurement is over all sixteen with tracked nodes, because that question is about adoption rather than practice
 
 ## Summary
 
@@ -89,8 +90,9 @@ relative path, which is a *fifth* convention, and unrelated to any of the above.
 | `<public-base>/class/name` | RFC-0027 §5, unshipped | yes | — |
 
 Nine of the eleven can say neither. Three surfaces also disagreed about *encoding* the same id
-until #775 made a name's character set an invariant, which is the precondition this RFC needed
-and the reason it can now assume no escaping is required.
+until #775 wrote the character set down, which is the precondition this RFC needed — though what
+that check makes invariant is narrower than this RFC first assumed, and §4.1's amendment measures
+by how much.
 
 ## Proposal
 
@@ -105,10 +107,25 @@ kind         node | crate | catalog | skill | decision
 
 The corpus moves into the authority and the kind into the path, which is the minimal change that
 creates the slot §1 lacks. `<path>` is `<class>/<name>` for `node` and a single segment for the
-others. Every segment is a slug, guaranteed by
-[`name_not_a_slug`](../../yidam/cli/src/cmd/lint/checks.rs#L1163) and its predicate
-[`is_slug`](../../yidam/cli/src/cmd/lint/checks.rs#L1123), so **no percent-encoding is required
-anywhere in this grammar** — which is why there is one string form and not one per encoder.
+others. Every segment in a **conforming** corpus is a slug — the rule
+[`name_not_a_slug`](../../yidam/cli/src/cmd/lint/checks.rs#L1185) reports against, through its
+predicate [`is_slug`](../../yidam/cli/src/cmd/lint/checks.rs#L1133) — so **no percent-encoding is
+required anywhere in this grammar**, which is why there is one string form and not one per
+encoder.
+
+> **Amended 2026-09-09 (#777): a conforming corpus, not every corpus.** This RFC was written on
+> the claim that #775 made the character set an invariant. Measured with the shipped binary
+> against the sixteen corpora that have tracked nodes, fourteen conform and **two do not**:
+> `yidam-proto-001d` reports 6 findings and `yidam-proto-002c` 16, with `yidam lint` exiting 1 in
+> both. Both are the youngest corpora measured, and both took class names from their domain's own
+> vocabulary in its own case — `NonConformance`, `DischargePoint`. Kebab-case is what corpora
+> converge on, not what they start with, and `yidam lint --bless` is the supported way to adopt a
+> check over names you already wrote. So a non-conforming corpus is a state the system offers, not
+> merely one it fails to prevent.
+>
+> The grammar is unchanged: a conforming id still needs no escaping, which is the property §4.6's
+> single parser rests on. What changes is that the parser may not *assume* it. §4.6 carries the
+> consequence.
 
 RFC-0005's normative scheme section is **amended**: the five URIs it froze keep working as
 aliases with a defined mapping into the new shape, so the contract bump is additive and a client
@@ -167,6 +184,31 @@ tolerated spellings, [`qualified_id`](../../yidam/cli/src/model.rs#L353),
 [`graph.ts:145`](../../yidam/editors/web/src/lib/graph.ts#L145)'s route builder. It lands on the
 parity surface, so Rust, TypeScript and Python must agree — three implementations and one shared
 case set, not one implementation.
+
+**It is total, and it reports conformance rather than requiring it (amended, #777).** §4.1's
+measurement found two corpora whose segments are not slugs, reachable through the `--bless` the
+check itself offers. Three ways to handle that, and only one of them ends the problem this RFC is
+about:
+
+- *Refuse a non-slug segment.* Then 6 of `yidam-proto-002c`'s 10 nodes cannot be named at all, and
+  every consumer grows a fallback path for the corpus in front of it — the per-surface
+  improvisation §1 diagnoses, reintroduced by the fix for it.
+- *Escape it.* One string form becomes one per encoder, which is the state §4.1's no-escaping
+  property exists to leave.
+- *Parse structurally, and answer whether the result conforms.* The parser splits on `/`, `@` and
+  `#` for any input, and a separate predicate says whether every segment is a slug. A caller that
+  must emit a URI can then act on the answer.
+
+The third, because the repository already does exactly this one layer out:
+[`export_rdf.rs:229`](../../yidam/cli/src/cmd/export_rdf.rs#L229) tests a foreign alignment IRI for
+a scheme it can dereference and demotes it to a literal when it fails. §2's complaint is that it
+applies that test to other people's IRIs and not to its own. Reporting conformance on our own
+identifiers is that same test, turned inward — which makes this amendment continuous with the
+problem statement rather than a concession against it.
+
+Enforcement stays where it already is: `name-not-a-slug` is the check, at `Error`, and a corpus
+that blessed its findings has recorded a state rather than acquired a licence. The parser's job is
+to be honest about what it was handed.
 
 ## What this does not touch
 

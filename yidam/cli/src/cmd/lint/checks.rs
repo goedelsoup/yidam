@@ -1115,11 +1115,21 @@ pub(crate) fn class_of(n: &Node) -> String {
 
 /// Whether a name is a slug: lowercase ASCII words joined by single hyphens.
 ///
-/// Deliberately strict, and affordable because it is already true. Across thirteen derived
-/// corpora — 2,686 tracked instance nodes and every class directory — **nothing violates this**.
-/// The only characters that occur beyond `a-z` are `-` and the digits. So this is not a rule
-/// being imposed on anybody's corpus; it is the convention every corpus already follows, written
-/// down before something depends on it.
+/// Deliberately strict, and it is what the mature corpora already write — but not what *every*
+/// corpus writes, which is the correction below. Across the sixteen tracked corpora on disk
+/// (2,764 instance nodes, 2026-09-09), **fourteen have no finding** and the only characters in
+/// use beyond `a-z` are `-` and the digits. Two do:
+///
+/// | Corpus | Commits | Findings |
+/// |---|---|---|
+/// | `yidam-proto-001d` | 8 | 6 class names (`DischargePoint`, `Reach`, …) |
+/// | `yidam-proto-002c` | 3 | 10 class names, and 6 node names (`DIS-2024-0447`, `TI-7842`) |
+///
+/// Both are the two youngest corpora measured, and both took their class names from their
+/// domain's own vocabulary in its own case — a manufacturing corpus writes `NonConformance`, a
+/// water-quality one writes `DischargePoint`. So this is a convention the corpora *converge* on
+/// with maturity, not one they start with, and the rule is being imposed on the beginning of a
+/// corpus's life even though it is descriptive of the rest of it.
 pub(crate) fn is_slug(s: &str) -> bool {
     !s.is_empty()
         && !s.starts_with('-')
@@ -1151,11 +1161,23 @@ fn stem_of(rel: &str) -> &str {
 /// this set therefore breaks two of the three consumers **silently**, which is why this is an
 /// error rather than a note.
 ///
-/// Chosen against the population rather than from taste: `is_slug` reports **0 findings across
-/// thirteen derived corpora**, so no repository inherits a red gate from adopting it. The cost
-/// of waiting is what makes it worth landing now — a name is load-bearing the moment another
-/// node links to it, and `prelude/GRAPH.md` is explicit that renaming severs edges. A rule that
-/// arrives after the names do is a rule nobody can apply.
+/// Chosen against the population rather than from taste, and **the population was measured
+/// twice**. The first measurement excluded three prototype corpora on maturity grounds — 3, 8
+/// and 24 commits against a floor of 73 — and reported 0 findings across the remaining thirteen,
+/// from which this docstring concluded that no repository inherits a red gate. Two of the three
+/// excluded corpora are the only ones that fire: 6 findings and 16 findings, `yidam lint` exiting
+/// 1 in both. The exclusion was right for measuring *practice* and wrong for measuring *adoption
+/// cost*, because a three-commit corpus is exactly what a repository looks like on the day it
+/// adopts a check. See [`is_slug`] for the table.
+///
+/// Error is still the right severity, for a reason the empty population was standing in for: the
+/// finding is **true**. `Disposition/DIS-2024-0447` cannot round-trip the MCP resource surface,
+/// and saying so quietly would not make it fetchable. What makes that survivable is the baseline
+/// ratchet — `--bless` records what a corpus already has, and the check still stops the next one.
+///
+/// The cost of waiting is what makes it worth landing at all — a name is load-bearing the moment
+/// another node links to it, and `prelude/GRAPH.md` is explicit that renaming severs edges. A
+/// rule that arrives after the names do is a rule nobody can apply.
 ///
 /// Scope: an instance's own name and a class's declared name. A class *directory* is not read
 /// separately — a directory that disagrees with its `.ont.yml` is what `unknown-class` reports,
@@ -1192,12 +1214,17 @@ pub fn name_not_a_slug(nodes: &[Node], classes: &[Class]) -> Check {
          escapes a space and nothing else; only the web editor encodes per segment. So a name \
          outside the slug set does not fail loudly, it fails as a resource that cannot be \
          fetched.\n\n\
-         Measured before it was written: 0 of 2,686 tracked instance nodes across thirteen \
-         derived corpora violate this, and the only non-alphabetic characters in use are `-` \
-         and the digits. Nothing inherits a finding from this check, which is what makes Error \
-         the honest severity rather than a harsh one — and the reason not to defer it is that a \
-         name becomes expensive to change as soon as another node links to it, because renaming \
-         severs edges.",
+         Measured across sixteen corpora and 2,764 instance nodes: fourteen have no finding, \
+         and the only non-alphabetic characters those fourteen use are `-` and the digits. Two \
+         do have findings — 6 and 16 — and both are the youngest corpora measured, both because \
+         their class names came from their domain's vocabulary in its own case: a manufacturing \
+         corpus writes `NonConformance`, a water-quality one writes `DischargePoint`. So this is \
+         a convention corpora converge on with maturity rather than one they start with.\n\n\
+         Error anyway, because the finding is true: a name outside this set names a resource no \
+         client can fetch, and reporting that quietly would not make it fetchable. What makes it \
+         survivable is the baseline — `yidam lint --bless` records the names a corpus already \
+         has, and the check still stops the next one. Renaming is what costs, because an edge \
+         into a node is written by its name.",
         violations,
     )
 }
@@ -3034,8 +3061,8 @@ mod tests {
         n
     }
 
-    /// The names every corpus already writes. If this ever reddens, the rule changed and not
-    /// the corpora — 0 of 2,686 tracked nodes across thirteen derived corpora violate it.
+    /// The names the mature corpora write. If this ever reddens, the rule changed and not the
+    /// corpora — fourteen of the sixteen measured have no finding at all.
     #[test]
     fn the_names_corpora_actually_use_are_slugs() {
         for name in [
@@ -3048,6 +3075,43 @@ mod tests {
             "2024",
         ] {
             assert!(is_slug(name), "rejected a name in use: {name:?}");
+        }
+    }
+
+    /// And the names two corpora write that this check rejects.
+    ///
+    /// Recorded as a test rather than as a sentence in the rationale, because a measurement
+    /// kept only in prose is one nobody re-runs. These are the exact segments `yidam lint`
+    /// reports in `yidam-proto-001d` (6 findings) and `yidam-proto-002c` (16) — the two
+    /// youngest corpora measured, and the two that took class names from their domain's own
+    /// vocabulary in its own case.
+    ///
+    /// If a later change makes any of these pass, the check stopped reporting a real corpus
+    /// and the docstrings above are describing a population that moved.
+    #[test]
+    fn the_names_two_corpora_write_are_rejected_and_that_is_the_cost() {
+        for class in [
+            // yidam-proto-001d — a water-quality corpus
+            "DischargePoint",
+            "LandUseCatchment",
+            "MonitoringStation",
+            "Reach",
+            // yidam-proto-002c — a manufacturing corpus
+            "NonConformance",
+            "ToolInstance",
+            "Workpiece",
+        ] {
+            assert!(!is_slug(class), "class name in use now passes: {class:?}");
+        }
+        // Node names, in one of the two. An uppercase segment survives the URI and then fails
+        // to match a lowercased id, which is why these are findings and not style notes.
+        for name in [
+            "DIS-2024-0447",
+            "MEAS-0883-030-BORE",
+            "TI-7842",
+            "L-2024-1147",
+        ] {
+            assert!(!is_slug(name), "node name in use now passes: {name:?}");
         }
     }
 
