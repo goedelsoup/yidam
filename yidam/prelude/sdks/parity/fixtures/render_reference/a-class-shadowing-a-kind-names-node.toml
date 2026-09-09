@@ -1,0 +1,9 @@
+function = "render_reference"
+description = "a node in a class called skill renders node/skill/foo, not skill/foo — without this the round trip fails on exactly the corpora that name a class after a kind, and silently"
+
+[input]
+kind = "node"
+path = "skill/foo"
+
+[expected]
+text = "node/skill/foo"

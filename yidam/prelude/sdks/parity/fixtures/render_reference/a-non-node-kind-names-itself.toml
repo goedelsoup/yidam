@@ -1,0 +1,9 @@
+function = "render_reference"
+description = "only node is the default, so every other kind is written"
+
+[input]
+kind = "skill"
+path = "bootstrap"
+
+[expected]
+text = "skill/bootstrap"

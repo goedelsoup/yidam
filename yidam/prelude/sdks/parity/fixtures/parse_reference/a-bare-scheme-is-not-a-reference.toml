@@ -1,0 +1,8 @@
+function = "parse_reference"
+description = "yidam:// with no authority and no path names nothing either"
+
+[input]
+text = "yidam://"
+
+[expected]
+parses = false

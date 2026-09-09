@@ -1,0 +1,10 @@
+function = "parse_reference"
+description = "node/foo would leave a one-segment node path, so `node` is a class name"
+
+[input]
+text = "node/foo"
+
+[expected]
+parses = true
+kind = "node"
+path = "node/foo"

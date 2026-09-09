@@ -83,7 +83,7 @@ author to move prose *into*. None of them is on `CorpusInstance`, so all of them
 dropped by every consumer of the parsed node.
 
 That is not a tidiness complaint, because two families of check disagree as a result.
-[`node_too_long`](../../yidam/cli/src/cmd/lint/checks.rs#L1460) reads the parsed field — the
+[`node_too_long`](../../yidam/cli/src/cmd/lint/checks.rs#L1459) reads the parsed field — the
 comment at [`checks.rs:1417-1422`](../../yidam/cli/src/cmd/lint/checks.rs#L1417-L1422) is explicit
 that this is the intent — while [`count_in_node`](../../yidam/cli/src/claims.rs#L892) takes the
 file's whole text. Two definitions of *the node's prose* inside one binary, and #674 measures the
@@ -199,7 +199,7 @@ amendment.)*
 > deliberately not the SDK's `extract_claims`, which is a line-oriented parser for the markdown
 > node model and reads `class: gage` as a claim over a YAML instance.
 >
-> — [`tools.rs:673-675`](../../yidam/cli/src/cmd/serve/tools.rs#L673-L675)
+> — [`tools.rs:685-687`](../../yidam/cli/src/cmd/serve/tools.rs#L685-L687)
 
 and the VS Code extension declines to parse corpus YAML rather than become "a second
 implementation of `parse_node`" ([`graph.ts:107-110`](../../yidam/editors/vscode/src/graph.ts#L107-L110)),

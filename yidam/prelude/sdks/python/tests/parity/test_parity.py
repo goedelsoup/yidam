@@ -2,7 +2,7 @@ import json
 import tomllib
 from pathlib import Path
 
-from yidam_core import corpus, git, graph, markers, ontology
+from yidam_core import corpus, git, graph, markers, ontology, uri
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent / "parity" / "fixtures"
 
@@ -130,3 +130,71 @@ def test_parity_compile_class_schema():
         # Compared as parsed JSON, not as text: key order and whitespace are not part of
         # the contract, and three languages will not agree on either.
         assert got == json.loads(fx["expected"]["schema"]), fx["description"]
+
+
+# ── the reference grammar (RFC-0032) ──────────────────────────────────────────
+#
+# An optional string field is absent in TOML, which has no null. That is safe here because
+# ``parses``, ``text`` and ``conforms`` are all required — a fixture cannot be silently ungraded
+# on the one thing its function answers, which is the hazard ``expected_malformed`` records from
+# the other side.
+
+
+def _reference(v: dict) -> uri.Reference:
+    kind = uri.kind_from_word(v["kind"])
+    assert kind is not None, f"fixture names no kind: {v['kind']!r}"
+    return uri.Reference(
+        corpus=v.get("corpus"),
+        kind=kind,
+        path=v["path"],
+        rev=v.get("rev"),
+        fragment=v.get("fragment"),
+    )
+
+
+def test_parity_parse_reference():
+    fixtures = load_fixtures("parse_reference")
+    assert fixtures, "no parse_reference fixtures"
+    for fx in fixtures:
+        text = fx["input"]["text"]
+        exp = fx["expected"]
+        got = uri.parse_reference(text)
+        # Required, not defaulted: a fixture omitting this would assert nothing about the one
+        # thing `parse_reference` answers.
+        if not exp["parses"]:
+            assert got is None, f"{fx['description']}: parsed {text!r} as {got!r}"
+            continue
+        assert got is not None, f"{fx['description']}: refused {text!r}"
+        assert got == _reference(exp), fx["description"]
+
+
+def test_parity_render_reference():
+    fixtures = load_fixtures("render_reference")
+    assert fixtures, "no render_reference fixtures"
+    for fx in fixtures:
+        got = uri.render_reference(_reference(fx["input"]))
+        assert got == fx["expected"]["text"], fx["description"]
+
+
+def test_parity_reference_conforms():
+    fixtures = load_fixtures("reference_conforms")
+    assert fixtures, "no reference_conforms fixtures"
+    for fx in fixtures:
+        got = uri.reference_conforms(_reference(fx["input"]))
+        assert got is fx["expected"]["conforms"], fx["description"]
+
+
+def test_every_rendered_reference_parses_back_to_itself():
+    """Not a fixture directory of its own.
+
+    The property is over the cases that already exist, and a third copy of them would be two
+    lists to keep in step. It is what the shadowed-class rendering was chosen for: a node in a
+    class called ``skill`` renders ``node/skill/foo`` precisely so this holds, and without that
+    rule it fails on the corpora that name a class after a kind.
+    """
+    fixtures = load_fixtures("render_reference")
+    assert fixtures, "no render_reference fixtures"
+    for fx in fixtures:
+        want = _reference(fx["input"])
+        rendered = uri.render_reference(want)
+        assert uri.parse_reference(rendered) == want, f"round trip via {rendered!r}"

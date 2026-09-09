@@ -1,0 +1,10 @@
+function = "render_reference"
+description = "a pin does not require a corpus — x and x@abc are the same node in two states"
+
+[input]
+kind = "node"
+path = "concept/foo"
+rev = "abc123"
+
+[expected]
+text = "concept/foo@abc123"

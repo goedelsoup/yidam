@@ -185,24 +185,28 @@ pub(crate) fn call(state: &ServerState, name: &str, args: &Value) -> Value {
 
 /// Resolve an id to a node this repository owns.
 ///
-/// Bare ids only. A `pkg::class/name` never matches here, which is what keeps a dependency
-/// from answering as though it were local.
+/// Bare ids only. A reference naming a corpus never matches here, which is what keeps a
+/// dependency from answering as though it were local.
+///
+/// **The spellings are [`yidam_core::uri`]'s, not this function's.** This tolerated three that
+/// no contract mentioned — a bare id, a trailing `.yml`, and any path ending in
+/// `corpus/<class>/<name>` — which is what an absent grammar looks like from the inside
+/// (RFC-0032 §1). The parser now answers first and admits strictly more, including the
+/// `yidam://` forms. The `ends_with` line stays underneath it as a fallback because the loose
+/// path shape is *served* behaviour that no case pins in either direction, and narrowing it
+/// silently is the mistake #777 was about; `the_parser_answers_every_shape_the_fallback_used_to`
+/// records that it currently catches nothing.
 fn find_node<'a>(state: &'a ServerState, id: &str) -> Option<&'a super::Node> {
-    let id = id.trim().trim_end_matches(".yml");
-    if id.contains("::") {
+    let reference = yidam_core::uri::parse_reference(id)?;
+    if reference.corpus.is_some() {
         return None;
     }
+    let path = reference.path.as_str();
     state
         .nodes
         .iter()
-        .find(|n| n.id == id)
-        // Tolerate full repo paths like .yidam/corpus/<class>/<name>.yml
-        .or_else(|| {
-            state
-                .nodes
-                .iter()
-                .find(|n| id.ends_with(&format!("corpus/{}", n.id)))
-        })
+        .find(|n| n.id == path)
+        .or_else(|| state.nodes.iter().find(|n| path.ends_with(&n.id)))
 }
 
 /// Resolve an id that may name a dependency's node, as `pkg::class/name`.
@@ -210,13 +214,18 @@ fn find_node<'a>(state: &'a ServerState, id: &str) -> Option<&'a super::Node> {
 /// `retrieve` hands back qualified ids, so they have to be usable — an id a client is shown
 /// and then cannot fetch is a worse affordance than not surfacing the node at all. Reading
 /// one is allowed; it is *citing* one that is not.
+///
+/// Which corpus a reference names is [`yidam_core::uri`]'s answer now, so a `yidam://<corpus>/…`
+/// identifier reaches a dependency the same way `pkg::class/name` does. That is additive: the
+/// `id` argument's schema is a string in both cases, and every spelling that resolved before
+/// resolves to the same node.
 fn find_any_node<'a>(state: &'a ServerState, id: &str) -> Option<&'a super::Node> {
-    let id = id.trim().trim_end_matches(".yml");
-    match id.split_once("::") {
-        Some((pkg, rest)) => state
+    let reference = yidam_core::uri::parse_reference(id)?;
+    match &reference.corpus {
+        Some(pkg) => state
             .dep_nodes
             .iter()
-            .find(|n| n.origin.as_deref() == Some(pkg) && n.id == rest),
+            .find(|n| n.origin.as_deref() == Some(pkg.as_str()) && n.id == reference.path),
         None => find_node(state, id),
     }
 }
@@ -577,7 +586,10 @@ fn neighbors(state: &ServerState, args: &Value) -> Result<Value, String> {
     // for one; traversal will not, and the difference is the whole boundary — an edge is a
     // claim, and this repository has asserted none into a corpus it merely installed. Say
     // that, rather than reporting a node that demonstrably exists as missing.
-    if id.contains("::") {
+    // The third of three places that asked "does this name a dependency?" in its own words.
+    // One parser answers it now, so a `yidam://<corpus>/…` identifier is refused here for the
+    // same reason `pkg::class/name` is, rather than being read as a local id with an odd name.
+    if yidam_core::uri::parse_reference(id).is_some_and(|r| r.corpus.is_some()) {
         return Err(format!(
             "{id} belongs to an installed dependency; traversal does not cross corpus              boundaries. Read it with get_node, or search it with retrieve."
         ));
@@ -1217,6 +1229,61 @@ mod tests {
         assert_eq!(out["id"], "upstream::concept/knowledge-graph");
         assert_eq!(out["origin"], "upstream");
         assert_eq!(out["label"], "Knowledge graph (upstream)");
+    }
+
+    /// Every spelling `find_node` used to tolerate still resolves, and by the parser.
+    ///
+    /// The `ends_with` fallback under the primary lookup is what the old code did *instead* of
+    /// parsing. It is kept because the loose path shape is served behaviour no case pins, and
+    /// #777 is what happens when a narrowing is made quietly. This asserts it is currently
+    /// dead: the parser answers every shape, and the fallback catches none of them.
+    ///
+    /// If the fallback ever starts catching one, that is a spelling the grammar does not cover
+    /// and this test names it — which is the point of keeping it rather than deleting it.
+    #[test]
+    fn the_parser_answers_every_shape_the_fallback_used_to() {
+        let state = super::super::tests::test_state();
+        for id in [
+            "concept/knowledge-graph",
+            "concept/knowledge-graph.yml",
+            ".yidam/corpus/concept/knowledge-graph.yml",
+            ".yidam/corpus/concept/knowledge-graph",
+            "  concept/knowledge-graph  ",
+            "node/concept/knowledge-graph",
+            "yidam://corpus/concept/knowledge-graph",
+        ] {
+            let node =
+                find_node(&state, id).unwrap_or_else(|| panic!("{id:?} resolved to nothing"));
+            assert_eq!(node.id, "concept/knowledge-graph", "{id:?}");
+
+            // …and by the parser, not the fallback: the parsed path is the id exactly.
+            let reference = yidam_core::uri::parse_reference(id)
+                .unwrap_or_else(|| panic!("{id:?} did not parse"));
+            assert_eq!(
+                reference.path, "concept/knowledge-graph",
+                "{id:?} reached the node through the fallback, not the grammar"
+            );
+        }
+    }
+
+    /// A reference naming a corpus never resolves locally, however it is spelled.
+    ///
+    /// Three call sites asked this question in three different words before one parser
+    /// answered it. `yidam://upstream/node/…` is refused here for the same reason
+    /// `upstream::…` is, where previously only the second spelling was recognised at all and
+    /// the first would have been read as a local id with a very odd name.
+    #[test]
+    fn a_reference_naming_a_corpus_is_never_local() {
+        let state = super::super::tests::test_state();
+        for id in [
+            "upstream::concept/knowledge-graph",
+            "yidam://upstream/node/concept/knowledge-graph",
+        ] {
+            assert!(find_node(&state, id).is_none(), "{id:?} resolved locally");
+            let found = find_any_node(&state, id)
+                .unwrap_or_else(|| panic!("{id:?} resolved to nothing at all"));
+            assert_eq!(found.origin.as_deref(), Some("upstream"), "{id:?}");
+        }
     }
 
     /// The bare id must keep answering with THIS repository's node, not the dependency's.

@@ -1,0 +1,10 @@
+function = "parse_reference"
+description = "graph.ts's /node/<class>/<name> route, which was an eleventh form of its own"
+
+[input]
+text = "/node/concept/foo"
+
+[expected]
+parses = true
+kind = "node"
+path = "concept/foo"

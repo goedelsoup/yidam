@@ -1,0 +1,11 @@
+function = "reference_conforms"
+description = "every segment of the reference, not only the path"
+
+[input]
+corpus = "producer"
+kind = "node"
+path = "concept/weir"
+rev = "abc123"
+
+[expected]
+conforms = true

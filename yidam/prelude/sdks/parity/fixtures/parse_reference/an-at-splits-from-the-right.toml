@@ -1,0 +1,11 @@
+function = "parse_reference"
+description = "a non-conforming segment holding an @ still leaves the revision recoverable"
+
+[input]
+text = "concept/a@b@abc123"
+
+[expected]
+parses = true
+kind = "node"
+path = "concept/a@b"
+rev = "abc123"

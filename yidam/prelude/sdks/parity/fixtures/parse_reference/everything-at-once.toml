@@ -1,0 +1,13 @@
+function = "parse_reference"
+description = "corpus, kind, path, revision and fragment in one string"
+
+[input]
+text = "yidam://producer/decision/adr-1@v1.2.0#status"
+
+[expected]
+parses = true
+corpus = "producer"
+kind = "decision"
+path = "adr-1"
+rev = "v1.2.0"
+fragment = "status"

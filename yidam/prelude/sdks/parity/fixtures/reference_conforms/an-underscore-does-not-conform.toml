@@ -1,0 +1,9 @@
+function = "reference_conforms"
+description = "the character three languages could admit by coincidence: Python's \\w and JavaScript's \\w both match _, so a regex-based rule would agree here for the wrong reason"
+
+[input]
+kind = "node"
+path = "concept/two_words"
+
+[expected]
+conforms = false

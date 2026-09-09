@@ -1,0 +1,9 @@
+function = "reference_conforms"
+description = "skill/a/b names no skill; a checker reading only the character set would pass it"
+
+[input]
+kind = "skill"
+path = "a/b"
+
+[expected]
+conforms = false

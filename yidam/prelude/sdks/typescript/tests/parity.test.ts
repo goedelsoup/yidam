@@ -8,6 +8,13 @@ import { classifyCommit, isRecognizedVerb } from '../src/git.ts'
 import { findReachable, findCitations, type GraphEdge } from '../src/graph.ts'
 import { scanMarkers, updateRegen } from '../src/markers.ts'
 import { parseClass, compileClassSchema } from '../src/ontology.ts'
+import {
+  parseReference,
+  renderReference,
+  referenceConforms,
+  kindFromWord,
+  type Reference,
+} from '../src/uri.ts'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -185,6 +192,88 @@ describe('parity: find_citations', () => {
     const exp = fx['expected'] as Record<string, string[]>
     it(fx['description'] as string, () => {
       expect(findCitations(edgesOf(inp), inp['node_path'] as string)).toEqual(exp['citations'])
+    })
+  }
+})
+
+// ── the reference grammar (RFC-0032) ──────────────────────────────────────────
+//
+// An optional string field is absent in TOML, which has no null. That is safe here because
+// `parses`, `text` and `conforms` are all required — a fixture cannot be silently ungraded on
+// the one thing its function answers, which is the hazard `expected_malformed` records from the
+// other side.
+
+function referenceOf(v: Record<string, unknown>): Reference {
+  const kindWord = v['kind'] as string
+  const kind = kindFromWord(kindWord)
+  if (kind === null) throw new Error(`fixture names no kind: ${kindWord}`)
+  return {
+    corpus: (v['corpus'] as string | undefined) ?? null,
+    kind,
+    path: v['path'] as string,
+    rev: (v['rev'] as string | undefined) ?? null,
+    fragment: (v['fragment'] as string | undefined) ?? null,
+  }
+}
+
+describe('parity: parse_reference', () => {
+  const fixtures = loadFixtures('parse_reference')
+  it('has fixtures', () => expect(fixtures.length).toBeGreaterThan(0))
+
+  for (const fx of fixtures) {
+    const inp = fx['input'] as Record<string, string>
+    const exp = fx['expected'] as Record<string, unknown>
+    it(fx['description'] as string, () => {
+      const got = parseReference(inp['text'])
+      if (exp['parses'] !== true) {
+        expect(got).toBeNull()
+        return
+      }
+      expect(got).not.toBeNull()
+      expect(got).toEqual(referenceOf(exp))
+    })
+  }
+})
+
+describe('parity: render_reference', () => {
+  const fixtures = loadFixtures('render_reference')
+  it('has fixtures', () => expect(fixtures.length).toBeGreaterThan(0))
+
+  for (const fx of fixtures) {
+    const inp = fx['input'] as Record<string, unknown>
+    const exp = fx['expected'] as Record<string, string>
+    it(fx['description'] as string, () => {
+      expect(renderReference(referenceOf(inp))).toBe(exp['text'])
+    })
+  }
+})
+
+describe('parity: reference_conforms', () => {
+  const fixtures = loadFixtures('reference_conforms')
+  it('has fixtures', () => expect(fixtures.length).toBeGreaterThan(0))
+
+  for (const fx of fixtures) {
+    const inp = fx['input'] as Record<string, unknown>
+    const exp = fx['expected'] as Record<string, boolean>
+    it(fx['description'] as string, () => {
+      expect(referenceConforms(referenceOf(inp))).toBe(exp['conforms'])
+    })
+  }
+})
+
+// Every rendered reference parses back to what it was rendered from. Not a fixture directory of
+// its own: the property is over the cases that already exist, and a third copy of them would be
+// two lists to keep in step. It is what the shadowed-class rendering was chosen for.
+describe('parity: a rendered reference parses back to itself', () => {
+  const fixtures = loadFixtures('render_reference')
+  it('has fixtures', () => expect(fixtures.length).toBeGreaterThan(0))
+
+  for (const fx of fixtures) {
+    const inp = fx['input'] as Record<string, unknown>
+    it(fx['description'] as string, () => {
+      const want = referenceOf(inp)
+      const rendered = renderReference(want)
+      expect(parseReference(rendered)).toEqual(want)
     })
   }
 })

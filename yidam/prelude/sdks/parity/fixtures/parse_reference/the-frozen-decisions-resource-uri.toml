@@ -1,0 +1,10 @@
+function = "parse_reference"
+description = "yidam://decisions/<name>, the fifth frozen URI"
+
+[input]
+text = "yidam://decisions/adr-1"
+
+[expected]
+parses = true
+kind = "decision"
+path = "adr-1"

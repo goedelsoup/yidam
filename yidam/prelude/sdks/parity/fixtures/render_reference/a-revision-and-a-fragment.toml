@@ -1,0 +1,12 @@
+function = "render_reference"
+description = "the pin and the property path, in grammar order"
+
+[input]
+corpus = "producer"
+kind = "decision"
+path = "adr-1"
+rev = "v1.2.0"
+fragment = "status"
+
+[expected]
+text = "yidam://producer/decision/adr-1@v1.2.0#status"

@@ -19,7 +19,7 @@ A corpus node has **eleven** string forms across this repository. Two of them ca
 corpus a node came from, one can say which revision, and none can say both. The forms are not
 alternatives a caller chooses between — they are what different surfaces invented independently
 because there was no first form to reuse, and one of them,
-[`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L190), already accepts three spellings that
+[`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L199), already accepts three spellings that
 no contract mentions. An ad-hoc resolver is what an absent grammar looks like from the inside.
 
 The absence has a second face. A derived corpus folded 168 crate paths and 145 catalog and node
@@ -46,7 +46,7 @@ That is not a latent tidiness issue. [`resources.rs:56`](../../yidam/cli/src/cmd
 interpolates `node.id` into the URI, and the loop it sits in reads `state.nodes` only —
 [`dep_nodes`](../../yidam/cli/src/cmd/serve/mod.rs#L55) is a separate field by deliberate design.
 So a dependency node has **no resource URI at all**, while
-[`find_any_node`](../../yidam/cli/src/cmd/serve/tools.rs#L213) reads one happily by its qualified
+[`find_any_node`](../../yidam/cli/src/cmd/serve/tools.rs#L222) reads one happily by its qualified
 id. One server answers a question through its tool surface that its resource surface cannot
 address, and RFC-0005 declares the scheme normative without mentioning dependencies.
 
@@ -79,7 +79,7 @@ relative path, which is a *fifth* convention, and unrelated to any of the above.
 |---|---|---|---|
 | `class/name` | [`model.rs:330`](../../yidam/cli/src/model.rs#L330) | — | — |
 | `pkg::class/name` | [`qualified_id`](../../yidam/cli/src/model.rs#L353) | yes | — |
-| `.yidam/corpus/class/name.yml` | tolerated by [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L190) | — | — |
+| `.yidam/corpus/class/name.yml` | tolerated by [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L199) | — | — |
 | `../other-class/thing.yml` | [`resolve_link_target`](../../yidam/cli/src/model.rs#L370) | — | — |
 | `yidam://corpus/class/name` | [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56) | — | — |
 | the same string as an RDF subject | [`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L81) | — | — |
@@ -108,8 +108,8 @@ kind         node | crate | catalog | skill | decision
 The corpus moves into the authority and the kind into the path, which is the minimal change that
 creates the slot §1 lacks. `<path>` is `<class>/<name>` for `node` and a single segment for the
 others. Every segment in a **conforming** corpus is a slug — the rule
-[`name_not_a_slug`](../../yidam/cli/src/cmd/lint/checks.rs#L1185) reports against, through its
-predicate [`is_slug`](../../yidam/cli/src/cmd/lint/checks.rs#L1133) — so **no percent-encoding is
+[`name_not_a_slug`](../../yidam/cli/src/cmd/lint/checks.rs#L1184) reports against, through its
+predicate [`is_slug`](../../yidam/prelude/sdks/rust/src/uri.rs#L122) — so **no percent-encoding is
 required anywhere in this grammar**, which is why there is one string form and not one per
 encoder.
 
@@ -127,9 +127,23 @@ encoder.
 > single parser rests on. What changes is that the parser may not *assume* it. §4.6 carries the
 > consequence.
 
-RFC-0005's normative scheme section is **amended**: the five URIs it froze keep working as
-aliases with a defined mapping into the new shape, so the contract bump is additive and a client
-written against 0.18.0 does not break.
+**Which relative form applies is decided by arity, not by preference.** `<kind>/<path>` and a
+bare `<path>` share a shape, and a corpus may legitimately declare a class named `node` — nothing
+reserves the five words. So `<path>`'s segment count decides: reading the leading word as a kind
+must leave exactly that kind's arity (two segments for `node`, one for the others), or the word was
+a class name and the whole string is the path. `node/concept/foo` is the node `concept/foo`;
+`node/foo` is the node `foo` in a class called `node`. Where both readings are valid — `skill/foo`,
+in a corpus with a class named `skill` — the kind wins, because the grammar puts a kind in that
+position, and §4.6's renderer emits the explicit `node/skill/foo` for the other reading so that
+parse and render stay inverses. Nothing is reserved and nothing collides.
+
+RFC-0005's normative scheme section is **amended**: three of the five URIs it froze map into the
+new shape as aliases, so a client written against 0.18.0 keeps working. **The other two do not map
+at all (#779):** `yidam://corpus/<class>` names a collection and `yidam://graph/summary` a computed
+report, and the grammar addresses things with identity. Both parse as *not a reference*, which is
+correct for a reference parser and leaves a decision for P4 — whether the resource surface is a
+superset of this grammar or a different vocabulary that overlaps it. That is where the contract bump
+is spent and where the question belongs.
 
 ### 4.2 — Two renderings, because they have two jobs
 
@@ -177,7 +191,7 @@ question one layer down and the answers must not contradict.
 ### 4.6 — One parser
 
 `yidam_core::uri` parses and renders the grammar and becomes the only place an identifier is
-built or split. It retires [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L190)'s three
+built or split. It retires [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L199)'s three
 tolerated spellings, [`qualified_id`](../../yidam/cli/src/model.rs#L353),
 [`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L81),
 [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56)'s prefix chain and
@@ -262,7 +276,9 @@ generalised; §2's namespace fix is independent and can land beside it.
 
 - **Does the alias mapping need to be normative, or is it a compatibility note?** If a
   tools-only server must reproduce it exactly, it belongs in the contract; if it is only the Rust
-  server's transitional courtesy, it does not.
+  server's transitional courtesy, it does not. Sharpened by #779: the question only arises for the
+  three URIs that *have* a mapping, because the other two turn out to address things the grammar
+  does not name.
 - **What does the locator do for a dependency node whose corpus declares no base?** RFC-0027 §5
   chose to omit and count the omission. That is right for a search result and possibly wrong for
   an RDF subject, where omitting the node loses an edge rather than a row.

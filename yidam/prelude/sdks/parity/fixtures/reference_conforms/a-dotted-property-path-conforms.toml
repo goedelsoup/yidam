@@ -1,0 +1,10 @@
+function = "reference_conforms"
+description = "the fragment is a dotted path and each of its parts is a slug"
+
+[input]
+kind = "node"
+path = "concept/foo"
+fragment = "properties.enacted"
+
+[expected]
+conforms = true

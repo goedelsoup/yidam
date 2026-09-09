@@ -1,0 +1,10 @@
+function = "parse_reference"
+description = "the second tolerated spelling: .yidam/corpus/<class>/<name>.yml"
+
+[input]
+text = ".yidam/corpus/concept/foo.yml"
+
+[expected]
+parses = true
+kind = "node"
+path = "concept/foo"

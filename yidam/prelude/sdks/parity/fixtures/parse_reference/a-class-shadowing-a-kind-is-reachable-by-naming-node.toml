@@ -1,0 +1,10 @@
+function = "parse_reference"
+description = "node/skill/foo is the node foo in a class called skill — the one ambiguous shape, resolved by naming the kind"
+
+[input]
+text = "node/skill/foo"
+
+[expected]
+parses = true
+kind = "node"
+path = "skill/foo"

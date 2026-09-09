@@ -1,0 +1,9 @@
+function = "reference_conforms"
+description = "single interior hyphens only, so a slug has one spelling per name"
+
+[input]
+kind = "node"
+path = "concept/a--b"
+
+[expected]
+conforms = false

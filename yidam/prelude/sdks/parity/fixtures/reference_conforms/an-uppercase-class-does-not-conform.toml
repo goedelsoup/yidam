@@ -1,0 +1,9 @@
+function = "reference_conforms"
+description = "yidam-proto-002c's own id: it parses, it renders, and it names an MCP resource no client can fetch"
+
+[input]
+kind = "node"
+path = "Disposition/DIS-2024-0447"
+
+[expected]
+conforms = false

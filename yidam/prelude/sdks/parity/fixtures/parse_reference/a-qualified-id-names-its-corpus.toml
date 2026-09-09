@@ -1,0 +1,11 @@
+function = "parse_reference"
+description = "qualified_id's pkg::class/name — the only one of the eleven that could say which corpus"
+
+[input]
+text = "producer::concept/weir"
+
+[expected]
+parses = true
+corpus = "producer"
+kind = "node"
+path = "concept/weir"
