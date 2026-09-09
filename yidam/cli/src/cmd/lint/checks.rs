@@ -1839,7 +1839,80 @@ pub fn edge_target_class(nodes: &[Node], classes: &[Class]) -> Check {
 /// reader who writes the phrase, and a permanently non-empty report is where a real finding
 /// gets lost. What is reported is a tag followed by punctuation that reads as *and here is
 /// the rest of it*.
+///
+/// **This is no longer the only way in**, and the reason is measured. Punctuation admits a
+/// detail cheaply, but the details it admits are overwhelmingly *citations* — across thirteen
+/// derived corpora, of 1,024 findings the separator rule produced, only 46 narrowed the claim
+/// rather than sourcing it. The narrowing details were mostly on the other side of the rule:
+/// **59 of 105 were introduced by a plain space** and so were invisible, and they are the ones
+/// the model cannot express at all — `[verified for the ratio; inference for the conclusion]`
+/// is one tag carrying two standings for two spans of one sentence.
+///
+/// So [`narrowing_detail`] is a second admission path, keyed on the *content* rather than the
+/// punctuation. It admits those 59 and none of the prose this list exists to protect: `open` in
+/// `[open questions]` is followed by a word that is neither a narrowing head nor a second
+/// standing, so it stays unreported, which is the whole point of the paragraph above.
 const TAG_SEPARATORS: &[char] = &['—', '–', '-', ':', ';', ',', '|', '/', '='];
+
+/// The standings a near-miss tag may open with, as bare words.
+const STANDING_WORDS: &[&str] = &["verified", "inference", "open"];
+
+/// Heads that narrow *what* is asserted rather than naming where the evidence is.
+///
+/// Matched as whole words against the first word of the detail, so `[verified — Fordham]` is a
+/// source and not a `for`.
+const NARROWING_HEADS: &[&str] = &["as", "for", "which", "only", "not", "insofar"];
+
+/// Whether a near-miss tag's detail narrows the claim rather than saying where the evidence is.
+///
+/// Takes the collapsed inner text, brackets already removed, so [`near_miss_tags`] and
+/// [`claim_tag_malformed`] ask one question of one implementation — the first to decide whether
+/// to report at all, the second to decide what to advise.
+///
+/// Two tells, and both are deliberately narrow. The default has to be the citation advice
+/// because that advice is right for the large majority: ~89% of details across the population
+/// name a source. A false diversion is the expensive error — it would tell an author to leave a
+/// citation folded inside a bracket where no consumer can read it — so a detail diverts only on
+/// evidence, never on the absence of evidence.
+///
+/// - **A second standing.** `[inference on the mechanism, [verified] on the measurement]` asserts
+///   two things at two standings. No advice about citations applies, because there is no
+///   citation and there are two claims.
+/// - **A narrowing head.** `as`, `for`, `which`, `only`, `not`, `insofar` as the detail's first
+///   word — `[verified as proposed]` says *what* is verified, and a reader who moved it out
+///   would be left with a bare `[verified]` that claims the proposal was adopted.
+fn narrowing_detail(inner: &str) -> bool {
+    let Some(rest) = STANDING_WORDS
+        .iter()
+        .find_map(|word| inner.strip_prefix(*word))
+    else {
+        return false;
+    };
+    let body = rest.trim_start_matches(|c: char| TAG_SEPARATORS.contains(&c) || c.is_whitespace());
+    let mut words = body
+        .split(|c: char| !c.is_alphanumeric() && c != '\'')
+        .filter(|w| !w.is_empty())
+        .map(str::to_ascii_lowercase);
+    let Some(first) = words.next() else {
+        return false;
+    };
+    NARROWING_HEADS.contains(&first.as_str())
+        || std::iter::once(first)
+            .chain(words)
+            .any(|w| STANDING_WORDS.contains(&w.as_str()))
+}
+
+/// The inner text of a reported near-miss form — `[verified — x]` → `verified — x`.
+///
+/// One `strip_prefix`/`strip_suffix` pair rather than `trim_matches`, which would eat the inner
+/// bracket of `[verified for the composition; the basis effect is [open]]` and change the
+/// answer.
+fn reported_inner(found: &str) -> &str {
+    found
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or(found)
+}
 
 /// Bracketed forms that open with an evidence tag and are not one.
 ///
@@ -1863,13 +1936,24 @@ pub fn claim_tag_malformed(prose: &[ProseView<'_>]) -> Check {
         // Masked, so a file explaining the vocabulary is not reported for naming it — the
         // same reason the counter masks.
         for (line, found) in near_miss_tags(&crate::markdown::mask_code(n.text)) {
-            violations.push(Violation::new(
-                format!("{}:{}", n.rel, line),
+            // One finding, two pieces of advice. Telling the author of
+            // `[verified as proposed]` to "put the citation beside it" asks them to delete a
+            // qualifier and leaves a bare `[verified]` that overstates the claim — the advice
+            // makes the corpus less accurate and the counter more confident.
+            let message = if narrowing_detail(reported_inner(&found)) {
+                format!(
+                    "`{found}` opens with an evidence tag and is not one, so it is counted \
+                     as no claim at all — it narrows what is asserted rather than saying \
+                     where the evidence is, so moving it out of the brackets would leave a \
+                     bare tag claiming more than the sentence does"
+                )
+            } else {
                 format!(
                     "`{found}` opens with an evidence tag and is not one, so it is counted \
                      as no claim at all — write the tag alone and put the citation beside it"
-                ),
-            ));
+                )
+            };
+            violations.push(Violation::new(format!("{}:{}", n.rel, line), message));
         }
     }
     Check::new(
@@ -1891,7 +1975,16 @@ pub fn claim_tag_malformed(prose: &[ProseView<'_>]) -> Check {
          `analytic_note` is reported the same way one in a node is. Measured over 17 corpora, \
          all four carry tags. Reading a class's parsed fields instead would miss two of the \
          four outright, because the property and edge structs declare no `description` at \
-         all. `universal.yml` is not read: it is a property list, not an argument.",
+         all. `universal.yml` is not read: it is a property list, not an argument.\n\n\
+         One check, two pieces of advice. A detail naming a source is told to put the \
+         citation beside the tag. A detail that *narrows* the claim is not, because moving \
+         `as proposed` out of the brackets leaves a bare `[verified]` asserting more than the \
+         sentence does — the advice would make the corpus less accurate and the counter more \
+         confident. Measured over thirteen derived corpora, ~89% of details name a source, so \
+         the citation advice is the default and a detail diverts only on an unambiguous \
+         narrowing tell: a second standing, or a narrowing head as its first word. That tell \
+         also admits a space-introduced detail the separator list cannot see, which is where \
+         59 of the 105 narrowing details in the population were sitting.",
         violations,
     )
 }
@@ -2051,6 +2144,7 @@ fn near_miss_tags(text: &str) -> Vec<(usize, String)> {
             inner.strip_prefix(word).is_some_and(|rest| {
                 rest.trim_start()
                     .starts_with(|c: char| TAG_SEPARATORS.contains(&c))
+                    || narrowing_detail(&inner)
             })
         });
         if hit {
@@ -3693,6 +3787,113 @@ mod tests {
             "{}",
             c.violations[0].node
         );
+    }
+
+    fn advice_for(body: &str) -> String {
+        let node = Node::parse(
+            PathBuf::from("/tmp/x.yml"),
+            ".yidam/corpus/c/x.yml",
+            format!("class: c\ndescription: |\n  {body}\n"),
+        );
+        let c = claim_tag_malformed(&prose_views(std::slice::from_ref(&node), &[]));
+        assert_eq!(
+            c.violations.len(),
+            1,
+            "expected one finding: {:?}",
+            c.violations
+        );
+        c.violations[0].detail.clone()
+    }
+
+    /// The case the advice forks for. `[verified as proposed]` says *what* is verified — that
+    /// the corpus holds the text of a proposal, not evidence it was adopted. Told to "put the
+    /// citation beside it", an author deletes the qualifier and leaves a bare `[verified]` that
+    /// the counter then records as the stronger claim.
+    #[test]
+    fn a_narrowing_detail_is_not_told_to_delete_itself() {
+        let m = advice_for("The amendment lands [verified as proposed].");
+        assert!(m.contains("narrows what is asserted"), "{m}");
+        assert!(
+            !m.contains("put the citation beside it"),
+            "the advice that would cost the qualifier: {m}"
+        );
+    }
+
+    /// And the default is untouched, because ~89% of details across thirteen corpora name a
+    /// source. A detail diverts on evidence, never on the absence of it.
+    #[test]
+    fn a_source_detail_keeps_the_citation_advice() {
+        let m = advice_for("The estimate holds [verified — Pearl 2009].");
+        assert!(m.contains("put the citation beside it"), "{m}");
+        assert!(!m.contains("narrows what is asserted"), "{m}");
+    }
+
+    /// A narrowing head is a *word*, not a prefix. `Fordham` is a source and starts with `For`.
+    #[test]
+    fn a_head_matches_a_word_and_not_a_prefix() {
+        let m = advice_for("The framing is [verified — Fordham].");
+        assert!(m.contains("put the citation beside it"), "{m}");
+    }
+
+    /// 59 of the 105 narrowing details across the population were introduced by a plain space
+    /// and so were invisible to the separator rule. They are also the ones the model cannot
+    /// express at all: one tag, two standings, two spans of one sentence.
+    #[test]
+    fn two_standings_are_admitted_without_any_separator() {
+        let text = "The share follows [verified for the ratio; inference for the conclusion].";
+        let found = near_miss_tags(text);
+        assert_eq!(
+            found.len(),
+            1,
+            "a space-introduced narrowing detail: {found:?}"
+        );
+        assert!(advice_for(text).contains("narrows what is asserted"));
+    }
+
+    /// A second standing counts wherever it sits, not only as the first word.
+    #[test]
+    fn a_second_standing_later_in_the_detail_is_a_narrowing_detail() {
+        let m = advice_for("It holds [inference on the mechanism, [verified] on the measurement].");
+        assert!(m.contains("narrows what is asserted"), "{m}");
+    }
+
+    /// The guard on the new admission path, and the reason `TAG_SEPARATORS` excludes a space.
+    /// `[open questions]` is ordinary prose and reference-style link text; admitting it would
+    /// put a permanent finding in front of every reader who writes the phrase.
+    #[test]
+    fn ordinary_prose_after_a_standing_word_stays_unreported() {
+        for text in [
+            "See the [open questions] below.",
+            "The [open items] are listed.",
+            "An [inference engine] is not a claim.",
+        ] {
+            assert!(
+                near_miss_tags(text).is_empty(),
+                "admitted ordinary prose: {text:?} -> {:?}",
+                near_miss_tags(text)
+            );
+        }
+    }
+
+    /// `reported_inner` strips one bracket from each end and no more — `trim_matches` would eat
+    /// the inner `]` here and lose the second standing that makes this a narrowing detail.
+    #[test]
+    fn a_nested_bracket_survives_the_inner_strip() {
+        assert_eq!(
+            reported_inner("[verified for the composition; the basis effect is [open]]"),
+            "verified for the composition; the basis effect is [open]"
+        );
+        assert!(narrowing_detail(reported_inner(
+            "[verified for the composition; the basis effect is [open]]"
+        )));
+    }
+
+    /// A bare tag is the claim, and the split does not touch that rule.
+    #[test]
+    fn a_bare_tag_is_still_not_a_finding() {
+        for text in ["Settled [verified].", "Open [open].", "Read [inference]."] {
+            assert!(near_miss_tags(text).is_empty(), "{text:?}");
+        }
     }
 
     // ── claim-tag-malformed over class prose (#603) ───────────────────────────
