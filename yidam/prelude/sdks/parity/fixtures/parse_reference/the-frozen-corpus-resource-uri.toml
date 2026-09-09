@@ -1,0 +1,10 @@
+function = "parse_reference"
+description = "RFC-0005's authority spends the slot on a collection kind; `corpus` means this corpus, so it is not a corpus name"
+
+[input]
+text = "yidam://corpus/concept/knowledge-graph"
+
+[expected]
+parses = true
+kind = "node"
+path = "concept/knowledge-graph"

@@ -1,0 +1,9 @@
+function = "render_reference"
+description = "a node in the containing corpus renders as the id every corpus already writes"
+
+[input]
+kind = "node"
+path = "concept/knowledge-graph"
+
+[expected]
+text = "concept/knowledge-graph"

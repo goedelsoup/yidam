@@ -1,0 +1,8 @@
+function = "parse_reference"
+description = "the empty string names no thing at all — the one case that does not parse"
+
+[input]
+text = "   "
+
+[expected]
+parses = false

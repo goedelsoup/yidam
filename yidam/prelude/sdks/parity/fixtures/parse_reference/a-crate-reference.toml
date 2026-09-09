@@ -1,0 +1,10 @@
+function = "parse_reference"
+description = "the kind a derived corpus folded into 168 evidence-tag details because nothing else could hold it"
+
+[input]
+text = "crate/yidam-core"
+
+[expected]
+parses = true
+kind = "crate"
+path = "yidam-core"

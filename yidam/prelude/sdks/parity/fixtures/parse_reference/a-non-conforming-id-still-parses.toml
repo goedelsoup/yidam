@@ -1,0 +1,10 @@
+function = "parse_reference"
+description = "one of the 16 findings in yidam-proto-002c: refusing it would leave the node unnameable, which is the improvisation the grammar ends"
+
+[input]
+text = "Disposition/DIS-2024-0447"
+
+[expected]
+parses = true
+kind = "node"
+path = "Disposition/DIS-2024-0447"

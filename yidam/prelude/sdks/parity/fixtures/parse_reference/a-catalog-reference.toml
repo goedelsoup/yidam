@@ -1,0 +1,10 @@
+function = "parse_reference"
+description = "the catalog kind, one segment"
+
+[input]
+text = "catalog/statute-book"
+
+[expected]
+parses = true
+kind = "catalog"
+path = "statute-book"

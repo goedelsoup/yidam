@@ -1,0 +1,12 @@
+function = "parse_reference"
+description = "which corpus at which revision — the pair no form in the eleven could say"
+
+[input]
+text = "yidam://producer/node/concept/weir@abc123"
+
+[expected]
+parses = true
+corpus = "producer"
+kind = "node"
+path = "concept/weir"
+rev = "abc123"

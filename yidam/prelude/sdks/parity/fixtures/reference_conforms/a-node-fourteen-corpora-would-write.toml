@@ -1,0 +1,9 @@
+function = "reference_conforms"
+description = "lowercase, digits and single interior hyphens — what fourteen of the sixteen measured corpora write"
+
+[input]
+kind = "node"
+path = "fiscal-period/fy2024"
+
+[expected]
+conforms = true

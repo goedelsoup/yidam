@@ -1,0 +1,10 @@
+function = "parse_reference"
+description = "one of find_node's three tolerated spellings, admitted once here instead of per surface"
+
+[input]
+text = "concept/foo.yml"
+
+[expected]
+parses = true
+kind = "node"
+path = "concept/foo"

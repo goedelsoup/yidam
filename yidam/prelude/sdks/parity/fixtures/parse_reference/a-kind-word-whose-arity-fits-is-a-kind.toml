@@ -1,0 +1,10 @@
+function = "parse_reference"
+description = "node/concept/foo leaves a two-segment path, so `node` is the kind"
+
+[input]
+text = "node/concept/foo"
+
+[expected]
+parses = true
+kind = "node"
+path = "concept/foo"

@@ -16,6 +16,9 @@ is a build error — `mise run parity` enforces it before running any SDK tests.
 | `find_citations` | Return all nodes that have a directed edge pointing to a given node; result sorted by code point |
 | `is_recognized_verb` | Whether a leading commit verb is in the closed vocabulary |
 | `compile_class_schema` | Compile a `.ont.yml` class definition into a JSON Schema for its instances |
+| `parse_reference` | Parse RFC-0032's reference grammar — `yidam://<corpus>/<kind>/<path>[@<rev>][#<property>]`, the relative forms, and the legacy spellings — into a `Reference`. Total: `null` only for input naming no thing at all |
+| `render_reference` | Render a `Reference` back to a string. The only place an identifier is built |
+| `reference_conforms` | Whether every segment of a `Reference` is a slug, so it needs no escaping in any rendering |
 
 The parity surface is versioned in [`VERSION`](VERSION). Any change to a function's
 contract — input shape, output shape, or classification logic — requires bumping this
@@ -25,6 +28,33 @@ version and updating ALL THREE SDK implementations in the same PR.
 table held ten, and `VERSIONING.md` used to say "the six". A number written beside a list is
 a second copy of the list's length with nothing keeping it honest, so the numbers are gone
 and the rows are what a reader counts.
+
+**The reference grammar is one parser, and the round trip is why.** `parse_reference` and
+`render_reference` are inverses, and `render_reference`'s fixtures are graded twice — once against
+their expected text, and once by parsing that text back. The case that makes it a contract rather
+than a nicety is a corpus with a class named after a kind: `skill/foo` read as a relative reference
+is the *skill* `foo`, because the grammar puts a kind in that position, so a **node** in a class
+called `skill` has to render `node/skill/foo`. Drop that rule in one language and only that
+language's round trip fails, on only the corpora that name a class after a kind. See
+`render_reference/a-class-shadowing-a-kind-names-node.toml`.
+
+Everywhere else the shape is unambiguous without a rule, because a path's segment count decides:
+`node/concept/foo` leaves a two-segment node path so `node` is the kind, and `node/foo` would leave
+one so `node` is a class name.
+
+**`reference_conforms` is reported, never required, and two of its fixtures exist to stop three
+languages agreeing by coincidence.** The predicate is an explicit ASCII range in all three, not a
+regex and not a library call, because `\w` matches `_` in both JavaScript and Python and
+`str.islower()` is true of `é` in Python as `char::is_lowercase` is in Rust. A rule written the
+convenient way in each language would pass every all-ASCII fixture and diverge on the first corpus
+that was not. `an-underscore-does-not-conform.toml` and `non-ascii-lowercase-does-not-conform.toml`
+are what fail when one of them is written the convenient way.
+
+The reason conformance is reported rather than enforced here is measured: fourteen of the sixteen
+corpora with tracked nodes conform, and two do not — `yidam lint --bless` is the supported way to
+be one of the two (#777). A parser that refused non-conforming input would leave six of one
+corpus's ten nodes unnameable and grow a fallback path in every consumer, which is the
+per-surface improvisation the grammar exists to end.
 
 **A YAML date is a string, and the three libraries do not agree about that.** The node
 parser is the only parity function that reads arbitrary YAML, and scalar resolution is where

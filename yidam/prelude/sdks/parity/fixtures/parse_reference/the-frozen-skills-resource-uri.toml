@@ -1,0 +1,10 @@
+function = "parse_reference"
+description = "yidam://skills/<name> spends the authority on the kind"
+
+[input]
+text = "yidam://skills/my-skill"
+
+[expected]
+parses = true
+kind = "skill"
+path = "my-skill"

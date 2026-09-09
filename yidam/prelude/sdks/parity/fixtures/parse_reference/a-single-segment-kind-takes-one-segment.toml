@@ -1,0 +1,10 @@
+function = "parse_reference"
+description = "every kind but node has a one-segment path"
+
+[input]
+text = "skill/bootstrap"
+
+[expected]
+parses = true
+kind = "skill"
+path = "bootstrap"

@@ -1,4 +1,4 @@
-use yidam_core::{corpus, git, graph, markers, ontology};
+use yidam_core::{corpus, git, graph, markers, ontology, uri};
 
 fn fixture_dir(function: &str) -> std::path::PathBuf {
     // CARGO_MANIFEST_DIR = prelude/sdks/rust/
@@ -301,5 +301,109 @@ fn parity_compile_class_schema() {
             "{name}: {}",
             fx["description"].as_str().unwrap_or("")
         );
+    }
+}
+
+// ── the reference grammar (RFC-0032) ──────────────────────────────────────────
+
+/// An optional string field: absent in TOML means `None`.
+///
+/// The fixture format has no null, so absence carries the meaning — and the reason that is safe
+/// here is that `parses`, `text` and `conforms` are all **required**, so a fixture cannot be
+/// silently ungraded on the thing it is about. That is the hazard `expected_malformed` records
+/// from the other side.
+fn opt(v: &toml::Value, key: &str) -> Option<String> {
+    v.get(key)
+        .and_then(|x| x.as_str())
+        .map(std::string::ToString::to_string)
+}
+
+fn reference_of(v: &toml::Value) -> uri::Reference {
+    let kind_word = v["kind"].as_str().expect("a fixture with no `kind`");
+    uri::Reference {
+        corpus: opt(v, "corpus"),
+        kind: uri::Kind::from_word(kind_word)
+            .unwrap_or_else(|| panic!("fixture names no kind: {kind_word}")),
+        path: v["path"].as_str().expect("a fixture with no `path`").into(),
+        rev: opt(v, "rev"),
+        fragment: opt(v, "fragment"),
+    }
+}
+
+#[test]
+fn parity_parse_reference() {
+    let fixtures = load_fixtures("parse_reference");
+    assert!(!fixtures.is_empty(), "no parse_reference fixtures found");
+
+    for fx in &fixtures {
+        let description = fx["description"].as_str().unwrap_or("");
+        let text = fx["input"]["text"].as_str().unwrap();
+        let expected = &fx["expected"];
+        let got = uri::parse_reference(text);
+
+        // Required, not defaulted. A fixture that omitted this would be asserting nothing about
+        // the one thing `parse_reference` answers.
+        let parses = expected["parses"]
+            .as_bool()
+            .unwrap_or_else(|| panic!("{description}: fixture has no `parses`"));
+
+        if !parses {
+            assert!(got.is_none(), "{description}: parsed {text:?} as {got:?}");
+            continue;
+        }
+        let got = got.unwrap_or_else(|| panic!("{description}: refused {text:?}"));
+        assert_eq!(got, reference_of(expected), "{description}");
+    }
+}
+
+#[test]
+fn parity_render_reference() {
+    let fixtures = load_fixtures("render_reference");
+    assert!(!fixtures.is_empty(), "no render_reference fixtures found");
+
+    for fx in &fixtures {
+        let description = fx["description"].as_str().unwrap_or("");
+        let reference = reference_of(&fx["input"]);
+        assert_eq!(
+            uri::render_reference(&reference),
+            fx["expected"]["text"].as_str().unwrap(),
+            "{description}"
+        );
+    }
+}
+
+#[test]
+fn parity_reference_conforms() {
+    let fixtures = load_fixtures("reference_conforms");
+    assert!(!fixtures.is_empty(), "no reference_conforms fixtures found");
+
+    for fx in &fixtures {
+        let description = fx["description"].as_str().unwrap_or("");
+        let reference = reference_of(&fx["input"]);
+        assert_eq!(
+            uri::reference_conforms(&reference),
+            fx["expected"]["conforms"].as_bool().unwrap(),
+            "{description}"
+        );
+    }
+}
+
+/// Every `render_reference` fixture's output parses back to the reference it was rendered from.
+///
+/// Not a fixture directory of its own: the property is over the cases that already exist, and a
+/// third copy of them would be two lists to keep in step. It is what the shadowed-class
+/// rendering was chosen for — `skill/foo` as a node renders `node/skill/foo` precisely so this
+/// holds, and without that rule it fails on the corpora that name a class after a kind.
+#[test]
+fn every_rendered_reference_parses_back_to_itself() {
+    let fixtures = load_fixtures("render_reference");
+    assert!(!fixtures.is_empty(), "no render_reference fixtures found");
+
+    for fx in &fixtures {
+        let want = reference_of(&fx["input"]);
+        let rendered = uri::render_reference(&want);
+        let got = uri::parse_reference(&rendered)
+            .unwrap_or_else(|| panic!("{rendered:?} did not parse back"));
+        assert_eq!(got, want, "round trip via {rendered:?}");
     }
 }

@@ -1,0 +1,9 @@
+function = "render_reference"
+description = "the same rule for the kind word that is also the default kind"
+
+[input]
+kind = "node"
+path = "node/foo"
+
+[expected]
+text = "node/node/foo"

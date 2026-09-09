@@ -1,0 +1,9 @@
+function = "reference_conforms"
+description = "the second coincidence: Python's str.islower() is true of é and Rust's char::is_lowercase is too, so the rule is written as an explicit ASCII range in all three"
+
+[input]
+kind = "node"
+path = "concept/café"
+
+[expected]
+conforms = false

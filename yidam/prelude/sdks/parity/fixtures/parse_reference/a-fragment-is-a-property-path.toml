@@ -1,0 +1,11 @@
+function = "parse_reference"
+description = "the fragment names a declared property path, dotted — and never a claim (RFC-0008)"
+
+[input]
+text = "concept/foo#properties.enacted"
+
+[expected]
+parses = true
+kind = "node"
+path = "concept/foo"
+fragment = "properties.enacted"

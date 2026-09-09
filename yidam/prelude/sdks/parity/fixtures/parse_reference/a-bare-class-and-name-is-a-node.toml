@@ -1,0 +1,10 @@
+function = "parse_reference"
+description = "a bare class and name is a relative node, the form every corpus already writes"
+
+[input]
+text = "concept/knowledge-graph"
+
+[expected]
+parses = true
+kind = "node"
+path = "concept/knowledge-graph"

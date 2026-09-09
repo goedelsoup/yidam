@@ -1115,6 +1115,12 @@ pub(crate) fn class_of(n: &Node) -> String {
 
 /// Whether a name is a slug: lowercase ASCII words joined by single hyphens.
 ///
+/// **Re-exported, not reimplemented.** The rule lives in [`yidam_core::uri`], where
+/// `reference_conforms` is built on it and the parity fixtures hold three languages to one
+/// answer. A second copy here would be a rule two surfaces could disagree about — the shape
+/// that put four copies of the open-question predicate in this crate before one of them was
+/// found under-reporting a consumer's corpus 26 to 2.
+///
 /// Deliberately strict, and it is what the mature corpora already write — but not what *every*
 /// corpus writes, which is the correction below. Across the sixteen tracked corpora on disk
 /// (2,764 instance nodes, 2026-09-09), **fourteen have no finding** and the only characters in
@@ -1130,14 +1136,7 @@ pub(crate) fn class_of(n: &Node) -> String {
 /// water-quality one writes `DischargePoint`. So this is a convention the corpora *converge* on
 /// with maturity, not one they start with, and the rule is being imposed on the beginning of a
 /// corpus's life even though it is descriptive of the rest of it.
-pub(crate) fn is_slug(s: &str) -> bool {
-    !s.is_empty()
-        && !s.starts_with('-')
-        && !s.ends_with('-')
-        && !s.contains("--")
-        && s.chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-}
+pub(crate) use yidam_core::uri::is_slug;
 
 /// The last path segment of a repo-relative path, with `.ont.yml` or `.yml` removed.
 ///

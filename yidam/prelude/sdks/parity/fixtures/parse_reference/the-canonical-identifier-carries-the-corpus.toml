@@ -1,0 +1,11 @@
+function = "parse_reference"
+description = "the corpus is the authority and the kind is the first path segment"
+
+[input]
+text = "yidam://producer/node/concept/weir"
+
+[expected]
+parses = true
+corpus = "producer"
+kind = "node"
+path = "concept/weir"

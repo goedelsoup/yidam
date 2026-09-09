@@ -1,0 +1,10 @@
+function = "render_reference"
+description = "the corpus goes in the authority and the kind in the path — the slot the old scheme lacked"
+
+[input]
+corpus = "producer"
+kind = "node"
+path = "concept/weir"
+
+[expected]
+text = "yidam://producer/node/concept/weir"

@@ -1,0 +1,10 @@
+function = "reference_conforms"
+description = "the authority is a declared package name and is held to the same rule as a path segment"
+
+[input]
+corpus = "Producer"
+kind = "node"
+path = "concept/weir"
+
+[expected]
+conforms = false

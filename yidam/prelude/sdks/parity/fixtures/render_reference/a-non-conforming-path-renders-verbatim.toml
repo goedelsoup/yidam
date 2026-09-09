@@ -1,0 +1,9 @@
+function = "render_reference"
+description = "the renderer does not escape and does not refuse: reference_conforms is what reports this, and one encoder per surface is the state the grammar exists to leave"
+
+[input]
+kind = "node"
+path = "Disposition/DIS-2024-0447"
+
+[expected]
+text = "Disposition/DIS-2024-0447"
