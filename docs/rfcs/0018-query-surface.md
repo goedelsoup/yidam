@@ -68,12 +68,12 @@ at depth 2 and all of it at depth 3.
 
 `.ont.yml` now declares, and lint now enforces: the class an instance belongs to
 ([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L986), Error), the properties it may
-and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1237),
-[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1398)), the type of each value
-([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1658)), which relationships a class
-licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1718)), and which class
+and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1326),
+[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1487)), the type of each value
+([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1747)), which relationships a class
+licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1807)), and which class
 each relationship may land on
-([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1783), Error).
+([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1872), Error).
 
 `unlicensed-edge`'s own rationale states the gap in as many words
 ([`checks.rs:1733`](../../yidam/cli/src/cmd/lint/checks.rs#L1733)):
@@ -290,7 +290,7 @@ relationship the class does not declare resolves as:
 
 The first row is load-bearing and is easy to omit. `unlicensed_edge` short-circuits on an empty
 edge list **before** it consults the policy
-([`checks.rs:1728-1730`](../../yidam/cli/src/cmd/lint/checks.rs#L1728-L1730)):
+([`checks.rs:1817-1819`](../../yidam/cli/src/cmd/lint/checks.rs#L1817-L1819)):
 
 ```rust
 if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic { continue; }
