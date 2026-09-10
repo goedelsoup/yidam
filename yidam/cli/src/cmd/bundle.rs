@@ -211,7 +211,7 @@ pub fn bundle() -> Result<()> {
 mod tests {
     use super::*;
     use crate::embed_config::EmbedConfig;
-    use crate::model::{IndexData, RenderedViews};
+    use crate::model::{IndexData, Provenance, RenderedViews};
     use flate2::read::GzDecoder;
     use std::io::Read;
 
