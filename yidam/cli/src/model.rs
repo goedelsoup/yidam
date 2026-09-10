@@ -79,6 +79,39 @@ pub struct Provenance {
     pub genesis_hash: Option<String>,
 }
 
+/// The one `Provenance` every test fixture in this crate is built from.
+///
+/// Seven test modules used to write the literal out by hand, and one of them —
+/// `cmd/export_sqlite.rs` — is behind a feature gate that **no pull-request job compiles**
+/// (`ci (cli · full features)` and `ci (series)` run on `main` only). So adding a field meant
+/// editing eight places while the compiler could only complain about seven, and `9f33a37`
+/// reddened `main` exactly that way: P3 added `genesis_hash`, six fixtures were updated, the
+/// gated one was not, and every gate a pull request runs agreed the change was complete.
+///
+/// The fix is not vigilance. It is that a field added here is added to all seven call sites at
+/// once, so a gated fixture cannot fall behind an ungated struct. `#[derive(Default)]` would
+/// have done the same for tests and cost the compiler error that keeps
+/// [`load_domain_model`]'s construction honest, which is why this is a `#[cfg(test)]`
+/// function and not a trait impl.
+///
+/// Override with functional-update syntax where a test needs a particular value:
+/// `Provenance { genesis_hash: Some("…".into()), ..test_provenance() }`. Only
+/// `cmd/export_rdf.rs` does, and only for `genesis_hash`, because its subjects are minted
+/// from it.
+#[cfg(test)]
+pub fn test_provenance() -> Provenance {
+    Provenance {
+        commit: "abc1234".into(),
+        genesis: "2026-01-01".into(),
+        domain: "test-domain".into(),
+        // A plausible 2026 instant rather than the epoch, so a renderer that formats it emits
+        // a date that reads as a corpus date. Asserted by no test; `cmd/export_rdf.rs` checks
+        // only that the `^^xsd:dateTime` type survives.
+        generated_at: 1_780_000_000,
+        genesis_hash: None,
+    }
+}
+
 /// Pre-rendered Markdown views, computed once by [`load_domain_model`] so that
 /// export renderers can be pure functions with no disk reads.
 pub struct RenderedViews {
