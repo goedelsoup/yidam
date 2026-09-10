@@ -1313,12 +1313,15 @@ fn the_feature_set_is_redacted_whatever_it_holds() {
 fn the_state_enum_and_the_states_the_code_emits_are_the_same_set() {
     let schema = schema();
 
-    // **Every** copy, not the first one found. The schema declares `state` twice — once
-    // structurally under `phases.items`, which is the copy a `phases` report is actually
-    // validated against, and once in the flat top-level map of field names. The first version of
-    // this test returned at the first match and stopped, so widening the enum for #773 fixed the
-    // flat copy, left the structural one at three values, and passed. A `phases` report carrying
-    // a `rewritten` row would have been rejected by the schema this repository ships.
+    // **Every** copy, not the first one found. The schema declared `state` twice until #660 —
+    // structurally under `phases.items`, and again at the envelope level. The first version of
+    // this test returned at the first match and stopped, so widening the enum for #773 fixed one
+    // copy, left the other at three values, and passed. A `phases` report carrying a `rewritten`
+    // row would have been rejected by the schema this repository ships.
+    //
+    // The envelope-level copy is gone, and this walk is why the deletion was safe to make: it
+    // finds a `state` enum wherever one sits, so a copy re-appearing under a new parent is held
+    // by the loop at the bottom rather than by a path this test would have to be taught.
     fn state_enums(v: &serde_json::Value, path: &str, out: &mut Vec<(String, Vec<String>)>) {
         match v {
             serde_json::Value::Object(m) => {
@@ -1364,12 +1367,17 @@ fn the_state_enum_and_the_states_the_code_emits_are_the_same_set() {
         .iter()
         .partition(|(_, members)| members.iter().any(|m| emitted.contains(m)));
 
-    // Two copies today, and a floor rather than an exact count: a third place to disagree would
-    // be held by the loop below, while dropping to one would mean a declaration went missing.
-    assert!(
-        phase_states.len() >= 2,
-        "expected at least two phase-`state` enum declarations in report.schema.json, found {}: \
-         {:?}",
+    // Exactly one, and the exact count is the assertion rather than a floor. A floor of two was
+    // what this test carried while there *were* two, and it made the second copy look load-bearing
+    // — it was a stray nothing emitted, and this floor is what would have failed if anyone deleted
+    // it (#660). A second copy appearing again is a second place to disagree; zero means the walk
+    // stopped finding anything, which is the failure a floor of one could not tell from health.
+    assert_eq!(
+        phase_states.len(),
+        1,
+        "expected exactly one phase-`state` enum declaration in report.schema.json, found {}: \
+         {:?}\nTwo is how #773's widening half-landed; none means this walk has stopped \
+         descending.",
         phase_states.len(),
         phase_states.iter().map(|(p, _)| p).collect::<Vec<_>>()
     );
@@ -1394,4 +1402,211 @@ fn the_state_enum_and_the_states_the_code_emits_are_the_same_set() {
              branch nobody can take."
         );
     }
+}
+
+// ── #660: a declaration nothing emits is a hole in the contract ───────────────
+
+/// Every path `report.schema.json` declares, in the shape [`walk`] records a reached one.
+///
+/// Built from the schema rather than from the documents, which is the whole point: the two
+/// contract tests above ask *is everything emitted declared*, and this asks the converse — **is
+/// everything declared emitted by something.** A declaration no document reaches is inert. It can
+/// name a field that does not exist, contradict the Rust struct it claims to describe, or be a
+/// second copy of a declaration one level up, and every test in this file stays green.
+///
+/// That is not hypothetical. `properties.state` was declared at the envelope level in 42354da,
+/// described as `phases` only, and `PhasesReport` had exactly one field — `phases` — on that same
+/// commit and every commit since. It survived a widening for #773 that touched both copies and a
+/// test written to compare both against `git::REF_STATES`, because a stray declaration whose enum
+/// is *correct* looks exactly like a real one. Nothing that reads a document could see it.
+fn declarations(node: &serde_json::Value, path: &str, out: &mut BTreeSet<String>) {
+    if let Some(props) = node.get("properties").and_then(|p| p.as_object()) {
+        for (key, sub) in props {
+            let here = if path.is_empty() {
+                key.clone()
+            } else {
+                format!("{path}.{key}")
+            };
+            out.insert(here.clone());
+            declarations(sub, &here, out);
+        }
+    }
+    if let Some(items) = node.get("items") {
+        declarations(items, &format!("{path}[]"), out);
+    }
+    if let Some(extra) = value_shape(node) {
+        let here = format!("{path}.*");
+        out.insert(here.clone());
+        declarations(extra, &here, out);
+    }
+}
+
+/// Declarations this fixture cannot reach, and why — by path prefix, one entry per family.
+///
+/// **An inverted roster, for `NO_REPORT`'s reason.** A list of what *is* covered stops covering
+/// new declarations without ever going red. This lists what is not, so a declaration added
+/// tomorrow is required by default and fails [`every_declaration_is_reached_by_something`] until
+/// somebody decides which of these buckets it belongs in — or makes the fixture reach it.
+///
+/// It is held from both sides. A family that becomes reachable must be *removed* from here, or the
+/// test fails for a stale exemption. So this cannot quietly grow into the hole it documents.
+///
+/// The reasons are load-bearing, and three of them are already written elsewhere in this fixture:
+/// `stage.toml` says why the followable catalog arm and the held kuten arm are covered end-to-end
+/// instead of here, and `NO_REPORT` says why `index-verify` cannot run at all.
+const UNREACHED: &[(&str, &str)] = &[
+    (
+        "blessed",
+        "`lint --bless` rewrites the baseline, and every invocation in this file is read-only \
+         against a fixture the next test reads",
+    ),
+    (
+        "classes_with_issues",
+        "needs a class file whose bytes do not parse; this fixture's ontology is read by twenty \
+         other goldens, so breaking one would move all of them to reach two declarations",
+    ),
+    (
+        "fetched",
+        "`catalog-fetch`'s followable arm needs an entry with a `location:`, which would move the \
+         other goldens — covered end to end in tests/fixtures/catalog-fetch/ (see stage.toml)",
+    ),
+    (
+        "findings[].region",
+        "`check-diff` sets it only inside a `generated` or `imported` region, and the fixture's \
+         crate declares none",
+    ),
+    (
+        "index",
+        "`index-verify` only, which needs a built index and the `index` feature to build one \
+         (see NO_REPORT)",
+    ),
+    ("max_drift", "`index-verify` only — see `index`"),
+    ("model_id", "`index-verify` only — see `index`"),
+    ("probe", "`index-verify` only — see `index`"),
+    ("problems", "`index-verify` only — see `index`"),
+    ("runtime", "`index-verify` only — see `index`"),
+    ("tolerance", "`index-verify` only — see `index`"),
+    ("verdict", "`index-verify` only — see `index`"),
+    (
+        "kuten.findings",
+        "giving the fixture a kuten would move the other goldens; the held arm is covered by \
+         kuten_cluster.rs against the six shapes that defined the profile (see stage.toml)",
+    ),
+    (
+        "reconciled[].commit",
+        "null on `--dry-run` by declaration, and a writing run would corrupt the shared fixture",
+    ),
+    (
+        "score.declared",
+        "needs a committed goal set, and inventing one would measure whoever wrote it — `bench`'s \
+         reason in NO_REPORT",
+    ),
+    (
+        "skipped",
+        "`propose` reports findings it could not draft for — a description that is not a block \
+         scalar, an entry with no closing fence — and this corpus carries none",
+    ),
+    (
+        "written",
+        "null on `--dry-run` by declaration: the two states a consumer must not read as a write",
+    ),
+];
+
+/// Which roster entry owns a path, by **index** rather than by its reason. A prefix owns itself
+/// and everything under it.
+///
+/// The index is the identity on purpose. Returning the reason string looked equivalent and was
+/// not: seven entries here share the text `index-verify only — see index`, so comparing reasons
+/// made any one of them count as used when any other was unreached. It also let a mutation past —
+/// a version of this function that ignored the prefix and always returned the first reason
+/// satisfied both assertions below, because every path then appeared to be owned and every entry
+/// to be in use. Comparing indices, that mutation leaves six of the seven owning nothing.
+fn owner(path: &str) -> Option<usize> {
+    UNREACHED.iter().position(|(prefix, _)| {
+        path == *prefix
+            || path
+                .strip_prefix(prefix)
+                .is_some_and(|rest| rest.starts_with('.') || rest.starts_with('['))
+    })
+}
+
+/// The converse of the two checks above: **every declaration is reached by something.**
+///
+/// Reached means a document produced a value at that path — a golden's, or a live run's. The two
+/// sets together are every reporting command, which
+/// [`every_reporting_command_has_its_fields_checked`] is what guarantees.
+///
+/// Measured when this was written: 361 declarations, 316 reached, 44 exempted by [`UNREACHED`],
+/// **one stray** — the envelope-level `state`, deleted in the same change.
+#[test]
+fn every_declaration_is_reached_by_something() {
+    let schema = schema();
+    let mut declared = BTreeSet::new();
+    declarations(&schema, "", &mut declared);
+    assert!(
+        declared.len() > 300,
+        "only {} declarations found — the schema walk is broken, not the schema",
+        declared.len()
+    );
+
+    let mut reached: BTreeSet<String> = BTreeSet::new();
+    for entry in std::fs::read_dir(fixture_dir().join("expected")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|x| x != "json") {
+            continue;
+        }
+        let doc: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        reached.extend(contract_problems(&schema, "golden", &doc).resolved);
+    }
+    let tmp = stage();
+    for (name, args) in LIVE {
+        let mut a = args.to_vec();
+        a.extend_from_slice(&["--format", "json"]);
+        let r = run(tmp.path(), &a);
+        let doc: serde_json::Value = serde_json::from_str(&r.stdout)
+            .unwrap_or_else(|e| panic!("`yidam {}` did not emit JSON: {e}", a.join(" ")));
+        reached.extend(contract_problems(&schema, name, &doc).resolved);
+    }
+    // The walk has to have descended, or everything below the envelope reads as unreached and
+    // the roster would be asked to grow to three hundred entries.
+    for witness in GOLDEN_WITNESSES.iter().chain(LIVE_WITNESSES) {
+        assert!(
+            reached.contains(*witness),
+            "the walk never reached `{witness}`, so `reached` describes the depth it stopped at \
+             rather than the contract"
+        );
+    }
+
+    let unreached: Vec<&String> = declared.difference(&reached).collect();
+    let stray: Vec<&&String> = unreached.iter().filter(|p| owner(p).is_none()).collect();
+    assert!(
+        stray.is_empty(),
+        "report.schema.json declares {} path(s) that no golden and no live report emits:\n{}\n\n\
+         A declaration nothing reaches is inert — it can name a field that does not exist or \
+         contradict the struct it describes, and every other check in this file stays green. \
+         Either make a report emit it (stage.toml is where the fixture is built), or add it to \
+         UNREACHED with the reason it cannot be reached from here.",
+        stray.len(),
+        stray
+            .iter()
+            .map(|p| format!("  {p}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+
+    // And from the other side: an exemption for a family that *is* reached is a stale excuse,
+    // and the next reader would believe it.
+    let owned: BTreeSet<usize> = unreached.iter().filter_map(|p| owner(p)).collect();
+    let stale: Vec<&str> = UNREACHED
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !owned.contains(i))
+        .map(|(_, (prefix, _))| *prefix)
+        .collect();
+    assert!(
+        stale.is_empty(),
+        "UNREACHED exempts {stale:?}, and every declaration under those prefixes is now reached. \
+         Delete the entry: an exemption that no longer applies reads as a reason not to try."
+    );
 }
