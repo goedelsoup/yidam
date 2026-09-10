@@ -9,7 +9,30 @@ use std::path::Path;
 /// export names its subjects with it — a declared package name would be readable and **zero of
 /// sixteen corpora declare one**, so a subject built on it would have said `local` for all
 /// sixteen and left RFC-0032 §2's collision exactly where it was.
+///
+/// **`None` unless `root` is the top of its own repository**, and that is the whole of #792.
+/// Git walks *up*, so a corpus that is not itself a repository was described by whichever
+/// repository encloses it — and every corpus nested in one host got the host's answer. All four
+/// corpora under `examples/` minted subjects as `urn:yidam:094509a128f4`, which is this
+/// template's own root commit, so their four `owl:Ontology` resources were one resource
+/// asserting four different labels. A constant shared by every corpus inside a host is exactly
+/// the conflation §2 exists to prevent, arriving through the code that implements it.
+///
+/// **Why refuse rather than fall back to the corpus's own first commit.** "The earliest commit
+/// touching this directory" is available, is unique per corpus, and would have kept those four
+/// exports working with four distinct identities. It also *changes* when the corpus is moved out
+/// of its host into a repository of its own, and a published subject must not change — which is
+/// the argument [`crate::model::Provenance::genesis_hash`] already makes against a declared
+/// nickname. Refusing has the opposite shape: extracting a nested corpus gives it an identity it
+/// did not have, and nothing that was already published moves.
+///
+/// Everything derived from this follows it. [`genesis_date`] and [`genesis_message`] both start
+/// here, so a nested corpus no longer reports its host's genesis date as its own age, or the
+/// host's genesis message as its domain.
 pub fn genesis_hash(root: &Path) -> Option<String> {
+    if !is_repository_root(root) {
+        return None;
+    }
     let out = std::process::Command::new("git")
         .current_dir(root)
         .args(["rev-list", "--max-parents=0", "HEAD"])
@@ -23,6 +46,47 @@ pub fn genesis_hash(root: &Path) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// Is `root` the top of the git repository it is in, rather than a directory inside one?
+///
+/// Both sides are canonicalised before comparing, because git answers with a resolved path and
+/// the caller's may not be. On macOS `/tmp` is a symlink to `/private/tmp`, so a corpus under a
+/// temporary directory compares unequal to itself without this — the test suite is entirely
+/// built on such directories, so the naive comparison fails everywhere it is exercised and
+/// nowhere a person would look.
+///
+/// `false` when there is no repository at all: nothing to be the top of.
+fn is_repository_root(root: &Path) -> bool {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok();
+    let Some(top) = out
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+    else {
+        return false;
+    };
+    match (
+        std::fs::canonicalize(root),
+        std::fs::canonicalize(Path::new(&top)),
+    ) {
+        (Ok(a), Ok(b)) => a == b,
+        // A path that cannot be resolved is not one we can claim is the repository root.
+        _ => false,
+    }
+}
+
+/// ISO date of the corpus's own genesis commit, or [`UNKNOWN_COMMIT`] when it has none.
+///
+/// The sentinel used to read `"no commits"`, which was true of the only case that could reach
+/// it. Since #792 a second case can: a corpus that is a directory inside a repository has no
+/// genesis of *its own* while the tree it sits in has plenty, and telling its author there are
+/// no commits would be false. `"unknown"` is true of both, and is the word
+/// [`head_commit_short`] already uses for the same absence.
 pub fn genesis_date(root: &Path) -> String {
     genesis_hash(root)
         .and_then(|hash| {
@@ -35,7 +99,7 @@ pub fn genesis_date(root: &Path) -> String {
         })
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "no commits".to_string())
+        .unwrap_or_else(|| UNKNOWN_COMMIT.to_string())
 }
 
 /// What [`head_commit_short`] answers where there is no commit to name — no git repository,
@@ -276,6 +340,132 @@ pub fn phase_tally(root: &Path) -> PhaseTally {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── #792: a corpus's identity is its own, or it has none ──────────────────
+
+    /// A git repository with one commit at `dir`, whose content is `mark`.
+    ///
+    /// **`mark` has to differ between fixtures.** A commit hash is a function of the tree, the
+    /// message, the author and the second — so two repositories built identically in the same
+    /// second get the *same* hash, and a test asserting that two corpora have different
+    /// identities then fails against correct code. That happened here, which is the
+    /// clearer form of the lesson: a fixture uniform in the dimension under test cannot
+    /// measure it. (`git` is defined further down, beside the test that first needed it.)
+    fn repo_at(dir: &std::path::Path, mark: &str) {
+        std::fs::create_dir_all(dir).unwrap();
+        git(dir, &["init", "-q", "-b", "main"]);
+        git(dir, &["config", "user.email", "t@t.com"]);
+        git(dir, &["config", "user.name", "T"]);
+        git(dir, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(dir.join("a.txt"), format!("{mark}\n")).unwrap();
+        git(dir, &["add", "-A"]);
+        git(
+            dir,
+            &[
+                "commit",
+                "-q",
+                "--no-gpg-sign",
+                "-m",
+                &format!("genesis: {mark}"),
+            ],
+        );
+    }
+
+    /// The case that must keep working, and the one that proves the comparison is
+    /// canonicalising: a `TempDir` on macOS sits under `/var`, which is a symlink to
+    /// `/private/var`, so git's resolved answer and the caller's path are different strings
+    /// for the same directory. Without `canonicalize` on both sides this fails here and
+    /// nowhere a person would think to look.
+    #[test]
+    fn a_repository_root_answers_with_its_own_genesis() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        repo_at(tmp.path(), "host");
+        let hash = genesis_hash(tmp.path()).expect("a repository root has a genesis commit");
+        assert_eq!(hash.len(), 40, "expected a full SHA, got {hash:?}");
+        assert_ne!(genesis_date(tmp.path()), UNKNOWN_COMMIT);
+    }
+
+    /// The defect. Git walks *up*, so a corpus that is a directory inside a repository used to
+    /// be handed the enclosing repository's genesis — which names a different corpus, and is
+    /// the same string for every corpus nested in that host.
+    #[test]
+    fn a_directory_inside_a_repository_has_no_genesis_of_its_own() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        repo_at(tmp.path(), "host");
+        let nested = tmp.path().join("examples/one");
+        std::fs::create_dir_all(&nested).unwrap();
+        assert!(
+            genesis_hash(tmp.path()).is_some(),
+            "the host still has one, or this test proves nothing"
+        );
+        assert_eq!(
+            genesis_hash(&nested),
+            None,
+            "a nested directory must not claim its host's identity"
+        );
+    }
+
+    /// The consequence, stated as the property rather than as the mechanism: two corpora
+    /// nested in one host must not end up with **one** identity between them. Before #792 both
+    /// answered with the host's hash, so `urn:yidam:<host>` named both — which is the
+    /// conflation RFC-0032 §2 exists to prevent.
+    #[test]
+    fn two_corpora_in_one_host_never_share_an_identity() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        repo_at(tmp.path(), "host");
+        let (a, b) = (tmp.path().join("ex/a"), tmp.path().join("ex/b"));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        match (genesis_hash(&a), genesis_hash(&b)) {
+            (Some(x), Some(y)) => assert_ne!(x, y, "two corpora minted one identity"),
+            (None, None) => {}
+            other => {
+                panic!("one of two nested corpora was identified and the other was not: {other:?}")
+            }
+        }
+    }
+
+    /// The repair the RDF refusal advises, held to actually working: give the nested corpus a
+    /// repository of its own and it has an identity, distinct from its former host's. An error
+    /// message that recommends a fix is a claim about that fix.
+    #[test]
+    fn giving_a_nested_corpus_its_own_repository_gives_it_an_identity() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        repo_at(tmp.path(), "host");
+        let nested = tmp.path().join("ex/one");
+        std::fs::create_dir_all(&nested).unwrap();
+        assert_eq!(genesis_hash(&nested), None);
+
+        repo_at(&nested, "the extracted corpus");
+        let own = genesis_hash(&nested).expect("its own repository has a genesis commit");
+        assert_ne!(
+            Some(own),
+            genesis_hash(tmp.path()),
+            "the extracted corpus must not still answer with the host's hash"
+        );
+    }
+
+    /// No repository at all is the case that already worked, and must keep working.
+    #[test]
+    fn a_directory_in_no_repository_has_no_genesis() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        assert_eq!(genesis_hash(tmp.path()), None);
+    }
+
+    /// Everything derived from the hash follows it. A nested corpus reporting its host's
+    /// genesis *date* as its own age is the same defect one field over, and the sentinel says
+    /// `unknown` rather than `no commits` because the tree it sits in has plenty of commits.
+    #[test]
+    fn the_date_and_the_domain_follow_the_hash() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        repo_at(tmp.path(), "host");
+        let nested = tmp.path().join("ex/one");
+        std::fs::create_dir_all(&nested).unwrap();
+        assert_eq!(genesis_date(&nested), UNKNOWN_COMMIT);
+        assert_eq!(genesis_message(&nested), "");
+        // And the host, which does have one, is unaffected.
+        assert!(genesis_message(tmp.path()).starts_with("genesis: host"));
+    }
 
     fn names(out: &str) -> Vec<String> {
         parse_phase_refs(out).into_iter().map(|p| p.name).collect()

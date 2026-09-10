@@ -95,6 +95,28 @@ corpus still exports. An hour-old repository with no nodes is a corpus, not a mi
 `schema --settings` is unaffected. It prints a compiled-in editor mapping and reads no corpus,
 so there is nothing for it to refuse over.
 
+### A corpus nested in another repository has no identity, and RDF export says so
+
+`genesis_hash` — the corpus's first commit — was read by running git at the corpus root. Git
+resolves **upward**, so a corpus that is a directory inside a repository was described by
+whichever repository encloses it.
+
+Every corpus under this template's `examples/` was in that position. All four minted RDF
+subjects under `urn:yidam:094509a128f4`, which is the template's own first commit. Their four
+`owl:Ontology` resources were one resource asserting four different labels.
+
+**`export --format rdf` now refuses such a corpus** rather than naming it with its host's
+identity. `manifest.yml`'s `genesis_hash` is `null` for it, and `genesis` reads `unknown`
+instead of the host's date. Every other export format is unaffected: only RDF names subjects.
+
+**If this affects you, give the corpus its own repository.** Copy it out and `git init` there,
+or `yidam clone` a fresh one. A corpus that is already its own repository changes by nothing,
+and **no subject that was correct before moves.**
+
+That is why this refuses rather than falling back to the corpus's own earliest commit. Such a
+fallback would have kept the four exports working, and changed each identity the day its corpus
+was extracted.
+
 ## cli/v0.11.0
 
 ### `score` says why the criteria are the template's, in four states

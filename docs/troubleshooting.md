@@ -90,7 +90,13 @@ yidam graph-check
 ```
 
 **The git root is not the corpus.** A corpus nested inside a larger repository resolves to the
-outer root. Run from the corpus root, or overlay it so it has its own `.yidam/`.
+outer root. Pass `--root <corpus>`, which walks up to the nearest `.yidam/` instead.
+
+That reaches the corpus. One thing still will not work: **`export --format rdf` refuses a
+corpus that is not its own git repository.** Its subjects are named with the corpus's first
+commit. Git answers a nested directory with the *enclosing* repository. That repository's
+genesis names a different corpus, and is shared by every corpus inside it. Copy the corpus out and give it a
+repository, as above. Every other format works without an identity.
 
 ## `unrecognized subcommand`
 

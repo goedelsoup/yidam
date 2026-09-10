@@ -53,7 +53,7 @@ address, and RFC-0005 declares the scheme normative without mentioning dependenc
 ### 2 — The RDF export mints subjects in a scheme nothing can dereference
 
 [`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L135) types every instance at
-`yidam://corpus/<class>/<name>` and [`dataset_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L301)
+`yidam://corpus/<class>/<name>` and [`dataset_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L310)
 names the dataset with a bare authority. No RDF consumer can follow either, and two corpora
 holding `concept/foo` mint the same subject. The export already knows the distinction it is
 failing to apply: [`export_rdf.rs:317`](../../yidam/cli/src/cmd/export_rdf.rs#L317) tests a
@@ -93,7 +93,13 @@ authoritative for terms this project minted.
 >   cannot see this; the guard now parses each subject back and applies `reference_conforms`.
 > - **An unidentifiable corpus is refused**, not given a shared name. Any constant is the same
 >   string for every corpus that reaches that branch, so two of them merged into one store would
->   conflate their nodes. The branch is reachable — a worktree copied out of its parent, a shallow
+>   conflate their nodes. **The constant arrived anyway, from the other direction** (#792): git
+>   resolves upward, so a corpus that is a directory inside a repository was handed the
+>   enclosing repository's genesis — and all four corpora under `examples/` minted
+>   `urn:yidam:094509a128f4`, one `owl:Ontology` subject asserting four different labels. A
+>   host's identity *is* a constant shared by every corpus nested in it, reached by satisfying
+>   the check rather than by failing it. `genesis_hash` now answers only for a corpus that is
+>   its own repository. The branch is reachable — a worktree copied out of its parent, a shallow
 >   clone without the root commit, a `.yiz` extracted to a plain directory — and at the time
 >   **the bundle manifest could not supply it**, because it recorded `genesis` as an ISO *date*.
 >   The addressing plan's decision C assumed a digest was already there. #781 put one there:
