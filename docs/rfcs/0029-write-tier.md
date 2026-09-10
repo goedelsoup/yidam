@@ -181,7 +181,7 @@ parks it there anyway, one transport later.
    no second answer. Every socket transport has an unbounded peer set — anything on the host
    reaches loopback, and the CLI's own help for `serve --mcp --http` instructs an operator to
    *"put it behind a tunnel or a proxy that supplies one"*
-   ([`main.rs:587`](../../yidam/cli/src/main.rs#L587)), which republishes a loopback port
+   ([`main.rs:591`](../../yidam/cli/src/main.rs#L591)), which republishes a loopback port
    off-machine by design. So a socket server's `act` declaration asserts something about its
    deployment that it cannot verify from inside. That is not a defect introduced here — it is
    what clause 2 already was. `act` is configuration precisely because the fact being declared

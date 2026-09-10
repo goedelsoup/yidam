@@ -71,6 +71,13 @@ pub enum Operation {
         relationship: String,
         new_target: String,
     },
+    /// Every reference written inside an evidence tag becomes a `references:` entry.
+    ///
+    /// The one operation here that migrates *data* rather than the ontology over it, and the
+    /// reason it belongs anyway: it is the same event shape — a mechanical rewrite across
+    /// hundreds of files under one commit subject, with a record of what it refused. See
+    /// [`crate::cmd::migrate_references`].
+    References,
 }
 
 impl Operation {
@@ -81,6 +88,7 @@ impl Operation {
             Self::PropertyRename { .. } => "property-rename",
             Self::PropertyRetype { .. } => "property-retype",
             Self::EdgeRetarget { .. } => "edge-retarget",
+            Self::References => "references",
         }
     }
 
@@ -101,6 +109,11 @@ impl Operation {
                 relationship,
                 new_target,
             } => format!("`{class}` — `{relationship}` now targets `{new_target}`"),
+            // Replaced once planned: what this migration *is* is how much of the corpus it
+            // reaches, which is not known until the corpus has been read. This stable form is
+            // what `record_path` slugs, so it must not begin with the operation's own name —
+            // `references-references-out-of-evidence-tags.yml` is a filename a corpus keeps.
+            Self::References => "evidence tags into the reference field".to_string(),
         }
     }
 }
@@ -133,6 +146,17 @@ pub struct MigrateReport {
     pub violations: Vec<Violation>,
     /// Markdown references to a renamed path. Reported, never rewritten.
     pub unhandled: Vec<Unhandled>,
+    /// References lifted out of evidence-tag details. Empty for every ontology operation.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub lifted: Vec<super::migrate_references::Lift>,
+    /// Evidence-tag details naming nothing addressable.
+    ///
+    /// **A count and not a list.** 614 details across the measured corpora are prose — "owner
+    /// attestation, no document in hand" — and printing them as work to do would tell an author
+    /// to fix 614 details that are correct. What a detail *should* have resolved to is
+    /// `reference-not-in-the-grammar`'s question, not this one.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub prose_details: usize,
     /// Why this cannot proceed. Non-empty means nothing was touched.
     pub blocked: Vec<String>,
     /// Where the migration record was written, once applied.
@@ -143,6 +167,10 @@ pub struct MigrateReport {
     /// reaches for, and for the same reason: inventing one costs twice, because
     /// `lint --commits` reports it and `classify_commit` files it as Epistemic.
     pub commit_subject: String,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 fn slash(p: &Path) -> String {
@@ -160,6 +188,8 @@ impl MigrateReport {
             edits: vec![],
             violations: vec![],
             unhandled: vec![],
+            lifted: vec![],
+            prose_details: 0,
             blocked: vec![],
             record: String::new(),
             commit_subject: String::new(),
@@ -256,18 +286,40 @@ pub(crate) fn plan(root: &Path, corpus: &Path, op: &Operation) -> MigrateReport 
             relationship,
             new_target,
         } => plan_edge_retarget(root, corpus, class, relationship, new_target, &mut report),
+        Operation::References => {
+            super::migrate_references::plan(root, corpus, &mut report);
+            report.summary = super::migrate_references::summary(&report);
+        }
     }
     if report.blocked.is_empty() {
+        // A reference lift's unit of work is a reference and not an edit: only the tags it
+        // collapses are edits, so counting those would report a third of what it did.
+        let (count, unit, files) = if matches!(op, Operation::References) {
+            (
+                report.lifted.len(),
+                "reference",
+                report
+                    .lifted
+                    .iter()
+                    .map(|l| l.node.as_str())
+                    .collect::<BTreeSet<_>>()
+                    .len(),
+            )
+        } else {
+            (
+                report.edits.len(),
+                "edit",
+                report
+                    .edits
+                    .iter()
+                    .map(|e| e.file.as_str())
+                    .collect::<BTreeSet<_>>()
+                    .len(),
+            )
+        };
         report.commit_subject = format!(
-            "migrate: {} ({} edit(s) across {} file(s))",
-            op.summary(),
-            report.edits.len(),
-            report
-                .edits
-                .iter()
-                .map(|e| e.file.as_str())
-                .collect::<BTreeSet<_>>()
-                .len()
+            "migrate: {} ({count} {unit}(s) across {files} file(s))",
+            op.summary()
         );
     }
     report
@@ -763,6 +815,31 @@ fn slug(text: &str) -> String {
 /// The same ordering `rename` uses and for the same reason: an edit is located by
 /// `(file, line)`, and moving a file first would invalidate every path recorded against it.
 fn apply(root: &Path, corpus: &Path, op: &Operation, report: &mut MigrateReport) -> Result<()> {
+    // A reference lift rewrites byte spans inside prose and appends a block, neither of which
+    // the `(file, line, from, to)` model below can express. Its own apply re-derives the plan
+    // for the same reason this one re-locates every edit.
+    if matches!(op, Operation::References) {
+        // Both, and not `lifted` alone: a node that already declares a reference its tag still
+        // spells out has a tag to collapse and nothing to write, and guarding on the write alone
+        // would silently decline to do the half that remains.
+        if report.lifted.is_empty() && report.edits.is_empty() {
+            return Ok(());
+        }
+        super::migrate_references::apply(root, corpus, report)?;
+        if !report.blocked.is_empty() {
+            return Ok(());
+        }
+        // Return rather than fall through: the loop below re-reads and re-writes every file it
+        // has an edit for, and re-writing a file this has already rewritten would join its lines
+        // a second time over content the plan no longer describes.
+        let files: BTreeSet<String> = report
+            .lifted
+            .iter()
+            .map(|l| l.node.clone())
+            .chain(report.edits.iter().map(|e| e.file.clone()))
+            .collect();
+        return write_record(root, op, report, files.into_iter().collect());
+    }
     let mut by_file: BTreeMap<&str, Vec<&Edit>> = Default::default();
     for e in &report.edits {
         by_file.entry(&e.file).or_default().push(e);
@@ -819,10 +896,25 @@ fn apply(root: &Path, corpus: &Path, op: &Operation, report: &mut MigrateReport)
         }
     }
 
+    write_record(
+        root,
+        op,
+        report,
+        by_file.keys().map(|f| f.to_string()).collect(),
+    )
+}
+
+/// The record, and the `applied` flag that says it was written.
+fn write_record(
+    root: &Path,
+    op: &Operation,
+    report: &mut MigrateReport,
+    files: Vec<String>,
+) -> Result<()> {
     let record = MigrationRecord {
         operation: op.kind(),
         summary: report.summary.clone(),
-        files: by_file.keys().map(|f| f.to_string()).collect(),
+        files,
         edits: report.edits.len(),
         moves: report.moves.len(),
         violations: report
@@ -831,7 +923,10 @@ fn apply(root: &Path, corpus: &Path, op: &Operation, report: &mut MigrateReport)
             .map(|v| format!("{}: {}", v.node, v.detail))
             .collect(),
     };
-    let path = record_path(root, op, &slug(&report.summary));
+    // `op.summary()` and not the report's: they are the same string for every ontology
+    // operation, and a reference lift recomputes its summary from what it found — which would
+    // put the corpus's finding counts in the record's filename and change it on every run.
+    let path = record_path(root, op, &slug(&op.summary()));
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -849,6 +944,9 @@ pub(crate) fn render_migrate(r: &MigrateReport) -> String {
             let _ = writeln!(out, "  {b}");
         }
         return out.trim_end().to_string();
+    }
+    if matches!(r.operation, "references") {
+        return render_references(r);
     }
     let mut out = format!(
         "{} {}\n{} edit(s) across {} file(s)\n",
@@ -889,6 +987,75 @@ pub(crate) fn render_migrate(r: &MigrateReport) -> String {
         );
         for u in &r.unhandled {
             let _ = writeln!(out, "  {}:{}  {}", u.file, u.line, u.text);
+        }
+    }
+    if !r.record.is_empty() {
+        let _ = write!(out, "\nrecord: {}", r.record);
+    }
+    let _ = write!(out, "\ncommit: {}", r.commit_subject);
+    out.trim_end().to_string()
+}
+
+/// A reference lift, by node rather than by edit.
+///
+/// One line per node and not one per reference: the largest measured corpus lifts 695 of them,
+/// and a reader deciding whether to apply the migration is asking which nodes change and to
+/// what — not to scroll a list as long as the corpus.
+fn render_references(r: &MigrateReport) -> String {
+    if r.lifted.is_empty() && r.edits.is_empty() {
+        // Not "would migrate 0": this ran, and saying so is the difference between a corpus
+        // with nothing to lift and a command that was never applied.
+        return format!(
+            "Nothing to lift — no evidence-tag detail names anything addressable that is not \
+             already written down.\n{} detail(s) read as prose.",
+            r.prose_details
+        );
+    }
+    let mut by_node: BTreeMap<&str, (Vec<&str>, usize)> = Default::default();
+    for l in &r.lifted {
+        let entry = by_node.entry(&l.node).or_default();
+        entry.0.push(&l.reference);
+        if l.detail_cleared {
+            entry.1 += 1;
+        }
+    }
+    let mut out = format!(
+        "{} {}\n{} reference(s) across {} node(s); {} tag(s) collapse to a bare standing\n",
+        if r.applied {
+            "Migrated"
+        } else {
+            "Would migrate"
+        },
+        r.summary,
+        r.lifted.len(),
+        by_node.len(),
+        r.edits.len(),
+    );
+    for (node, (refs, collapses)) in &by_node {
+        let _ = writeln!(
+            out,
+            "  {node}  {}{}",
+            refs.join(", "),
+            if *collapses > 0 {
+                format!("  ({collapses} tag(s) collapsed)")
+            } else {
+                String::new()
+            }
+        );
+    }
+    if r.prose_details > 0 {
+        let _ = write!(
+            out,
+            "\n{} detail(s) name nothing addressable and are left alone. \
+             `yidam lint --explain reference-not-in-the-grammar` is where a detail that should \
+             have resolved is reported.\n",
+            r.prose_details
+        );
+    }
+    if !r.blocked.is_empty() {
+        let _ = write!(out, "\nNOT written:\n");
+        for b in &r.blocked {
+            let _ = writeln!(out, "  {b}");
         }
     }
     if !r.record.is_empty() {

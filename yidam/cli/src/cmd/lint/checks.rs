@@ -2303,7 +2303,46 @@ fn matching_bracket(text: &str, open: usize, bound: usize) -> Option<usize> {
     })
 }
 
-/// `(line, text)` for each bracketed near miss. Links are not near misses.
+/// One bracketed tag whose detail says something, with the span it occupies.
+///
+/// **The one answer to "where is a tag with a detail?"** [`near_miss_tags`] reports them and
+/// [`crate::cmd::migrate_references`] rewrites them, and a second scanner would be a second
+/// opinion about which brackets are tags — the shape that put four copies of the open-question
+/// predicate in the CLI before one of them was found under-reporting a corpus 26 to 2.
+///
+/// Byte offsets rather than the line alone, because the rewriter has to replace the tag and
+/// **57 of the 211 it can collapse are wrapped across two lines**. Both maskers in
+/// [`crate::markdown`] preserve byte offsets, so a caller may scan masked text and read the
+/// original at the same span: the lint passes `mask_code` and gets the tag without its inline
+/// code, the migration passes `mask_fenced` and gets the citation the code span holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DetailTag {
+    /// Byte offset of the opening `[`.
+    pub start: usize,
+    /// Byte offset of the closing `]`.
+    pub end: usize,
+    /// 1-based line of `start`.
+    pub line: usize,
+    /// `verified`, `inference` or `open` — the standing, without its brackets.
+    pub standing: &'static str,
+    /// The bracketed text, brackets removed and whitespace collapsed.
+    pub inner: String,
+}
+
+impl DetailTag {
+    /// The detail: what follows the standing, with the separator that introduced it removed.
+    ///
+    /// Collapsed, like `inner` — so this is what the detail *says*, not the bytes it occupies.
+    /// A rewriter locating a substring of it in the file must search the original span.
+    pub fn detail(&self) -> &str {
+        self.inner
+            .strip_prefix(self.standing)
+            .unwrap_or(&self.inner)
+            .trim_start_matches(|c: char| TAG_SEPARATORS.contains(&c) || c.is_whitespace())
+    }
+}
+
+/// Every bracketed tag with a detail, in source order. Links are not tags.
 ///
 /// **Bracket depth over the block, not the first `]` on the line.** The line-scoped scan this
 /// replaces reported 234 of 445 tags of exactly this shape in one derived corpus, and the
@@ -2323,12 +2362,7 @@ fn matching_bracket(text: &str, open: usize, bound: usize) -> Option<usize> {
 /// `statement_around`. It is load-bearing rather than tidy: an unbounded depth scan drops
 /// every tag below the corpus's first unbalanced `[` (one corpus has one, inside quoted source
 /// text) and does it silently, with the finding count falling as the corpus grows.
-fn near_miss_tags(text: &str) -> Vec<(usize, String)> {
-    let tags = [
-        crate::claims::VERIFIED,
-        crate::claims::INFERENCE,
-        crate::claims::OPEN,
-    ];
+pub(crate) fn detail_tags(text: &str) -> Vec<DetailTag> {
     let mut out = Vec::new();
     let bytes = text.as_bytes();
     let mut line = 1;
@@ -2356,19 +2390,24 @@ fn near_miss_tags(text: &str) -> Vec<(usize, String)> {
         }
         // A tag's text may carry the wrap it was written across; what is reported should not.
         let inner = crate::claims::collapse_whitespace(&text[i + 1..close]);
-        let hit = tags.iter().any(|tag| {
-            let word = tag.trim_matches(|c| c == '[' || c == ']');
-            if inner == word {
+        let hit = STANDING_WORDS.iter().find(|word| {
+            if inner == **word {
                 return false; // the tag itself, exactly as intended
             }
-            inner.strip_prefix(word).is_some_and(|rest| {
+            inner.strip_prefix(**word).is_some_and(|rest| {
                 rest.trim_start()
                     .starts_with(|c: char| TAG_SEPARATORS.contains(&c))
                     || narrowing_detail(&inner)
             })
         });
-        if hit {
-            out.push((line, format!("[{inner}]")));
+        if let Some(standing) = hit {
+            out.push(DetailTag {
+                start: i,
+                end: close,
+                line,
+                standing,
+                inner,
+            });
             // Anything nested inside a reported tag is part of it, not a second finding.
             line += text[i..close].matches('\n').count();
             i = close + 1;
@@ -2377,6 +2416,14 @@ fn near_miss_tags(text: &str) -> Vec<(usize, String)> {
         }
     }
     out
+}
+
+/// `(line, text)` for each bracketed near miss, as `claim-tag-malformed` reports them.
+fn near_miss_tags(text: &str) -> Vec<(usize, String)> {
+    detail_tags(text)
+        .into_iter()
+        .map(|t| (t.line, format!("[{}]", t.inner)))
+        .collect()
 }
 
 // ── catalog ───────────────────────────────────────────────────────────────────
