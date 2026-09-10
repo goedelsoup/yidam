@@ -555,9 +555,14 @@ fn no_upgrade_note_is_filed_under_a_release_that_already_shipped() {
         // A section whose tag does not exist is the release being prepared — there is nothing
         // to compare against yet. `## Unreleased` is one of these, and is `release.sh`'s
         // question rather than this one's.
-        if !git_out(&["rev-parse", "--verify", "--quiet", &format!("refs/tags/{heading}")])
-            .status
-            .success()
+        if !git_out(&[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("refs/tags/{heading}"),
+        ])
+        .status
+        .success()
         {
             continue;
         }
