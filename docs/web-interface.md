@@ -25,7 +25,9 @@ index freshness (last indexed commit vs HEAD), stale node count.
 timestamp, node counts per feed, deployment target, last deploy status.
 
 **Repository status** (`yidam status`): corpus node count, open question count, catalog
-source count, index freshness, active phase branches, last genesis commit date.
+source count, index freshness, last genesis commit date. Phase counts are deliberately not in
+this block. A gated block holds only what every checkout of the commit agrees on, and a count of
+branch refs is not that. `yidam status --format json` carries them for a client that wants them.
 
 **Open questions** (`yidam open-questions`): all corpus nodes whose title begins with `?`
 or whose content contains `[open]` claims.

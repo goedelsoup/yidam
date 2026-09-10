@@ -1,5 +1,4 @@
 use anyhow::Result;
-use std::fmt::Write as _;
 use std::path::Path;
 
 use crate::git::{genesis_date, phase_tally};
@@ -20,6 +19,9 @@ struct StatusReport {
     index_present: bool,
     /// Bounded work not yet on the baseline. Before `phase_tally` this counted every
     /// `ma/*` and `rigpa/*` ref and no `phase/*` ref at all — see [`crate::git::RefKind`].
+    ///
+    /// **This and the three counts below are reported here and nowhere else.** They used to
+    /// render into the README block as well, and could not: see [`status`].
     active_phases: usize,
     /// Merged `phase/*` and `rigpa/*` refs still present. PHASES.md prescribes deleting them.
     settled_phases: usize,
@@ -33,6 +35,30 @@ struct StatusReport {
     genesis: String,
 }
 
+/// The corpus in one line, into the README block — and the same numbers plus the phase tally
+/// as JSON.
+///
+/// **The two renderings do not carry the same fields, on purpose.** `--format json` is a report:
+/// it answers about the repository as it stands, and a phase count is one of the more useful
+/// things it can say. The markdown block is *committed*, and `yidam regen --check` gates it, so
+/// it is held to a stricter rule:
+///
+/// > A REGEN block held by `--check` must be a function of what every checkout of that commit
+/// > has in common.
+///
+/// A phase count is not. It reads remote-tracking refs, and which of those a checkout holds is a
+/// property of how it was fetched, not of the commit — so for one commit there was no value that
+/// was green both in a clone that had fetched and in a default CI checkout, and `--check` was
+/// unwinnable rather than wrong (#647). Worse, it moved with no commit at all: pushing a phase
+/// branch reddened the gate on every open pull request, on a file none of them touched.
+///
+/// `yidam phases` is where the live view belongs — being current is the point there rather than a
+/// hazard — and `status --format json` keeps all four counts for anything reading them.
+///
+/// The other half of that contract is depth, and it is not answered here: `genesis` reads the
+/// repository's first commit, which a shallow clone does not have. [`crate::git::is_shallow`] is
+/// why that now reports `unknown` instead of a date it invented, and
+/// [`crate::cmd::regen`] is where the gate refuses rather than gating a value it cannot compute.
 pub fn status(format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
     let corpus = yidam_corpus_dir(&root);
@@ -68,8 +94,7 @@ pub fn status(format: crate::report::Format) -> Result<()> {
     let catalog_paths = walk_md_files(&catalog);
     let catalog_entries = catalog_paths.len();
     // Expired source records, shown only when there are any. A corpus that declared no TTL
-    // is asking nothing here, and a permanent `· 0 expired` is a number nobody can act on —
-    // the same rule the phase cell below applies to positions and settled counts.
+    // is asking nothing here, and a permanent `· 0 expired` is a number nobody can act on.
     let catalog_expired = crate::cmd::lint::ttl::ages(
         &crate::cmd::lint::checks::load_sources(&root, &catalog_paths, &Default::default()),
         &crate::cmd::lint::ttl::committed_dates(&root, &catalog),
@@ -92,32 +117,7 @@ pub fn status(format: crate::report::Format) -> Result<()> {
         "not initialized"
     };
 
-    let phases = phase_tally(&root);
     let genesis = genesis_date(&root);
-
-    // Only the counts that exist are rendered. A single-elector repository has no positions
-    // and a repository that deletes settled refs has no settled count; showing either as a
-    // permanent `· 0` gives the reader a number they can never act on. `active` is always
-    // shown, because zero active phases is a real and readable state.
-    let mut phase_cell = format!("{} active phase(s)", phases.active);
-    if phases.settled > 0 {
-        let _ = write!(phase_cell, " · {} settled", phases.settled);
-    }
-    // Named separately from `settled`, because the repair is different: these refs cannot ever
-    // become ancestors of the baseline, so deleting them is the only way the count falls, and
-    // the reason they are here is the repository's merge setting rather than anything a phase
-    // did. Reading them as `active` is what #773 was — one derived repository showed 22 phases
-    // in flight, all of them complete, with the number unable to fall.
-    if phases.rewritten > 0 {
-        let _ = write!(
-            phase_cell,
-            " · {} settled by a rewriting merge",
-            phases.rewritten
-        );
-    }
-    if phases.positions > 0 {
-        let _ = write!(phase_cell, " · {} position(s)", phases.positions);
-    }
 
     let sources_cell = match catalog_expired {
         0 => format!("{catalog_entries} sources"),
@@ -125,11 +125,16 @@ pub fn status(format: crate::report::Format) -> Result<()> {
     };
     let content = format!(
         "**{node_count} nodes** · {open_count} open · {sources_cell} · \
-         claims {} · index {index_freshness} · {phase_cell} · genesis {genesis}",
+         claims {} · index {index_freshness} · genesis {genesis}",
         claims.cell()
     );
 
     if format.is_json() {
+        // Read only here. The refs are not merely unrendered above — they are not *looked at*,
+        // which is the property [`the_gate_survives_a_phase_ref_appearing`] asserts. A tally
+        // computed and discarded would still make the text path's behaviour depend on which
+        // refs a checkout happens to hold, the moment anyone renders it again.
+        let phases = phase_tally(&root);
         return crate::report::emit(
             &root,
             StatusReport {
