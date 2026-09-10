@@ -40,7 +40,7 @@ The rule was unenforceable until a corpus existed on which some tier goes unback
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.18.0",
+    "contract": "0.19.0",
     "corpus": {
       "domain": "streamflow",
       "commit": "a1b2c3d",

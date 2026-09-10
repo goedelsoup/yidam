@@ -369,6 +369,11 @@ words missed it".
 Reading a node's own YAML shows you only the edges it asserts. The ones asserted *at* it are
 invisible from the file.
 
+A claim may carry a **qualifier** — the scope it is asserted under. `[verified — as proposed]`
+says the proposal was checked, not that it was adopted, and `claims` returns that text alongside
+the standing. It is free text with no vocabulary. Before contract
+0.19.0 such a tag matched none of the three tokens exactly. It was served as no claim at all.
+
 Alongside the tools, the server publishes MCP resources under a `yidam://` scheme:
 `yidam://graph/summary`, `yidam://corpus/<class>`, `yidam://corpus/<class>/<name>`,
 `yidam://skills/<name>`, `yidam://decisions/<name>`. `yidam://corpus/<class>` and `list_nodes` are

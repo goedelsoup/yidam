@@ -261,12 +261,291 @@ impl ClaimFields {
 /// corpus writes after being told the scan needs brackets. Accepting both means nobody has
 /// to reshape their data a second time when this lands.
 pub fn tag_of(value: &str) -> Option<&'static str> {
-    match value.trim().trim_matches(|c| c == '[' || c == ']') {
-        "verified" => Some(VERIFIED),
-        "inference" => Some(INFERENCE),
-        "open" => Some(OPEN),
-        _ => None,
+    parse_tag(value).map(|t| t.standing)
+}
+
+/// What a bracketed tag spells: a standing, and the qualifier that narrows it.
+///
+/// `qualifier` is RFC-0031's **scope**, carried as free text. There is no vocabulary and no
+/// second field: measured over the corpora, `[verified — as proposed]` is written 18 times and
+/// `[verified — for the snapshot]` six, so the bracket is already where scope lives. What was
+/// missing is not somewhere to put it — it is that a tag carrying one was read as no tag at all.
+///
+/// **`qualifier` is deliberately not called `scope`.** [`ClaimScope`] already means *statement
+/// or property* on [`ServedClaim`], and two fields called scope meaning two things is how a
+/// reader ends up reporting one for the other.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Tag {
+    pub standing: &'static str,
+    /// The text that narrows what is asserted, or `None` for a bare tag.
+    pub qualifier: Option<String>,
+}
+
+/// The tag a value spells, bracketed or bare, or `None` when it spells none.
+///
+/// **Both spellings, because a declared claim field is written bare.** `claim_tag: open` is the
+/// reported shape that `type: claim` exists for — `open-questions` returned 2 of 26 against a
+/// corpus like that — and `claim_tag: "[open]"` is the same claim written the other way. A rule
+/// that demanded brackets would stop reading the primary form.
+///
+/// **One bracket off each end, not `trim_matches`.** The greedy trim this replaces would eat the
+/// inner bracket of `[verified for the composition; the basis effect is [open]]` and change the
+/// answer. And a value that opens a bracket must close it: `"[open] — not computed"` is a
+/// property holding a tag *and* a remark, not a qualified tag, and it is left to the prose pass
+/// exactly as it was before this function existed.
+pub fn parse_tag(value: &str) -> Option<Tag> {
+    let t = value.trim();
+    let inner = match t.strip_prefix('[') {
+        Some(rest) => rest.strip_suffix(']')?,
+        None => t,
+    };
+    tag_from_inner(&collapse_whitespace(inner))
+}
+
+/// The tag an already-unbracketed, whitespace-collapsed inner text spells.
+///
+/// **Three outcomes, and the two refusals are the design.**
+///
+/// - A bare standing is a tag with no qualifier, exactly as before this existed.
+/// - A standing plus a detail that *narrows what is asserted* is a **scoped tag**: one claim, at
+///   that standing, qualified. `[verified — as proposed]` says the proposal was checked, not that
+///   it was adopted, and it was counted as nothing until #789.
+/// - A standing plus a detail that **cites** — `[verified — Pearl 2009]` — is still not a tag.
+///   The advice for those is to move the citation out, and since #787 there is a `references:`
+///   field to move it into; counting them would remove the only pressure to do so.
+/// - A detail carrying a **second standing** — `[verified for the arithmetic; inference for the
+///   reading]` — is not a tag either. It asserts two things at two standings, which is
+///   RFC-0031's problem and not one qualifier's. 79 of the 120 measured details are this shape,
+///   27 of them also opening with a narrowing head, which is why the second-standing test has to
+///   run even when the head test already matched.
+///
+/// The narrowing test is [`narrowing_detail`] — the same predicate `claim-tag-malformed` uses to
+/// choose which of two fixes to advise, not a second reading of it. That check tells the author
+/// of a narrowing detail that there is nothing to move; this is the other half of taking that
+/// seriously.
+fn tag_from_inner(inner: &str) -> Option<Tag> {
+    let standing = STANDING_WORDS.iter().find(|w| inner.starts_with(**w))?;
+    let standing_tag = match *standing {
+        "verified" => VERIFIED,
+        "inference" => INFERENCE,
+        _ => OPEN,
+    };
+    let rest = &inner[standing.len()..];
+    let detail =
+        rest.trim_start_matches(|c: char| TAG_SEPARATORS.contains(&c) || c.is_whitespace());
+    if detail.is_empty() {
+        // A bare tag — but only if the separator was all that followed. `[verified-ish]` has an
+        // empty detail by that test and is not a tag, so the untrimmed remainder must be empty
+        // too once its separators are gone.
+        return rest
+            .trim()
+            .trim_start_matches(|c: char| TAG_SEPARATORS.contains(&c) || c.is_whitespace())
+            .is_empty()
+            .then_some(Tag {
+                standing: standing_tag,
+                qualifier: None,
+            });
     }
+    if !narrowing_detail(inner) {
+        return None; // a citation, not a qualifier
+    }
+    if STANDING_WORDS.iter().any(|w| has_word(detail, w)) {
+        return None; // two standings in one bracket
+    }
+    Some(Tag {
+        standing: standing_tag,
+        qualifier: Some(detail.to_string()),
+    })
+}
+
+// ── where a tag is, and what its detail does ──────────────────────────────────
+//
+// Moved here from `cmd/lint/checks.rs` when the counter had to read a scoped tag (#789).
+// The checker asks *is this bracket a tag with a detail, and does the detail narrow the
+// claim or cite it?*; the counter now asks the same question to decide whether the tag is a
+// claim at all. Two implementations of that would be two answers to "what did the author
+// assert", which is the one thing Article V refuses to leave to a checker at all — so it is
+// answered once, here, beside the standings it is about.
+
+pub(crate) const TAG_SEPARATORS: &[char] = &['—', '–', '-', ':', ';', ',', '|', '/', '='];
+
+/// The standings a near-miss tag may open with, as bare words.
+pub(crate) const STANDING_WORDS: &[&str] = &["verified", "inference", "open"];
+
+/// Heads that narrow *what* is asserted rather than naming where the evidence is.
+///
+/// Matched as whole words against the first word of the detail, so `[verified — Fordham]` is a
+/// source and not a `for`.
+pub(crate) const NARROWING_HEADS: &[&str] = &["as", "for", "which", "only", "not", "insofar"];
+
+/// Whether a near-miss tag's detail narrows the claim rather than saying where the evidence is.
+///
+/// Takes the collapsed inner text, brackets already removed, so [`near_miss_tags`] and
+/// [`claim_tag_malformed`] ask one question of one implementation — the first to decide whether
+/// to report at all, the second to decide what to advise.
+///
+/// Two tells, and both are deliberately narrow. The default has to be the citation advice
+/// because that advice is right for the large majority: ~89% of details across the population
+/// name a source. A false diversion is the expensive error — it would tell an author to leave a
+/// citation folded inside a bracket where no consumer can read it — so a detail diverts only on
+/// evidence, never on the absence of evidence.
+///
+/// - **A second standing.** `[inference on the mechanism, [verified] on the measurement]` asserts
+///   two things at two standings. No advice about citations applies, because there is no
+///   citation and there are two claims.
+/// - **A narrowing head.** `as`, `for`, `which`, `only`, `not`, `insofar` as the detail's first
+///   word — `[verified as proposed]` says *what* is verified, and a reader who moved it out
+///   would be left with a bare `[verified]` that claims the proposal was adopted.
+pub(crate) fn narrowing_detail(inner: &str) -> bool {
+    let Some(rest) = STANDING_WORDS
+        .iter()
+        .find_map(|word| inner.strip_prefix(*word))
+    else {
+        return false;
+    };
+    let body = rest.trim_start_matches(|c: char| TAG_SEPARATORS.contains(&c) || c.is_whitespace());
+    let mut words = body
+        .split(|c: char| !c.is_alphanumeric() && c != '\'')
+        .filter(|w| !w.is_empty())
+        .map(str::to_ascii_lowercase);
+    let Some(first) = words.next() else {
+        return false;
+    };
+    NARROWING_HEADS.contains(&first.as_str())
+        || std::iter::once(first)
+            .chain(words)
+            .any(|w| STANDING_WORDS.contains(&w.as_str()))
+}
+
+/// The `]` that closes the `[` at `open`, matched by depth and never past `bound`.
+///
+/// Depth rather than the first `]`, because the first one may be a nested link's. Bounded,
+/// because an unbalanced `[` must cost the check one bracket and not the rest of the file.
+pub(crate) fn matching_bracket(text: &str, open: usize, bound: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    text[open..bound].char_indices().find_map(|(rel, c)| {
+        match c {
+            '[' => depth += 1,
+            ']' => depth = depth.saturating_sub(1),
+            _ => return None,
+        }
+        (depth == 0 && c == ']').then_some(open + rel)
+    })
+}
+
+/// One bracketed tag whose detail says something, with the span it occupies.
+///
+/// **The one answer to "where is a tag with a detail?"** [`near_miss_tags`] reports them and
+/// [`crate::cmd::migrate_references`] rewrites them, and a second scanner would be a second
+/// opinion about which brackets are tags — the shape that put four copies of the open-question
+/// predicate in the CLI before one of them was found under-reporting a corpus 26 to 2.
+///
+/// Byte offsets rather than the line alone, because the rewriter has to replace the tag and
+/// **57 of the 211 it can collapse are wrapped across two lines**. Both maskers in
+/// [`crate::markdown`] preserve byte offsets, so a caller may scan masked text and read the
+/// original at the same span: the lint passes `mask_code` and gets the tag without its inline
+/// code, the migration passes `mask_fenced` and gets the citation the code span holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DetailTag {
+    /// Byte offset of the opening `[`.
+    pub start: usize,
+    /// Byte offset of the closing `]`.
+    pub end: usize,
+    /// 1-based line of `start`.
+    pub line: usize,
+    /// `verified`, `inference` or `open` — the standing, without its brackets.
+    pub standing: &'static str,
+    /// The bracketed text, brackets removed and whitespace collapsed.
+    pub inner: String,
+}
+
+impl DetailTag {
+    /// The detail: what follows the standing, with the separator that introduced it removed.
+    ///
+    /// Collapsed, like `inner` — so this is what the detail *says*, not the bytes it occupies.
+    /// A rewriter locating a substring of it in the file must search the original span.
+    pub fn detail(&self) -> &str {
+        self.inner
+            .strip_prefix(self.standing)
+            .unwrap_or(&self.inner)
+            .trim_start_matches(|c: char| TAG_SEPARATORS.contains(&c) || c.is_whitespace())
+    }
+}
+
+/// Every bracketed tag with a detail, in source order. Links are not tags.
+///
+/// **Bracket depth over the block, not the first `]` on the line.** The line-scoped scan this
+/// replaces reported 234 of 445 tags of exactly this shape in one derived corpus, and the
+/// 211 it missed had two causes that share this one fix:
+///
+/// - *A tag that wraps was never closed.* `line[at..].find(']')` cannot find a `]` that is on
+///   the next line, and wrapping is not an edge case — it is what happens whenever the
+///   citation is a markdown link, because links are long. **Not one of 179 wrapped tags was
+///   reported.**
+/// - *A tag whose citation is a link closed on the wrong bracket.* In
+///   `[verified — [`x`](x.yml)]` the first `]` is the inner link's; the character after it is
+///   `(`, so the guard that exists to keep `[open questions](…)` from reading as a claim fired
+///   on the tag it was meant to protect. The guard is right and its subject was wrong: it is
+///   tested against the **outer** `]` here.
+///
+/// The bound is [`block_end`] — the boundary already measured for
+/// `statement_around`. It is load-bearing rather than tidy: an unbounded depth scan drops
+/// every tag below the corpus's first unbalanced `[` (one corpus has one, inside quoted source
+/// text) and does it silently, with the finding count falling as the corpus grows.
+pub(crate) fn detail_tags(text: &str) -> Vec<DetailTag> {
+    let mut out = Vec::new();
+    let bytes = text.as_bytes();
+    let mut line = 1;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\n' {
+            line += 1;
+            i += 1;
+            continue;
+        }
+        if bytes[i] != b'[' {
+            i += 1;
+            continue;
+        }
+        let Some(close) = matching_bracket(text, i, block_end(text, i)) else {
+            // Unbalanced within its block: this bracket opens nothing, and the next one is
+            // still worth asking about.
+            i += 1;
+            continue;
+        };
+        // `[text](target)` and `[text][ref]` are links; their label is not a claim.
+        if matches!(text[close + 1..].chars().next(), Some('(') | Some('[')) {
+            i += 1;
+            continue;
+        }
+        // A tag's text may carry the wrap it was written across; what is reported should not.
+        let inner = collapse_whitespace(&text[i + 1..close]);
+        let hit = STANDING_WORDS.iter().find(|word| {
+            if inner == **word {
+                return false; // the tag itself, exactly as intended
+            }
+            inner.strip_prefix(**word).is_some_and(|rest| {
+                rest.trim_start()
+                    .starts_with(|c: char| TAG_SEPARATORS.contains(&c))
+                    || narrowing_detail(&inner)
+            })
+        });
+        if let Some(standing) = hit {
+            out.push(DetailTag {
+                start: i,
+                end: close,
+                line,
+                standing,
+                inner,
+            });
+            // Anything nested inside a reported tag is part of it, not a second finding.
+            line += text[i..close].matches('\n').count();
+            i = close + 1;
+        } else {
+            i += 1;
+        }
+    }
+    out
 }
 
 /// Every value in the document held under one of `fields`, at any depth.
@@ -357,6 +636,10 @@ pub struct ServedClaim {
     pub scope: ClaimScope,
     /// The declared `type: claim` property this came from, when it came from one.
     pub property: Option<String>,
+    /// The scope the tag carries, as free text — `as proposed`, `for the snapshot`. `None` for a
+    /// bare tag, which is the large majority. See [`Tag::qualifier`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub qualifier: Option<String>,
     /// Byte offset of the marker, so two passes can tell one occurrence from another.
     /// Not part of the served contract; used to dedupe.
     #[serde(skip)]
@@ -772,9 +1055,35 @@ fn prose_claims(text: &str) -> Vec<ServedClaim> {
                 standing,
                 scope: ClaimScope::Statement,
                 property: None,
+                qualifier: None,
                 at: i,
             });
         }
+    }
+    // …and the scoped ones, by the same rules the counter uses, so the list and the tally
+    // cannot disagree about what the node claims.
+    for tag in detail_tags(&masked) {
+        let Some(parsed) = tag_from_inner(&tag.inner) else {
+            continue;
+        };
+        let Some(qualifier) = parsed.qualifier else {
+            continue;
+        };
+        if is_narrated(&masked, tag.start, tag.end + 1) {
+            continue;
+        }
+        out.push(ServedClaim {
+            text: statement_around(&masked, tag.start, tag.end + 1),
+            standing: match parsed.standing {
+                VERIFIED => "verified",
+                INFERENCE => "inference",
+                _ => "open",
+            },
+            scope: ClaimScope::Statement,
+            property: None,
+            qualifier: Some(qualifier),
+            at: tag.start,
+        });
     }
     out.sort_by_key(|c| c.at);
     out
@@ -799,7 +1108,11 @@ fn structural_claims(text: &str, fields: &[String]) -> Vec<ServedClaim> {
     named
         .into_iter()
         .filter_map(|(field, value)| {
-            let standing = match tag_of(&value)? {
+            // Through `parse_tag` and not `tag_of`, so a structural value that carries a
+            // qualifier — `status: "[verified — as proposed]"` — keeps it. `tag_of` is that
+            // function's standing half; reading the value twice would let the two disagree.
+            let parsed = parse_tag(&value)?;
+            let standing = match parsed.standing {
                 VERIFIED => "verified",
                 INFERENCE => "inference",
                 OPEN => "open",
@@ -815,6 +1128,7 @@ fn structural_claims(text: &str, fields: &[String]) -> Vec<ServedClaim> {
                 standing,
                 scope: ClaimScope::Node,
                 property: Some(field),
+                qualifier: parsed.qualifier,
                 at,
             })
         })
@@ -1081,10 +1395,67 @@ fn count_tag(text: &str, tag: &str) -> usize {
         .count()
 }
 
+/// Scoped tags in `text`, by standing — a second pass over the same bytes.
+///
+/// **It cannot double-count the bare tokens.** `count_tag` matches the literal `[verified]`, and
+/// a scoped tag's bracket holds a qualifier after the standing, so no span is seen by both.
+///
+/// The mention arms are [`is_narrated`]'s, applied to the whole bracket. That is the load-bearing
+/// reuse: a scoped tag can be named rather than asserted just as a bare one can — *"we write
+/// `[verified — as proposed]` when the bill has not passed"* — and this module's history is a
+/// counter that published claims nobody made. A second set of arms here would be a second answer
+/// to whether a sentence asserts a thing.
+fn count_scoped(text: &str) -> ClaimCounts {
+    let mut counts = ClaimCounts::default();
+    for tag in detail_tags(text) {
+        let Some(parsed) = tag_from_inner(&tag.inner) else {
+            continue;
+        };
+        if parsed.qualifier.is_none() || is_narrated(text, tag.start, tag.end + 1) {
+            continue;
+        }
+        match parsed.standing {
+            VERIFIED => counts.verified += 1,
+            INFERENCE => counts.inference += 1,
+            _ => counts.open += 1,
+        }
+    }
+    counts
+}
+
+/// Whether the tag occupying `start..=end` of a node's **raw** text is a claim.
+///
+/// The counter's answer, asked over the text the counter reads. `claim-tag-malformed` has to ask
+/// it that way rather than working it out for itself: the check masks inline code and the counter
+/// does not, and `narrowing_detail` gives different answers to the two. Measured on the corpora,
+/// three tags of the shape ``[verified — `crates/x`, as introduced]`` were **neither reported nor
+/// counted** — the check saw a blanked span and read `as` as a narrowing head, the counter saw the
+/// code span and did not. A tag that is silently neither is the exact failure this check exists to
+/// prevent, so the question is asked once, here.
+///
+/// Both maskers in [`crate::markdown`] preserve byte offsets, so a span found in either view
+/// indexes the raw text and this one.
+pub(crate) fn is_scoped_claim(text: &str, start: usize, end: usize) -> bool {
+    let masked = crate::markdown::mask_fenced(text);
+    if end >= masked.len() || !masked.is_char_boundary(start) || !masked.is_char_boundary(end + 1) {
+        return false;
+    }
+    let inner = match masked[start..=end].strip_prefix('[') {
+        Some(rest) => match rest.strip_suffix(']') {
+            Some(i) => i,
+            None => return false,
+        },
+        None => return false,
+    };
+    tag_from_inner(&collapse_whitespace(inner)).is_some_and(|t| t.qualifier.is_some())
+        && !is_narrated(&masked, start, end + 1)
+}
+
 fn tally(text: &str, counts: &mut ClaimCounts) {
     counts.verified += count_tag(text, VERIFIED);
     counts.inference += count_tag(text, INFERENCE);
     counts.open += count_tag(text, OPEN);
+    counts.add(count_scoped(text));
 }
 
 /// Count markers in a whole instance file.
@@ -1126,6 +1497,150 @@ pub fn count_in_source(text: &str) -> ClaimCounts {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── scoped tags (#789) ────────────────────────────────────────────────────
+
+    /// The 39 details this exists for: a qualifier, not a citation.
+    #[test]
+    fn a_qualified_tag_is_one_claim_at_its_standing() {
+        for (text, q) in [
+            (
+                "The bill raises the base [verified — as proposed].",
+                "as proposed",
+            ),
+            (
+                "The row holds [verified — for the snapshot].",
+                "for the snapshot",
+            ),
+            (
+                "The list is short [verified — as far as those sections go].",
+                "as far as those sections go",
+            ),
+        ] {
+            let c = count_in_source(text);
+            assert_eq!(c.verified, 1, "{text:?}");
+            assert_eq!(c.total(), 1, "{text:?}");
+            let served = claims_in_node(text, &[]);
+            assert_eq!(served.len(), 1, "{text:?}");
+            assert_eq!(served[0].qualifier.as_deref(), Some(q), "{text:?}");
+        }
+        // …and an open one, which is the shape `which of the six, not whether` takes.
+        let c =
+            count_in_source("Whether it is one of six is [open — which of the six, not whether].");
+        assert_eq!((c.open, c.total()), (1, 1));
+    }
+
+    /// A citation folded into the bracket stays uncounted, because #787 gave it somewhere to go.
+    #[test]
+    fn a_citation_in_the_bracket_is_still_not_a_tag() {
+        assert_eq!(
+            count_in_source("The estimate is [verified — Pearl 2009].").total(),
+            0
+        );
+        assert_eq!(parse_tag("[verified — Pearl 2009]"), None);
+    }
+
+    /// 79 of the 120 measured details, and the reason the second-standing test runs even after
+    /// the narrowing-head test has already matched.
+    #[test]
+    fn two_standings_in_one_bracket_is_not_one_qualified_claim() {
+        for text in [
+            "It holds [verified — for the arithmetic; inference for the reading].",
+            "It holds [verified — for the figures; open for the ordering].",
+            "It holds [verified — for the ratio; inference for the conclusion].",
+        ] {
+            assert_eq!(count_in_source(text).total(), 0, "{text:?}");
+            assert_eq!(parse_tag(&text[9..text.len() - 1]), None, "{text:?}");
+        }
+        // A nested *bare* tag is a different thing and counts, as it did before any of this: the
+        // author wrote `[verified]` in there, and the byte scan is right to see it. What does not
+        // happen is the outer bracket also counting as one qualified claim — the total is the
+        // nested tag alone.
+        let nested = "It holds [inference on the mechanism, [verified] on the measurement].";
+        let c = count_in_source(nested);
+        assert_eq!((c.verified, c.inference, c.total()), (1, 0, 1), "{c:?}");
+    }
+
+    /// The arms that keep this module from publishing claims nobody made, on a scoped tag.
+    ///
+    /// Written as a **parity** assertion rather than a list of expected zeroes. What has to hold
+    /// is that a qualified tag is narrated exactly when the same sentence with a bare tag is —
+    /// that is the whole point of routing it through [`is_narrated`] instead of writing a second
+    /// set of arms. Asserting zeroes instead once had this test demanding that *"We write
+    /// `[verified — as proposed]` when the bill has not passed"* be a mention, which no arm
+    /// claims: the negation is after the tag, not in the clause before it, and a bare
+    /// `[verified]` counts there too. That is a gap in the arms, shared by both spellings, and
+    /// not something this change should quietly close on one of them.
+    #[test]
+    fn a_qualified_tag_is_narrated_exactly_when_a_bare_one_is() {
+        for frame in [
+            "We write TAG when the bill has not passed.",
+            "The TAG tag says less than it looks like.",
+            "An earlier draft said the section was TAG.",
+            "Two of those three TAGs are closed.",
+            "This section is not TAG; nobody has read it.",
+            "The base is TAG and the schedule holds.",
+        ] {
+            let bare = count_in_source(&frame.replace("TAG", "`[verified]`")).total();
+            let scoped =
+                count_in_source(&frame.replace("TAG", "`[verified — as proposed]`")).total();
+            assert_eq!(bare, scoped, "{frame:?} — bare {bare}, qualified {scoped}");
+        }
+        // And at least one of those frames is a mention and one is a claim, so the parity above
+        // is not the parity of two zeroes.
+        assert_eq!(
+            count_in_source(
+                "The TAG tag says less."
+                    .replace("TAG", "`[verified — as proposed]`")
+                    .as_str()
+            )
+            .total(),
+            0
+        );
+        assert_eq!(
+            count_in_source("The base is `[verified — as proposed]` and the schedule holds.")
+                .total(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_bare_tag_carries_no_qualifier() {
+        let t = parse_tag("[verified]").unwrap();
+        assert_eq!(t.standing, VERIFIED);
+        assert_eq!(t.qualifier, None);
+        // and a word that merely starts with a standing is not one
+        assert_eq!(parse_tag("[verified-ish]"), None);
+        assert_eq!(parse_tag("[openness]"), None);
+    }
+
+    /// A qualified structural value counts once, not once per pass.
+    #[test]
+    fn a_qualified_structural_value_is_not_counted_twice() {
+        let yaml = "properties:\n  status: \"[verified — as proposed]\"\n";
+        let fields = vec!["status".to_string()];
+        let c = count_in_node(yaml, &fields);
+        assert_eq!((c.verified, c.total()), (1, 1), "{c:?}");
+        let served = claims_in_node(yaml, &fields);
+        assert_eq!(served.len(), 1, "{served:?}");
+        assert_eq!(served[0].qualifier.as_deref(), Some("as proposed"));
+        assert_eq!(served[0].property.as_deref(), Some("status"));
+    }
+
+    /// The stated invariant: the list form and the tally agree tag for tag.
+    #[test]
+    fn the_list_and_the_tally_agree_about_qualified_claims() {
+        let text = "One [verified — as proposed]. Two [open]. Three [verified — Pearl 2009]. \
+                    Four [verified — for the ratio; inference for the conclusion].";
+        let c = count_in_source(text);
+        let served = claims_in_node(text, &[]);
+        assert_eq!(c.total(), served.len(), "{c:?} vs {served:?}");
+        assert_eq!(
+            c.total(),
+            2,
+            "the citation and the two-standing bracket count for nothing"
+        );
+    }
 
     #[test]
     fn counts_each_marker_in_prose() {

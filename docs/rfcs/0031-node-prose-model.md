@@ -85,7 +85,7 @@ dropped by every consumer of the parsed node.
 That is not a tidiness complaint, because two families of check disagree as a result.
 [`node_too_long`](../../yidam/cli/src/cmd/lint/checks.rs#L1564) reads the parsed field — the
 comment at [`checks.rs:1417-1422`](../../yidam/cli/src/cmd/lint/checks.rs#L1417-L1422) is explicit
-that this is the intent — while [`count_in_node`](../../yidam/cli/src/claims.rs#L892) takes the
+that this is the intent — while [`count_in_node`](../../yidam/cli/src/claims.rs#L1206) takes the
 file's whole text. Two definitions of *the node's prose* inside one binary, and #674 measures the
 gap on a real corpus: median 118 lines read as the file, 21 read as `description`, 34 read as
 `summary` + `description` + `findings`. The band that judges it was fitted on the first and the
@@ -139,17 +139,17 @@ implements it:
 ### 1.3 The claim counter is two parsers
 
 Because prose lives inside YAML and the counter scans the file's bytes, it must be a prose parser
-and a YAML parser at once. [`is_block_scalar_header`](../../yidam/cli/src/claims.rs#L392) exists
+and a YAML parser at once. [`is_block_scalar_header`](../../yidam/cli/src/claims.rs#L675) exists
 for one reason:
 
 > Without this arm a claim in the first sentence of a `description:` block reaches back over the
 > header and serves `class: gage label: Riffle description: |` as part of what the corpus
 > asserted.
 >
-> — [`claims.rs:389-391`](../../yidam/cli/src/claims.rs#L389-L391)
+> — [`claims.rs:672-674`](../../yidam/cli/src/claims.rs#L672-L674)
 
 Beside it: `starts_a_block`, telling a YAML key from a wrapped prose line;
-[`stop_is_lexical`](../../yidam/cli/src/claims.rs#L528), a hand-rolled sentence segmenter with
+[`stop_is_lexical`](../../yidam/cli/src/claims.rs#L811), a hand-rolled sentence segmenter with
 four rules and a pinned 0.09% residue; and `is_narrated`, a grammar heuristic deciding mention
 from use — adopted after the typographic rule it replaced made a corpus publish 26 open questions
 against a true 72, in a generated block on its front page.
@@ -454,7 +454,7 @@ which Phase 1 does not do and which is a cheaper change than a format.
 #### 3.2.1 A soft-wrapped line beginning `word:` truncated a claim — fixed (#736)
 
 Found by the deletion above, and true in the YAML form with no format change in prospect.
-[`starts_a_block`](../../yidam/cli/src/claims.rs#L496) read any line whose head is a bare token
+[`starts_a_block`](../../yidam/cli/src/claims.rs#L779) read any line whose head is a bare token
 followed by a colon as a new YAML key, and a wrapped prose line is often exactly that shape:
 
 ```text
@@ -464,11 +464,11 @@ decades: there were still 22,498 acres of them in 1954. [verified] — the 1954 
 
 The claim was served as *"there were still 22,498 acres of them in 1954"* — the subject is on
 the line above, and the boundary is a wrap column, which is the same defect
-[`ends_statement`](../../yidam/cli/src/claims.rs#L608) was rewritten to remove. It cut 125 of
+[`ends_statement`](../../yidam/cli/src/claims.rs#L891) was rewritten to remove. It cut 125 of
 16,297 served claims (0.77%) across the population, the same order as the 179 lexical-stop
 truncations `stop_is_lexical` was given four rules to fix.
 
-The fix is [`continues_prose`](../../yidam/cli/src/claims.rs#L472): a key-shaped line is a
+The fix is [`continues_prose`](../../yidam/cli/src/claims.rs#L755): a key-shaped line is a
 wrapped sentence when the line above it is prose — not blank, not a key, not a list item, not a
 comment — and it does not stand to the left of that line. Ground truth came from a YAML
 tokenizer rather than from the served claims: of 41,248 key-shaped lines in the population, 404
@@ -570,6 +570,43 @@ be a visible step rather than a silent drift.
 **What it does not reach**, and this is stated so nobody reads the phase as complete: `links.*`
 and prose nested under a coined top-level key, together 17% of measured nested prose. The first
 is #587's; the second needs a class contract to describe a key it currently does not.
+
+## Amendment — the scope field, as free text (2026-09-10)
+
+RFC-0032 §4.7 left the meaning of a *detail* to this RFC, and §4.9's plan ended with a scope
+field. Measuring the 120 details the checker admits as narrowing settled three things, one of
+which reversed a decision taken on a wrong count.
+
+**The population is 39, not 66.** The checker admits a detail on either of two tells — a
+narrowing head, or a second standing — and the first grouping tested the head *first*. 27 details
+of the form `verified for the arithmetic; inference for the reading` were filed as scope when they
+are two claims split by which part each covers. **79 of the 120 are two claims in one bracket, and
+they are this RFC's, not a qualifier's.** The tell is not the meaning.
+
+**Scope is free text, with no vocabulary.** Five candidate terms fall out of the 39 and three of
+the five are attested in **one corpus only** — the largest, `as-proposed` at 18, entirely one
+domain's legislation nodes, while two of the six corpora that write these details contribute none
+of the 39. Freezing five would freeze one domain's idiom as the ontology's, which is the mistake
+`edge_policy` already made once. A closed vocabulary can be added later; un-freezing cannot.
+
+**And so the field already exists.** If scope is free text and the bracket is where a qualifier
+can be written, the corpora have been writing scope all along — `[verified — as proposed]`, 18
+times. Nothing needed a field and no corpus needed migrating. What needed fixing is that
+`tag_of` matched the three standings exactly, so every one of those tags counted as **no claim**,
+and `claim-tag-malformed` filed a finding whose own advice was that there was nothing to do.
+
+`claims::parse_tag` now reads a standing plus an optional qualifier, and three refusals are the
+design: a **citation** in the bracket stays uncounted, because RFC-0032 §4.7 gave it
+`references:` to move to and counting it would remove the only pressure to; a **second standing**
+stays uncounted, being two claims; and a word that merely starts with a standing is not one.
+
+**The invariant that holds it together** is that a tag is either counted or reported, never
+neither and never both. It failed first: `claim-tag-malformed` masks inline code and the counter
+does not, so ``[verified — `crates/x`, as introduced]`` read as a qualifier to one and a citation
+to the other — suppressed and uncounted, silently missing, three times across two corpora. That
+is the failure the check exists to prevent, and it was found by predicting the per-corpus deltas
+and measuring rather than by any test. The check now asks `claims::is_scoped_claim`, which is the
+counter's answer over the text the counter reads.
 
 ## What this does not touch
 
