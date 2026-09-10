@@ -294,7 +294,7 @@ The server spawns the pinned binary per request and parses the envelope. Nothing
 |---|---|
 | `GET /` and the app's pages | Astro, server-rendered on `@astrojs/node` |
 | `GET /api/handshake` | `format_version` plus the CLI's version, commit and feature list — the fields [`report::YidamBlock::current()`](../../yidam/cli/src/report.rs#L48) assembles |
-| `GET /api/corpus` | `yidam graph --format json`, whose nodes and resolved edges come from [`model::corpus_nodes()`](../../yidam/cli/src/model.rs#L427) — the function `serve`, `graphml` and `rdf` already share |
+| `GET /api/corpus` | `yidam graph --format json`, whose nodes and resolved edges come from [`model::corpus_nodes()`](../../yidam/cli/src/model.rs#L460) — the function `serve`, `graphml` and `rdf` already share |
 | `GET /api/reports` | `lint` and `graph-check` as the RFC-0001 envelope, byte-identical to `--format json` |
 | `GET /api/overlay` (SSE) | Diagnostics from a supervised `yidam serve --lsp` — see below |
 | `POST /api/act/*` | Deferred to RFC-0029's build. The decision is Accepted; the tier does not exist yet. |
