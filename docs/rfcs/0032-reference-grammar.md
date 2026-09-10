@@ -107,22 +107,22 @@ authoritative for terms this project minted.
 
 ### 3 — Only a struct can say *which corpus, at which revision*
 
-[`qualified_id`](../../yidam/cli/src/model.rs#L380) renders `pkg::class/name` and is the only
+[`qualified_id`](../../yidam/cli/src/model.rs#L413) renders `pkg::class/name` and is the only
 string form carrying a corpus. [`ExternalCitation`](../../yidam/prelude/sdks/rust/src/corpus.rs#L77)
 carries `package`, `node`, `commit` and `tag` — the only identifier in the system that can name a
 foreign node at a known revision, and it is four fields rather than a string, so it cannot appear
 in a resource URI, an RDF subject, a query result, or a rendered citation. Meanwhile
-[`resolve_link_target`](../../yidam/cli/src/model.rs#L397) resolves an on-disk edge from a
+[`resolve_link_target`](../../yidam/cli/src/model.rs#L430) resolves an on-disk edge from a
 relative path, which is a *fifth* convention, and unrelated to any of the above.
 
 ### 4 — Eleven forms, and the count is the argument
 
 | Form | Built by | Corpus? | Revision? |
 |---|---|---|---|
-| `class/name` | [`model.rs:350`](../../yidam/cli/src/model.rs#L350) | — | — |
-| `pkg::class/name` | [`qualified_id`](../../yidam/cli/src/model.rs#L380) | yes | — |
+| `class/name` | [`corpus_nodes`](../../yidam/cli/src/model.rs#L460-L483) | — | — |
+| `pkg::class/name` | [`qualified_id`](../../yidam/cli/src/model.rs#L413) | yes | — |
 | `.yidam/corpus/class/name.yml` | tolerated by [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L199) | — | — |
-| `../other-class/thing.yml` | [`resolve_link_target`](../../yidam/cli/src/model.rs#L397) | — | — |
+| `../other-class/thing.yml` | [`resolve_link_target`](../../yidam/cli/src/model.rs#L430) | — | — |
 | `yidam://corpus/class/name` | [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56) | — | — |
 | the same string as an RDF subject | [`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L135) | — | — |
 | `file:///…/class/name.yml` | [`path_to_uri`](../../yidam/cli/src/cmd/lsp.rs#L106) | n/a | — |
@@ -273,7 +273,7 @@ question one layer down and the answers must not contradict.
 
 `yidam_core::uri` parses and renders the grammar and becomes the only place an identifier is
 built or split. It retires [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L199)'s three
-tolerated spellings, [`qualified_id`](../../yidam/cli/src/model.rs#L380),
+tolerated spellings, [`qualified_id`](../../yidam/cli/src/model.rs#L413),
 [`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L135),
 [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56)'s prefix chain and
 [`graph.ts:145`](../../yidam/editors/web/src/lib/graph.ts#L145)'s route builder. It lands on the

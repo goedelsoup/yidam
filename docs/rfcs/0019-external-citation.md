@@ -55,7 +55,7 @@ available. A `.yiz` bundle is a **tarball**, not a repository — `manifest.yml`
 resolve against and no object store to ask.
 
 What exists is one string. `manifest.yml` carries `commit`, and that field is
-`head_commit_short(root)` ([`model.rs:188`](../../yidam/cli/src/model.rs#L188)) — `git
+`head_commit_short(root)` ([`head_commit_short`](../../yidam/cli/src/model.rs#L274)) — `git
 rev-parse --short`, whose **length git chooses from the producing repository's object count**.
 Bundling the eight-node example produces `commit: "8d35441"`. The same commit, bundled from a
 larger repository, is spelled with more characters.
