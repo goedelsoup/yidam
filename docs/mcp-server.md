@@ -375,6 +375,13 @@ Alongside the tools, the server publishes MCP resources under a `yidam://` schem
 required to answer identically. The resource channel exists for clients that prefer to browse
 rather than call.
 
+Those five URIs are read by RFC-0032's grammar, not by a second parser. Three of them are
+references. `yidam://corpus/<class>` names a set and `yidam://graph/summary` a computed view;
+neither is a thing with identity. The server names those two exceptions where it serves them.
+
+A URI naming another corpus — `yidam://<corpus>/<kind>/<path>` — is **refused**, not served from
+this one. The server answers for the repository it was started in.
+
 ---
 
 ## 4. Check what you are connected to

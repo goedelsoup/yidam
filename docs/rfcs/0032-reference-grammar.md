@@ -202,9 +202,9 @@ RFC-0005's normative scheme section is **amended**: three of the five URIs it fr
 new shape as aliases, so a client written against 0.18.0 keeps working. **The other two do not map
 at all (#779):** `yidam://corpus/<class>` names a collection and `yidam://graph/summary` a computed
 report, and the grammar addresses things with identity. Both parse as *not a reference*, which is
-correct for a reference parser and leaves a decision for P4 — whether the resource surface is a
-superset of this grammar or a different vocabulary that overlaps it. That is where the contract bump
-is spent and where the question belongs.
+correct for a reference parser and left a decision for P4 — whether the resource surface is a
+superset of this grammar or a different vocabulary that overlaps it. §4.9 records the answer:
+neither.
 
 ### 4.2 — Two renderings, because they have two jobs
 
@@ -383,6 +383,41 @@ Three rules decide it, and each replaces a judgement:
 The check on it is not a test: applying it to both corpora leaves `yidam lint` reporting exactly
 what it reported before, less one `claim-tag-malformed` finding per collapsed tag — 535 → 399 and
 534 → 459, against 136 and 75 collapses.
+
+### 4.9 — The resource surface, decided
+
+*Added 2026-09-10.*
+
+§4.1 left P4 a choice between two ways for `yidam://` to mean one thing. The answer is neither,
+and the reason is a measurement taken before building either.
+
+**The plan had this step add a corpus slot to the resource namespace**, so a client could fetch a
+node from a named dependency, and spend the MCP contract's minor bump doing it. Measured first:
+`ReadMcpResourceTool` was invoked **0 times across 1,638 local sessions**, for any server, and
+**0 of the 16 derived corpora** write `cites:` or vendor a dependency. It would have been a slot
+for an address nobody writes, reachable by a mechanism nobody calls. So the slot is not built, and
+`serve/resources.rs` refuses a URI naming any corpus in one arm that says why — the decision is in
+the code rather than in its absence.
+
+**What is unified is the reading.** The resource surface answered *what does this URI name?* with
+its own chain of `strip_prefix` calls while [`yidam_core::uri`] answered it for every other caller
+— two readers of one scheme, which is the defect §1 is about, reproduced inside its own fix. It
+now parses through `parse_reference` and adds only what the grammar deliberately cannot name: a
+`Collection` for `yidam://corpus/<class>` and a `Report` for `yidam://graph/summary`, named where
+they are served rather than added to `Kind`. The grammar stays the closed set of things with
+identity, which is #779's own argument for why those two do not belong in it.
+
+**Arity and kind decide there, not `reference_conforms`.** Conformance answers *may this be
+written into a URI*, which is a different question from *does this corpus contain it*: gating the
+server on it would stop serving the nodes of the two corpora §4.1's amendment exists to admit
+(#777). The grammar parses the string; the corpus decides what exists.
+
+**The spelling stays frozen.** `resources/list` still emits `yidam://corpus/<class>/<name>`, which
+is not what `render_reference` produces for that node. RFC-0005 froze it and this step spends no
+contract bump, so the freeze wins and a test holds the two halves together: every URI the listing
+offers is one the reader resolves. Nothing asserted that before — the prefix chain was written to
+match what the listing emitted, so a divergence would have reached a client as a 404 rather than
+a red build.
 
 ## What this does not touch
 
