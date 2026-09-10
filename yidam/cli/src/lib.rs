@@ -11,7 +11,7 @@ pub mod embed_config;
 #[cfg(feature = "vector-read")]
 pub mod embedding;
 mod findings;
-mod git;
+pub mod git;
 /// What a corpus declares its practice is aimed at (RFC-0028). Public so the guards over
 /// the shipped profiles can parse them the way the binary does, rather than a second way.
 pub mod kuten;

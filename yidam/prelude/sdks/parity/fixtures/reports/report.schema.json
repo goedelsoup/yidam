@@ -903,14 +903,19 @@
       "type": "integer",
       "description": "`status` only. Bounded work already merged whose ref still exists; PHASES.md prescribes deleting these."
     },
+    "rewritten_phases": {
+      "type": "integer",
+      "description": "`status` only. Bounded work whose commits reached the baseline by a merge that rewrote them \u2014 GitHub's rebase or squash button \u2014 so its ref is not an ancestor of the baseline and never will be. Counted as `active_phases` until #773, where one repository read 22 finished phases as in flight and the number could not fall."
+    },
     "state": {
       "type": "string",
       "enum": [
         "active",
         "settled",
+        "rewritten",
         "position"
       ],
-      "description": "`phases` only. What one inquiry ref currently is."
+      "description": "`phases` only. What one inquiry ref currently is. The enum is closed and is checked against the values `git::ref_state` can return, both ways: a state the code can emit and the schema does not name would be rejected by a validating consumer, and one the schema names and the code cannot emit is a branch nobody can take."
     },
     "replay": {
       "type": "array",

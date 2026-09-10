@@ -23,6 +23,11 @@ struct StatusReport {
     active_phases: usize,
     /// Merged `phase/*` and `rigpa/*` refs still present. PHASES.md prescribes deleting them.
     settled_phases: usize,
+    /// Refs whose work reached the baseline by a merge that rewrote its commits, so they are not
+    /// ancestors of it and never will be. A new field rather than a fold into `settled_phases`:
+    /// these were counted as `active_phases` until #773, and a consumer that saw that number
+    /// fall needs to be able to see where it went.
+    rewritten_phases: usize,
     /// Standing `ma/*` elector positions, which are neither active work nor drift.
     positions: usize,
     genesis: String,
@@ -98,6 +103,18 @@ pub fn status(format: crate::report::Format) -> Result<()> {
     if phases.settled > 0 {
         let _ = write!(phase_cell, " · {} settled", phases.settled);
     }
+    // Named separately from `settled`, because the repair is different: these refs cannot ever
+    // become ancestors of the baseline, so deleting them is the only way the count falls, and
+    // the reason they are here is the repository's merge setting rather than anything a phase
+    // did. Reading them as `active` is what #773 was — one derived repository showed 22 phases
+    // in flight, all of them complete, with the number unable to fall.
+    if phases.rewritten > 0 {
+        let _ = write!(
+            phase_cell,
+            " · {} settled by a rewriting merge",
+            phases.rewritten
+        );
+    }
     if phases.positions > 0 {
         let _ = write!(phase_cell, " · {} position(s)", phases.positions);
     }
@@ -126,6 +143,7 @@ pub fn status(format: crate::report::Format) -> Result<()> {
                 index_present: index_path.exists(),
                 active_phases: phases.active,
                 settled_phases: phases.settled,
+                rewritten_phases: phases.rewritten,
                 positions: phases.positions,
                 genesis: genesis.clone(),
             },

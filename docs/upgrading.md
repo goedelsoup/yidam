@@ -117,6 +117,31 @@ That is why this refuses rather than falling back to the corpus's own earliest c
 fallback would have kept the four exports working, and changed each identity the day its corpus
 was extracted.
 
+### A phase merged with GitHub's rebase or squash button is no longer counted as active
+
+`yidam status` and `yidam phases` decided a phase had settled by asking whether its ref is an
+ancestor of the baseline. That is true only of the merge `PHASES.md` prescribes — `--no-ff`,
+keeping the synthesis event.
+
+GitHub's *Rebase and merge* and *Squash and merge* both write a single-parent commit onto the
+baseline. Neither moves the branch tip. So the ancestry test was false, permanently, and the
+phase read `active` forever. One repository reached **22 phases in flight**, every one of
+them complete. The number could not fall from inside the repository, because it is computed over
+refs.
+
+**Your active-phase count may drop, and that is the fix rather than a loss.** Those phases now
+read `rewritten` — settled by a merge that rewrote their commits. `yidam status` names them
+separately from `settled`, because the repair is different. The ref can never become an
+ancestor, so deleting it is the only way the count falls.
+
+**If you consume the JSON,** `status --format json` gains `rewritten_phases`, and `phases` rows
+can carry `state: "rewritten"`. It is a new field rather than a fold into `settled_phases`. A
+consumer watching `active_phases` fall needs somewhere to see where the difference went.
+
+One case is knowingly not covered: a squash-merged branch whose files the baseline later edits
+again still reads `active`. Detecting it needs the branch's combined patch searched through the
+baseline's history, which is exact and unbounded in cost. The error is in the safe direction.
+
 ## cli/v0.11.0
 
 ### `score` says why the criteria are the template's, in four states

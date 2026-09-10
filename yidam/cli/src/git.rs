@@ -280,6 +280,11 @@ pub(crate) fn base_branch(root: &Path) -> Option<String> {
 ///
 /// A repository with no baseline branch has nothing to have settled onto, so everything
 /// reads as unsettled. That is the honest answer during bootstrap, before `main` exists.
+///
+/// **Ancestry is the whole test, and it is only true of the merge PHASES.md prescribes.** Two of
+/// GitHub's three merge buttons write a single-parent commit onto the baseline and leave the
+/// branch tip where it was, so this is false for them permanently. [`is_rewritten`] is the
+/// second question, asked only when this one says no.
 fn is_settled(root: &Path, git_ref: &str, base: Option<&str>) -> bool {
     let Some(base) = base else { return false };
     if base == git_ref {
@@ -293,7 +298,104 @@ fn is_settled(root: &Path, git_ref: &str, base: Option<&str>) -> bool {
         .unwrap_or(false)
 }
 
-/// What the tracked refs actually hold, split by the three things they can be.
+fn git_lines(root: &Path, args: &[&str]) -> Option<Vec<String>> {
+    let out = std::process::Command::new("git")
+        .current_dir(root)
+        .args(args)
+        .output()
+        .ok()?;
+    out.status.success().then(|| {
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(str::to_string)
+            .collect()
+    })
+}
+
+/// Has `git_ref`'s work reached the baseline by a merge that rewrote its commits?
+///
+/// Asked only of a ref that failed [`is_settled`], because **ancestry is only true of the merge
+/// `PHASES.md` prescribes** — `--no-ff`, keeping the synthesis event. GitHub's *Rebase and merge*
+/// and *Squash and merge* both write a single-parent commit onto the baseline and leave the branch
+/// tip untouched, so the ancestry test is false and stays false. The phase then reads `active`
+/// forever, and nothing done inside the repository can change it: one derived repository reached
+/// **22 phases** that way, every one of them complete, and a whole phase spent writing the
+/// prescribed `phase:` commits did not move the number, because the number is computed over refs.
+///
+/// **Two tests, because the two strategies are not detectable the same way.** Measured on a
+/// fixture built with each of git's three merges:
+///
+/// | strategy | ancestor of base | `git cherry` | touched files agree |
+/// |---|---|---|---|
+/// | `merge --no-ff` (prescribed) | **yes** | — | — |
+/// | rebase merge | no | all `-` | yes |
+/// | squash merge | no | all `+` | **yes** |
+/// | genuinely in flight | no | `+` | no |
+/// | partially merged | no | `-+` | no |
+///
+/// `git cherry` marks a commit `-` when the baseline already holds an equivalent patch, which
+/// answers a rebase merge exactly and answers a squash merge **wrongly**: a squash *combines* the
+/// patches, so no individual commit of the branch is upstream. That was the case the issue
+/// flagged as unsettled, and it is why the second test exists — every file the branch touched
+/// agreeing with the baseline is true of both strategies.
+///
+/// **The residue, stated rather than hidden.** A squash-merged branch whose files the baseline
+/// then edits again satisfies neither test, and reads `active`. Closing that needs the branch's
+/// *combined* patch-id searched for among the baseline's commits, which is exact and unbounded in
+/// cost; this is the cheap 90% and it errs toward `active`, which is the safe direction — calling
+/// finished work in-flight is a wrong number, and calling in-flight work finished hides it.
+fn is_rewritten(root: &Path, git_ref: &str, base: Option<&str>) -> bool {
+    let Some(base) = base else { return false };
+    if base == git_ref {
+        return false;
+    }
+    // A ref with no commits of its own has nothing to have been rewritten. `ref_state` cannot
+    // reach this — such a ref is an ancestor of the baseline, so `is_settled` claimed it — but
+    // the guard is load-bearing rather than defensive: `all()` over an empty iterator is
+    // **vacuously true**, so without it a ref carrying nothing would report as settled.
+    let Some(cherry) = git_lines(root, &["cherry", base, git_ref]) else {
+        return false;
+    };
+    if cherry.is_empty() {
+        return false;
+    }
+
+    // Rebase merge: every commit on the branch has an equivalent patch upstream.
+    if cherry.iter().all(|l| l.starts_with('-')) {
+        return true;
+    }
+
+    // Squash merge: the branch introduces no file content the baseline lacks. Compared against
+    // the merge base's file list rather than the whole tree, so unrelated work on the baseline
+    // does not mask the answer.
+    let Some(merge_base) = git_lines(root, &["merge-base", base, git_ref])
+        .and_then(|l| l.first().cloned())
+        .filter(|s| !s.is_empty())
+    else {
+        return false;
+    };
+    let Some(files) = git_lines(root, &["diff", "--name-only", &merge_base, git_ref]) else {
+        return false;
+    };
+    let files: Vec<&str> = files
+        .iter()
+        .map(String::as_str)
+        .filter(|f| !f.is_empty())
+        .collect();
+    if files.is_empty() {
+        return false;
+    }
+    let mut args = vec!["diff", "--quiet", base, git_ref, "--"];
+    args.extend_from_slice(&files);
+    std::process::Command::new("git")
+        .current_dir(root)
+        .args(&args)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// What the tracked refs actually hold, split by the four things they can be.
 #[derive(Debug, Default, PartialEq, Eq, serde::Serialize)]
 pub struct PhaseTally {
     /// Bounded work not yet on the baseline — the only number that means "in flight".
@@ -301,20 +403,44 @@ pub struct PhaseTally {
     /// Bounded work already merged, whose ref outlived its settlement. PHASES.md
     /// prescribes deleting these; leaving them is the drift this number makes visible.
     pub settled: usize,
+    /// Settled by a merge that rewrote its commits, so the ref is not an ancestor of the
+    /// baseline and never will be. The same drift as `settled` plus a second fact: the merge did
+    /// not keep the synthesis event `PHASES.md` asks for, which is a repository *setting* rather
+    /// than anything a phase did.
+    ///
+    /// Separate from `settled` so the report can say the useful thing. "22 phases were settled
+    /// with a button that dissolved the merge commit" names a fix — change the merge strategy —
+    /// where "22 settled" reads as ordinary drift and "22 active" is simply false.
+    pub rewritten: usize,
     /// Standing elector positions. Neither active work nor drift — a third thing.
     pub positions: usize,
 }
 
-/// What a ref currently is, in one word: `active`, `settled`, or `position`.
+/// Every value [`ref_state`] can return.
+///
+/// The roster exists because `report.schema.json` declares `state` as a **closed enum**, and
+/// nothing compared the two. Adding `rewritten` widened a vocabulary a validating consumer would
+/// have rejected, and every test stayed green — the report golden's fixture has no phase in that
+/// state, so the enum was never exercised. A state the code can emit and the schema does not name
+/// is a rejected report; one the schema names and the code cannot emit is a branch nobody can
+/// take. `report_goldens.rs` reads this and compares both ways.
+pub const REF_STATES: [&str; 4] = ["active", "settled", "rewritten", "position"];
+
+/// What a ref currently is, in one word: `active`, `settled`, `rewritten`, or `position`.
 ///
 /// The single classifier. `yidam status` counts these and `yidam phases` prints them, and
 /// they must not be able to disagree — a derived repository once held three separate
 /// implementations of "does this node cite that source" and only two of them agreed.
+///
+/// `rewritten` is asked only after `settled` says no, so the prescribed merge costs no extra git
+/// invocation and a genuinely in-flight phase pays two.
 pub(crate) fn ref_state(root: &Path, r: &PhaseRef, base: Option<&str>) -> &'static str {
     if !r.kind.settles() {
         "position"
     } else if is_settled(root, &r.git_ref, base) {
         "settled"
+    } else if is_rewritten(root, &r.git_ref, base) {
+        "rewritten"
     } else {
         "active"
     }
@@ -331,6 +457,7 @@ pub fn phase_tally(root: &Path) -> PhaseTally {
         match ref_state(root, &r, base.as_deref()) {
             "position" => tally.positions += 1,
             "settled" => tally.settled += 1,
+            "rewritten" => tally.rewritten += 1,
             _ => tally.active += 1,
         }
     }
@@ -340,6 +467,395 @@ pub fn phase_tally(root: &Path) -> PhaseTally {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── #773: a phase merged with a rewriting button is not in flight ─────────
+
+    /// A baseline with one commit, and three phase branches each carrying two commits.
+    ///
+    /// `merge.ff = true` explicitly: this machine's global config sets it to `false`, which makes
+    /// `git merge --squash` refuse with "options '--squash' and '--no-ff' cannot be used
+    /// together" — a fixture that silently did not squash, and read as evidence for a while.
+    fn phases_repo() -> tempfile::TempDir {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        git(root, &["init", "-q", "-b", "main"]);
+        git(root, &["config", "user.email", "t@t.com"]);
+        git(root, &["config", "user.name", "T"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        git(root, &["config", "merge.ff", "true"]);
+        commit_file(root, "base.txt", "one", "genesis: base");
+        for name in ["ff", "rebase", "squash", "active", "partial"] {
+            git(
+                root,
+                &["checkout", "-q", "-b", &format!("phase/{name}"), "main"],
+            );
+            commit_file(
+                root,
+                &format!("{name}-a"),
+                "A",
+                &format!("establish: {name} first"),
+            );
+            commit_file(
+                root,
+                &format!("{name}-b"),
+                "B",
+                &format!("establish: {name} second"),
+            );
+            git(root, &["checkout", "-q", "main"]);
+        }
+        // Unrelated baseline work, so the file comparison cannot pass by the trees being equal.
+        commit_file(root, "other.txt", "x", "chore: unrelated work on main");
+        tmp
+    }
+
+    fn commit_file(root: &Path, name: &str, body: &str, msg: &str) {
+        std::fs::write(root.join(name), format!("{body}\n")).unwrap();
+        git(root, &["add", "-A"]);
+        git(root, &["commit", "-q", "--no-gpg-sign", "-m", msg]);
+    }
+
+    fn rev(root: &Path, r: &str) -> String {
+        String::from_utf8(
+            std::process::Command::new("git")
+                .current_dir(root)
+                .args(["rev-parse", r])
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_string()
+    }
+
+    /// What GitHub's **Rebase and merge** does: rebase onto the baseline, fast-forward the
+    /// baseline to it, and **leave the branch tip where it was**. The last part is the defect —
+    /// a fixture that rebases the branch itself makes it an ancestor and tests nothing.
+    fn rebase_merge(root: &Path, branch: &str) {
+        let tip = rev(root, branch);
+        git(root, &["checkout", "-q", "--detach", branch]);
+        git(root, &["rebase", "-q", "main"]);
+        let rebased = rev(root, "HEAD");
+        git(root, &["checkout", "-q", "main"]);
+        git(root, &["merge", "-q", "--ff-only", &rebased]);
+        git(root, &["branch", "-f", branch, &tip]);
+    }
+
+    /// What **Squash and merge** does: one commit carrying the combined patch, branch untouched.
+    fn squash_merge(root: &Path, branch: &str, msg: &str) {
+        git(root, &["merge", "-q", "--squash", branch]);
+        git(root, &["commit", "-q", "--no-gpg-sign", "-m", msg]);
+    }
+
+    fn state(root: &Path, branch: &str) -> &'static str {
+        let r = PhaseRef {
+            name: branch.to_string(),
+            git_ref: branch.to_string(),
+            kind: RefKind::Phase,
+        };
+        ref_state(root, &r, Some("main"))
+    }
+
+    /// The whole of #773 in one table, over the three merges git can perform.
+    ///
+    /// `is_settled` asks whether the ref is an ancestor of the baseline, which is true only of
+    /// the `--no-ff` merge `PHASES.md` prescribes. GitHub's other two buttons write a
+    /// single-parent commit and leave the tip alone, so the phase read `active` — the number
+    /// `PhaseTally` documents as *"the only number that means 'in flight'"* — permanently. One
+    /// derived repository reached 22 that way, every one complete, and a whole phase spent
+    /// writing the prescribed `phase:` commits could not move it, because it is computed over
+    /// refs.
+    #[test]
+    fn a_phase_merged_by_any_of_the_three_buttons_is_not_in_flight() {
+        let tmp = phases_repo();
+        let root = tmp.path();
+        git(
+            root,
+            &[
+                "merge",
+                "-q",
+                "--no-ff",
+                "--no-edit",
+                "-m",
+                "phase: ff",
+                "phase/ff",
+            ],
+        );
+        rebase_merge(root, "phase/rebase");
+        squash_merge(root, "phase/squash", "phase: squash");
+        squash_merge(root, "phase/partial", "chore: only the first half");
+        // Undo half of the squashed `partial` work, so its branch still holds content the
+        // baseline lacks — merged in part is in flight.
+        std::fs::remove_file(root.join("partial-b")).unwrap();
+        git(root, &["add", "-A"]);
+        git(
+            root,
+            &[
+                "commit",
+                "-q",
+                "--no-gpg-sign",
+                "-m",
+                "chore: drop the second half",
+            ],
+        );
+
+        assert_eq!(state(root, "phase/ff"), "settled", "the prescribed merge");
+        assert_eq!(
+            state(root, "phase/rebase"),
+            "rewritten",
+            "GitHub's rebase button"
+        );
+        assert_eq!(
+            state(root, "phase/squash"),
+            "rewritten",
+            "GitHub's squash button"
+        );
+        assert_eq!(state(root, "phase/active"), "active", "never merged");
+        assert_eq!(
+            state(root, "phase/partial"),
+            "active",
+            "merged in part only"
+        );
+    }
+
+    /// The two strategies are not detectable the same way, which is the question the issue left
+    /// open. `git cherry` marks a commit `-` when the baseline holds an equivalent patch — exact
+    /// for a rebase merge, and **wrong for a squash**, which combines the patches so no
+    /// individual commit is upstream. Asserted on the git primitives rather than on
+    /// `is_rewritten`, so the measurement the design rests on is itself a test.
+    #[test]
+    fn cherry_answers_a_rebase_merge_and_not_a_squash() {
+        let tmp = phases_repo();
+        let root = tmp.path();
+        rebase_merge(root, "phase/rebase");
+        squash_merge(root, "phase/squash", "phase: squash");
+
+        let marks = |b: &str| {
+            git_lines(root, &["cherry", "main", b])
+                .unwrap()
+                .iter()
+                .filter_map(|l| l.chars().next())
+                .collect::<String>()
+        };
+        assert_eq!(
+            marks("phase/rebase"),
+            "--",
+            "a rebase merge is patch-equivalent upstream"
+        );
+        assert_eq!(
+            marks("phase/squash"),
+            "++",
+            "a squash combines the patches, so no commit of the branch is upstream — this is why \
+             `git cherry` alone cannot answer #773"
+        );
+        // Both are nonetheless settled, by the second test.
+        assert_eq!(state(root, "phase/rebase"), "rewritten");
+        assert_eq!(state(root, "phase/squash"), "rewritten");
+    }
+
+    /// The residue, asserted so it cannot be mistaken for a fix. A squash-merged branch whose
+    /// files the baseline then edits again satisfies neither test and reads `active`. Closing it
+    /// needs the branch's combined patch-id searched among the baseline's commits — exact and
+    /// unbounded in cost. This test is here to make the limit visible and to go red if someone
+    /// closes it, which is the moment to delete it.
+    #[test]
+    fn a_squash_the_baseline_then_edits_is_the_known_residue() {
+        let tmp = phases_repo();
+        let root = tmp.path();
+        squash_merge(root, "phase/squash", "phase: squash");
+        assert_eq!(state(root, "phase/squash"), "rewritten", "before the edit");
+        commit_file(
+            root,
+            "squash-a",
+            "edited",
+            "chore: main edits the same file again",
+        );
+        assert_eq!(
+            state(root, "phase/squash"),
+            "active",
+            "known residue: with the file changed again neither test can see the merge"
+        );
+    }
+
+    /// A rebase-merged branch the baseline then edits is **not** in the residue: `git cherry`
+    /// still marks its commits `-`, because patch equivalence is a fact about history rather than
+    /// about the current tree.
+    #[test]
+    fn a_rebase_merge_survives_the_baseline_moving_on() {
+        let tmp = phases_repo();
+        let root = tmp.path();
+        rebase_merge(root, "phase/rebase");
+        commit_file(
+            root,
+            "rebase-a",
+            "edited",
+            "chore: main edits the same file again",
+        );
+        assert_eq!(state(root, "phase/rebase"), "rewritten");
+    }
+
+    /// An elector position is a third thing and must not be swept up by either test. `ma/*` is
+    /// *meant* to sit ahead of the baseline forever, so asking whether it settled is a category
+    /// error — and its files agreeing with the baseline would otherwise make it `rewritten`.
+    #[test]
+    fn an_elector_position_is_never_rewritten() {
+        let tmp = phases_repo();
+        let root = tmp.path();
+        git(root, &["branch", "ma/auditor", "phase/rebase"]);
+        rebase_merge(root, "phase/rebase");
+        let r = PhaseRef {
+            name: "ma/auditor".to_string(),
+            git_ref: "ma/auditor".to_string(),
+            kind: RefKind::Position,
+        };
+        assert_eq!(ref_state(root, &r, Some("main")), "position");
+    }
+
+    /// Every state `ref_state` actually returns is on the roster the schema is checked against.
+    /// A literal added at the `match` and not to `REF_STATES` would leave the schema comparison
+    /// passing over a value it has never seen — the same defect as the enum, one level in.
+    #[test]
+    fn every_state_ref_state_returns_is_on_the_roster() {
+        let tmp = phases_repo();
+        let root = tmp.path();
+        git(
+            root,
+            &[
+                "merge",
+                "-q",
+                "--no-ff",
+                "--no-edit",
+                "-m",
+                "phase: ff",
+                "phase/ff",
+            ],
+        );
+        rebase_merge(root, "phase/rebase");
+        git(root, &["branch", "ma/auditor", "main"]);
+        let mut seen: Vec<&str> = Vec::new();
+        for r in phase_refs(root) {
+            let st = ref_state(root, &r, Some("main"));
+            assert!(
+                REF_STATES.contains(&st),
+                "`{st}` is not on REF_STATES, so the schema comparison cannot see it"
+            );
+            if !seen.contains(&st) {
+                seen.push(st);
+            }
+        }
+        seen.sort_unstable();
+        let mut all = REF_STATES;
+        all.sort_unstable();
+        assert_eq!(
+            seen, all,
+            "the fixture must reach every state on the roster, or this proves nothing about the \
+             ones it misses"
+        );
+    }
+
+    /// **Half a phase landed is still in flight.** `git cherry` then reports a *mixture* — `-`
+    /// for the commit whose patch is upstream, `+` for the one that is not — and the test has to
+    /// be `all`, not `any`. With `any` this branch reads `rewritten`, which is the one direction
+    /// that matters: it would hide work still in progress behind a count of finished work.
+    ///
+    /// Built by cherry-picking only the branch's first commit onto the baseline, which is what a
+    /// partly-landed phase looks like. An earlier fixture squash-merged the whole branch and then
+    /// reverted half, and that produces `++` rather than `-+` — so it left the `all`/`any`
+    /// mutation alive.
+    #[test]
+    fn a_branch_with_only_some_commits_upstream_is_in_flight() {
+        let tmp = phases_repo();
+        let root = tmp.path();
+        let first = rev(root, "phase/partial~1");
+        // `cherry-pick` has no `-q`; passing one fails the command rather than quieting it.
+        git(root, &["cherry-pick", "--no-gpg-sign", &first]);
+
+        let marks = git_lines(root, &["cherry", "main", "phase/partial"])
+            .unwrap()
+            .iter()
+            .filter_map(|l| l.chars().next())
+            .collect::<String>();
+        assert_eq!(
+            marks, "-+",
+            "the fixture must produce a mixture, or it cannot measure `all` against `any`"
+        );
+        assert_eq!(state(root, "phase/partial"), "active");
+    }
+
+    /// The `cherry.is_empty()` guard, exercised directly because `ref_state` cannot reach it: a
+    /// ref with no commits of its own is an ancestor of the baseline, so `is_settled` claims it
+    /// first. The guard is still load-bearing — `all()` over an empty iterator is **vacuously
+    /// true**, so without it a ref carrying nothing would report as settled-by-rewrite.
+    #[test]
+    fn a_ref_with_no_commits_of_its_own_is_not_rewritten() {
+        let tmp = phases_repo();
+        let root = tmp.path();
+        git(root, &["branch", "alias", "main"]);
+        assert!(
+            git_lines(root, &["cherry", "main", "alias"])
+                .unwrap()
+                .is_empty(),
+            "the fixture must produce an empty cherry, or the guard is not under test"
+        );
+        assert!(!is_rewritten(root, "alias", Some("main")));
+    }
+
+    /// A branch carrying only empty commits has produced nothing, and is in flight rather than
+    /// settled. It is the case the `files.is_empty()` guard is for: with no touched files the
+    /// file comparison is vacuously true, and without the guard such a branch would read
+    /// `rewritten` — finished work — on the strength of having changed nothing.
+    #[test]
+    fn a_branch_of_only_empty_commits_is_still_in_flight() {
+        let tmp = phases_repo();
+        let root = tmp.path();
+        git(root, &["checkout", "-q", "-b", "phase/empty", "main"]);
+        git(
+            root,
+            &[
+                "commit",
+                "-q",
+                "--allow-empty",
+                "--no-gpg-sign",
+                "-m",
+                "scope: nothing yet",
+            ],
+        );
+        git(root, &["checkout", "-q", "main"]);
+        assert_eq!(state(root, "phase/empty"), "active");
+    }
+
+    /// The tally splits all four, and its total is the ref count. A state that stopped being
+    /// counted would leave the numbers summing to less than the refs and nothing would say so.
+    #[test]
+    fn the_tally_accounts_for_every_ref_it_reads() {
+        let tmp = phases_repo();
+        let root = tmp.path();
+        git(
+            root,
+            &[
+                "merge",
+                "-q",
+                "--no-ff",
+                "--no-edit",
+                "-m",
+                "phase: ff",
+                "phase/ff",
+            ],
+        );
+        rebase_merge(root, "phase/rebase");
+        squash_merge(root, "phase/squash", "phase: squash");
+        git(root, &["branch", "ma/auditor", "main"]);
+        let t = phase_tally(root);
+        assert_eq!(t.settled, 1, "{t:?}");
+        assert_eq!(t.rewritten, 2, "{t:?}");
+        assert_eq!(t.positions, 1, "{t:?}");
+        assert_eq!(t.active, 2, "{t:?}");
+        assert_eq!(
+            t.active + t.settled + t.rewritten + t.positions,
+            phase_refs(root).len(),
+            "the four states must partition the refs: {t:?}"
+        );
+    }
 
     // ── #792: a corpus's identity is its own, or it has none ──────────────────
 
