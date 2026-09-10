@@ -4,7 +4,12 @@ use std::path::Path;
 ///
 /// `git log --reverse --max-count=1` does NOT work for this: git applies the
 /// count limit before reversing, returning the newest commit instead.
-fn genesis_hash(root: &Path) -> Option<String> {
+///
+/// Public because it is the only identity every corpus has and no two corpora share. The RDF
+/// export names its subjects with it — a declared package name would be readable and **zero of
+/// sixteen corpora declare one**, so a subject built on it would have said `local` for all
+/// sixteen and left RFC-0032 §2's collision exactly where it was.
+pub fn genesis_hash(root: &Path) -> Option<String> {
     let out = std::process::Command::new("git")
         .current_dir(root)
         .args(["rev-list", "--max-parents=0", "HEAD"])

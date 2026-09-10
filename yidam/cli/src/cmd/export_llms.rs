@@ -418,6 +418,7 @@ mod tests {
                 genesis: "2026-01-01".into(),
                 domain: "test-domain".into(),
                 generated_at: 0,
+                genesis_hash: None,
             },
             rendered: RenderedViews {
                 corpus_index: String::new(),
