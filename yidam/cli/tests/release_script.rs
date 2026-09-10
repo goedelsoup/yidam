@@ -483,3 +483,132 @@ fn the_release_publishes_the_upgrade_note_for_the_tag_it_cuts() {
          is untested here and a tag push is a poor place to find out"
     );
 }
+
+// ── #772: a note filed under a release that already shipped ──────────────────────
+
+/// Every `git` invocation this section makes, from the repository root.
+fn git_out(args: &[&str]) -> std::process::Output {
+    std::process::Command::new("git")
+        .current_dir(repo_root())
+        .args(args)
+        .output()
+        .expect("git is on PATH")
+}
+
+/// The `## ` sections of `docs/upgrading.md` at HEAD, each with its `### ` note headings.
+///
+/// **Discovered, not listed.** A hardcoded set of tags stops covering new releases without
+/// ever going red — the shape #680 is about one layer up.
+fn upgrade_sections() -> Vec<(String, Vec<String>)> {
+    let mut out: Vec<(String, Vec<String>)> = Vec::new();
+    for line in at_head("docs/upgrading.md").lines() {
+        if let Some(heading) = line.strip_prefix("## ") {
+            out.push((heading.trim().to_string(), Vec::new()));
+        } else if let Some(note) = line.strip_prefix("### ") {
+            if let Some(last) = out.last_mut() {
+                last.1.push(note.trim().to_string());
+            }
+        }
+    }
+    out
+}
+
+/// A note filed under a release that had already shipped reaches no release at all.
+///
+/// `release.yml` reads the section matching the tag **at tag time**:
+///
+/// ```sh
+/// awk '/^## '"$GITHUB_REF_NAME"'$/{inside=1;next} /^## /{inside=0} inside' docs/upgrading.md
+/// ```
+///
+/// So a note written after `cli/v0.10.0` was tagged and filed under `## cli/v0.10.0` was
+/// generated-and-published before it existed, and the next tag reads a different heading. It is
+/// written, reviewed, merged, and unreachable.
+///
+/// **Three of them were.** `08cbbbe`, `1af765d` and `238bc32` each landed after `fc96175` (the
+/// `cli/v0.10.0` tag) and each filed under that heading; found while cutting `cli/v0.11.0`.
+///
+/// This is a third way the mechanism fails silently, and it is not the one `release.sh` covers.
+/// A staged note sits under `## Unreleased`, where it looks unfinished. A misfiled note sits
+/// under a heading that looks **filed**, so every existing check reads it as done.
+///
+/// The rule: for every `## <tag>` section whose tag exists, the commit that introduced each
+/// `### ` heading must be an ancestor of that tag.
+#[test]
+fn no_upgrade_note_is_filed_under_a_release_that_already_shipped() {
+    // A shallow clone with no tags cannot answer this. Refused rather than skipped, for the
+    // reason the tap-token check refuses when it cannot see: a check that guesses when blind is
+    // one people learn to ignore.
+    let tags = git_out(&["tag", "--list", "cli/v*"]);
+    let tag_list = String::from_utf8_lossy(&tags.stdout);
+    assert!(
+        tags.status.success() && tag_list.split_whitespace().count() > 0,
+        "no `cli/v*` tags are visible, so no note's placement can be checked. Fetch tags \
+         (`git fetch --tags`) rather than reading this as a pass."
+    );
+
+    let sections = upgrade_sections();
+    let mut checked = 0usize;
+    let mut stranded: Vec<String> = Vec::new();
+
+    for (heading, notes) in &sections {
+        // A section whose tag does not exist is the release being prepared — there is nothing
+        // to compare against yet. `## Unreleased` is one of these, and is `release.sh`'s
+        // question rather than this one's.
+        if !git_out(&["rev-parse", "--verify", "--quiet", &format!("refs/tags/{heading}")])
+            .status
+            .success()
+        {
+            continue;
+        }
+        for note in notes {
+            // The *introducing* commit — the oldest one whose diff changed the count of this
+            // string — not the latest. A later typo fix or reflow of an already-correct note
+            // must not fail, and moving a stranded note into the right section must pass, which
+            // is what makes the repair verifiable.
+            let log = git_out(&[
+                "log",
+                "--format=%H",
+                "-S",
+                &format!("### {note}"),
+                "--",
+                "docs/upgrading.md",
+            ]);
+            let commits = String::from_utf8_lossy(&log.stdout);
+            let Some(introduced) = commits.split_whitespace().last() else {
+                // A heading `-S` cannot find is one this test cannot place. Reported, because
+                // silently skipping it is how a scan comes to look at nothing.
+                stranded.push(format!(
+                    "  {heading} — no commit introduces `### {note}`; -S found nothing"
+                ));
+                continue;
+            };
+            checked += 1;
+            if !git_out(&["merge-base", "--is-ancestor", introduced, heading])
+                .status
+                .success()
+            {
+                stranded.push(format!(
+                    "  {heading} — `### {note}`\n      introduced by {} , which is not an \
+                     ancestor of {heading}: the note was written after that release shipped and \
+                     reaches no release at all. Move it under the tag that carries it.",
+                    &introduced[..introduced.len().min(8)]
+                ));
+            }
+        }
+    }
+
+    // The floor. A parser that stopped recognising `## `/`### ` would leave the loop above
+    // iterating nothing and passing, and the population here is discovered rather than fixed.
+    assert!(
+        checked >= 10,
+        "only {checked} note(s) were placed against a tag — the section scan is looking at \
+         nothing ({} sections found)",
+        sections.len()
+    );
+    assert!(
+        stranded.is_empty(),
+        "upgrade notes filed under a release that had already shipped:\n{}",
+        stranded.join("\n")
+    );
+}
