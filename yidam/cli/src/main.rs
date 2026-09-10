@@ -280,6 +280,10 @@ enum Command {
     /// A class definition cannot be corrected in place once the class contract gates:
     /// editing it puts every instance in violation until each is fixed by hand. These
     /// subcommands do both halves together and write a record of what they touched.
+    ///
+    /// `references` is the one that migrates data rather than the ontology over it, and it
+    /// belongs here for the same reason: one mechanical rewrite across hundreds of files,
+    /// under one commit subject, with a record of what it refused.
     Migrate {
         #[command(subcommand)]
         operation: MigrateCommand,
@@ -793,6 +797,13 @@ enum MigrateCommand {
         /// The new type — `string`, `text`, `date`, `ref`, `claim`, or one this corpus coined
         new_type: String,
     },
+    /// Lift every reference written inside an evidence tag into the node's `references:` field
+    ///
+    /// A detail reading `[verified — #362]` names an issue that no consumer can follow. This
+    /// writes `issue/362` to the node and, where the detail was the reference and nothing else,
+    /// collapses the tag to `[verified]`. Where the reference sits inside a sentence the
+    /// sentence is left exactly as written. Idempotent; run it with `--dry-run` first.
+    References,
     /// Point a declared relationship at a different class, at both ends
     Edge {
         /// The class that declares it
@@ -820,6 +831,7 @@ impl From<MigrateCommand> for yidam::MigrateOperation {
                 property,
                 new_type,
             },
+            MigrateCommand::References => Self::References,
             MigrateCommand::Edge {
                 class,
                 relationship,

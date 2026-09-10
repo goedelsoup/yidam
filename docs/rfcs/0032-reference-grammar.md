@@ -345,6 +345,45 @@ claim, or where a scope qualifier goes. Those are #710 / RFC-0031's, and the mea
 them is in #783. This RFC is normative for the reference and its home, and deliberately silent on
 the tag.
 
+### 4.8 — Getting the references that already exist into it
+
+*Added 2026-09-09 (#783).*
+
+§4.7 gives a reference a home; it does not put anything in it. Across the seven corpora that write
+evidence-tag details there are enough of them that nobody was going to move them by hand, so
+`yidam migrate references` does, as a fifth subcommand of the migration surface — the one operation
+there that migrates data rather than the ontology over it.
+
+Measured across those seven corpora, 2026-09-09:
+
+| | what happens |
+|---|---|
+| the detail **is** the reference | the entry is written and the tag collapses to its bare standing |
+| the reference sits **inside** a sentence | the entry is written and the sentence is left exactly as written |
+| the detail names nothing addressable | nothing is written; it is counted, not listed |
+
+The two corpora that write most of them yield 212 references across 94 nodes and 343 across 147.
+
+Three rules decide it, and each replaces a judgement:
+
+- **Nothing but an issue number is written unless the thing it names exists on disk.** That is the
+  whole defence against guessing, and it is what lets the resolver read shapes it would otherwise
+  have to refuse: `Auglaize/Mercer`, `land-use/transport` and `6a/6b` have a path's shape and are
+  prose using a slash for *or*. They resolve to no file, so they are prose, and no rule about
+  English had to be written to decide it.
+- **Nothing is written that `reference_conforms` rejects.** A class named `NonConformance` is a name
+  two of the sixteen corpora write and §4.1's amendment admits is real (#777). Writing it here would
+  redden `reference-not-in-the-grammar` on the next lint of the corpus just migrated.
+- **The prose is never rewritten to make a reference fit.** A detail whose reference is a
+  grammatical part of a sentence gets the entry and keeps the sentence, which writes the reference
+  twice. That is the cost; the alternative is a migration that mangles prose. `checks.rs` had
+  already recorded the sharp version of this — a narrowing detail (`[verified as proposed]`) must
+  never become a bare `[verified]`, because that asserts the proposal was adopted.
+
+The check on it is not a test: applying it to both corpora leaves `yidam lint` reporting exactly
+what it reported before, less one `claim-tag-malformed` finding per collapsed tag — 535 → 399 and
+534 → 459, against 136 and 75 collapses.
+
 ## What this does not touch
 
 - **The vault and catalog schemes.** `s3://`, `file://`, and the catalog's four location kinds

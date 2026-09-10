@@ -33,6 +33,7 @@ pub(crate) mod lint;
 mod log;
 mod lsp;
 mod migrate;
+pub(crate) mod migrate_references;
 mod overlay;
 pub(crate) mod pack;
 pub(crate) mod phases;

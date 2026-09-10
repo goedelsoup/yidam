@@ -326,6 +326,24 @@ record of what they touched.
 | `property` | Rename a declared property on a class and on every instance carrying it |
 | `retype` | Change a declared property's type; refuses when an instance would not satisfy it |
 | `edge` | Point a declared relationship at a different class, at both ends |
+| `references` | Lift every reference written inside an evidence tag into the node's `references:` field |
+
+`references` is the one that migrates data rather than the ontology over it.
+
+A detail reading `[verified — #362]` names an issue no consumer can follow. The migration writes
+`issue/362` to the node. Where the detail was the reference and nothing else, the tag then
+collapses to `[verified]`.
+
+Where the reference sits inside a sentence, the entry is written and **the sentence is left
+exactly as written**. Excising `#42` from `#42 (agglomeration)` would leave `(agglomeration)`.
+
+Nothing but an issue number is written unless the thing it names is on disk. So `Auglaize/Mercer`
+and `6a/6b` resolve to nothing and stay prose. Nothing is written that
+`reference-not-in-the-grammar` would report. It is idempotent; run it with `--dry-run` first.
+
+Applying it to the two corpora that write most of these tags left `yidam lint` reporting what it
+reported before. One `claim-tag-malformed` finding went away per collapsed tag. That is 535 → 399
+in one corpus and 534 → 459 in the other.
 
 ### `propose` is deliberately small
 
