@@ -60,6 +60,26 @@ either. Its advice now says so: write two claims. Nothing on disk needs editing 
 The MCP contract goes to **0.19.0**, because it is the contract that states what counts as a
 claim.
 
+### A bundle now says which corpus it is
+
+`manifest.yml` gains `genesis_hash`: the full SHA of the corpus's first commit. `genesis` was
+already there and is a *date*, so it can order two bundles and cannot tell them apart. Two
+corpora created on one day share a date; no two share a root commit.
+
+`bundle_version` stays `"1"`. Adding a field is not a breaking change. Nothing that could
+read a bundle before can fail to read one now. **Nothing on disk needs editing.** Rebuild with
+`yidam export --format bundle` for a bundle that carries the field. Bundles you have already
+published stay valid without it.
+
+**If you read `manifest.yml` yourself,** absence means the corpus is unidentified. It does not
+mean zero, and no placeholder should be substituted. One constant would name every bundle
+built before this alike — the confusion the field exists to prevent.
+
+`yidam doctor`'s `corpora` check uses it for one new finding. A path dependency and an unpacked
+bundle can claim one name, and the checkout is what gets read. That is normal when the two are
+one corpus in two forms. It is a **failure** when their genesis hashes differ, because then
+`tonpa.lock` pins a corpus nobody is reading. The check is silent when either hash is unknown.
+
 ## cli/v0.11.0
 
 ### `score` says why the criteria are the template's, in four states

@@ -94,9 +94,11 @@ authoritative for terms this project minted.
 > - **An unidentifiable corpus is refused**, not given a shared name. Any constant is the same
 >   string for every corpus that reaches that branch, so two of them merged into one store would
 >   conflate their nodes. The branch is reachable — a worktree copied out of its parent, a shallow
->   clone without the root commit, a `.yiz` extracted to a plain directory — and **the bundle
->   manifest cannot supply it**, because it records `genesis` as an ISO *date*. The addressing
->   plan's decision C assumed a digest was already there; see #781.
+>   clone without the root commit, a `.yiz` extracted to a plain directory — and at the time
+>   **the bundle manifest could not supply it**, because it recorded `genesis` as an ISO *date*.
+>   The addressing plan's decision C assumed a digest was already there. #781 put one there:
+>   `manifest.yml` now carries `genesis_hash`, additively, with absence meaning
+>   unidentified and never a placeholder — see §4.5.
 >
 > Two things this deliberately did **not** do. §4.2's locator branch is not implemented: it needs a
 > corpus to declare a base, `public_base` is RFC-0027's and unshipped, and a branch nothing can
@@ -266,8 +268,24 @@ The authority is the declared package name from
 a nickname chosen by whichever repository declared the dependency, so it is unique within one
 `.yidam/tonpa/` and not globally. Rather than invent a global identifier and make every printed
 id unreadable, this RFC makes a collision **detectable**: a consumer holding two corpora that
-claim one name says so, using the genesis digest each manifest already carries. This is #610's
+claim one name says so, using the genesis digest each manifest carries. This is #610's
 question one layer down and the answers must not contradict.
+
+**The digest was not there when this was written** (#781), and finding out where the collision
+is actually reachable narrowed what "detectable" means. It is not two entries in one
+`.yidam/tonpa/`, which cannot exist — the directory name *is* the declared name. It is a path
+dependency and an unpacked bundle claiming one name, which
+[`resolved`](../../yidam/cli/src/deps.rs#L220-L258) already resolves in favour of the checkout
+and does so **silently**. Silence is right in the common case, where the two are one corpus in
+two forms: someone fetched a dependency and then pointed at a checkout of it to edit. It is
+wrong when they are different corpora, because then the reader is reading one while
+`tonpa.lock` pins the other, and every answer that corpus gives is the wrong corpus's.
+
+So the digest is what makes the *distinction* decidable rather than the collision detectable —
+same hash, one corpus; different hash, two. `doctor`'s `corpora` check reports the second and
+stays quiet on the first. It also stays quiet when either identity is missing, which is the
+rule the rest of this RFC applies to unidentifiable corpora: **unknown is not different.**
+Guessing would either invent a conflict on every bundle built before the field or hide a real one.
 
 ### 4.6 — One parser
 

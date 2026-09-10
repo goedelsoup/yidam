@@ -40,9 +40,19 @@ index/meta.json            vector index metadata, if an index was present
 index/embed.config.json    embedding reproducibility contract, if an index was present
 ```
 
-`manifest.yml` carries `bundle_version`, `commit`, `genesis`, `generated_at`, `domain`, and
-counts of `classes`, `instances`, `skills` and `decisions`, plus `vector_index_model` —
-which is `null` when the bundle carries no index.
+`manifest.yml` carries `bundle_version`, `commit`, `genesis`, `genesis_hash`,
+`generated_at`, `domain`, and counts of `classes`, `instances`, `skills` and `decisions`,
+plus `vector_index_model` — which is `null` when the bundle carries no index.
+
+Two of those name the first commit, and they answer different questions. `genesis` is its
+ISO date, so it can order two bundles. `genesis_hash` is its full SHA. It is the only field
+that says *which corpus this is*. Two corpora created on one day share a date. No two share a
+root commit. A name is chosen and can be changed; this cannot.
+
+`genesis_hash` is `null` for a tree with no root commit, and **absent** from any bundle
+built before the field existed. Absence means the corpus is unidentified. It never means
+zero, and a reader must not substitute a placeholder. One constant would name every such
+bundle alike. That is the confusion the field exists to prevent.
 
 Note what is **not** in the list: no `sangha/`, no `catalog/`, no git history. A bundle
 carries the corpus's claims, not the record of who settled them or what they were checked
@@ -53,6 +63,11 @@ against. That absence is load-bearing and the section on citation returns to it.
 `bundle_version` is `"1"`. It is incremented **only on a breaking change**: removing a
 field, renaming a field, changing a field's type, or removing a file from the archive
 layout. Adding a field or a new archive entry is not breaking.
+
+`genesis_hash` is the first field added under that rule, and it shows where the rule stops.
+Old readers are safe: they ignore what they do not recognise. New readers are not, because
+they meet bundles written before the field existed. So the burden is theirs — every reader
+of a manifest field must have an answer for its absence.
 
 The obligation this places on a consumer is the usual one, and it is not optional: **ignore
 unknown fields and unknown archive paths.** A consumer that fails on an unrecognized entry

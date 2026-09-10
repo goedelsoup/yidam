@@ -51,7 +51,7 @@ are the design.
 #266 says a cited foreign node "must exist at the pinned commit". No such resolution is
 available. A `.yiz` bundle is a **tarball**, not a repository — `manifest.yml`, `corpus/`,
 `skills/`, `decisions/`, `index/`
-([`bundle.rs:98-109`](../../yidam/cli/src/cmd/bundle.rs#L98-L109)) — so there is no history to
+([`add_bytes`](../../yidam/cli/src/cmd/bundle.rs#L117-L128)) — so there is no history to
 resolve against and no object store to ask.
 
 What exists is one string. `manifest.yml` carries `commit`, and that field is
@@ -72,7 +72,7 @@ different pair.
 locked, because hashing a working tree that changes under you records nothing"
 ([`deps.rs:9-12`](../../yidam/cli/src/deps.rs#L9-L12)). It is also the **only** form that
 supports a development loop, and `resolved()` deliberately lets it win over an unpacked
-directory of the same name ([`deps.rs:133-136`](../../yidam/cli/src/deps.rs#L133-L136)).
+directory of the same name ([`fetched.retain`](../../yidam/cli/src/deps.rs#L254-L258)).
 
 A citation form that requires a pin therefore either excludes the dependency form people
 actually develop against, or admits an unpinnable citation. This RFC admits it, and makes the
