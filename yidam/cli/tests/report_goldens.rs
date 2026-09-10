@@ -1312,49 +1312,86 @@ fn the_feature_set_is_redacted_whatever_it_holds() {
 #[test]
 fn the_state_enum_and_the_states_the_code_emits_are_the_same_set() {
     let schema = schema();
-    let declared = schema["definitions"]["state"]["enum"]
-        .as_array()
-        .or_else(|| schema["properties"]["state"]["enum"].as_array())
-        .or_else(|| {
-            // The schema keeps its field definitions under one object; find `state` wherever it
-            // sits rather than hardcoding the path, which is the thing that rots.
-            fn find(v: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
-                match v {
-                    serde_json::Value::Object(m) => {
-                        if let Some(s) = m.get("state") {
-                            if let Some(e) = s.get("enum").and_then(|e| e.as_array()) {
-                                return Some(e);
-                            }
+
+    // **Every** copy, not the first one found. The schema declares `state` twice — once
+    // structurally under `phases.items`, which is the copy a `phases` report is actually
+    // validated against, and once in the flat top-level map of field names. The first version of
+    // this test returned at the first match and stopped, so widening the enum for #773 fixed the
+    // flat copy, left the structural one at three values, and passed. A `phases` report carrying
+    // a `rewritten` row would have been rejected by the schema this repository ships.
+    fn state_enums(v: &serde_json::Value, path: &str, out: &mut Vec<(String, Vec<String>)>) {
+        match v {
+            serde_json::Value::Object(m) => {
+                for (k, child) in m {
+                    if k == "state" {
+                        if let Some(e) = child.get("enum").and_then(|e| e.as_array()) {
+                            out.push((
+                                format!("{path}/state"),
+                                e.iter()
+                                    .map(|m| {
+                                        m.as_str().expect("enum members are strings").to_string()
+                                    })
+                                    .collect(),
+                            ));
                         }
-                        m.values().find_map(find)
                     }
-                    serde_json::Value::Array(a) => a.iter().find_map(find),
-                    _ => None,
+                    state_enums(child, &format!("{path}/{k}"), out);
                 }
             }
-            find(&schema)
-        })
-        .expect("report.schema.json declares `state` with an enum");
+            serde_json::Value::Array(a) => {
+                for (i, child) in a.iter().enumerate() {
+                    state_enums(child, &format!("{path}/{i}"), out);
+                }
+            }
+            _ => {}
+        }
+    }
 
-    let mut declared: Vec<String> = declared
-        .iter()
-        .map(|v| v.as_str().expect("enum members are strings").to_string())
-        .collect();
+    let mut found: Vec<(String, Vec<String>)> = Vec::new();
+    state_enums(&schema, "", &mut found);
+
     let mut emitted: Vec<String> = yidam::git::REF_STATES
         .iter()
         .map(|s| s.to_string())
         .collect();
-    declared.sort();
     emitted.sort();
 
+    // `state` is not one vocabulary. `due`'s clocks reuse the field name for
+    // `due`/`ok`/`undeclared`/`unmeasurable`, so keying on the name alone compares a clock
+    // against a phase. The discriminator is **overlap**: an enum that names any phase state must
+    // name all of them. That holds a copy wherever it sits, which keying on a path would not.
+    let (phase_states, other): (Vec<_>, Vec<_>) = found
+        .iter()
+        .partition(|(_, members)| members.iter().any(|m| emitted.contains(m)));
+
+    // Two copies today, and a floor rather than an exact count: a third place to disagree would
+    // be held by the loop below, while dropping to one would mean a declaration went missing.
     assert!(
-        !declared.is_empty(),
-        "the `state` enum is empty — this test is looking at nothing"
+        phase_states.len() >= 2,
+        "expected at least two phase-`state` enum declarations in report.schema.json, found {}: \
+         {:?}",
+        phase_states.len(),
+        phase_states.iter().map(|(p, _)| p).collect::<Vec<_>>()
     );
-    assert_eq!(
-        declared, emitted,
-        "report.schema.json's `state` enum and the states `git::ref_state` can return disagree.\n\
-         A state the code emits and the schema omits is a report a validating consumer rejects; \
-         one the schema names and the code cannot emit is a branch nobody can take."
+    // And the discriminator must be doing work rather than admitting everything — `clocks.state`
+    // is the enum it has to exclude, and if nothing is excluded this test has stopped
+    // discriminating and would fail on the next unrelated `state` field instead.
+    assert!(
+        !other.is_empty(),
+        "every `state` enum overlapped the phase vocabulary, so the partition is admitting \
+         everything: {:?}",
+        found.iter().map(|(p, _)| p).collect::<Vec<_>>()
     );
+
+    for (path, members) in &phase_states {
+        let mut declared = members.clone();
+        declared.sort();
+        assert_eq!(
+            &declared, &emitted,
+            "report.schema.json's `state` enum at `{path}` and the states `git::ref_state` can \
+             return disagree.\nA state the code emits and the schema omits is a report a \
+             validating consumer rejects; one the schema names and the code cannot emit is a \
+             branch nobody can take."
+        );
+    }
 }
