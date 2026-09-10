@@ -488,7 +488,19 @@ fn check_index(root: &Path) -> Answer {
 /// Borrows `regen --check`'s non-writing mode rather than reimplementing the generator
 /// list. That is the whole reason [`crate::cmd::stale_blocks`] exists as a
 /// function: a second list would be the third one that command was written to prevent.
-fn check_regen() -> Answer {
+///
+/// It cannot borrow the *refusal*, though, and should not. `yidam regen` bails in a shallow clone
+/// because a gate that cannot compute its verdict may not return one; `doctor` is the report the
+/// person reaches for when something is refusing, so it answers instead — with the same cause and
+/// the same remedy, at `warn`, because a depth-1 CI checkout is a normal thing to be in.
+fn check_regen(root: &std::path::Path) -> Answer {
+    if crate::git::is_shallow(root) {
+        return Answer::warn(
+            "cannot be checked in a shallow clone: `genesis` reads the repository's first \
+             commit, which a truncated history does not have",
+            Some("git fetch --unshallow, or fetch-depth: 0 in CI"),
+        );
+    }
     match crate::cmd::stale_blocks() {
         Err(e) => Answer::fail(format!("could not be computed: {e:#}"), None),
         Ok(stale) if stale.is_empty() => {
@@ -632,7 +644,7 @@ const ROSTER: &[Question] = &[
         id: Check::REGEN,
         text: "Are the REGEN blocks current?",
         asked: Asked::OfARepository,
-        answer: |_| check_regen(),
+        answer: |s| check_regen(&s.root),
     },
     Question {
         id: Check::CATALOG,

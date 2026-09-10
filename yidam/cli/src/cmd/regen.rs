@@ -105,6 +105,7 @@ pub(crate) fn stale_blocks() -> Result<Vec<crate::regen::Stale>> {
 /// `--check` runs the same [`GENERATORS`] list, which is the whole point: a check that
 /// walked its own list would be the third list this command exists to have prevented.
 pub fn regen(check: bool, format: crate::report::Format) -> Result<()> {
+    require_whole_history(&crate::paths::repo_root()?)?;
     if check {
         let stale = stale_blocks()?;
         return report_check(stale, format);
@@ -114,6 +115,41 @@ pub fn regen(check: bool, format: crate::report::Format) -> Result<()> {
         run().with_context(|| format!("running {name}"))?;
     }
     Ok(())
+}
+
+/// Refuse to run against a truncated history — in either mode.
+///
+/// **The block's contract has two halves and only one of them is about content.** A REGEN block
+/// held by `--check` has to be a function of what every checkout of a commit has in common, and
+/// most of what `status` reports is: the node count, the open questions, the claim counts all read
+/// the corpus. `genesis` reads the repository's *first commit*, and a shallow clone does not have
+/// it — nor does it say so. `rev-list --max-parents=0 HEAD` answers with the boundary commit,
+/// which from the inside is indistinguishable from a root, so the generator writes a date the
+/// clone invented. Measured: one commit of `allen-county-ohio` renders `genesis 2026-08-28` from a
+/// full clone and `2026-09-07` from a `--depth 1` clone of the same commit.
+///
+/// The two ways out were making every generator depth-invariant, or making the command state what
+/// it needs. Invariance is the wrong trade: it would cost `genesis` and the catalog's TTL ages,
+/// both of which are history by definition and both of which readers want. So this is a
+/// precondition, and it is checked in **both** modes for different reasons — `--check` would
+/// otherwise report a diff nobody can commit their way out of, and the writing mode would commit
+/// the invented date.
+///
+/// **Refusing, not skipping.** A report may say it found nothing; a gate may not. `doctor` is the
+/// report, and it warns here instead — see [`crate::cmd::doctor`].
+fn require_whole_history(root: &std::path::Path) -> Result<()> {
+    if !crate::git::is_shallow(root) {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "this is a shallow clone, and a REGEN block cannot be generated from one.\n\
+         `genesis` reads the repository's first commit; a truncated history's oldest commit\n\
+         is whatever was checked out, and git reports it as a root. The block would hold a\n\
+         date this clone invented, and the gate would ask you to commit it.\n\n\
+         Fetch the whole history first:\n\
+         \x20 locally   git fetch --unshallow\n\
+         \x20 in CI     actions/checkout with `fetch-depth: 0`"
+    )
 }
 
 fn report_check(stale: Vec<crate::regen::Stale>, format: crate::report::Format) -> Result<()> {

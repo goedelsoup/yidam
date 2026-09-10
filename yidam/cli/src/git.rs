@@ -29,8 +29,11 @@ use std::path::Path;
 /// Everything derived from this follows it. [`genesis_date`] and [`genesis_message`] both start
 /// here, so a nested corpus no longer reports its host's genesis date as its own age, or the
 /// host's genesis message as its domain.
+///
+/// **A shallow clone has no genesis to name**, and this refuses rather than naming the wrong one —
+/// see [`is_shallow`] for what it answered before.
 pub fn genesis_hash(root: &Path) -> Option<String> {
-    if !is_repository_root(root) {
+    if !is_repository_root(root) || is_shallow(root) {
         return None;
     }
     let out = std::process::Command::new("git")
@@ -44,6 +47,34 @@ pub fn genesis_hash(root: &Path) -> Option<String> {
         .next()
         .map(str::to_string)
         .filter(|s| !s.is_empty())
+}
+
+/// Does this repository hold its whole history, or a truncated slice of it?
+///
+/// **The distinction is invisible in the answer git gives.** In a `--depth 1` clone,
+/// `rev-list --max-parents=0 HEAD` reports the *boundary* commit — the one whose parents the
+/// clone does not have — and that commit looks exactly like a root commit from the inside. So a
+/// corpus asked for its genesis gets back the date of whatever was checked out, with no error and
+/// no sentinel. Measured on `allen-county-ohio` at one commit: a full clone reported
+/// `genesis 2026-08-28`, a `--depth 1` clone of the same commit reported `2026-09-07`.
+///
+/// That is worse than an absent value in two ways. It reads as plausible, and it is a *different*
+/// answer in each checkout of one commit — which is what makes it fail the contract a REGEN block
+/// is held to (#647). [`genesis_hash`] returns `None` here instead, so every consumer that already
+/// handles an unknown genesis — the bundle manifest writes `null`, `doctor`'s shadow detection
+/// stays silent, `genesis_date` says [`UNKNOWN_COMMIT`] — handles this too.
+///
+/// Asked through `rev-parse` rather than by looking for `.git/shallow`: a worktree's git dir is a
+/// file and a submodule's is elsewhere again, so the path is not one this can construct.
+pub fn is_shallow(root: &Path) -> bool {
+    std::process::Command::new("git")
+        .current_dir(root)
+        .args(["rev-parse", "--is-shallow-repository"])
+        .output()
+        .ok()
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .map(|s| s.trim() == "true")
+        .unwrap_or(false)
 }
 
 /// Is `root` the top of the git repository it is in, rather than a directory inside one?
@@ -1113,5 +1144,96 @@ origin/rigpa/payload-budget
 
         assert_eq!(genesis_message(root), "chore: genesis — my-domain");
         assert!(!genesis_date(root).is_empty());
+    }
+
+    // ── #647: a shallow clone has no genesis, and does not say so ─────────────
+
+    /// A repository with a real root, and a `--depth 1` clone of its tip.
+    ///
+    /// Cloned through a `file://` URL, because git treats a plain path as local and hardlinks the
+    /// object store — `--depth` is then silently ignored and the fixture is not shallow at all.
+    fn shallow_clone_of(source: &Path, dest: &Path) {
+        let url = format!("file://{}", source.display());
+        let ok = std::process::Command::new("git")
+            .args(["clone", "-q", "--depth", "1", &url])
+            .arg(dest)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "cloning {url} shallowly failed");
+        assert!(
+            is_shallow(dest),
+            "the fixture is not shallow, so it proves nothing about shallow clones"
+        );
+    }
+
+    /// The trap, asserted before the guard that answers it — so this test says *why* the guard
+    /// exists and goes red if it is removed.
+    ///
+    /// git reports the boundary commit of a truncated history as a root commit, because from the
+    /// inside it is one: its parents are not there. Nothing in the answer distinguishes the two.
+    #[test]
+    fn git_calls_the_boundary_commit_of_a_shallow_clone_a_root() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let source = tmp.path().join("source");
+        std::fs::create_dir_all(&source).unwrap();
+        git(&source, &["init", "-q", "-b", "main"]);
+        git(&source, &["config", "user.email", "t@t.co"]);
+        git(&source, &["config", "user.name", "Test"]);
+        commit_file(&source, "a", "a", "chore: genesis — my-domain");
+        commit_file(&source, "b", "b", "establish: something newer");
+
+        let clone = tmp.path().join("clone");
+        shallow_clone_of(&source, &clone);
+
+        // What git says, and it is not the root.
+        assert_eq!(rev(&clone, "HEAD"), first_root_commit(&clone));
+        assert_ne!(rev(&source, "HEAD"), first_root_commit(&source));
+    }
+
+    /// `rev-list --max-parents=0 HEAD`, which is what [`genesis_hash`] asks git before deciding
+    /// whether to believe the answer. Here so the test above can show the raw answer.
+    fn first_root_commit(root: &Path) -> String {
+        let out = std::process::Command::new("git")
+            .current_dir(root)
+            .args(["rev-list", "--max-parents=0", "HEAD"])
+            .output()
+            .unwrap();
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .lines()
+            .next()
+            .unwrap()
+            .to_string()
+    }
+
+    /// So the corpus reports no genesis rather than the wrong one.
+    ///
+    /// The full clone is asserted in the same test, not a separate one: "returns None" is also
+    /// what a guard that always returns None does, and that guard would pass a test that only
+    /// looked at the shallow side.
+    #[test]
+    fn a_shallow_clone_reports_no_genesis_rather_than_the_boundary_commit() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let source = tmp.path().join("source");
+        std::fs::create_dir_all(&source).unwrap();
+        git(&source, &["init", "-q", "-b", "main"]);
+        git(&source, &["config", "user.email", "t@t.co"]);
+        git(&source, &["config", "user.name", "Test"]);
+        commit_file(&source, "a", "a", "chore: genesis — my-domain");
+        commit_file(&source, "b", "b", "establish: something newer");
+
+        let clone = tmp.path().join("clone");
+        shallow_clone_of(&source, &clone);
+
+        assert_eq!(genesis_hash(&source), Some(rev(&source, "HEAD~1")));
+        assert_eq!(genesis_hash(&clone), None);
+
+        // Every value derived from it follows, which is the whole reason to fix it here rather
+        // than at each reader. The date is the one a REGEN block commits.
+        assert_eq!(genesis_date(&clone), UNKNOWN_COMMIT);
+        assert_eq!(genesis_date(&source), genesis_date(&source));
+        assert_ne!(genesis_date(&source), UNKNOWN_COMMIT);
+        assert_eq!(genesis_message(&clone), "");
     }
 }

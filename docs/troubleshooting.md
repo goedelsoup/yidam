@@ -147,6 +147,16 @@ yidam regen --check   # what CI runs — reports staleness, writes nothing
 Twenty-three commands do; `yidam --help` marks each with a `*`. Against a checkout you only mean
 to read, `yidam doctor` is the one that is guaranteed not to touch anything.
 
+**`this is a shallow clone, and a REGEN block cannot be generated from one`.** The block reports
+the corpus genesis, which is the repository's first commit. A truncated history does not have it,
+and git names the boundary commit a root instead. So the block would hold a date the clone
+invented. Fetch the history and re-run:
+
+```sh
+git fetch --unshallow                        # locally
+# in CI: actions/checkout with fetch-depth: 0
+```
+
 ## The editor shows nothing, or disagrees with CI
 
 **Nothing at all.** The extension activates only on a workspace containing `.yidam.toml` or

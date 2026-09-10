@@ -213,7 +213,7 @@ That is their purpose, and it is why every one carries a `*`.
 | Command | Block content |
 |---|---|
 | `regen` * | Refresh every REGEN block in one pass. `--check` reports staleness and writes nothing |
-| `status` * | Repository overview: nodes, open questions, catalog, index freshness, phases |
+| `status` * | Repository overview: nodes, open questions, catalog, index freshness, genesis |
 | `open-questions` * | Unresolved questions, newest first |
 | `corpus-index` * | Every corpus node by class, with label and link count |
 | `catalog-audit` * | Which catalog sources the corpus cites, and which it does not |
@@ -226,6 +226,19 @@ That is their purpose, and it is why every one carries a `*`.
 
 In a derived repository a stale REGEN block is a failing build. Run `mise run regen` before
 committing; `yidam regen --check` is what CI runs.
+
+**A gated block holds only what every checkout of the commit agrees on.** The tree is all they
+share. So a block may not report anything read from outside it.
+
+Phase counts broke that rule. They read branch refs, and which refs a checkout holds depends on
+how it was fetched. For one commit there was then no count that passed everywhere. CI and a
+fetched machine wanted different numbers. Pushing a phase branch also reddened this gate on every
+open pull request. The counts moved to `yidam phases` and `yidam status --format json`, which are
+reports rather than committed content.
+
+Depth is the other half. `genesis` reads the repository's first commit, which a shallow clone does
+not have. Git names the boundary commit a root instead. `yidam regen` refuses in a shallow clone
+rather than writing that date. Check out with `fetch-depth: 0`, or run `git fetch --unshallow`.
 
 **These are the commands to be careful with against a checkout you only mean to read.**
 `yidam status` sounds read-only and is not — it rewrites the README block. `yidam doctor` is

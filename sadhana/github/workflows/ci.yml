@@ -451,10 +451,18 @@ jobs:
       # produce a diff the gate had never asked for. The set now lives in one place in the
       # CLI and both callers ask for it by name.
       #
-      # `yidam status` counts phase branches, which is why the checkout above fetches
-      # everything: with only the checked-out branch present, the count is whatever CI can
-      # see rather than what the repository holds. That was a live bug — the count read
-      # local branches only, so this job failed on every push in any repo with a sangha.
+      # **The `fetch-depth: 0` above is load-bearing for this step**, and the reason is
+      # history rather than branches. `yidam status` reports the corpus's genesis date, which
+      # is its first commit — and in a depth-1 checkout git names the boundary commit a root,
+      # so the block would hold the date of whatever was checked out. `yidam regen` refuses
+      # outright in a shallow clone rather than generating from one (#647); without the full
+      # fetch, this step fails with that refusal and not with a stale block.
+      #
+      # It is no longer load-bearing for phase counts, because the block no longer holds any.
+      # Those moved to `yidam status --format json` and `yidam phases`: a count of refs is a
+      # property of how a checkout was fetched rather than of the commit, so no committed
+      # value could be green both here and on a machine that had run `git fetch`.
+      #
       # `--check` rather than run-and-diff. The old form regenerated into the working
       # tree and asked git whether anything moved, which works in CI and cannot be run
       # locally with work in flight — the diff it reads is every diff, not just its own.
