@@ -1,0 +1,11 @@
+function = "parse_reference"
+description = "an issue names a tracker, and which tracker is which corpus"
+
+[input]
+text = "yidam://hegeomai/issue/362"
+
+[expected]
+parses = true
+corpus = "hegeomai"
+kind = "issue"
+path = "362"

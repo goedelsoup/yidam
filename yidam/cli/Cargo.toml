@@ -152,7 +152,7 @@ toml = "1.1"
 regorus = { version = "0.12", default-features = false, features = ["arc", "ast", "regex"] }
 # Parity SDK — reference implementations of classify_commit etc.; the CLI
 # must not re-implement the parity surface (see prelude/sdks/parity/README.md).
-yidam-core = { path = "../prelude/sdks/rust", version = "0.6.0" }
+yidam-core = { path = "../prelude/sdks/rust", version = "0.7.0" }
 
 # ── optional: `index` — semantic index build, and the vector arm of the MCP
 #    server's `retrieve`. Not `serve` itself: that is in the light default, and

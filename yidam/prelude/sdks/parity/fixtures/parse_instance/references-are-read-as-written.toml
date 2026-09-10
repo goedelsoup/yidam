@@ -1,0 +1,32 @@
+function = "parse_instance"
+description = "`references:` is the destination RFC-0032 gives a reference that is not a node — read as written, including an entry no parser can make sense of, because a lint check is what names that and a parser that dropped it would hide it"
+
+[input]
+content = """
+class: coupling
+label: First and last mile
+references:
+  - issue/362
+  - crate/dispersion#ohio_panel::equalization_by_year
+  - catalog/lsc-greenbook
+  - not a reference at all
+"""
+
+[expected]
+instance = """
+{
+  "class": "coupling",
+  "label": "First and last mile",
+  "description": null,
+  "properties": null,
+  "links": null,
+  "references": [
+    "issue/362",
+    "crate/dispersion#ohio_panel::equalization_by_year",
+    "catalog/lsc-greenbook",
+    "not a reference at all"
+  ],
+  "cites": null,
+  "extra": {}
+}
+"""

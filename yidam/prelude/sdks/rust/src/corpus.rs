@@ -99,6 +99,26 @@ pub struct CorpusInstance {
     pub links: Option<Vec<CorpusLink>>,
     #[serde(default)]
     pub cites: Option<Vec<ExternalCitation>>,
+    /// References this node makes to things that are not nodes: an issue, a crate, a catalog
+    /// entry, a decision. Each entry is a reference in RFC-0032's grammar, as a string.
+    ///
+    /// **Named because it needs to be a destination, not a convention.** A `references:` key
+    /// already survived here through `extra`'s `#[serde(flatten)]`, which is exactly how
+    /// `[unentered]` happened one layer up: a corpus invented a mark, the tooling assigned it a
+    /// meaning nobody chose, and the exit was structure beside the tag. A field that is named is
+    /// one a check can read and a migration can write.
+    ///
+    /// **Strings, not a struct.** [`crate::uri::parse_reference`] is the reader, and a struct here
+    /// would be a second encoding of the identifier the grammar already spells — the defect
+    /// RFC-0032 exists to end, reproduced inside its own solution. `cites:` keeps its four fields
+    /// because it means something narrower: a *node* in another corpus at a known revision.
+    ///
+    /// Measured before it was added (#783): 496 references across five corpora are currently
+    /// written inside evidence-tag brackets, where nothing can read them — 252 issues, 204 repo
+    /// paths, 32 crate items, 8 catalog entries. Three corpora that write tags write no details at
+    /// all, so this is a place for a practice that exists rather than a field asking for one.
+    #[serde(default)]
+    pub references: Option<Vec<String>>,
     /// Every other top-level key, kept rather than dropped. See the module note.
     #[serde(flatten)]
     pub extra: serde_yaml::Mapping,
@@ -152,6 +172,7 @@ impl CorpusInstance {
                     })
                     .collect::<Vec<_>>()
             }),
+            "references": self.references,
             "cites": self.cites.as_ref().map(|cites| {
                 cites
                     .iter()

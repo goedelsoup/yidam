@@ -24,6 +24,7 @@ instance = """
     "effective_from": "2020"
   },
   "links": null,
+  "references": null,
   "cites": null,
   "extra": {}
 }

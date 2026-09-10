@@ -31,6 +31,7 @@ instance = """
     { "target": "../place/lima.yml", "relationship": "seated-in", "claim_tag": "inference", "source": null },
     { "target": "../organization.ont.yml", "relationship": "instance-of", "claim_tag": null, "source": null }
   ],
+  "references": null,
   "cites": null,
   "extra": {}
 }

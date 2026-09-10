@@ -24,6 +24,7 @@ instance = """
   "description": "What the statute does.",
   "properties": null,
   "links": null,
+  "references": null,
   "cites": null,
   "extra": {
     "summary": "One paragraph, at the top, on every node in that corpus.",

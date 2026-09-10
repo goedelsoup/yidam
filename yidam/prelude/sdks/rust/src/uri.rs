@@ -21,9 +21,15 @@
 
 /// What a reference names. The `<kind>` slot of the grammar.
 ///
-/// Five variants, and the count is closed: a kind is a thing the repository addresses, not an
-/// open vocabulary. `Node` is the default for a relative reference, because every relative form
-/// in the population it replaced named a node.
+/// A closed vocabulary: a kind is a thing the repository addresses, not an open set. `Node` is the
+/// default for a relative reference, because every relative form in the population it replaced
+/// named a node.
+///
+/// `Issue` was added on measurement (#783). Across the corpora that write evidence-tag details,
+/// **252 of the 496 mechanically resolvable references are issue references** — `[verified — #362]`
+/// — which is the single largest kind in the population and had no form here. The corpus writing
+/// them had already paid for their absence: its own `.yidam/corpus/README.md` carries a warning to
+/// quote any `properties:` value containing one, because YAML reads an unquoted ` #` as a comment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Kind {
     Node,
@@ -31,6 +37,8 @@ pub enum Kind {
     Catalog,
     Skill,
     Decision,
+    /// An issue in the corpus's own tracker: `issue/362`.
+    Issue,
 }
 
 impl Kind {
@@ -42,6 +50,7 @@ impl Kind {
             Kind::Catalog => "catalog",
             Kind::Skill => "skill",
             Kind::Decision => "decision",
+            Kind::Issue => "issue",
         }
     }
 
@@ -53,6 +62,7 @@ impl Kind {
             "catalog" => Some(Kind::Catalog),
             "skill" => Some(Kind::Skill),
             "decision" => Some(Kind::Decision),
+            "issue" => Some(Kind::Issue),
             _ => None,
         }
     }
@@ -146,8 +156,45 @@ pub fn reference_conforms(r: &Reference) -> bool {
         && r.rev.as_deref().map(is_slug).unwrap_or(true)
         && r.fragment
             .as_deref()
-            .map(|f| !f.is_empty() && f.split('.').all(is_slug))
+            .map(|f| fragment_conforms(r.kind, f))
             .unwrap_or(true)
+}
+
+/// Whether a fragment names something, for the kind it is attached to.
+///
+/// **Two rules, because a fragment names a path into two different kinds of thing.** For every
+/// kind but `Crate` it is a declared property path — dotted slugs — which is §4.4 unchanged. For a
+/// `Crate` it names a code item or a file inside that crate, and those are named by a foreign
+/// toolchain: `ohio_panel::equalization_by_year` and `tests/the_weights_behind_the_index.rs` are
+/// both real references in a measured corpus, and neither is a dotted slug path.
+///
+/// §4.4's refusal survives this. What it refuses is a fragment naming a **claim**, and the reason
+/// is measured rather than aesthetic: RFC-0008 found 22 claims entering corpora and 0 matching
+/// byte-identically at any tip, because identity by surface form is identity by line wrapping. A
+/// Rust item path has an identity a compiler enforces and a file path one the filesystem does; the
+/// argument for refusing a claim does not reach either.
+///
+/// The crate rule deliberately admits uppercase and `.`, which `is_slug` does not. A type is
+/// `CamelCase` and a file has an extension, and neither is this project's naming rule to make —
+/// the same reason `export_rdf` tests a foreign alignment IRI for dereferenceability instead of
+/// validating its shape.
+pub fn fragment_conforms(kind: Kind, fragment: &str) -> bool {
+    if fragment.is_empty() {
+        return false;
+    }
+    if kind != Kind::Crate {
+        return fragment.split('.').all(is_slug);
+    }
+    // `/` and `::` both separate; a segment is a filename or a Rust identifier.
+    fragment
+        .split('/')
+        .flat_map(|part| part.split("::"))
+        .all(|seg| {
+            !seg.is_empty()
+                && seg
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+        })
 }
 
 /// Parse a reference. `None` only when the input names no thing at all.
@@ -537,6 +584,80 @@ mod tests {
             let got = parse_reference(&rendered)
                 .unwrap_or_else(|| panic!("{rendered} did not parse back"));
             assert_eq!(got, want, "round trip via {rendered}");
+        }
+    }
+
+    // ── the sixth kind, and the fragment that names code (#783) ───────────────
+
+    /// The largest reference kind in the measured population, which had no form before.
+    #[test]
+    fn an_issue_reference_parses_renders_and_conforms() {
+        let r = parse_reference("issue/362").expect("issue/362 is a reference");
+        assert_eq!(r.kind, Kind::Issue);
+        assert_eq!(r.path, "362");
+        assert!(reference_conforms(&r));
+        assert_eq!(render_reference(&r), "issue/362");
+
+        let absolute = parse_reference("yidam://hegeomai/issue/362").unwrap();
+        assert_eq!(absolute.corpus.as_deref(), Some("hegeomai"));
+        assert_eq!(absolute.kind, Kind::Issue);
+        assert_eq!(absolute.path, "362");
+    }
+
+    /// And a class named `issue` is still reachable, by the arity rule the other kinds use.
+    #[test]
+    fn a_class_named_issue_does_not_lose_to_the_new_kind() {
+        let shadowed = Reference {
+            kind: Kind::Node,
+            ..node("issue/reopened")
+        };
+        assert_eq!(render_reference(&shadowed), "node/issue/reopened");
+        assert_eq!(parse_reference("node/issue/reopened"), Some(shadowed));
+        // …and the bare spelling reads as the kind, because the grammar puts one there.
+        assert_eq!(parse_reference("issue/reopened").unwrap().kind, Kind::Issue);
+    }
+
+    /// A crate fragment names a code item or a file, and both are real in a measured corpus.
+    #[test]
+    fn a_crate_fragment_names_code_and_a_node_fragment_names_a_property() {
+        for fragment in [
+            "ohio_panel::equalization_by_year",
+            "tests/the_weights_behind_the_index.rs",
+            "OhioPanel::new",
+            "identified",
+        ] {
+            assert!(
+                fragment_conforms(Kind::Crate, fragment),
+                "crate fragment rejected: {fragment}"
+            );
+        }
+        // The node rule is §4.4's, unchanged: a declared property path of dotted slugs.
+        assert!(fragment_conforms(Kind::Node, "properties.enacted"));
+        for fragment in ["properties.Enacted", "tests/x.rs", "a::b", ""] {
+            assert!(
+                !fragment_conforms(Kind::Node, fragment),
+                "node fragment accepted a non-property path: {fragment}"
+            );
+        }
+        // …and neither rule admits an empty fragment or whitespace.
+        assert!(!fragment_conforms(Kind::Crate, ""));
+        assert!(!fragment_conforms(Kind::Crate, "a b"));
+        assert!(!fragment_conforms(Kind::Crate, "a//b"));
+    }
+
+    /// The whole reference, as a corpus actually wrote it in a tag detail.
+    #[test]
+    fn the_crate_references_a_corpus_wrote_in_brackets_all_conform() {
+        for input in [
+            "crate/dispersion",
+            "crate/dispersion#ohio_panel::equalization_by_year",
+            "crate/dispersion#tests/the_weights_behind_the_index.rs",
+            "crate/project#tests/a_draft_cannot_hide_what_it_did_not_price.rs",
+        ] {
+            let r = parse_reference(input).unwrap_or_else(|| panic!("refused {input}"));
+            assert_eq!(r.kind, Kind::Crate, "{input}");
+            assert!(reference_conforms(&r), "{input} reported non-conforming");
+            assert_eq!(render_reference(&r), input, "{input} did not round trip");
         }
     }
 

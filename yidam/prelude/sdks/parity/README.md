@@ -18,7 +18,7 @@ is a build error — `mise run parity` enforces it before running any SDK tests.
 | `compile_class_schema` | Compile a `.ont.yml` class definition into a JSON Schema for its instances |
 | `parse_reference` | Parse RFC-0032's reference grammar — `yidam://<corpus>/<kind>/<path>[@<rev>][#<property>]`, the relative forms, and the legacy spellings — into a `Reference`. Total: `null` only for input naming no thing at all |
 | `render_reference` | Render a `Reference` back to a string. The only place an identifier is built |
-| `reference_conforms` | Whether every segment of a `Reference` is a slug, so it needs no escaping in any rendering |
+| `reference_conforms` | Whether every segment of a `Reference` is a slug, so it needs no escaping in any rendering — and whether its fragment names something, per kind |
 
 The parity surface is versioned in [`VERSION`](VERSION). Any change to a function's
 contract — input shape, output shape, or classification logic — requires bumping this
@@ -28,6 +28,34 @@ version and updating ALL THREE SDK implementations in the same PR.
 table held ten, and `VERSIONING.md` used to say "the six". A number written beside a list is
 a second copy of the list's length with nothing keeping it honest, so the numbers are gone
 and the rows are what a reader counts.
+
+**`references:` is a named field, not a key that survives `extra`.** A node's reference to a thing
+that is not a node — an issue, a crate, a catalog entry — goes in `references:`, as a **string** in
+the grammar rather than a struct: `parse_reference` is the reader, and a struct would be a second
+encoding of the identifier the grammar already spells. `parse_instance/references-are-read-as-written.toml`
+also pins that an unreadable entry is **kept**: a lint check is what names it, and a parser that
+dropped it would hide it from the check.
+
+It had to be named. The key already reached `extra`'s passthrough, so a corpus could write it today
+and nothing would read it — which is how `[unentered]` happened one layer up, and the exit there was
+structure beside the tag rather than a mark the tooling guessed at.
+
+**Two kinds arrived by measurement, not by design (#783).** Across the five corpora that write
+evidence-tag details, 496 references sit inside brackets where nothing can read them, and the two
+largest shapes had no form in the grammar:
+
+| Shape | Count | What it needed |
+|---|---|---|
+| `[verified — #362]` | 252 | a sixth `kind`, `issue` |
+| `` [verified — `dispersion::ohio_panel::equalization_by_year`] `` | 32 | a fragment that can name a code item |
+
+So `kind` is six, and `fragment_conforms` takes the kind: for a `crate` the fragment names a code
+item or a file — `::`, `/`, uppercase and `.` all admitted, because a foreign toolchain names those
+— and for everything else it stays §4.4's dotted property path.
+`reference_conforms/a-code-fragment-on-a-node-does-not-conform.toml` is what fails if the widening
+leaks past `crate`. §4.4's refusal is untouched: what it refuses is a fragment naming a **claim**,
+which RFC-0008 measured to have no identity by surface form, and a Rust item has one a compiler
+enforces.
 
 **The reference grammar is one parser, and the round trip is why.** `parse_reference` and
 `render_reference` are inverses, and `render_reference`'s fixtures are graded twice — once against

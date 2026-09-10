@@ -1,0 +1,9 @@
+function = "render_reference"
+description = "the sixth kind takes the shadowing rule with it: a node in a class called `issue` renders `node/issue/reopened`, or the round trip returns an issue"
+
+[input]
+kind = "node"
+path = "issue/reopened"
+
+[expected]
+text = "node/issue/reopened"

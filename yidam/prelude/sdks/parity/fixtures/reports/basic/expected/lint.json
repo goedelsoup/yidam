@@ -202,6 +202,13 @@
       "violations": []
     },
     {
+      "id": "reference-not-in-the-grammar",
+      "title": "A `references:` entry that is not a reference",
+      "severity": "warn",
+      "rationale": "`references:` is where a node names something that is not a node — an issue, a crate, a catalog entry, a decision — and every entry is a reference in RFC-0032's grammar, written as a string. `yidam_core::uri` is the one parser, so an entry it cannot resolve is an entry no surface can: not the MCP resource namespace, not the RDF export, not a rendered citation.\n\nThe finding names which rule the entry missed, because \"not a reference\" is not actionable and the three causes have three different fixes: a segment count that does not match the kind, a segment that cannot survive being put in a URI, or a fragment that does not name what its kind's fragment names.\n\nWarn rather than Error because the field is new and nothing writes it yet: 496 references across five corpora are still inside evidence-tag brackets, which is the population `yidam migrate references` moves. A finding here is a typo in a file somebody is already editing, and the baseline is what keeps it from going quiet.",
+      "violations": []
+    },
+    {
       "id": "missing-label",
       "title": "Instance with no human-readable label",
       "severity": "warn",

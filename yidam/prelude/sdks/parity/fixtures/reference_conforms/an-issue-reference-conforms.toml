@@ -1,0 +1,9 @@
+function = "reference_conforms"
+description = "an issue number is a single segment and digits are slug characters, so the sixth kind needed no new rule for its path"
+
+[input]
+kind = "issue"
+path = "362"
+
+[expected]
+conforms = true

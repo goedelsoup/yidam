@@ -17,7 +17,7 @@ from typing import Any
 
 import yaml
 
-_DECLARED = {"class", "label", "description", "properties", "links", "cites"}
+_DECLARED = {"class", "label", "description", "properties", "links", "cites", "references"}
 
 _TIMESTAMP = "tag:yaml.org,2002:timestamp"
 
@@ -78,6 +78,12 @@ class CorpusInstance:
     description: str | None = None
     properties: dict[str, Any] | None = None
     links: list[CorpusLink] | None = None
+    #: References to things that are not nodes: an issue, a crate, a catalog entry, a decision.
+    #: Each entry is a reference in RFC-0032's grammar, as a string —
+    #: :func:`yidam_core.uri.parse_reference` is the reader, and a dataclass here would be a
+    #: second encoding of the identifier the grammar already spells. Named rather than left to
+    #: ``extra``'s passthrough, because a destination that is not named is a convention (#783).
+    references: list[str] | None = None
     cites: list[ExternalCitation] | None = None
     #: Every other top-level key, kept rather than dropped.
     extra: dict[str, Any] = field(default_factory=dict)
@@ -131,6 +137,13 @@ def parse_instance(text: str) -> CorpusInstance:
                 )
             )
 
+    # Every entry kept as written, including a non-string: the reader is `parse_reference` and a
+    # lint check is what reports an entry it cannot read. Dropping one here would hide it from
+    # the check that exists to name it.
+    references = None
+    if isinstance(doc.get("references"), list):
+        references = [r if isinstance(r, str) else str(r) for r in doc["references"]]
+
     props = doc.get("properties")
     return CorpusInstance(
         cls=_str(doc.get("class")),
@@ -138,6 +151,7 @@ def parse_instance(text: str) -> CorpusInstance:
         description=_str(doc.get("description")),
         properties=props if isinstance(props, dict) else None,
         links=links,
+        references=references,
         cites=cites,
         extra={k: v for k, v in doc.items() if k not in _DECLARED},
     )
@@ -171,6 +185,7 @@ def instance_to_json(inst: CorpusInstance) -> dict[str, Any]:
                 for l in inst.links
             ]
         ),
+        "references": inst.references,
         "cites": (
             None
             if inst.cites is None

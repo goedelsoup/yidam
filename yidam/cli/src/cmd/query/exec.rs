@@ -419,6 +419,7 @@ mod tests {
                         })
                         .collect(),
                 ),
+                references: None,
                 cites: None,
                 extra: Default::default(),
             },
