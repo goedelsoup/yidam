@@ -769,9 +769,10 @@
             "enum": [
               "active",
               "settled",
+              "rewritten",
               "position"
             ],
-            "description": "A column rather than a filter: a table listing settled evolutions beside standing positions and calling the lot `active phases` is what this replaced."
+            "description": "A column rather than a filter: a table listing settled evolutions beside standing positions and calling the lot `active phases` is what this replaced. This is the copy a `phases` report is actually validated against; the flat one under the top-level `properties` is the second, and both are checked against `git::REF_STATES`."
           },
           "ref_name": {
             "type": "string",
