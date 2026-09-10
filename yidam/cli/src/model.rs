@@ -54,6 +54,29 @@ pub struct Provenance {
     pub genesis: String,
     pub domain: String,
     pub generated_at: u64,
+    /// The full hash of the genesis commit — the one identity every corpus has and no two share.
+    ///
+    /// Here because the RDF export needs to say *which corpus* a subject belongs to and
+    /// `render_rdf_turtle` is a pure function of this model. RFC-0032 §2's defect is that two
+    /// corpora holding `concept/foo` mint the same subject, and no field on this struct could say
+    /// which corpus was speaking. `domain` cannot stand in — it is prose from the genesis commit
+    /// ("Ohio education funding") — and `genesis` is a *date*.
+    ///
+    /// **Not the declared package name, which was the first attempt.** RFC-0032 §4.5 keeps the
+    /// declared name for identifiers a person reads or types, and that is right there. It is wrong
+    /// here for two reasons, one measured and one structural:
+    ///
+    /// - **Zero of sixteen corpora declare one.** None of them even has a `.yidam/tonpa.toml`. A
+    ///   subject built on it falls back to a constant for every corpus that exists, which leaves
+    ///   §2's collision precisely where it was while appearing to fix it.
+    /// - **A subject must not change.** A nickname can be chosen later, and the day a corpus
+    ///   declared one every subject it had ever published would name something else. The genesis
+    ///   hash is fixed at the first commit and cannot be renamed.
+    ///
+    /// The readable name is what a tool argument and a printed id use; a triple in somebody's
+    /// store is read by machines, and there the properties that matter are *unique* and *stable*.
+    /// `None` only for a tree with no commits, which no export can be run against anyway.
+    pub genesis_hash: Option<String>,
 }
 
 /// Pre-rendered Markdown views, computed once by [`load_domain_model`] so that
@@ -238,6 +261,9 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
+    // Read here rather than in the exporter, because every export renderer is a pure function
+    // of this model and does no disk I/O of its own.
+    let genesis_hash = crate::git::genesis_hash(root);
 
     // Prefix "../corpus/": this rendering goes into the export bundle at `index/corpus.md`,
     // where the instances sit at `corpus/<class>/<file>` (see `cmd::bundle`). One directory
@@ -259,6 +285,7 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
             genesis,
             domain,
             generated_at,
+            genesis_hash,
         },
         rendered: RenderedViews {
             corpus_index,
