@@ -617,3 +617,83 @@ fn no_upgrade_note_is_filed_under_a_release_that_already_shipped() {
         stranded.join("\n")
     );
 }
+
+/// A job that runs the CLI test suite must check out tags and history.
+///
+/// Part of that suite reads *this repository's* git rather than a fixture: the misfiled-note gate
+/// above resolves `cli/v*` tags and walks `docs/upgrading.md` with `git log -S`. `actions/checkout`
+/// is shallow and tagless by default, so a job with a bare checkout cannot answer, and the gate
+/// refuses — by design, rather than passing over nothing.
+///
+/// That is how `ci (cli · full features)` went red on `main` while `ci (cli)` was green on the
+/// same commit. It is a main-only job, so no pull request could have shown it. `ci (mutants)` had
+/// the same checkout and has never run: `cargo mutants` runs the suite for its unmutated baseline,
+/// and a failing baseline aborts before a single mutation is applied.
+///
+/// Asserted over the jobs **discovered** to run the suite, so a fourth one joins this by running
+/// it rather than by someone remembering to add it here.
+#[test]
+fn every_job_that_runs_the_cli_suite_checks_out_tags_and_history() {
+    let workflow = read(".github/workflows/ci.yml");
+
+    // Split into jobs on the two-space-indented `<name>:` that opens one.
+    let mut jobs: Vec<(String, String)> = Vec::new();
+    let mut current: Option<(String, Vec<&str>)> = None;
+    for line in workflow.lines() {
+        let opens_job = line.len() > 3
+            && line.starts_with("  ")
+            && !line.starts_with("   ")
+            && line.trim_end().ends_with(':')
+            && !line.trim_start().starts_with('#');
+        if opens_job {
+            if let Some((name, body)) = current.take() {
+                jobs.push((name, body.join("\n")));
+            }
+            current = Some((line.trim().trim_end_matches(':').to_string(), Vec::new()));
+        } else if let Some((_, body)) = current.as_mut() {
+            body.push(line);
+        }
+    }
+    if let Some((name, body)) = current {
+        jobs.push((name, body.join("\n")));
+    }
+    assert!(
+        jobs.len() > 5,
+        "only {} job(s) parsed out of ci.yml — the job splitter is looking at nothing",
+        jobs.len()
+    );
+
+    // What counts as running the suite: the mise tasks that invoke nextest over this crate, and
+    // `cargo mutants`, which runs it as its baseline.
+    let runs_suite = |body: &str| {
+        [
+            "mise run ci-cli",
+            "ci-cli-full",
+            "cargo mutants",
+            "coverage-full",
+        ]
+        .iter()
+        .any(|needle| body.contains(needle))
+    };
+
+    let suite_jobs: Vec<&(String, String)> = jobs.iter().filter(|(_, b)| runs_suite(b)).collect();
+    assert!(
+        suite_jobs.len() >= 2,
+        "expected at least two jobs running the CLI suite, found {}: {:?}",
+        suite_jobs.len(),
+        suite_jobs.iter().map(|(n, _)| n).collect::<Vec<_>>()
+    );
+
+    let shallow: Vec<&String> = suite_jobs
+        .iter()
+        .filter(|(_, body)| !body.contains("fetch-depth: 0"))
+        .map(|(name, _)| name)
+        .collect();
+    assert!(
+        shallow.is_empty(),
+        "these jobs run the CLI test suite with a shallow, tagless checkout: {shallow:?}\n  \
+         Part of the suite reads this repository's tags and the history of docs/upgrading.md, so \
+         it cannot answer there and refuses rather than passing. Add `with: fetch-depth: 0` to \
+         their `actions/checkout` step."
+    );
+}

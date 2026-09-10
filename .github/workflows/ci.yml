@@ -505,6 +505,14 @@ jobs:
       CARGO_BUILD_JOBS: '2'
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Tags and full history, because this job runs the whole CLI suite and part of it
+          # reads *this repository's* git: `release_script`'s misfiled-note gate resolves
+          # `cli/v*` tags and walks `docs/upgrading.md`'s history with `git log -S`. A bare
+          # checkout has neither, so the gate refused — by design, rather than passing over
+          # nothing — and this job was red on main while `ci (cli)` was green on the same
+          # commit, because that one already fetches depth 0.
+          fetch-depth: 0
       - uses: jdx/mise-action@v4
       - name: Ensure rustfmt and clippy for the pinned toolchain
         run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
@@ -820,6 +828,11 @@ jobs:
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v7
+        with:
+          # As `cli-full`: `cargo mutants` runs the whole suite for its unmutated baseline, and
+          # a baseline that fails aborts the run. A bare checkout would end this job before it
+          # applied a single mutation.
+          fetch-depth: 0
       - uses: jdx/mise-action@v4
       - uses: Swatinem/rust-cache@v2
         with:
