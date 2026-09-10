@@ -165,9 +165,13 @@ export interface PhasesReport extends Envelope {
     started: string
     commits: number
     /**
-     * `active`, `settled`, or `position`. Optional because a pinned binary older than the
-     * field omits it, and a view that renders `undefined` is worse than one that renders
-     * nothing.
+     * `active`, `settled`, `rewritten`, or `position` — `git::REF_STATES`, which
+     * `report.schema.json` declares as a closed enum. `rewritten` was added by #773 and this
+     * comment did not follow it for two releases; the type is `string` so nothing broke, which
+     * is exactly why nothing said so.
+     *
+     * Optional because a pinned binary older than the field omits it, and a view that renders
+     * `undefined` is worse than one that renders nothing.
      */
     state?: string
   }[]
