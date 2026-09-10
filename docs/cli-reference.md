@@ -756,6 +756,10 @@ the reliable answer, because two of the six are feature-gated:
 | `rdf` | Turtle and JSON-LD. `--rdf-format` picks one | `export-graph` |
 | `sqlite` | SQLite + sqlite-vec | `export-sqlite` |
 
+**A directory that is not a corpus is refused, not exported empty.** `export`, `bundle` and
+`schema` check for `.yidam/` first. `schema --settings` is the exception: it prints a
+compiled-in mapping and reads no corpus.
+
 ## Serving the domain computer
 
 | Command | What it does |

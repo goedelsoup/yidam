@@ -150,3 +150,191 @@ fn version_names_the_build_and_its_features() {
         r.stdout.trim()
     );
 }
+
+// ── #793: a command that writes must not write into a directory that is not a corpus ────
+
+/// Every file under `dir`, excluding `.git/`, so a run's effect on the tree is decidable.
+fn files(dir: &Path) -> Vec<String> {
+    fn walk(dir: &Path, base: &Path, out: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for e in entries.filter_map(Result::ok) {
+            let p = e.path();
+            if p.file_name().is_some_and(|n| n == ".git") {
+                continue;
+            }
+            if p.is_dir() {
+                walk(&p, base, out);
+            } else {
+                out.push(p.strip_prefix(base).unwrap_or(&p).display().to_string());
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(dir, dir, &mut out);
+    out.sort();
+    out
+}
+
+/// The commands `yidam --help` marks with `*`, which its own legend defines as those that
+/// "rewrite files in the repository it is run against".
+///
+/// **Discovered, not listed.** A hardcoded roster stops covering whatever is added next
+/// without ever going red, and the help text is where this repository already declares which
+/// commands write — so a new writer joins this population by being documented as one.
+fn writing_commands() -> Vec<String> {
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    let help = String::from_utf8_lossy(&out.stdout).to_string();
+    let mut names: Vec<String> = help
+        .lines()
+        .filter_map(|l| {
+            let rest = l.strip_prefix("  ")?;
+            let (name, after) = rest.split_once(char::is_whitespace)?;
+            after
+                .trim_start()
+                .strip_prefix("* ")
+                .map(|_| name.to_string())
+        })
+        .filter(|n| !n.is_empty() && !n.starts_with('-'))
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// The floor under the two tests below. A parser that stops recognising the `*` legend would
+/// leave both of them iterating an empty set and passing over nothing.
+#[test]
+fn the_writing_commands_are_discovered_from_the_help_legend() {
+    let names = writing_commands();
+    assert!(
+        names.len() > 10,
+        "only {} writing command(s) found — the `*` legend parser is looking at nothing: {names:?}",
+        names.len()
+    );
+    for expected in ["export", "schema", "bundle", "regen"] {
+        assert!(
+            names.iter().any(|n| n == expected),
+            "`{expected}` writes and must be in the discovered set: {names:?}"
+        );
+    }
+}
+
+/// The defect: `export` and `schema` skipped `require_yidam_repo`, so in a directory that was
+/// not a corpus every export format wrote an artefact and exited 0.
+///
+/// Worse than an empty artefact, `schema` and `export --format bundle`/`--format web` created
+/// `.yidam/` on the way — **manufacturing the one marker every gate tests for**, so a single
+/// wrong-directory run left a tree that every later check would accept.
+///
+/// Asserted as "wrote nothing", not as an exit code, because that is the property that was
+/// violated and it holds for a command refused on its arguments as much as one refused on its
+/// directory.
+#[test]
+fn no_writing_command_creates_a_file_outside_a_corpus() {
+    // Bare, with no extra arguments. An earlier version of this test passed `--format bundle`
+    // to every command so that `export` would run, and that made the whole loop vacuous: every
+    // other command refused the unknown argument, wrote nothing for that reason, and satisfied
+    // the assertion without its gate being exercised at all. Mutating away `schema`'s gate left
+    // this test green, which is how the flaw showed. `export` gets its own loop below.
+    let mut invocations: Vec<Vec<String>> =
+        writing_commands().into_iter().map(|n| vec![n]).collect();
+    for format in ["bundle", "rdf", "graphml", "llms", "web"] {
+        invocations.push(vec!["export".into(), "--format".into(), format.into()]);
+    }
+
+    for (label, dir) in [
+        ("no git repository", bare()),
+        ("git, no .yidam/", plain_git()),
+    ] {
+        for args in &invocations {
+            let argv: Vec<&str> = args.iter().map(String::as_str).collect();
+            let before = files(dir.path());
+            let r = run(dir.path(), &argv);
+            let after = files(dir.path());
+            assert_eq!(
+                before,
+                after,
+                "`yidam {}` wrote into a directory that is not a corpus ({label})\n\
+                 exit: {}\nstdout: {}\nstderr: {}",
+                args.join(" "),
+                r.code,
+                r.stdout,
+                r.stderr
+            );
+        }
+    }
+}
+
+/// The three that were violating it, held to the exit code and to naming the reason. A gate
+/// that writes nothing because it crashed is not the same as one that refuses.
+///
+/// `bundle` is here because it and `export --format bundle` are one operation reached by two
+/// names, and they disagreed: `export` wrote an empty bundle and exited 0, while `bundle`
+/// exited 1 with `No such file or directory (os error 2)` — the write failing for want of a
+/// parent directory, naming neither the path nor the cause.
+#[test]
+fn export_bundle_and_schema_refuse_outside_a_corpus_and_say_why() {
+    let d = plain_git();
+    for args in [
+        &["export", "--format", "bundle"][..],
+        &["export", "--format", "rdf"][..],
+        &["export", "--format", "llms"][..],
+        &["export", "--format", "web"][..],
+        &["export", "--format", "graphml"][..],
+        &["bundle"][..],
+        &["schema"][..],
+    ] {
+        let r = run(d.path(), args);
+        assert_ne!(
+            r.code,
+            0,
+            "`yidam {}` succeeded outside a corpus\nstdout: {}",
+            args.join(" "),
+            r.stdout
+        );
+        assert!(
+            r.stderr.contains("not a yidam repository"),
+            "`yidam {}` refused without saying why: {}",
+            args.join(" "),
+            r.stderr
+        );
+    }
+}
+
+/// The other half, without which the gate could be satisfied by refusing everything: a
+/// bootstrapped repository with no nodes yet must still be able to export and to compile its
+/// schemas. An empty corpus is a legitimate corpus.
+#[test]
+fn a_bootstrapped_repository_with_an_empty_corpus_can_still_export() {
+    let d = bootstrapped_but_empty();
+    for args in [&["export", "--format", "llms"][..], &["schema"][..]] {
+        let r = run(d.path(), args);
+        assert_eq!(
+            r.code,
+            0,
+            "`yidam {}` must run in a bootstrapped repo\nstdout: {}\nstderr: {}",
+            args.join(" "),
+            r.stdout,
+            r.stderr
+        );
+    }
+}
+
+/// `schema --settings` prints a compiled-in editor configuration and reads nothing from disk,
+/// so it has no corpus to refuse over. Gating the command rather than its writing branch would
+/// have taken that away, which is why the gate sits after the early return.
+#[test]
+fn schema_settings_still_answers_outside_a_repository() {
+    let r = run(bare().path(), &["schema", "--settings"]);
+    assert_eq!(r.code, 0, "schema --settings failed: {}", r.stderr);
+    assert!(
+        r.stdout.trim_start().starts_with('{'),
+        "expected a JSON object: {}",
+        r.stdout
+    );
+}

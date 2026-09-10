@@ -80,6 +80,21 @@ bundle can claim one name, and the checkout is what gets read. That is normal wh
 one corpus in two forms. It is a **failure** when their genesis hashes differ, because then
 `tonpa.lock` pins a corpus nobody is reading. The check is silent when either hash is unknown.
 
+### `export`, `bundle` and `schema` refuse a directory that is not a corpus
+
+They used to succeed. In a directory with no `.yidam/`, every export format wrote an
+artefact and exited 0. An empty bundle, an RDF graph of nothing, a `llms.txt` with no nodes.
+`--format bundle`, `--format web` and `schema` also **created `.yidam/` on the way**, which is
+the marker every check tests for. One run in the wrong directory left a tree that `graph-check`,
+`lint` and `doctor` would all accept.
+
+**If a script of yours runs one of these outside a corpus, it now exits 1** and names the
+directory. That is the change to look for. Nothing changes inside a repository, and an empty
+corpus still exports. An hour-old repository with no nodes is a corpus, not a missing one.
+
+`schema --settings` is unaffected. It prints a compiled-in editor mapping and reads no corpus,
+so there is nothing for it to refuse over.
+
 ## cli/v0.11.0
 
 ### `score` says why the criteria are the template's, in four states
