@@ -589,9 +589,9 @@ fn no_upgrade_note_is_filed_under_a_release_that_already_shipped() {
                 .success()
             {
                 stranded.push(format!(
-                    "  {heading} — `### {note}`\n      introduced by {} , which is not an \
-                     ancestor of {heading}: the note was written after that release shipped and \
-                     reaches no release at all. Move it under the tag that carries it.",
+                    "  under `## {heading}`: `### {note}`\n      introduced by {}, which is not \
+                     an ancestor of {heading} — the note was written after that release shipped, \
+                     so it reaches no release at all. Move it under the tag that carries it.",
                     &introduced[..introduced.len().min(8)]
                 ));
             }
