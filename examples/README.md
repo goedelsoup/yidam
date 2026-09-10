@@ -32,6 +32,14 @@ Two consequences worth knowing before editing either side:
   from `samudaya/examples/`, which is markdown rather than a corpus, so there is nothing to
   run and a transcript there would be an unchecked claim by construction. Use a `text` fence.
 
+**An example read in place has no identity of its own.** Each of these is a corpus inside
+*this* repository, so `git rev-parse --show-toplevel` from one answers with yidam. The corpus's
+first commit is therefore not readable from where it sits, and `yidam export --format rdf`
+refuses rather than naming all four with yidam's genesis commit — which is what it used to do,
+minting one `owl:Ontology` subject for four different corpora (#792). Copy the example out and
+`git init` it, exactly as the walkthrough gate does below, and it exports normally. Every other
+format works in place.
+
 An example that needs its own commit history — because the page asks a question with `--at` or
 `replay` — ships a `history.toml`, and the gate builds the repository from it one commit at a
 time. `property/` and `incidents/` do; the others get a single genesis commit.

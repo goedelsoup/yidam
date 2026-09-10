@@ -190,17 +190,26 @@ fn corpus_component(model: &DomainModel) -> Result<String> {
         // reintroduced by the code that fixes it. An export that stops is recoverable; a
         // published subject that silently names another corpus's node is not.
         //
-        // The branch is reachable. `git` answering nothing is not only an empty repository: a
-        // worktree copied out of its parent, a shallow clone without the root commit, and a
-        // `.yiz` extracted to a plain directory all land here. The bundle manifest does **not**
-        // help — it records `genesis` as an ISO *date*, so a bundle cannot supply this even
-        // though the addressing plan's decision C assumed a digest was already there.
+        // The branch is reachable, and by two different routes. A repository with no root
+        // commit to name — an empty one, a shallow clone without it — and a corpus that is a
+        // *directory inside* a repository rather than one itself, which is #792: git walks up,
+        // so every corpus nested in one host was handed the host's genesis and the four under
+        // `examples/` all minted `urn:yidam:094509a128f4`.
+        //
+        // The message has to name both, because the older wording ("git answered nothing")
+        // is false for the second and its advice — "pass --root" — is what the person just
+        // did. A refusal that describes the wrong cause sends them somewhere there is
+        // nothing to find.
         None => anyhow::bail!(
-            "the RDF export names its subjects with this corpus's genesis commit, and `git \
-             rev-list --max-parents=0 HEAD` answered nothing here. Every other format works \
-             without it; RDF does not, because a subject that cannot say which corpus it \
-             belongs to conflates nodes when two corpora are merged. Run this in the \
-             repository, or pass --root."
+            "the RDF export names its subjects with this corpus's own genesis commit, and \
+             this corpus has none. Either it is not a git repository, or it is a directory \
+             inside one — in which case git answers with the enclosing repository, whose \
+             genesis names a different corpus and is shared by every corpus nested in it. \
+             Every other format works without this; RDF does not, because a subject that \
+             cannot say which corpus it belongs to conflates nodes when two corpora are \
+             merged into one store. Give the corpus a repository of its own — `git init` in \
+             it, or copy it out with `yidam clone` — or export a format that does not name \
+             subjects."
         ),
     }
 }

@@ -49,8 +49,11 @@ ISO date, so it can order two bundles. `genesis_hash` is its full SHA. It is the
 that says *which corpus this is*. Two corpora created on one day share a date. No two share a
 root commit. A name is chosen and can be changed; this cannot.
 
-`genesis_hash` is `null` for a tree with no root commit, and **absent** from any bundle
-built before the field existed. Absence means the corpus is unidentified. It never means
+`genesis_hash` is `null` when the corpus has no first commit of its own. It is **absent**
+from any bundle built before the field existed. Two cases give `null`. A tree with no commits
+at all. And a corpus that is a *directory inside* a repository, rather than one itself. Git
+answers such a directory with the enclosing repository. That repository's genesis names
+something else, and is shared by every corpus nested in it. Absence means the corpus is unidentified. It never means
 zero, and a reader must not substitute a placeholder. One constant would name every such
 bundle alike. That is the confusion the field exists to prevent.
 
