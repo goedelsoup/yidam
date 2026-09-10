@@ -1175,6 +1175,10 @@ fn first_line(s: &str) -> String {
 /// than reimplementing the generator list.
 fn check_corpora(root: &Path) -> Answer {
     const REMEDY: &str = "mise run tonpa-install";
+    // A shadow is not fixed by installing anything — the unpacked copy is a *different*
+    // corpus from the checkout being read under its name, so the repair is to stop one of
+    // them answering to that name.
+    const SHADOW_REMEDY: &str = "rm -r .yidam/tonpa/<name>, or rename one of the two";
 
     let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root));
     if config.dependencies.is_empty() {
@@ -1189,6 +1193,12 @@ fn check_corpora(root: &Path) -> Answer {
 
     let (mut missing, mut corrupt, mut unlocked, mut ok, mut local) =
         (Vec::new(), Vec::new(), Vec::new(), 0usize, 0usize);
+
+    // Two corpora claiming one name, which `deps::resolved` resolves silently in favour of
+    // the checkout. Silence is right when they are the same corpus in two forms and wrong
+    // when they are not, and only the genesis digest in the unpacked manifest can tell those
+    // apart — RFC-0032 §4.5, and #781, which is that digest arriving.
+    let shadowed = crate::deps::shadowed(root);
 
     for (name, dep) in &config.dependencies {
         // A path dependency is read where it sits and has nothing to fetch, which is exactly
@@ -1239,15 +1249,39 @@ fn check_corpora(root: &Path) -> Answer {
             unlocked.join(", ")
         ));
     }
+    for s in &shadowed {
+        detail.push(format!(
+            "{}: the path checkout (genesis {}) and the unpacked bundle (genesis {}) are \
+             different corpora under one name — the checkout is what gets read",
+            s.name,
+            short(&s.path_genesis),
+            short(&s.fetched_genesis),
+        ));
+    }
     let detail = detail.join("; ");
 
-    if !missing.is_empty() || !corrupt.is_empty() {
+    // A shadow outranks a missing install: one is the wrong corpus being read, the other is
+    // no corpus being read, and the second is visible the moment anything asks for it.
+    if !shadowed.is_empty() {
+        Answer::fail(detail, Some(SHADOW_REMEDY))
+    } else if !missing.is_empty() || !corrupt.is_empty() {
         Answer::fail(detail, Some(REMEDY))
     } else if !unlocked.is_empty() {
         Answer::warn(detail, Some(REMEDY))
     } else {
         Answer::ok(detail)
     }
+}
+
+/// A genesis hash abbreviated for a diagnostic line, where the whole of it earns nothing.
+///
+/// Twelve, matching `export_rdf`'s subject component, so the two places a person sees this
+/// value abbreviated spell it the same way. Shorter than the full hash and long past the
+/// point where two corpora in one tree could collide.
+fn short(hash: &str) -> &str {
+    // `get` rather than an index: a slice of a value read off disk is a panic path, and the
+    // count of those in this crate is a number `panic_paths.rs` holds steady.
+    hash.get(..12).unwrap_or(hash)
 }
 
 /// Can every corpus file be read at all?
@@ -1676,6 +1710,106 @@ mod tests {
         let c = check_corpora(tmp.path());
         assert_eq!(c.verdict, Verdict::Ok, "detail was: {}", c.detail);
         assert!(c.detail.contains("1 path"), "{}", c.detail);
+    }
+
+    /// Two corpora under one name, which `deps::resolved` resolves silently in favour of the
+    /// checkout — right when they are the same corpus in two forms, and a wrong answer when
+    /// they are not. Nothing could tell those apart until the manifest carried a genesis
+    /// digest (#781): the declared names agree, and `genesis` is a date, which two corpora
+    /// created on one day also agree on.
+    ///
+    /// Graded above a missing install deliberately. A corpus that is not there is visible the
+    /// moment anything asks for it; a corpus that is the wrong one answers every question.
+    #[test]
+    fn a_checkout_shadowing_a_different_corpus_fails_and_names_both() {
+        let tmp = repo_with_corpora("[dependencies.dep]\npath = \"sibling\"\n", "", &[]);
+        let sibling = tmp.path().join("sibling");
+        let sibling_hash = nested_corpus(&sibling);
+        let unpacked = crate::paths::tonpa_dir(tmp.path()).join("dep");
+        std::fs::create_dir_all(&unpacked).unwrap();
+        std::fs::write(
+            unpacked.join("manifest.yml"),
+            "bundle_version: \"1\"\ngenesis_hash: \"0000111122223333444455556666777788889999\"\n",
+        )
+        .unwrap();
+
+        let c = check_corpora(tmp.path());
+        assert_eq!(c.verdict, Verdict::Fail, "detail was: {}", c.detail);
+        assert!(
+            c.detail.contains("under one name") && c.detail.contains("dep:"),
+            "{}",
+            c.detail
+        );
+        assert!(
+            c.detail.contains(&sibling_hash[..12]) && c.detail.contains("000011112222"),
+            "both identities have to be in the line, or it names no evidence: {}",
+            c.detail
+        );
+        assert_eq!(
+            c.remedy.as_deref(),
+            Some("rm -r .yidam/tonpa/<name>, or rename one of the two"),
+            "installing again cannot fix a name claimed by two corpora"
+        );
+    }
+
+    /// The same fixture where the two *are* one corpus. This is the development loop — fetch
+    /// a dependency, then point at a checkout of it to edit — and it must stay quiet, or the
+    /// check reports the normal case forever.
+    #[test]
+    fn a_checkout_of_the_same_corpus_is_not_a_shadow() {
+        let tmp = repo_with_corpora("[dependencies.dep]\npath = \"sibling\"\n", "", &[]);
+        let sibling_hash = nested_corpus(&tmp.path().join("sibling"));
+        let unpacked = crate::paths::tonpa_dir(tmp.path()).join("dep");
+        std::fs::create_dir_all(&unpacked).unwrap();
+        std::fs::write(
+            unpacked.join("manifest.yml"),
+            format!("bundle_version: \"1\"\ngenesis_hash: \"{sibling_hash}\"\n"),
+        )
+        .unwrap();
+
+        let c = check_corpora(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok, "detail was: {}", c.detail);
+        assert!(c.detail.contains("1 path"), "{}", c.detail);
+    }
+
+    /// Twelve, matching the component `export_rdf` builds a subject from, so the two places a
+    /// person meets an abbreviated genesis hash spell it the same way — and a value shorter
+    /// than the window comes back whole rather than panicking on a slice.
+    #[test]
+    fn a_digest_is_abbreviated_to_the_length_rdf_subjects_use() {
+        assert_eq!(
+            short("da4eeb36530f1111222233334444555566667777"),
+            "da4eeb36530f"
+        );
+        assert_eq!(short("da4eeb"), "da4eeb");
+        assert_eq!(short(""), "");
+    }
+
+    /// A corpus checkout with one commit of its own, so it has a genesis hash to compare.
+    fn nested_corpus(dir: &Path) -> String {
+        std::fs::create_dir_all(crate::paths::yidam_corpus_dir(dir)).unwrap();
+        std::fs::write(
+            crate::paths::yidam_corpus_dir(dir).join("a.ont.yml"),
+            "x: 1\n",
+        )
+        .unwrap();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["config", "user.email", "t@t.com"][..],
+            &["config", "user.name", "T"][..],
+            &["config", "commit.gpgsign", "false"][..],
+            &["add", "-A"][..],
+            &["commit", "-q", "--no-gpg-sign", "-m", "genesis: a corpus"][..],
+        ] {
+            let ok = std::process::Command::new("git")
+                .current_dir(dir)
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?} failed");
+        }
+        crate::git::genesis_hash(dir).expect("the fixture checkout has a root commit")
     }
 
     /// An unreadable bundle is not an intact one.

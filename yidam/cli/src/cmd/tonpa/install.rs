@@ -36,25 +36,10 @@ pub use crate::deps::sha256_hex;
 
 // ── extract ───────────────────────────────────────────────────────────────────
 
-/// Parsed subset of `manifest.yml` from a `.yiz` bundle archive.
-///
-/// Only the fields that `tonpa install` needs are decoded here. The full
-/// field list is documented on [`render_bundle`] in `cmd/bundle.rs`.
-/// Unknown fields in the YAML are silently ignored — consumers MUST treat
-/// unrecognised fields as non-breaking additions per the versioning policy.
-#[derive(Debug, Default, serde::Deserialize)]
-pub struct BundleManifest {
-    /// Short SHA of the HEAD commit when the bundle was produced.
-    pub commit: Option<String>,
-    /// ISO date (YYYY-MM-DD) of the genesis (first) commit.
-    pub genesis: Option<String>,
-    /// Name of the fastembed model used to build the vector index, if present.
-    pub vector_index_model: Option<String>,
-    /// Number of corpus instance files included in the bundle.
-    /// Decoded for forward compatibility; not consumed by any command yet.
-    #[allow(dead_code)]
-    pub instances: Option<u64>,
-}
+// The manifest shape lives in `crate::deps`, which is not behind the `tonpa` feature — the
+// readers are on both sides of it, and the two copies that predated the move had already
+// drifted apart on which fields exist. The full field list is on `render_bundle`.
+pub use crate::deps::BundleManifest;
 
 pub fn extract_bundle(data: &[u8], dest: &Path) -> Result<BundleManifest> {
     std::fs::create_dir_all(dest).with_context(|| format!("creating {}", dest.display()))?;
@@ -89,8 +74,7 @@ pub fn extract_bundle(data: &[u8], dest: &Path) -> Result<BundleManifest> {
         }
     }
 
-    let manifest: BundleManifest = serde_yaml::from_str(&manifest_yaml).unwrap_or_default();
-    Ok(manifest)
+    Ok(crate::deps::parse_manifest(&manifest_yaml))
 }
 
 // ── install ───────────────────────────────────────────────────────────────────

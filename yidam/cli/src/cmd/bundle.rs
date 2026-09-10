@@ -47,6 +47,7 @@ fn add_bytes<W: Write>(tar: &mut Builder<W>, path: &str, data: &[u8]) -> Result<
 /// | `bundle_version`     | string  | Format version ("1"). Bumped on breaking change|
 /// | `commit`             | string  | Short SHA of HEAD at bundle time               |
 /// | `genesis`            | string  | ISO date of the first commit                  |
+/// | `genesis_hash`       | string? | Full SHA of the first commit, or `null`       |
 /// | `generated_at`       | integer | Unix timestamp (seconds) of bundle creation   |
 /// | `domain`             | string  | Domain name extracted from the genesis commit |
 /// | `classes`            | integer | Count of `.ont.yml` schema files              |
@@ -61,6 +62,14 @@ fn add_bytes<W: Write>(tar: &mut Builder<W>, path: &str, data: &[u8]) -> Result<
 /// removing a field, renaming a field, changing a field's type, or removing a
 /// file from the archive layout. Adding new fields or new archive entries is
 /// non-breaking. Consumers MUST ignore unknown fields and unknown archive paths.
+///
+/// `genesis_hash` is the first field added under that policy, and it is why the policy
+/// needs a second half: a *new consumer* reading it meets bundles produced before it
+/// existed, and those carry no such field. **Absence means unidentified — never zero, and
+/// never a shared constant.** A constant would be the same string for every bundle that
+/// predates the field, which is the conflation the value exists to prevent (RFC-0032 §2).
+/// So the version stays `"1"` — nothing that could read a bundle before can fail to read
+/// one now — and the burden is on the reader to have an answer for `None`.
 pub(crate) fn render_bundle(model: &DomainModel) -> Result<Vec<u8>> {
     let p = &model.provenance;
     let index_line = match &model.index {
@@ -71,10 +80,20 @@ pub(crate) fn render_bundle(model: &DomainModel) -> Result<Vec<u8>> {
         None => "vector_index_model: null\n".to_string(),
     };
 
+    // `genesis` is a date, and two corpora created on one day share it — so it can order
+    // bundles and cannot identify them. This is the field that can: the first commit's full
+    // hash, fixed at genesis and unrenameable. `null` rather than a placeholder for a tree
+    // with no root commit; the versioning note above says why absence must stay absent.
+    let genesis_hash_line = match &p.genesis_hash {
+        Some(hash) => format!("genesis_hash: \"{hash}\"\n"),
+        None => "genesis_hash: null\n".to_string(),
+    };
+
     let manifest = format!(
         "bundle_version: \"1\"\n\
          commit: \"{}\"\n\
          genesis: \"{}\"\n\
+         {genesis_hash_line}\
          generated_at: {}\n\
          domain: \"{}\"\n\
          classes: {}\n\
@@ -192,7 +211,7 @@ pub fn bundle() -> Result<()> {
 mod tests {
     use super::*;
     use crate::embed_config::EmbedConfig;
-    use crate::model::{IndexData, RenderedViews};
+    use crate::model::{IndexData, Provenance, RenderedViews};
     use flate2::read::GzDecoder;
     use std::io::Read;
 
@@ -266,5 +285,77 @@ mod tests {
         let entries = archive_entries(&bytes);
         assert!(entries.iter().any(|(p, _)| p == "index/corpus.arrow"));
         assert!(!entries.iter().any(|(p, _)| p == "index/embed.config.json"));
+    }
+
+    fn manifest_of(model: &DomainModel) -> String {
+        let bytes = render_bundle(model).unwrap();
+        let (_, data) = archive_entries(&bytes)
+            .into_iter()
+            .find(|(p, _)| p == "manifest.yml")
+            .expect("every bundle carries a manifest");
+        String::from_utf8(data).unwrap()
+    }
+
+    /// RFC-0032 §4.5 and the addressing plan's decision C both say a consumer can tell two
+    /// corpora apart "using the genesis digest each manifest already carries". Until #781 no
+    /// manifest carried one — `genesis` is an ISO *date*, which two corpora created on one day
+    /// share. Asserted through the decoder rather than by substring, so the field a reader
+    /// gets is the field the writer wrote.
+    #[test]
+    fn the_manifest_carries_the_genesis_hash_a_reader_can_decode() {
+        let model = DomainModel {
+            provenance: Provenance {
+                genesis_hash: Some("da4eeb36530f1111222233334444555566667777".into()),
+                ..crate::model::test_provenance()
+            },
+            ..minimal_model(None)
+        };
+        let manifest = manifest_of(&model);
+        assert_eq!(
+            crate::deps::parse_manifest(&manifest)
+                .genesis_hash
+                .as_deref(),
+            Some("da4eeb36530f1111222233334444555566667777")
+        );
+        assert!(
+            manifest.contains("genesis: \"2026-01-01\""),
+            "the date is still its own field, not replaced:\n{manifest}"
+        );
+    }
+
+    /// A tree with no root commit has no identity, and the manifest says so rather than
+    /// standing in a placeholder. A constant here would be the same string for every such
+    /// bundle, which is the conflation RFC-0032 §2 is about — so absence has to survive the
+    /// round trip as absence.
+    #[test]
+    fn a_corpus_with_no_root_commit_writes_a_null_that_reads_back_absent() {
+        let manifest = manifest_of(&minimal_model(None));
+        assert!(
+            manifest.contains("genesis_hash: null"),
+            "expected an explicit null:\n{manifest}"
+        );
+        assert_eq!(crate::deps::parse_manifest(&manifest).genesis_hash, None);
+    }
+
+    /// The manifest is hand-written YAML, so "it parses" is not a given for any field added
+    /// to it. Both spellings of the new field, held to the whole document decoding.
+    #[test]
+    fn the_manifest_is_wellformed_yaml_either_way() {
+        for model in [
+            minimal_model(None),
+            DomainModel {
+                provenance: Provenance {
+                    genesis_hash: Some("da4eeb36530f".into()),
+                    ..crate::model::test_provenance()
+                },
+                ..minimal_model(None)
+            },
+        ] {
+            let manifest = manifest_of(&model);
+            let value: serde_yaml::Value = serde_yaml::from_str(&manifest)
+                .unwrap_or_else(|e| panic!("manifest is not YAML: {e}\n{manifest}"));
+            assert_eq!(value["bundle_version"].as_str(), Some("1"));
+            assert_eq!(value["domain"].as_str(), Some("test-domain"));
+        }
     }
 }

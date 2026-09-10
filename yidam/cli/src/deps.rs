@@ -112,6 +112,56 @@ pub fn load_lock(path: &Path) -> anyhow::Result<LockFile> {
     toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
 }
 
+// ── manifest.yml ──────────────────────────────────────────────────────────────
+
+/// The subset of an unpacked bundle's `manifest.yml` that anything here reads.
+///
+/// Here rather than in `cmd/tonpa/install.rs`, where it used to live, because the readers
+/// are on both sides of the `tonpa` feature gate: `install` decodes a manifest it has just
+/// extracted, `lint`'s external-citation checks decode one on disk, and `doctor` asks
+/// whether an unpacked corpus is the one a path dependency shadows — and only the first of
+/// those can fetch anything. There were two decoders of this file before this struct, one
+/// per side, and they already disagreed about which fields exist.
+///
+/// Every field is `Option`, and that is the format's versioning policy rather than caution:
+/// adding a field to `manifest.yml` is non-breaking, so a reader compiled today meets
+/// bundles written before any given field existed. Absence is a legitimate answer here and
+/// never an error.
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct BundleManifest {
+    /// Short SHA of the HEAD commit when the bundle was produced. Its *length* is chosen by
+    /// git from the producing repository's object count, so it is not comparable across
+    /// repositories — RFC-0019 §2 is about exactly that.
+    pub commit: Option<String>,
+    /// ISO date (YYYY-MM-DD) of the genesis (first) commit.
+    pub genesis: Option<String>,
+    /// Full SHA of the genesis commit — the one value in the manifest that says *which
+    /// corpus this is*. `None` for a bundle produced before the field existed, and for a
+    /// tree with no root commit.
+    pub genesis_hash: Option<String>,
+    /// Name of the fastembed model used to build the vector index, if present.
+    pub vector_index_model: Option<String>,
+    /// Number of corpus instance files included in the bundle.
+    /// Decoded for forward compatibility; not consumed by any command yet.
+    #[allow(dead_code)]
+    pub instances: Option<u64>,
+}
+
+/// Decode a `manifest.yml` body. A manifest that does not parse decodes as all-absent
+/// rather than failing: a bundle whose manifest is unreadable is still a directory of
+/// corpus files, and every caller has an answer for a field it did not get.
+pub fn parse_manifest(yaml: &str) -> BundleManifest {
+    serde_yaml::from_str(yaml).unwrap_or_default()
+}
+
+/// Read `<dir>/manifest.yml`. `None` when there is no manifest there at all, which is what
+/// distinguishes "not an unpacked bundle" from "an unpacked bundle that says little".
+pub fn read_manifest(dir: &Path) -> Option<BundleManifest> {
+    std::fs::read_to_string(dir.join("manifest.yml"))
+        .ok()
+        .map(|text| parse_manifest(&text))
+}
+
 pub fn sha256_hex(data: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     let mut h = Sha256::new();
@@ -211,4 +261,274 @@ pub fn resolved(root: &Path) -> Vec<ResolvedDependency> {
 
     out.sort_by(|a, b| a.name.cmp(&b.name));
     out
+}
+
+// ── one name, two corpora ─────────────────────────────────────────────────────
+
+/// A path dependency and an unpacked bundle that claim one name and are not the same corpus.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShadowedDependency {
+    pub name: String,
+    /// Genesis hash of the sibling repository the path dependency points at.
+    pub path_genesis: String,
+    /// Genesis hash from the unpacked bundle's `manifest.yml`.
+    pub fetched_genesis: String,
+}
+
+/// Names under which two *different* corpora are installed, one shadowing the other.
+///
+/// [`resolved`] drops the unpacked copy when a path dependency claims its name, and does so
+/// silently — deliberately, because the overwhelmingly common case is that they are the same
+/// corpus in two forms: someone fetched a dependency and then pointed at a local checkout of
+/// it to edit. Reporting every shadow would report that, constantly, for no defect.
+///
+/// **The genesis digest is what separates the two cases**, and it is the whole reason
+/// RFC-0032 §4.5 asked the manifest for one. Same hash: one corpus read two ways, and
+/// preferring the checkout is right. Different hash: two corpora claim one name, the reader
+/// is silently reading one of them, and `tonpa.lock` pins the other — a wrong answer rather
+/// than a missing one, which nothing could say before the manifest carried the field.
+///
+/// Silent when either side's hash is unknown: a sibling that is not a git repository, or a
+/// bundle produced before `genesis_hash` existed. **Unknown is not different.** Guessing
+/// either way would either invent a conflict or hide one, and the honest answer to "are these
+/// the same corpus" with one identity missing is that it cannot be told.
+///
+/// Mirrors [`resolved`]'s own condition rather than restating it: a path dependency whose
+/// corpus directory is not there does not shadow anything, because `resolved` skips it and
+/// the unpacked copy is what gets read.
+pub fn shadowed(root: &Path) -> Vec<ShadowedDependency> {
+    let config = load_config(&crate::paths::tonpa_config_path(root));
+    let tonpa_dir = crate::paths::tonpa_dir(root);
+    let mut out: Vec<ShadowedDependency> = Vec::new();
+
+    for (name, dep) in &config.dependencies {
+        let Some(rel) = &dep.path else { continue };
+        let sibling = root.join(rel);
+        if !crate::paths::yidam_corpus_dir(&sibling).is_dir() {
+            continue;
+        }
+        let unpacked = tonpa_dir.join(name);
+        let Some(manifest) = read_manifest(&unpacked) else {
+            continue;
+        };
+        let (Some(path_genesis), Some(fetched_genesis)) =
+            (crate::git::genesis_hash(&sibling), manifest.genesis_hash)
+        else {
+            continue;
+        };
+        if path_genesis != fetched_genesis {
+            out.push(ShadowedDependency {
+                name: name.clone(),
+                path_genesis,
+                fetched_genesis,
+            });
+        }
+    }
+
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    // ── one manifest shape ────────────────────────────────────────────────────
+
+    #[test]
+    fn a_manifest_carrying_the_genesis_hash_decodes_it() {
+        let m = parse_manifest(
+            "bundle_version: \"1\"\ncommit: \"abc1234\"\ngenesis: \"2026-01-01\"\n\
+             genesis_hash: \"da4eeb36530f1111222233334444555566667777\"\ninstances: 8\n",
+        );
+        assert_eq!(
+            m.genesis_hash.as_deref(),
+            Some("da4eeb36530f1111222233334444555566667777")
+        );
+        assert_eq!(m.commit.as_deref(), Some("abc1234"));
+    }
+
+    /// The versioning policy in one assertion: every bundle written before `genesis_hash`
+    /// existed still decodes, and the field it does not carry reads as absent. A reader that
+    /// errored here would make an additive field a breaking one.
+    #[test]
+    fn a_bundle_from_before_the_field_still_decodes_and_says_absent() {
+        let m = parse_manifest(
+            "bundle_version: \"1\"\ncommit: \"abc1234\"\ngenesis: \"2026-01-01\"\n\
+             generated_at: 0\ndomain: \"d\"\nvector_index_model: null\n",
+        );
+        assert_eq!(m.genesis_hash, None);
+        assert_eq!(m.commit.as_deref(), Some("abc1234"));
+    }
+
+    #[test]
+    fn an_explicit_null_is_absent_and_not_a_parse_failure() {
+        let m = parse_manifest("commit: \"abc1234\"\ngenesis_hash: null\n");
+        assert_eq!(m.genesis_hash, None);
+        assert_eq!(
+            m.commit.as_deref(),
+            Some("abc1234"),
+            "a null in one field must not lose the others"
+        );
+    }
+
+    /// A directory that is not an unpacked bundle and one whose manifest says little are
+    /// different answers, and `shadowed` needs them to be: the first shadows nothing.
+    #[test]
+    fn a_directory_with_no_manifest_reads_as_no_manifest() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        assert!(read_manifest(tmp.path()).is_none());
+        std::fs::write(tmp.path().join("manifest.yml"), "not: a manifest\n").unwrap();
+        assert!(read_manifest(tmp.path()).is_some());
+    }
+
+    // ── one name, two corpora ─────────────────────────────────────────────────
+
+    fn git(dir: &Path, args: &[&str]) {
+        let ok = std::process::Command::new("git")
+            .current_dir(dir)
+            .args(args)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "git {args:?} failed");
+    }
+
+    /// A corpus with one commit, so it has a genesis hash of its own.
+    fn corpus(dir: &Path) -> String {
+        std::fs::create_dir_all(crate::paths::yidam_corpus_dir(dir)).unwrap();
+        std::fs::write(
+            crate::paths::yidam_corpus_dir(dir).join("a.ont.yml"),
+            "x: 1\n",
+        )
+        .unwrap();
+        git(dir, &["init", "-q", "-b", "main"]);
+        git(dir, &["config", "user.email", "t@t.com"]);
+        git(dir, &["config", "user.name", "T"]);
+        git(dir, &["config", "commit.gpgsign", "false"]);
+        git(dir, &["add", "-A"]);
+        git(
+            dir,
+            &["commit", "-q", "--no-gpg-sign", "-m", "genesis: a corpus"],
+        );
+        crate::git::genesis_hash(dir).expect("the fixture repository has a root commit")
+    }
+
+    /// `root` declares `dep` as a path dependency pointing at `sibling`, and has an unpacked
+    /// bundle of the same name whose manifest carries `unpacked_hash`.
+    fn shadow_fixture(unpacked_hash: Option<&str>) -> (tempfile::TempDir, String) {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path().join("root");
+        let sibling = tmp.path().join("sibling");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&sibling).unwrap();
+        let sibling_hash = corpus(&sibling);
+
+        std::fs::create_dir_all(root.join(".yidam")).unwrap();
+        std::fs::write(
+            crate::paths::tonpa_config_path(&root),
+            "[dependencies.dep]\npath = \"../sibling\"\n",
+        )
+        .unwrap();
+
+        let unpacked = crate::paths::tonpa_dir(&root).join("dep");
+        std::fs::create_dir_all(&unpacked).unwrap();
+        let hash_line = match unpacked_hash {
+            Some(h) => format!("genesis_hash: \"{h}\"\n"),
+            None => String::new(),
+        };
+        std::fs::write(
+            unpacked.join("manifest.yml"),
+            format!("bundle_version: \"1\"\ncommit: \"abc1234\"\n{hash_line}"),
+        )
+        .unwrap();
+        (tmp, sibling_hash)
+    }
+
+    fn root_of(tmp: &tempfile::TempDir) -> std::path::PathBuf {
+        tmp.path().join("root")
+    }
+
+    /// The defect the digest exists to name. Nothing before this could say it: the two
+    /// corpora agree on their declared name, and `genesis` is a *date*, which two corpora
+    /// created on one day also agree on.
+    #[test]
+    fn two_different_corpora_under_one_name_are_reported() {
+        let (tmp, sibling_hash) = shadow_fixture(Some("0000111122223333444455556666777788889999"));
+        let found = shadowed(&root_of(&tmp));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].name, "dep");
+        assert_eq!(found[0].path_genesis, sibling_hash);
+        assert_eq!(
+            found[0].fetched_genesis,
+            "0000111122223333444455556666777788889999"
+        );
+    }
+
+    /// The common case, and the reason `resolved` is silent: someone fetched a dependency
+    /// and then pointed at a checkout of the same corpus to edit it. Reporting this would
+    /// report the normal development loop as a defect.
+    #[test]
+    fn one_corpus_in_two_forms_is_not_a_shadow() {
+        let (tmp, sibling_hash) = shadow_fixture(None);
+        let unpacked = crate::paths::tonpa_dir(&root_of(&tmp)).join("dep");
+        std::fs::write(
+            unpacked.join("manifest.yml"),
+            format!("bundle_version: \"1\"\ngenesis_hash: \"{sibling_hash}\"\n"),
+        )
+        .unwrap();
+        assert!(shadowed(&root_of(&tmp)).is_empty());
+    }
+
+    /// Unknown is not different. A bundle produced before the field existed cannot be
+    /// compared, and inventing a conflict there would make every pre-existing installation
+    /// report one.
+    #[test]
+    fn a_bundle_with_no_digest_cannot_be_compared_and_is_not_reported() {
+        let (tmp, _) = shadow_fixture(None);
+        assert!(shadowed(&root_of(&tmp)).is_empty());
+    }
+
+    /// The other half of the same rule: a sibling that is not a git repository has no
+    /// identity to compare either.
+    #[test]
+    fn a_sibling_that_is_not_a_repository_cannot_be_compared() {
+        let (tmp, _) = shadow_fixture(Some("0000111122223333444455556666777788889999"));
+        std::fs::remove_dir_all(tmp.path().join("sibling/.git")).unwrap();
+        assert!(shadowed(&root_of(&tmp)).is_empty());
+    }
+
+    /// Mirrors `resolved`'s own condition. A path dependency whose corpus directory is not
+    /// there is skipped by the reader, so the unpacked copy is what gets read and nothing is
+    /// being shadowed — reporting a conflict here would name a corpus nobody reads.
+    #[test]
+    fn a_path_dependency_that_does_not_resolve_shadows_nothing() {
+        let (tmp, _) = shadow_fixture(Some("0000111122223333444455556666777788889999"));
+        let root = root_of(&tmp);
+        assert_eq!(shadowed(&root).len(), 1, "the fixture must start reported");
+        std::fs::remove_dir_all(crate::paths::yidam_corpus_dir(&tmp.path().join("sibling")))
+            .unwrap();
+        assert!(shadowed(&root).is_empty());
+        assert!(
+            !resolved(&root)
+                .iter()
+                .any(|d| d.kind == DependencyKind::Path),
+            "the reader must agree it is not reading the checkout"
+        );
+    }
+
+    #[test]
+    fn a_name_with_no_unpacked_bundle_is_not_a_shadow() {
+        let (tmp, _) = shadow_fixture(Some("0000111122223333444455556666777788889999"));
+        let root = root_of(&tmp);
+        std::fs::remove_dir_all(crate::paths::tonpa_dir(&root).join("dep")).unwrap();
+        assert!(shadowed(&root).is_empty());
+    }
+
+    #[test]
+    fn a_repository_declaring_nothing_reports_nothing() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        assert!(shadowed(tmp.path()).is_empty());
+    }
 }

@@ -139,9 +139,9 @@ catalog's own bookkeeping against the corpus's citations. None of them looks ups
 **And the built machinery for this exact case deliberately does not retag.** E3 shipped it one
 epic ago for dependency citations: `citations::moved` compares two surveys and emits a
 `Movement` whose payload is a *question* — `/// Phrased as a question, deliberately. The answer
-is a person's.` ([`citations.rs:858-868`](../../yidam/cli/src/cmd/lint/citations.rs#L858-L868)).
+is a person's.` ([`citations.rs:855-865`](../../yidam/cli/src/cmd/lint/citations.rs#L855-L865)).
 The renderer is explicit about the temptation it is refusing
-([`citations.rs:977-990`](../../yidam/cli/src/cmd/lint/citations.rs#L977-L990)):
+([`citations.rs:974-987`](../../yidam/cli/src/cmd/lint/citations.rs#L974-L987)):
 
 ```text
 3 question(s) opened by this update — nothing was changed, and no claim was re-tagged:

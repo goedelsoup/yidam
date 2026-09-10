@@ -114,16 +114,13 @@ pub fn installed(root: &Path) -> BTreeMap<String, Installed> {
 
 /// `commit:` from an unpacked bundle's `manifest.yml`.
 ///
-/// Parsed with the same `serde_yaml` shape `tonpa install` decodes, and tolerant of a
-/// manifest that does not have the field: an older bundle format is a reason to report the
-/// citation unpinned, not a reason to fail reading the dependency.
+/// Decoded through `crate::deps`, which is the one shape that reads this file — this used to
+/// declare a second local struct, and a manifest field the other decoder knew about was
+/// invisible here. Tolerant of a manifest that does not carry the field: an older bundle
+/// format is a reason to report the citation unpinned, not a reason to fail reading the
+/// dependency.
 fn manifest_commit(dir: Option<&Path>) -> Option<String> {
-    #[derive(serde::Deserialize)]
-    struct Manifest {
-        commit: Option<String>,
-    }
-    let text = std::fs::read_to_string(dir?.join("manifest.yml")).ok()?;
-    serde_yaml::from_str::<Manifest>(&text).ok()?.commit
+    crate::deps::read_manifest(dir?)?.commit
 }
 
 /// Where a cited node's file would be.
