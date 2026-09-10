@@ -60,9 +60,22 @@ check, so a screen of skips means the first line is the problem.
 
 ```
 Error: not a yidam repository: /tmp/streamflow is not inside a git repository
-  yidam locates a repository with `git rev-parse --show-toplevel` and found none, so it
-  fell back to the working directory. Run this from inside a derived repository.
+  yidam locates a repository with `git rev-parse --show-toplevel` and found none here. Run
+  this from inside a derived repository.
 ```
+
+Inside a git repository that yidam never bootstrapped, the second line reads differently:
+
+```
+Error: not a yidam repository: /tmp/notes has no .yidam/ directory
+  This is a git repository, but not one yidam bootstrapped. Derive one with
+  `yidam clone <target>`, or overlay this one with `yidam overlay .`.
+```
+
+**Every command that writes refuses this way, and every check does.** A report does not: it
+prints that it found nothing, which is a true answer. So `export`, `bundle`, `schema`,
+`graph-check`, `lint` and `doctor` stop here, and `graph` or `log` tell you the corpus is
+empty.
 
 yidam finds the corpus by walking up to the git root. Two ways to hit this:
 

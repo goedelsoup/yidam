@@ -183,6 +183,12 @@ pub(crate) fn render_bundle(model: &DomainModel) -> Result<Vec<u8>> {
 /// Backwards-compatible entry point; `yidam export --format bundle` is the canonical form.
 pub fn bundle() -> Result<()> {
     let root = repo_root()?;
+    // The same gate `run_export` applies, because this is the same operation reached by an
+    // older name. Without it the two disagreed: `export --format bundle` created `.yidam/`
+    // and wrote an empty bundle into a directory that was not a corpus, while this exited 1
+    // with `No such file or directory (os error 2)` — not a refusal, just the write failing
+    // for want of a parent directory, naming neither the path nor the cause.
+    crate::paths::require_yidam_repo(&root)?;
     let model = load_domain_model(&root)?;
     let bytes = render_bundle(&model)?;
 

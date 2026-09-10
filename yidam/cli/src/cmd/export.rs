@@ -265,6 +265,16 @@ pub fn run_export(
     options: &ExportOptions,
 ) -> Result<()> {
     let root = crate::paths::resolve_root(root)?;
+    // A directory that is not a corpus produced a *successful* export of nothing: every
+    // format, exit 0, an artefact written. `--format bundle` and `--format web` also created
+    // the `.yidam/` directory on the way, so the run that should have been refused left behind
+    // the one marker every gate keys on. `require_yidam_repo`'s doc draws the line this
+    // crosses — a *report* may print that it found nothing, and a command that writes may not,
+    // because the empty artefact then travels to whatever reads it.
+    //
+    // Before the model rather than after: an export refused for having no corpus should say so
+    // by name, not report the emptiness that follows from it.
+    crate::paths::require_yidam_repo(&root)?;
     let model = load_domain_model(&root)?;
     let default_out = format.default_output(&root);
     let out_path = out.unwrap_or(&default_out);

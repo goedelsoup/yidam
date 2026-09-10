@@ -705,6 +705,16 @@ pub fn schema(print_settings: bool) -> Result<()> {
         return Ok(());
     }
 
+    // After the `--settings` branch, not before it. That branch prints a compiled-in editor
+    // configuration and reads nothing from disk, so it is legitimate outside a repository —
+    // gating the whole command would refuse a use that has no corpus to refuse over.
+    //
+    // The writing branch has to be gated, and of everything that skipped this it was the worst
+    // case: run in a directory that is not a corpus it created `.yidam/schemas/*`, which means
+    // it *manufactured the `.yidam/` directory* every gate tests for. One wrong-directory run
+    // and every check afterwards passes over a corpus that does not exist.
+    crate::paths::require_yidam_repo(&root)?;
+
     let dir = schemas_dir(&root);
     std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
 
