@@ -1296,3 +1296,65 @@ fn the_feature_set_is_redacted_whatever_it_holds() {
     );
     assert!(one.contains("<FEATURES>"), "{one}");
 }
+
+/// The `state` enum and the states the code can emit must agree, both ways.
+///
+/// `report.schema.json` declares `state` as a **closed enum**, and nothing compared it to
+/// `git::ref_state` until #773 added a fourth state. Every test stayed green through that: the
+/// report golden's fixture holds no phase in the new state, so the enum was never exercised, and
+/// `every_live_report_field_is_declared_in_the_schema` asks about *fields* rather than values.
+///
+/// Both directions matter and they fail differently. A state the code emits and the schema does
+/// not name is a report a validating consumer **rejects** — the report is correct and unusable. A
+/// state the schema names and the code cannot emit is a branch nobody can take, which is the
+/// defect the MCP rejection-code roster was rebuilt around: two lists agreeing about a code
+/// neither side had heard of.
+#[test]
+fn the_state_enum_and_the_states_the_code_emits_are_the_same_set() {
+    let schema = schema();
+    let declared = schema["definitions"]["state"]["enum"]
+        .as_array()
+        .or_else(|| schema["properties"]["state"]["enum"].as_array())
+        .or_else(|| {
+            // The schema keeps its field definitions under one object; find `state` wherever it
+            // sits rather than hardcoding the path, which is the thing that rots.
+            fn find(v: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
+                match v {
+                    serde_json::Value::Object(m) => {
+                        if let Some(s) = m.get("state") {
+                            if let Some(e) = s.get("enum").and_then(|e| e.as_array()) {
+                                return Some(e);
+                            }
+                        }
+                        m.values().find_map(find)
+                    }
+                    serde_json::Value::Array(a) => a.iter().find_map(find),
+                    _ => None,
+                }
+            }
+            find(&schema)
+        })
+        .expect("report.schema.json declares `state` with an enum");
+
+    let mut declared: Vec<String> = declared
+        .iter()
+        .map(|v| v.as_str().expect("enum members are strings").to_string())
+        .collect();
+    let mut emitted: Vec<String> = yidam::git::REF_STATES
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    declared.sort();
+    emitted.sort();
+
+    assert!(
+        !declared.is_empty(),
+        "the `state` enum is empty — this test is looking at nothing"
+    );
+    assert_eq!(
+        declared, emitted,
+        "report.schema.json's `state` enum and the states `git::ref_state` can return disagree.\n\
+         A state the code emits and the schema omits is a report a validating consumer rejects; \
+         one the schema names and the code cannot emit is a branch nobody can take."
+    );
+}

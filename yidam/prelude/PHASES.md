@@ -74,6 +74,15 @@ declares is what those commands answered.
   An authored merge subject is checked against the vocabulary like any other commit; a
   git-generated one is exempt. See [GRAPH.md](GRAPH.md), "Commit vocabulary".
 
+  **If you settle through a pull request, check which merge button your repository uses.**
+  *Rebase and merge* and *Squash and merge* both write a single-parent commit onto the baseline
+  and leave the branch tip where it was, so the phase's ref never becomes an ancestor of the
+  baseline. `yidam status` reads such a phase as *settled by a rewriting merge* rather than as
+  active — a count that once climbed to 22 finished phases reported as in flight, and could not
+  fall from inside the repository. It is detected rather than accepted, and it is still not the
+  merge this section asks for: the synthesis event is gone from the log either way. Set the
+  repository's default to *Create a merge commit*.
+
 - **Commit legibly within the phase.** Each commit in a phase should be a legible step.
   The final commit should name the phase and summarize what it produced — this is the event
   that future readers will use to understand why the corpus changed. Use the `phase:` verb

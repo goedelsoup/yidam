@@ -243,7 +243,7 @@ the read-only overview.
 | `diff <range>` | Node and edge changes between two git refs |
 | `check-diff [range]` | What a code diff names that the ontology does not ([RFC-0021](rfcs/0021-diff-alignment.md)). Defaults to the merge-base with `main` — this branch's work |
 | `log [range]` | Commit history classified as testimony or pipeline work. `--epistemic`, `--operational` |
-| `phases` | Active inquiry phases — `ma/*` and `rigpa/*` branches |
+| `phases` | Active inquiry phases — `ma/*` and `rigpa/*` branches. Each row's `State` is `active`, `settled`, `rewritten` or `position` |
 | `replay` | Corpus health reconstructed across the repository's whole history. `--every` |
 | `decisions-log` | Decision records in `.yidam/decisions/`, newest first *(no flags)* |
 | `sangha` | Electors, positions, and settled resolutions |

@@ -503,7 +503,7 @@ makes the architectural call it deferred. The argument for feeding rather than r
 3. **The two sources answer different questions, and the shipped code says so.**
    `ref_state` is documented as *"the single classifier. `yidam status` counts these and
    `yidam phases` prints them, and they must not be able to disagree"*
-   ([`git.rs:310-311`](../../yidam/cli/src/git.rs#L310-L311)). `RefKind` answers *what is
+   ([`git.rs:431-432`](../../yidam/cli/src/git.rs#L431-L432)). `RefKind` answers *what is
    this ref*; the run record answers *what happened in this run*. Collapsing them recreates
    #272's actual defect — two surfaces free to disagree — one level up.
 
