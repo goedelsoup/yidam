@@ -404,7 +404,7 @@ fn truncate_at_char_boundary(s: &str, max_bytes: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{DomainModel, InstanceFile, Provenance, RenderedViews};
+    use crate::model::{DomainModel, InstanceFile, RenderedViews};
 
     fn model_with(instances: Vec<InstanceFile>) -> DomainModel {
         DomainModel {
@@ -413,13 +413,7 @@ mod tests {
             skills: vec![],
             decisions: vec![],
             index: None,
-            provenance: Provenance {
-                commit: "abc1234".into(),
-                genesis: "2026-01-01".into(),
-                domain: "test-domain".into(),
-                generated_at: 0,
-                genesis_hash: None,
-            },
+            provenance: crate::model::test_provenance(),
             rendered: RenderedViews {
                 corpus_index: String::new(),
                 graph_check: String::new(),

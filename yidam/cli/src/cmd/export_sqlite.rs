@@ -144,7 +144,7 @@ pub(crate) fn render_sqlite(model: &DomainModel, out: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use crate::embed_config::EmbedConfig;
-    use crate::model::{IndexData, Provenance, RenderedViews};
+    use crate::model::{IndexData, RenderedViews};
     use arrow_array::{FixedSizeListArray, Float32Array, RecordBatch, StringArray};
     use arrow_schema::{DataType, Field, Schema};
     use std::sync::Arc;
@@ -234,13 +234,7 @@ mod tests {
                     "AllMiniLML6V2Q",
                 )),
             }),
-            provenance: Provenance {
-                commit: "abc1234".into(),
-                genesis: "2026-01-01".into(),
-                domain: "test".into(),
-                generated_at: 1_780_000_000,
-                genesis_hash: None,
-            },
+            provenance: crate::model::test_provenance(),
             rendered: RenderedViews {
                 corpus_index: String::new(),
                 graph_check: String::new(),

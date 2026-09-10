@@ -759,7 +759,7 @@ mod tests {
     /// in every other test, because each pack is self-consistent.
     #[test]
     fn the_two_packs_render_a_node_the_same_way() {
-        use crate::model::{DomainModel, InstanceFile, Provenance, RenderedViews};
+        use crate::model::{DomainModel, InstanceFile, RenderedViews};
 
         let dir = fixture();
         let instances: Vec<InstanceFile> = FIXTURE
@@ -780,13 +780,7 @@ mod tests {
             skills: vec![],
             decisions: vec![],
             index: None,
-            provenance: Provenance {
-                commit: "abc1234".into(),
-                genesis: "2026-01-01".into(),
-                domain: "pack-fixture".into(),
-                generated_at: 0,
-                genesis_hash: None,
-            },
+            provenance: crate::model::test_provenance(),
             rendered: RenderedViews {
                 corpus_index: String::new(),
                 graph_check: String::new(),

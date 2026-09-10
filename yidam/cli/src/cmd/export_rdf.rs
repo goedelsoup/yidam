@@ -598,11 +598,8 @@ mod tests {
             decisions: vec![],
             index: None,
             provenance: Provenance {
-                commit: "abc1234".into(),
-                genesis: "2026-01-01".into(),
-                domain: "test-domain".into(),
-                generated_at: 1_780_000_000,
                 genesis_hash: Some("abcdef012345deadbeef".into()),
+                ..crate::model::test_provenance()
             },
             rendered: RenderedViews {
                 corpus_index: String::new(),

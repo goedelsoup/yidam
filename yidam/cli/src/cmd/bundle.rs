@@ -192,7 +192,7 @@ pub fn bundle() -> Result<()> {
 mod tests {
     use super::*;
     use crate::embed_config::EmbedConfig;
-    use crate::model::{IndexData, Provenance, RenderedViews};
+    use crate::model::{IndexData, RenderedViews};
     use flate2::read::GzDecoder;
     use std::io::Read;
 
@@ -203,13 +203,7 @@ mod tests {
             skills: vec![],
             decisions: vec![],
             index,
-            provenance: Provenance {
-                commit: "abc1234".into(),
-                genesis: "2026-01-01".into(),
-                domain: "test".into(),
-                generated_at: 0,
-                genesis_hash: None,
-            },
+            provenance: crate::model::test_provenance(),
             rendered: RenderedViews {
                 corpus_index: String::new(),
                 graph_check: String::new(),
