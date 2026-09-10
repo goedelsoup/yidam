@@ -87,6 +87,17 @@ content = ""
 # `since` at all, which is what a hand-written entry looks like — it has no clock and never
 # expires, and it is what makes "inherited" and "expired" separable here.
 #
+# The third entry is **stale**: `unknown-class` fires nowhere in this corpus, so nothing
+# consumes it and the gate reports it as a baseline that no longer describes anything. That is
+# the good-news failure — the corpus was repaired and the baseline was not — and it is a third
+# number again, distinct from inherited and from expired. It was `[]` in every golden until
+# now, which meant `stale_baseline_entries.items` could have named fields that do not exist
+# and both contract tests would have stayed green (#660).
+#
+# It must name a check the run does not report. Under a firing check the entry is *consumed*
+# as an ordinary baselined violation and this arm goes empty again — quietly, because the
+# fixture would still look like it had a stale entry in it.
+#
 # Blessing does not clear the expired one: `--bless` carries `since` forward rather than
 # restamping it, deliberately. Do not "fix" this fixture by blessing it.
 [[commits.write]]
@@ -105,6 +116,9 @@ violations:
   resolution-elector-unregistered:
     - node: .yidam/sangha/resolutions/silt-budget.md
       detail: "`ma/dredger` is read as a tip and `electors.md` registers no such branch"
+  unknown-class:
+    - node: .yidam/corpus/concept/mixing-zone.yml
+      detail: "class `mixing-zone` is not declared by the ontology"
 '''
 
 # A domain crate, so `check-diff` has code to read and the golden pins something other than

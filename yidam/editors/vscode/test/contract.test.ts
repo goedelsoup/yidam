@@ -135,11 +135,13 @@ test('an expired baseline entry reaches the reader with its cause stated', async
     t.skip(SKIP)
     return
   }
-  // The fixture's baseline lists two violations and declares `expire_after: 2`; one entry
-  // carries a `since` three corpus-touching commits back and one carries none at all. So the
-  // gate fails with an expired entry rather than an introduced one — the state that reached
-  // the Health view as a red row with no children and no stated cause, for as long as this
-  // reader's report type omitted the field (#657).
+  // The fixture's baseline lists three entries and declares `expire_after: 2`. One carries a
+  // `since` three corpus-touching commits back and has run out of time; one carries none at all
+  // and never expires; the third names a check this corpus does not trip, so nothing consumes it
+  // and it is stale (#660). Three states, three numbers, and none derives another — which is why
+  // the gate fails here with an expired entry rather than an introduced one. That was the state
+  // that reached the Health view as a red row with no children and no stated cause, for as long
+  // as this reader's report type omitted the field (#657).
   const { stdout } = captureStreams(bin, ['lint', '--format', 'json'], dir)
   const report = JSON.parse(stdout) as LintReport
 
@@ -158,9 +160,11 @@ test('an expired baseline entry reaches the reader with its cause stated', async
     'this yidam does not reproduce the fixture\'s committed lint gate — it is stale relative ' +
       'to the fixture. Rebuild it: cargo install --path yidam/cli',
   )
-  // Two entries, one expired: the counts overlap and neither renders the other.
+  // Three entries: two describe violations that occur (so they are inherited debt, one of it
+  // expired) and one describes nothing. The counts overlap and no one of them renders another.
   assert.equal(report.gate.baselined_violations, 2)
   assert.equal(report.gate.expired_baseline_entries!.length, 1)
+  assert.equal(report.gate.stale_baseline_entries.length, 1)
   assert.equal(report.gate.passed, false)
 
   // And the violation itself is inherited debt, which is exactly why reading the violations
@@ -173,11 +177,33 @@ test('an expired baseline entry reaches the reader with its cause stated', async
   // What a reader sees instead: a named row under Lint, and a repository-level condition.
   const row = healthTree({ lint: report, graph: null, index: null, regen: null, doctor: null })
     .find((r) => r.id === 'health:lint')!
-  assert.match(row.description!, / · 1 expired$/)
-  assert.equal(row.children!.length, 1)
-  assert.equal(row.children![0].file, '.yidam/corpus/concept/low-flow.yml')
+  // Anchored at the end, so a fourth count appearing has to be accounted for here rather than
+  // slipping in behind a substring match. It already caught one: adding the stale entry to the
+  // fixture failed this line, which is how the row was confirmed to render both.
+  assert.match(row.description!, / · 1 expired · 1 stale$/)
+  assert.deepEqual(
+    row.children!.map((c) => c.id),
+    [
+      'health:expired:dangling-edge:.yidam/corpus/concept/low-flow.yml',
+      'health:stale:unknown-class:.yidam/corpus/concept/mixing-zone.yml',
+    ],
+    'both baseline conditions are named rows, and the expired one comes first',
+  )
+  // The two rows offer opposite affordances, and that is the design rather than an oversight.
+  // An expired entry's violation is on a file, so its row opens the file and deliberately does
+  // not offer blessing — blessing carries `since` forward and would forgive the debt again. A
+  // stale entry's problem is that its file no longer has the violation, so there is nothing to
+  // open and blessing is exactly the fix.
+  const [expiredRow, staleRow] = row.children!
+  assert.equal(expiredRow.file, '.yidam/corpus/concept/low-flow.yml')
+  assert.equal(expiredRow.command, undefined, 'an expired row must not offer blessing')
+  assert.equal(staleRow.file, undefined, 'a stale entry has no file to point a reader at')
+  assert.equal(staleRow.command?.id, 'yidam.blessBaseline')
+  // Two disqualifications now, and the assertion cannot tell them apart — blessing is withheld
+  // because an entry is expired *and* because the gate has an introduced violation. It is the
+  // expired one that is load-bearing: `--bless` carries `since` forward rather than restamping.
   assert.equal(row.command, undefined, 'blessing cannot clear an expired entry')
 
   const conditions = fromLint(report).conditions
-  assert.deepEqual(conditions.map((c) => c.kind), ['expired-baseline'])
+  assert.deepEqual(conditions.map((c) => c.kind), ['expired-baseline', 'stale-baseline'])
 })

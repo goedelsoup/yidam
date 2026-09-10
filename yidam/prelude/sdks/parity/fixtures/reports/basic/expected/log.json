@@ -15,8 +15,8 @@
   "operational": 1,
   "entries": [
     {
-      "hash": "967f9728f536b40c1c36b782f700780953c0a18a",
-      "short": "967f9728",
+      "hash": "8b159fad3250328514dad1152f0e813e0adffa32",
+      "short": "8b159fad",
       "kind": "operational",
       "verb": "regen",
       "subject": "regen: REGEN blocks refreshed",

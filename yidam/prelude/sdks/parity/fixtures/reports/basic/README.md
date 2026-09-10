@@ -67,6 +67,7 @@ present.
 | **Two phase branches** | `phases` has rows. `ma/gauge-reader` is deliberately absent though the elector is registered, so `branch_present: false` is a golden rather than only a unit test. |
 | **Three commits, one operational** | `diff HEAD~1..HEAD` has a range and a modified node, and the log goldens show the classifier splitting rather than a column of `[E]`. |
 | **A baseline with one expired entry and one that still forgives** | `in_baseline: true`, and `expired_baseline_entries` non-empty. Both were `[]` in every golden, so the four counts the gate reports could not be told apart: a consumer that dropped the expired list entirely rendered a failing gate as `0 new · N inherited`, with nothing anywhere saying what was wrong (#657). See [The baseline](#the-baseline). |
+| **A baseline entry that describes nothing** | `stale_baseline_entries` non-empty. The third of the gate's three baseline states, and the last of them to be `[]` in every golden: `stale_baseline_entries.items` could have named fields that do not exist and both contract tests would have stayed green (#660). It must name a check this corpus does not trip — under a firing check the entry is consumed as ordinary inherited debt and the arm empties again, quietly. See [The baseline](#the-baseline). |
 
 ## The baseline
 
@@ -81,10 +82,11 @@ nothing reports as *not expired* and would delete the arm below in silence.
 |---|---|---|
 | `dangling-edge` on `concept/low-flow.yml` | the genesis commit | **expired** — it stood for 3 corpus-touching commits and `expire_after` is 2 |
 | `resolution-elector-unregistered` on `sangha/resolutions/silt-budget.md` | none | inherited debt that still forgives — a hand-written entry has no clock and never expires |
+| `unknown-class` on `concept/mixing-zone.yml` | none | **stale** — `unknown-class` fires nowhere here, so nothing consumes the entry |
 
-The pair is the point. Both are `baselined_violations`, only one is an
-`expired_baseline_entries`, so those two numbers are different and neither can be rendered
-from the other. Until this existed the CLI's fifth gate field was `[]` in every golden and in
+The three are the point. Two are `baselined_violations`, one of those is an
+`expired_baseline_entries`, and the third is a `stale_baseline_entries` and none of the other
+two — so those three numbers are different and no one of them can be rendered from another. Until this existed the CLI's fifth gate field was `[]` in every golden and in
 the fixture the extension is exercised on, which is how the extension's report type came to
 omit it entirely: an expired entry reached the Health view as a red row with no children and
 no stated cause, and the schema's `items` declaration for it was read by nothing (#657).
