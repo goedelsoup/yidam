@@ -1,0 +1,10 @@
+function = "reference_conforms"
+description = "and a file path, whose `/` and `.rs` a slug rule also rejects — a foreign toolchain names these and their shape is not ours to impose"
+
+[input]
+kind = "crate"
+path = "dispersion"
+fragment = "tests/the_weights.rs"
+
+[expected]
+conforms = true

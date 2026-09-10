@@ -1,0 +1,10 @@
+function = "parse_reference"
+description = "the largest reference kind in the measured population — 252 of 496 resolvable details — and it had no form in the grammar until #783"
+
+[input]
+text = "issue/362"
+
+[expected]
+parses = true
+kind = "issue"
+path = "362"

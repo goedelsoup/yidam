@@ -22,12 +22,16 @@
 /**
  * What a reference names. The `<kind>` slot of the grammar.
  *
- * A closed set of five. `node` is the default for a relative reference, because every relative
- * form in the population it replaced named a node.
+ * A closed vocabulary. `node` is the default for a relative reference, because every relative form
+ * in the population it replaced named a node.
+ *
+ * `issue` was added on measurement (#783): 252 of the 496 mechanically resolvable references across
+ * the corpora that write evidence-tag details are issue references — `[verified — #362]` — the
+ * single largest kind, and it had no form here.
  */
-export type Kind = 'node' | 'crate' | 'catalog' | 'skill' | 'decision'
+export type Kind = 'node' | 'crate' | 'catalog' | 'skill' | 'decision' | 'issue'
 
-const KINDS: readonly Kind[] = ['node', 'crate', 'catalog', 'skill', 'decision']
+const KINDS: readonly Kind[] = ['node', 'crate', 'catalog', 'skill', 'decision', 'issue']
 
 /** The kind a segment names, or `null` if it names no kind. */
 export function kindFromWord(word: string): Kind | null {
@@ -107,8 +111,38 @@ export function referenceConforms(r: Reference): boolean {
   if (!segs.every(isSlug)) return false
   if (segs.length !== pathArity(r.kind)) return false
   if (r.rev !== null && !isSlug(r.rev)) return false
-  if (r.fragment !== null && (r.fragment === '' || !r.fragment.split('.').every(isSlug))) {
-    return false
+  if (r.fragment !== null && !fragmentConforms(r.kind, r.fragment)) return false
+  return true
+}
+
+/**
+ * Whether a fragment names something, for the kind it is attached to.
+ *
+ * **Two rules.** For every kind but `crate` it is a declared property path — dotted slugs — which is
+ * §4.4 unchanged. For a `crate` it names a code item or a file inside that crate, named by a foreign
+ * toolchain: `ohio_panel::equalization_by_year` and `tests/the_weights_behind_the_index.rs` are both
+ * real references in a measured corpus and neither is a dotted slug path.
+ *
+ * §4.4's refusal survives. What it refuses is a fragment naming a **claim**, because RFC-0008
+ * measured that a claim has no identity by surface form. A Rust item path has one a compiler
+ * enforces and a file path one the filesystem does; the argument does not reach either.
+ *
+ * The crate rule admits uppercase and `.`, which `isSlug` does not — a type is `CamelCase` and a
+ * file has an extension, and neither is this project's naming rule to make.
+ */
+export function fragmentConforms(kind: Kind, fragment: string): boolean {
+  if (fragment === '') return false
+  if (kind !== 'crate') return fragment.split('.').every(isSlug)
+  for (const part of fragment.split('/')) {
+    for (const seg of part.split('::')) {
+      if (seg === '') return false
+      for (const c of seg) {
+        const ok =
+          (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+          c === '_' || c === '-' || c === '.'
+        if (!ok) return false
+      }
+    }
   }
   return true
 }

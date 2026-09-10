@@ -1,0 +1,9 @@
+function = "render_reference"
+description = "only node is the default, so an issue is written"
+
+[input]
+kind = "issue"
+path = "362"
+
+[expected]
+text = "issue/362"

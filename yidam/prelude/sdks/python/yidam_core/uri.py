@@ -24,8 +24,12 @@ from enum import Enum
 class Kind(Enum):
     """What a reference names. The ``<kind>`` slot of the grammar.
 
-    A closed set of five. ``NODE`` is the default for a relative reference, because every
-    relative form in the population it replaced named a node.
+    A closed vocabulary. ``NODE`` is the default for a relative reference, because every relative
+    form in the population it replaced named a node.
+
+    ``ISSUE`` was added on measurement (#783): 252 of the 496 mechanically resolvable references
+    across the corpora that write evidence-tag details are issue references — ``[verified — #362]``
+    — the single largest kind, and it had no form here.
     """
 
     NODE = "node"
@@ -33,6 +37,7 @@ class Kind(Enum):
     CATALOG = "catalog"
     SKILL = "skill"
     DECISION = "decision"
+    ISSUE = "issue"
 
     @property
     def path_arity(self) -> int:
@@ -115,10 +120,40 @@ def reference_conforms(r: Reference) -> bool:
         return False
     if r.rev is not None and not is_slug(r.rev):
         return False
-    if r.fragment is not None and (
-        not r.fragment or not all(is_slug(p) for p in r.fragment.split("."))
-    ):
+    if r.fragment is not None and not fragment_conforms(r.kind, r.fragment):
         return False
+    return True
+
+
+def fragment_conforms(kind: Kind, fragment: str) -> bool:
+    """Whether a fragment names something, for the kind it is attached to.
+
+    **Two rules.** For every kind but ``CRATE`` it is a declared property path — dotted slugs —
+    which is §4.4 unchanged. For a ``CRATE`` it names a code item or a file inside that crate,
+    named by a foreign toolchain: ``ohio_panel::equalization_by_year`` and
+    ``tests/the_weights_behind_the_index.rs`` are both real references in a measured corpus, and
+    neither is a dotted slug path.
+
+    §4.4's refusal survives. What it refuses is a fragment naming a **claim**, because RFC-0008
+    measured that a claim has no identity by surface form. A Rust item path has one a compiler
+    enforces and a file path one the filesystem does; the argument does not reach either.
+
+    The crate rule admits uppercase and ``.``, which :func:`is_slug` does not — a type is
+    ``CamelCase`` and a file has an extension, and neither is this project's naming rule to make.
+    """
+    if not fragment:
+        return False
+    if kind is not Kind.CRATE:
+        return all(is_slug(p) for p in fragment.split("."))
+    for part in fragment.split("/"):
+        for seg in part.split("::"):
+            if not seg:
+                return False
+            if not all(
+                ("a" <= c <= "z") or ("A" <= c <= "Z") or ("0" <= c <= "9") or c in "_-."
+                for c in seg
+            ):
+                return False
     return True
 
 

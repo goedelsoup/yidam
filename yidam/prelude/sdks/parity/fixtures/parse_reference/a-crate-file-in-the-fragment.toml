@@ -1,0 +1,11 @@
+function = "parse_reference"
+description = "and a file inside a crate, which is how 158 of one corpus's details name their evidence"
+
+[input]
+text = "crate/dispersion#tests/the_weights_behind_the_index.rs"
+
+[expected]
+parses = true
+kind = "crate"
+path = "dispersion"
+fragment = "tests/the_weights_behind_the_index.rs"

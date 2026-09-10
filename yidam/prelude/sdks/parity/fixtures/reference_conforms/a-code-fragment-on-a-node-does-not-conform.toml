@@ -1,0 +1,10 @@
+function = "reference_conforms"
+description = "the widening is scoped to `crate`. On a node the fragment is a declared property path and §4.4 is unchanged, so a code item there is still refused"
+
+[input]
+kind = "node"
+path = "concept/foo"
+fragment = "ohio_panel::equalization_by_year"
+
+[expected]
+conforms = false

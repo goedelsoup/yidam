@@ -69,7 +69,7 @@ authoritative for terms this project minted.
 > **Resolved 2026-09-09 (P3).** Both halves. The namespace moved to
 > `https://goedelsoup.github.io/yidam/ontology#`, the one origin with a demonstrated 200 — decision
 > B's owned origin behind one constant. Subjects became `urn:yidam:<corpus>/<kind>/<path>`, derived
-> by re-scheming [`render_reference`](../../yidam/prelude/sdks/rust/src/uri.rs#L283)'s output rather
+> by re-scheming [`render_reference`](../../yidam/prelude/sdks/rust/src/uri.rs#L330)'s output rather
 > than assembled a second time, and the dataset became `urn:yidam:<corpus>` — an authority with no
 > path, because a corpus is what references are resolved *against* and not a thing inside one.
 >
@@ -144,14 +144,14 @@ by how much.
 identifier   yidam://<corpus>/<kind>/<path>[@<rev>][#<property-path>]
 locator      https://<base>/<kind>/<path>
 relative     <kind>/<path>  |  <path>          resolved against the containing corpus
-kind         node | crate | catalog | skill | decision
+kind         node | crate | catalog | skill | decision | issue
 ```
 
 The corpus moves into the authority and the kind into the path, which is the minimal change that
 creates the slot §1 lacks. `<path>` is `<class>/<name>` for `node` and a single segment for the
 others. Every segment in a **conforming** corpus is a slug — the rule
 [`name_not_a_slug`](../../yidam/cli/src/cmd/lint/checks.rs#L1184) reports against, through its
-predicate [`is_slug`](../../yidam/prelude/sdks/rust/src/uri.rs#L122) — so **no percent-encoding is
+predicate [`is_slug`](../../yidam/prelude/sdks/rust/src/uri.rs#L132) — so **no percent-encoding is
 required anywhere in this grammar**, which is why there is one string form and not one per
 encoder.
 
@@ -166,7 +166,26 @@ encoder.
 > merely one it fails to prevent.
 >
 > The grammar is unchanged: a conforming id still needs no escaping, which is the property §4.6's
-> single parser rests on. What changes is that the parser may not *assume* it. §4.6 carries the
+> single parser rests on. What changes is that the parser may not *assume* it.
+
+> **Amended 2026-09-10 (#783): `kind` is six, and the sixth arrived by measurement.** Across the
+> five corpora that write evidence-tag details, 496 references sit inside brackets where nothing can
+> read them — and **252 of them are issue references**, `[verified — #362]`, the single largest shape
+> in the population. The kind list was argued as closed and that argument was made without this
+> count. The corpus writing them had already paid for their absence: its own
+> `.yidam/corpus/README.md` warns to quote any `properties:` value containing an issue reference,
+> because YAML reads an unquoted ` #` as a comment.
+>
+> `issue/362` relative, `yidam://<corpus>/issue/362` absolute, one path segment. It takes the arity
+> rule with it at no cost: a corpus with a class named `issue` still renders `node/issue/reopened`
+> and still round-trips, by the same mechanism `skill` already used.
+>
+> What the measurement did **not** require was a seventh. 204 of the 496 are repo-relative *paths*,
+> and splitting them by top-level directory showed they are the kinds already here written
+> differently — 158 `crates/…`, 25 `../../catalog/…`, 13 `../<class>/<name>.yml`, 7 `decisions/…`,
+> one file under no crate, and three formulas that are not references at all. So the RFC's own open
+> question 3 — whether `crate` wants a name that is not one language's — stays open without blocking
+> anything. §4.6 carries the
 > consequence.
 
 **Which relative form applies is decided by arity, not by preference.** `<kind>/<path>` and a
@@ -208,17 +227,37 @@ holding `node` and `commit` as two fields; following the split means no existing
 changes meaning, where folding the revision into identity would silently make every id in every
 corpus name something else.
 
-### 4.4 — A fragment addresses a declared property, and never a claim
+### 4.4 — A fragment addresses something that has a name, and never a claim
 
 RFC-0008 measured this rather than assumed it: across 29 resolutions and 70 tips, 22 claims
 entered corpora in resolution commits and **0 matched byte-identically** at any participating tip,
 because a sentence search that ends at `\n` extracts one claim as two different strings in two
 hard-wrapped nodes. Identity by surface form is identity by line wrapping.
 
-So the fragment names something that *has* a name — a declared property path — and the grammar
-**refuses** a fragment naming a claim. The consequence for the request that prompted this RFC:
-*which nodes state this figure?* is answerable the moment the figure is the addressed thing, and
-unanswerable as long as the claim wrapped around it is. Address the figure.
+So the fragment names something that *has* a name, and the grammar **refuses** a fragment naming a
+claim. The consequence for the request that prompted this RFC: *which nodes state this figure?* is
+answerable the moment the figure is the addressed thing, and unanswerable as long as the claim
+wrapped around it is. Address the figure.
+
+> **Amended 2026-09-10 (#783): what has a name depends on the kind.** This section said *a declared
+> property path*, full stop, and that is right for a node. It is wrong for a `crate`: 32 details in
+> the measured population name a Rust item — `` `dispersion::ohio_panel::equalization_by_year` `` —
+> and 158 more name a file inside a crate, and neither is a dotted slug path. With `crate` holding a
+> single path segment (§4.1's arity rule, which the alternative of a multi-segment `crate` path would
+> have broken), the fragment is the only slot left for them.
+>
+> So the rule is per kind. For a `crate`, the fragment is a code item or a file: segments over
+> `[A-Za-z0-9_.-]`, joined by `/` or `::`. Uppercase and `.` are admitted deliberately — a type is
+> `CamelCase` and a file has an extension, and those are a foreign toolchain's naming rules, not this
+> project's to impose. For every other kind it is the dotted property path this section already
+> specified.
+>
+> **The refusal is untouched, and its reason is why the widening is safe.** What §4.4 refuses is a
+> fragment naming a *claim*, and the argument is RFC-0008's measurement: 0 of 22 claims matched
+> byte-identically, because identity by surface form is identity by line wrapping. A Rust item path
+> has an identity the compiler enforces and a file path one the filesystem does. The measurement that
+> rules out a claim says nothing against either, so widening here does not weaken the refusal — it
+> stops the refusal from catching two things it was never about.
 
 ### 4.5 — The corpus name, and a collision nobody can currently see
 
@@ -265,6 +304,46 @@ problem statement rather than a concession against it.
 Enforcement stays where it already is: `name-not-a-slug` is the check, at `Error`, and a corpus
 that blessed its findings has recorded a state rather than acquired a licence. The parser's job is
 to be honest about what it was handed.
+
+### 4.7 — Where a reference is written down
+
+A grammar for a reference is half of what the request behind this RFC needed. The other half is a
+place to put one. A derived corpus folded 168 crate paths into evidence-tag details **because the
+tag bracket was the only place a reference could be written at all** — so a grammar that stays
+unwritten anywhere is a grammar that changes nothing.
+
+So a node gains `references:`, a list of references in this grammar, as strings:
+
+```yaml
+class: coupling
+label: First and last mile
+references:
+  - issue/362
+  - crate/dispersion#ohio_panel::equalization_by_year
+  - catalog/lsc-greenbook
+```
+
+Three things about that shape, each of which had an alternative:
+
+- **Strings, not structs.** `parse_reference` is the reader. A struct here would be a second
+  encoding of the identifier this grammar already spells, which is the defect §1 diagnoses,
+  reproduced inside its own fix. `cites:` keeps its four fields because it means something narrower:
+  a *node* in another corpus at a known revision.
+- **Named, not left to the instance parser's passthrough.** A `references:` key already survived into
+  `extra`, so a corpus could write one today and nothing would read it. That is precisely how
+  `[unentered]` happened — a corpus coined a mark, the renderer assigned it a meaning nobody chose,
+  and the prose ended up denying what the badge asserted. A field that is named is one a check reads.
+- **On the node, not on a claim.** §4.4's measurement makes a per-claim attachment impossible, and
+  pretending otherwise would put a reference on an anchor that moves when a line rewraps.
+
+`reference-not-in-the-grammar` is the reader, at `Warn`, and it names *which* clause of
+`reference_conforms` an entry missed rather than reporting "not a reference" — three causes with
+three different fixes.
+
+**What this section does not decide** is what a *detail* means, whether a tag carrying one is a
+claim, or where a scope qualifier goes. Those are #710 / RFC-0031's, and the measurement that split
+them is in #783. This RFC is normative for the reference and its home, and deliberately silent on
+the tag.
 
 ## What this does not touch
 

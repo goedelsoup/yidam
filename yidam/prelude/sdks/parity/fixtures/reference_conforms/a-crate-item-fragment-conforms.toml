@@ -1,0 +1,10 @@
+function = "reference_conforms"
+description = "a crate fragment names a code item, which `::` and `_` are part of — the dotted-slug rule §4.4 applies to a property path would reject every one of the 32 in the population"
+
+[input]
+kind = "crate"
+path = "dispersion"
+fragment = "ohio_panel::equalization_by_year"
+
+[expected]
+conforms = true

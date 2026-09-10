@@ -1,0 +1,11 @@
+function = "parse_reference"
+description = "a Rust item inside a crate — `crate` keeps its single path segment and the item goes in the fragment, so the arity rule that disambiguates the relative form survives"
+
+[input]
+text = "crate/dispersion#ohio_panel::equalization_by_year"
+
+[expected]
+parses = true
+kind = "crate"
+path = "dispersion"
+fragment = "ohio_panel::equalization_by_year"

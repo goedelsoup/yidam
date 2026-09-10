@@ -457,6 +457,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::catalog_expired(&catalog_ages, &sources, &cites),
         checks::catalog_unobtained_but_cited(&sources, &cites),
         checks::name_not_a_slug(&nodes, &classes),
+        checks::reference_not_in_the_grammar(&nodes),
         checks::missing_label(&nodes),
         checks::missing_description(&nodes, &prose_fields),
         checks::claim_tag_malformed(&tag_prose),

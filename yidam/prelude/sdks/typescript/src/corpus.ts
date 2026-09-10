@@ -39,11 +39,24 @@ export interface CorpusInstance {
   properties: Record<string, unknown> | null
   links: CorpusLink[] | null
   cites: ExternalCitation[] | null
+  /**
+   * References to things that are not nodes: an issue, a crate, a catalog entry, a decision.
+   * Each entry is a reference in RFC-0032's grammar, as a string — `parseReference` is the reader,
+   * and a struct here would be a second encoding of the identifier the grammar already spells.
+   *
+   * Named rather than left to `extra`'s passthrough, because a destination that is not named is a
+   * convention, and a convention is how `[unentered]` happened. Measured before it was added
+   * (#783): 496 references across five corpora currently sit inside evidence-tag brackets where
+   * nothing can read them.
+   */
+  references: string[] | null
   /** Every other top-level key, kept rather than dropped. */
   extra: Record<string, unknown>
 }
 
-const DECLARED = new Set(['class', 'label', 'description', 'properties', 'links', 'cites'])
+const DECLARED = new Set([
+  'class', 'label', 'description', 'properties', 'links', 'cites', 'references',
+])
 
 function str(v: unknown): string | null {
   return typeof v === 'string' ? v : null
@@ -61,6 +74,7 @@ export function emptyInstance(): CorpusInstance {
     properties: null,
     links: null,
     cites: null,
+    references: null,
     extra: {},
   }
 }
@@ -110,6 +124,13 @@ export function parseInstance(text: string): CorpusInstance {
       })
     : null
 
+  // Every entry is kept as written, including one that is not a string: the reader is
+  // `parseReference`, and a lint check is what reports an entry it cannot read. Dropping a
+  // malformed entry here would hide it from the check that exists to name it.
+  const references = Array.isArray(doc.references)
+    ? doc.references.map(r => (typeof r === 'string' ? r : String(r)))
+    : null
+
   const extra: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(doc)) {
     if (!DECLARED.has(k)) extra[k] = v
@@ -121,6 +142,7 @@ export function parseInstance(text: string): CorpusInstance {
     description: str(doc.description),
     properties: isRecord(doc.properties) ? doc.properties : null,
     links,
+    references,
     cites,
     extra,
   }
@@ -140,6 +162,7 @@ export function instanceToJson(i: CorpusInstance): Record<string, unknown> {
     description: i.description,
     properties: i.properties,
     links: i.links,
+    references: i.references,
     cites: i.cites,
     extra: i.extra,
   }

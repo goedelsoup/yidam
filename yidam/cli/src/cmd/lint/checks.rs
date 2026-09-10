@@ -1228,6 +1228,111 @@ pub fn name_not_a_slug(nodes: &[Node], classes: &[Class]) -> Check {
     )
 }
 
+/// A `references:` entry that is not a reference in the grammar.
+///
+/// The destination RFC-0032 gives a reference needs a reader, or it is a key a corpus can write and
+/// nothing checks — which is how `[unentered]` happened, one layer up: a corpus coined a mark, the
+/// renderer assigned it a meaning nobody chose, and the prose ended up denying what the badge
+/// asserted. So this is the reader, and it lands with the field rather than after it.
+///
+/// Two failures, reported apart because they need different fixes. An entry that does not **parse**
+/// names nothing at all — free text where a reference belongs. An entry that parses but does not
+/// **conform** names something whose segments cannot survive a URI, which is
+/// [`name_not_a_slug`]'s rule reaching a second population: the same check, on a reference a node
+/// wrote rather than on the node's own name.
+///
+/// `Warn`, not `Error`, and for a reason the severity table makes available: no corpus writes this
+/// field yet (#783 measured 496 references still inside brackets), so there is no population to
+/// inherit a finding. When `yidam migrate references` starts writing entries, a wrong one is
+/// somebody's typo in a file they are already editing — worth seeing, not worth stopping a build
+/// over — and the baseline ratchet is what makes it stay visible.
+pub fn reference_not_in_the_grammar(nodes: &[Node]) -> Check {
+    let mut violations = Vec::new();
+    for n in nodes {
+        for entry in n.inst.references.as_deref().unwrap_or(&[]) {
+            if let Some(why) = why_not_a_reference(entry) {
+                violations.push(Violation::new(
+                    &n.rel,
+                    format!("`references:` entry {entry:?} {why}"),
+                ));
+            }
+        }
+    }
+    Check::new(
+        "reference-not-in-the-grammar",
+        "A `references:` entry that is not a reference",
+        Severity::Warn,
+        "`references:` is where a node names something that is not a node — an issue, a crate, a \
+         catalog entry, a decision — and every entry is a reference in RFC-0032's grammar, written \
+         as a string. `yidam_core::uri` is the one parser, so an entry it cannot resolve is an \
+         entry no surface can: not the MCP resource namespace, not the RDF export, not a rendered \
+         citation.\n\n\
+         The finding names which rule the entry missed, because \"not a reference\" is not \
+         actionable and the three causes have three different fixes: a segment count that does not \
+         match the kind, a segment that cannot survive being put in a URI, or a fragment that does \
+         not name what its kind's fragment names.\n\n\
+         Warn rather than Error because the field is new and nothing writes it yet: 496 references \
+         across five corpora are still inside evidence-tag brackets, which is the population \
+         `yidam migrate references` moves. A finding here is a typo in a file somebody is already \
+         editing, and the baseline is what keeps it from going quiet.",
+        violations,
+    )
+}
+
+/// Why an entry is not a reference, or `None` when it is one.
+///
+/// **Named rather than derived from `parse_reference` returning `None`.** The parser is *total* by
+/// design (#777): it answers for any input so that a corpus which blessed a non-slug name can still
+/// address its own nodes. So `parse_reference` accepts `"not a reference at all"` — as a node with
+/// a one-segment path — and "does it parse" is not a test a check can use. What separates an entry
+/// a corpus meant from one it did not is `reference_conforms`, and this reports *which* of its
+/// clauses failed so the finding says something the author can act on.
+fn why_not_a_reference(entry: &str) -> Option<String> {
+    let Some(r) = yidam_core::uri::parse_reference(entry) else {
+        return Some("is empty".to_string());
+    };
+    if yidam_core::uri::reference_conforms(&r) {
+        return None;
+    }
+    let kind = r.kind.as_str();
+    let arity = r.kind.path_arity();
+    let segments = r.path.split('/').count();
+    if segments != arity {
+        return Some(format!(
+            "reads as a `{kind}` reference with {segments} path segment(s), and a `{kind}` takes \
+             {arity}. A node is `<class>/<name>`; every other kind is one segment"
+        ));
+    }
+    if let Some(bad) = r.path.split('/').find(|s| !yidam_core::uri::is_slug(s)) {
+        return Some(format!(
+            "has the segment {bad:?}, which cannot be put in a URI — lowercase letters, digits \
+             and single interior hyphens only, the rule `name-not-a-slug` applies to a node's own \
+             name"
+        ));
+    }
+    if let Some(fragment) = r.fragment.as_deref() {
+        return Some(format!(
+            "has the fragment {fragment:?}, which is not what a `{kind}` fragment names — a \
+             `crate` fragment names a code item or a file inside it, and every other kind's names \
+             a declared property path"
+        ));
+    }
+    if r.corpus
+        .as_deref()
+        .is_some_and(|c| !yidam_core::uri::is_slug(c))
+    {
+        return Some("names a corpus whose package name cannot be put in a URI".to_string());
+    }
+    if let Some(rev) = r.rev.as_deref() {
+        return Some(format!(
+            "pins the revision {rev:?}, which is not a commit or a tag"
+        ));
+    }
+    // Every clause of `reference_conforms` is covered above. Reaching here means one was added
+    // there and not here, and a finding with no reason is worse than none.
+    Some("is not a reference the grammar can resolve".to_string())
+}
+
 pub fn orphan_in(nodes: &[Node], classes: &[Class]) -> Check {
     let mut targeted: HashSet<PathBuf> = HashSet::new();
     for n in nodes {
@@ -3074,6 +3179,114 @@ mod tests {
             "2024",
         ] {
             assert!(is_slug(name), "rejected a name in use: {name:?}");
+        }
+    }
+
+    // ── references: the destination, and its reader ───────────────────────────
+
+    fn node_with_references(entries: &[&str]) -> Node {
+        let list = entries
+            .iter()
+            .map(|e| format!("  - {e}\n"))
+            .collect::<String>();
+        node(
+            ".yidam/corpus/coupling/first-and-last-mile.yml",
+            &format!("class: coupling\nlabel: First and last mile\nreferences:\n{list}"),
+        )
+    }
+
+    /// The shapes a corpus will actually write, once the migration writes them.
+    ///
+    /// Drawn from the measured population (#783): an issue, a crate file, a crate item, a catalog
+    /// entry and a decision. If any of these starts reporting, the grammar moved and the corpora
+    /// did not.
+    #[test]
+    fn the_references_the_migration_will_write_are_all_clean() {
+        let node = node_with_references(&[
+            "issue/362",
+            "crate/dispersion",
+            "crate/dispersion#tests/the_weights.rs",
+            "crate/dispersion#ohio_panel::equalization_by_year",
+            "catalog/lsc-greenbook",
+            "decision/the-four-kinds-of-parameter",
+            "yidam://hegeomai/issue/111",
+        ]);
+        let check = reference_not_in_the_grammar(std::slice::from_ref(&node));
+        assert!(
+            check.violations.is_empty(),
+            "a reference the corpora write was reported: {:?}",
+            check.violations
+        );
+        // …and the fixture is not vacuous: the field was read.
+        assert_eq!(node.inst.references.as_deref().unwrap_or(&[]).len(), 7);
+    }
+
+    /// Free text in the field is reported, and so is a reference that cannot survive a URI.
+    #[test]
+    fn an_entry_that_is_not_a_reference_and_one_that_cannot_be_a_uri_are_both_reported() {
+        let node = node_with_references(&[
+            "not a reference at all",
+            "issue/362",
+            "Disposition/DIS-2024-0447",
+        ]);
+        let check = reference_not_in_the_grammar(std::slice::from_ref(&node));
+        assert_eq!(check.violations.len(), 2, "{:?}", check.violations);
+        let messages: String = check
+            .violations
+            .iter()
+            .map(|v| v.detail.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+        // Free text has the wrong segment count for a node; the proto-002c id has the wrong
+        // character set. Two different author errors, and the finding says which.
+        assert!(
+            messages.contains("path segment(s)"),
+            "the free-text entry was not diagnosed by arity: {messages}"
+        );
+        assert!(
+            messages.contains("cannot be put in a URI"),
+            "the non-slug entry was not diagnosed by charset: {messages}"
+        );
+    }
+
+    /// Each clause of `reference_conforms` produces a reason a reader can act on.
+    ///
+    /// The parser is total, so "does it parse" is not the test — `reference_conforms` is, and a
+    /// finding that only said *not a reference* would name none of these four fixes.
+    #[test]
+    fn every_way_an_entry_fails_gets_its_own_reason() {
+        for (entry, expect) in [
+            ("issue/362", None),
+            ("crate/dispersion#ohio_panel::equalization_by_year", None),
+            ("issue/362/extra", Some("path segment(s)")),
+            ("concept/Foo", Some("cannot be put in a URI")),
+            ("concept/foo#Properties.Enacted", Some("fragment")),
+            ("yidam://Producer/node/concept/foo", Some("package name")),
+        ] {
+            let why = why_not_a_reference(entry);
+            match expect {
+                None => assert!(why.is_none(), "{entry} reported: {why:?}"),
+                Some(fragment) => {
+                    let why = why.unwrap_or_else(|| panic!("{entry} was not reported at all"));
+                    assert!(
+                        why.contains(fragment),
+                        "{entry} was reported as {why:?}, which does not name {fragment:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// A node with no `references:` is not a node with an empty one, and neither reports.
+    #[test]
+    fn a_node_that_writes_no_references_is_silent() {
+        for yaml in [
+            "class: coupling\nlabel: One\n",
+            "class: coupling\nlabel: One\nreferences: []\n",
+        ] {
+            let n = node(".yidam/corpus/coupling/one.yml", yaml);
+            let check = reference_not_in_the_grammar(std::slice::from_ref(&n));
+            assert!(check.violations.is_empty(), "{yaml:?}");
         }
     }
 
