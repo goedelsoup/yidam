@@ -75,9 +75,9 @@ use std::path::Path;
 
 use yidam_core::uri::{parse_reference, reference_conforms, render_reference, Kind};
 
-use super::lint::checks::detail_tags;
 use super::migrate::MigrateReport;
 use super::rename::Edit;
+use crate::claims::detail_tags;
 
 /// One reference lifted out of one tag.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]

@@ -28,6 +28,38 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### A qualified evidence tag is now a claim, so two numbers move
+
+`[verified — as proposed]` used to match none of the three tokens exactly. It counted as **no
+claim at all**. `claim-tag-malformed` filed a finding on it, and that finding's own advice was
+that there was nothing to do. Such a tag now reads as one claim at its standing. It carries the
+qualifier as free text, and the finding is gone.
+
+**Two numbers change in your corpus, and neither is a defect.**
+
+- **Claim counts rise.** `yidam status`, `corpus` and the `claims` MCP tool all count the tags
+  they were silently dropping. Run `yidam regen` so the README blocks that publish those
+  counts agree again. A stale REGEN block is a failing build in a derived repo.
+- **`claim-tag-malformed` findings fall**, by exactly the number of claims gained. Your
+  `.yidam/lint-baseline.yml` will report them as *expired*. Run `yidam lint --bless` once.
+
+Measured over the six corpora that write these details, 38 findings became 38 claims. Three
+corpora move by nothing; the others:
+
+| corpus | findings | claims |
+|---|---|---|
+| ohio-education-funding | 535 → 506 | 1362 → 1391 |
+| allen-recorder | 13 → 6 | 420 → 427 |
+| demi-moore | 10 → 8 | 1678 → 1680 |
+
+**What is unchanged.** A bracket that folds in a *citation* — `[verified — Pearl 2009]` — is
+still not a tag, and still reported; move it into `references:`. A bracket holding *two
+standings* — `[verified for the arithmetic; inference for the reading]` — is still not a tag
+either. Its advice now says so: write two claims. Nothing on disk needs editing for this.
+
+The MCP contract goes to **0.19.0**, because it is the contract that states what counts as a
+claim.
+
 ## cli/v0.11.0
 
 ### `score` says why the criteria are the template's, in four states

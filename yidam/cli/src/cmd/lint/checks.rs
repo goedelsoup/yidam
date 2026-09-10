@@ -2068,60 +2068,10 @@ pub fn edge_target_class(nodes: &[Node], classes: &[Class]) -> Check {
 /// the model cannot express at all — `[verified for the ratio; inference for the conclusion]`
 /// is one tag carrying two standings for two spans of one sentence.
 ///
-/// So [`narrowing_detail`] is a second admission path, keyed on the *content* rather than the
+/// So [`crate::claims::narrowing_detail`] is a second admission path, keyed on the *content* rather than the
 /// punctuation. It admits those 59 and none of the prose this list exists to protect: `open` in
 /// `[open questions]` is followed by a word that is neither a narrowing head nor a second
 /// standing, so it stays unreported, which is the whole point of the paragraph above.
-const TAG_SEPARATORS: &[char] = &['—', '–', '-', ':', ';', ',', '|', '/', '='];
-
-/// The standings a near-miss tag may open with, as bare words.
-const STANDING_WORDS: &[&str] = &["verified", "inference", "open"];
-
-/// Heads that narrow *what* is asserted rather than naming where the evidence is.
-///
-/// Matched as whole words against the first word of the detail, so `[verified — Fordham]` is a
-/// source and not a `for`.
-const NARROWING_HEADS: &[&str] = &["as", "for", "which", "only", "not", "insofar"];
-
-/// Whether a near-miss tag's detail narrows the claim rather than saying where the evidence is.
-///
-/// Takes the collapsed inner text, brackets already removed, so [`near_miss_tags`] and
-/// [`claim_tag_malformed`] ask one question of one implementation — the first to decide whether
-/// to report at all, the second to decide what to advise.
-///
-/// Two tells, and both are deliberately narrow. The default has to be the citation advice
-/// because that advice is right for the large majority: ~89% of details across the population
-/// name a source. A false diversion is the expensive error — it would tell an author to leave a
-/// citation folded inside a bracket where no consumer can read it — so a detail diverts only on
-/// evidence, never on the absence of evidence.
-///
-/// - **A second standing.** `[inference on the mechanism, [verified] on the measurement]` asserts
-///   two things at two standings. No advice about citations applies, because there is no
-///   citation and there are two claims.
-/// - **A narrowing head.** `as`, `for`, `which`, `only`, `not`, `insofar` as the detail's first
-///   word — `[verified as proposed]` says *what* is verified, and a reader who moved it out
-///   would be left with a bare `[verified]` that claims the proposal was adopted.
-fn narrowing_detail(inner: &str) -> bool {
-    let Some(rest) = STANDING_WORDS
-        .iter()
-        .find_map(|word| inner.strip_prefix(*word))
-    else {
-        return false;
-    };
-    let body = rest.trim_start_matches(|c: char| TAG_SEPARATORS.contains(&c) || c.is_whitespace());
-    let mut words = body
-        .split(|c: char| !c.is_alphanumeric() && c != '\'')
-        .filter(|w| !w.is_empty())
-        .map(str::to_ascii_lowercase);
-    let Some(first) = words.next() else {
-        return false;
-    };
-    NARROWING_HEADS.contains(&first.as_str())
-        || std::iter::once(first)
-            .chain(words)
-            .any(|w| STANDING_WORDS.contains(&w.as_str()))
-}
-
 /// The inner text of a reported near-miss form — `[verified — x]` → `verified — x`.
 ///
 /// One `strip_prefix`/`strip_suffix` pair rather than `trim_matches`, which would eat the inner
@@ -2155,17 +2105,32 @@ pub fn claim_tag_malformed(prose: &[ProseView<'_>]) -> Check {
     for n in prose {
         // Masked, so a file explaining the vocabulary is not reported for naming it — the
         // same reason the counter masks.
-        for (line, found) in near_miss_tags(&crate::markdown::mask_code(n.text)) {
-            // One finding, two pieces of advice. Telling the author of
-            // `[verified as proposed]` to "put the citation beside it" asks them to delete a
-            // qualifier and leaves a bare `[verified]` that overstates the claim — the advice
-            // makes the corpus less accurate and the counter more confident.
-            let message = if narrowing_detail(reported_inner(&found)) {
+        // Spans, not just lines, because the suppression below has to ask the counter about the
+        // *same tag* over the text the counter reads — and the two mask differently.
+        for tag in crate::claims::detail_tags(&crate::markdown::mask_code(n.text)) {
+            let (line, found) = (tag.line, format!("[{}]", tag.inner));
+            let inner = reported_inner(&found);
+            // A **scoped tag is a claim** and is not reported (#789). This check used to tell
+            // the author of `[verified — as proposed]` that it counted as nothing, and the
+            // advice it gave was that there was nothing to do about it — a finding whose own
+            // remedy is "leave it" is not a finding. `parse_tag` now reads it, the counter
+            // counts it, and the only thing left to say is nothing.
+            //
+            // The refusals stay reported, and they are the two this cannot fix: a citation
+            // folded into the bracket (move it to `references:`) and two standings in one
+            // bracket (RFC-0031's, not a qualifier's).
+            if crate::claims::is_scoped_claim(n.text, tag.start, tag.end) {
+                continue;
+            }
+            // One finding, two pieces of advice. Telling the author of a detail that narrows
+            // to "put the citation beside it" asks them to delete a qualifier and leaves a
+            // bare `[verified]` that overstates the claim — the advice makes the corpus less
+            // accurate and the counter more confident.
+            let message = if crate::claims::narrowing_detail(inner) {
                 format!(
                     "`{found}` opens with an evidence tag and is not one, so it is counted \
-                     as no claim at all — it narrows what is asserted rather than saying \
-                     where the evidence is, so moving it out of the brackets would leave a \
-                     bare tag claiming more than the sentence does"
+                     as no claim at all — it asserts two things at two standings, which one \
+                     qualifier cannot carry; write them as two claims"
                 )
             } else {
                 format!(
@@ -2287,140 +2252,15 @@ pub fn class_claim_uncounted(classes: &[Class]) -> Check {
     )
 }
 
-/// The `]` that closes the `[` at `open`, matched by depth and never past `bound`.
+/// `(line, text)` for each bracketed near miss, in the form `claim-tag-malformed` reports.
 ///
-/// Depth rather than the first `]`, because the first one may be a nested link's. Bounded,
-/// because an unbalanced `[` must cost the check one bracket and not the rest of the file.
-fn matching_bracket(text: &str, open: usize, bound: usize) -> Option<usize> {
-    let mut depth = 0usize;
-    text[open..bound].char_indices().find_map(|(rel, c)| {
-        match c {
-            '[' => depth += 1,
-            ']' => depth = depth.saturating_sub(1),
-            _ => return None,
-        }
-        (depth == 0 && c == ']').then_some(open + rel)
-    })
-}
-
-/// One bracketed tag whose detail says something, with the span it occupies.
-///
-/// **The one answer to "where is a tag with a detail?"** [`near_miss_tags`] reports them and
-/// [`crate::cmd::migrate_references`] rewrites them, and a second scanner would be a second
-/// opinion about which brackets are tags — the shape that put four copies of the open-question
-/// predicate in the CLI before one of them was found under-reporting a corpus 26 to 2.
-///
-/// Byte offsets rather than the line alone, because the rewriter has to replace the tag and
-/// **57 of the 211 it can collapse are wrapped across two lines**. Both maskers in
-/// [`crate::markdown`] preserve byte offsets, so a caller may scan masked text and read the
-/// original at the same span: the lint passes `mask_code` and gets the tag without its inline
-/// code, the migration passes `mask_fenced` and gets the citation the code span holds.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct DetailTag {
-    /// Byte offset of the opening `[`.
-    pub start: usize,
-    /// Byte offset of the closing `]`.
-    pub end: usize,
-    /// 1-based line of `start`.
-    pub line: usize,
-    /// `verified`, `inference` or `open` — the standing, without its brackets.
-    pub standing: &'static str,
-    /// The bracketed text, brackets removed and whitespace collapsed.
-    pub inner: String,
-}
-
-impl DetailTag {
-    /// The detail: what follows the standing, with the separator that introduced it removed.
-    ///
-    /// Collapsed, like `inner` — so this is what the detail *says*, not the bytes it occupies.
-    /// A rewriter locating a substring of it in the file must search the original span.
-    pub fn detail(&self) -> &str {
-        self.inner
-            .strip_prefix(self.standing)
-            .unwrap_or(&self.inner)
-            .trim_start_matches(|c: char| TAG_SEPARATORS.contains(&c) || c.is_whitespace())
-    }
-}
-
-/// Every bracketed tag with a detail, in source order. Links are not tags.
-///
-/// **Bracket depth over the block, not the first `]` on the line.** The line-scoped scan this
-/// replaces reported 234 of 445 tags of exactly this shape in one derived corpus, and the
-/// 211 it missed had two causes that share this one fix:
-///
-/// - *A tag that wraps was never closed.* `line[at..].find(']')` cannot find a `]` that is on
-///   the next line, and wrapping is not an edge case — it is what happens whenever the
-///   citation is a markdown link, because links are long. **Not one of 179 wrapped tags was
-///   reported.**
-/// - *A tag whose citation is a link closed on the wrong bracket.* In
-///   `[verified — [`x`](x.yml)]` the first `]` is the inner link's; the character after it is
-///   `(`, so the guard that exists to keep `[open questions](…)` from reading as a claim fired
-///   on the tag it was meant to protect. The guard is right and its subject was wrong: it is
-///   tested against the **outer** `]` here.
-///
-/// The bound is [`crate::claims::block_end`] — the boundary already measured for
-/// `statement_around`. It is load-bearing rather than tidy: an unbounded depth scan drops
-/// every tag below the corpus's first unbalanced `[` (one corpus has one, inside quoted source
-/// text) and does it silently, with the finding count falling as the corpus grows.
-pub(crate) fn detail_tags(text: &str) -> Vec<DetailTag> {
-    let mut out = Vec::new();
-    let bytes = text.as_bytes();
-    let mut line = 1;
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'\n' {
-            line += 1;
-            i += 1;
-            continue;
-        }
-        if bytes[i] != b'[' {
-            i += 1;
-            continue;
-        }
-        let Some(close) = matching_bracket(text, i, crate::claims::block_end(text, i)) else {
-            // Unbalanced within its block: this bracket opens nothing, and the next one is
-            // still worth asking about.
-            i += 1;
-            continue;
-        };
-        // `[text](target)` and `[text][ref]` are links; their label is not a claim.
-        if matches!(text[close + 1..].chars().next(), Some('(') | Some('[')) {
-            i += 1;
-            continue;
-        }
-        // A tag's text may carry the wrap it was written across; what is reported should not.
-        let inner = crate::claims::collapse_whitespace(&text[i + 1..close]);
-        let hit = STANDING_WORDS.iter().find(|word| {
-            if inner == **word {
-                return false; // the tag itself, exactly as intended
-            }
-            inner.strip_prefix(**word).is_some_and(|rest| {
-                rest.trim_start()
-                    .starts_with(|c: char| TAG_SEPARATORS.contains(&c))
-                    || narrowing_detail(&inner)
-            })
-        });
-        if let Some(standing) = hit {
-            out.push(DetailTag {
-                start: i,
-                end: close,
-                line,
-                standing,
-                inner,
-            });
-            // Anything nested inside a reported tag is part of it, not a second finding.
-            line += text[i..close].matches('\n').count();
-            i = close + 1;
-        } else {
-            i += 1;
-        }
-    }
-    out
-}
-
-/// `(line, text)` for each bracketed near miss, as `claim-tag-malformed` reports them.
+/// **A test helper now, and only that.** The check iterates
+/// [`crate::claims::detail_tags`] directly, because it needs each tag's *span* to ask the counter
+/// whether that tag is a claim. This keeps the shorter view the scan's own tests are written
+/// against; the formatting is the check's, so the two cannot drift on what a finding looks like.
+#[cfg(test)]
 fn near_miss_tags(text: &str) -> Vec<(usize, String)> {
-    detail_tags(text)
+    crate::claims::detail_tags(text)
         .into_iter()
         .map(|t| (t.line, format!("[{}]", t.inner)))
         .collect()
@@ -4334,18 +4174,74 @@ mod tests {
         c.violations[0].detail.clone()
     }
 
-    /// The case the advice forks for. `[verified as proposed]` says *what* is verified — that
-    /// the corpus holds the text of a proposal, not evidence it was adopted. Told to "put the
-    /// citation beside it", an author deletes the qualifier and leaves a bare `[verified]` that
-    /// the counter then records as the stronger claim.
+    /// The case the advice used to fork for, now not reported at all.
+    ///
+    /// `[verified as proposed]` says *what* is verified — that the corpus holds the text of a
+    /// proposal, not evidence it was adopted. Told to "put the citation beside it", an author
+    /// deletes the qualifier and leaves a bare `[verified]` that the counter records as the
+    /// stronger claim. That was the reason for a second piece of advice; #789 went further and
+    /// made the tag a **claim**, so there is nothing left to advise. A finding whose own remedy
+    /// is "leave it" is not a finding.
     #[test]
-    fn a_narrowing_detail_is_not_told_to_delete_itself() {
-        let m = advice_for("The amendment lands [verified as proposed].");
-        assert!(m.contains("narrows what is asserted"), "{m}");
-        assert!(
-            !m.contains("put the citation beside it"),
-            "the advice that would cost the qualifier: {m}"
-        );
+    fn a_qualified_tag_is_not_reported_at_all() {
+        for body in [
+            "The amendment lands [verified as proposed].",
+            "The row holds [verified — for the snapshot].",
+            "Whether it is one of six is [open — which of the six, not whether].",
+        ] {
+            let node = Node::parse(
+                PathBuf::from("/tmp/x.yml"),
+                ".yidam/corpus/c/x.yml",
+                format!("class: c\ndescription: |\n  {body}\n"),
+            );
+            let c = claim_tag_malformed(&prose_views(std::slice::from_ref(&node), &[]));
+            assert!(c.violations.is_empty(), "{body:?} → {:?}", c.violations);
+            // …and the other half of the same change: it is counted, so it did not merely stop
+            // being reported. These two live in different modules and have to move together.
+            assert_eq!(crate::claims::count_in_source(body).total(), 1, "{body:?}");
+        }
+    }
+
+    /// **Either counted or reported, never neither and never both.**
+    ///
+    /// The property that failed first. The check masks inline code and the counter does not, so
+    /// ``[verified — `crates/x`, as introduced]`` read as a qualifier to one and a citation to
+    /// the other: the check suppressed the finding, the counter declined the claim, and the tag
+    /// went **silently missing** — three of them across two real corpora, which is the failure
+    /// `claim-tag-malformed` exists to prevent. It was found by predicting the per-corpus deltas
+    /// and measuring, not by a test, so this is the test.
+    ///
+    /// Measured on the six corpora that write these details, every one now satisfies
+    /// Δfindings == −Δclaims: −29/+29, −7/+7, −2/+2 and three unchanged.
+    #[test]
+    fn a_tag_is_either_counted_or_reported_and_never_neither() {
+        for body in [
+            // qualified: counted, not reported
+            "It lands [verified as proposed].",
+            "The row holds [verified — for the snapshot].",
+            "Whether it is one of six is [open — which of the six, not whether].",
+            // a citation: reported, not counted
+            "The estimate is [verified — Pearl 2009].",
+            // two standings: reported, not counted
+            "It holds [verified — for the ratio; inference for the conclusion].",
+            // a qualifier whose detail opens with inline code — the case that broke
+            "The factor holds [verified — `crates/project`, as introduced].",
+            "Held [verified for the office; `oh-sos` and unasserted as to any act].",
+        ] {
+            let node = Node::parse(
+                PathBuf::from("/tmp/x.yml"),
+                ".yidam/corpus/c/x.yml",
+                format!("class: c\ndescription: |\n  {body}\n"),
+            );
+            let reported = !claim_tag_malformed(&prose_views(std::slice::from_ref(&node), &[]))
+                .violations
+                .is_empty();
+            let counted = crate::claims::count_in_source(body).total() > 0;
+            assert!(
+                reported != counted,
+                "{body:?} — reported {reported}, counted {counted}"
+            );
+        }
     }
 
     /// And the default is untouched, because ~89% of details across thirteen corpora name a
@@ -4376,14 +4272,17 @@ mod tests {
             1,
             "a space-introduced narrowing detail: {found:?}"
         );
-        assert!(advice_for(text).contains("narrows what is asserted"));
+        assert!(advice_for(text).contains("asserts two things at two standings"));
     }
 
     /// A second standing counts wherever it sits, not only as the first word.
     #[test]
-    fn a_second_standing_later_in_the_detail_is_a_narrowing_detail() {
+    fn a_second_standing_later_in_the_detail_is_reported_as_two_claims() {
         let m = advice_for("It holds [inference on the mechanism, [verified] on the measurement].");
-        assert!(m.contains("narrows what is asserted"), "{m}");
+        assert!(m.contains("asserts two things at two standings"), "{m}");
+        // The advice a qualifier would have got is wrong here and must not appear: one scope
+        // field cannot carry two standings, which is why these stay with RFC-0031.
+        assert!(!m.contains("put the citation beside it"), "{m}");
     }
 
     /// The guard on the new admission path, and the reason `TAG_SEPARATORS` excludes a space.
@@ -4412,7 +4311,7 @@ mod tests {
             reported_inner("[verified for the composition; the basis effect is [open]]"),
             "verified for the composition; the basis effect is [open]"
         );
-        assert!(narrowing_detail(reported_inner(
+        assert!(crate::claims::narrowing_detail(reported_inner(
             "[verified for the composition; the basis effect is [open]]"
         )));
     }

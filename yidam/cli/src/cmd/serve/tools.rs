@@ -717,6 +717,11 @@ fn claims(state: &ServerState, args: &Value) -> Value {
                     crate::claims::ClaimScope::Statement => claim.text.clone(),
                 },
                 "standing": claim.standing,
+                // The scope the tag carries, when it carries one — `as proposed`, `for the
+                // snapshot`. Free text and no vocabulary (RFC-0031): the corpora already write
+                // it in the bracket, and 38 claims across them were served as nothing at all
+                // until the counter learned to read it. Absent on a bare tag, which is most.
+                "qualifier": claim.qualifier,
                 "scope": claim.scope,
                 "property": claim.property,
                 "node": node.id,

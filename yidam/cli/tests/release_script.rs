@@ -16,6 +16,21 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// A tracked file as HEAD carries it, which is what the tag will carry.
+fn at_head(rel: &str) -> String {
+    let out = std::process::Command::new("git")
+        .current_dir(repo_root())
+        .args(["show", &format!("HEAD:{rel}")])
+        .output()
+        .unwrap_or_else(|e| panic!("git show HEAD:{rel} did not run ({e})"));
+    assert!(
+        out.status.success(),
+        "git show HEAD:{rel} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
 fn read(rel: &str) -> String {
     let p = repo_root().join(rel);
     std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{} is unreadable ({e})", p.display()))
@@ -349,8 +364,15 @@ fn the_tag_exists_check_does_not_match_another_layers_tag() {
 /// The same reading `release.sh` and `release.yml` both do, re-implemented here rather than
 /// shelled out to — a third copy of an `awk` program would be a third thing to be wrong. What
 /// this file asserts is that the two of them *behave* as this reading says they should.
+/// The lines staged under one heading of `docs/upgrading.md`, **as HEAD carries them**.
+///
+/// From HEAD and not the working tree, because that is where `release.sh` reads it and its
+/// reason is load-bearing: a tag names a commit, so a note only in the working tree is a note
+/// the tagged ref does not carry. Reading the working tree here made this test fail for any
+/// *uncommitted* note — which is exactly when someone writing one runs the suite — and blamed
+/// the script for not refusing a note it could not see.
 fn upgrade_section(heading: &str) -> Vec<String> {
-    let doc = read("docs/upgrading.md");
+    let doc = at_head("docs/upgrading.md");
     let mut inside = false;
     let mut out = Vec::new();
     for line in doc.lines() {
