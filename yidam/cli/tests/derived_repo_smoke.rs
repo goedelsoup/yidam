@@ -649,3 +649,189 @@ fn the_local_gate_runs_what_ci_gates_on() {
         if missing.len() == 1 { "it" } else { "them" }
     );
 }
+
+// ── #647: one commit, one answer ──────────────────────────────────────────────
+//
+// The gate a derived repository fails on its first push is `yidam regen --check`, and what it
+// checks has to be answerable. `status` used to render a count of phase branches into the block,
+// which made the verdict a function of the *checkout* rather than of the commit — and there was
+// then no committed value that was green both in a clone that had fetched and in a default CI
+// checkout. Not wrong: unwinnable.
+//
+// The contract, as one sentence:
+//
+//   A REGEN block held by `--check` must be a function of what every checkout of that commit has
+//   in common.
+//
+// Its two halves are the refs a checkout happens to hold and how much history it fetched, and one
+// test below holds each. Neither could be a unit test over a generator: the failure is a property
+// of a whole repository under two different fetches, which is exactly what this file already
+// builds.
+
+/// Read a git command's output, for the fixtures below that need a hash back.
+fn git_out(dir: &Path, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .current_dir(dir)
+        .args(args)
+        .output()
+        .expect("git");
+    assert!(
+        out.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8(out.stdout).expect("utf-8").trim().into()
+}
+
+/// Half one: a phase ref appearing must not move a gated block.
+///
+/// **This is a live failure mode, not a hypothetical.** Pushing a phase branch reddened this gate
+/// on every open pull request in a derived repository, on a file none of them had touched, because
+/// the ref is visible to the generator and to nothing the pull request changed. The same field
+/// also moved three times in an hour on an unchanged tree, as the branch was opened, merged, and
+/// its ref deleted — two of those cost a `regen:` commit and one was stale before it could merge.
+///
+/// Both a settled ref and an active one, because they land in different counts and a fix that
+/// dropped only the one the report happened to render would pass a test that checked one.
+#[test]
+fn the_gate_survives_a_phase_ref_appearing() {
+    let repo = Derived::bootstrap();
+    let root = repo.path();
+
+    let before = repo.yidam(&["regen", "--check"]);
+    assert!(
+        before.status.success(),
+        "the fixture does not pass its own gate before anything is varied, so nothing below \
+         measures the variation:\n{}",
+        text(&before)
+    );
+
+    // Settled: an ancestor of the baseline. Active: a commit that is not, built with
+    // `commit-tree` so the working tree and the checked-out branch are untouched — the tree this
+    // commit is compared against must be the one the gate just passed on.
+    let head = git_out(root, &["rev-parse", "HEAD"]);
+    let unmerged = git_out(
+        root,
+        &[
+            "commit-tree",
+            "HEAD^{tree}",
+            "-p",
+            &head,
+            "-m",
+            "phase: work in flight",
+        ],
+    );
+    git(
+        root,
+        &["update-ref", "refs/remotes/origin/phase/settled", &head],
+    );
+    git(
+        root,
+        &[
+            "update-ref",
+            "refs/remotes/origin/phase/in-flight",
+            &unmerged,
+        ],
+    );
+
+    // The refs are real, and the report can see them. Without this the test passes just as well
+    // against a build that cannot read refs at all, or a fixture where the update-ref did nothing.
+    let json = text(&repo.yidam(&["status", "--format", "json"]));
+    let report: serde_json::Value = serde_json::from_str(&json).expect(&json);
+    assert_eq!(
+        (
+            report["active_phases"].as_u64(),
+            report["settled_phases"].as_u64()
+        ),
+        (Some(1), Some(1)),
+        "the fixture's two phase refs are not both visible to `status --format json`, so the \
+         variation this test applies is not the one it describes:\n{json}"
+    );
+
+    let after = repo.yidam(&["regen", "--check"]);
+    assert!(
+        after.status.success(),
+        "two refs appeared, no commit was made, and the gate on the committed block went red. \
+         A REGEN block must not read anything outside the tree:\n{}",
+        text(&after)
+    );
+}
+
+/// Half two: depth. The gate refuses rather than returning a verdict it cannot compute.
+///
+/// `genesis` reads the repository's first commit and a shallow clone does not have one — but git
+/// answers anyway, naming the boundary commit, so the generator writes a date the clone invented
+/// and `--check` asks you to commit it. Measured on a real corpus: `genesis 2026-08-28` from a full
+/// clone of a commit, `2026-09-07` from a `--depth 1` clone of the same commit.
+///
+/// The assertion is deliberately not "it passes". Making every generator depth-invariant would
+/// cost `genesis` and the catalog's TTL ages, which are history by definition. So the command
+/// states its precondition instead — and a gate that cannot compute its verdict must refuse, not
+/// pass. The message has to name the remedy, because the person reading it is a CI log.
+#[test]
+fn the_gate_refuses_a_shallow_clone_rather_than_gating_an_invented_value() {
+    let repo = Derived::bootstrap();
+
+    // `file://`, not a path: git hardlinks a local clone's objects and ignores `--depth`.
+    let dest = tempfile::tempdir().expect("tempdir");
+    let clone = dest.path().join("shallow");
+    let url = format!("file://{}", repo.path().display());
+    let ok = Command::new("git")
+        .args(["clone", "-q", "--depth", "1", &url])
+        .arg(&clone)
+        .status()
+        .expect("git clone")
+        .success();
+    assert!(ok, "cloning the fixture shallowly failed");
+    assert_eq!(
+        git_out(&clone, &["rev-parse", "--is-shallow-repository"]),
+        "true",
+        "the clone is not shallow, so this test proves nothing"
+    );
+    assert_eq!(
+        git_out(&clone, &["rev-parse", "HEAD"]),
+        git_out(repo.path(), &["rev-parse", "HEAD"]),
+        "the clone is at a different commit than the fixture, so any difference in the block \
+         has a second explanation"
+    );
+
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(&clone)
+        .args(["regen", "--check"])
+        .output()
+        .expect("yidam regen --check");
+    let said = text(&out);
+    assert!(
+        !out.status.success(),
+        "the gate returned a verdict on a block it cannot compute:\n{said}"
+    );
+    assert!(
+        said.contains("shallow"),
+        "the refusal does not name the cause:\n{said}"
+    );
+    for remedy in ["--unshallow", "fetch-depth: 0"] {
+        assert!(
+            said.contains(remedy),
+            "the refusal does not name `{remedy}`, and the reader is a CI log:\n{said}"
+        );
+    }
+
+    // The writing mode refuses too, and for the sharper reason: it would commit the invented
+    // date. A repository whose gate refuses and whose writer obliges is one that produces the
+    // very commit the gate exists to prevent.
+    let wrote = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(&clone)
+        .arg("regen")
+        .output()
+        .expect("yidam regen");
+    assert!(
+        !wrote.status.success(),
+        "`yidam regen` rewrote the blocks from a truncated history:\n{}",
+        text(&wrote)
+    );
+    assert_eq!(
+        git_out(&clone, &["status", "--porcelain"]),
+        "",
+        "`yidam regen` refused and still wrote to the tree"
+    );
+}

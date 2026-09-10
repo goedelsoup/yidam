@@ -28,6 +28,40 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### The README status block no longer counts phases, and refuses a shallow clone
+
+Two changes to `yidam status` and one to `yidam regen`. Both follow one rule: **a committed,
+gated block may only report what every checkout of that commit agrees on.**
+
+**Phase counts leave the block.** `yidam status` no longer renders `N active phase(s)` into the
+README. The counts read branch refs, and which refs a checkout holds is a property of how it was
+fetched. So for one commit there was no value that passed `yidam regen --check` everywhere. A default CI
+checkout and a machine that had run `git fetch` wanted different numbers. The gate was unwinnable
+rather than wrong. The count also moved with no commit at all. Pushing a phase branch reddened
+the gate on every open pull request.
+
+*What to do.* Run `yidam regen` once and commit the result as a `regen:` commit. Your block loses
+one cell. Your CI may have added an all-branches `git fetch` to make the two agree. It is no longer needed
+for this. Check whether anything else you run wants it before removing it.
+
+*Where the counts went.* `yidam phases` prints them, and being current is the point there.
+`yidam status --format json` still carries `active_phases`, `settled_phases`,
+`rewritten_phases` and `positions`. Nothing reading the report loses a field.
+
+**`yidam regen` now refuses a shallow clone.** The block reports the corpus genesis, which is the
+repository's first commit. A `--depth 1` checkout does not have it, and git does not say so: it
+names the boundary commit a root. The block was therefore written from a date the clone invented,
+and `--check` asked you to commit it. Measured on one corpus: `genesis 2026-08-28` from a full
+clone, `2026-09-07` from a shallow clone of the same commit.
+
+*What to do.* Check out with `fetch-depth: 0`, or run `git fetch --unshallow`. The scaffolded
+`.github/workflows/ci.yml` already does the former. If yours does not, this step now fails with a
+refusal naming the remedy rather than reporting a stale block.
+
+**`genesis` reads `unknown` in a shallow clone**, in every command, not just this block. That is
+the same change from the other side. A corpus whose history is absent has no genesis to name.
+`yidam bundle` writes `genesis_hash: null` there, which consumers already handle.
+
 ### A qualified evidence tag is now a claim, so two numbers move
 
 `[verified — as proposed]` used to match none of the three tokens exactly. It counted as **no
