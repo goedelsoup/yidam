@@ -228,12 +228,18 @@ It is the largest fixture family here and it went undocumented in this file unti
 check below started asking who reads each directory — which is the finding that check exists
 to produce.
 
-Runners: `yidam/cli/tests/report_goldens.rs` for the goldens themselves, and six test files
-in `yidam/editors/vscode/test/` which drive the extension's reader against the same corpus,
-so a fixture whose output changes fails the goldens and the extension together. Both stage
+Runners: `yidam/cli/tests/report_goldens.rs` for the goldens themselves; six test files in
+`yidam/editors/vscode/test/` which drive the extension's reader against the same corpus; and
+`yidam/editors/web/test/gate.mjs`, which reads the committed `expected/lint.json` directly. So
+a fixture whose output changes fails the goldens and both editors together. The first two stage
 the repository through `basic/stage.toml` rather than each building its own — see
 `basic/README.md` for what the corpus is deliberately built to reach, and for why there were
 once seven copies of that staging.
+
+**The extension's runners need `YIDAM_BIN`, and skip silently without it.** They are the only
+readers here that go through a real binary, so `npm run test:unit` in `yidam/editors/vscode`
+reports a clean pass while checking nothing about a fixture change. Build the CLI and export
+`YIDAM_BIN` before believing that suite about anything under `fixtures/reports/`.
 
 ## The diagnostic_severity fixtures
 
