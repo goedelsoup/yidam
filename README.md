@@ -107,7 +107,7 @@ the binary in one file you drag onto the Extensions pane, which asks which repos
 macOS only, and it gives you the MCP server rather than the CLI:
 
 ```sh
-open yidam-0.11.0-aarch64-apple-darwin.mcpb    # from the latest release; or double-click it
+open yidam-0.12.0-aarch64-apple-darwin.mcpb    # from the latest release; or double-click it
 ```
 
 Or from source, if you would rather. Same light default build, and it needs only a Rust
@@ -116,7 +116,7 @@ tag committed, which is what makes it the same binary the release was built from
 cargo re-resolves every dependency:
 
 ```sh
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.11.0 --locked yidam
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.12.0 --locked yidam
 ```
 
 Either way, `yidam --version` should answer, naming the build and the features it carries.

@@ -28,6 +28,8 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+## cli/v0.12.0
+
 ### The README status block no longer counts phases, and refuses a shallow clone
 
 Two changes to `yidam status` and one to `yidam regen`. Both follow one rule: **a committed,
