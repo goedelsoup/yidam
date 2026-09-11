@@ -27,7 +27,7 @@
 import Shell from '../layouts/Shell.astro'
 import { session } from '../lib/session.ts'
 import { spawnReport } from '../lib/cli.ts'
-import { escalated, severityOf, type LintReport } from '../lib/lint.ts'
+import { escalated, gateVerdict, severityOf, type LintReport } from '../lib/lint.ts'
 
 interface GraphCheckReport {
   passed?: boolean
@@ -45,6 +45,11 @@ const lint = input ? await spawnReport<LintReport>(input, 'lint') : null
 const graphCheck = input ? await spawnReport<GraphCheckReport>(input, 'graph-check') : null
 
 const gate = lint && lint.ok ? lint.report.gate : undefined
+// Rendered from the gate rather than written out here. The sentence this replaced was
+// assembled in the template from three of the gate's five fields, so a gate failing on an
+// expired or stale baseline entry stated a failure and then listed only the numbers that do
+// not fail (#751). A template is not a thing a test can hold, which is how it stayed wrong.
+const verdict = gate ? gateVerdict(gate) : null
 const checks = (lint && lint.ok ? (lint.report.checks ?? []) : []).filter(
   (check) => check.violations.length > 0,
 )
@@ -59,11 +64,24 @@ const graph = graphCheck && graphCheck.ok ? graphCheck.report : null
         <p>Unavailable — see the header.</p>
       ) : (
         <>
-          {gate && (
-            <p class={gate.passed ? 'gate-passed' : 'gate-failed'}>
-              Gate {gate.passed ? 'passed' : 'failed'} — {gate.new_violations} new,{' '}
-              {gate.baselined_violations} in baseline.
-            </p>
+          {verdict && (
+            <>
+              <p class={verdict.passed ? 'gate-passed' : 'gate-failed'}>{verdict.summary}</p>
+              {/* The two causes a reader cannot find in the list below: an expired entry's
+                  violation is down there wearing the `baseline` tag, looking forgiven, and a
+                  stale entry's violation is not down there at all — being absent is what is
+                  wrong with it. */}
+              {verdict.causes.length > 0 && (
+                <ul class="gate-causes">
+                  {verdict.causes.map((cause) => (
+                    <li>
+                      <span class="tag">{cause.kind}</span> <code>{cause.check}</code> lists{' '}
+                      <code>{cause.node}</code> — {cause.detail}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
           )}
           {checks.length === 0 ? (
             <p>No violations.</p>

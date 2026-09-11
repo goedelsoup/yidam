@@ -224,3 +224,12 @@ ul.questions {
   color: var(--status-open-fg);
   font-weight: 600;
 }
+
+/* The causes behind a failing gate, where they are not violations in a file. Quieter than
+ * `.gate-failed` and louder than `.in-baseline`: each one is a reason the build is red, and
+ * none of them is a finding a reader can open. */
+.gate-causes {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  margin: 0.25rem 0 0.75rem;
+}
