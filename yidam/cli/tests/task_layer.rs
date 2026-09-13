@@ -538,6 +538,174 @@ fn the_tag_refspec_globs_so_peeled_refs_are_returned() {
     );
 }
 
+/// A re-vendor must not restore the domain libraries genesis dropped.
+///
+/// `prelude/domains/` is fifteen libraries, ~320 of the ~540 files the prelude copy writes.
+/// Step 8 of bootstrap keeps only what a step 5 calculator named, and the common case names
+/// none. The copy in `yidam-vendor-update` is wholesale, so without a prune it puts all
+/// fifteen back on every update — reversing a genesis decision as a side effect of taking a
+/// prelude correction, and re-arming #590 (`cargo fmt --all` reaching them). The skill's
+/// affordance pointed at the same gap from the other side: "add it to `prelude_domains` and
+/// re-run" named a mechanism the task did not contain, so adding a name did nothing while
+/// re-running restored everything (#808).
+///
+/// The fragment is read out of `mise.yidam.toml` and run by `sh`, for the reason the tag
+/// resolver above gives: a copy here would pass while the file rotted. Nothing in this
+/// repository runs this task — `mise.yidam.toml` has no consumer here at all — so a
+/// mistake in it is invisible until a derived repository takes the update.
+#[test]
+fn a_re_vendor_keeps_only_the_domains_this_repository_declared() {
+    let run = parse("mise.yidam.toml")["yidam-vendor-update"]["run"]
+        .as_str()
+        .expect("yidam-vendor-update.run")
+        .to_string();
+
+    let begin = "# PRUNE-DOMAINS BEGIN\n";
+    let start = run.find(begin).expect("the prune is marked") + begin.len();
+    let end = run[start..]
+        .find("# PRUNE-DOMAINS END")
+        .expect("unterminated prune");
+    let fragment = &run[start..start + end];
+
+    // It has to run after the copy, or it prunes the previous prelude and the new one
+    // arrives whole.
+    assert!(
+        run.find("cp -R").expect("the prelude is copied") < start,
+        "the prune runs before the copy it is pruning"
+    );
+
+    const LIBRARIES: &[&str] = &[
+        "causal",
+        "economics",
+        "energy",
+        "finance",
+        "geodesics",
+        "graph-metrics",
+        "graph-topology",
+        "group-theory",
+        "hydrology",
+        "information-theory",
+        "parity",
+        "set-theory",
+        "similarity",
+        "statistics",
+        "trade",
+    ];
+
+    /// Run the fragment over a freshly copied `domains/` — all fifteen, as the `cp -R`
+    /// leaves it — and report what survives.
+    ///
+    /// `proposals` is the decision record's content, or `None` for a repository that has
+    /// none. `vendored` is what the task captured before the replacement.
+    fn prune(
+        fragment: &str,
+        proposals: Option<&str>,
+        vendored: &str,
+    ) -> (String, Option<Vec<String>>) {
+        let dir = tempfile::tempdir().unwrap();
+        let domains = dir.path().join(".yidam/.vendor/prelude/domains");
+        std::fs::create_dir_all(&domains).unwrap();
+        for lib in LIBRARIES {
+            std::fs::create_dir(domains.join(lib)).unwrap();
+        }
+        std::fs::write(domains.join("README.md"), "the index").unwrap();
+        if let Some(body) = proposals {
+            let decisions = dir.path().join(".yidam/decisions");
+            std::fs::create_dir_all(&decisions).unwrap();
+            std::fs::write(decisions.join("proposals.yml"), body).unwrap();
+        }
+
+        let script = format!("set -eu\nvendored='{vendored}'\n{fragment}");
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&script)
+            .current_dir(dir.path())
+            .output()
+            .expect("sh");
+        assert!(
+            out.status.success(),
+            "the prune failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+
+        let kept = domains.is_dir().then(|| {
+            let mut names: Vec<String> = std::fs::read_dir(&domains)
+                .unwrap()
+                .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+                .collect();
+            names.sort();
+            names
+        });
+        (
+            String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            kept,
+        )
+    }
+
+    // The common case, and the form the bootstrap skill writes — trailing comment included.
+    let (say, kept) = prune(
+        fragment,
+        Some("id: proposals\nprelude_domains: []          # domains selected in step 8; [] is the common case\n"),
+        "",
+    );
+    assert_eq!(
+        kept, None,
+        "an empty declaration must remove the directory, not keep fifteen libraries: {say}"
+    );
+
+    // A flow list, which is what the skill's template becomes when a domain is added to it.
+    let (_, kept) = prune(fragment, Some("prelude_domains: [causal, finance]\n"), "");
+    assert_eq!(
+        kept.as_deref(),
+        Some(
+            &[
+                "README.md".into(),
+                "causal".into(),
+                "finance".into(),
+                "parity".into()
+            ][..]
+        ),
+        "a flow list must keep exactly what it names, plus the index and the parity harness"
+    );
+
+    // A block list, because YAML has two spellings and a reader will use either.
+    let (_, kept) = prune(
+        fragment,
+        Some("prelude_domains:\n  - causal\n  - trade  # the one the calculator calls\nrationale: |\n  prose\n"),
+        "",
+    );
+    assert_eq!(
+        kept.as_deref(),
+        Some(
+            &[
+                "README.md".into(),
+                "causal".into(),
+                "parity".into(),
+                "trade".into()
+            ][..]
+        ),
+        "a block list must be read the same as a flow list"
+    );
+
+    // **The reported case.** No declaration to read — a repository bootstrapped before the
+    // record existed, or one whose proposals.yml never got the key. The re-vendor may not
+    // decide it: what was here stays here, and what was not does not come back.
+    let (say, kept) = prune(fragment, None, "");
+    assert_eq!(
+        kept, None,
+        "with nothing vendored and nothing declared, the re-vendor restored the libraries \
+         this repository had dropped: {say}"
+    );
+
+    let (_, kept) = prune(fragment, None, "causal parity README.md");
+    assert_eq!(
+        kept.as_deref(),
+        Some(&["README.md".into(), "causal".into(), "parity".into()][..]),
+        "a repository that vendors one domain and declares nothing must keep that one — \
+         and only that one"
+    );
+}
+
 /// The `[tools]` entry is derived from the pin, and touches nothing else in the file.
 ///
 /// `.yidam.toml` pins a **commit**; a mise `[tools]` entry names a **version**. VERSIONING.md

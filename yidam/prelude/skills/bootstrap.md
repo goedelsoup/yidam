@@ -873,6 +873,12 @@ libraries is the stale-fork outcome arriving through the one directory the vendo
 `prelude/sdks/` stays whole — the prelude's own README and `agent-conduct.md` link into it, so
 it is read from inside a derived repository even though it is not built there.
 
+`prelude_domains` is why this deletion survives. `mise run yidam-vendor-update` replaces the
+vendored prelude wholesale, so it copies all fifteen back every time; it then reads the field
+out of the decision record and prunes to what this repository declared. That is the whole
+mechanism — write the field even when it is empty, because the empty list is a decision and
+the task reads it as one (#808).
+
 Keep `domains/README.md` when any domain is kept: it is the index that says what the layer is
 and how a domain is wired into `crates/Cargo.toml` when the domain computer exists.
 
@@ -1014,9 +1020,9 @@ finding an empty directory and guessing:
   can be adopted later if a second elector appears.
 - `prelude/domains/` — shared pure-function libraries. Name the domains vendored in step 8,
   or say that none were and that the layer exists: the fifteen are listed in the yidam
-  repository, and one can be vendored later by re-running `mise run yidam-vendor-update`
-  after adding it to `prelude_domains`. A reader who never hears of the layer will write the
-  calculator by hand.
+  repository, and one can be vendored later by adding its name to `prelude_domains` in
+  `.yidam/decisions/proposals.yml` and re-running `mise run yidam-vendor-update`. A reader
+  who never hears of the layer will write the calculator by hand.
 
 **Next steps** — three concrete, ordered actions:
 
