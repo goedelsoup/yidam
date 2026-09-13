@@ -44,6 +44,10 @@ pub mod model;
 pub use cmd::index_build;
 #[cfg(feature = "tonpa")]
 pub use cmd::tonpa;
+/// Top-level paths `yidam clone` leaves behind. Public so the guard that holds the template
+/// root to the bootstrap protocol can ask the copy what it excludes, rather than restating
+/// the list a third time.
+pub use cmd::NOT_INHERITED;
 /// The seed kinds `yidam samudaya-audit` accepts. See [`samudaya_seed_kind`].
 pub use cmd::SAMUDAYA_KINDS;
 pub use cmd::{

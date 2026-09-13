@@ -810,8 +810,13 @@ rather than by omission.
 | `backfill` * | Write a decision record for each epistemic commit in history. `--since` |
 | `tonpa <sub>` * | Manage bundle dependencies in `.yidam/tonpa/`. **Needs `tonpa`** (a default) |
 
-`clone` copies everything except `docs/` and `examples/`. The documentation here describes yidam
-itself. An example is a whole foreign corpus that a new repository should not be born holding.
+`clone` copies everything except the top-level paths `NOT_INHERITED` names in `cmd/clone.rs`.
+Two of them are `docs/` and `examples/`. The documentation here describes yidam itself. An example
+is a whole foreign corpus that a new repository should not be born holding. The rest is machinery
+this repository runs against itself. Also excluded: its installer, release and render scripts, its
+packaging and its `.github/`. So are its plugin manifest, its editor launch configuration and its
+demo shell.
+A derived repository can neither run nor update any of it (#807).
 `overlay` refuses a target that already has a `.yidam/`. It adds `yidam/`, `sadhana/`,
 `BOOTSTRAP.md`, `mise.yidam.toml` and the `.yidam.toml` pin, without touching the repository's own
 content.

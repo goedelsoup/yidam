@@ -70,7 +70,7 @@ pub use catalog::{
     FetchOptions, ReconcileOptions,
 };
 pub use check_diff::check_diff;
-pub use clone::clone;
+pub use clone::{clone, NOT_INHERITED};
 pub use corpus::{corpus_index, graph_check, open_questions};
 pub use decisions::decisions_log;
 pub use diff::diff_corpus;
