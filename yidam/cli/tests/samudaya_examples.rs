@@ -175,10 +175,10 @@ fn every_domain_set_shows_more_than_one_kind_of_seed() {
 /// seeds it is expected to consume at genesis.
 ///
 /// `clone` is not the mechanism, though the issue that filed this said it was. It copies
-/// `samudaya/` wholesale — `copy_dir_excluding_top(&root, target, &["docs", "examples"])`
-/// excludes only *top-level* `docs/` and `examples/`, so a derived repository gets these
-/// sets either way. What changes is whether its own audit then reads them as live, which is
-/// what [`a_derived_repository_inherits_no_seeds`] checks.
+/// `samudaya/` wholesale — the exclusions it passes ([`yidam::NOT_INHERITED`]) are
+/// *top-level* and `samudaya` is not among them, so a derived repository gets these sets
+/// either way. What changes is whether its own audit then reads them as live, which is what
+/// [`a_derived_repository_inherits_no_seeds`] checks.
 #[test]
 fn this_repository_still_has_no_seeds_of_its_own() {
     let out = Command::new(env!("CARGO_BIN_EXE_yidam"))

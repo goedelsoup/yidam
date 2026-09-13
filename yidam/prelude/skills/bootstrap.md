@@ -392,9 +392,11 @@ Yidam's copies of these six files describe yidam — its harness, its CLI worksp
 bootstrap-mode entry check. Left in place they are wrong the moment genesis is written.
 Overwrite all six now. Do not merge yidam's content into them.
 
-**`.github/workflows/` — replace the directory, do not overwrite files inside it.** `yidam
-clone` copies all of yidam's own workflows into the new repository (`EXCLUDE_DIRS` does not
-name `.github/`), and every one of them names a layout that does not survive genesis:
+**`.github/workflows/` — replace the directory, do not overwrite files inside it.** In
+existing-repo mode the target's own workflows are there and are not this scaffold's; in
+template mode `yidam clone` now excludes `.github/` outright, so the directory arrives
+empty. Either way the instruction is the same one, and it is a replacement rather than a
+merge because yidam's own workflows each name a layout that does not survive genesis:
 `ci.yml` builds `yidam/cli` and `yidam/tests/harness`, paths step 8 deletes, so it would go
 green having compiled nothing; `release.yml` publishes the yidam CLI's binaries from a
 repository that has no CLI to publish; `docs.yml`, `editor.yml`, `install-channels.yml`,
@@ -876,10 +878,10 @@ it is read from inside a derived repository even though it is not built there.
 Keep `domains/README.md` when any domain is kept: it is the index that says what the layer is
 and how a domain is wired into `crates/Cargo.toml` when the domain computer exists.
 
-**Then delete the template's own top-level files.** These describe yidam, not this repository.
-`README.md`, `AGENTS.md`, `.claude/CLAUDE.md`, `mise.toml`, `.gitattributes`, and
-`.gitignore` were already overwritten in step 3, and `.github/workflows/` was already
-replaced wholesale from `sadhana/github/workflows/`; what remains is:
+**Then delete the two template files bootstrap itself used.** `README.md`, `AGENTS.md`,
+`.claude/CLAUDE.md`, `mise.toml`, `.gitattributes`, and `.gitignore` were already
+overwritten in step 3, and `.github/workflows/` was already replaced wholesale from
+`sadhana/github/workflows/`; what remains is:
 
 ```
 rm -f BOOTSTRAP.md VERSIONING.md
@@ -890,6 +892,18 @@ has. `VERSIONING.md` documents how yidam releases its own three layers. Keep `LI
 `mise.yidam.toml`: the first is generic and the second is the inherited task layer that
 `mise.toml` includes. `.gitignore` and `.gitattributes` are already this repository's own —
 step 3 overwrote both from `sadhana/root/`.
+
+**Nothing else of yidam's is here to delete, and that is enforced rather than promised.**
+This line named two files while `yidam clone` was delivering eleven more root paths nobody
+had decided about — `install.sh`, `release.sh`, the two `render-*.sh`, `deny.toml`,
+`.config/`, `scripts/`, `.claude-plugin/`, `packages/` holding yidam's own demo shell, the
+rest of `.github/`, and a `.vscode/` whose launch config points into `yidam/editors/vscode`,
+a directory this step deletes three commands earlier. A repository a few hours old reported
+all of them (#807). They are now excluded from the copy itself, by `NOT_INHERITED` in
+`cmd/clone.rs`, and `template_root.rs` asks of **every** tracked path whether the protocol
+names it — so the next file added to the template root is asked without anyone remembering
+to ask. If a path does turn up here that this step does not name, that guard is where the
+answer belongs, not a longer `rm -f` line.
 
 **Confirm the provenance pin.** `.yidam.toml` records which yidam this repo came from; `yidam
 clone` and `yidam overlay` write it. Check that it exists and carries a real commit:
