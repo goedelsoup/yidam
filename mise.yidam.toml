@@ -395,9 +395,91 @@ fi
 # Wholesale replacement, not a merge: the prelude is read-only in a derived
 # repo, so there is nothing local to preserve. Anything that WAS edited locally
 # shows up in the diff below, which is the point.
+#
+# `prelude/domains/` is the exception, and it is not a local edit — it is a choice
+# bootstrap made and recorded. Read what this repository vendors now, before the
+# replacement erases it; the prune below needs it as a fallback.
+vendored=""
+if [ -d .yidam/.vendor/prelude/domains ]; then
+  vendored=$(ls .yidam/.vendor/prelude/domains)
+fi
 rm -rf .yidam/.vendor/prelude
 mkdir -p .yidam/.vendor
 cp -R "$tmp/yidam/yidam/prelude" .yidam/.vendor/prelude
+# ── the domain libraries, and the choice this repository already made ─
+#
+# `prelude/domains/` is fifteen libraries in three languages each — around 320 of
+# the ~540 files the line above just wrote, and the majority of the bytes. Step 8
+# of bootstrap keeps only what a step 5 calculator named, and the common case
+# names none: a derived repository has no task that builds them, no workspace that
+# includes them, and no CI job that runs them. `domain-parity` is yidam's gate and
+# does not travel.
+#
+# The copy is wholesale, so it puts every one of them back. For as long as this
+# task read no declaration that is exactly what it did — every re-vendor silently
+# reinstating a decision genesis had made, and the affordance the bootstrap skill
+# describes ("add it to prelude_domains and re-run") naming a mechanism that was
+# never written. A repository a few hours old declined to run this task at all
+# rather than take the 320 files back, which also froze the inherited task layer
+# this task is the only update path for (#808).
+#
+# Two sources, in order, and neither is a guess:
+#
+#   1. `prelude_domains` in .yidam/decisions/proposals.yml — the record step 5
+#      writes and step 8 reads. The repository's own declaration, the same
+#      standing as `[build] features` above.
+#   2. Failing that, what this repository already had. A re-vendor may not decide
+#      something nobody declared: a repository predating the drop keeps its
+#      fifteen, one bootstrapped after it keeps none, and neither is surprised.
+#
+# PRUNE-DOMAINS BEGIN
+domains=.yidam/.vendor/prelude/domains
+proposals=.yidam/decisions/proposals.yml
+if [ -f "$proposals" ] && grep -q '^prelude_domains:' "$proposals"; then
+  keep=$(awk '
+    /^prelude_domains:/ {
+      line = $0
+      sub(/^prelude_domains:[ ]*/, "", line)
+      sub(/[ ]*#.*$/, "", line)
+      if (substr(line, 1, 1) == "[") { gsub(/[][",]/, " ", line); print line }
+      else if (line != "") { print line }
+      else { block = 1 }
+      next
+    }
+    block == 1 && $0 ~ /^[ ]*-[ ]+/ {
+      sub(/^[ ]*-[ ]+/, "")
+      sub(/[ ]*#.*$/, "")
+      gsub(/["]/, "")
+      print
+      next
+    }
+    block == 1 && $0 ~ /^[^ ]/ { block = 0 }
+  ' "$proposals")
+  source="$proposals"
+else
+  keep="$vendored"
+  source="the set already vendored here"
+fi
+# One line, whatever form the declaration took: a flow list, a block list, or an ls.
+keep=$(echo $keep)
+if [ -d "$domains" ]; then
+  if [ -z "$keep" ]; then
+    rm -rf "$domains"
+    echo "prelude/domains/: nothing kept (per $source) — directory removed"
+  else
+    # README.md is the index that says what the layer is and how a domain is wired
+    # into crates/Cargo.toml; `parity` is how a kept domain is checked across its
+    # three languages. Both are kept whenever anything is.
+    for d in $(ls "$domains"); do
+      case " $keep README.md parity " in
+        *" $d "*) ;;
+        *) rm -rf "$domains/$d" ;;
+      esac
+    done
+    echo "prelude/domains/: kept $keep (per $source)"
+  fi
+fi
+# PRUNE-DOMAINS END
 # This file too. It is the inherited TASK layer — as read-only as the prelude and
 # as much yidam's to correct, but it does not live under .yidam/.vendor/ because
 # mise has to find it at the repo root. For a long time that meant it had no

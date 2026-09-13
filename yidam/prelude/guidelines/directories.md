@@ -796,6 +796,15 @@ replaces `mise.yidam.toml`. It touches nothing else — `corpus/`, `catalog/`, `
 `skills/`, `crates/`, and every other top-level file are domain-owned and are never
 overwritten by an update.
 
+**`prelude/domains/` is the one part of that replacement that is not wholesale**, and the
+reason is that its contents are a decision rather than a copy. Bootstrap keeps only the
+libraries a calculator named — none, in the common case — so a wholesale copy would restore
+all fifteen on every update, silently reversing a choice made at genesis. The update reads
+`prelude_domains` from `.yidam/decisions/proposals.yml` and prunes to it, and where no such
+declaration exists it keeps exactly what this repository already vendored. Adding a name to
+that field and re-running the update is how a domain is vendored later; it is also the only
+thing that survives the next one.
+
 `mise.yidam.toml` is on that list because it is inherited, not domain-owned: it is the task
 layer, as much yidam's to correct as the prelude is, and it sits at the repo root only
 because mise has to find it there. It was omitted originally on the reasoning that the
