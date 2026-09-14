@@ -441,7 +441,7 @@ toml = "1.1"
 serde_yaml = "0.9"
 quick-xml = "0.42"
 tempfile = "3"
-jsonschema = { version = "0.53.0", default-features = false }
+jsonschema = { version = "0.56.0", default-features = false }
 
 # ── cargo-binstall ────────────────────────────────────────────────────────────
 #
