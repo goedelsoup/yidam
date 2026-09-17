@@ -28,7 +28,7 @@ pub use line_citations::{
     label_symbols, relocate, slid_line_citation, unverified_line_citation, LineCitation,
     LineFragment, Relocation,
 };
-pub use model::{Check, Severity, Violation};
+pub use model::{Check, Severity, Violation, LINT_SEVERITIES};
 
 /// Every line-anchored citation in `root`'s prose surfaces (`docs/`, `.yidam/`), read
 /// from disk.

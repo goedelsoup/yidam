@@ -114,7 +114,9 @@ fn every_domain_suite_loads_fixtures_through_the_testkit() {
 
         let manifest = std::fs::read_to_string(dir.join("rust/Cargo.toml")).unwrap();
         if !manifest.contains(TESTKIT) {
-            offenders.push(format!("{name}: Cargo.toml has no {TESTKIT} dev-dependency"));
+            offenders.push(format!(
+                "{name}: Cargo.toml has no {TESTKIT} dev-dependency"
+            ));
         }
     }
 

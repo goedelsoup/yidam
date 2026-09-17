@@ -24,14 +24,59 @@ pub enum Severity {
 }
 
 impl Severity {
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Error => "error",
             Self::Warn => "warn",
             Self::Info => "info",
         }
     }
+
+    /// The severity after this one, or `None` at the end of the vocabulary.
+    ///
+    /// Exists only to build [`LINT_SEVERITIES`], and the `match` is the whole point: **no
+    /// wildcard**, so a fourth variant is a compile error here rather than a value that
+    /// quietly appears in reports. See that constant for why the chain, rather than a list.
+    const fn after(self) -> Option<Self> {
+        match self {
+            Self::Error => Some(Self::Warn),
+            Self::Warn => Some(Self::Info),
+            Self::Info => None,
+        }
+    }
+
+    /// Where the chain starts.
+    const FIRST: Self = Self::Error;
 }
+
+/// Every severity a report can carry, in order — the roster `report.schema.json`'s
+/// `$defs/severity` is held to.
+///
+/// **Why a chain and not `[Severity::Error, Severity::Warn, Severity::Info]`.** An array
+/// literal takes a new variant silently: the enum grows, the literal does not, and the roster
+/// is then a subset that agrees with a schema which is also a subset. Walking
+/// [`Severity::after`] makes a fourth variant fail twice — the `match` there stops being
+/// exhaustive, and once it is fixed the chain yields four elements and the `[_; 3]` width
+/// below fails to evaluate. Neither can be satisfied without widening the schema too, because
+/// `report_goldens.rs` compares the two both ways.
+///
+/// This is deliberately stronger than [`crate::git::REF_STATES`], whose own doc documents the
+/// runtime scan it settled for.
+///
+/// The one thing it does not force: a variant inserted *before* `Error` must also move
+/// `Severity::FIRST`. The `after` match still errors first, so the author is looking at these
+/// lines when they decide.
+pub const LINT_SEVERITIES: [&str; 3] = {
+    let mut out = [""; 3];
+    let mut cur = Some(Severity::FIRST);
+    let mut i = 0;
+    while let Some(s) = cur {
+        out[i] = s.as_str();
+        cur = s.after();
+        i += 1;
+    }
+    out
+};
 
 impl fmt::Display for Severity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

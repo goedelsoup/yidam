@@ -63,6 +63,7 @@ pub use cmd::{
     BenchGoalSet, EmbedOptions, ExportFormat, ExportOptions, FetchOptions, KutenCommand,
     LineCitation, LineFragment, LintCheck, LintOptions, LintViolation, LogFilter, MigrateOperation,
     PolicyCommand, ProposeOptions, RdfFormat, ReconcileOptions, Relocation, VaultCommand,
+    COMMIT_KINDS, LINT_SEVERITIES,
 };
 
 /// The remote transport (#423). Gated because the feature is what pulls the server, and

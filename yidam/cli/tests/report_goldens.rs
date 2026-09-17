@@ -1769,6 +1769,80 @@ fn the_state_enum_and_the_states_the_code_emits_are_the_same_set() {
     }
 }
 
+// ── #822: a closed enum widened on one side only ──────────────────────────────
+
+/// One `$defs` vocabulary, as the schema declares it.
+///
+/// Read at its pointer rather than searched for. #821 factored both of these into `$defs`, so
+/// each is one declaration at one place — which is what makes this a read instead of the walk
+/// `the_state_enum_and_the_states_the_code_emits_are_the_same_set` needs for `state`, whose
+/// members are inlined at every site that uses them.
+///
+/// Absent is a failure, not an empty set: a `$defs` entry renamed or deleted would otherwise
+/// make this test compare two empty vectors and pass.
+fn defs_enum(name: &str) -> Vec<String> {
+    let schema = schema();
+    let members = schema
+        .get("$defs")
+        .and_then(|d| d.get(name))
+        .and_then(|d| d.get("enum"))
+        .and_then(|e| e.as_array())
+        .unwrap_or_else(|| {
+            panic!(
+                "report.schema.json has no `$defs/{name}` with an `enum` — #821 put it there, \
+                    and this test is a read of that pointer"
+            )
+        })
+        .iter()
+        .map(|m| m.as_str().expect("enum members are strings").to_string())
+        .collect::<Vec<_>>();
+    assert!(
+        !members.is_empty(),
+        "`$defs/{name}` declares an empty enum, which every comparison below would satisfy"
+    );
+    members
+}
+
+/// The schema's vocabulary and the code's roster are the same set, in both directions.
+///
+/// `report.schema.json` declares `$defs/severity` and `$defs/commit_kind` as **closed** enums
+/// and nothing compared either to the code. Measured while building #658: adding a fourth
+/// member to `$defs/severity` and re-running this entire suite leaves it **green**. Nine of ten
+/// schema mutations go red; that one does not, and `$defs/commit_kind` behaves the same way.
+///
+/// The rule is already written one enum over, on the `state` test above:
+///
+/// > A state the code emits and the schema does not name is a report a validating consumer
+/// > **rejects** — the report is correct and unusable. A state the schema names and the code
+/// > cannot emit is a branch nobody can take.
+///
+/// Both directions, therefore, and in one assertion — a one-way check is half the contract.
+///
+/// The rosters are `LINT_SEVERITIES` and `COMMIT_KINDS`, each built by walking a wildcard-free
+/// successor `match` into a fixed-width array, so a new variant is a **compile error** rather
+/// than a value that quietly starts appearing in reports. That is deliberately stronger than
+/// `git::REF_STATES`, whose runtime scan `git.rs` documents as the weaker form it settled for:
+/// here the widening cannot reach a report without passing through this test.
+#[test]
+fn the_closed_defs_enums_and_the_values_the_code_emits_are_the_same_sets() {
+    for (def, roster) in [
+        ("severity", yidam::LINT_SEVERITIES.to_vec()),
+        ("commit_kind", yidam::COMMIT_KINDS.to_vec()),
+    ] {
+        let mut declared = defs_enum(def);
+        declared.sort();
+        let mut emitted: Vec<String> = roster.iter().map(|s| s.to_string()).collect();
+        emitted.sort();
+
+        assert_eq!(
+            declared, emitted,
+            "report.schema.json's `$defs/{def}` and the values the code can emit disagree.\n\
+             A value the code emits and the schema omits is a report a validating consumer \
+             rejects; one the schema names and the code cannot emit is a branch nobody can take."
+        );
+    }
+}
+
 // ── #660: a declaration nothing emits is a hole in the contract ───────────────
 
 /// Every path `report.schema.json` declares, in the shape [`walk`] records a reached one.

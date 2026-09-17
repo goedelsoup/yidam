@@ -128,10 +128,7 @@ pub(crate) fn build(range: &str, filter: Filter, log: &str) -> LogReport {
         entries.push(LogEntry {
             short: hash[..hash.len().min(8)].to_string(),
             hash: hash.to_string(),
-            kind: match event.kind {
-                CommitKind::Epistemic => "epistemic",
-                CommitKind::Operational => "operational",
-            },
+            kind: crate::cmd::vocabulary::commit_kind_name(event.kind),
             verb: event.verb,
             subject: subject.to_string(),
             author: author.trim().to_string(),

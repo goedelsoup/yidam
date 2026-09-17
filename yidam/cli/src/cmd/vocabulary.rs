@@ -172,12 +172,71 @@ pub(crate) fn drift_between(documented: &[(String, String)]) -> Vec<String> {
     out
 }
 
-fn kind_of(verb: &str) -> &'static str {
-    if OPERATIONAL_VERBS.contains(&verb) {
-        "operational"
-    } else {
-        "epistemic"
+// ── the commit-kind roster (#822) ────────────────────────────────────────────
+//
+// `report.schema.json` declares `$defs/commit_kind` as a closed enum and nothing compared it
+// to the code: adding a third member and re-running the whole `report_goldens` suite left it
+// green, the same way a fourth in `$defs/severity` did.
+//
+// Building the roster turned up why that was easy to miss. The lowercase strings a report
+// carries were spelled **three times** in this crate — in `kind_of` below, in the
+// `SubjectCheck` match, and again in `log.rs` — and `yidam_core`'s own `CommitKind::as_str`
+// returns a **fourth, capitalized** form (`"Epistemic"`) that the schema does not name and no report
+// carries. A roster read off any one of those would have been a claim about one copy.
+//
+// All three now route through `commit_kind_name`, so the roster is the strings the reports
+// actually hold.
+
+/// One commit kind, as a report spells it.
+///
+/// **No wildcard**, deliberately: `CommitKind` lives in `yidam_core`, so a variant added there
+/// is a compile error *here*, which is where the report's vocabulary is decided. Not
+/// `CommitKind::as_str`, which answers `"Epistemic"` — a different vocabulary, for a different
+/// reader.
+pub(crate) const fn commit_kind_name(kind: CommitKind) -> &'static str {
+    match kind {
+        CommitKind::Epistemic => "epistemic",
+        CommitKind::Operational => "operational",
     }
+}
+
+/// Every commit kind a report can carry — the roster `$defs/commit_kind` is held to.
+///
+/// Walked along a successor `match` rather than written as `["epistemic", "operational"]`, and
+/// that is the whole difference. An array literal takes a new `CommitKind` variant silently:
+/// `yidam_core` grows one, this list does not, and the roster is then a subset agreeing with a
+/// schema that is also a subset. The `match` below has **no wildcard**, so a third variant is a
+/// compile error here; once it is placed the chain yields three elements and the `[_; 2]` width
+/// fails to evaluate. Neither can be satisfied without widening the schema too, because
+/// `report_goldens.rs` compares the two both ways.
+///
+/// Deliberately stronger than [`crate::git::REF_STATES`], whose own doc documents the runtime
+/// scan it settled for.
+pub const COMMIT_KINDS: [&str; 2] = {
+    let mut out = [""; 2];
+    let mut cur = Some(CommitKind::Epistemic);
+    let mut i = 0;
+    while let Some(k) = cur {
+        // Successor first, name second. `CommitKind` is not `Copy` and `commit_kind_name` takes
+        // it by value, so that call is the last read of `k`; the `match` above it binds nothing
+        // and therefore does not move. Re-spelling the names here to dodge the ordering would
+        // have put a second copy of the vocabulary in the roster that exists to have one.
+        cur = match k {
+            CommitKind::Epistemic => Some(CommitKind::Operational),
+            CommitKind::Operational => None,
+        };
+        out[i] = commit_kind_name(k);
+        i += 1;
+    }
+    out
+};
+
+fn kind_of(verb: &str) -> &'static str {
+    commit_kind_name(if OPERATIONAL_VERBS.contains(&verb) {
+        CommitKind::Operational
+    } else {
+        CommitKind::Epistemic
+    })
 }
 
 /// Check one subject line the way `lint --commits` checks a committed one.
@@ -246,10 +305,7 @@ pub(crate) fn check_subject(text: &str) -> SubjectCheck {
     }
 
     SubjectCheck {
-        kind: match event.kind {
-            CommitKind::Operational => "operational",
-            CommitKind::Epistemic => "epistemic",
-        },
+        kind: commit_kind_name(event.kind),
         text: first.to_string(),
         verb,
         recognized,
