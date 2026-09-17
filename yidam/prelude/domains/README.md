@@ -8,7 +8,7 @@ same three languages, same parity discipline, Rust as reference.
 
 ## What this layer is
 
-`prelude/sdks/` gives every derived repo the six core prelude operations: parsing corpus
+`prelude/sdks/` gives every derived repo the core prelude operations: parsing corpus
 nodes, classifying commits, finding markers, and so on. These are universal — every repo
 needs them regardless of domain.
 
