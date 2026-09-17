@@ -434,6 +434,20 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     let [scope_unheld, scope_unverifiable] = scope::checks(&scope_audits);
     let [baseline_unmet, baseline_undeclared, holds_unadopted] = lineage::checks(&standings);
 
+    // ── this list is complete, and the compiler is what says so (#680) ────────────
+    //
+    // It is hand-written, which looks like the classic hole: a `pub fn … -> Check` added to
+    // `checks.rs` and not added here would compile, pass its own unit tests, and never run,
+    // and the corpus would report clean.
+    //
+    // It cannot. `mod cmd;` is private (`lib.rs:3`), `lint` and `checks` are `pub(crate)`, and
+    // nothing re-exports them — so a check function no registry calls is unreachable from
+    // outside the crate, and `dead_code` is an **error** under `ci-cli`'s `-D warnings`. Its
+    // own unit test does not save it: the `lib` target is built without `cfg(test)`.
+    //
+    // That guarantee is a property of the privacy, not of this file, and nothing stated it
+    // until `tests/lint_registry.rs` — which asserts each link of that chain, because the day
+    // someone writes `pub use cmd::lint;` the hole opens with nothing going red.
     let mut all = vec![
         // First, because it is the finding that says whether the rest of the report is about
         // the corpus or about what serde made of a file it could not read.
