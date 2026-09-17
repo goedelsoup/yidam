@@ -105,6 +105,18 @@ jobs:
       # than in the matrix because they grade *this* tree: a released tag has its own copy of
       # this site and would be running whatever tests it shipped with, against a version list
       # it has never heard of.
+      # Type-checking, which this site declared and never did. `tsconfig.json` extends
+      # `astro/tsconfigs/strict`; `astro build` bundles without consulting it and the tests
+      # below run node scripts, so `const root: string = 12345` in `src/quality/report.ts`
+      # passed both at exit 0 (#688).
+      #
+      # Here rather than in the build matrix, and for the same reason the tests are: it grades
+      # *this* tree. A released tag ships its own copy of the site and would be checked against
+      # whatever it was written under.
+      - name: Type-check
+        run: npm run check
+        working-directory: yidam/web/docs
+
       - name: The site's own tests
         run: npm test
         working-directory: yidam/web/docs

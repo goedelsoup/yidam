@@ -715,11 +715,29 @@ run = [
 # `design_tokens.rs` covers this surface too, and separately: it walks the repository and
 # reads `src/styles/app.css` as a consumer, so a raw hex here fails `cargo test` rather than
 # this task. Two gates, two failure sites, on purpose.
+#
+# ── type-checking (#688) ─────────────────────────────────────────────────────
+#
+# `check` before `build`. `tsconfig.json` here extends `astro/tsconfigs/strict`
+# and nothing enforced a line of it: `astro build` bundles without type-checking, and the unit
+# tests run the emitted JavaScript. Inserting `const root: string = 12345` into
+# `src/lib/session.ts` left both at exit 0.
+#
+# The `check` script already existed. What did not exist was anything running it — and, when
+# run, `astro check` asked for `@astrojs/check` interactively and **exited 0 in CI's non-TTY**
+# without checking a file. A script nobody runs and a script that passes vacuously are the same
+# defect wearing different clothes, and both were here at once; `@astrojs/check` and `typescript`
+# are dev-dependencies now so the prompt cannot happen.
+#
+# First real run: 12 errors. Nine were `@types/node` missing, so `node:fs` and `process.cwd`
+# were unresolved — a tooling gap, not code. The other three were a genuine type defect in
+# `cli.ts`'s `ReportResult` failure arm.
 [tasks.ci-editor-web]
-description = "CI for the web editor surface: build, RFC-0016 boundary gates, and unit tests."
+description = "CI for the web editor surface: type-check, build, RFC-0016 boundary gates, and unit tests."
 dir = "yidam/editors/web"
 run = [
   "\"$MISE_PROJECT_ROOT/scripts/npm-ensure.sh\" .",
+  "npm run check",
   "npm run build",
   "npm run test",
 ]
@@ -949,6 +967,19 @@ description = "Build the quality pages against a fixture report and assert on th
 # the npm script is the one they can both name.
 depends = ["docs-install"]
 run = "npm run --prefix yidam/web/docs test"
+
+# The docs site declares `astro/tsconfigs/strict` and, until #688, nothing checked it —
+# `build` is `astro build`, which bundles without type-checking, and `test` runs node scripts.
+# The same `const root: string = 12345` in `src/quality/report.ts` passed both.
+#
+# Separate from `docs-build` rather than chained to it, because docs.yml builds five times (a
+# matrix over the released versions) and grading *this* tree is a thing to do once. It is wired
+# beside "The site's own tests" in the `versions` job, which the workflow already explains is
+# where this-tree checks belong.
+[tasks.docs-check]
+description = "Type-check the docs site against the strict config it declares."
+depends = ["docs-install"]
+run = "npm run --prefix yidam/web/docs check"
 
 [tasks.docs-build]
 description = "Build the docs site to yidam/web/docs/dist/."
