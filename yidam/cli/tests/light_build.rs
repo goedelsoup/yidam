@@ -482,3 +482,109 @@ fn a_feature_table_marks_exactly_the_default_features() {
         problems.join("\n")
     );
 }
+
+// ── the recorded `--version` line (#817 tranche) ──────────────────────────────
+//
+// A third shape of the same claim, and the one neither check above can see. A gloss is prose
+// in a parenthetical; a marked row is a table cell; this is a transcript — `yidam <version>
+// (<commit>) [reports export-graph tonpa …]` inside a ```console fence, which a reader takes
+// as what their own install prints.
+//
+// `docs/installation.md` carried `[reports index export-sqlite export-graph tonpa]` under the
+// heading "Verify the install", two paragraphs below "Released artifacts — the script, the
+// tap, binstall — carry the **default** set". Two of those five features are not default and
+// three that are were missing, so the block told a reader to expect `index-build` from a
+// released binary and not to expect `vault`, `serve --http` or `catalog-fetch`. The same
+// block's version had also read `0.5.0 (78544f8)` since that release.
+
+/// The feature names inside `yidam … (…) [a b c]`, for each such line in `text`.
+fn recorded_version_features(text: &str) -> Vec<BTreeSet<String>> {
+    text.lines()
+        .filter(|l| l.starts_with("yidam "))
+        .filter_map(|l| {
+            let open = l.find('[')?;
+            let close = l[open..].find(']')? + open;
+            // `(…)` before the bracket is what makes it a `--version` line rather than a
+            // markdown link or a shell snippet that happens to hold a bracket.
+            l[..open].contains('(').then(|| {
+                l[open + 1..close]
+                    .split_whitespace()
+                    .map(str::to_string)
+                    .collect()
+            })
+        })
+        .collect()
+}
+
+/// **A recorded `--version` names no feature outside the default set.**
+///
+/// Subset, not equality, and the asymmetry is the point. Every released artifact carries
+/// exactly `default`, so a transcript naming something outside it describes a binary nobody
+/// can install from a release — which is what the installation page was doing. A *shorter*
+/// list is a legitimate illustration: `docs/troubleshooting.md` shows `[reports tonpa]`
+/// precisely to explain why `index-build` reports `unrecognized subcommand` on a build
+/// without it, and a rule of equality would have to argue with that page.
+///
+/// Both sides discovered: the transcripts come from walking the markdown, the truth from the
+/// manifest. Neither is a list in this file.
+#[test]
+fn a_recorded_version_names_no_feature_outside_the_default_set() {
+    let default = feature_body("default");
+    let declared = declared_features();
+    let root = repo_root().canonicalize().expect("repo root is readable");
+
+    let mut offenders: Vec<String> = Vec::new();
+    let mut transcripts = 0;
+
+    for entry in WalkDir::new(&root)
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            e.depth() == 0 || !(name.starts_with('.') || name == "target" || name == "node_modules")
+        })
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+    {
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        if !name.ends_with(".md") && !name.ends_with(".mdx") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        let rel = entry
+            .path()
+            .strip_prefix(&root)
+            .unwrap()
+            .display()
+            .to_string();
+
+        for shown in recorded_version_features(&text) {
+            // A bracket holding no feature name at all is some other transcript.
+            if !shown.iter().any(|f| declared.contains(f)) {
+                continue;
+            }
+            transcripts += 1;
+            let extra: Vec<&String> = shown.difference(&default).collect();
+            if !extra.is_empty() {
+                offenders.push(format!(
+                    "  {rel} — shows {extra:?}, which no released binary carries"
+                ));
+            }
+        }
+    }
+
+    // #672: a walk that finds no transcripts passes.
+    assert!(
+        transcripts >= 2,
+        "{transcripts} recorded `--version` line(s) found; the scan is not reaching them"
+    );
+    assert!(
+        offenders.is_empty(),
+        "{} recorded `--version` line(s) name features outside `[features] default`:\n{}\n\n\
+         A reader takes a `$ yidam --version` transcript as what their own install prints. \
+         Show the default set, or say in the prose beside it which lighter build it is.",
+        offenders.len(),
+        offenders.join("\n")
+    );
+}

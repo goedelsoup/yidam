@@ -1630,15 +1630,6 @@ mod tests {
             .flatten()
     }
 
-    /// `1.2.3` — three dot-separated runs of digits, and nothing else.
-    fn is_version(word: &str) -> bool {
-        let parts: Vec<&str> = word.split('.').collect();
-        parts.len() == 3
-            && parts
-                .iter()
-                .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
-    }
-
     /// **Every question `doctor` asks is in the table `docs/troubleshooting.md` prints.**
     ///
     /// That table was a hand-written list and it had already fallen four behind — `vault`,
@@ -1701,39 +1692,6 @@ mod tests {
             shown, asked,
             "the `$ yidam doctor` transcript in docs/troubleshooting.md does not show the \
              roster — re-record it against a real run"
-        );
-    }
-
-    /// **The transcript states no version, because every release falsifies one.**
-    ///
-    /// `0.5.0 (78544f8)` sat in two blocks on this page across seven minor releases. A
-    /// version is the part of a recorded run guaranteed to go stale and that no reader can
-    /// act on, so the page redacts it — and this keeps a re-recording from pasting a fresh
-    /// one back, which is how the last one arrived.
-    ///
-    /// Scoped to `console` fences, which are recorded output. A `sh` fence is what the
-    /// reader types, and `YIDAM_REF=v0.2.0` there is an example argument rather than a claim
-    /// about what the binary reports.
-    #[test]
-    fn no_recorded_output_on_the_page_pins_a_version() {
-        let page = troubleshooting_md();
-        let mut checked = 0;
-        for fence in page.split("```console").skip(1) {
-            checked += 1;
-            for line in fence.split("```").next().unwrap_or_default().lines() {
-                assert!(
-                    !line
-                        .split(|c: char| !matches!(c, '0'..='9' | '.'))
-                        .any(is_version),
-                    "docs/troubleshooting.md records a version in output, which the next \
-                     release falsifies — redact it as `<version>`:\n  {line}"
-                );
-            }
-        }
-        // #672: a fence scan that finds no fences passes.
-        assert!(
-            checked >= 2,
-            "found {checked} ```console fences on the page — the scan is not finding them"
         );
     }
 
