@@ -505,11 +505,23 @@ unproductive the report says so rather than shrugging:
 #### Exit codes
 
 A rejected query **emits its report and exits 1**. That is the shape four commands already
-have — `doctor` ([`doctor.rs:602`](../../yidam/cli/src/cmd/doctor.rs#L602)), `regen`
-([`regen.rs:127`](../../yidam/cli/src/cmd/regen.rs#L127)), `rename`
-([`rename.rs:413`](../../yidam/cli/src/cmd/rename.rs#L413)) and `index-verify`
-([`index_verify.rs:210`](../../yidam/cli/src/cmd/index_verify.rs#L210)) all print, then
-`std::process::exit(1)`.
+have — `doctor`
+([`std::process::exit(1)`](../../yidam/cli/src/cmd/doctor.rs#L1464)), `regen`
+([`std::process::exit(1)`](../../yidam/cli/src/cmd/regen.rs#L167)), `rename`
+([`std::process::exit(1)`](../../yidam/cli/src/cmd/rename.rs#L413)) and `index-verify`
+([`std::process::exit(1)`](../../yidam/cli/src/cmd/index_verify.rs#L210)) all print, then
+exit.
+
+> **Corrected in #706, and labelled rather than re-pointed.** Two of these four had slid:
+> `doctor.rs:602` was 862 lines off and landed inside the check roster, which is
+> plausible-looking code with nothing to do with the exit path this sentence argues from.
+> The other two had not. A reader had no way to tell which was which, and re-pointing four
+> numbers would have left the next edit above them free to move them again.
+>
+> Each now carries the call as its label instead of its own coordinate, which is what makes
+> it decidable: a label that restates the coordinate anchors nothing, so all four sat at
+> `unverified-line-citation` (Info), where the gate reports a citation rather than deciding
+> it. With the symbol there, `citation-label-not-cited` reads them, and a slide fails.
 
 Exit **2** is not available and must not be borrowed. Its only site is `main.rs:614`, inside the
 clap pre-dispatch arm for `InvalidSubcommand | ErrorKind::UnknownArgument`
