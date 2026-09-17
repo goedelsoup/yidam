@@ -34,9 +34,9 @@ yidam doctor — /home/you/my-domain
 2 failing check(s), 2 warning(s).
 ```
 
-The version and commit are redacted here; your own run prints them, and pinning a pair on
-this page only means every release falsifies it. Each finding names its own remedy; a check
-with nothing to do names none. **It exits nonzero on what is wrong now**; warnings — no index, an old pin — are reported and do not affect the
+The version and commit are redacted; your own run prints them. Pinning a pair here would
+only mean every release falsifies it. Each finding names its own remedy; a check with
+nothing to do names none. **It exits nonzero on what is wrong now**; warnings — no index, an old pin — are reported and do not affect the
 exit code unless you pass `--strict`, which is the reading a CI job wants.
 
 | Check | The question |
