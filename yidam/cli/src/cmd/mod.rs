@@ -88,7 +88,7 @@ pub use lint::{
     citation_label_not_cited, citation_range_stated_twice, collect_line_citations,
     dead_line_citation, label_range, label_symbols, lint, relocate, slid_line_citation,
     unverified_line_citation, Check as LintCheck, LineCitation, LineFragment,
-    Options as LintOptions, Relocation, Violation as LintViolation,
+    Options as LintOptions, Relocation, Violation as LintViolation, LINT_SEVERITIES,
 };
 pub use lsp::serve_lsp;
 
@@ -116,7 +116,7 @@ pub use serve::serve_mcp_http;
 pub(crate) use status::index_status_data;
 pub use status::{index_status, status};
 pub use vault::{run as run_vault, vault_status, VaultCommand};
-pub use vocabulary::vocabulary;
+pub use vocabulary::{vocabulary, COMMIT_KINDS};
 pub use web::bundle_status;
 
 // `has_open_claim` lived here and was a `text.contains("[open]")`. It is
