@@ -11,7 +11,7 @@ $ yidam doctor
 yidam doctor — /home/you/my-domain
 
   ok    repository   /home/you/my-domain
-  fail  provenance   no .yidam.toml
+  fail  provenance   .yidam.toml records no resolvable commit
                      → mise run yidam-vendor-update
   ok    binary       this repository pins no binary — nothing can be shadowed
   ok    path         this repository pins no binary — PATH order does not matter
@@ -20,16 +20,23 @@ yidam doctor — /home/you/my-domain
   warn  index        no /home/you/my-domain/.yidam/index
                      → yidam index-build (needs the `index` feature)
   ok    regen        every REGEN block holds what its generator produces
-  ok    catalog      no TTL declared — 1 source(s) never expire.
+  ok    catalog      no TTL declared — 1 source(s) never expire. Set `[catalog] ttl_days` or declare `ttl_days:` on an entry.
   fail  corpora      not installed: hydrology
                      → mise run tonpa-install
-  ok    build        0.5.0 (78544f8) with features: reports, index, export-sqlite, ...
+  ok    corpus       no corpus files yet
+  ok    vault        none declared
+  ok    policy       3 decision(s), all inherited
+  ok    governance   single-elector — no .yidam/sangha/electors.md
+  ok    kuten        none — the loop runs on the template's defaults
+  skip  kuten-read   no kuten is declared, so nothing carries one
+  ok    build        <version> (<commit>) with features: reports, export-graph, tonpa, serve-http, vault-s3, catalog-fetch
 
 2 failing check(s), 2 warning(s).
 ```
 
-Each finding names its own remedy; a check with nothing to do names none. **It exits nonzero
-on what is wrong now**; warnings — no index, an old pin — are reported and do not affect the
+The version and commit are redacted here; your own run prints them, and pinning a pair on
+this page only means every release falsifies it. Each finding names its own remedy; a check
+with nothing to do names none. **It exits nonzero on what is wrong now**; warnings — no index, an old pin — are reported and do not affect the
 exit code unless you pass `--strict`, which is the reading a CI job wants.
 
 | Check | The question |
@@ -104,10 +111,10 @@ The command is real; your build does not carry it. Check what you have:
 
 ```console
 $ yidam --version
-yidam 0.5.0 (78544f8) [reports tonpa]
+yidam <version> (<commit>) [reports tonpa]
 ```
 
-That build has no `index`, so `yidam index-build` is not there. The feature table is in
+That example build has no `index`, so `yidam index-build` is not there. The feature table is in
 [Installation](installation.md#check-which-build-you-have); released binaries carry the default set.
 
 This failure mode is why `tonpa` is a default feature despite costing an HTTP stack: it was the
