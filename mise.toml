@@ -841,14 +841,29 @@ fi
 echo "domain-fmt: formatted $count crates"
 """
 
+# Until #684 this job's entire body was `cargo fmt -- --check`, which is to say the
+# 3,100 lines of Rust under `yidam/prelude/domains/*/rust/` shipped to every derived
+# repository had never had a linter run over them. Adding clippy to the first run turned
+# up exactly two findings in fourteen crates — `ptr_arg` on a union-find helper and a
+# `needless_range_loop` — both style, neither a correctness bug. That rate is the point:
+# it is what you get from code that is only ever formatted, and it is only knowable once
+# something looks.
+#
+# `--all-targets`, so the parity suites under `tests/` are linted too. A count taken
+# without it is the count of the first CI run's surprise rather than the count of the
+# code.
+#
+# fmt before clippy per crate, deliberately: a formatting diff is the cheaper of the two
+# to read and the one more likely to be the whole of what a contributor got wrong.
 [tasks.ci-domains]
-description = "CI for the domain crates under yidam/prelude/domains/*/rust/: fmt-check, glob-discovered."
+description = "CI for the domain crates under yidam/prelude/domains/*/rust/: fmt-check and clippy, glob-discovered."
 run = """
 set -eu
 count=0
 for manifest in yidam/prelude/domains/*/rust/Cargo.toml; do
   [ -f "$manifest" ] || continue
   cargo fmt --all --manifest-path "$manifest" -- --check
+  cargo clippy --all-targets --manifest-path "$manifest" -- -D warnings
   count=$((count + 1))
 done
 if [ "$count" -eq 0 ]; then
@@ -857,7 +872,7 @@ if [ "$count" -eq 0 ]; then
   echo "       mode this task exists to avoid — fix the glob before trusting it"
   exit 1
 fi
-echo "ci-domains: fmt-checked $count crates"
+echo "ci-domains: fmt-checked and linted $count crates"
 """
 
 # Composite for local use (`mise run ci`); CI runs ci-harness, ci-cli and
