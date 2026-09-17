@@ -18,14 +18,91 @@ import { fromLint } from '../src/diagnostics.ts'
 import { hasFeature, readHandshake } from '../src/handshake.ts'
 import type { LintReport } from '../src/reports.ts'
 import { healthTree } from '../src/tree/model.ts'
-import { captureStreams, contractBinary, FIXTURE_DIR, SKIP, stageFixture } from './stage.ts'
+import {
+  captureStreams,
+  contractBinary,
+  contractRefusal,
+  FIXTURE_DIR,
+  SKIP,
+  stageFixture,
+} from './stage.ts'
 
+// ── the probe that decides whether the rest of this file means anything ──────
 
+/** A golden, as text, the way `contractRefusal` receives a binary's stdout. */
+const goldenText = (name: string): string =>
+  fs.readFileSync(path.join(FIXTURE_DIR, `expected/${name}.json`), 'utf8')
 
+/**
+ * The refusal arm, reached without a stale yidam on hand.
+ *
+ * Every other test here needs a binary and skips without one, so the probe's *refusal* had
+ * never run anywhere — and a guard whose failing arm is never taken is a guard that may have
+ * stopped guarding without going red. This drives it over the committed goldens instead,
+ * which is also the only way to reach the case #752 is about: 0.9.0 is not something CI can
+ * be asked to have on hand.
+ */
+test('a binary agreeing about status and disagreeing about lint is refused, by name (#752)', () => {
+  const status = goldenText('status')
+  const lint = goldenText('lint')
 
+  // The goldens describe the binary that produced them, so agreement is the baseline this
+  // test mutates away from. Without this line every assertion below would also pass against
+  // a `contractRefusal` that refused everything.
+  assert.equal(contractRefusal('yidam', { status, lint }), null)
 
+  // What 0.9.0 looked like from here: `status` byte-identical — it reports node, question,
+  // catalog and claim counts, and none of those changed — while `lint` disagrees, because
+  // that binary does not carry `resolution-elector-unregistered` at all, so the baseline
+  // entry for it reads as stale rather than as inherited debt. `status` alone accepted it,
+  // and the disagreement then surfaced as `1 !== 2` three assertions downstream (#657).
+  const old = JSON.parse(lint) as LintReport
+  old.gate.baselined_violations = 1
+  old.gate.stale_baseline_entries.push({
+    check: 'resolution-elector-unregistered',
+    node: '.yidam/sangha/resolutions/silt-budget.md',
+  })
+  const why = contractRefusal('/opt/homebrew/bin/yidam', { status, lint: JSON.stringify(old) })
+  assert.ok(why, 'a lint gate that disagrees with the golden is what this probe is for')
+  // Named: which report, which command, and what to do about it.
+  assert.match(why, /`lint` golden/)
+  assert.match(why, /yidam lint --format json/)
+  assert.match(why, /cargo install --path yidam\/cli/)
+  assert.match(why, /opt\/homebrew\/bin\/yidam/)
 
+  // And the other direction still names `status`, so the message is derived from the probe
+  // that failed rather than written once for the loudest case.
+  const counts = JSON.parse(status) as { open_questions: number }
+  counts.open_questions = 1
+  const other = contractRefusal('yidam', { status: JSON.stringify(counts), lint })
+  assert.match(other ?? '', /`status` golden/)
+  assert.match(other ?? '', /yidam status --format json/)
+})
 
+/**
+ * Why the lint probe compares `gate` and not the whole report.
+ *
+ * The rest of that golden is redacted — `age.first_commit` is `<FIRST_COMMIT>`, because a
+ * sha is a function of the tree that holds it — so comparing all of it would need
+ * `redact()`'s rules transcribed a third time. `gate` needs none. This says so by mutating
+ * the redacted field to a plausible real value: a whole-payload comparison would refuse a
+ * healthy binary here, which is the failure that would make everyone turn the probe off.
+ */
+test('the lint probe compares the gate, so a redacted field is not a disagreement', () => {
+  // Read loosely rather than as a `LintReport`: this reader does not model `age` at all,
+  // which is part of the point — the probe must not refuse over a field nobody here reads.
+  const report = JSON.parse(goldenText('lint')) as {
+    checks: { violations: { age?: { first_commit: string } }[] }[]
+  }
+  const aged = report.checks.flatMap((c) => c.violations).filter((v) => v.age !== undefined)
+  assert.ok(aged.length > 0, 'the fixture carries an aged violation — that is the premise')
+  for (const v of aged) v.age!.first_commit = '9f2c1ab0d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9'
+
+  assert.equal(
+    contractRefusal('yidam', { status: goldenText('status'), lint: JSON.stringify(report) }),
+    null,
+  )
+})
 
 test('the handshake accepts what a real yidam actually emits', async (t) => {
   const dir = stageFixture('yidam-ext-')
@@ -147,10 +224,11 @@ test('an expired baseline entry reaches the reader with its cause stated', async
 
   // Against the committed golden rather than a transcription of it. RFC-0016 asks for
   // exactly this — the `reports/` goldens become the repository the extension is exercised
-  // on — and it is also what makes a stale binary say so: `contractBinary`'s probe certifies
-  // `status` alone, so a yidam predating a *lint check* resolves, passes the probe, and then
-  // disagrees here (#752). This names that rather than failing on an arithmetic mismatch,
-  // which is what it did when 0.9.0 was on PATH.
+  // on. It is also a second statement of what `contractBinary` now certifies: its probe
+  // read `status` alone until #752, so a yidam predating a *lint check* resolved, passed,
+  // and disagreed here — as `1 !== 2` before this comparison existed, which is what it did
+  // when 0.9.0 was on PATH. The probe refuses that binary now; this stays because a
+  // disagreement about the gate is exactly what this test is reading.
   const golden = JSON.parse(
     fs.readFileSync(path.join(FIXTURE_DIR, 'expected/lint.json'), 'utf8'),
   ) as LintReport
