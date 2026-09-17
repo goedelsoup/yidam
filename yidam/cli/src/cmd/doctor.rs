@@ -1596,6 +1596,49 @@ mod tests {
         assert!(c.remedy.is_none());
     }
 
+    /// The page both docs gates read, spelled once.
+    fn troubleshooting_md() -> String {
+        std::fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/troubleshooting.md"),
+        )
+        .expect("docs/troubleshooting.md")
+    }
+
+    /// The body of the recorded `$ yidam doctor` run, found by its command line.
+    ///
+    /// By the command rather than by position: the page opens with this block today, and a
+    /// gate that assumed so would start reading a different block the day something is
+    /// written above it — and pass, because every other fence on the page is also output.
+    fn doctor_transcript() -> String {
+        troubleshooting_md()
+            .split("```console")
+            .skip(1)
+            .map(|f| f.split("```").next().unwrap_or_default().to_string())
+            .find(|body| body.lines().any(|l| l.trim() == "$ yidam doctor"))
+            .expect("a ```console fence whose command is `$ yidam doctor`")
+    }
+
+    /// The check id on a verdict line, or `None` for anything else in the transcript.
+    ///
+    /// A verdict line is `  <verdict>  <id>  <detail>`; a remedy continues with `→` and the
+    /// summary line starts with a count, so the first word decides.
+    fn verdict_line_id(line: &str) -> Option<&str> {
+        let mut words = line.split_whitespace();
+        let verdict = words.next()?;
+        matches!(verdict, "ok" | "fail" | "warn" | "skip")
+            .then(|| words.next())
+            .flatten()
+    }
+
+    /// `1.2.3` — three dot-separated runs of digits, and nothing else.
+    fn is_version(word: &str) -> bool {
+        let parts: Vec<&str> = word.split('.').collect();
+        parts.len() == 3
+            && parts
+                .iter()
+                .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+    }
+
     /// **Every question `doctor` asks is in the table `docs/troubleshooting.md` prints.**
     ///
     /// That table was a hand-written list and it had already fallen four behind — `vault`,
@@ -1608,10 +1651,7 @@ mod tests {
     /// code-quoted there and not in the roster) and the id is what a consumer keys on.
     #[test]
     fn every_doctor_question_is_in_the_troubleshooting_table() {
-        let docs = std::fs::read_to_string(
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/troubleshooting.md"),
-        )
-        .expect("docs/troubleshooting.md");
+        let docs = troubleshooting_md();
 
         // Bounded to the one table, by its header and then by its own last row. Scanning
         // the whole document picked up a second table further down whose first column is
@@ -1634,6 +1674,66 @@ mod tests {
         assert_eq!(
             documented, asked,
             "docs/troubleshooting.md's check table does not match the roster"
+        );
+    }
+
+    /// **And so is every question in the transcript above that table.**
+    ///
+    /// [`every_doctor_question_is_in_the_troubleshooting_table`] bounds itself to the table,
+    /// by design — and the recorded `$ yidam doctor` run immediately above it was from
+    /// `0.5.0` and showed ten of the sixteen. A reader scrolling up from a correct table met
+    /// the exact drift that table had already been repaired for, and nothing could see it: a
+    /// recorded transcript is a hardcoded claim written beside the thing that produces it,
+    /// and the gate stopped at the table's header.
+    ///
+    /// Re-recording it fixes today and rots on the next check added, so the transcript is
+    /// held to [`ROSTER`] the same way the table is. It can be, because it says the same
+    /// thing in a different column: a verdict, then the id. Ids and order, not wording — the
+    /// run illustrates one repository's state and its detail text is whatever that
+    /// repository produced.
+    #[test]
+    fn every_doctor_question_is_in_the_recorded_transcript() {
+        let transcript = doctor_transcript();
+        let shown: Vec<&str> = transcript.lines().filter_map(verdict_line_id).collect();
+        let asked: Vec<&str> = ROSTER.iter().map(|q| q.id).collect();
+
+        assert_eq!(
+            shown, asked,
+            "the `$ yidam doctor` transcript in docs/troubleshooting.md does not show the \
+             roster — re-record it against a real run"
+        );
+    }
+
+    /// **The transcript states no version, because every release falsifies one.**
+    ///
+    /// `0.5.0 (78544f8)` sat in two blocks on this page across seven minor releases. A
+    /// version is the part of a recorded run guaranteed to go stale and that no reader can
+    /// act on, so the page redacts it — and this keeps a re-recording from pasting a fresh
+    /// one back, which is how the last one arrived.
+    ///
+    /// Scoped to `console` fences, which are recorded output. A `sh` fence is what the
+    /// reader types, and `YIDAM_REF=v0.2.0` there is an example argument rather than a claim
+    /// about what the binary reports.
+    #[test]
+    fn no_recorded_output_on_the_page_pins_a_version() {
+        let page = troubleshooting_md();
+        let mut checked = 0;
+        for fence in page.split("```console").skip(1) {
+            checked += 1;
+            for line in fence.split("```").next().unwrap_or_default().lines() {
+                assert!(
+                    !line
+                        .split(|c: char| !matches!(c, '0'..='9' | '.'))
+                        .any(is_version),
+                    "docs/troubleshooting.md records a version in output, which the next \
+                     release falsifies — redact it as `<version>`:\n  {line}"
+                );
+            }
+        }
+        // #672: a fence scan that finds no fences passes.
+        assert!(
+            checked >= 2,
+            "found {checked} ```console fences on the page — the scan is not finding them"
         );
     }
 
