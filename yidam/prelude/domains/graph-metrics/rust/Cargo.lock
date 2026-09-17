@@ -157,5 +157,12 @@ dependencies = [
 name = "yidam-domain-graph-metrics"
 version = "0.1.0"
 dependencies = [
+ "yidam-domain-testkit",
+]
+
+[[package]]
+name = "yidam-domain-testkit"
+version = "0.1.0"
+dependencies = [
  "toml",
 ]

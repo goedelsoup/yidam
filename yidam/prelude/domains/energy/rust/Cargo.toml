@@ -5,4 +5,5 @@ edition = "2021"
 description = "Yidam energy domain — classical mechanics calculations"
 
 [dev-dependencies]
-toml = "0.8"
+# The fixture loader, and the emptiness guard that lives inside it (#686).
+yidam-domain-testkit = { path = "../../parity/testkit" }
