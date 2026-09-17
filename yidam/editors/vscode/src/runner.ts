@@ -73,6 +73,16 @@ export class Cached<T> {
   private value: T | null = null
   private inflight: Promise<T> | null = null
   private inflightKey: CacheKey | null = null
+  /**
+   * Which run is current. Bumped by every start and by every `invalidate()`.
+   *
+   * The publish guard cannot be about the *key*, which is what #689's second half was: two
+   * runs of the same corpus at the same `{ oid, generation }` are indistinguishable by key,
+   * and `invalidate()` is reached by two paths that change neither. So a run compares the
+   * epoch it started at against the current one, and publishes only if it is still the run
+   * anyone is waiting on.
+   */
+  private epoch = 0
 
   async get(key: CacheKey, compute: () => Promise<T>): Promise<T> {
     if (this.key && this.value !== null && sameKey(this.key, key)) {
@@ -81,23 +91,59 @@ export class Cached<T> {
     if (this.inflight && this.inflightKey && sameKey(this.inflightKey, key)) {
       return this.inflight
     }
+    const epoch = ++this.epoch
     this.inflightKey = key
-    this.inflight = compute().then((v) => {
-      // Only publish if nothing newer started meanwhile — a late answer for a stale key
-      // must not overwrite a fresh one.
-      if (this.inflightKey && sameKey(this.inflightKey, key)) {
-        this.key = key
-        this.value = v
-        this.inflight = null
-      }
-      return v
-    })
+    this.inflight = compute().then(
+      (v) => {
+        // Only publish if nothing newer started meanwhile, and nothing dropped it — a late
+        // answer for a superseded run must not overwrite a fresh one or resurrect itself
+        // after a Refresh.
+        if (epoch === this.epoch) {
+          this.key = key
+          this.value = v
+          this.inflight = null
+          this.inflightKey = null
+        }
+        return v
+      },
+      (err: unknown) => {
+        // Robustness, not a live bug. Without this the rejected promise stays in `inflight`
+        // and every later `get()` for the key re-throws it — the key is poisoned for the
+        // life of the session. Unreachable today only because `spawn` catches everything
+        // and `report-run`'s one unguarded `JSON.parse` runs on a string `readHandshake`
+        // already parsed, which is an invariant two files away.
+        if (epoch === this.epoch) {
+          this.inflight = null
+          this.inflightKey = null
+        }
+        throw err
+      },
+    )
     return this.inflight
   }
 
+  /**
+   * Drop every cached answer, including one still being computed.
+   *
+   * All four fields, and the epoch. Clearing `key`/`value` alone left `inflight` and
+   * `inflightKey` set, so the next `get()` for the same key took the single-flight early
+   * return and handed back the very run the caller had just asked to discard — and that run
+   * then published, caching the pre-invalidation answer until a save or a checkout moved the
+   * key. Refresh did nothing if pressed while a report was running, which is exactly when
+   * someone reaches for it, and the `yidam.lint.showBaselined` toggle did nothing mid-run
+   * and kept showing the old setting's findings (#689).
+   *
+   * The run already in flight is **not** cancelled — `execFile` is running and cannot be —
+   * and it is deliberately not published either. Its result is an answer nobody is waiting
+   * on, and the epoch bump is what says so; do not "fix" the publish guard back to comparing
+   * keys, which cannot tell it from the run that replaced it.
+   */
   invalidate(): void {
     this.key = null
     this.value = null
+    this.inflight = null
+    this.inflightKey = null
+    this.epoch++
   }
 }
 
