@@ -44,3 +44,10 @@ convention about which key was used for which seat. That is the measured case, n
 hypothetical: in the repository that has run this protocol, 126 commits across three
 elector branches carry one git author. Signing is worth having for what it does establish.
 It is not evidence that two seats are two minds.
+
+**Where that fact gets recorded is the resolution, not this file.** The `Kind`, `Model`,
+`Version` and `Config` columns are what a resolution's `independence:` reads to say whether it
+could tell its participating seats apart — and `shared-configuration` is a legal answer that
+costs the resolution only the right to call itself a synthesis of positions. A blank column
+yields `unrecorded`, which is neither an accusation nor a clearance. See
+[PROTOCOL.md](PROTOCOL.md).
