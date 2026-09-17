@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
+    "check": "astro check",
     "test": "node test/versions.mjs && node test/assemble.mjs && node test/check-anchors.mjs && node test/quality-render.mjs && node test/check-prose.mjs && node scripts/check-prose.mjs",
     "preview": "astro preview",
     "astro": "astro"
@@ -17,5 +18,10 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "sharp": "^0.35.4"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@types/node": "^22.20.3",
+    "typescript": "^5.9.3"
   }
 }

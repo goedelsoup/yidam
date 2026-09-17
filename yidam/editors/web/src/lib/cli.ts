@@ -54,7 +54,19 @@ export type ReportResult<T> =
        */
       resolvedRoot: string | null
     }
-  | { ok: false; handshake: Handshake }
+  | {
+      ok: false
+      /**
+       * Narrowed, because `ok: false` is *only* ever returned from the `!handshake.ok`
+       * branch below — the failure arm carries a failed handshake by construction.
+       *
+       * Typing it as the whole `Handshake` union threw that away, and three call sites
+       * reading `handshake.kind` inside `if (!result.ok)` were type errors that nothing
+       * ran a type-checker over. They work at runtime; the type was the thing that was
+       * wrong (#688).
+       */
+      handshake: Extract<Handshake, { ok: false }>
+    }
 
 export interface SpawnInput {
   /** Absolute path to the binary `resolveBinary` found. */
