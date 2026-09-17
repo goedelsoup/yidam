@@ -1,4 +1,4 @@
-fn find_root(parent: &mut Vec<usize>, mut x: usize) -> usize {
+fn find_root(parent: &mut [usize], mut x: usize) -> usize {
     while parent[x] != x {
         parent[x] = parent[parent[x]]; // path halving
         x = parent[x];
