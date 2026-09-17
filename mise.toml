@@ -859,6 +859,25 @@ echo "domain-fmt: formatted $count crates"
 description = "CI for the domain crates under yidam/prelude/domains/*/rust/: fmt-check and clippy, glob-discovered."
 run = """
 set -eu
+
+# The testkit, first and by name. It is a path dependency of all fourteen, and a dependency
+# is *built* by the loop below but not *linted* by it — clippy grades the selected package,
+# and `--all-targets` widens the targets rather than the packages. Measured, not assumed: a
+# deliberate `&mut Vec<usize>` in the testkit draws zero findings through a domain crate and
+# exits 101 when the testkit is the manifest. Leaving it out would make the crate added to
+# close #686's hole the next unlinted thing in this directory, which is #684's hole one layer
+# further in.
+#
+# Outside the counted loop, deliberately: counting it would let the count guard below be
+# satisfied by the testkit alone while the domain glob matched nothing.
+testkit=yidam/prelude/domains/parity/testkit/Cargo.toml
+if [ ! -f "$testkit" ]; then
+  echo "ERROR: $testkit is missing — every domain suite loads its fixtures through it"
+  exit 1
+fi
+cargo fmt --all --manifest-path "$testkit" -- --check
+cargo clippy --all-targets --manifest-path "$testkit" -- -D warnings
+
 count=0
 for manifest in yidam/prelude/domains/*/rust/Cargo.toml; do
   [ -f "$manifest" ] || continue
@@ -872,7 +891,7 @@ if [ "$count" -eq 0 ]; then
   echo "       mode this task exists to avoid — fix the glob before trusting it"
   exit 1
 fi
-echo "ci-domains: fmt-checked and linted $count crates"
+echo "ci-domains: fmt-checked and linted $count crates, plus the parity testkit"
 """
 
 # Composite for local use (`mise run ci`); CI runs ci-harness, ci-cli and

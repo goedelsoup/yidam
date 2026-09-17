@@ -1,31 +1,8 @@
 use yidam_domain_set_theory::{difference, intersection, is_subset, union};
 
-fn fixture_dir(function: &str) -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../parity/fixtures")
-        .join(function)
-}
+use yidam_domain_testkit::load_fixtures;
 
-fn load_fixtures(function: &str) -> Vec<toml::Value> {
-    let dir = fixture_dir(function);
-    if !dir.exists() {
-        return vec![];
-    }
-    let mut out = Vec::new();
-    let mut entries: Vec<_> = std::fs::read_dir(&dir)
-        .unwrap()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().is_some_and(|x| x == "toml"))
-        .collect();
-    entries.sort_by_key(|e| e.path());
-    for entry in entries {
-        let raw = std::fs::read_to_string(entry.path()).unwrap();
-        out.push(toml::from_str::<toml::Value>(&raw).unwrap());
-    }
-    out
-}
-
-fn to_i64_vec(val: &toml::Value) -> Vec<i64> {
+fn to_i64_vec(val: &yidam_domain_testkit::toml::Value) -> Vec<i64> {
     val.as_array()
         .unwrap()
         .iter()
@@ -36,7 +13,6 @@ fn to_i64_vec(val: &toml::Value) -> Vec<i64> {
 #[test]
 fn parity_union() {
     let fixtures = load_fixtures("set_theory.union");
-    assert!(!fixtures.is_empty(), "no set_theory.union fixtures found");
     for fx in &fixtures {
         let a = to_i64_vec(&fx["input"]["a"]);
         let b = to_i64_vec(&fx["input"]["b"]);
@@ -48,10 +24,6 @@ fn parity_union() {
 #[test]
 fn parity_intersection() {
     let fixtures = load_fixtures("set_theory.intersection");
-    assert!(
-        !fixtures.is_empty(),
-        "no set_theory.intersection fixtures found"
-    );
     for fx in &fixtures {
         let a = to_i64_vec(&fx["input"]["a"]);
         let b = to_i64_vec(&fx["input"]["b"]);
@@ -63,10 +35,6 @@ fn parity_intersection() {
 #[test]
 fn parity_difference() {
     let fixtures = load_fixtures("set_theory.difference");
-    assert!(
-        !fixtures.is_empty(),
-        "no set_theory.difference fixtures found"
-    );
     for fx in &fixtures {
         let a = to_i64_vec(&fx["input"]["a"]);
         let b = to_i64_vec(&fx["input"]["b"]);
@@ -78,10 +46,6 @@ fn parity_difference() {
 #[test]
 fn parity_is_subset() {
     let fixtures = load_fixtures("set_theory.is_subset");
-    assert!(
-        !fixtures.is_empty(),
-        "no set_theory.is_subset fixtures found"
-    );
     for fx in &fixtures {
         let a = to_i64_vec(&fx["input"]["a"]);
         let b = to_i64_vec(&fx["input"]["b"]);

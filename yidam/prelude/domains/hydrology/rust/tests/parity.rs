@@ -2,38 +2,11 @@ use yidam_domain_hydrology::{manning_velocity, rational_product, return_period};
 
 const EPSILON: f64 = 1e-9;
 
-fn fixture_dir(function: &str) -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../parity/fixtures")
-        .join(function)
-}
-
-fn load_fixtures(function: &str) -> Vec<toml::Value> {
-    let dir = fixture_dir(function);
-    if !dir.exists() {
-        return vec![];
-    }
-    let mut out = Vec::new();
-    let mut entries: Vec<_> = std::fs::read_dir(&dir)
-        .unwrap()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().is_some_and(|x| x == "toml"))
-        .collect();
-    entries.sort_by_key(|e| e.path());
-    for entry in entries {
-        let raw = std::fs::read_to_string(entry.path()).unwrap();
-        out.push(toml::from_str::<toml::Value>(&raw).unwrap());
-    }
-    out
-}
+use yidam_domain_testkit::load_fixtures;
 
 #[test]
 fn parity_rational_product() {
     let fixtures = load_fixtures("hydrology.rational_product");
-    assert!(
-        !fixtures.is_empty(),
-        "no hydrology.rational_product fixtures found"
-    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let result = rational_product(
@@ -52,10 +25,6 @@ fn parity_rational_product() {
 #[test]
 fn parity_manning_velocity() {
     let fixtures = load_fixtures("hydrology.manning_velocity");
-    assert!(
-        !fixtures.is_empty(),
-        "no hydrology.manning_velocity fixtures found"
-    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let result = manning_velocity(
@@ -74,10 +43,6 @@ fn parity_manning_velocity() {
 #[test]
 fn parity_return_period() {
     let fixtures = load_fixtures("hydrology.return_period");
-    assert!(
-        !fixtures.is_empty(),
-        "no hydrology.return_period fixtures found"
-    );
     for fx in &fixtures {
         let inp = &fx["input"];
         let result = return_period(

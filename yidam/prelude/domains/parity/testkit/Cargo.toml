@@ -1,0 +1,9 @@
+[package]
+name = "yidam-domain-testkit"
+version = "0.1.0"
+edition = "2021"
+description = "Yidam domain parity testkit — loads the shared fixtures, and refuses to load none"
+publish = false
+
+[dependencies]
+toml = "0.8"
