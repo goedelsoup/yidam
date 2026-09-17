@@ -281,23 +281,15 @@ pub fn run_export(
     export(&model, &root, format, out_path, options)
 }
 
-/// Unix seconds → ISO-8601 UTC (days-from-civil inverse, Hinnant's algorithm).
-/// Shared by the llms (light) and rdf (gated) exporters, so it lives in the
+/// Unix seconds → ISO-8601 UTC.
+///
+/// The date half is [`crate::dates::civil_from_days`]; this adds the time of day and the
+/// formatting. Shared by the llms (light) and rdf (gated) exporters, so it lives in the
 /// base export module rather than either optional one.
 pub(crate) fn unix_to_iso(secs: u64) -> String {
-    let days = (secs / 86400) as i64;
     let rem = secs % 86400;
     let (h, m, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = if month <= 2 { y + 1 } else { y };
+    let (year, month, d) = crate::dates::civil_from_days((secs / 86400) as i64);
     format!("{year:04}-{month:02}-{d:02}T{h:02}:{m:02}:{s:02}Z")
 }
 
@@ -309,5 +301,47 @@ mod tests {
     fn unix_to_iso_is_correct() {
         assert_eq!(unix_to_iso(0), "1970-01-01T00:00:00Z");
         assert_eq!(unix_to_iso(1_780_000_000), "2026-05-28T20:26:40Z");
+    }
+
+    /// What this function computed while Hinnant's algorithm was inlined here, kept
+    /// verbatim so the fold onto [`crate::dates::civil_from_days`] has something to be
+    /// differential against. Two spot values cannot distinguish two arrangements of this
+    /// arithmetic; a century-and-a-third of them can.
+    fn unix_to_iso_before_the_fold(secs: u64) -> String {
+        let days = (secs / 86400) as i64;
+        let rem = secs % 86400;
+        let (h, m, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+        let z = days + 719_468;
+        let era = z.div_euclid(146_097);
+        let doe = z.rem_euclid(146_097);
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+        let y = yoe + era * 400;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let d = doy - (153 * mp + 2) / 5 + 1;
+        let month = if mp < 10 { mp + 3 } else { mp - 9 };
+        let year = if month <= 2 { y + 1 } else { y };
+        format!("{year:04}-{month:02}-{d:02}T{h:02}:{m:02}:{s:02}Z")
+    }
+
+    /// 1970 → 2100 at 90,061-second steps: 45,525 timestamps, ~1.042 days apart.
+    ///
+    /// The stride is deliberately not a whole number of days. A day-aligned walk visits the
+    /// same time-of-day forever and would not notice a seconds-of-day defect at all, and a
+    /// stride that divides a week or a month lands on the same phase of every month length.
+    /// This one drifts through both, so every month length, every leap year, the 1900-style
+    /// century non-leap at 2100's edge and every hour of the day are all sampled.
+    #[test]
+    fn unix_to_iso_is_unchanged_by_the_fold() {
+        const STEP: u64 = 90_061;
+        const SAMPLES: u64 = 45_525;
+        for i in 0..SAMPLES {
+            let ts = i * STEP;
+            assert_eq!(
+                unix_to_iso(ts),
+                unix_to_iso_before_the_fold(ts),
+                "diverged at unix {ts}"
+            );
+        }
     }
 }

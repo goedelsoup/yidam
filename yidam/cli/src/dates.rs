@@ -8,6 +8,11 @@
 //! Those were three implementations before this module existed, which is the kind that is
 //! wrong in one copy and right in the other — and two of them had already written the
 //! comment saying so.
+//!
+//! It grew back to three anyway: `cmd::export::unix_to_iso` and `cmd::status::unix_to_date_str`
+//! had each inlined Hinnant again, in two different arrangements. Both now call
+//! [`civil_from_days`]. If you need a civil date from a timestamp, the day count is
+//! `secs / 86400` and the conversion is here.
 
 /// Days since 1970-01-01 for a civil date. Hinnant's `days_from_civil`.
 pub fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
