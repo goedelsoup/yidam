@@ -286,18 +286,9 @@ fn count_stale_corpus_files(corpus: &Path, generated_at: u64) -> usize {
         .count()
 }
 
-// Civil (Gregorian) date string from a Unix timestamp — Hinnant's algorithm.
+// Civil (Gregorian) date string from a Unix timestamp, via `crate::dates::civil_from_days`.
 pub(crate) fn unix_to_date_str(ts: u64) -> String {
-    let z = ts as i64 / 86400 + 719468;
-    let era = if z >= 0 { z } else { z - 146096 } / 146097;
-    let doe = (z - era * 146097) as u64;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
+    let (y, m, d) = crate::dates::civil_from_days(ts as i64 / 86400);
     format!("{y:04}-{m:02}-{d:02}")
 }
 
@@ -324,5 +315,59 @@ mod tests {
     fn known_date_2026_07_01() {
         // 2026-07-01 00:00:00 UTC
         assert_eq!(unix_to_date_str(1782864000), "2026-07-01");
+    }
+
+    /// What this function computed while Hinnant's algorithm was inlined here, kept verbatim
+    /// so the fold onto [`crate::dates::civil_from_days`] has something to be differential
+    /// against. Note the `u64` intermediates and the `if z >= 0` era: this copy and the one
+    /// in `cmd::export` were arranged differently, which is exactly the shape that is right
+    /// in one copy and wrong in the other.
+    fn unix_to_date_str_before_the_fold(ts: u64) -> String {
+        let z = ts as i64 / 86400 + 719468;
+        let era = if z >= 0 { z } else { z - 146096 } / 146097;
+        let doe = (z - era * 146097) as u64;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        let y = yoe as i64 + era * 400;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let d = doy - (153 * mp + 2) / 5 + 1;
+        let m = if mp < 10 { mp + 3 } else { mp - 9 };
+        let y = if m <= 2 { y + 1 } else { y };
+        format!("{y:04}-{m:02}-{d:02}")
+    }
+
+    /// 1970 → 2100 at 90,061-second steps: 45,525 timestamps, ~1.042 days apart. The stride
+    /// is deliberately not a whole number of days, so it drifts through every month length,
+    /// every leap year and the century rule rather than sitting on one phase of them.
+    #[test]
+    fn unix_to_date_str_is_unchanged_by_the_fold() {
+        const STEP: u64 = 90_061;
+        const SAMPLES: u64 = 45_525;
+        for i in 0..SAMPLES {
+            let ts = i * STEP;
+            assert_eq!(
+                unix_to_date_str(ts),
+                unix_to_date_str_before_the_fold(ts),
+                "diverged at unix {ts}"
+            );
+        }
+    }
+
+    /// The two call sites reached the day count by different routes — `(secs / 86400) as i64`
+    /// in `cmd::export`, `ts as i64 / 86400` here — and the fold passes each through
+    /// unchanged. Both parameters are `u64`, so the routes agree; this asserts that rather
+    /// than leaving it on trust.
+    #[test]
+    fn the_two_day_count_routes_agree() {
+        const STEP: u64 = 90_061;
+        const SAMPLES: u64 = 45_525;
+        for i in 0..SAMPLES {
+            let ts = i * STEP;
+            assert_eq!(
+                (ts / 86400) as i64,
+                ts as i64 / 86400,
+                "diverged at unix {ts}"
+            );
+        }
     }
 }
