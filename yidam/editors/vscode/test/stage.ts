@@ -165,6 +165,11 @@ export const SKIP =
  * `lint` and `graph-check` gate — a nonzero exit is a verdict, not a failure to produce one,
  * and the envelope is on stdout regardless. A caller that treated exit != 0 as "binary
  * unusable" would go blind exactly when the corpus needs attention.
+ *
+ * `stdio` is given explicitly because `execFileSync` inherits stderr by default: a gating
+ * command's summary line went to the test runner's own output and arrived here as `''`, so
+ * the one case that needs stderr — a binary predating `--format json`, which writes clap's
+ * usage there and nothing to stdout — reached `readHandshake` with the evidence missing.
  */
 export function captureStreams(
   bin: string,
@@ -172,7 +177,8 @@ export function captureStreams(
   cwd: string,
 ): { stdout: string; stderr: string } {
   try {
-    return { stdout: execFileSync(bin, args, { cwd, encoding: 'utf8' }), stderr: '' }
+    const stdio: ('ignore' | 'pipe')[] = ['ignore', 'pipe', 'pipe']
+    return { stdout: execFileSync(bin, args, { cwd, encoding: 'utf8', stdio }), stderr: '' }
   } catch (err) {
     const e = err as { stdout?: string; stderr?: string }
     return { stdout: e.stdout ?? '', stderr: e.stderr ?? '' }
@@ -199,6 +205,99 @@ function payload(report: string): Record<string, unknown> | null {
   }
 }
 
+/** What of a report is compared: one member of the payload, or the whole of it. */
+function compared(report: string, field: string | undefined): unknown {
+  const p = payload(report)
+  if (p === null || field === undefined) return p
+  return p[field]
+}
+
+/** One report the probe certifies a binary against. */
+export interface ProbeSpec {
+  /** Named in the refusal, so a reader knows which report disagreed. */
+  report: string
+  args: string[]
+  /** Path under [`FIXTURE_DIR`]. */
+  golden: string
+  /**
+   * The member of the payload compared, or the whole payload when absent.
+   *
+   * `lint`'s golden carries an `age.first_commit` of `<FIRST_COMMIT>`, so comparing all of
+   * it would need `redact()`'s rules and a third transcription of those is the thing this
+   * repository keeps having to undo. Its `gate` needs no redaction, and the gate is what
+   * the tests downstream read.
+   */
+  field?: string
+}
+
+/**
+ * The reports a binary has to agree about before its answers here mean anything.
+ *
+ * `status` alone was the whole probe until #752. It reports node, question, catalog and
+ * claim counts and says nothing about which *checks* the binary carries, so a yidam
+ * predating a lint check resolved, passed, and then answered wrongly about `lint` — which
+ * is what nine of the seventeen `contractBinary` call sites go on to read. 0.9.0 on `PATH`
+ * did exactly that: it does not carry `resolution-elector-unregistered` at all, so the
+ * baseline entry for it read as stale rather than as inherited debt, and the failure
+ * surfaced as `1 !== 2` three assertions downstream (#657) — the confusing failure about
+ * someone else's work this probe exists to prevent, one report over.
+ *
+ * **The cost is one extra `lint` run**, measured on this fixture at 268–309 ms for six of
+ * seven runs of a debug build, with a cold outlier at 977 ms — and there are seventeen call
+ * sites, each staging a fresh repository. That is why the verdict is memoized per binary path in
+ * [`contractBinary`]: a verdict is a property of the binary rather than of the tempdir it
+ * was reached in, and `node --test` gives each file its own process, so the seventeen calls
+ * across six files cost six runs rather than seventeen. Checking *less* is not the
+ * alternative — that is what this issue was.
+ */
+export const PROBES: ProbeSpec[] = [
+  { report: 'status', args: ['status', '--format', 'json'], golden: 'expected/status.json' },
+  {
+    report: 'lint',
+    args: ['lint', '--format', 'json'],
+    golden: 'expected/lint.json',
+    field: 'gate',
+  },
+]
+
+/**
+ * Why this binary's reports disagree with the fixture, or `null` when they do not.
+ *
+ * Pure over the captured stdout, against the committed goldens, so the refusal arm can be
+ * exercised without a stale yidam on hand — see `contract.test.ts`. A guard whose refusal
+ * has never been reached is a guard that may already have stopped guarding.
+ *
+ * Comparison is structural rather than textual, because a textual one would need
+ * `redact()`'s rules. See [`ProbeSpec.field`].
+ */
+export function contractRefusal(bin: string, outputs: Record<string, string>): string | null {
+  for (const spec of PROBES) {
+    const golden = fs.readFileSync(path.join(FIXTURE_DIR, spec.golden), 'utf8')
+    const got = compared(outputs[spec.report] ?? '', spec.field)
+    const want = compared(golden, spec.field)
+    if (JSON.stringify(got) === JSON.stringify(want)) continue
+    return (
+      `${bin} does not reproduce this fixture's committed \`${spec.report}\` golden — it is ` +
+      'stale relative to the fixture.\n' +
+      `  report:   yidam ${spec.args.join(' ')}\n` +
+      `  compared: ${spec.field === undefined ? 'the whole payload' : `\`${spec.field}\``}\n` +
+      `  expected ${JSON.stringify(want)}\n` +
+      `  got      ${JSON.stringify(got)}\n` +
+      '  rebuild it: cargo install --path yidam/cli'
+    )
+  }
+  return null
+}
+
+/**
+ * One verdict per binary path: the reason it was refused, or `null` for accepted.
+ *
+ * Keyed on the *resolved* path rather than on `YIDAM_BIN`, so two workspaces resolving to
+ * the same binary share the answer and two resolving differently do not. See [`PROBES`]
+ * for why this is worth memoizing at all.
+ */
+const verdicts = new Map<string, string | null>()
+
 /**
  * A binary whose answers about this fixture mean something, or `null`.
  *
@@ -209,11 +308,9 @@ function payload(report: string): Record<string, unknown> | null {
  * about someone else's work, which is exactly what the handshake check was written to
  * prevent one layer further out.
  *
- * So the probe is compared against what the fixture says it should produce. `status` is
- * already being run for the handshake and its answer thrown away; `expected/status.json` is
- * already committed. Comparison is structural rather than textual, because a textual one
- * would need `redact()`'s rules and a third transcription of those is the thing this
- * repository keeps having to undo.
+ * So the probe runs each of [`PROBES`] and compares it against what the fixture says it
+ * should produce, and the refusal names the report that disagreed — `status` alone was not
+ * enough, because the reports these tests read are mostly `lint` (#752).
  *
  * **What this cannot detect** is a binary *newer* than the fixture in a way that changes
  * output. That fails the Rust goldens first, which is where it belongs.
@@ -227,25 +324,32 @@ export async function contractBinary(cwd: string): Promise<string | null> {
 
   const r = await resolveBinary({ configured: process.env.YIDAM_BIN ?? '', workspace: cwd })
   if (!r.command) return refuse(`no yidam resolved: ${r.reason}`)
+  const bin = r.command
 
-  const { stdout, stderr } = captureStreams(r.command, ['status', '--format', 'json'], cwd)
-  const h = readHandshake(stdout, stderr)
-  if (!h.ok) {
-    return refuse(
-      `${r.command} does not speak the report contract: ${h.ok === false ? h.message : ''}`,
-    )
+  // A remembered refusal is re-raised rather than re-derived, so `YIDAM_REQUIRE_CONTRACT`
+  // still throws at every call site and a run under it fails where it would have before.
+  const remembered = verdicts.get(bin)
+  if (remembered !== undefined) return remembered === null ? bin : refuse(remembered)
+
+  const decide = (why: string | null): string | null => {
+    verdicts.set(bin, why)
+    return why === null ? bin : refuse(why)
   }
 
-  const golden = fs.readFileSync(path.join(FIXTURE_DIR, 'expected/status.json'), 'utf8')
-  const got = payload(stdout)
-  const want = payload(golden)
-  if (JSON.stringify(got) !== JSON.stringify(want)) {
-    return refuse(
-      `${r.command} does not reproduce this fixture's committed goldens — it is stale.\n` +
-        `  expected ${JSON.stringify(want)}\n` +
-        `  got      ${JSON.stringify(got)}\n` +
-        '  rebuild it: cargo install --path yidam/cli',
-    )
+  const outputs: Record<string, string> = {}
+  for (const spec of PROBES) {
+    const { stdout, stderr } = captureStreams(bin, spec.args, cwd)
+    // Every probed report has to be a readable envelope, not just the first: a binary
+    // predating `lint --format json` fails here rather than parsing as nothing and
+    // comparing unequal, which would send a reader to rebuild over a usage message.
+    const h = readHandshake(stdout, stderr)
+    if (!h.ok) {
+      return decide(
+        `${bin} does not speak the report contract in \`${spec.report}\`: ` +
+          `${h.ok === false ? h.message : ''}`,
+      )
+    }
+    outputs[spec.report] = stdout
   }
-  return r.command
+  return decide(contractRefusal(bin, outputs))
 }

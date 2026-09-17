@@ -528,6 +528,14 @@ the contract — a stale `yidam` in `~/.cargo/bin` should not turn a contributor
 over somebody else's work. CI sets `YIDAM_REQUIRE_CONTRACT=1`, which turns both skips into
 failures, so skipping can never be how this job goes green.
 
+*Predates the contract* is measured rather than assumed. The probe runs the binary against
+the staged corpus and compares it with the fixture's committed goldens: all of `status`'s
+payload, and `lint`'s `gate`. `status` alone was the whole of it until #752 — it reports
+counts and says nothing about which **checks** a binary carries, so a yidam missing one
+passed the probe and then answered wrongly about `lint`, which is what most of these tests
+go on to read. The refusal names the report that disagreed, and the verdict is memoized per
+binary path, so the added `lint` run is paid once per test file rather than once per test.
+
 ## Not here yet
 
 `@vscode/test-electron`. The `vscode`-importing code is the status bar, the diagnostic
