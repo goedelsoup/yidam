@@ -16,7 +16,6 @@ golden nobody reads.
 | `concept/low-flow.yml` | `dangling-edge` — an edge to a file that is not there | error |
 | `catalog/stage-discharge.md` | `catalog-used-by-drift` — its `used-by` list is wrong in both directions | warn |
 | `concept/tailwater.yml` | `orphan-in` — nothing points at it | info |
-| `gauge/riffle-station.yml` | `orphan-in` — the ontology declares no edge into a gauge | info |
 | `gauge/riffle-station.yml` | `verified-unsourced` — it asserts `[verified]` and links no catalog entry | warn |
 | `concept/low-flow.yml` | `missing-property` — `concept` declares `datum` as `required: true` and this instance omits it | **error, from a `warn` check** |
 | `concept/mixing-zone.yml`, `concept/tailwater.yml` | `missing-property` — no `claim_tag` | warn |
