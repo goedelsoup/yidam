@@ -777,7 +777,7 @@ struct Contract {
 fn contract_problems(schema: &serde_json::Value, name: &str, doc: &serde_json::Value) -> Contract {
     let mut out = Contract::default();
     assert!(doc.is_object(), "{name}: an envelope is an object");
-    walk(schema, doc, name, "", &mut out);
+    walk(schema, &applicable(schema, schema), doc, name, "", &mut out);
     out
 }
 
@@ -798,8 +798,96 @@ fn value_shape(node: &serde_json::Value) -> Option<&serde_json::Value> {
         .filter(|e| e.as_object().is_some_and(|o| !o.is_empty()))
 }
 
+/// Resolve a local `$ref` against the root schema.
+///
+/// Local pointers only. This contract is one document by construction — `$id` names it and
+/// nothing else is fetched — and honouring a remote `$ref` would mean the gate reads the
+/// network to decide whether a field is declared.
+///
+/// `None` is a pointer that does not resolve, which
+/// [`every_ref_in_the_contract_resolves`] is what makes unreachable. Reported rather than
+/// skipped in both places: a dangling `$ref` silently contributes no declarations, and a walk
+/// that declares nothing looks exactly like a contract in good order.
+fn resolve_ref<'a>(root: &'a serde_json::Value, pointer: &str) -> Option<&'a serde_json::Value> {
+    let mut node = root;
+    for raw in pointer.strip_prefix("#/")?.split('/') {
+        // RFC 6901's escapes, in its order: `~1` before `~0`, or a literal `~1` round-trips
+        // wrong. No segment in this file needs either; doing it right costs one line.
+        node = node.get(raw.replace("~1", "/").replace("~0", "~"))?;
+    }
+    Some(node)
+}
+
+/// Every subschema that applies at one position: the node, plus whatever `$ref`, `allOf`,
+/// `oneOf` and `anyOf` fold into it.
+///
+/// **A set, and the set is the whole design.** The obvious shape — recurse into each branch
+/// with the document and union what comes back — fails in both directions at once, which is
+/// what #658 measured before this existed: walking a `lint` check against `doctor`'s branch
+/// reports five fields as undeclared that the contract declares one branch over, *and* a walk
+/// that stops at a node whose declarations sit under `oneOf` resolves nothing below it, so
+/// `checks[].violations[].severity` goes unreached at the same moment. Fabricating problems
+/// and losing depth are opposite failures and both of them look like the check working.
+///
+/// Carrying the set makes the question asked at each level the right one — *is this field
+/// declared by any subschema that applies here* — and the union is taken again one level
+/// down, so a field declared in one branch and nested under a field declared in another is
+/// still declared.
+///
+/// `anyOf` and `oneOf` are treated identically here. Which branches a document must satisfy
+/// is the validator's question; this walk's question is only what the contract describes.
+fn applicable<'a>(
+    root: &'a serde_json::Value,
+    node: &'a serde_json::Value,
+) -> Vec<&'a serde_json::Value> {
+    let mut out = Vec::new();
+    expand(root, node, &mut out);
+    out
+}
+
+/// [`applicable`] over several nodes at once, deduped across all of them.
+fn all_applicable<'a>(
+    root: &'a serde_json::Value,
+    nodes: &[&'a serde_json::Value],
+) -> Vec<&'a serde_json::Value> {
+    let mut out = Vec::new();
+    for node in nodes {
+        expand(root, node, &mut out);
+    }
+    out
+}
+
+/// **By pointer identity, not by value.** Two `$ref`s to one definition are one subschema, and
+/// a definition that reached itself would otherwise not terminate. Two structurally equal
+/// branches are still two branches, which value equality would collapse.
+fn expand<'a>(
+    root: &'a serde_json::Value,
+    node: &'a serde_json::Value,
+    out: &mut Vec<&'a serde_json::Value>,
+) {
+    if out.iter().any(|seen| std::ptr::eq(*seen, node)) {
+        return;
+    }
+    out.push(node);
+    if let Some(pointer) = node.get("$ref").and_then(|r| r.as_str()) {
+        // A pointer that does not resolve contributes nothing, so every field under it is
+        // reported undeclared by the caller — loudly, and at the path that carries it.
+        if let Some(target) = resolve_ref(root, pointer) {
+            expand(root, target, out);
+        }
+    }
+    for keyword in ["allOf", "oneOf", "anyOf"] {
+        if let Some(branches) = node.get(keyword).and_then(|b| b.as_array()) {
+            for branch in branches {
+                expand(root, branch, out);
+            }
+        }
+    }
+}
+
 fn walk(
-    node: &serde_json::Value,
+    root: &serde_json::Value,
+    nodes: &[&serde_json::Value],
     doc: &serde_json::Value,
     name: &str,
     path: &str,
@@ -810,14 +898,19 @@ fn walk(
             // `required` presence is the validator's job now. It reads the keyword properly,
             // including a malformed one, where this file's `.and_then(|r| r.as_array())`
             // silently skipped a `required` that was misspelled or written as a string.
-            let declared = node.get("properties").and_then(|p| p.as_object());
-            let extra = value_shape(node);
+            let declared: Vec<_> = nodes
+                .iter()
+                .filter_map(|n| n.get("properties").and_then(|p| p.as_object()))
+                .collect();
+            let extra: Vec<&serde_json::Value> =
+                nodes.iter().filter_map(|n| value_shape(n)).collect();
 
             for (key, value) in obj {
-                let by_name = declared.and_then(|d| d.get(key));
+                let by_name: Vec<&serde_json::Value> =
+                    declared.iter().filter_map(|d| d.get(key)).collect();
                 // Inside a dynamic map the key belongs to the corpus, not to the contract, so
                 // the path says `*`: one shape to fix rather than one per class.
-                let seg = if by_name.is_none() && extra.is_some() {
+                let seg = if by_name.is_empty() && !extra.is_empty() {
                     "*"
                 } else {
                     key.as_str()
@@ -827,12 +920,17 @@ fn walk(
                 } else {
                     format!("{path}.{seg}")
                 };
-                match by_name.or(extra) {
-                    Some(sub) => {
+                let subs = if by_name.is_empty() {
+                    extra.clone()
+                } else {
+                    by_name
+                };
+                match subs.is_empty() {
+                    false => {
                         out.resolved.insert(here.clone());
-                        walk(sub, value, name, &here, out);
+                        walk(root, &all_applicable(root, &subs), value, name, &here, out);
                     }
-                    None => {
+                    true => {
                         out.problems.insert(format!(
                             "  {name}: emits `{here}`, which report.schema.json does not declare"
                         ));
@@ -842,10 +940,13 @@ fn walk(
         }
         serde_json::Value::Array(items) => {
             let here = format!("{path}[]");
-            match node.get("items") {
-                Some(sub) => {
+            let subs: Vec<&serde_json::Value> =
+                nodes.iter().filter_map(|n| n.get("items")).collect();
+            match subs.is_empty() {
+                false => {
+                    let expanded = all_applicable(root, &subs);
                     for value in items {
-                        walk(sub, value, name, &here, out);
+                        walk(root, &expanded, value, name, &here, out);
                     }
                 }
                 // An array declared without `items` is a hole, not a leaf: everything inside it
@@ -858,14 +959,14 @@ fn walk(
                 // unchecked, which is why `diff`'s `nodes` and `edges` do not force a shape to
                 // be invented for data no fixture has produced — and why this goes red the day
                 // one does.
-                None if !items.is_empty() => {
+                true if !items.is_empty() => {
                     out.problems.insert(format!(
                         "  {name}: emits `{here}` with {} element(s) and report.schema.json \
                          declares no `items` for it",
                         items.len()
                     ));
                 }
-                None => {}
+                true => {}
             }
         }
         // A scalar meeting an object or array declaration is the validator's to refuse, and it
@@ -923,6 +1024,20 @@ const GOLDEN_WITNESSES: &[&str] = &[
 
 /// `doctor` has no golden, and is reached only through an array.
 const LIVE_WITNESSES: &[&str] = &["checks[].question", "checks[].verdict"];
+
+/// Paths [`declarations`] must have *declared*, or it did not follow the composition keywords.
+///
+/// The mirror of the two rosters above, and it holds the other walk. One path per keyword it
+/// has to follow, each chosen because nothing else in the schema reaches it the same way:
+/// `checks[].violations[].severity` sits two levels inside one `oneOf` branch and one `$ref`
+/// down; `checks[].question` sits in the other branch, so a walk that descends only the first
+/// still fails; `findings[].span.line` is reachable only by resolving a `$ref` to a
+/// definition that is not a leaf, which is the one case a leaf-only `$defs` cannot witness.
+const DECLARATION_WITNESSES: &[&str] = &[
+    "checks[].violations[].severity",
+    "checks[].question",
+    "findings[].span.line",
+];
 
 /// Both tests' shared body: validate, then walk, then witness.
 ///
@@ -1058,6 +1173,166 @@ fn the_skipped_verdict_is_emitted_and_declared() {
     );
 }
 
+/// Every `$ref` this contract carries resolves.
+///
+/// A dangling pointer contributes no declarations, so the fields under it are reported
+/// undeclared and the gate does go red — but at the emitting report's path, saying the
+/// schema does not declare a field it declares one line away. This names the actual defect,
+/// and it holds pointers no document happens to reach, which the walk by construction cannot.
+#[test]
+fn every_ref_in_the_contract_resolves() {
+    let schema = schema();
+    let mut refs: Vec<(String, String)> = Vec::new();
+
+    fn find(node: &serde_json::Value, path: &str, out: &mut Vec<(String, String)>) {
+        match node {
+            serde_json::Value::Object(map) => {
+                for (key, child) in map {
+                    if key == "$ref" {
+                        out.push((
+                            path.to_string(),
+                            child.as_str().unwrap_or_default().to_string(),
+                        ));
+                    }
+                    find(child, &format!("{path}/{key}"), out);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for (i, child) in items.iter().enumerate() {
+                    find(child, &format!("{path}/{i}"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+    find(&schema, "", &mut refs);
+
+    // A floor, for this file's usual reason: a walk that finds nothing to check passes
+    // exactly like a document in good order. Seven is what #658 introduced — `check_id`
+    // twice, `severity` three times, `commit_kind` three times, less the one the count
+    // below reads from `$defs` itself.
+    assert!(
+        refs.len() >= 7,
+        "found only {} `$ref`(s) — this walk is broken, not the schema",
+        refs.len()
+    );
+
+    let dangling: Vec<String> = refs
+        .iter()
+        .filter(|(_, pointer)| resolve_ref(&schema, pointer).is_none())
+        .map(|(at, pointer)| format!("  at `{at}`: `{pointer}`"))
+        .collect();
+    assert!(
+        dangling.is_empty(),
+        "report.schema.json carries {} `$ref`(s) that do not resolve:\n{}\n\nEverything below \
+         an unresolvable pointer is undeclared, so the failure surfaces as a report emitting \
+         fields the contract 'does not declare' — three levels from the typo that caused it.",
+        dangling.len(),
+        dangling.join("\n")
+    );
+
+    // And every definition is used, from the other side. A `$defs` entry nothing references
+    // is inert in exactly the way #660's stray `state` declaration was.
+    let used: BTreeSet<&str> = refs.iter().map(|(_, p)| p.as_str()).collect();
+    let unused: Vec<&String> = schema["$defs"]
+        .as_object()
+        .expect("$defs")
+        .keys()
+        .filter(|name| !used.contains(format!("#/$defs/{name}").as_str()))
+        .collect();
+    assert!(
+        unused.is_empty(),
+        "report.schema.json defines {unused:?} under `$defs` and nothing references them"
+    );
+}
+
+/// Each branch's `required` list is load-bearing — field by field, and for its own command.
+///
+/// **#658's definition of done asks for a mutation no validator can fail, and measuring it
+/// is how that was found.** Deleting a field from one branch's `required` and re-running
+/// every other gate in this file leaves all of them green, necessarily: loosening `required`
+/// only ever admits *more* documents, and every check already carries every field. A
+/// validator fails a document that is MISSING what `required` names; it has nothing to say
+/// about a contract that stopped asking. Both branches were measured that way, and both
+/// stayed green across the whole file.
+///
+/// So this test holds the lists from two sides that a validator cannot.
+///
+/// **The roster count** is what makes the schema-side mutation red — five fields per branch,
+/// read off the contract. It is a weaker statement than the definition of done imagined: it
+/// says the list is the length it should be, not that each entry is load-bearing, and it
+/// cannot be scoped to one command's report because a `required` list is not a report.
+///
+/// **The document-side drop** is the load-bearing half, and it is also the direction the
+/// failure would actually arrive from — a release stops emitting a field. Drop it from every
+/// check and the gate must name it. *That* one is scoped: the other command's shape must
+/// still validate against the same schema, which is what would break if the two branches
+/// were ever collapsed back into one open declaration.
+#[test]
+fn each_check_shapes_required_list_is_load_bearing() {
+    let schema = schema();
+    let validator = validator(&schema);
+
+    let lint: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(fixture_dir().join("expected/lint.json"))
+            .expect("the lint golden"),
+    )
+    .unwrap();
+    let tmp = stage();
+    let doctor: serde_json::Value =
+        serde_json::from_str(&run(tmp.path(), &["doctor", "--format", "json"]).stdout)
+            .expect("doctor emits JSON");
+
+    // Read off the contract rather than restated here: a branch that gains a field is covered
+    // the day it does, which a list written in this file would not be.
+    let required = |title: &str| -> Vec<String> {
+        schema["properties"]["checks"]["items"]["oneOf"]
+            .as_array()
+            .expect("checks[] is a oneOf")
+            .iter()
+            .find(|b| b["title"] == title)
+            .unwrap_or_else(|| panic!("no `{title}` branch"))["required"]
+            .as_array()
+            .expect("required")
+            .iter()
+            .map(|f| f.as_str().expect("a field name").to_string())
+            .collect()
+    };
+
+    let without = |doc: &serde_json::Value, field: &str| -> serde_json::Value {
+        let mut doc = doc.clone();
+        for check in doc["checks"].as_array_mut().expect("checks") {
+            check.as_object_mut().expect("a check").remove(field);
+        }
+        doc
+    };
+
+    for (label, doc, other_label, other, fields) in [
+        ("lint", &lint, "doctor", &doctor, required("a lint check")),
+        ("doctor", &doctor, "lint", &lint, required("a doctor check")),
+    ] {
+        assert_eq!(fields.len(), 5, "{label}'s branch requires {fields:?}");
+        for field in &fields {
+            let mutated = without(doc, field);
+            assert_ne!(&mutated, doc, "`{label}` emits no `{field}` to drop");
+            assert!(
+                !schema_violations(&validator, label, &mutated).is_empty(),
+                "dropping `{field}` from every `{label}` check left the report valid — that \
+                 branch's `required` is not holding it, and the field can go missing in a \
+                 release with nothing to say so"
+            );
+            // Only that command's shape. The other report is untouched by construction here;
+            // what this asserts is that it still validates against the *same* schema, which
+            // is what a collapse back to one open `required` would quietly change.
+            assert!(
+                schema_violations(&validator, other_label, other).is_empty(),
+                "the `{other_label}` report stopped validating while `{label}` was the one \
+                 mutated"
+            );
+        }
+    }
+}
+
 /// The walk's own branches, tested directly.
 ///
 /// The two end-to-end tests can only see a branch that wrongly *reports*. A branch that
@@ -1180,6 +1455,96 @@ mod walk_tests {
             json!({ "rows": [{ "id": 1, "extra": 1 }, { "id": 2, "extra": 2 }] }),
         );
         assert_eq!(out.problems.len(), 1, "{:?}", out.problems);
+    }
+
+    #[test]
+    fn a_field_declared_in_any_branch_is_declared() {
+        // The shape #658 measured failing in both directions at once. Descending each branch
+        // with the document fabricates a problem for every field the *other* branch declares;
+        // not descending at all loses everything below. Only the union is right, and the two
+        // documents here are the two check shapes in miniature.
+        let schema = json!({
+            "properties": {
+                "checks": { "items": { "oneOf": [
+                    { "properties": { "id": {}, "severity": {} } },
+                    { "properties": { "id": {}, "verdict": {} } },
+                ] } }
+            }
+        });
+        for doc in [
+            json!({ "checks": [{ "id": "a", "severity": "warn" }] }),
+            json!({ "checks": [{ "id": "a", "verdict": "ok" }] }),
+        ] {
+            let out = found(schema.clone(), doc.clone());
+            assert!(out.problems.is_empty(), "{doc}: {:?}", out.problems);
+        }
+        // And a field in neither branch is still undeclared — the union must not admit
+        // everything, which is how a walk that simply stopped reading would also pass above.
+        let out = found(schema, json!({ "checks": [{ "id": "a", "invented": 1 }] }));
+        assert_eq!(out.problems.len(), 1, "{:?}", out.problems);
+    }
+
+    #[test]
+    fn the_union_is_taken_again_one_level_down() {
+        // The half a per-branch descent gets wrong even when it reports nothing at the top:
+        // `span` is declared in one branch and `age` in the other, and a walk carrying one
+        // branch at a time would report whichever it was not holding.
+        let out = found(
+            json!({
+                "properties": { "v": { "oneOf": [
+                    { "properties": { "at": { "properties": { "span": {} } } } },
+                    { "properties": { "at": { "properties": { "age": {} } } } },
+                ] } }
+            }),
+            json!({ "v": { "at": { "span": 1, "age": 2 } } }),
+        );
+        assert!(out.problems.is_empty(), "{:?}", out.problems);
+        assert!(out.resolved.contains("v.at.span") && out.resolved.contains("v.at.age"));
+    }
+
+    #[test]
+    fn a_ref_declares_what_its_definition_declares() {
+        let out = found(
+            json!({
+                "$defs": { "span": { "properties": { "line": {} } } },
+                "properties": { "span": { "$ref": "#/$defs/span" } }
+            }),
+            json!({ "span": { "line": 7 } }),
+        );
+        assert!(out.problems.is_empty(), "{:?}", out.problems);
+        assert!(out.resolved.contains("span.line"));
+    }
+
+    #[test]
+    fn a_ref_that_does_not_resolve_declares_nothing() {
+        // Silence here is the failure mode: a dangling pointer that contributed its parent's
+        // declarations anyway would make a typo in `$defs` invisible. It goes red at the
+        // emitting path, and `every_ref_in_the_contract_resolves` names the pointer itself.
+        let out = found(
+            json!({
+                "$defs": { "span": { "properties": { "line": {} } } },
+                "properties": { "span": { "$ref": "#/$defs/spam" } }
+            }),
+            json!({ "span": { "line": 7 } }),
+        );
+        assert_eq!(out.problems.len(), 1, "{:?}", out.problems);
+        assert!(!out.resolved.contains("span.line"));
+    }
+
+    #[test]
+    fn a_self_referential_definition_terminates() {
+        // Nothing in the contract is recursive today. The dedup that makes this terminate is
+        // `expand`'s pointer-identity check, and a test that never exercises it would let the
+        // check be deleted as dead weight — leaving the gate to hang rather than fail.
+        let out = found(
+            json!({
+                "$defs": { "node": { "properties": { "child": { "$ref": "#/$defs/node" } } } },
+                "properties": { "tree": { "$ref": "#/$defs/node" } }
+            }),
+            json!({ "tree": { "child": { "child": {} } } }),
+        );
+        assert!(out.problems.is_empty(), "{:?}", out.problems);
+        assert!(out.resolved.contains("tree.child.child"));
     }
 
     #[test]
@@ -1419,25 +1784,39 @@ fn the_state_enum_and_the_states_the_code_emits_are_the_same_set() {
 /// commit and every commit since. It survived a widening for #773 that touched both copies and a
 /// test written to compare both against `git::REF_STATES`, because a stray declaration whose enum
 /// is *correct* looks exactly like a real one. Nothing that reads a document could see it.
-fn declarations(node: &serde_json::Value, path: &str, out: &mut BTreeSet<String>) {
-    if let Some(props) = node.get("properties").and_then(|p| p.as_object()) {
-        for (key, sub) in props {
-            let here = if path.is_empty() {
-                key.clone()
-            } else {
-                format!("{path}.{key}")
-            };
-            out.insert(here.clone());
-            declarations(sub, &here, out);
+///
+/// **Through the composition keywords, by [`applicable`].** Without that, `checks[].items`
+/// becoming a `oneOf` (#658) would have dropped ten declared paths out of this set silently —
+/// and this test only ever fails for paths that are *in* it, so the whole `checks` family
+/// would have stopped being held from either side while every assertion below stayed green.
+/// `$defs` is not walked from here on purpose: it sits outside `properties`, so a definition
+/// contributes the paths of the sites that `$ref` it and none of its own.
+fn declarations(
+    root: &serde_json::Value,
+    node: &serde_json::Value,
+    path: &str,
+    out: &mut BTreeSet<String>,
+) {
+    for sub in applicable(root, node) {
+        if let Some(props) = sub.get("properties").and_then(|p| p.as_object()) {
+            for (key, child) in props {
+                let here = if path.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{path}.{key}")
+                };
+                out.insert(here.clone());
+                declarations(root, child, &here, out);
+            }
         }
-    }
-    if let Some(items) = node.get("items") {
-        declarations(items, &format!("{path}[]"), out);
-    }
-    if let Some(extra) = value_shape(node) {
-        let here = format!("{path}.*");
-        out.insert(here.clone());
-        declarations(extra, &here, out);
+        if let Some(items) = sub.get("items") {
+            declarations(root, items, &format!("{path}[]"), out);
+        }
+        if let Some(extra) = value_shape(sub) {
+            let here = format!("{path}.*");
+            out.insert(here.clone());
+            declarations(root, extra, &here, out);
+        }
     }
 }
 
@@ -1542,12 +1921,24 @@ fn owner(path: &str) -> Option<usize> {
 fn every_declaration_is_reached_by_something() {
     let schema = schema();
     let mut declared = BTreeSet::new();
-    declarations(&schema, "", &mut declared);
+    declarations(&schema, &schema, "", &mut declared);
     assert!(
         declared.len() > 300,
         "only {} declarations found — the schema walk is broken, not the schema",
         declared.len()
     );
+    // And it reached the declarations that only exist through a composition keyword. **The
+    // volume floor cannot see this and neither can the assertion below**: this test only ever
+    // fails for a path that is IN `declared`, so a walk that stops at `checks[].items`'s
+    // `oneOf` drops ten paths out of the set and goes green — measured, by making
+    // `declarations` ignore `applicable`. The `checks` family would have stopped being held
+    // from either side with nothing red. Same shape as `GOLDEN_WITNESSES`, same reason.
+    for witness in DECLARATION_WITNESSES {
+        assert!(
+            declared.contains(*witness),
+            "the schema walk never declared `{witness}` — it is not following `$ref` or              `oneOf`, and a declaration it cannot see is one it cannot hold to being reached"
+        );
+    }
 
     let mut reached: BTreeSet<String> = BTreeSet::new();
     for entry in std::fs::read_dir(fixture_dir().join("expected")).unwrap() {

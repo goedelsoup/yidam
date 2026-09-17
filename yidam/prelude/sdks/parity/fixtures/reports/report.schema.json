@@ -9,6 +9,40 @@
     "yidam",
     "root"
   ],
+  "$defs": {
+    "check_id": {
+      "type": "string",
+      "description": "Stable identifier. A consumer keys on this; the prose is free to change. In `lint` it is also half of a violation's identity in the baseline."
+    },
+    "severity": {
+      "enum": [
+        "error",
+        "warn",
+        "info"
+      ],
+      "description": "The lint severity vocabulary, declared once. It had three literal copies \u2014 the check's declared level, a violation's effective level, and `vocabulary --subject`'s \u2014 and each site keeps its own `description` beside the `$ref` because the three mean different things about the same three words. What is shared is the vocabulary, and a fourth value added to one copy and not the others is the drift this closes."
+    },
+    "span": {
+      "type": "object",
+      "required": [
+        "line"
+      ],
+      "properties": {
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "description": "A best-effort source location, declared once. Output-only wherever it appears and never part of anything's identity: a line number inside a violation's identity would make the baseline churn on every edit above it. Absent is a normal outcome \u2014 anchor at line 1."
+    },
+    "commit_kind": {
+      "enum": [
+        "epistemic",
+        "operational"
+      ],
+      "description": "How `classify_commit` files a commit, declared once. Total by construction: operational verbs are the explicitly marked case and every other verb is epistemic, which the Dafny spec proves \u2014 so this enum is closed and a third member would be a change to that proof, not to a report."
+    }
+  },
   "properties": {
     "format_version": {
       "type": "string",
@@ -115,128 +149,135 @@
     },
     "checks": {
       "type": "array",
-      "description": "`lint` AND `doctor`, and the two emit different item shapes under this one key \u2014 which went unstated until #645's recursive gate read it. `lint`'s check carries `title`, `severity`, `rationale` and `violations`; `doctor`'s carries `question`, `verdict`, `detail` and `remedy`. Both carry `id`, which is the only field required here for the same reason the envelope requires only three at the top level: this schema is a flat union across commands, and a `required` naming one command's shape would declare the other command's output invalid. Consumers key on `id` and read the fields their command emits. In both, every check that ran is present including those that found nothing \u2014 a check that vanishes when it passes cannot be told from one that never ran.",
+      "description": "`lint` AND `doctor`, and the two emit different item shapes under this one key \u2014 which went unstated until #645's recursive gate read it. Each shape is a branch of the `oneOf` below, carrying its own full `required` list, and the two are told apart by exactly that: a `lint` check has no `question` and a `doctor` check has no `title`, so every check validates against one branch and never both. It was declared as one open shape requiring `id` alone between #645 and #658, because the undeclared-field walk in `report_goldens.rs` could not follow a composition keyword \u2014 so nothing required a lint check to carry `severity` or a doctor check to carry `verdict`, and `doctor` has no golden to notice. Consumers key on `id` and read the fields their command emits. In both, every check that ran is present including those that found nothing \u2014 a check that vanishes when it passes cannot be told from one that never ran.",
       "items": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "Stable identifier. A consumer keys on this; the prose is free to change. In `lint` it is also half of a violation's identity in the baseline."
-          },
-          "title": {
-            "type": "string",
-            "description": "`lint` only."
-          },
-          "question": {
-            "type": "string",
-            "description": "`doctor` only. The question in the form a person would ask it."
-          },
-          "verdict": {
-            "enum": [
-              "ok",
-              "warn",
-              "fail",
-              "skipped"
+        "oneOf": [
+          {
+            "title": "a lint check",
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "severity",
+              "rationale",
+              "violations"
             ],
-            "description": "`doctor` only. `warn` is actionable and a normal state to be in, and does not affect the exit code without `--strict`; `fail` is wrong now and exits nonzero; `skipped` is not answerable, almost always because the repository check already failed and there is nothing to answer about. A consumer MUST NOT read `skipped` as `ok`. Every question `doctor` asks is reported on both paths, so a `skipped` check is how the answerable set stays the same shape \u2014 one check was absent from the unanswerable path rather than skipped on it until #656, and no fixture emitted this value at all, which left renaming it here undetectable."
-          },
-          "detail": {
-            "type": "string",
-            "description": "`doctor` only. What was actually found."
-          },
-          "remedy": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "`doctor` only. The command or edit that resolves this finding. **Null on `ok` and on `skipped`** \u2014 a verdict with no finding has nothing to resolve \u2014 and null-iff-actionable is held by construction rather than by agreement: the constructors for those two verdicts take no remedy. It was NOT an invariant until #656, when the prelude and policy checks each named one alongside `verdict: ok`. The text renderer suppressed them and the JSON did not, so the same green check reached a person with nothing to do and a consumer with an action against it. Advice worth reading on a healthy check goes in `detail`, which is rendered on every line \u2014 that is where the prelude check's pointer at the one networked command now lives."
-          },
-          "severity": {
-            "enum": [
-              "error",
-              "warn",
-              "info"
-            ],
-            "description": "`lint` only. The severity the check is DECLARED at \u2014 not necessarily the severity of its findings, which is `violations[].severity` below. A consumer filtering gate-relevant findings on this field drops every escalated one: `missing-property` is declared `warn` and gates the properties a class marked `required: true`, and any corpus-state check can escalate on age. This said 'Only `error` gates, and only `error` is ever baselined' until #650, which contradicted the field 30 lines down and is how the consumers named there came to read the wrong one."
-          },
-          "rationale": {
-            "type": "string",
-            "description": "`lint` only. Why the check exists."
-          },
-          "violations": {
-            "type": "array",
-            "description": "`lint` only. Every finding the check raised, including none \u2014 a check that vanishes when it passes cannot be told from one that never ran.",
-            "items": {
-              "type": "object",
-              "required": [
-                "node",
-                "detail",
-                "in_baseline",
-                "severity"
-              ],
-              "properties": {
-                "node": {
-                  "type": "string",
-                  "description": "The violation's identity, exactly as the baseline compares it. Unaffected by `span`."
-                },
-                "detail": {
-                  "type": "string"
-                },
-                "in_baseline": {
-                  "type": "boolean",
-                  "description": "Whether the committed baseline already records this violation. ONLY MEANINGFUL WHEN severity IS error \u2014 the baseline records error-severity violations and nothing else, so a warn or info violation is always false here. Read this together with `severity`, never alone."
-                },
-                "severity": {
-                  "enum": [
-                    "error",
-                    "warn",
-                    "info"
-                  ],
-                  "description": "This violation's effective severity, and the one that decides whether it GATES. Normally the check's, and not always: `Check::severity_of` returns the finding's own override or an age escalation before falling back to the check's level, so `missing-property` is declared `warn` and raises the one property a class marked `required: true` to `error`. Read it here and never from the check \u2014 that is also what `in_baseline` above means by 'together with `severity`'. A consumer that reads the check's level renders the one finding whose whole purpose is to gate as advisory: that is what the VS Code extension, the web editor and the LSP each did until #655, undetected because no fixture held a violation whose severity was not its check's. `reports/basic` now does. This field went undeclared until #645 because the contract gate compared only the envelope's top level; a client older than that MAY find it absent, and MUST then fall back to the check's severity, which is what that binary's own gate used."
-                },
-                "age": {
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/check_id"
+              },
+              "title": {
+                "type": "string",
+                "description": "`lint` only."
+              },
+              "severity": {
+                "$ref": "#/$defs/severity",
+                "description": "`lint` only. The severity the check is DECLARED at \u2014 not necessarily the severity of its findings, which is `violations[].severity` below. A consumer filtering gate-relevant findings on this field drops every escalated one: `missing-property` is declared `warn` and gates the properties a class marked `required: true`, and any corpus-state check can escalate on age. This said 'Only `error` gates, and only `error` is ever baselined' until #650, which contradicted the field 30 lines down and is how the consumers named there came to read the wrong one."
+              },
+              "rationale": {
+                "type": "string",
+                "description": "`lint` only. Why the check exists."
+              },
+              "violations": {
+                "type": "array",
+                "description": "`lint` only. Every finding the check raised, including none \u2014 a check that vanishes when it passes cannot be told from one that never ran.",
+                "items": {
                   "type": "object",
-                  "description": "How long a corpus-state finding has held. Present only on the checks that measure it; absent is the normal case and means the finding has no age, not that it is new.",
                   "required": [
-                    "first_commit",
-                    "first_day",
-                    "commits"
+                    "node",
+                    "detail",
+                    "in_baseline",
+                    "severity"
                   ],
                   "properties": {
-                    "first_commit": {
+                    "node": {
                       "type": "string",
-                      "description": "Full sha of the commit at which the condition began, so a consumer can `git show` it."
+                      "description": "The violation's identity, exactly as the baseline compares it. Unaffected by `span`."
                     },
-                    "first_day": {
-                      "type": "string",
-                      "description": "The `YYYY-MM-DD` of that commit \u2014 the same day the text report prints."
+                    "detail": {
+                      "type": "string"
                     },
-                    "commits": {
-                      "type": "integer",
-                      "description": "Corpus-touching commits it has held for, counting the one at HEAD. Commits rather than days, deliberately: a day count is a function of when the report was run, so the same corpus answers differently tomorrow and no consumer can cache or pin it."
-                    }
-                  }
-                },
-                "span": {
-                  "type": "object",
-                  "description": "Best-effort location. Output-only and never part of the violation's identity: a line number in the baseline's comparison would make it churn on every edit above a violation. Absent is a normal outcome \u2014 anchor at line 1.",
-                  "required": [
-                    "line"
-                  ],
-                  "properties": {
-                    "line": {
-                      "type": "integer",
-                      "minimum": 1
+                    "in_baseline": {
+                      "type": "boolean",
+                      "description": "Whether the committed baseline already records this violation. ONLY MEANINGFUL WHEN severity IS error \u2014 the baseline records error-severity violations and nothing else, so a warn or info violation is always false here. Read this together with `severity`, never alone."
+                    },
+                    "severity": {
+                      "$ref": "#/$defs/severity",
+                      "description": "This violation's effective severity, and the one that decides whether it GATES. Normally the check's, and not always: `Check::severity_of` returns the finding's own override or an age escalation before falling back to the check's level, so `missing-property` is declared `warn` and raises the one property a class marked `required: true` to `error`. Read it here and never from the check \u2014 that is also what `in_baseline` above means by 'together with `severity`'. A consumer that reads the check's level renders the one finding whose whole purpose is to gate as advisory: that is what the VS Code extension, the web editor and the LSP each did until #655, undetected because no fixture held a violation whose severity was not its check's. `reports/basic` now does. This field went undeclared until #645 because the contract gate compared only the envelope's top level; a client older than that MAY find it absent, and MUST then fall back to the check's severity, which is what that binary's own gate used."
+                    },
+                    "age": {
+                      "type": "object",
+                      "description": "How long a corpus-state finding has held. Present only on the checks that measure it; absent is the normal case and means the finding has no age, not that it is new.",
+                      "required": [
+                        "first_commit",
+                        "first_day",
+                        "commits"
+                      ],
+                      "properties": {
+                        "first_commit": {
+                          "type": "string",
+                          "description": "Full sha of the commit at which the condition began, so a consumer can `git show` it."
+                        },
+                        "first_day": {
+                          "type": "string",
+                          "description": "The `YYYY-MM-DD` of that commit \u2014 the same day the text report prints."
+                        },
+                        "commits": {
+                          "type": "integer",
+                          "description": "Corpus-touching commits it has held for, counting the one at HEAD. Commits rather than days, deliberately: a day count is a function of when the report was run, so the same corpus answers differently tomorrow and no consumer can cache or pin it."
+                        }
+                      }
+                    },
+                    "span": {
+                      "$ref": "#/$defs/span",
+                      "description": "Best-effort location. Output-only and never part of the violation's identity: a line number in the baseline's comparison would make it churn on every edit above a violation. Absent is a normal outcome \u2014 anchor at line 1."
                     }
                   }
                 }
               }
             }
+          },
+          {
+            "title": "a doctor check",
+            "type": "object",
+            "required": [
+              "id",
+              "question",
+              "verdict",
+              "detail",
+              "remedy"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/check_id"
+              },
+              "question": {
+                "type": "string",
+                "description": "`doctor` only. The question in the form a person would ask it."
+              },
+              "verdict": {
+                "enum": [
+                  "ok",
+                  "warn",
+                  "fail",
+                  "skipped"
+                ],
+                "description": "`doctor` only. `warn` is actionable and a normal state to be in, and does not affect the exit code without `--strict`; `fail` is wrong now and exits nonzero; `skipped` is not answerable, almost always because the repository check already failed and there is nothing to answer about. A consumer MUST NOT read `skipped` as `ok`. Every question `doctor` asks is reported on both paths, so a `skipped` check is how the answerable set stays the same shape \u2014 one check was absent from the unanswerable path rather than skipped on it until #656, and no fixture emitted this value at all, which left renaming it here undetectable."
+              },
+              "detail": {
+                "type": "string",
+                "description": "`doctor` only. What was actually found."
+              },
+              "remedy": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "`doctor` only. The command or edit that resolves this finding. **Null on `ok` and on `skipped`** \u2014 a verdict with no finding has nothing to resolve \u2014 and null-iff-actionable is held by construction rather than by agreement: the constructors for those two verdicts take no remedy. It was NOT an invariant until #656, when the prelude and policy checks each named one alongside `verdict: ok`. The text renderer suppressed them and the JSON did not, so the same green check reached a person with nothing to do and a consumer with an action against it. Advice worth reading on a healthy check goes in `detail`, which is rendered on every line \u2014 that is where the prelude check's pointer at the one networked command now lives."
+              }
+            }
           }
-        }
+        ]
       }
     },
     "passed": {
@@ -866,16 +907,7 @@
             "type": "string"
           },
           "span": {
-            "type": "object",
-            "required": [
-              "line"
-            ],
-            "properties": {
-              "line": {
-                "type": "integer",
-                "minimum": 1
-              }
-            }
+            "$ref": "#/$defs/span"
           },
           "question": {
             "type": "string",
@@ -1194,10 +1226,7 @@
             "type": "string"
           },
           "kind": {
-            "enum": [
-              "epistemic",
-              "operational"
-            ]
+            "$ref": "#/$defs/commit_kind"
           },
           "when": {
             "type": "string",
@@ -1233,10 +1262,7 @@
           "description": "Everything before the first `: `, exactly as `classify_commit` reads it. Empty when there is no such separator."
         },
         "kind": {
-          "enum": [
-            "epistemic",
-            "operational"
-          ],
+          "$ref": "#/$defs/commit_kind",
           "description": "What the commit would be filed as. Total: every subject gets a kind, including one whose verb is unrecognized \u2014 which is precisely how a scoped operational verb ends up filed as Epistemic."
         },
         "recognized": {
@@ -1261,11 +1287,7 @@
                 "description": "`scope-suffix` is separate from `unrecognized-verb` deliberately: it has a known cause and a known double cost, and saying so is the difference between a squiggle that teaches and one that scolds."
               },
               "severity": {
-                "enum": [
-                  "error",
-                  "warn",
-                  "info"
-                ],
+                "$ref": "#/$defs/severity",
                 "description": "Read from the `unrecognized-verb` lint check rather than restated \u2014 all three rules are sub-cases of it. A consumer MUST render at this severity and not escalate: a squiggle stricter than the gate is an editor asserting a verdict nobody agreed to."
               },
               "message": {
@@ -1639,10 +1661,7 @@
             "type": "string"
           },
           "kind": {
-            "enum": [
-              "epistemic",
-              "operational"
-            ],
+            "$ref": "#/$defs/commit_kind",
             "description": "From the parity-certified `classify_commit`. Operational verbs are the explicitly marked case; every other verb is epistemic, a totality the Dafny spec proves."
           },
           "verb": {
