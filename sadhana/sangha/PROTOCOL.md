@@ -48,6 +48,45 @@ Not every divergence warrants resolution. Call one when:
 - An axiom is contested and dependent nodes cannot be trusted until it is settled
 - A new phase of inquiry requires a common baseline
 
+### What the trigger cannot see
+
+The trigger fires on structure. Two branches is two branches, and nothing above asks whether
+they are two **positions**.
+
+`CONSTITUTION.md` Article II says no elector's position is privileged "by identity, seniority,
+or the model that produced it". That clause does real work — it stops a position being
+*discounted* for its provenance, which is the protection an agent elector needs to be an equal
+participant at all. It does not establish that three positions are three positions.
+**Non-privilege is not independence.** Three instances of one model, at one temperature, given
+one prompt over one corpus, are one position wearing three hats. They will agree, their
+agreement carries no information, and a resolution synthesized from them satisfies Article V
+perfectly — every claim traces to a participating position — while meaning nothing. This is a
+failure that cannot occur in a sangha of humans and is the default in a sangha of agents unless
+something prevents it.
+
+**Decided 2026-09-17: the protocol records the condition; it does not gate on it.** There is no
+diversity bar on calling a resolution and nothing below refuses one. What the record gains is
+`independence:`, which states what the registry distinguishes among the seats a resolution read.
+A resolution among seats the registry cannot tell apart is legal, and says so.
+
+Two reasons the bar was declined rather than overlooked.
+
+The first is that it would be unenforceable in the only direction that matters. Every signal this
+protocol can read — branch name, registry row, signing key, git author, `synthesized-by` — is set
+by one operator, and an operator who wants three distinguishable seats can produce three of each
+without producing three minds. [electors.md](electors.md) states the general form against
+measurement: *"It is not evidence that two seats are two minds."* A gate over signals like those
+refuses the honest registry and passes the careless one.
+
+The second is that the loop converges regardless. Step 3 is where the work happens, and the
+commits it has produced — *"I withdraw the per-document ceiling"*, *"proposal 9 is inert where I
+set it and gameable where it would bind, so it is withdrawn"* — are electors dismantling their
+own proposals. One configuration writing a position, reading that position transported onto the
+baseline, and answering it is a materially different act from writing one document, and it is the
+act that produced those. Refusing it on a purity argument would forbid a practice the record
+shows working. What the record must not do is call the result a synthesis of positions when it
+was not, and that is what the field is for.
+
 ## Who may execute one
 
 **Any recognized elector, whether or not they called it.** Calling was specified here from the
@@ -200,6 +239,7 @@ evolution: <name matching rigpa/<evolution> branch>
 date: <YYYY-MM-DD>
 synthesized-by: ma/<elector>
 rounds: <how many times the loop ran>
+independence: <distinct-seats | shared-configuration | unrecorded>
 tips:
   - ma/<elector>@<short-hash>
   - ...
@@ -237,6 +277,53 @@ record does either.
 asserted. Ancestry is not only which commits were read; it is which claims were contested
 and by whom, and a record that names its positions can be audited by someone who was not
 there. `rounds: 1` is a fine number — see [When to stop](#when-to-stop).
+
+### `independence` — what the registry distinguishes, not what minds exist
+
+**Read the field name together with its values and never on its own.** No registry can establish
+independence — see [What the trigger cannot see](#what-the-trigger-cannot-see) — and this field
+does not claim to. What it records is narrower and checkable: whether
+[electors.md](electors.md) distinguishes each participating seat from every other. That is the
+strongest thing available, and it is the one a later reader can hold the record to.
+
+A closed vocabulary of three:
+
+- **`distinct-seats`** — every participating seat differs from every other in something the
+  registry records. Human seats differ by being different people. Agent seats differ when no two
+  carry the same `Model`, `Version` and `Config`.
+- **`shared-configuration`** — two or more participating agent seats carry the same `Model`,
+  `Version` and `Config`. The resolution read fewer positions than it read tips.
+- **`unrecorded`** — a participating agent seat leaves `Model`, `Version` or `Config` blank, so
+  the question cannot be answered from the registry at all. **A consumer MUST NOT read this as
+  `distinct-seats`, and MUST NOT read it as `shared-configuration` either.** Every attestation
+  column is optional by `electors.md`'s own rule — *"a registry that fills none of them in is
+  read exactly as it was before they existed"* — so a blank column is a normal state and not a
+  confession. *Cannot tell* gets a word of its own, which is the same discipline `doctor`'s
+  `skipped` verdict and the MCP handshake's tri-state `stale` already follow.
+
+**Derivable, and not yet derived.** The record already names its `tips:`, each tip names a seat,
+and the registry carries the columns — so the value is a function of things already written down
+rather than a judgement. **Nothing computes it today.** No `yidam lint` check reads this field,
+and a check needs two questions answered first: whether to read the registry as it stands or as
+it stood at the named tips (a seat's row is mutable — *"a material change is recorded as an
+update"* — so the two disagree for any record old enough to matter), and whether a disagreement
+between the stated value and the derived one is a finding or a gate. Until then the synthesizer
+writes it, and a reader who doubts it can check: resolve the tips, read the rows.
+
+**What `shared-configuration` costs, which is the entire point of writing it down.** A resolution
+carrying it **is not a synthesis of positions and must not describe itself as one.** It is one
+position, reviewed under several branch names, and `What was resolved` should read that way.
+Article II is untouched — nothing here privileges or discounts anybody's position, and such a
+resolution binds exactly as any other does. What is constrained is only what the record may claim
+about its own ancestry, which is Article III's business and not Article II's.
+
+**And it is a budget.** Deliberation among humans is free to the repository; deliberation among N
+agents is not. If `shared-configuration` is the honest label for N instances of one setup, then N
+is a cost with no return, and *how few positions can legitimately resolve this* becomes a question
+with a second, independent reason to be answered well. That is
+[RFC-0011](https://github.com/goedelsoup/yidam/blob/main/docs/rfcs/0011-partial-sangha.md)'s
+partial sangha, which stops being a convenience for when people are unavailable and becomes the
+ordinary case.
 
 ## Annotating an open item after the fact
 

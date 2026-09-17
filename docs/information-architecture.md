@@ -131,8 +131,12 @@ state and is reported as one.
 evolution: <name>
 date: <YYYY-MM-DD>
 synthesized-by: ma/<elector>
+rounds: <how many times the loop ran>
+independence: <distinct-seats | shared-configuration | unrecorded>
 tips:
   - ma/<elector>@<short-hash>
+positions:
+  - positions/<elector>-<question>.md
 ---
 
 ## What was resolved
