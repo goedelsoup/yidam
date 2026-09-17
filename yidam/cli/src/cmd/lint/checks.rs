@@ -2287,6 +2287,27 @@ fn near_miss_tags(text: &str) -> Vec<(usize, String)> {
 pub fn linked_paths(node_path: &Path, rel: &str, text: &str) -> HashSet<PathBuf> {
     let dir = node_path.parent().unwrap_or(node_path);
     let inst: crate::parse::CorpusInstance = serde_yaml::from_str(text).unwrap_or_default();
+    linked_paths_from(&inst, dir, rel, text)
+}
+
+/// [`linked_paths`] for a caller that has already parsed the node.
+///
+/// **The matching lives here and only here**, so the invariant above survives the split:
+/// [`linked_paths`] is this function plus the parse, not a second implementation of it. The
+/// `&str` entry point stays because two callers reach this question without a [`Node`] in
+/// hand — `serve`'s node view and `catalog audit`, both holding only a path and bytes.
+///
+/// The lint checks do hold one. [`Node::inst`] is the same parse this would redo, produced by
+/// [`Node::parse`] from the same [`Node::text`] — including the broken-YAML case, where
+/// [`parse_or_default`] leaves a default instance exactly as the `unwrap_or_default` above
+/// does. Two checks ask this per node, so re-parsing here meant a lint run parsed every
+/// node's YAML three times.
+fn linked_paths_from(
+    inst: &crate::parse::CorpusInstance,
+    dir: &Path,
+    rel: &str,
+    text: &str,
+) -> HashSet<PathBuf> {
     let mut out: HashSet<PathBuf> = inst
         .links
         .as_deref()
@@ -2301,6 +2322,12 @@ pub fn linked_paths(node_path: &Path, rel: &str, text: &str) -> HashSet<PathBuf>
             .map(|l| normalize(&l.resolved)),
     );
     out
+}
+
+/// [`linked_paths_from`] for a [`Node`], which carries everything it needs.
+fn linked_paths_of(node: &Node) -> HashSet<PathBuf> {
+    let dir = node.path.parent().unwrap_or(&node.path);
+    linked_paths_from(&node.inst, dir, &node.rel, &node.text)
 }
 
 /// Corpus nodes citing each source, by repo-relative path.
@@ -2326,10 +2353,7 @@ pub fn citations(sources: &[Source], nodes: &[Node]) -> Vec<Vec<String>> {
     // Resolved once per node rather than once per (node, source) pair, and from [`Node::text`]
     // rather than from a parallel `Vec<String>` the caller built by re-reading every instance.
     // The gate's hot path read the corpus twice and held two copies of it to run one check.
-    let linked: Vec<HashSet<PathBuf>> = nodes
-        .iter()
-        .map(|n| linked_paths(&n.path, &n.rel, &n.text))
-        .collect();
+    let linked: Vec<HashSet<PathBuf>> = nodes.iter().map(linked_paths_of).collect();
 
     sources
         .iter()
@@ -2408,7 +2432,7 @@ pub fn verified_unsourced(
             if verified == 0 {
                 return None;
             }
-            let links = linked_paths(&n.path, &n.rel, &n.text);
+            let links = linked_paths_of(n);
             if links.iter().any(|p| registered.contains(p)) {
                 return None;
             }
@@ -4774,6 +4798,27 @@ mod tests {
              [P](../../corpus/../catalog/pearl-2009.md).\nlinks:\n  - target: ../concept/o.yml\n",
         );
         assert_eq!(citations(&sources, &[node])[0].len(), 1);
+    }
+
+    /// The two entry points are one implementation, and this is what says so. The `&str` form
+    /// parses; the `Node` form reads [`Node::inst`]. Both must answer identically — including
+    /// on bytes that do not parse, where each is left with a default instance and the prose
+    /// half of the answer.
+    #[test]
+    fn the_parsed_and_unparsed_entry_points_agree() {
+        for text in [
+            "class: concept\nlabel: C\ndescription: See \
+             [P](../catalog/pearl-2009.md).\nlinks:\n  - target: ../concept/o.yml\n",
+            "class: concept\nlabel: C\ndescription: no links here\n",
+            "class: concept\n  label: broken\n\tdescription: [P](../catalog/pearl-2009.md)\n",
+        ] {
+            let node = corpus_node("confounding", text);
+            assert_eq!(
+                linked_paths_of(&node),
+                linked_paths(&node.path, &node.rel, &node.text),
+                "diverged on {text:?}"
+            );
+        }
     }
 
     #[test]
