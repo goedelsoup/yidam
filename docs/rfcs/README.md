@@ -37,7 +37,7 @@ re-deriving it.
 | [0004](0004-drift-detection.md) | I4 | Drift detection — making `.yidam.toml` enforceable (`yidam sync`) | Draft |
 | [0005](0005-mcp-tool-contract.md) | I5 | One MCP tool contract across the Rust CLI, TS, and Python servers | Implemented |
 | [0006](0006-correctness-reconciliation.md) | I6 | Correctness reconciliation — runtime-verifiable embeds + internal inconsistencies | Implemented |
-| [0007](0007-python-index-layer.md) | I7 | The Python SDK index/feature layer — building what the README already promises | Implemented |
+| [0007](0007-python-index-layer.md) | I7 | The Python SDK index/feature layer — building what the README already promises | Accepted |
 | [0008](0008-emergent-claims.md) | G1 | Emergent claims and the scope of synthesis — the strict reading of Article V, and what "the same claim" means | Accepted |
 | [0009](0009-resolution-executor.md) | G2 | Resolution execution authority and the `synthesized-by` record | Accepted |
 | [0010](0010-evolution-lineage.md) | G3 | Evolution lineage — forking, parentage, and explicit baselines | Accepted |
