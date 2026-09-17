@@ -129,11 +129,13 @@ rather than a lower one — so #463 raised it to the pin, where every build veri
 
 ```console
 $ yidam --version
-yidam 0.5.0 (78544f8) [reports index export-sqlite export-graph tonpa]
+yidam <version> (<commit>) [reports export-graph tonpa serve-http vault-s3 catalog-fetch]
 ```
 
 Three facts, and the third is the one that matters: the version, the commit it was built from,
-and **the features compiled into it**. A command that is absent from a build is absent because
+and **the features compiled into it**. The version and commit are redacted here — yours are
+whatever you installed — but the feature list is not an example: it is the default set, which
+is what every released artifact carries. A command that is absent from a build is absent because
 of that list, so it is printed on every `--version` rather than left to be discovered when a
 subcommand reports `unrecognized subcommand`.
 
