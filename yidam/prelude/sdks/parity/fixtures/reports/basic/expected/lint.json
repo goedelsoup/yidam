@@ -327,7 +327,7 @@
       "id": "foundational-field-misspelled",
       "title": "Class declares foundational alignment in a field nothing reads",
       "severity": "error",
-      "rationale": "Foundational alignment is `foundational_type:`, carrying `ontology: bfo|ufo`, a `type:`, and optionally the `iri:` that type has in that ontology. `bfo_type:` and `ufo_type:` were never read by anything — they are what bootstrap's prose asked for while its own template asked for `foundational_type:`. `bfo_anchor:` was read by `export-rdf` and written by nothing, and was BFO-only besides, so a UFO-aligned corpus could not use it. A class carrying one of these has stated an alignment that no gate, query, or export can see, which is worse than stating none: the corpus believes it is aligned. See docs/vocabulary.md and RFC-0013.",
+      "rationale": "Foundational alignment is `foundational_type:`, carrying `ontology: bfo|ufo`, a `type:`, and optionally the `iri:` that type has in that ontology. `bfo_type:` and `ufo_type:` were never read by anything — they are what bootstrap's prose asked for while its own template asked for `foundational_type:`. `bfo_anchor:` was read by `export-rdf` and written by nothing, and was BFO-only besides, so a UFO-aligned corpus could not use it. A class carrying one of these has stated an alignment that no gate, query, or export can see, which is worse than stating none: the corpus believes it is aligned. RFC-0013 is the record.",
       "violations": []
     },
     {

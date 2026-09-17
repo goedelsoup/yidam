@@ -556,9 +556,13 @@ pub(crate) fn render(report: &DueReport, root: &Path) -> String {
     };
     let unset = match report.undeclared {
         0 => String::new(),
+        // The keys, not a document. `docs` is in `NOT_INHERITED`, so `yidam clone` withholds
+        // the directory: a derived repository following a `docs/...` pointer lands in its own
+        // documentation tree and reads the miss as a file it failed to write. The per-clock
+        // `remedy` lines already name the key; only this summary reached for a path.
         n => format!(
-            " {n} clock(s) have no interval declared and can never come due — see \
-             docs/configuration.md."
+            " {n} clock(s) have no interval declared and can never come due — declare them \
+             in .yidam/config.toml under [due]."
         ),
     };
     // Stated on every run, including the quiet one. It is the sentence that keeps this
