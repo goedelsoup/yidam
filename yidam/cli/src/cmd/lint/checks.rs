@@ -845,7 +845,7 @@ pub fn foundational_field_misspelled(classes: &[Class]) -> Check {
          `export-rdf` and written by nothing, and was BFO-only besides, so a UFO-aligned \
          corpus could not use it. A class carrying one of these has stated an alignment that \
          no gate, query, or export can see, which is worse than stating none: the corpus \
-         believes it is aligned. See docs/vocabulary.md and RFC-0013.",
+         believes it is aligned. RFC-0013 is the record.",
         violations,
     )
 }
