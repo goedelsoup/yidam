@@ -1,10 +1,41 @@
 # RFC-0007 — The Python SDK index/feature layer
 
-- **Status:** Implemented
+- **Status:** Accepted
 - **Track:** I7
 - **Relates to:** RFC-0002 (node-model unification), RFC-0005 (MCP tool contract), RFC-0006 (correctness reconciliation), RFC-0003 (feature-gated builds)
 - **Versioning layers touched:** SDK + parity (`yidam-core` minor bump; the `embed_config` parity runner)
 - **Downstream reference case:** Project BOSC (watermark-directory)
+
+> **Status corrected 2026-09-17 (#718): one ask of three shipped, and the header said all
+> three had.** This read `Implemented` on the strength of the third of
+> [#129](https://github.com/goedelsoup/yidam/issues/129) that landed. `Accepted` is what the
+> state actually is — "agreed, implementation may begin" — and the open questions below are
+> open.
+>
+> **Ask 1, the runtime-verifiable embed contract, shipped and is good.**
+> [`embed_config.rs`](../../yidam/cli/src/embed_config.rs) and `yidam index-verify`
+> ([`cmd/index_verify.rs`](../../yidam/cli/src/cmd/index_verify.rs)) exist, the `verification`
+> block exists, and the silent-drift failure #129 described is now detectable — #536 later
+> exercised exactly that path.
+>
+> **Asks 2 and 3 did not.** There is no `features.py`, `index.py` or `pipeline.py`:
+> `yidam_core` is `corpus`, `git`, `graph`, `markers`, `ontology`, `uri`, and
+> `pyproject.toml` declares `dependencies = ["pyyaml>=6"]` — no LanceDB, and
+> `sentence-transformers` only as an optional `embed` extra scoped to the parity runner. So
+> `embed_node` / `embed_corpus` as one canonical text assembly, and `build_index` / `query` /
+> `index_status`, are both still ahead.
+>
+> The Summary and Problem sections below are written in the present tense of the day this was
+> filed and are still accurate about the code. What has changed is the reconciliation story:
+> ask 1 built the contract the other two were to be interchangeable *under*, which is why it
+> was ordered first.
+>
+> **The other half of the promise is unretracted.** `sdks/README.md` still types the full
+> surface under "the machine learning layer" and still assigns it ownership — "`embed_node` /
+> `embed_corpus` — the only place raw text → vectors happens". Under `Accepted` that reads as
+> a plan rather than a lie, which is the difference this correction buys; if items 2–3 are
+> ever declared out of scope, that README is the other half of *that* change and the four open
+> questions below need "not pursued, because —" rather than silence.
 
 ## Summary
 
