@@ -39,6 +39,69 @@
 > vacuous where no row binds a key, which is every corpus today, and a test asserts that the
 > silence is the check running rather than the check missing.
 
+> **Amended 2026-09-18 ([#293](https://github.com/goedelsoup/yidam/issues/293)).** The first
+> **Deferred to E8** bullet below — *what an agent elector is* — is answered here, and the answer
+> is that the question had the wrong subject. **An elector is a seat: a `ma/<name>` branch
+> together with the `electors.md` row that describes it.** An *agent* elector is a seat whose row
+> records `Kind: agent`. A model, an operator, a harness and a run are **occupants** of a seat —
+> recorded on it, and none of them is the elector.
+>
+> The bullet asked *what signs: the model, the operator who ran it, the harness, a specific run?*
+> and noted that only one of them can be verified from a commit. The built mechanism had already
+> chosen, and this amendment is largely a matter of saying so: the allowed-signers file generated
+> from the registry uses **the seat's `ma/*` branch as the principal**, not a committer email,
+> *"which is what gives a per-seat answer in a repository whose seats share one git identity."*
+> A model holds no key and cannot sign. An operator's key attests the operator, which the
+> 2026-09-04 amendment measured as distinguishing nothing the branch name did not. A run is an
+> event and cannot hold a standing. **The seat is the only signer this repository can verify, and
+> it is the one the code already verifies.**
+>
+> **What this answers, and what it hands on rather than settling.** It gives
+> [#294](https://github.com/goedelsoup/yidam/issues/294) its subject rather than its answer: if
+> the seat is the unit of identity, then *"what persists across cold instances"* is no longer a
+> question about whether an agent is the same agent — it is the question whether a **position** a
+> seat holds is still that seat's position once its occupant changed, which is what #294 is
+> named for. The identity question dissolves; the standing question does not, and pretending
+> otherwise would be the convenient reading rather than the true one.
+>
+> **Accountability runs to the resolution that admitted the seat.** Article III assumes a
+> position is attributable to someone, and the protocol already says who: registration step 3 is
+> *"Including the elector registration in the first resolution they participate in"*, so a seated
+> agent was admitted by a committed resolution record naming its executor and the tips it read.
+> That is a repository artifact and not an out-of-band claim, which is [#293]'s own constraint.
+> The one seat with no such resolution is the bootstrap seat — *"the first elector registers
+> themselves"* — which is accountable to whoever holds it, and is a human in every repository
+> that has run this protocol.
+>
+> **This was named, not invented.** The one derived repository running a sangha writes *seat*
+> throughout its own registry, and records the admission in prose: its `advocate` row says steps
+> 1–2 happened on 2026-08-14 and *"Step 3 happened on 2026-08-17, in `source-archival`"*. The
+> record format below structures a sentence that registry already writes.
+>
+> **It records and it does not gate**, which is [#295](https://github.com/goedelsoup/yidam/issues/295)'s
+> precedent in this exact area, decided by the repository owner one day earlier: the protocol
+> records the condition and does not gate on it. Nothing here refuses a seat, a position or a
+> resolution, and no existing registry becomes invalid — the new column is optional like every
+> other attestation column, and the registry parser finds columns by header and ignores the ones
+> it does not know.
+>
+> **Venue: this RFC, `PROTOCOL.md` and `electors.md` — not the constitution.** Article II is
+> untouched and nothing here privileges or discounts anyone. The constitution is not
+> domain-adaptable and a derived repository must be able to define its own seats; #295 made the
+> same venue choice for the same reason.
+>
+> **The record format.** `electors.md` gains one optional column, **`Seated`** — the
+> `rigpa/<evolution>` that admitted this seat, blank for a bootstrap seat or for a registry that
+> does not record it. Nothing computes it, and this amendment says so rather than implying a
+> check exists. **It is deliberately outside
+> [#823](https://github.com/goedelsoup/yidam/issues/823)'s `independence:` derivation**, which
+> reads `Kind`, `Model`, `Version` and `Config`: those four describe a seat's *occupant*, which
+> is what `shared-configuration` is about, while `Seated` describes the provenance of the row.
+> Three seats admitted by one resolution are still three seats if their occupants differ, and
+> folding `Seated` in would report the normal single-operator case as a finding. This amendment
+> changes nothing about what those four columns mean — it says what they are properties *of* —
+> so #823's derivation stands as written.
+
 ## Summary
 
 `electors.md` records only `Name | Branch | Role`. An agent elector's registration records nothing
@@ -185,10 +248,11 @@ in as the executor record for dispatched runs — is #475's mechanism to choose,
 Three questions this amendment deliberately does not answer, so that E8's amendment extends this
 one rather than reworking it:
 
-- **What an agent elector is** — what signs: the model, the operator who ran it, the harness, a
+- **What an agent elector is** — ~~what signs: the model, the operator who ran it, the harness, a
   specific run? Each answers a different accountability question and only one can be verified from
-  a commit. [#293](https://github.com/goedelsoup/yidam/issues/293)'s to answer; the registry
-  columns here are the record its answer will fill, not the answer.
+  a commit.~~ **Answered 2026-09-18 — see the amendment at the top of this RFC.** An elector is a
+  **seat**; the four candidates in the struck sentence are its occupants. The registry columns
+  here are the record, as this bullet said, and the answer names what they are a record *of*.
 - **What persists across cold instances** — a key can outlive a session, but a standing position
   is more than a keypair: a `ma/*` branch maintained by successive cold instances may be many
   processes sharing a branch name, and now a key.

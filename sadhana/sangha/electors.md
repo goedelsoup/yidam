@@ -5,9 +5,16 @@ Recognized participants in this repository's sangha. Each elector maintains a
 
 See [PROTOCOL.md](PROTOCOL.md) for how to register as a new elector.
 
-| Name | Branch | Role | Kind | Model | Version | Config | Key |
-|------|--------|------|------|-------|---------|--------|-----|
-| *(no electors registered yet)* | | | | | | | |
+**An elector is a seat.** A `ma/<name>` branch together with the row below that describes it —
+that pair is the elector, and it is what every mechanism here already points at. An *agent*
+elector is a seat whose `Kind` is `agent`. A model, an operator, a harness and a run are
+**occupants** of a seat: recorded on it, and none of them is the elector. The distinction is not
+a nicety. It is what makes "who holds this position" answerable at all, because a seat persists
+and an occupant does not.
+
+| Name | Branch | Role | Kind | Model | Version | Config | Key | Seated |
+|------|--------|------|------|-------|---------|--------|-----|--------|
+| *(no electors registered yet)* | | | | | | | | |
 
 **Recording what produced a position grants it nothing.** Article II governs weight — no
 elector's position is privileged by identity, seniority, or the model that produced it —
@@ -30,6 +37,27 @@ read exactly as it was before they existed.
   `git verify-commit` reads out of this column, at verification time and never as a
   committed artifact, so this file is the trust root: a key it does not carry verifies
   nothing, and a seat with no key declares its commits unverifiable.
+
+  The principal in that generated file is **the seat's `ma/*` branch**, not a committer email,
+  which is what gives a per-seat answer in a repository whose seats share one git identity. So
+  what a verified signature says here is *this commit was produced by whoever holds this seat's
+  key* — the seat signs. A model holds no key; an operator's key attests the operator; a run is
+  an event and holds no standing.
+- **`Seated`** — the `rigpa/<evolution>` that admitted this seat, which is registration step 3 in
+  [PROTOCOL.md](PROTOCOL.md). Blank for a bootstrap seat, since the first elector registers
+  themselves and no resolution admitted them, and blank for a registry that simply does not
+  record it.
+
+  It is here because Article III assumes a position is attributable to someone, and this is the
+  repository's own answer to *who answers for this seat*: the resolution that admitted it, which
+  is a committed record naming its executor and the tips it read. That is an artifact and not an
+  out-of-band claim about who ran what.
+
+  **Nothing computes it.** No check reads this column, and saying so is better than letting a
+  reader assume one does. It is deliberately **not** part of a resolution's `independence:`
+  reading either: `Kind`, `Model`, `Version` and `Config` describe a seat's occupant, which is
+  what `shared-configuration` is about, and three seats admitted by one resolution are still
+  three seats if their occupants differ.
 
 ## What a signature establishes here, and what it does not
 
