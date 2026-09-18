@@ -266,27 +266,27 @@ against the document that made it.
 
 Everything above was assembled by hand on 2026-08-22, and that is what this document was for.
 It is also what made it an anecdote: evidence that cannot be regenerated when the prelude
-changes says what was true once. `yidam cohort` is the same reading as a command (#288) —
-point it at a set of derived repositories and it reports, per norm, how many of them kept it.
+changes says what was true once. `yidam cohort` is the same reading as a command (#288).
+Point it at a set of derived repositories; it reports, per norm, how many kept it.
 
 ```sh
 yidam cohort ../repo-a ../repo-b ../repo-c
 ```
 
-Read-only, like the hand-run and for the same reason: nothing is checked out and nothing is
+Read-only, like the hand-run and for the same reason. Nothing is checked out and nothing is
 written, so it is safe against repositories somebody is working in. It exits zero however much
-lost, because a norm its derivations do not keep is a question for whoever wrote the norm.
+lost: a norm its derivations do not keep is a question for whoever wrote it.
 
-**The rows are norms and the columns are repositories**, which is the framing rather than the
-formatting: a rule that every derivation fails is one finding about the rule, not five findings
-about five corpora, and a report organised the other way round has to be transposed by eye
-before it says so.
+**The rows are norms and the columns are repositories.** That is the framing rather than the
+formatting. A rule every derivation fails is one finding about the rule, not five findings about
+five corpora. A report organised the other way round has to be transposed by eye before it says
+so.
 
 Both controls are printed rather than divided out. A repository whose vendored prelude does not
-state a rule is reported as **vintage** and never as having broken it — `kuten check`'s existing
-mechanism, reused. Members are ordered by authored commit count with the count beside every row,
-which is `kuten.yml`'s own `measured.members` convention; nothing here is normalised by age,
-because the `classes` slot retired from that profile is the record of what happens when one is.
+state a rule is reported as **vintage**, never as having broken it — `kuten check`'s existing
+mechanism, reused. Members are ordered by authored commit count, the count beside every row. That
+is `kuten.yml`'s own `measured.members` convention. Nothing here is normalised by age: the
+`classes` slot retired from that profile is the record of what happens when one is.
 
 And a rule a repository never had the chance to break is **unmeasurable**, not kept. Every share
 is quoted over the repositories the question could be asked of.
@@ -305,11 +305,10 @@ Lettered by commit count, so these letters are **not** the A/B/C above.
 Two of these change what is written above.
 
 **The branch-deletion finding does not generalise the way one repository suggested.** A's 26
-of 27 is real and it is nearly the whole of the loss: 30 merged `phase/*` refs are standing
-across the cohort and 26 of them are in that one repository. Of the nine that settled a phase
-at all, five deleted their branches. A norm that loses catastrophically in one place and holds
-in five is a different problem from a norm nobody keeps, and only the cohort could tell them
-apart.
+of 27 is real, and it is nearly the whole of the loss. Thirty merged `phase/*` refs stand across
+the cohort; 26 are in that one repository. Of the nine that settled a phase at all, five deleted
+their branches. A norm that loses catastrophically in one place and holds in five is a different
+problem from a norm nobody keeps. Only the cohort could tell them apart.
 
 **The missing CLI is the finding that did generalise.** C was one repository running for 363
 commits with nothing to run; six of fourteen are in that state. That is the largest single
@@ -318,9 +317,9 @@ nothing anywhere says so.
 
 **The commit vocabulary no longer reads as clean, and the reason is a scoping decision rather
 than a change in practice.** `cohort` counts every authored commit, not the corpus register
-alone — `Measurement::off_vocabulary_commits` states why, at length: a conformance figure a
+alone. `Measurement::off_vocabulary_commits` states why, at length: a conformance figure a
 corpus can move by widening `[object] paths` is not a measurement. One repository reads 211 of
-566 under that counting and is the object-coupled case the kuten profile already excludes from
+566 under that counting. It is the object-coupled case the kuten profile already excludes from
 its band. Read this column as *what the repository did, whole*, and `lint --commits` as *what a
 reader is asked to act on*.
 
@@ -331,17 +330,16 @@ instances cited. It read **lost in twelve of the thirteen** repositories it coul
 which looked like the strongest finding in the run.
 
 It was a check against the document it cited. GRAPH.md argues the opposite two sections below
-the one the rule was drawn from — *"The measurable quantity is residence time, not level. A
-node uncited for five commits is a sweep in progress and entirely healthy"* — so the rule would
-have published a finding about every corpus that is working normally. The quantity is still
-measured and printed beside each member; no verdict is attached to it.
+the one the rule was drawn from: *"The measurable quantity is residence time, not level. A node
+uncited for five commits is a sweep in progress and entirely healthy."* So the rule would have
+published a finding about every corpus that is working normally. The quantity is still measured
+and printed beside each member; no verdict is attached.
 
 That is the failure the norm list is now built against. Each row carries the sentence it is
-derived from, and the test suite holds every quote to the prelude file it names, so a rule
-reworded upstream goes red rather than quietly measuring something nobody states. It does not
-close the other direction: a norm written upstream tomorrow is invisible here until somebody
-adds a row, and no discovery can close that, because which sentences of a document are rules is
-a judgement.
+derived from, and the test suite holds every quote to the prelude file it names. A rule reworded
+upstream goes red rather than quietly measuring something nobody states. It does not close the
+other direction. A norm written upstream tomorrow is invisible here until somebody adds a row.
+No discovery can close that: which sentences of a document are rules is a judgement.
 
 ## What is not established
 
