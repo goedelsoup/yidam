@@ -5,6 +5,7 @@ mod bundle;
 mod catalog;
 pub(crate) mod check_diff;
 mod clone;
+pub(crate) mod cohort;
 mod copy;
 pub(crate) mod corpus;
 pub(crate) mod decisions;
@@ -72,6 +73,7 @@ pub use catalog::{
 };
 pub use check_diff::check_diff;
 pub use clone::{clone, NOT_INHERITED};
+pub use cohort::{cohort, Norm as PreludeNorm, Options as CohortOptions, NORMS as PRELUDE_NORMS};
 pub use corpus::{corpus_index, graph_check, open_questions};
 pub use decisions::decisions_log;
 pub use diff::diff_corpus;

@@ -143,6 +143,12 @@ pub const GROUPS: &[Group] = &[
             r("log"),
             r("phases"),
             r("replay"),
+            // Beside `replay` because it is the same reading over a set rather than over
+            // one repository — and in this group rather than under the gates because it
+            // exits zero however much lost. A norm its derivations do not keep is a
+            // question for whoever wrote it, and filing this under "exit nonzero on a
+            // problem" would teach a reader that a repository diverging is a defect.
+            r("cohort"),
             r("decisions-log"),
             r("sangha"),
             r("vocabulary"),

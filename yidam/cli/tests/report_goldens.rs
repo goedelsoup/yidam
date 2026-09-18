@@ -424,6 +424,12 @@ const NO_REPORT: &[(&str, &str)] = &[
          end-to-end against a materialized example in `capability_run.rs`, which asserts the \
          envelope and the report's own fields",
     ),
+    (
+        "cohort",
+        "requires paths to derived repositories, which no fixture here holds and which are \
+         private on the machines that do — exercised against materialized examples in \
+         `cohort.rs`, which asserts the envelope and that the report names no repository",
+    ),
     ("query", "requires a query expression"),
     ("pack", "requires a query expression"),
     ("estimate", "requires a query expression"),
