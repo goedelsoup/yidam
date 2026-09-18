@@ -374,35 +374,34 @@ argument for why the surface is this small.
 ### `cohort` reports about the prelude, not about a corpus
 
 `replay` and `kuten check` answer about *a* corpus. Neither can see that a rule lost
-everywhere, which is the question
-[`docs/post-genesis-measurement.md`](post-genesis-measurement.md) was written to ask and had
-to ask by hand.
+everywhere. That is the question
+[`docs/post-genesis-measurement.md`](post-genesis-measurement.md) had to ask by hand.
 
 ```sh
 yidam cohort ../repo-a ../repo-b ../repo-c
 ```
 
-The rows are norms and the columns are repositories, because a rule every derivation fails is
-one finding about the rule rather than five findings about five corpora. Read-only: nothing is
-checked out and nothing is written, so it is safe against repositories somebody is working in.
-It exits zero however much lost.
+The rows are norms and the columns are repositories. A rule every derivation fails is one
+finding about the rule, not five findings about five corpora.
+
+Read-only: nothing is checked out and nothing is written. It is safe against repositories
+somebody is working in, and it exits zero however much lost.
 
 Two controls, both printed rather than divided out. A repository whose *vendored* prelude does
-not state a rule is reported as `vintage` and never as having broken it. Members are ordered by
-authored commit count with the count beside every row, and no rate is normalised by age.
+not state a rule is reported as `vintage`, never as having broken it. Members are ordered by
+authored commit count, the count beside every row. No rate is normalised by age.
 
-A rule a repository never had the chance to break is `unmeasurable`, not kept, and every share
-is quoted over the repositories the question could be asked of. Norms that **held** are
-reported too: a negative result about coverage is the only durable record that coverage was
-checked.
+A rule a repository never had the chance to break is `unmeasurable`, not kept. Every share is
+quoted over the repositories the question could be asked of. Norms that **held** are reported
+too: a negative result about coverage is the only durable record that coverage was checked.
 
-Members are lettered rather than named — most derived repositories are private, and this report
+Members are lettered rather than named. Most derived repositories are private, and this report
 is written to be pasted somewhere. `--paths` opts back in.
 
 ### `run` is one step, and a run authors operational commits only
 
-`.yidam/capabilities.toml` declares what may run — a `kind`, the argv to invoke, the globs it
-`reads` and `writes`, and the commit verb it authors:
+`.yidam/capabilities.toml` declares what may run. Per entry: a `kind`, the argv to invoke, the
+globs it `reads` and `writes`, and the commit verb it authors.
 
 ```toml
 [capability.travel-tier]
@@ -413,22 +412,23 @@ writes = [".yidam/computed/**"]
 verb   = "compute"
 ```
 
-`yidam run travel-tier` checks the declared `reads` out of `HEAD` into a scratch directory,
-invokes the step there with `$YIDAM_IN`, `$YIDAM_OUT`, `$YIDAM_STEP` and `$YIDAM_INPUT_COMMIT`
-set, and lands what it wrote — plus a receipt at `.yidam/runs/<step>.yml` naming the input
-commit and every digest — as one commit on the current branch.
+`yidam run travel-tier` checks the declared `reads` out of `HEAD` into a scratch directory. It
+invokes the step there, with `$YIDAM_IN`, `$YIDAM_OUT`, `$YIDAM_STEP` and `$YIDAM_INPUT_COMMIT`
+set. What the step wrote lands as one commit on the current branch. A receipt lands with it, at
+`.yidam/runs/<step>.yml`, naming the input commit and every digest.
 
-Both declarations are load-bearing. The step sees exactly what `reads` resolves to and nothing
-else from the repository, so it cannot quietly depend on a file it did not name; and a step that
-writes outside `writes` is refused with nothing committed. A capability declaring an **epistemic**
-verb does not load at all: a run authors operational commits, and that rule is in the binary with
-no override path, because a corpus that could write it into its own policy could license its runs
-to author `establish:` on its baseline.
+Both declarations are load-bearing. The step sees what `reads` resolves to and nothing else. It
+cannot quietly depend on a file it did not name. A step that writes outside `writes` is refused,
+with nothing committed.
+
+A capability declaring an **epistemic** verb does not load at all. A run authors operational
+commits, and that rule is in the binary with no override path. A corpus that could write it into
+its own policy could license its runs to author `establish:` on its baseline.
 
 It writes git objects and one ref. The working tree and the index are untouched, so it is safe to
-run mid-edit — and it therefore leaves your checkout one commit behind, which the report says
-along with the path-scoped `git restore` that syncs it. A re-run whose inputs have not moved
-writes no commit at all.
+run mid-edit. It therefore leaves your checkout one commit behind. The report says so, and names
+the path-scoped `git restore` that syncs it. A re-run whose inputs have not moved writes no commit
+at all.
 
 One step per invocation: dependency order, freshness and `--dry-run` are not built yet.
 [RFC-0026](rfcs/0026-orchestrator-layer.md) has the argument for what a run may author.
