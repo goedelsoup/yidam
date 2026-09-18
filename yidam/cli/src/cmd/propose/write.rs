@@ -38,7 +38,16 @@ pub struct Written {
 }
 
 /// Run git at `root`, with an optional temporary index and optional stdin.
-fn git(root: &Path, index: Option<&Path>, args: &[&str], stdin: Option<&str>) -> Result<String> {
+///
+/// `pub(crate)` for [`crate::cmd::run`], which needs exactly this plumbing and must not grow
+/// a second copy of it — RFC-0026 §5 names the four properties a run inherits from here, and
+/// two implementations of them would be two answers to whether a run is safe mid-edit.
+pub(crate) fn git(
+    root: &Path,
+    index: Option<&Path>,
+    args: &[&str],
+    stdin: Option<&str>,
+) -> Result<String> {
     let mut cmd = Command::new("git");
     cmd.current_dir(root).args(args);
     if let Some(i) = index {
@@ -144,18 +153,18 @@ fn branch_exists(root: &Path, branch: &str) -> bool {
 /// Not a system temp file: the index must be on the same filesystem as the object store for
 /// git's rename-into-place to work, and `$GIT_DIR` is where git puts its own. Named so that a
 /// leftover after a crash is attributable rather than mysterious.
-struct TempIndex(std::path::PathBuf);
+pub(crate) struct TempIndex(std::path::PathBuf);
 
 impl TempIndex {
-    fn new(root: &Path) -> Result<Self> {
+    pub(crate) fn new(root: &Path, owner: &str) -> Result<Self> {
         let dir = git(root, None, &["rev-parse", "--absolute-git-dir"], None)?;
-        let path = Path::new(&dir).join("yidam-propose-index");
+        let path = Path::new(&dir).join(format!("yidam-{owner}-index"));
         // A leftover from an interrupted run would be read as the starting tree.
         let _ = std::fs::remove_file(&path);
         Ok(Self(path))
     }
 
-    fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         &self.0
     }
 }
@@ -185,7 +194,7 @@ pub fn write(root: &Path, proposals: &[Proposal], force: bool) -> Result<Written
     }
 
     // Held for the whole function: dropping it deletes the index the commits are built from.
-    let scratch = TempIndex::new(root)?;
+    let scratch = TempIndex::new(root, "propose")?;
     let index = scratch.path().to_path_buf();
     git(root, Some(&index), &["read-tree", "HEAD"], None)?;
 
@@ -224,7 +233,13 @@ pub fn write(root: &Path, proposals: &[Proposal], force: bool) -> Result<Written
             }
         }
         let tree = git(root, Some(&index), &["write-tree"], None)?;
-        let sha = commit_tree(root, &tree, &parent, &p.message(&short))?;
+        let sha = commit_tree(
+            root,
+            &tree,
+            &parent,
+            &p.message(&short),
+            (AUTHOR_NAME, AUTHOR_EMAIL),
+        )?;
         commits.push(short_of(root, &sha));
         parent = sha;
     }
@@ -245,12 +260,23 @@ pub fn write(root: &Path, proposals: &[Proposal], force: bool) -> Result<Written
 }
 
 /// `git commit-tree`, with the tool as author and whoever ran it as committer.
-fn commit_tree(root: &Path, tree: &str, parent: &str, message: &str) -> Result<String> {
+///
+/// The author is a parameter rather than a constant because a second tool now writes
+/// commits: `yidam run` is not `yidam propose`, and a log that called them both the same
+/// author would have lost the one distinction the split author/committer field exists to
+/// make. Whoever ran it is still the committer, in both.
+pub(crate) fn commit_tree(
+    root: &Path,
+    tree: &str,
+    parent: &str,
+    message: &str,
+    author: (&str, &str),
+) -> Result<String> {
     let mut cmd = Command::new("git");
     cmd.current_dir(root)
         .args(["commit-tree", tree, "-p", parent, "-F", "-"])
-        .env("GIT_AUTHOR_NAME", AUTHOR_NAME)
-        .env("GIT_AUTHOR_EMAIL", AUTHOR_EMAIL)
+        .env("GIT_AUTHOR_NAME", author.0)
+        .env("GIT_AUTHOR_EMAIL", author.1)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -276,12 +302,12 @@ fn commit_tree(root: &Path, tree: &str, parent: &str, message: &str) -> Result<S
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-fn short_of(root: &Path, sha: &str) -> String {
+pub(crate) fn short_of(root: &Path, sha: &str) -> String {
     git(root, None, &["rev-parse", "--short", sha], None).unwrap_or_else(|_| sha.to_string())
 }
 
 /// The branch a reader is on, for the `git log` line the refusal prints.
-fn current_branch(root: &Path) -> Option<String> {
+pub(crate) fn current_branch(root: &Path) -> Option<String> {
     let name = git(root, None, &["rev-parse", "--abbrev-ref", "HEAD"], None).ok()?;
     (name != "HEAD").then_some(name)
 }

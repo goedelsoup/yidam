@@ -264,6 +264,7 @@ the read-only overview.
 | `rename <old> <new>` * | Rename a node, rewriting every edge into it. `--dry-run` |
 | `migrate <sub>` * | Change an ontology and every instance that adopted it, as one event. `--dry-run` |
 | `propose` * | Draft findings as proposed epistemic commits on a `propose/<head>` branch |
+| `run <step>` * | Invoke a capability declared in `.yidam/capabilities.toml` and commit what it produced, with a receipt |
 
 ### The query language
 
@@ -368,6 +369,40 @@ Nothing merges itself and nothing synthesizes — no edge is drawn, no claim is 
 is authored. It writes git objects and one ref. The working tree, the index and `HEAD` are
 untouched, so it is safe to run mid-edit. [RFC-0020](rfcs/0020-proposal-surface.md) has the
 argument for why the surface is this small.
+
+### `run` is one step, and a run authors operational commits only
+
+`.yidam/capabilities.toml` declares what may run — a `kind`, the argv to invoke, the globs it
+`reads` and `writes`, and the commit verb it authors:
+
+```toml
+[capability.travel-tier]
+kind   = "calculator"
+run    = ["sh", ".yidam/capabilities/travel-tier.sh"]
+reads  = [".yidam/corpus/**", ".yidam/capabilities/**"]
+writes = [".yidam/computed/**"]
+verb   = "compute"
+```
+
+`yidam run travel-tier` checks the declared `reads` out of `HEAD` into a scratch directory,
+invokes the step there with `$YIDAM_IN`, `$YIDAM_OUT`, `$YIDAM_STEP` and `$YIDAM_INPUT_COMMIT`
+set, and lands what it wrote — plus a receipt at `.yidam/runs/<step>.yml` naming the input
+commit and every digest — as one commit on the current branch.
+
+Both declarations are load-bearing. The step sees exactly what `reads` resolves to and nothing
+else from the repository, so it cannot quietly depend on a file it did not name; and a step that
+writes outside `writes` is refused with nothing committed. A capability declaring an **epistemic**
+verb does not load at all: a run authors operational commits, and that rule is in the binary with
+no override path, because a corpus that could write it into its own policy could license its runs
+to author `establish:` on its baseline.
+
+It writes git objects and one ref. The working tree and the index are untouched, so it is safe to
+run mid-edit — and it therefore leaves your checkout one commit behind, which the report says
+along with the path-scoped `git restore` that syncs it. A re-run whose inputs have not moved
+writes no commit at all.
+
+One step per invocation: dependency order, freshness and `--dry-run` are not built yet.
+[RFC-0026](rfcs/0026-orchestrator-layer.md) has the argument for what a run may author.
 
 ## Index and embeddings
 

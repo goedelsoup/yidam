@@ -1,0 +1,309 @@
+//! `.yidam/capabilities.toml` — what may run, what it may read, and what it may write.
+//!
+//! RFC-0026 §4 specifies the file and RFC-0028 §4 constrains it. Both constraints are
+//! checked here, at load, rather than after a step has already produced a tree: *"`writes` is
+//! load-bearing rather than documentation. It is what lets the executor refuse a step that
+//! wrote outside its declaration, and what makes the operational/epistemic classification
+//! decidable **before** the step runs rather than after."*
+//!
+//! # Rust only
+//!
+//! Not a parity function, and that is decided rather than deferred — #460 decision 3,
+//! reversed 2026-08-31 and restated in RFC-0026 §4. No `.yidam/` config file has ever been
+//! one; the ten are document and graph parsers. A fixture directory here with no runner
+//! reading it is the shape `parity-check` refuses.
+//!
+//! # Unknown fields are refused
+//!
+//! `deny_unknown_fields`, and the reason is not tidiness. The generalisation in #472 adds
+//! declared dependencies and an ageing rule to this file. A binary that silently ignored an
+//! `after = [...]` it did not implement would run a dependent step before the step it
+//! depends on and report success — the failure would be in the corpus, not in the exit code.
+//! Refusing to parse says which field and which binary, which is recoverable.
+
+use std::collections::BTreeMap;
+use std::path::Path;
+
+use anyhow::{bail, Context, Result};
+use serde::Deserialize;
+
+use crate::kuten::{Register, Registers};
+
+/// Where the manifest lives, relative to the corpus root.
+pub const MANIFEST: &str = ".yidam/capabilities.toml";
+
+/// What a capability is.
+///
+/// Both arms are declarable today and only one is executable — see [`Kind::executable`]. A
+/// corpus that declares a connector gets a manifest that parses and a step that refuses by
+/// name, rather than a parse error blaming the wrong thing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    Connector,
+    Calculator,
+}
+
+impl Kind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Connector => "connector",
+            Self::Calculator => "calculator",
+        }
+    }
+
+    /// Whether this binary can invoke it.
+    ///
+    /// A connector re-runs against an external source, which is a network capability and a
+    /// credential path; `vault/mod.rs` already sets the rule those inherit. #471 is the
+    /// calculator slice and says so, and a refusal naming the issue is a better answer than
+    /// a manifest that cannot express the other kind at all.
+    pub fn executable(self) -> bool {
+        matches!(self, Self::Calculator)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Capability {
+    pub kind: Kind,
+    /// argv, invoked directly — not through a shell. A corpus that wants a shell says `sh`.
+    pub run: Vec<String>,
+    /// Globs, relative to the corpus root. Exactly what the step is given, and nothing else
+    /// from the repository reaches it.
+    #[serde(default)]
+    pub reads: Vec<String>,
+    /// Globs, relative to the corpus root. What the step may land.
+    pub writes: Vec<String>,
+    /// The commit verb a run of this capability authors.
+    pub verb: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Manifest {
+    #[serde(default)]
+    pub capability: BTreeMap<String, Capability>,
+}
+
+impl Manifest {
+    /// Parse and validate the manifest at `root`, or report that there is none.
+    pub fn load(root: &Path) -> Result<Self> {
+        let path = root.join(MANIFEST);
+        let text = std::fs::read_to_string(&path).with_context(|| {
+            format!(
+                "no capability manifest at {MANIFEST} — a run is one declared capability \
+                 invoked, and nothing here declares one"
+            )
+        })?;
+        Self::parse(&text, &Registers::of_repo(root))
+    }
+
+    /// The same, against a given object register, so the rules can be tested without a repo.
+    pub fn parse(text: &str, registers: &Registers) -> Result<Self> {
+        let m: Self = toml::from_str(text).context("parsing .yidam/capabilities.toml")?;
+        for (name, cap) in &m.capability {
+            validate(name, cap, registers)?;
+        }
+        Ok(m)
+    }
+
+    pub fn get<'a>(&'a self, step: &str) -> Result<&'a Capability> {
+        self.capability.get(step).ok_or_else(|| {
+            let declared: Vec<&str> = self.capability.keys().map(String::as_str).collect();
+            if declared.is_empty() {
+                anyhow::anyhow!("{MANIFEST} declares no capabilities, so `{step}` is not one")
+            } else {
+                anyhow::anyhow!(
+                    "no capability named `{step}` — {MANIFEST} declares: {}",
+                    declared.join(", ")
+                )
+            }
+        })
+    }
+}
+
+/// Every rule a declaration must satisfy, checked before anything runs.
+fn validate(name: &str, cap: &Capability, registers: &Registers) -> Result<()> {
+    if cap.run.is_empty() {
+        bail!("capability `{name}` declares an empty `run`, so there is nothing to invoke");
+    }
+
+    // The constitutional rule, in Rust, with no override path — RFC-0026 §3.1. A corpus that
+    // could declare `verb = "establish"` here would have licensed its own runs to author
+    // nodes on the baseline, and the whole safety argument would be a config value.
+    if !yidam_core::git::OPERATIONAL_VERBS.contains(&cap.verb.as_str()) {
+        let what = if yidam_core::git::EPISTEMIC_VERBS.contains(&cap.verb.as_str()) {
+            format!(
+                "`{}` is an epistemic verb, and a run authors operational commits only",
+                cap.verb
+            )
+        } else {
+            format!("`{}` is not in the commit vocabulary at all", cap.verb)
+        };
+        bail!(
+            "capability `{name}` declares `verb = \"{}\"` — {what}.\n  \
+             Operational verbs: {}",
+            cap.verb,
+            yidam_core::git::OPERATIONAL_VERBS.join(", ")
+        );
+    }
+
+    if cap.writes.is_empty() {
+        bail!(
+            "capability `{name}` declares no `writes` — a step whose outputs are undeclared \
+             cannot be refused for writing outside them"
+        );
+    }
+    for glob in cap.writes.iter().chain(cap.reads.iter()) {
+        check_glob(name, glob)?;
+    }
+    // RFC-0028 §4 arm (b): the invariant test's population is kept register-pure by refusing
+    // a declaration that reaches the object register, checked at declaration time.
+    for glob in &cap.writes {
+        let prefix = literal_prefix(glob);
+        if registers.register_of(&prefix) == Register::Object {
+            bail!(
+                "capability `{name}` declares `writes = [\"{glob}\"]`, which lies in this \
+                 repository's object register (`[object] paths` in .yidam/config.toml).\n  \
+                 A run writes corpus commits; the artifact register is where a person's \
+                 `feat:` and `fix:` live, and the commit vocabulary does not govern it."
+            );
+        }
+    }
+    Ok(())
+}
+
+/// A glob must be repository-relative, must escape nothing, and must start with a literal.
+///
+/// The last rule is what makes the register check above decidable at declaration time: a
+/// pattern beginning `**/` names a prefix only once a file exists to match it, and a rule
+/// checked "before the step runs" cannot be written against a set that does not exist yet.
+fn check_glob(name: &str, glob: &str) -> Result<()> {
+    let g = glob.trim();
+    if g.is_empty() {
+        bail!("capability `{name}` declares an empty glob");
+    }
+    if g.starts_with('/') || g.starts_with("~/") {
+        bail!("capability `{name}` declares an absolute glob `{glob}` — paths are relative to the corpus root");
+    }
+    if g.split('/').any(|s| s == "..") {
+        bail!("capability `{name}` declares `{glob}`, which leaves the corpus");
+    }
+    if literal_prefix(g).is_empty() {
+        bail!(
+            "capability `{name}` declares `{glob}`, whose first segment is a wildcard — a \
+             glob must begin with a literal directory so which register it falls in is \
+             decidable before the step runs"
+        );
+    }
+    Ok(())
+}
+
+/// The segments of a glob before the first wildcard, joined.
+pub(crate) fn literal_prefix(glob: &str) -> String {
+    glob.trim_start_matches("./")
+        .split('/')
+        .take_while(|s| !s.contains('*') && !s.contains('?'))
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CALC: &str = r#"
+[capability.low-flow]
+kind   = "calculator"
+run    = ["sh", ".yidam/capabilities/low-flow.sh"]
+reads  = [".yidam/corpus/**"]
+writes = [".yidam/computed/**"]
+verb   = "compute"
+"#;
+
+    fn corpus_only() -> Registers {
+        Registers::corpus_only()
+    }
+
+    #[test]
+    fn a_calculator_declaration_parses() {
+        let m = Manifest::parse(CALC, &corpus_only()).unwrap();
+        let c = m.get("low-flow").unwrap();
+        assert_eq!(c.kind, Kind::Calculator);
+        assert_eq!(c.verb, "compute");
+        assert!(c.kind.executable());
+    }
+
+    /// The rule that makes this layer safe, asserted on the verb it would be softened for.
+    #[test]
+    fn an_epistemic_verb_is_refused_by_name() {
+        let text = CALC.replace(r#"verb   = "compute""#, r#"verb   = "establish""#);
+        let err = Manifest::parse(&text, &corpus_only())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("epistemic verb"), "{err}");
+    }
+
+    #[test]
+    fn a_verb_outside_the_vocabulary_is_refused_as_such() {
+        let text = CALC.replace(r#"verb   = "compute""#, r#"verb   = "lift""#);
+        let err = Manifest::parse(&text, &corpus_only())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("not in the commit vocabulary"), "{err}");
+    }
+
+    /// RFC-0028 §4 arm (b), at declaration time.
+    #[test]
+    fn a_write_into_the_object_register_is_refused() {
+        let text = CALC.replace(
+            r#"writes = [".yidam/computed/**"]"#,
+            r#"writes = ["web/data/**"]"#,
+        );
+        let registers = Registers::of_globs(vec!["web/**".into()]);
+        let err = Manifest::parse(&text, &registers).unwrap_err().to_string();
+        assert!(err.contains("object register"), "{err}");
+        // And the same declaration is fine in a repository that declares no object.
+        Manifest::parse(&text, &corpus_only()).unwrap();
+    }
+
+    #[test]
+    fn a_glob_that_leaves_the_corpus_is_refused() {
+        for bad in ["../elsewhere/**", "/etc/**", "**/everything"] {
+            let text = CALC.replace(".yidam/computed/**", bad);
+            assert!(
+                Manifest::parse(&text, &corpus_only()).is_err(),
+                "{bad} was accepted"
+            );
+        }
+    }
+
+    /// #472 adds fields to this file. An old binary must say so rather than ignore them.
+    #[test]
+    fn an_unknown_field_is_refused_rather_than_ignored() {
+        let text = format!("{CALC}after  = [\"upstream\"]\n");
+        // `{:#}` rather than `{}`: serde names the field in the *source* of the error, and
+        // the outer context is this module's own sentence — which is identical for every
+        // malformed manifest, so a bare `to_string` would assert nothing about this one.
+        let err = format!("{:#}", Manifest::parse(&text, &corpus_only()).unwrap_err());
+        assert!(err.contains("after"), "{err}");
+    }
+
+    #[test]
+    fn a_missing_step_names_what_is_declared() {
+        let m = Manifest::parse(CALC, &corpus_only()).unwrap();
+        let err = m.get("nope").unwrap_err().to_string();
+        assert!(err.contains("low-flow"), "{err}");
+    }
+
+    #[test]
+    fn the_literal_prefix_stops_at_the_first_wildcard() {
+        assert_eq!(
+            literal_prefix(".yidam/corpus/gage/**"),
+            ".yidam/corpus/gage"
+        );
+        assert_eq!(literal_prefix("web/*.json"), "web");
+        assert_eq!(literal_prefix("**/x"), "");
+    }
+}

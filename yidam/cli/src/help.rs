@@ -134,6 +134,12 @@ pub const GROUPS: &[Group] = &[
             // problem" would be read as one more thing that can fail the build, and this
             // one cannot — it drafts commits and leaves.
             w("propose"),
+            // Beside `propose` rather than under the README generators, though both write.
+            // What the generators rewrite is a block; what these two write is history, and
+            // they are the only two commands here that do. The `*` says so for the same
+            // reason `propose` carries it: a run does write to the repository, and its long
+            // help says which part and what it leaves alone.
+            w("run"),
             r("log"),
             r("phases"),
             r("replay"),

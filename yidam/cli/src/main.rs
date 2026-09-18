@@ -659,6 +659,31 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// Invoke a declared capability and commit what it produced
+    ///
+    /// Reads `.yidam/capabilities.toml`, materializes the named step's declared
+    /// `reads` out of HEAD into a scratch directory, invokes it there, and lands
+    /// what it wrote — plus a receipt naming the input commit and every digest — as
+    /// one operational commit on the current branch.
+    ///
+    /// A run authors operational commits and nothing else: a capability declaring an
+    /// epistemic verb does not load, so no run can author a node, re-tag a claim, or
+    /// decide a question is answered. The step is invoked in a scratch tree and never
+    /// in your checkout, so a run is safe mid-edit — and because the index is not
+    /// touched either, your working tree is one commit behind afterwards. The report
+    /// says so and names the command that syncs it.
+    ///
+    /// One step per invocation. Dependency order, freshness and --dry-run are #472.
+    ///
+    /// See docs/rfcs/0026-orchestrator-layer.md for what a run may author and why.
+    Run {
+        /// The capability to invoke, as named in .yidam/capabilities.toml
+        step: String,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Draft findings as proposed epistemic commits on a `propose/<head>` branch
     ///
     /// Turns findings that are failing the gate into commits a person reviews and
@@ -927,6 +952,7 @@ fn main() -> Result<()> {
         Command::Doctor { strict, format } => yidam::doctor(strict, format),
         Command::Due { strict, format } => yidam::due(strict, format),
         Command::Regen { check, format } => yidam::regen(check, format),
+        Command::Run { step, format } => yidam::run_capability(&step, yidam::RunOptions { format }),
         Command::Propose {
             dry_run,
             force,

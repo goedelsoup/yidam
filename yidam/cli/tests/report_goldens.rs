@@ -417,6 +417,13 @@ const NO_REPORT: &[(&str, &str)] = &[
         "requires a built index, and the `index` feature to build one",
     ),
     ("migrate", "a subcommand group, and every migration writes"),
+    (
+        "run",
+        "needs a corpus declaring a capability, and lands a commit when it finds one — the \
+         fixture every golden here reads must not be mutated by one of them. Exercised \
+         end-to-end against a materialized example in `capability_run.rs`, which asserts the \
+         envelope and the report's own fields",
+    ),
     ("query", "requires a query expression"),
     ("pack", "requires a query expression"),
     ("estimate", "requires a query expression"),

@@ -40,6 +40,8 @@ a fabricated record, and this one is meant to be copied.
   decisions/base-flow-index-carries-its-method.yml
   skills/read-a-regulated-record.md
   bench/goals.yml
+  capabilities.toml
+  capabilities/travel-tier.sh
 ```
 
 ## What each piece is here to demonstrate
@@ -79,6 +81,25 @@ five wins. It also states, in its own header, that a run over eight nodes is a r
 guard and not evidence for anything — the corpus is below the arithmetic floor of the claim
 the benchmark is about.
 
+**A calculator, and the commit it authors.**
+[`capabilities.toml`](.yidam/capabilities.toml) declares one: `travel-tier` computes how far
+each node's assertions may travel — the minimum claim tag over the node and the transitive
+closure of its outgoing links. The prelude's own conduct guideline states that rule and states
+that it must be *computed rather than declared*, because a declared tier drifts the moment a
+supporting node is revised. A norm whose own words say "computed" and which nothing computes is
+worth having here as the thing that computes it.
+
+It is also what a `compute:` commit is for. The result carries its method rather than becoming a
+property on a reach — which is the decision
+[`base-flow-index-carries-its-method`](.yidam/decisions/base-flow-index-carries-its-method.yml)
+already made about exactly this shape — and it reproduces no observation, so it is honest over a
+corpus whose stations are illustrative.
+
+Over this corpus the answer is worth reading. Every node travels as `[open]`, and **five of the
+eight are downgraded**: they declare `[inference]` and rest on a chain reaching
+`concept/base-flow-separation`, which is `[open]`. Nothing in this corpus may leave it. That is
+the corpus telling the truth about itself, and no declared tier would have said so.
+
 ## Running the gates
 
 ```sh
@@ -87,7 +108,13 @@ cd /tmp/streamflow && git init -q && git add -A && git commit -qm genesis
 yidam graph-check     # 8 instances across 3 classes — all clean
 yidam lint            # 0 finding(s), no errors
 yidam open-questions  # four live questions
+
+yidam run travel-tier # one compute: commit, plus a receipt in .yidam/runs/
 ```
+
+`run` writes commits and leaves the checkout alone, so after it the working tree is one commit
+behind — the report names the `git restore` that syncs it. Run it twice and the second says
+nothing changed and writes nothing.
 
 See [docs/quickstart.md](../../docs/quickstart.md) for the loop this is really for: watch the
 gate pass, break it, watch it fail, repair it.
