@@ -12,6 +12,20 @@ inquiry style, quorum needs, and communication norms.
 Recognized electors are listed in [electors.md](electors.md). An elector is any
 human or agent maintaining a `ma/<name>` branch in this repository.
 
+**An elector is a seat**, and that is the whole of the definition: a `ma/<name>` branch together
+with its row in [electors.md](electors.md). An *agent* elector is a seat whose `Kind` is `agent`.
+A model, an operator, a harness and a run are **occupants** of a seat — recorded on it, never the
+elector itself.
+
+This is what every mechanism here already points at. `synthesized-by:` names a seat. The
+allowed-signers file generated from the registry uses the seat's branch as the principal, so what
+a verified signature establishes is that a commit came from whoever holds *that seat's* key. And
+`independence:` compares what the registry records about seats. Naming the unit makes those one
+answer instead of three that happen to agree.
+
+It grants nothing. Article II governs weight and Article III governs record; a seat is a place a
+position is held from, not a standing that privileges one.
+
 A participant becomes a recognized elector by:
 
 1. Opening a `ma/<name>` branch with at least one committed position
@@ -19,6 +33,12 @@ A participant becomes a recognized elector by:
 3. Including the elector registration in the first resolution they participate in
 
 The first elector registers themselves.
+
+**Step 3 is where a seat becomes accountable to somebody.** The resolution that admits it is a
+committed record naming its executor and the tips it read, so *who answers for this seat* has an
+answer in the repository rather than in a convention about who ran what. A seat records that
+resolution in `electors.md`'s `Seated` column. The bootstrap seat leaves it blank — nobody
+admitted it — which is a normal state and not an omission.
 
 ### What a registration records
 
