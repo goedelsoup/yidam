@@ -15,6 +15,8 @@ After bootstrap, a derived repository has two tiers:
 - `.yidam/catalog/` — provenance anchors for corpus knowledge
 - `.yidam/corpus/` — the living knowledge graph
 - `.yidam/decisions/` — structured records of choices made during this repo's life
+- `.yidam/capabilities.toml` — what may run here, what it reads and what it writes
+- `.yidam/runs/` — one receipt per capability: what ran, against what, producing which bytes
 - `.yidam/skills/` — domain-specific skills
 - `.yidam/.vendor/` — inherited yidam prelude; not modified in derived repos
 - `.yidam/bin/` — the `yidam` binary built from this repo's pin; git-ignored, see below
@@ -657,6 +659,68 @@ wrong.
 So the binary now says so itself. When `.yidam/bin/yidam` exists and is not the executable
 running, every command warns on stderr naming both paths, and an unrecognized subcommand adds
 which binary refused it. Stderr, so a `--format json` consumer reading stdout is unaffected.
+
+---
+
+## `.yidam/capabilities.toml` and `.yidam/runs/` (optional)
+
+What a pipeline may do in this repository, and the record that it did it.
+
+The commit vocabulary in [GRAPH.md](../GRAPH.md) names acts a *pipeline* performs rather than
+acts a person performs — `extract`, `refresh`, `compute`, `reconcile`. A repository with no
+manifest has none of them, which is the ordinary state: the agent invokes a calculator by hand
+and a person writes the subject line afterwards. **That is the moment provenance is invented
+rather than recorded** — a commit saying `compute: low-flow through August` is an account
+written after the fact, checkable against nothing.
+
+A manifest is how a repository says which of those acts it can perform:
+
+```toml
+[capability.travel-tier]
+kind   = "calculator"          # or `connector`
+run    = ["sh", ".yidam/capabilities/travel-tier.sh"]
+reads  = [".yidam/corpus/**", ".yidam/capabilities/**"]
+writes = [".yidam/computed/**"]
+verb   = "compute"
+```
+
+`yidam run travel-tier` then checks the declared `reads` out of `HEAD` into a scratch
+directory, invokes the step there, and lands what it wrote — plus a receipt — as one commit.
+
+**`reads` and `writes` are load-bearing rather than documentation.** The step is given exactly
+what `reads` resolves to and nothing else from the repository, so it cannot depend on a file it
+did not declare; and a step that writes outside `writes` is refused, with nothing committed.
+Both are decidable before the step runs rather than after it has produced a tree.
+
+**A run authors operational commits and nothing else.** A capability declaring an epistemic
+verb does not load. This is not a policy your repository can override, and the reason is that a
+repository which could write that permission for itself could license its own runs to author
+`establish:` on its own baseline — the safety argument would become a config value. A run may
+not author a node, may not resolve, and may not decide a question is answered. Those are acts a
+person performs, and the commit vocabulary already drew that line.
+
+**Credentials are named, never carried.** A capability declares which secret it needs by name;
+the value arrives from the environment. A committed file is not a place for a secret — the same
+rule `.yidam/vault` states for bytes.
+
+### `.yidam/runs/`
+
+One receipt per capability, at `.yidam/runs/<step>.yml`, committed in the same commit as the
+output it describes. It records the commit the inputs came from, a digest of the manifest and
+the config that governed the run, every input file by digest, and every output by digest. The
+series is the git history of that file, which is where a repository's series of anything
+already lives.
+
+A receipt carries **no timestamp**. The commit it lands in has a committer date, which is the
+real one. That also makes a receipt a pure function of its input state, which is what lets a
+re-run over an unchanged corpus write no commit at all rather than an empty one per
+invocation.
+
+**Where the output goes is your decision and it is a real one.** A computed quantity is a fact
+about a calculation, and a class property is read as a fact about the subject. Writing a
+derived figure onto a node asserts, silently and for every instance, that the figure is a
+measurement. Prefer a directory of computed artifacts that carry their method — and record the
+choice in `.yidam/decisions/`, because it is a structural one.
 
 ---
 

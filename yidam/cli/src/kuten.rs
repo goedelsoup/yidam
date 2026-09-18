@@ -273,7 +273,11 @@ impl Registers {
 /// The ancestor rule is what makes `paths = ["web"]` mean the directory rather than a file
 /// called `web`, which is the form anyone writing this by hand will reach for first. `web/**`
 /// says the same thing explicitly and both work.
-fn glob_covers(pattern: &str, path: &str) -> bool {
+///
+/// `pub(crate)` for `cmd::run`, whose `reads` and `writes` globs are the same dialect read by
+/// a different consumer. One matcher, because a manifest that declared `.yidam/corpus/**` and
+/// a register that read it differently would disagree about which files a step may touch.
+pub(crate) fn glob_covers(pattern: &str, path: &str) -> bool {
     let pat: Vec<&str> = pattern.split('/').collect();
     let segs: Vec<&str> = path.split('/').collect();
     (1..=segs.len()).any(|n| glob_match(&pat, &segs[..n]))
