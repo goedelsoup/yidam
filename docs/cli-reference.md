@@ -258,6 +258,7 @@ the read-only overview.
 | `log [range]` | Commit history classified as testimony or pipeline work. `--epistemic`, `--operational` |
 | `phases` | Active inquiry phases — `ma/*` and `rigpa/*` branches. Each row's `State` is `active`, `settled`, `rewritten` or `position` |
 | `replay` | Corpus health reconstructed across the repository's whole history. `--every` |
+| `cohort <repo>…` | What a set of derived repositories says about the prelude they inherited: per norm, how many kept it. `--paths` |
 | `decisions-log` | Decision records in `.yidam/decisions/`, newest first *(no flags)* |
 | `sangha` | Electors, positions, and settled resolutions |
 | `vocabulary` | The closed commit vocabulary. `--check <subject>` tests a subject line before the commit exists |
@@ -369,6 +370,34 @@ Nothing merges itself and nothing synthesizes — no edge is drawn, no claim is 
 is authored. It writes git objects and one ref. The working tree, the index and `HEAD` are
 untouched, so it is safe to run mid-edit. [RFC-0020](rfcs/0020-proposal-surface.md) has the
 argument for why the surface is this small.
+
+### `cohort` reports about the prelude, not about a corpus
+
+`replay` and `kuten check` answer about *a* corpus. Neither can see that a rule lost
+everywhere, which is the question
+[`docs/post-genesis-measurement.md`](post-genesis-measurement.md) was written to ask and had
+to ask by hand.
+
+```sh
+yidam cohort ../repo-a ../repo-b ../repo-c
+```
+
+The rows are norms and the columns are repositories, because a rule every derivation fails is
+one finding about the rule rather than five findings about five corpora. Read-only: nothing is
+checked out and nothing is written, so it is safe against repositories somebody is working in.
+It exits zero however much lost.
+
+Two controls, both printed rather than divided out. A repository whose *vendored* prelude does
+not state a rule is reported as `vintage` and never as having broken it. Members are ordered by
+authored commit count with the count beside every row, and no rate is normalised by age.
+
+A rule a repository never had the chance to break is `unmeasurable`, not kept, and every share
+is quoted over the repositories the question could be asked of. Norms that **held** are
+reported too: a negative result about coverage is the only durable record that coverage was
+checked.
+
+Members are lettered rather than named — most derived repositories are private, and this report
+is written to be pasted somewhere. `--paths` opts back in.
 
 ### `run` is one step, and a run authors operational commits only
 

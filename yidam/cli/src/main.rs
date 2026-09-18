@@ -659,6 +659,40 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// Read a set of derived repositories and report what they say about the prelude
+    ///
+    /// Points at one or more yidam-derived repositories and reports, per norm, how
+    /// many of them kept it. The output is evidence about the *prelude*, not about
+    /// any one corpus: a norm that every derivation fails is a finding about the
+    /// norm, and the report is shaped so that reads off it directly.
+    ///
+    /// Read-only. Nothing is checked out, nothing is written, and it is safe
+    /// against repositories somebody is working in. Exits zero however much lost —
+    /// divergence is a question for a person, not a defect in this build.
+    ///
+    /// Two controls are applied and both are printed rather than divided out. A
+    /// repository whose vendored prelude does not state a rule is reported as
+    /// `vintage` and never as having broken it; members are ordered by authored
+    /// commit count, with the count beside every row.
+    ///
+    /// Members are lettered rather than named, because most derived repositories
+    /// are private and this report is written to be pasted somewhere. `--paths`
+    /// opts back in.
+    ///
+    /// See docs/post-genesis-measurement.md for the hand-run this replaces.
+    Cohort {
+        /// Paths to derived repositories. The nearest `.yidam/` at or above each is
+        /// the corpus, so pointing at a subdirectory works
+        #[arg(required = true)]
+        repos: Vec<std::path::PathBuf>,
+        /// Print each repository's path beside its letter
+        #[arg(long)]
+        paths: bool,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Invoke a declared capability and commit what it produced
     ///
     /// Reads `.yidam/capabilities.toml`, materializes the named step's declared
@@ -952,6 +986,11 @@ fn main() -> Result<()> {
         Command::Doctor { strict, format } => yidam::doctor(strict, format),
         Command::Due { strict, format } => yidam::due(strict, format),
         Command::Regen { check, format } => yidam::regen(check, format),
+        Command::Cohort {
+            repos,
+            paths,
+            format,
+        } => yidam::cohort(&repos, yidam::CohortOptions { format, paths }),
         Command::Run { step, format } => yidam::run_capability(&step, yidam::RunOptions { format }),
         Command::Propose {
             dry_run,
