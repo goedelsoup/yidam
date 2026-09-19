@@ -533,7 +533,7 @@ pub fn run_between(
 
 pub(crate) fn load_index(root: &std::path::Path) -> Result<Retrieval> {
     let model = crate::model::load_domain_model(root)?;
-    Ok(crate::retrieval::load(&model)?.0)
+    Ok(crate::retrieval::load(root, &model)?.0)
 }
 
 /// The historical half of a query's context: the commit it is about, and HEAD's schema.

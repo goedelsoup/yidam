@@ -129,7 +129,7 @@ rather than a lower one — so #463 raised it to the pin, where every build veri
 
 ```console
 $ yidam --version
-yidam <version> (<commit>) [reports export-graph tonpa serve-http vault-s3 catalog-fetch]
+yidam <version> (<commit>) [reports export-graph tonpa serve-http vault-s3 s3-vectors catalog-fetch]
 ```
 
 Three facts, and the third is the one that matters: the version, the commit it was built from,
@@ -156,6 +156,7 @@ artifacts — the script, the tap, binstall — carry the **default** set.
 | `index` | `vector-read`, plus `index-build` — the ability to *make* one | + LanceDB; **needs protoc 31 at build time** |
 | `export-sqlite` | `export --format sqlite` | Bundled SQLite + sqlite-vec, compiled from C |
 | `vault-s3` *(default)* | The `s3://` transport for `yidam vault`. The rest of the vault — addressing, cache, `file://` — is ungated | hmac + reqwest (rustls) + tokio |
+| `s3-vectors` *(default)* | The S3 Vectors transport — `index-push`, and answering `retrieve` out of a vector bucket instead of a local index. Everything that decides *what* would be sent is ungated | **+0 packages**; hmac, reqwest and tokio are already here for `vault-s3` |
 | `export-graph` *(default)* | `export --format rdf` | Pure Rust |
 | `serve-http` *(default)* | `serve --mcp --http` — MCP over a URL, the transport every remote agent platform needs | hyper 1.x server features. **+1 package** (`httpdate`); hyper is already here for reqwest |
 | `catalog-fetch` *(default)* | `catalog-fetch` against a `url` or `url_template` location. The `kind: file` path — and everything that decides *what* would be fetched — is ungated | **+0 packages**; reqwest and tokio are already here for `tonpa` and `vault-s3` |

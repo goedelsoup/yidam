@@ -283,6 +283,7 @@ The binary is partitioned by cargo feature so the common case stays cheap to ins
 | `index` | `index-build`, and upgrades `serve --mcp`'s `retrieve` from keyword to semantic | fastembed (ONNX) + LanceDB; needs protoc 31 at build time |
 | `export-sqlite` | `export --format sqlite` | Bundled SQLite + sqlite-vec, compiled from C |
 | `vault-s3` *(default)* | The `s3://` transport for `yidam vault` — the rest of the vault is ungated | hmac + reqwest (rustls) + tokio |
+| `s3-vectors` *(default)* | Signing, querying and mirroring an S3 vector bucket — `index-push`, and the remote arm of `retrieve`. Querying one also needs `vector-read`, which embeds the query | **+0 packages**; hmac, reqwest and tokio are already here for `vault-s3` |
 | `export-graph` *(default)* | `export --format rdf` | Pure Rust |
 | `serve-http` *(default)* | `serve --mcp --http` — MCP over a URL, the transport every remote agent platform needs | hyper 1.x server features. **+1 package** (`httpdate`); hyper is already here for reqwest |
 | `catalog-fetch` *(default)* | `catalog-fetch` against a `url` or `url_template` location — the `kind: file` path is ungated and works without it | **+0 packages**; reqwest and tokio are already here for `tonpa` and `vault-s3` |

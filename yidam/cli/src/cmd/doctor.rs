@@ -168,6 +168,7 @@ impl Check {
     const CATALOG: &'static str = "catalog";
     const CORPORA: &'static str = "corpora";
     const VAULT: &'static str = "vault";
+    const REMOTE_INDEX: &'static str = "remote-index";
     const POLICY: &'static str = "policy";
     const GOVERNANCE: &'static str = "governance";
     const KUTEN: &'static str = "kuten";
@@ -671,6 +672,12 @@ const ROSTER: &[Question] = &[
         answer: |s| check_vault(&s.root),
     },
     Question {
+        id: Check::REMOTE_INDEX,
+        text: "Is the declared remote vector index usable from here?",
+        asked: Asked::OfARepository,
+        answer: |s| check_remote_index(&s.root),
+    },
+    Question {
         id: Check::POLICY,
         text: "Do this repository's own rules compile, and which are its own?",
         asked: Asked::OfARepository,
@@ -1006,6 +1013,49 @@ fn check_governance(root: &Path) -> Answer {
              be re-scaffolded when a second elector actually appears)",
         ),
     )
+}
+
+/// Is `[index.remote]` well formed, and are the credentials for it in the environment —
+/// **without asking the service**.
+///
+/// The same discipline `check_vault` states for itself: `doctor` answers what can be settled
+/// locally, and whether the index actually answers is `yidam index-push --dry-run`'s question,
+/// which is allowed to make a request. A `doctor` that reached the network would be a check
+/// nobody can run on a plane and a check that fails for reasons that are not this repository's.
+///
+/// Ungated, and deliberately. A build that cannot query a remote index can still read the
+/// declaration and say whether it is malformed — the same argument `config.rs` makes for
+/// parsing the section in every build. A binary that silently ignored a section the corpus
+/// committed would be the worse answer.
+fn check_remote_index(root: &Path) -> Answer {
+    let config = crate::config::load_yidam_config(root).unwrap_or_default();
+    let Some(declared) = config.index.remote.as_ref() else {
+        return Answer::ok("no remote index declared");
+    };
+
+    let remote = match crate::s3vectors::RemoteIndex::resolve(declared) {
+        Ok(r) => r,
+        Err(e) => {
+            return Answer::fail(
+                first_line(&e.to_string()),
+                Some("Fix `[index.remote]` in `.yidam/config.toml`."),
+            )
+        }
+    };
+
+    if let Err(e) = crate::vault::creds::resolve_scope(&crate::vault::creds::index_scope(), |k| {
+        std::env::var(k).ok()
+    }) {
+        return Answer::warn(
+            first_line(&e.to_string()),
+            Some(
+                "Credentials come from the environment only — `.yidam/config.toml` is \
+                  committed and must never carry one.",
+            ),
+        );
+    }
+
+    Answer::ok(remote.describe())
 }
 
 /// Are the vaults configured, and is everything they need in place — **without asking them**.

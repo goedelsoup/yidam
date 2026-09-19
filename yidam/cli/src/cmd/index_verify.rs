@@ -178,10 +178,46 @@ pub(crate) fn render_verify(r: &VerifyReport) -> String {
 }
 
 /// Verify a consumer's embedding provider against an index's contract.
+/// Read the embedding contract out of the remote vector index this corpus declares.
+///
+/// The same document a local index keeps in `embed.config.json`, fetched from the metadata of
+/// the reserved witness record. Everything downstream of this is unchanged — the verdict, the
+/// tolerance, the `--provider` path — because it is the same contract arriving by a different
+/// road.
+#[cfg(feature = "s3-vectors")]
+fn read_remote_config(root: Option<&Path>) -> Result<EmbedConfig> {
+    let root = root.context(
+        "`--remote` reads `[index.remote]` from `.yidam/config.toml`, and this is not a \
+         repository",
+    )?;
+    let config = crate::config::load_yidam_config(root)?;
+    let declared = config.index.remote.as_ref().context(
+        "this corpus declares no `[index.remote]`, so there is no remote index to verify",
+    )?;
+    let remote = crate::s3vectors::RemoteIndex::resolve(declared)?;
+    let creds = crate::vault::creds::resolve_scope(&crate::vault::creds::index_scope(), |k| {
+        std::env::var(k).ok()
+    })?;
+    let client = crate::s3vectors::transport::Client::new(remote.clone(), creds)?;
+    let session = crate::s3vectors::ops::Session::new(&client);
+
+    let fetched = crate::s3vectors::ops::fetch_witness(&session, &remote)?.context(
+        "the remote index carries no embedding contract — it was pushed before the witness \
+         existed, or by something other than `yidam index-push`. Re-push it.",
+    )?;
+    let encoded = fetched
+        .metadata
+        .get(crate::s3vectors::META_KEY_EMBED_CONFIG)
+        .and_then(|v| v.as_str())
+        .context("the witness record carries no `embed_config`")?;
+    serde_json::from_str(encoded).context("parsing the contract the remote index carries")
+}
+
 pub fn index_verify(
     index: Option<PathBuf>,
     provider: Option<String>,
     runtime: Option<String>,
+    remote: bool,
     format: crate::report::Format,
 ) -> Result<()> {
     let root = crate::paths::repo_root().ok();
@@ -190,7 +226,21 @@ pub fn index_verify(
             .map(|r| crate::paths::yidam_index_dir(&r))
             .unwrap_or_else(|| PathBuf::from(".yidam/index"))
     });
-    let config = read_config(&index)?;
+    let config = if remote {
+        #[cfg(feature = "s3-vectors")]
+        {
+            read_remote_config(root.as_deref())?
+        }
+        #[cfg(not(feature = "s3-vectors"))]
+        {
+            anyhow::bail!(
+                "`--remote` needs the `s3-vectors` feature, which is in the default set — this \
+                 binary was built without it"
+            )
+        }
+    } else {
+        read_config(&index)?
+    };
 
     let vector = match (&provider, &config.verification) {
         (Some(cmd), Some(v)) => Some(run_provider(cmd, &v.probe)?),
@@ -199,7 +249,13 @@ pub fn index_verify(
         (None, _) => None,
     };
 
-    let report = build_report(&index, &config, vector.as_deref(), runtime.as_deref());
+    let mut report = build_report(&index, &config, vector.as_deref(), runtime.as_deref());
+    if remote {
+        // What was verified, named as what it is. The report's `index` field is a path
+        // everywhere else, and printing `.yidam/index` for a check that never looked at it
+        // would be the report answering about the wrong artifact.
+        report.index = format!("[index.remote] {}", config.model_id);
+    }
     let passed = report.passed;
     if format.is_json() {
         crate::report::emit(root.as_deref().unwrap_or(&index), report)?;

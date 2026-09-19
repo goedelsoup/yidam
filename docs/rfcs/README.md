@@ -63,6 +63,7 @@ re-deriving it.
 | [0030](0030-standalone-editor.md) | I25 | The surface is beside the binary, and earns a version (`yidam-edit`) | Draft |
 | [0031](0031-node-prose-model.md) | I26 | A node's prose is not one field, and a finding is not a sentence — the node prose model | Draft |
 | [0032](0032-reference-grammar.md) | I27 | One name for a thing, and one parser that reads it — the reference grammar | Draft |
+| [0033](0033-remote-vector-index.md) | I28 | A vector index a corpus is queried out of, not one it carries | Draft |
 
 ## Reading order
 

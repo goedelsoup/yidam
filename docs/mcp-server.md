@@ -464,11 +464,24 @@ The reason says which repair you need, and they are not the same repair:
 |---|---|---|
 | `no_index` | This corpus has no vector index | `yidam embed && yidam index-build` |
 | `no_vector_support` | An index exists; this binary cannot read it | Reinstall with `--features index` |
+| `stale_contract` | An index exists and was built with different embedding settings than this server uses, so answering from it would be answering in another vector space | `yidam embed && yidam index-build` with this binary |
+| `remote_unavailable` | This corpus is served out of a remote vector index and the service did not answer — a permission, a throttle, an outage, no network | Check `[index.remote]` and its credentials; `yidam doctor` |
 
 The distinction is why the field exists. Both answer keyword-degraded. Being told to build an
 index you already built is the kind of advice that costs an afternoon. Note the precedence. A
 light binary on a corpus with *no* index reports `no_index`, not `no_vector_support`. Indexing is
 the repair under either build, so the reason names the nearer cause.
+
+`remote_unavailable` is different in kind from the other three and it is worth knowing which
+you are looking at. Those three are properties of a deployment: they are true when the server
+starts and stay true for its lifetime. `remote_unavailable` describes a **call**, so a server
+may report it on one request and nothing on the next. A client that caches the first
+`degraded_reason` it sees will be wrong about the second question it asks.
+
+It is also one value for every remote failure, deliberately. A 403 and a 503 need different
+things done about them. But a client branching on this field is deciding one thing: whether to
+trust the ranking. The answer is the same for both. Which one it was is in the human-readable
+message beside it.
 
 `yidam index-status` says whether an index exists and how stale it is.
 

@@ -32,7 +32,7 @@ use anyhow::{bail, Context, Result};
 
 use super::cas::ContentHash;
 use super::config::VaultConfig;
-use super::sigv4::{Credentials, Signable, EMPTY_PAYLOAD_SHA256};
+use super::sigv4::{self, Credentials, Signable, EMPTY_PAYLOAD_SHA256};
 use super::store::Store;
 
 /// The largest body a single `PUT` may carry. S3's limit, not ours.
@@ -155,6 +155,7 @@ impl S3Store {
             payload_sha256,
             timestamp: &timestamp,
             region: &self.region,
+            service: sigv4::S3_SERVICE,
         };
         Ok(SignedRequest {
             canonical_request: signable.canonical_request(&self.creds),

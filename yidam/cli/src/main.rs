@@ -105,6 +105,14 @@ enum Command {
         /// Name this runtime, so a `known_delta` declared for it can apply
         #[arg(long, value_name = "NAME")]
         runtime: Option<String>,
+        /// Read the contract from the vector index `[index.remote]` declares, not from a
+        /// directory
+        ///
+        /// A remote index carries the same `embed.config.json` as the metadata of a reserved
+        /// record. Everything downstream — the verdict, the tolerance, `--provider` — is
+        /// unchanged.
+        #[arg(long, conflicts_with = "index")]
+        remote: bool,
         /// Output format. `json` emits the machine-readable report contract
         /// (RFC-0016); `text` is unchanged and remains the default.
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
@@ -500,6 +508,23 @@ enum Command {
         /// Embedding model to use (overrides .yidam/config.toml [index] model and the default)
         #[arg(long)]
         model: Option<String>,
+    },
+    /// Mirror the local vector index into the vector bucket declared in [index.remote]
+    ///
+    /// Writes every row `.yidam/index/` holds and deletes the ones this corpus no longer has.
+    /// Never touches a record that is not this corpus's — the embedding contract, or another
+    /// corpus sharing the index.
+    #[command(name = "index-push")]
+    IndexPush {
+        /// Report what would be written and deleted, print the canonical request, send nothing
+        #[arg(long)]
+        dry_run: bool,
+        /// Create the vector index if it does not exist yet
+        ///
+        /// Its dimension, distance metric and non-filterable metadata keys are fixed at
+        /// creation and cannot be changed afterwards, so this is deliberately not the default.
+        #[arg(long)]
+        create: bool,
     },
     /// Copy the yidam template into TARGET and initialise a fresh git repo
     Clone {
@@ -945,8 +970,9 @@ fn main() -> Result<()> {
             index,
             provider,
             runtime,
+            remote,
             format,
-        } => yidam::index_verify(index, provider, runtime, format),
+        } => yidam::index_verify(index, provider, runtime, remote, format),
         Command::IndexStatus { format } => yidam::index_status(format),
         Command::CatalogAudit { format } => yidam::catalog_audit(format),
         Command::CatalogFetch {
@@ -1099,6 +1125,21 @@ fn main() -> Result<()> {
                      requires protoc).\n  \
                      To *read* an index built elsewhere, `--features vector-read` is enough \
                      and needs no protoc — see `yidam vault pull --index`."
+                )
+            }
+        }
+        Command::IndexPush { dry_run, create } => {
+            #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
+            {
+                yidam::index_push(dry_run, create)
+            }
+            #[cfg(not(all(feature = "vector-read", feature = "s3-vectors")))]
+            {
+                let _ = (dry_run, create);
+                anyhow::bail!(
+                    "`index-push` needs the `vector-read` feature to decode the index it \
+                     pushes — reinstall with `cargo install yidam --features vector-read`. \
+                     It needs no protoc: reading an index is a lighter build than building one."
                 )
             }
         }

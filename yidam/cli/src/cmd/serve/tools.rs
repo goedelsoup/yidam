@@ -251,60 +251,97 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
     }
 
     #[cfg(feature = "vector-read")]
-    if let Retrieval::Vector(index) = &state.retrieval {
-        let searched = crate::retrieval::vector::search(index, query, k, |r| {
-            class_filter.is_none_or(|c| r.class == c)
-        })?;
-        // The index was built in a different vector space than this binary embeds into, so
-        // scoring against its rows would return plausible, wrong rankings. Keyword search is
-        // the same answer this tool gives a corpus with no index, under its own reason.
-        let crate::retrieval::vector::Searched::Hits(hits) = searched else {
-            return Ok(keyword_retrieve(
-                state,
+    {
+        // One filter, whichever backend answers it. The class test is the whole of what this
+        // tool filters on, and it is the pushable half — a remote index applies it during the
+        // search rather than after, so `k` counts rows the caller asked for either way. There
+        // is no residual here; `retrieve` returns what the index holds.
+        let filter = crate::retrieval::Filter::class(class_filter);
+        let searched = match &state.retrieval {
+            Retrieval::Vector(index) => Some(crate::retrieval::vector::search(
+                index,
                 query,
                 k,
-                class_filter,
-                Some(crate::retrieval::STALE_CONTRACT),
-            ));
+                &filter,
+                |_| true,
+            )?),
+            #[cfg(feature = "s3-vectors")]
+            Retrieval::Remote(remote) => Some(crate::retrieval::remote::search(
+                remote,
+                query,
+                k,
+                &filter,
+                |_| true,
+            )?),
+            _ => None,
         };
-        let results: Vec<Value> = hits
-            .iter()
-            .map(|(r, score)| {
-                json!({
-                    // Present on both arms now. `retrieve` finds and `get_node` reads, and
-                    // the handle between them was on the DEGRADED path and absent from the
-                    // good one — a corpus that built an index got results it could not
-                    // follow (#425). `find_node` tolerating a full repo path made it work by
-                    // accident; that is a tolerance in the resolver, not a promise of this
-                    // shape, and no case asserted it.
-                    //
-                    // Null rather than absent when a row resolves to no node — a catalog
-                    // source, or an index built before a file moved — following the
-                    // convention `origin` sets one arm over: a client testing the key must
-                    // not have to distinguish "unfollowable" from "a server too old to say".
-                    //
-                    // Resolved through `find_node`, which is what `get_node` resolves with.
-                    // That is the point: an id produced by one and rejected by the other is
-                    // the affordance this fixes, so they answer from one function rather
-                    // than from two that agree today. It already tolerates this exact path
-                    // form — the tolerance #425 notes was doing the work by accident, now
-                    // load-bearing on purpose and asserted below.
-                    "id": find_node(state, &r.path).map(|n| n.qualified_id()),
-                    "path": r.path,
-                    // No `origin` here, and that asymmetry is deliberate and documented:
-                    // `yidam embed` gathers this repository only, so its absence says the
-                    // search never looked outside this corpus.
-                    "class": r.class,
-                    "label": r.label,
-                    "text": r.text,
-                    "score": score,
+
+        if let Some(searched) = searched {
+            // Anything but hits is the same answer this tool gives a corpus with no index —
+            // keyword search — under whichever reason says why the good answer is unavailable.
+            let hits = match searched {
+                crate::retrieval::Searched::Hits(hits) => hits,
+                // The index was built in a different vector space than this binary embeds
+                // into, so scoring against its rows would return plausible, wrong rankings.
+                crate::retrieval::Searched::SpaceMismatch => {
+                    return Ok(keyword_retrieve(
+                        state,
+                        query,
+                        k,
+                        class_filter,
+                        Some(crate::retrieval::STALE_CONTRACT),
+                    ))
+                }
+                #[cfg(feature = "s3-vectors")]
+                crate::retrieval::Searched::Unavailable(_why) => {
+                    return Ok(keyword_retrieve(
+                        state,
+                        query,
+                        k,
+                        class_filter,
+                        Some(crate::retrieval::REMOTE_UNAVAILABLE),
+                    ))
+                }
+            };
+            let results: Vec<Value> = hits
+                .iter()
+                .map(|r| {
+                    json!({
+                        // Present on both arms now. `retrieve` finds and `get_node` reads, and
+                        // the handle between them was on the DEGRADED path and absent from the
+                        // good one — a corpus that built an index got results it could not
+                        // follow (#425). `find_node` tolerating a full repo path made it work by
+                        // accident; that is a tolerance in the resolver, not a promise of this
+                        // shape, and no case asserted it.
+                        //
+                        // Null rather than absent when a row resolves to no node — a catalog
+                        // source, or an index built before a file moved — following the
+                        // convention `origin` sets one arm over: a client testing the key must
+                        // not have to distinguish "unfollowable" from "a server too old to say".
+                        //
+                        // Resolved through `find_node`, which is what `get_node` resolves with.
+                        // That is the point: an id produced by one and rejected by the other is
+                        // the affordance this fixes, so they answer from one function rather
+                        // than from two that agree today. It already tolerates this exact path
+                        // form — the tolerance #425 notes was doing the work by accident, now
+                        // load-bearing on purpose and asserted below.
+                        "id": find_node(state, &r.path).map(|n| n.qualified_id()),
+                        "path": r.path,
+                        // No `origin` here, and that asymmetry is deliberate and documented:
+                        // `yidam embed` gathers this repository only, so its absence says the
+                        // search never looked outside this corpus.
+                        "class": r.class,
+                        "label": r.label,
+                        "text": r.text,
+                        "score": r.score,
+                    })
                 })
-            })
-            .collect();
-        let absent = results
-            .is_empty()
-            .then(|| super::absence::diagnose(state, query, class_filter, true).to_json());
-        return Ok(body(None, results, None, absent));
+                .collect();
+            let absent = results
+                .is_empty()
+                .then(|| super::absence::diagnose(state, query, class_filter, true).to_json());
+            return Ok(body(None, results, None, absent));
+        }
     }
     Ok(keyword_retrieve(
         state,

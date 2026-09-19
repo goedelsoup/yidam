@@ -274,7 +274,7 @@ tokio-util = { version = "0.7", default-features = false, features = ["io"], opt
 # `unrecognized subcommand`, which is not "this feature is unavailable" but "a
 # documented workflow is impossible". Every other gated feature degrades to a
 # missing capability; this one degraded to a broken instruction.
-default = ["reports", "tonpa", "vault-s3", "export-graph", "serve-http", "catalog-fetch"]
+default = ["reports", "tonpa", "vault-s3", "s3-vectors", "export-graph", "serve-http", "catalog-fetch"]
 # The name of the base build — and **not a supported feature set on its own.**
 #
 # It gates nothing. `reports = []` enables no dependency, and there is no
@@ -369,6 +369,23 @@ tonpa = ["dep:reqwest", "dep:tokio"]
 # The rest of the vault — addressing, the cache, the `file://` backend — is ungated and stays
 # that way. This feature buys the network and nothing else.
 vault-s3 = ["dep:hmac", "dep:reqwest", "dep:tokio", "dep:tokio-util"]
+# The S3 Vectors transport (RFC-0033) — `yidam index-push`, and the remote arm of the MCP
+# server's `retrieve`. **In the default set, deliberately**, and for the reason `vault-s3`,
+# `export-graph`, `serve-http` and `catalog-fetch` each give rather than a new one: PR CI never
+# compiles `--features index`, so gated code ships that no pull request has built.
+#
+# **It resolves zero new packages.** `reqwest`, `tokio` and `hmac` are already here through
+# `tonpa` and `vault-s3`, so the released binary and the aarch64 cross-compile are untouched.
+#
+# What sits behind it is I/O and nothing else. Everything that decides *what would be sent* —
+# the request bodies, the filter translation, the batch limits — and everything that reads what
+# came back is ungated in `src/s3vectors/`, which is #460's stated mitigation: anything gated
+# takes gated facts as arguments.
+#
+# Note what this feature does NOT buy: a remote index is still only queryable by a build that
+# can embed the query, which is `vector-read`. This feature is the network, and the light
+# binary carrying it still answers `no_vector_support`.
+s3-vectors = ["dep:hmac", "dep:reqwest", "dep:tokio"]
 # `serve --mcp --http` — MCP over a transport a URL can reach. **In the default set,
 # deliberately**, and for the reason `vault-s3` and `export-graph` give rather than a new one:
 # anything outside `default` ships code no pull request compiled, and this is the one command
@@ -408,6 +425,7 @@ full = [
   "export-graph",
   "tonpa",
   "vault-s3",
+  "s3-vectors",
   "serve-http",
   "catalog-fetch",
 ]
