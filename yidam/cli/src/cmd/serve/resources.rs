@@ -227,6 +227,13 @@ fn graph_summary(state: &ServerState) -> String {
             #[cfg(feature = "vector-read")]
             super::Retrieval::Vector(idx) =>
                 format!("{} row(s), model {}", idx.rows.len(), idx.model_id),
+            #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
+            super::Retrieval::Remote(r) => format!(
+                "remote — {}, corpus {}, model {}",
+                r.index.describe(),
+                r.corpus,
+                r.model_id
+            ),
             super::Retrieval::NoIndex => "absent (no_index)".to_string(),
             #[cfg(not(feature = "vector-read"))]
             super::Retrieval::NoVectorSupport =>

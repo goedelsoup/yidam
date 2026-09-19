@@ -223,7 +223,7 @@ impl ServerState {
             })
             .collect();
 
-        let (retrieval, indexed_commit) = crate::retrieval::load(&model)?;
+        let (retrieval, indexed_commit) = crate::retrieval::load(root, &model)?;
 
         let claim_fields = crate::claims::ClaimFields::load(&crate::paths::yidam_corpus_dir(root));
         let classes = model
@@ -391,6 +391,13 @@ fn banner(state: &ServerState) {
             "vector index: {} row(s), model {} — `retrieve` uses semantic search",
             idx.rows.len(),
             idx.model_id
+        ),
+        #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
+        Retrieval::Remote(r) => eprintln!(
+            "vector index: {} — `retrieve` uses semantic search over corpus {}, model {}",
+            r.index.describe(),
+            r.corpus,
+            r.model_id
         ),
         Retrieval::NoIndex => eprintln!(
             "vector index: absent (no_index) — `retrieve` degrades to keyword search; \

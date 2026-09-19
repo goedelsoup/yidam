@@ -40,6 +40,15 @@ pub struct YidamConfig {
 pub struct IndexConfig {
     #[cfg_attr(not(feature = "index"), allow(dead_code))]
     pub model: Option<String>,
+    /// The vector index this corpus publishes to and can be queried out of (RFC-0033).
+    ///
+    /// **Not feature-gated, and for the reason the `[lint]` note above gives about its own
+    /// field**: the section is a corpus's declaration about itself, it lives in a committed
+    /// file, and a build that cannot act on it should still be able to read it and say so.
+    /// `doctor` reports a configured remote index in every build; only querying one needs
+    /// `vector-read`.
+    #[serde(default)]
+    pub remote: Option<crate::s3vectors::RemoteIndexConfig>,
 }
 
 /// What this corpus has decided about its own gate.

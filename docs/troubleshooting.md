@@ -25,11 +25,12 @@ yidam doctor — /home/you/my-domain
                      → mise run tonpa-install
   ok    corpus       no corpus files yet
   ok    vault        none declared
+  ok    remote-index no remote index declared
   ok    policy       3 decision(s), all inherited
   ok    governance   single-elector — no .yidam/sangha/electors.md
   ok    kuten        none — the loop runs on the template's defaults
   skip  kuten-read   no kuten is declared, so nothing carries one
-  ok    build        <version> (<commit>) with features: reports, export-graph, tonpa, serve-http, vault-s3, catalog-fetch
+  ok    build        <version> (<commit>) with features: reports, export-graph, tonpa, serve-http, vault-s3, s3-vectors, catalog-fetch
 
 2 failing check(s), 2 warning(s).
 ```
@@ -52,6 +53,7 @@ exit code unless you pass `--strict`, which is the reading a CI job wants.
 | `corpora` | Did the corpora this repository depends on arrive? |
 | `corpus` | Can every corpus file be read? |
 | `vault` | Can this repository reach its vaults? |
+| `remote-index` | Is the declared remote vector index usable from here? |
 | `policy` | Do this repository's own rules compile, and which are its own? |
 | `governance` | Is this repository's governance mode carrying its own weight? |
 | `kuten` | Which kuten does this repository hold, and at what revision? |

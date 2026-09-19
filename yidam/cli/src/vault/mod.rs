@@ -24,14 +24,18 @@
 mod cache;
 mod cas;
 mod config;
-#[cfg(feature = "vault-s3")]
-mod creds;
+// Also needed by the S3 Vectors transport, which signs the same way against a different
+// service. Either feature brings them in; `default` carries both.
+#[cfg(any(feature = "vault-s3", feature = "s3-vectors"))]
+pub(crate) mod creds;
 mod derived;
 mod policy;
 #[cfg(feature = "vault-s3")]
 mod s3;
-#[cfg(feature = "vault-s3")]
-mod sigv4;
+/// AWS Signature Version 4. Public because `s3vectors::transport` signs with it against a
+/// different service — see the note there on what `s3vectors` is and is not.
+#[cfg(any(feature = "vault-s3", feature = "s3-vectors"))]
+pub mod sigv4;
 mod store;
 
 pub use cache::{Cache, Verdict};

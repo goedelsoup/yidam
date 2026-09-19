@@ -25,7 +25,10 @@ mod prose;
 pub mod provenance;
 mod regen;
 pub mod report;
-mod retrieval;
+/// How text becomes entry nodes. Public for the reason [`vault`] is: the vocabulary a search
+/// answers in — [`retrieval::Hit`] and [`retrieval::Filter`] — is shared by a local scan and a
+/// remote vector index, and [`s3vectors`] has to be able to speak it.
+pub mod retrieval;
 /// What a contribution is scored on. Public for the reason [`kuten`] is: the guard that holds
 /// the declared criteria to the implemented ones has to be able to ask both sides.
 pub mod score;
@@ -35,6 +38,11 @@ pub mod universal;
 // light build every derived repository installs can hash, cache, verify and read a vault
 // on a mounted archive. The transport is what a feature will buy, which is the split
 // `deps.rs` already arrived at for `tonpa`.
+/// The S3 Vectors transport (RFC-0033). Ungated for the reason [`vault`] gives about its own
+/// addressing: everything that decides what would be sent and what came back needs only
+/// dependencies the light build already has, so every pull request compiles and tests it. Only
+/// the I/O is behind `s3-vectors`, and only embedding a query is behind `vector-read`.
+pub mod s3vectors;
 pub mod vault;
 mod walk;
 
@@ -42,6 +50,8 @@ pub mod model;
 
 #[cfg(feature = "index")]
 pub use cmd::index_build;
+#[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
+pub use cmd::index_push;
 #[cfg(feature = "tonpa")]
 pub use cmd::tonpa;
 /// Top-level paths `yidam clone` leaves behind. Public so the guard that holds the template

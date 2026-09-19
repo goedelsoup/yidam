@@ -1,4 +1,10 @@
-//! AWS Signature Version 4, for the three verbs a content-addressed store needs.
+//! AWS Signature Version 4, for the three verbs a content-addressed store needs — and, since
+//! the S3 Vectors transport arrived, for the six JSON operations a vector index needs.
+//!
+//! The second caller changed exactly one thing here: the credential scope's service is a field
+//! on [`Signable`] rather than a constant. `s3vectors` is a different *namespace* from `s3`,
+//! not a different spelling of it, so everything else — the canonical request, the derived
+//! key's four steps, the header set — is shared verbatim between them.
 //!
 //! # Why this is hand-written
 //!
@@ -35,7 +41,15 @@ type HmacSha256 = Hmac<Sha256>;
 
 pub const ALGORITHM: &str = "AWS4-HMAC-SHA256";
 /// The S3 service name in the credential scope. Every S3-compatible store uses it.
-pub const SERVICE: &str = "s3";
+pub const S3_SERVICE: &str = "s3";
+/// The S3 Vectors service name.
+///
+/// **A different namespace, not a different spelling of S3's.** AWS says so in the form that
+/// matters here — *"S3 Vectors uses a different service namespace than Amazon S3: the
+/// `s3vectors` namespace"* — and the credential scope is one of the four inputs to the
+/// signing key, so a request signed `s3` against `s3vectors.<region>.api.aws` is rejected as
+/// a bad signature with nothing in the message naming the scope as the reason.
+pub const S3VECTORS_SERVICE: &str = "s3vectors";
 /// The digest of an empty body — what GET, HEAD and DELETE sign as their payload.
 pub const EMPTY_PAYLOAD_SHA256: &str =
     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
@@ -69,6 +83,14 @@ pub struct Signable<'a> {
     /// `YYYYMMDDTHHMMSSZ`, UTC.
     pub timestamp: &'a str,
     pub region: &'a str,
+    /// The credential scope's service — [`S3_SERVICE`] or [`S3VECTORS_SERVICE`].
+    ///
+    /// A field rather than the constant it used to be, because this signer now serves two
+    /// services and the scope is one of the four HMAC inputs that derive the signing key.
+    /// Carried on the request rather than passed to [`Signable::signature`] alone: the scope
+    /// appears in the `Authorization` header as well, and the two spellings disagreeing is a
+    /// classic SigV4 bug the server reports only as a bad signature.
+    pub service: &'a str,
 }
 
 impl Signable<'_> {
@@ -78,7 +100,12 @@ impl Signable<'_> {
     }
 
     fn scope(&self) -> String {
-        format!("{}/{}/{SERVICE}/aws4_request", self.date(), self.region)
+        format!(
+            "{}/{}/{}/aws4_request",
+            self.date(),
+            self.region,
+            self.service
+        )
     }
 
     /// The headers that are signed, in canonical order.
@@ -142,7 +169,12 @@ impl Signable<'_> {
 
     /// The signature, as lowercase hex.
     pub fn signature(&self, creds: &Credentials) -> String {
-        let key = signing_key(&creds.secret_access_key, self.date(), self.region);
+        let key = signing_key(
+            &creds.secret_access_key,
+            self.date(),
+            self.region,
+            self.service,
+        );
         hex::encode(hmac(&key, self.string_to_sign(creds).as_bytes()))
     }
 
@@ -179,10 +211,10 @@ fn hmac(key: &[u8], data: &[u8]) -> Vec<u8> {
 
 /// The four-step derived key. Each step narrows the scope, so a leaked signing key is good
 /// for one day, one region and one service.
-fn signing_key(secret: &str, date: &str, region: &str) -> Vec<u8> {
+fn signing_key(secret: &str, date: &str, region: &str, service: &str) -> Vec<u8> {
     let k_date = hmac(format!("AWS4{secret}").as_bytes(), date.as_bytes());
     let k_region = hmac(&k_date, region.as_bytes());
-    let k_service = hmac(&k_region, SERVICE.as_bytes());
+    let k_service = hmac(&k_region, service.as_bytes());
     hmac(&k_service, b"aws4_request")
 }
 
@@ -192,6 +224,14 @@ fn signing_key(secret: &str, date: &str, region: &str) -> Vec<u8> {
 /// this wrong produces a signature that is valid-looking and rejected. Every key this crate
 /// generates is unreserved characters and `/`, so this is the identity on them; a
 /// human-written prefix is why it is written properly anyway.
+///
+/// **`s3vectors` is not that exception, and this function is still right for it.** The normal
+/// rule — encode the already-encoded path a second time — would differ from this one only on
+/// a path containing a character outside the unreserved set, and every S3 Vectors path is a
+/// fixed operation literal: `/QueryVectors`, `/PutVectors`, `/ListVectors`. Single and double
+/// encoding are the same string on all of them. That is a property of the paths rather than
+/// of the encoder, so it is asserted in `s3vectors::request` beside the literals themselves,
+/// where a new operation with an awkward character in its name would go red.
 fn canonical_uri(path: &str) -> String {
     if path.is_empty() {
         return "/".to_string();
@@ -265,41 +305,70 @@ mod tests {
     #[test]
     fn the_derived_signing_key_is_stable_and_scope_dependent() {
         assert_eq!(
-            hex::encode(signing_key_for(SECRET, "20150830", "us-east-1", "service")),
+            hex::encode(signing_key(SECRET, "20150830", "us-east-1", "service")),
             "938127b5336810ddb6a5d6af445fcac9e371f9ed418ed386b022aed82901be75"
         );
         assert_eq!(
-            hex::encode(signing_key_for(SECRET, "20150830", "us-east-1", "s3")),
+            hex::encode(signing_key(SECRET, "20150830", "us-east-1", S3_SERVICE)),
             "32f78051dcde24c552811d654f4a769112bb834b03975cdd6b1fd7d16248c269"
         );
         // Narrowing any one of the four steps changes the key. Without this, a derivation
         // that ignored `region` entirely would pass the two assertions above.
         assert_ne!(
-            signing_key_for(SECRET, "20150830", "us-east-1", "s3"),
-            signing_key_for(SECRET, "20150830", "eu-west-2", "s3")
+            signing_key(SECRET, "20150830", "us-east-1", S3_SERVICE),
+            signing_key(SECRET, "20150830", "eu-west-2", S3_SERVICE)
         );
         assert_ne!(
-            signing_key_for(SECRET, "20150830", "us-east-1", "s3"),
-            signing_key_for(SECRET, "20150831", "us-east-1", "s3")
+            signing_key(SECRET, "20150830", "us-east-1", S3_SERVICE),
+            signing_key(SECRET, "20150831", "us-east-1", S3_SERVICE)
         );
     }
 
-    /// The same four steps as [`signing_key`], with the service left open so the published
-    /// vectors — which sign a service literally called `service` — can be asserted.
-    fn signing_key_for(secret: &str, date: &str, region: &str, service: &str) -> Vec<u8> {
-        let k_date = hmac(format!("AWS4{secret}").as_bytes(), date.as_bytes());
-        let k_region = hmac(&k_date, region.as_bytes());
-        let k_service = hmac(&k_region, service.as_bytes());
-        hmac(&k_service, b"aws4_request")
+    /// The two services this signer serves derive different keys from one secret.
+    ///
+    /// The assertion that matters is the inequality, and it is the whole reason `service` is
+    /// a parameter rather than a constant: `s3vectors` is a namespace and not a spelling, so
+    /// a signer that kept pinning `s3` would produce a stable, plausible, rejected signature
+    /// against every S3 Vectors endpoint.
+    #[test]
+    fn s3_and_s3vectors_derive_different_keys() {
+        assert_ne!(
+            signing_key(SECRET, "20150830", "us-east-1", S3_SERVICE),
+            signing_key(SECRET, "20150830", "us-east-1", S3VECTORS_SERVICE)
+        );
+        assert_eq!(S3VECTORS_SERVICE, "s3vectors");
     }
 
-    /// `signing_key` must be `signing_key_for` with the service pinned to `s3` — otherwise
-    /// the test above is exercising a function production does not use.
+    /// The scope on the wire is the one the request declares, for either service.
+    ///
+    /// Both halves, because the scope is written twice — into the string to sign and into the
+    /// `Authorization` header — and a field read in one place and a constant in the other is
+    /// exactly the disagreement this change could have introduced.
     #[test]
-    fn the_production_key_is_the_general_one_with_s3_pinned() {
-        assert_eq!(
-            signing_key(SECRET, "20150830", "us-east-1"),
-            signing_key_for(SECRET, "20150830", "us-east-1", "s3")
+    fn the_scope_names_the_requests_own_service() {
+        let vectors = Signable {
+            method: "POST",
+            host: "s3vectors.us-east-1.api.aws",
+            path: "/QueryVectors",
+            query: "",
+            payload_sha256: EMPTY_PAYLOAD_SHA256,
+            timestamp: "20150830T123600Z",
+            region: "us-east-1",
+            service: S3VECTORS_SERVICE,
+        };
+        assert!(vectors
+            .string_to_sign(&creds())
+            .contains("20150830/us-east-1/s3vectors/aws4_request"));
+        let auth = vectors
+            .headers_to_send(&creds())
+            .into_iter()
+            .find(|(k, _)| k == "authorization")
+            .map(|(_, v)| v)
+            .expect("authorization is always sent");
+        assert!(auth.contains("/20150830/us-east-1/s3vectors/aws4_request"));
+        assert!(
+            !auth.contains("/s3/aws4_request"),
+            "the s3 scope leaked into an s3vectors request: {auth}"
         );
     }
 
@@ -313,6 +382,7 @@ mod tests {
             payload_sha256: EMPTY_PAYLOAD_SHA256,
             timestamp: "20150830T123600Z",
             region: "us-east-1",
+            service: S3_SERVICE,
         };
         let c = s.canonical_request(&creds());
         let lines: Vec<&str> = c.split('\n').collect();
@@ -344,6 +414,7 @@ mod tests {
             payload_sha256: EMPTY_PAYLOAD_SHA256,
             timestamp: "20150830T123600Z",
             region: "us-east-1",
+            service: S3_SERVICE,
         };
         let sts = s.string_to_sign(&creds());
         let lines: Vec<&str> = sts.split('\n').collect();
@@ -369,6 +440,7 @@ mod tests {
             payload_sha256: EMPTY_PAYLOAD_SHA256,
             timestamp: "20150830T123600Z",
             region: "us-east-1",
+            service: S3_SERVICE,
         };
         let req = s.canonical_request(&c);
         assert!(req.contains("x-amz-security-token:TOKEN"));
@@ -390,6 +462,7 @@ mod tests {
             payload_sha256: EMPTY_PAYLOAD_SHA256,
             timestamp: "20150830T123600Z",
             region: "us-east-1",
+            service: S3_SERVICE,
         };
         let sent: Vec<String> = s.headers_to_send(&c).into_iter().map(|(k, _)| k).collect();
         for signed in s.signed_headers(&c).split(';') {
@@ -410,6 +483,7 @@ mod tests {
             payload_sha256: EMPTY_PAYLOAD_SHA256,
             timestamp: "20150830T123600Z",
             region: "eu-west-2",
+            service: S3_SERVICE,
         };
         let auth = s
             .headers_to_send(&creds())

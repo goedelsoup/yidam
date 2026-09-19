@@ -199,7 +199,7 @@ amendment.)*
 > deliberately not the SDK's `extract_claims`, which is a line-oriented parser for the markdown
 > node model and reads `class: gage` as a claim over a YAML instance.
 >
-> — [`tools.rs:685-687`](../../yidam/cli/src/cmd/serve/tools.rs#L685-L687)
+> — [`tools.rs:722-724`](../../yidam/cli/src/cmd/serve/tools.rs#L722-L724)
 
 and the VS Code extension declines to parse corpus YAML rather than become "a second
 implementation of `parse_node`" ([`graph.ts:107-110`](../../yidam/editors/vscode/src/graph.ts#L107-L110)),

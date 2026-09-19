@@ -15,6 +15,7 @@
 use std::cell::RefCell;
 
 use crate::model::VectorRow;
+use crate::retrieval::{Hit, Searched};
 
 pub(crate) struct IndexState {
     pub rows: Vec<VectorRow>,
@@ -29,29 +30,20 @@ pub(crate) struct IndexState {
     pub space: RefCell<Option<crate::embed_config::Verdict>>,
 }
 
-/// What a search found, or why it could not be trusted to find it.
+/// The top `k` rows the filter admits, by cosine similarity, highest first.
 ///
-/// Not a `Result`: a space mismatch is not a failure of the search, it is the search being
-/// the wrong instrument. Both call sites already carry a keyword arm — `retrieve` falls
-/// through to `keyword_retrieve` and an anchored step to `keyword_entries` — so the honest
-/// answer is the one they already give when there is no index at all, with its own reason.
-pub(crate) enum Searched<'a> {
-    Hits(Vec<(&'a VectorRow, f32)>),
-    /// This binary embeds into a different space than the index was built in.
-    SpaceMismatch,
-}
-
-/// The top `k` rows `keep` admits, by cosine similarity, highest first.
-///
-/// `keep` rather than a class name: `retrieve` filters on at most one class, and a query's
-/// anchor filters on the classes its step narrowed to *and* on the row resolving to a node
-/// this repository owns. A single `Option<&str>` could express the first and not the second.
-pub(crate) fn search<'a>(
-    index: &'a IndexState,
+/// `filter` is the pushable half of the question and `residual` the rest — see
+/// [`crate::retrieval::Filter`]. A local scan can apply both without distinction, and does not:
+/// keeping them separate here is what lets the two backends be held to one reading of a
+/// filter, and what makes `retrieve`'s class test and an anchored step's ownership test
+/// different kinds of thing in both.
+pub(crate) fn search(
+    index: &IndexState,
     query: &str,
     k: usize,
-    keep: impl Fn(&VectorRow) -> bool,
-) -> Result<Searched<'a>, String> {
+    filter: &crate::retrieval::Filter,
+    residual: impl Fn(&Hit) -> bool,
+) -> Result<Searched, String> {
     let mut embedder = index.embedder.borrow_mut();
     if embedder.is_none() {
         let (model, _, _) = crate::embedding::resolve_model(&index.model_id)
@@ -98,26 +90,30 @@ pub(crate) fn search<'a>(
     }
     let query_vec = embedder
         .as_ref()
-        .expect("embedder initialised above")
+        .ok_or("the embedder was initialised above and is missing")?
         .embed(vec![query.to_string()], None)
         .map_err(|e| format!("embedding query: {e}"))?
         .remove(0);
 
     // Index vectors are L2-normalized (see embed.config.json), so cosine
     // similarity reduces to the dot product.
-    let mut scored: Vec<(&VectorRow, f32)> = index
+    let hits: Vec<Hit> = index
         .rows
         .iter()
-        .filter(|r| keep(r))
-        .map(|r| {
-            let score: f32 = r.vector.iter().zip(&query_vec).map(|(a, b)| a * b).sum();
-            (r, score)
+        .filter(|r| filter.admits(&r.class))
+        .map(|r| Hit {
+            path: r.path.clone(),
+            class: r.class.clone(),
+            label: r.label.clone(),
+            text: r.text.clone(),
+            score: r.vector.iter().zip(&query_vec).map(|(a, b)| a * b).sum(),
         })
         .collect();
-    // Ties break on the path, not on index order: two rows at the same score must come back
-    // in the same order on every run, or a golden that pins an entry node is pinning the
-    // Arrow file's row layout.
-    scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.path.cmp(&b.0.path)));
-    scored.truncate(k);
-    Ok(Searched::Hits(scored))
+
+    // Ordered and cut by the same function the remote backend uses. Ties break on the path,
+    // not on index order: two rows at the same score must come back in the same order on every
+    // run, or a golden that pins an entry node is pinning the Arrow file's row layout.
+    Ok(Searched::Hits(crate::s3vectors::response::finish(
+        hits, residual, k,
+    )))
 }

@@ -58,6 +58,16 @@ const MIXED: &[(&str, &str)] = &[
          build path's re-export, not a gate on reading",
     ),
     (
+        "src/cmd/mod.rs",
+        "declares both halves: `index_build` is gated on `index` and `index_push` on \
+         `vector-read`, because pushing an index decodes one and never builds one",
+    ),
+    (
+        "src/main.rs",
+        "dispatches both halves, and each arm's `#[cfg(not(…))]` names the feature its own \
+         command needs — `index-build` says `index`, `index-push` says `vector-read`",
+    ),
+    (
         "src/report.rs",
         "reports the feature list, so it must ask `cfg!(feature = \"index\")` about the build \
          it is describing — `the_reported_feature_list_separates_reading_from_building` in \

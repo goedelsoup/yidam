@@ -327,7 +327,7 @@ The slot inventory, with A0's verdicts as #572 records them:
 | **object** — the artifact outside the corpus, and its direction | real — the one axis that breaks conformance | A3 §6, A6 |
 | **dialogue** — what the bootstrap asks | real | A2 |
 | **skills** — what the practice routes through | real | A2 |
-| **rubric** — the criteria a contribution is scored by | real | **A5, co-designed with #286** (scope decision 3): a rubric built alone would be `escalate_after`'s argument violated at rubric scale — *"a value compiled into the binary would be one corpus's answer imposed on every other"* ([`config.rs:54-55`](../../yidam/cli/src/config.rs#L54-L55)) |
+| **rubric** — the criteria a contribution is scored by | real | **A5, co-designed with #286** (scope decision 3): a rubric built alone would be `escalate_after`'s argument violated at rubric scale — *"a value compiled into the binary would be one corpus's answer imposed on every other"* ([`config.rs:63-64`](../../yidam/cli/src/config.rs#L63-L64)) |
 | **clocks** — proposed `[due]` and `[catalog]` values | premature, but not unmeasured (A0 correction, above): the `[due]` keys had a denominator of 2 when A0 ran and 1 corpus held two of them; `catalog.ttl_days` is declared 165 times inside the cluster, pooled median 365 against the proposed 180. Ships as a **proposal with values**, not a permission with blanks — now with the distribution beside it and a rule that retires it | A2, §9 |
 | **thresholds** — proposed `[lint]`/`[propose]` values: `escalate_after`, `withdraw_uncited_after` ([`configuration.md`](../configuration.md)) | premature on `clocks`' evidence, and — unlike `clocks` — not a kuten's to propose either: escalating a finding to a build failure is a gate change that enters through RFC-0024's layer (§7, row 5), and drafting a withdrawal is authorship §8 declines. Ships **named and unpopulated** | A2 |
 | **policy** — proposed severities and overrides | premature: no corpus carries an override in `.yidam/policy/` — re-verified 2026-09-06 under #633, and it stands on its own terms, though on the same corrected denominator as `clocks` (the Rego layer shipped four days before A0) — ships as a **proposal with values**, through RFC-0024's layer, visible as an override | A2, §7 row 5 |
@@ -914,7 +914,7 @@ an interval, and this RFC adds no second one — the same sentence RFC-0026 wrot
    thresholds decide a build failure and a drafted deletion, so a kuten names the slot and
    populates nothing. Undoing the fold also stops the layer disowning the one quote it is built
    on — `escalate_after`'s *"a value compiled into the binary would be one corpus's answer
-   imposed on every other"* ([`config.rs:54-55`](../../yidam/cli/src/config.rs#L54-L55)) is the
+   imposed on every other"* ([`config.rs:63-64`](../../yidam/cli/src/config.rs#L63-L64)) is the
    argument for the kuten existing, and it was the only slot with no row. ~~`inquiry` leaves it
    unpopulated, as it leaves `object`, `rubric` and `question_pressure`.~~
 

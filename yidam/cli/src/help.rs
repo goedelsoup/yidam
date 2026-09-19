@@ -156,7 +156,11 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         title: "Index and embeddings",
-        commands: &[w("embed"), w("index-build")],
+        // `index-push` writes, and what it writes is not in this repository — it makes a
+        // vector bucket equal to `.yidam/index/`, deletions included. The marker says a
+        // command rewrites files in the repository it is pointed at, which this does not, so
+        // it is `r`; the group title and its own help are where the writing is stated.
+        commands: &[w("embed"), w("index-build"), r("index-push")],
     },
     Group {
         // Its own group rather than beside `tonpa`, which is the nearest neighbour and is
@@ -212,7 +216,7 @@ pub const GROUPS: &[Group] = &[
 /// an entry here is a licence for a command to be missing, and `tonpa` is no longer
 /// allowed to be. Anything that drops it from the build should fail this test.
 #[cfg(test)]
-const FEATURE_GATED: &[&str] = &["index-build"];
+const FEATURE_GATED: &[&str] = &["index-build", "index-push"];
 
 /// The marker on a command that writes.
 ///

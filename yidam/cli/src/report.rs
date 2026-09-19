@@ -84,6 +84,14 @@ impl YidamBlock {
         if cfg!(feature = "vault-s3") {
             features.push("vault-s3".to_string());
         }
+        // Not a subcommand gate either: `index-push` is, but what this says is broader. A
+        // build carrying `s3-vectors` can *reach* a vector bucket — sign for it, query it,
+        // mirror into it — and one without it answers a corpus that declares `[index.remote]`
+        // by ignoring the declaration. That is exactly the difference a reader of this list
+        // is trying to see.
+        if cfg!(feature = "s3-vectors") {
+            features.push("s3-vectors".to_string());
+        }
         // Not a subcommand gate: `catalog-fetch` exists in every build and follows a
         // `kind: file` location in all of them. This says whether it can follow a `url` or a
         // `url_template` — which is the difference between a corpus that can re-fetch its

@@ -41,14 +41,81 @@ pub fn env_prefix(vault: &str) -> String {
     )
 }
 
+/// One place credentials may be looked for, and what may stand in for them.
+///
+/// A type rather than two copies of the same environment walk. The S3 Vectors transport signs
+/// the same way against a different service and needs the same lookup — but under its own
+/// prefix and with its own answer to the ambient question — and the second copy is the one
+/// that would have drifted.
+pub struct Scope {
+    /// Environment prefix, e.g. `YIDAM_VAULT_SOURCES_` or `YIDAM_INDEX_`.
+    pub prefix: String,
+    /// How to name this scope in a message: *vault `sources`*, *the remote index*.
+    pub label: String,
+    /// Whether `AWS_*` may stand in when this scope's own variables are unset.
+    pub ambient: bool,
+    /// Why not, when it may not. Spliced into the refusal so the rule explains itself where it
+    /// bites rather than only in this file's header.
+    pub isolation_note: Option<String>,
+}
+
+/// The scope for one vault. `AWS_*` is honoured only for [`AMBIENT_VAULT`] — see the header.
+pub fn vault_scope(vault: &str) -> Scope {
+    Scope {
+        prefix: env_prefix(vault),
+        label: format!("vault `{vault}`"),
+        ambient: vault == AMBIENT_VAULT,
+        isolation_note: (vault != AMBIENT_VAULT).then(|| {
+            format!(
+                "`AWS_*` is honoured only for the vault named `{AMBIENT_VAULT}`: a second vault \
+                 exists because its readership differs, and inheriting whatever credentials \
+                 happen to be in the environment is the failure that boundary was drawn to \
+                 prevent."
+            )
+        }),
+    }
+}
+
+/// The scope for the remote vector index declared in `[index.remote]`.
+///
+/// # Why the ambient fallback is licensed here
+///
+/// It reads as an inconsistency with the vault rule above, so it is worth stating. That rule
+/// withholds `AWS_*` from a *second* vault, and the reason is specific: a second vault exists
+/// **because its readership differs**, so silently inheriting the shell's identity is the
+/// boundary failing at the moment it was meant to hold.
+///
+/// A corpus declares at most one remote index. There is no second one for it to be confused
+/// with, so there is no boundary for inheritance to cross — and an AWS environment already
+/// configured for the account a corpus publishes to is exactly the common case. `YIDAM_INDEX_*`
+/// still wins where it is set, which is how a corpus whose vectors belong to a narrower
+/// audience than its shell says so.
+pub fn index_scope() -> Scope {
+    Scope {
+        prefix: "YIDAM_INDEX_".to_string(),
+        label: "the remote index".to_string(),
+        ambient: true,
+        isolation_note: None,
+    }
+}
+
 /// Resolve the credentials for one vault.
 ///
 /// `lookup` is passed rather than read so this is testable without setting process-wide
 /// variables, which parallel tests cannot do independently. Production hands it
 /// [`std::env::var`].
 pub fn resolve(vault: &str, lookup: impl Fn(&str) -> Option<String>) -> Result<Credentials> {
+    resolve_scope(&vault_scope(vault), lookup)
+}
+
+/// Resolve the credentials for any [`Scope`].
+pub fn resolve_scope(
+    scope: &Scope,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> Result<Credentials> {
     let get = |k: &str| lookup(k).filter(|v| !v.trim().is_empty());
-    let prefix = env_prefix(vault);
+    let prefix = &scope.prefix;
+    let label = &scope.label;
 
     let own_id = get(&format!("{prefix}ACCESS_KEY_ID"));
     let own_secret = get(&format!("{prefix}SECRET_ACCESS_KEY"));
@@ -58,7 +125,7 @@ pub fn resolve(vault: &str, lookup: impl Fn(&str) -> Option<String>) -> Result<C
     // resulting `403` says nothing about which key was tried.
     if own_id.is_some() != own_secret.is_some() {
         bail!(
-            "vault `{vault}` has only half its credentials in the environment.\n  \
+            "{label} has only half its credentials in the environment.\n  \
              Set both {prefix}ACCESS_KEY_ID and {prefix}SECRET_ACCESS_KEY, or neither."
         );
     }
@@ -71,7 +138,7 @@ pub fn resolve(vault: &str, lookup: impl Fn(&str) -> Option<String>) -> Result<C
         });
     }
 
-    if vault == AMBIENT_VAULT {
+    if scope.ambient {
         if let (Some(id), Some(secret)) = (get("AWS_ACCESS_KEY_ID"), get("AWS_SECRET_ACCESS_KEY")) {
             return Ok(Credentials {
                 access_key_id: id,
@@ -80,7 +147,7 @@ pub fn resolve(vault: &str, lookup: impl Fn(&str) -> Option<String>) -> Result<C
             });
         }
         bail!(
-            "no credentials for vault `{vault}`.\n  \
+            "no credentials for {label}.\n  \
              Set {prefix}ACCESS_KEY_ID and {prefix}SECRET_ACCESS_KEY, or AWS_ACCESS_KEY_ID \
              and AWS_SECRET_ACCESS_KEY.\n  \
              Credentials come from the environment only — `.yidam/config.toml` is committed \
@@ -89,11 +156,10 @@ pub fn resolve(vault: &str, lookup: impl Fn(&str) -> Option<String>) -> Result<C
     }
 
     bail!(
-        "no credentials for vault `{vault}`.\n  \
+        "no credentials for {label}.\n  \
          Set {prefix}ACCESS_KEY_ID and {prefix}SECRET_ACCESS_KEY.\n  \
-         `AWS_*` is honoured only for the vault named `{AMBIENT_VAULT}`: a second vault \
-         exists because its readership differs, and inheriting whatever credentials happen \
-         to be in the environment is the failure that boundary was drawn to prevent."
+         {}",
+        scope.isolation_note.as_deref().unwrap_or_default()
     )
 }
 
@@ -222,6 +288,60 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(err.contains("no credentials"), "{err}");
+    }
+
+    #[test]
+    fn the_remote_index_uses_its_own_variables_first() {
+        let c = resolve_scope(
+            &index_scope(),
+            env(&[
+                ("YIDAM_INDEX_ACCESS_KEY_ID", "AKIA_INDEX"),
+                ("YIDAM_INDEX_SECRET_ACCESS_KEY", "s"),
+                ("YIDAM_INDEX_SESSION_TOKEN", "tok"),
+                ("AWS_ACCESS_KEY_ID", "AKIA_AMBIENT"),
+                ("AWS_SECRET_ACCESS_KEY", "s"),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(c.access_key_id, "AKIA_INDEX");
+        assert_eq!(c.session_token.as_deref(), Some("tok"));
+    }
+
+    /// The asymmetry with a second vault, asserted rather than only argued: there is at most
+    /// one remote index, so inheritance crosses no boundary.
+    #[test]
+    fn the_remote_index_may_inherit_the_ambient_variables() {
+        let c = resolve_scope(
+            &index_scope(),
+            env(&[
+                ("AWS_ACCESS_KEY_ID", "AKIA_AMBIENT"),
+                ("AWS_SECRET_ACCESS_KEY", "s"),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(c.access_key_id, "AKIA_AMBIENT");
+
+        // And a second vault still may not, from the same environment — the two rules are
+        // different on purpose and this is where that is visible.
+        assert!(resolve(
+            "sources",
+            env(&[
+                ("AWS_ACCESS_KEY_ID", "AKIA_AMBIENT"),
+                ("AWS_SECRET_ACCESS_KEY", "s"),
+            ]),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn the_remote_index_names_its_own_variables_when_it_has_none() {
+        let err = resolve_scope(&index_scope(), env(&[]))
+            .map(|_| ())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("the remote index"), "{err}");
+        assert!(err.contains("YIDAM_INDEX_ACCESS_KEY_ID"), "{err}");
+        assert!(err.contains("committed"), "{err}");
     }
 
     #[test]

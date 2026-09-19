@@ -105,14 +105,33 @@ pub fn resolve(
     let (entries, read) = match retrieval {
         #[cfg(feature = "vector-read")]
         Retrieval::Vector(index) => {
-            match vector_entries(index, text, classes, k, nodes, corpus_dir)? {
-                Some(found) => found,
-                None => {
-                    reason = Some(crate::retrieval::STALE_CONTRACT);
-                    repair = Some(crate::retrieval::STALE_CONTRACT_REPAIR);
-                    keyword_entries(text, classes, k, nodes, corpus_dir)
-                }
-            }
+            let searched = search_index(
+                |filter, residual| {
+                    crate::retrieval::vector::search(index, text, k, filter, residual)
+                },
+                classes,
+                k,
+                nodes,
+                corpus_dir,
+            )?;
+            degrade_or(searched, &mut reason, &mut repair, || {
+                keyword_entries(text, classes, k, nodes, corpus_dir)
+            })
+        }
+        #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
+        Retrieval::Remote(remote) => {
+            let searched = search_index(
+                |filter, residual| {
+                    crate::retrieval::remote::search(remote, text, k, filter, residual)
+                },
+                classes,
+                k,
+                nodes,
+                corpus_dir,
+            )?;
+            degrade_or(searched, &mut reason, &mut repair, || {
+                keyword_entries(text, classes, k, nodes, corpus_dir)
+            })
         }
         _ => keyword_entries(text, classes, k, nodes, corpus_dir),
     };
@@ -153,38 +172,94 @@ fn candidates<'a>(
 #[cfg(feature = "vector-read")]
 type Entries = (Vec<Entry>, Vec<String>);
 
+/// A vector step's outcome: what it found, or the frozen reason it could not.
 #[cfg(feature = "vector-read")]
-fn vector_entries(
-    index: &crate::retrieval::vector::IndexState,
-    text: &str,
+enum Anchored {
+    Found(Entries),
+    /// `(degraded_reason, repair)` — both frozen strings from [`crate::retrieval`], never
+    /// composed here. Two copies of "why is retrieval degraded" is two answers to one
+    /// question, which is the whole argument `retrieval/mod.rs` opens with.
+    Degraded(&'static str, &'static str),
+}
+
+/// Fold an [`Anchored`] into entries, recording the reason when it degraded.
+#[cfg(feature = "vector-read")]
+fn degrade_or(
+    searched: Anchored,
+    reason: &mut Option<&'static str>,
+    repair: &mut Option<&'static str>,
+    fallback: impl FnOnce() -> Entries,
+) -> Entries {
+    match searched {
+        Anchored::Found(found) => found,
+        Anchored::Degraded(why, how) => {
+            *reason = Some(why);
+            *repair = Some(how);
+            fallback()
+        }
+    }
+}
+
+/// Run one backend's search and resolve its hits to nodes this step may enter through.
+///
+/// `search` is passed rather than the backend, so the local and remote arms differ in one
+/// expression rather than in a copy of everything after it.
+///
+/// **The class set is not pushed to the service, and that is deliberate.** A remote row's
+/// `class` was written by whatever `yidam embed` wrote when the index was built; a node's
+/// class is computed now, from its parent directory. The two derivations agree today and
+/// nothing holds them to it — and a pushed predicate that assumed they agree would turn a
+/// disagreement into an empty result rather than an error. The ownership test below is
+/// authoritative either way, so the cost of not pushing is a wider fetch and never a wrong
+/// answer. `retrieve`'s class filter *is* pushed, because there the filter is a claim about
+/// the row rather than about a node.
+#[cfg(feature = "vector-read")]
+fn search_index(
+    search: impl FnOnce(
+        &crate::retrieval::Filter,
+        &dyn Fn(&crate::retrieval::Hit) -> bool,
+    ) -> Result<crate::retrieval::Searched, String>,
     classes: &[String],
     k: usize,
     nodes: &[Node],
     corpus_dir: &str,
-) -> Result<Option<Entries>, String> {
+) -> Result<Anchored, String> {
     let candidates = candidates(nodes, classes);
-    // The class test is applied here rather than after truncation: `k` must count nodes the
-    // step could actually match, or a `k` of 1 against a corpus whose nearest row is of
-    // another class resolves to nothing and looks like a miss.
-    let searched = crate::retrieval::vector::search(index, text, k, |row| {
-        candidates.contains_key(row.path.as_str())
-    })?;
-    // `None`, not an error: the caller has a keyword arm and this step still resolves — it
-    // resolves the way it would against a corpus with no index, and says which.
-    let crate::retrieval::vector::Searched::Hits(hits) = searched else {
-        return Ok(None);
+    // The ownership test is applied during the search rather than after truncation: `k` must
+    // count nodes the step could actually match, or a `k` of 1 against a corpus whose nearest
+    // row is of another class resolves to nothing and looks like a miss.
+    let residual = |hit: &crate::retrieval::Hit| candidates.contains_key(hit.path.as_str());
+    let searched = search(&crate::retrieval::Filter::any(), &residual)?;
+
+    let hits = match searched {
+        crate::retrieval::Searched::Hits(hits) => hits,
+        crate::retrieval::Searched::SpaceMismatch => {
+            return Ok(Anchored::Degraded(
+                crate::retrieval::STALE_CONTRACT,
+                crate::retrieval::STALE_CONTRACT_REPAIR,
+            ))
+        }
+        #[cfg(feature = "s3-vectors")]
+        crate::retrieval::Searched::Unavailable(_why) => {
+            return Ok(Anchored::Degraded(
+                crate::retrieval::REMOTE_UNAVAILABLE,
+                crate::retrieval::REMOTE_UNAVAILABLE_REPAIR,
+            ))
+        }
     };
+
     let entries: Vec<Entry> = hits
         .iter()
-        .filter_map(|(row, score)| {
-            candidates.get(row.path.as_str()).map(|node| Entry {
+        .filter_map(|hit| {
+            candidates.get(hit.path.as_str()).map(|node| Entry {
                 node: id_of(node, corpus_dir),
-                score: *score,
+                score: hit.score,
             })
         })
         .collect();
     let read = entries.iter().map(|e| e.node.clone()).collect();
-    Ok(Some((entries, read)))
+    let _ = k;
+    Ok(Anchored::Found((entries, read)))
 }
 
 /// The fallback: the same scorer `retrieve` degrades to, over the step's candidate classes.
@@ -234,6 +309,74 @@ mod tests {
     use super::*;
     use crate::cmd::lint::Overlay;
     use crate::walk::walk_corpus_instances;
+
+    /// Degrading records the frozen reason AND its repair, together.
+    ///
+    /// The two are written into separate `&mut` bindings by a function whose other arm writes
+    /// neither, which is the shape where one of them gets forgotten. A reason with no repair is
+    /// a diagnosis with no treatment, and the states exist precisely because their treatments
+    /// differ.
+    #[cfg(feature = "vector-read")]
+    #[test]
+    fn degrading_records_the_reason_and_the_repair_and_falls_back() {
+        let mut reason = None;
+        let mut repair = None;
+        let entries = degrade_or(
+            Anchored::Degraded(
+                crate::retrieval::STALE_CONTRACT,
+                crate::retrieval::STALE_CONTRACT_REPAIR,
+            ),
+            &mut reason,
+            &mut repair,
+            || (vec![], vec!["fell back".to_string()]),
+        );
+        assert_eq!(reason, Some("stale_contract"));
+        assert_eq!(repair, Some(crate::retrieval::STALE_CONTRACT_REPAIR));
+        assert_eq!(entries.1, vec!["fell back".to_string()]);
+    }
+
+    /// A step that found something reports no reason and does not run the fallback.
+    #[cfg(feature = "vector-read")]
+    #[test]
+    fn finding_something_records_nothing_and_does_not_fall_back() {
+        let mut reason = Some("stale-from-an-earlier-step");
+        let mut repair = None;
+        let entries = degrade_or(
+            Anchored::Found((vec![], vec!["from the index".to_string()])),
+            &mut reason,
+            &mut repair,
+            || panic!("the fallback ran for a step that found its entries"),
+        );
+        assert_eq!(entries.1, vec!["from the index".to_string()]);
+        // Untouched — a successful step does not clear a reason the caller already had, and
+        // does not invent one.
+        assert_eq!(reason, Some("stale-from-an-earlier-step"));
+        assert_eq!(repair, None);
+    }
+
+    /// A remote index that did not answer reports its own reason, not the local one.
+    ///
+    /// The mapping is two lines and both arms look alike, which is exactly where a copied arm
+    /// keeps the string it was copied from — and `stale_contract` would send a reader to
+    /// rebuild an index that is not the problem.
+    #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
+    #[test]
+    fn an_unreachable_remote_does_not_report_a_stale_contract() {
+        let mut reason = None;
+        let mut repair = None;
+        degrade_or(
+            Anchored::Degraded(
+                crate::retrieval::REMOTE_UNAVAILABLE,
+                crate::retrieval::REMOTE_UNAVAILABLE_REPAIR,
+            ),
+            &mut reason,
+            &mut repair,
+            || (vec![], vec![]),
+        );
+        assert_eq!(reason, Some("remote_unavailable"));
+        assert_ne!(reason, Some(crate::retrieval::STALE_CONTRACT));
+        assert!(repair.is_some_and(|r| r.contains("index.remote")));
+    }
 
     fn fixture() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();

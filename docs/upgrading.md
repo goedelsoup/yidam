@@ -28,6 +28,27 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `degraded_reason` has a fourth value, and it is not a property of the deployment
+
+The MCP contract goes to **0.20.0**. `retrieve` and an anchored `query` may now report
+`remote_unavailable`, alongside `no_index`, `no_vector_support` and `stale_contract`.
+
+**A client that validates the field against a closed set of three will reject a valid
+response.** Nothing in a repository changes to bring this about. The new value appears when a
+corpus declares `[index.remote]` and the service behind it does not answer.
+
+If you wrote that validation, widen it. The set is frozen in
+`yidam/prelude/sdks/parity/mcp/tools.json`, which is the file to read it from.
+
+There is a second thing to know, and it is the part a cache gets wrong. The three older values
+are properties of a **deployment**: true when the server starts, true for its lifetime. The new
+one describes a **call**. A server may report it on one request and nothing on the next. A
+client that reads `degraded_reason` once at handshake and remembers it will be wrong about its
+second question.
+
+Nothing else moves. A corpus that declares no `[index.remote]` — which is every corpus today —
+answers exactly as it did.
+
 ## cli/v0.12.0
 
 ### The README status block no longer counts phases, and refuses a shallow clone

@@ -13,6 +13,8 @@
 //! `fastembed`; everything here compiles in the default build. Without it both `retrieve`
 //! and an anchored query fall through to [`keyword_score`] and say so.
 
+#[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
+pub(crate) mod remote;
 #[cfg(feature = "vector-read")]
 pub(crate) mod vector;
 
@@ -47,9 +49,133 @@ pub(crate) const STALE_CONTRACT: &str = "stale_contract";
 pub(crate) const STALE_CONTRACT_REPAIR: &str =
     "rebuild it with this yidam — `yidam embed && yidam index-build`";
 
+/// The `degraded_reason` a remote index that did not answer reports.
+///
+/// **A fourth value in a frozen vocabulary, added the way the freeze says to add one.**
+/// `prelude/sdks/parity/mcp/tools.json` lists the permitted values and says *"a value outside
+/// this set is a divergence; a server needing one should add it here first"* — so it was added
+/// there, and the contract version was bumped in all three places that carry it.
+///
+/// It exists because the three that were there cannot say this. `no_index` is false — the
+/// corpus has one and says where. `no_vector_support` is false — this binary can read an
+/// index. `stale_contract` is a claim about the vector space, which nothing has established
+/// when the service never answered. A 503 reported as any of them would send a reader to a
+/// repair that cannot work.
+///
+/// One string for every kind of failure, deliberately. The *repair* differs — a 403 is a
+/// permission and a 503 is a wait — but a client branching on this is deciding whether to
+/// trust the ranking, and the answer is the same for all of them. The specific cause goes in
+/// the human-readable message beside it, where it is not a contract.
+#[cfg_attr(
+    not(all(feature = "vector-read", feature = "s3-vectors")),
+    allow(dead_code)
+)]
+pub(crate) const REMOTE_UNAVAILABLE: &str = "remote_unavailable";
+
+/// What to do about it, in the clause shape [`Retrieval::repair`] uses.
+#[cfg_attr(
+    not(all(feature = "vector-read", feature = "s3-vectors")),
+    allow(dead_code)
+)]
+pub(crate) const REMOTE_UNAVAILABLE_REPAIR: &str =
+    "check the index named by `[index.remote]` and the credentials for it — `yidam doctor`";
+
 use anyhow::Result;
 
 use crate::model::DomainModel;
+
+/// What a search found, or why it could not be trusted to find it.
+///
+/// Not a `Result`: none of the non-`Hits` arms is a failure of the *search*, they are the
+/// search being the wrong instrument. Both call sites already carry a keyword arm — `retrieve`
+/// falls through to `keyword_retrieve` and an anchored step to `keyword_entries` — so the
+/// honest answer is the one they already give when there is no index at all, with its own
+/// reason.
+#[cfg(feature = "vector-read")]
+pub(crate) enum Searched {
+    Hits(Vec<Hit>),
+    /// This binary embeds into a different space than the index was built in.
+    SpaceMismatch,
+    /// A remote index did not answer. Carries the service's own words, for the message beside
+    /// the frozen reason — never for a client to branch on.
+    #[cfg(feature = "s3-vectors")]
+    Unavailable(String),
+}
+
+/// One row a search returned, owned.
+///
+/// **Owned, and that is the change a remote backend forced.** Until the S3 Vectors transport
+/// arrived, a search borrowed [`crate::model::VectorRow`]s out of an index held in memory and
+/// handed back `(&VectorRow, f32)`; a row that arrives over the network is not borrowed from
+/// anything this process holds. Rather than two result shapes — one per backend, converging at
+/// two call sites that would each have to know which they were looking at — there is one, and
+/// the local scan pays a clone per returned row. That is `k` clones, where `k` defaults to 5.
+///
+/// The fields are exactly what both call sites read: `cmd/serve/tools.rs` renders all five,
+/// and `cmd/query/anchor.rs` uses `path` to resolve a node and `score` to rank it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Hit {
+    /// Repository-relative path, as the index recorded it. The handle both call sites resolve
+    /// a node through.
+    pub path: String,
+    pub class: String,
+    pub label: String,
+    pub text: String,
+    /// Cosine similarity, highest first. The local scan computes it as a dot product over
+    /// normalized vectors; the remote backend converts the distance it is given. They are the
+    /// same quantity or the remote backend refuses to answer — see
+    /// [`crate::s3vectors::response::score_from_distance`].
+    pub score: f32,
+}
+
+/// What a search may return, in the part of the question a server can be asked.
+///
+/// Split from the arbitrary predicate it used to be — `keep: impl Fn(&VectorRow) -> bool` —
+/// because half of that predicate can be pushed to a remote index and half cannot, and a
+/// closure cannot be asked which half it is. `classes` is the pushable half: `retrieve`
+/// filters on at most one class, and an anchored step on the classes it narrowed to. The
+/// residual — anchor's *"and this path resolves to a node this repository owns"* — stays a
+/// closure at the call site, applied to whatever comes back.
+///
+/// Both backends read this one type, which is what stops them disagreeing about what a filter
+/// means: the local scan tests it in Rust, the remote one renders it as a metadata filter, and
+/// `s3vectors::filter` asserts the two admit the same rows.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Filter {
+    /// `None` admits every class. `Some(&[])` admits none, and is a caller's bug rather than a
+    /// state to render — the remote translation refuses it rather than sending `$in: []`,
+    /// which S3 Vectors rejects as a validation error.
+    pub classes: Option<Vec<String>>,
+}
+
+impl Filter {
+    /// Every class.
+    pub fn any() -> Self {
+        Self { classes: None }
+    }
+
+    /// One class, or every class when `None` — `retrieve`'s shape exactly.
+    pub fn class(name: Option<&str>) -> Self {
+        Self {
+            classes: name.map(|c| vec![c.to_string()]),
+        }
+    }
+
+    /// A set of classes — an anchored step's shape.
+    pub fn classes(names: &[String]) -> Self {
+        Self {
+            classes: Some(names.to_vec()),
+        }
+    }
+
+    /// Whether this filter admits a row of `class`. The local backend's whole reading of it.
+    pub fn admits(&self, class: &str) -> bool {
+        match &self.classes {
+            None => true,
+            Some(cs) => cs.iter().any(|c| c == class),
+        }
+    }
+}
 
 /// How text will be resolved to nodes, and — when it will be resolved badly — why.
 ///
@@ -67,6 +193,14 @@ pub(crate) enum Retrieval {
     /// uses exclusively — as large as the heaviest.
     #[cfg(feature = "vector-read")]
     Vector(Box<vector::IndexState>),
+    /// Semantic search, over a vector bucket.
+    ///
+    /// A fourth state rather than a flavour of [`Self::Vector`], because what can go wrong is
+    /// different in kind: a local index is present or it is not, and a remote one can be
+    /// declared, reachable, forbidden or throttled. Collapsing them would mean one arm whose
+    /// failures a caller cannot tell apart.
+    #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
+    Remote(Box<remote::RemoteState>),
     /// Keyword search: the corpus has no vector index.
     NoIndex,
     /// Keyword search: the corpus *has* an index and this build cannot read it.
@@ -89,6 +223,11 @@ impl Retrieval {
         match self {
             #[cfg(feature = "vector-read")]
             Self::Vector(_) => None,
+            // Not degraded. A declared remote index that answers is semantic search; the
+            // reason a *call* against it degrades is discovered per search, not here, and is
+            // spliced in at the call site the way `stale_contract` already is.
+            #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
+            Self::Remote(_) => None,
             Self::NoIndex => Some("no_index"),
             #[cfg(not(feature = "vector-read"))]
             Self::NoVectorSupport => Some("no_vector_support"),
@@ -101,6 +240,8 @@ impl Retrieval {
         match self {
             #[cfg(feature = "vector-read")]
             Self::Vector(_) => None,
+            #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
+            Self::Remote(_) => None,
             Self::NoIndex => Some("run `yidam embed && yidam index-build` to build one"),
             #[cfg(not(feature = "vector-read"))]
             Self::NoVectorSupport => {
@@ -112,13 +253,100 @@ impl Retrieval {
 
 /// Decide how text will be resolved, and read the indexed commit either way.
 ///
-/// Two bodies, one signature. The split is what lets the light build compile: decoding
+/// Three bodies, one signature. The split is what lets the light build compile: decoding
 /// `index/corpus.arrow` needs `arrow-ipc` and embedding a query needs `fastembed`, and
 /// neither is in the default dependency set. What *is* in it is the raw `index/meta.json`
 /// that `load_domain_model` already read — enough to know an index exists and which commit
 /// it was built at, which is exactly the two facts a degraded caller should still report.
+///
+/// # A declared remote index wins
+///
+/// A corpus that writes `[index.remote]` is queried out of it, even when a local
+/// `.yidam/index/` is also present. Falling back to the local one when the service is
+/// unreachable was considered and rejected: two indexes that can disagree, switched between
+/// silently, is a ranking whose provenance nobody can state. What happens instead is what
+/// happens when there is no index at all — keyword search, under [`REMOTE_UNAVAILABLE`].
+#[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
+pub(crate) fn load(
+    root: &std::path::Path,
+    model: &DomainModel,
+) -> Result<(Retrieval, Option<String>)> {
+    if let Some(state) = remote_state(root, model)? {
+        // `None`, not a guess. The commit a remote index was built at is on the records
+        // themselves and reading it would cost a round trip at startup, on a path that may
+        // never search. The MCP contract's `stale` is a tri-state for exactly this: the
+        // honest answer to "is it behind?" here is "cannot tell".
+        let local = model.index.as_ref().and_then(indexed_commit);
+        return Ok((Retrieval::Remote(Box::new(state)), local));
+    }
+    load_local(model)
+}
+
+/// Build the remote state, or `None` when this corpus declares no remote index.
+#[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
+fn remote_state(
+    root: &std::path::Path,
+    model: &DomainModel,
+) -> Result<Option<remote::RemoteState>> {
+    use anyhow::Context;
+
+    let config = crate::config::load_yidam_config(root)?;
+    let Some(declared) = config.index.remote.as_ref() else {
+        return Ok(None);
+    };
+    let index = crate::s3vectors::RemoteIndex::resolve(declared)?;
+
+    // Same refusal `index-push` makes, for the same reason: every key is prefixed with the
+    // corpus, so a repository that cannot see its own root commit would be asking about a
+    // corpus that is not the one it is in.
+    let corpus = model
+        .provenance
+        .genesis_hash
+        .as_deref()
+        .map(|h| h.chars().take(12).collect::<String>())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "this repository cannot see its own genesis commit, so it cannot say which \
+                 corpus in the remote index is its own.\n  \
+                 A shallow clone is the usual cause — `git fetch --unshallow`."
+            )
+        })?;
+
+    // The model to embed queries with. A local `embed.config.json` is authoritative when one
+    // is present; otherwise the default, checked against the index's own witness on the first
+    // search. It is not read from the witness here because that is a round trip at startup.
+    let model_id = model
+        .index
+        .as_ref()
+        .and_then(|i| i.embed_config.as_ref())
+        .map(|c| c.model_id.clone())
+        .unwrap_or_else(|| crate::embedding::DEFAULT_MODEL.to_string());
+
+    let creds = crate::vault::creds::resolve_scope(&crate::vault::creds::index_scope(), |k| {
+        std::env::var(k).ok()
+    })
+    .context("the remote index declared in `[index.remote]` needs credentials")?;
+
+    Ok(Some(remote::RemoteState {
+        index: index.clone(),
+        corpus,
+        model_id,
+        client: crate::s3vectors::transport::Client::new(index, creds)?,
+        embedder: std::cell::RefCell::new(None),
+        space: std::cell::RefCell::new(None),
+    }))
+}
+
+#[cfg(all(feature = "vector-read", not(feature = "s3-vectors")))]
+pub(crate) fn load(
+    _root: &std::path::Path,
+    model: &DomainModel,
+) -> Result<(Retrieval, Option<String>)> {
+    load_local(model)
+}
+
 #[cfg(feature = "vector-read")]
-pub(crate) fn load(model: &DomainModel) -> Result<(Retrieval, Option<String>)> {
+fn load_local(model: &DomainModel) -> Result<(Retrieval, Option<String>)> {
     use crate::embed_config::EmbedConfig;
     use crate::model::index_rows;
 
@@ -149,7 +377,10 @@ pub(crate) fn load(model: &DomainModel) -> Result<(Retrieval, Option<String>)> {
 }
 
 #[cfg(not(feature = "vector-read"))]
-pub(crate) fn load(model: &DomainModel) -> Result<(Retrieval, Option<String>)> {
+pub(crate) fn load(
+    _root: &std::path::Path,
+    model: &DomainModel,
+) -> Result<(Retrieval, Option<String>)> {
     match &model.index {
         // An index is on disk and this build cannot read it. Not `NoIndex`: the repair is
         // a different one, and telling a user to run `index-build` against an index they
@@ -204,11 +435,14 @@ mod tests {
     /// a client branches on them. Pinning them here means a rename has to be a deliberate
     /// act that also touches the freeze.
     ///
-    /// All three, now that `stale_contract` has an implementation (#536). It was in the
-    /// frozen set from the start and nothing produced it, so the one value describing an
-    /// index built in another vector space was the one value never asserted here — and a
-    /// fourth string invented for that state would have been a divergence the freeze
-    /// explicitly forbids.
+    /// All four. `stale_contract` got an implementation in #536 — it was in the frozen set
+    /// from the start and nothing produced it — and `remote_unavailable` went the other way
+    /// round: the state existed first, and it was added to the freeze before it was produced
+    /// here, which is the order the contract itself prescribes for a new value.
+    ///
+    /// This pins the spellings. `degraded_reason_freeze.rs` is what holds them to
+    /// `prelude/sdks/parity/mcp/tools.json`, because a constant that agrees with a second
+    /// constant proves nothing about the document a client reads.
     #[test]
     fn the_degraded_reasons_are_distinct_and_stable() {
         assert_eq!(Retrieval::NoIndex.degraded_reason(), Some("no_index"));
@@ -218,10 +452,16 @@ mod tests {
             Some("no_vector_support")
         );
         assert_eq!(super::STALE_CONTRACT, "stale_contract");
+        assert_eq!(super::REMOTE_UNAVAILABLE, "remote_unavailable");
 
         // Distinct, because each carries a different repair and a collision would collapse
         // two of them into one.
-        let all = ["no_index", "no_vector_support", super::STALE_CONTRACT];
+        let all = [
+            "no_index",
+            "no_vector_support",
+            super::STALE_CONTRACT,
+            super::REMOTE_UNAVAILABLE,
+        ];
         let mut unique = all.to_vec();
         unique.sort_unstable();
         unique.dedup();

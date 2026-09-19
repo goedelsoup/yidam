@@ -31,7 +31,7 @@ Read-only, and they exit nonzero on a problem — which is what makes them usabl
 | `doctor` | Is this setup sound? One verdict per check, and a remedy where something is owed. `--strict` makes warnings fail. See [Troubleshooting](troubleshooting.md) |
 | `graph-check` | The graph gate: orphans, broken links, missing labels |
 | `lint` | Corpus quality checks against the baseline ratchet |
-| `index-verify` | Does an embedding provider reproduce this index's contract? |
+| `index-verify` | Does an embedding provider reproduce this index's contract? `--remote` reads the contract from the vector index `[index.remote]` declares |
 | `samudaya-audit` | Inspect and validate `samudaya/` seed files *(no flags)* |
 
 `lint` carries the most flags of any command, because it is the one with a ratchet:
@@ -439,10 +439,18 @@ One step per invocation: dependency order, freshness and `--dry-run` are not bui
 |---|---|
 | `embed` * | Extract embedding text from corpus instances to `.yidam/embeddings/`. `--no-catalog` |
 | `index-build` * | Build the LanceDB vector index and export Arrow IPC for the web shell. `--model`. **Needs `--features index`** |
+| `index-push` | Mirror `.yidam/index/` into the vector bucket `[index.remote]` declares. `--dry-run`, `--create`. **Needs `--features vector-read`** |
 
 `embed` walks `.yidam/catalog/` by default. In a real derived corpus the catalog was 51.3% of
 the indexable text, against the corpus's 41.9%. Leaving it out had been a scope decision nobody
 made on purpose.
+
+`index-push` is a mirror. It writes every row the local index holds, and deletes the ones this
+corpus no longer has. A node removed from the corpus stops being findable. It never touches a
+record that is not this corpus's.
+
+It needs `vector-read`, not `index`. Decoding an index wants no protoc, so the machine that
+pushes need not be the one that built.
 
 ## Artifacts
 
