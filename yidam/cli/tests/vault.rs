@@ -1318,6 +1318,51 @@ fn vault_status_is_the_same_whatever_this_machine_has_cached() {
     );
 }
 
+/// The hyphen costs a person a working-tree change, so the command says so before making it.
+///
+/// #831: `yidam vault status` reads and `yidam vault-status` writes, and what the writing one
+/// printed first was a status report — the `updated README.md` line came after the write, under
+/// a screen of output that looked like the whole point of the command.
+///
+/// On stderr, so a `yidam vault-status > block.md` still gets only the block.
+#[test]
+fn the_writing_one_says_it_writes_before_it_writes() {
+    let tmp = repo(None);
+    let cache = tmp.path().join("cache");
+    std::fs::create_dir_all(tmp.path().join(".yidam")).unwrap();
+    write(
+        &tmp.path().join("README.md"),
+        b"# c\n\n<!-- REGEN: yidam vault-status\n-->\n_x_\n<!-- /REGEN -->\n",
+    );
+
+    let r = run(tmp.path(), &cache, &["vault-status"]);
+    assert!(
+        r.stderr.contains("writes the REGEN block in README.md"),
+        "stderr: {}",
+        r.stderr
+    );
+    assert!(
+        r.stderr
+            .contains("`yidam vault status` is the read-only report"),
+        "it names the command the reader probably meant: {}",
+        r.stderr
+    );
+    assert!(
+        !r.stdout.contains("writes the REGEN block"),
+        "the notice belongs on stderr, not in the block: {}",
+        r.stdout
+    );
+
+    // And the read-only one is read-only, which is the premise the notice rests on.
+    let before = std::fs::read_to_string(tmp.path().join("README.md")).unwrap();
+    run(tmp.path(), &cache, &["vault", "status"]).ok();
+    assert_eq!(
+        std::fs::read_to_string(tmp.path().join("README.md")).unwrap(),
+        before,
+        "`vault status` modified the working tree"
+    );
+}
+
 /// A corpus with no vault says so, and says it differently once it has started recording
 /// artifacts it has nowhere to put.
 #[test]

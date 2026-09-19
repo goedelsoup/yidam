@@ -149,7 +149,13 @@ pub const GROUPS: &[Group] = &[
             // question for whoever wrote it, and filing this under "exit nonzero on a
             // problem" would teach a reader that a repository diverging is a defect.
             r("cohort"),
-            r("decisions-log"),
+            // Beside the history commands rather than under the README generators, for the
+            // reason `kuten` gives one group up: what it lists is a practice's record, not an
+            // index of files. But it is `w`, and was `r` until #831 — it rewrites the REGEN
+            // block in `.yidam/decisions/README.md` whenever that file carries one, and no
+            // corpus the prelude creates does, so the marker was wrong in the direction
+            // nothing would notice.
+            w("decisions-log"),
             r("sangha"),
             r("vocabulary"),
         ],
@@ -183,7 +189,12 @@ pub const GROUPS: &[Group] = &[
         // corpus in the state it claims*; this one answers *what did this repository decide
         // the rule was*, which is a question about the gate rather than a use of it.
         title: "The rules this repository writes about itself",
-        commands: &[w("policy")],
+        // `r`, and it was `w` until #831 found it — the group's title has the verb in it, and
+        // what writes the rules is a person. `check`, `eval`, `gate` and `test` compile and
+        // ask; not one of them opens a file for writing. A marker on a command that reads is
+        // not a harmless surplus: it is the same claim as the marker on `run`, and it makes
+        // the one that means something cheaper to ignore.
+        commands: &[r("policy")],
     },
     Group {
         title: "Export",
@@ -375,8 +386,15 @@ mod tests {
         assert_eq!(seen.len(), names.len(), "a command is grouped twice");
     }
 
-    /// The eleven REGEN generators are the reason the write marker exists: they are the
-    /// commands that look like reads. `regen` runs all eleven, so it writes too.
+    /// The REGEN generators are the reason the write marker exists: they are the commands
+    /// that look like reads. `regen` runs all of them, so it writes too.
+    ///
+    /// **This group is not the set of generators**, and reading it as one is how two
+    /// generators came to be marked read-only (#831). `kuten` and `decisions-log` are filed
+    /// by what they report, for the reasons given beside them. The set itself is guarded in
+    /// [`crate::cmd`]'s `regen` module, against the crate's own `update_file_regen` call
+    /// sites rather than against another list — including the part this test cannot see,
+    /// which is whether a generator is in any group at all.
     #[test]
     fn every_regen_generator_is_marked_as_writing() {
         let readme = GROUPS
@@ -386,6 +404,31 @@ mod tests {
         assert_eq!(readme.commands.len(), 12, "eleven generators plus `regen`");
         for entry in readme.commands {
             assert!(entry.writes, "{} must be marked as writing", entry.name);
+        }
+    }
+
+    /// Every generator, wherever it is filed, carries the marker.
+    ///
+    /// The test above looks at a *group* and asks whether its entries are marked; this looks
+    /// at the generators and asks whether they are here at all. `decisions-log` passed the
+    /// first for as long as it existed — it is filed with the history commands — while being
+    /// marked read-only and documenting itself as *"Read-only."* (#831).
+    ///
+    /// The list comes from the library, where [`yidam::regen_generator_names`] is in turn held
+    /// to the crate's own `update_file_regen` call sites. Neither end of that chain can name a
+    /// generator the other has not got.
+    #[test]
+    fn every_generator_carries_the_write_marker_wherever_it_is_filed() {
+        for name in yidam::regen_generator_names() {
+            let entry = GROUPS
+                .iter()
+                .flat_map(|g| g.commands)
+                .find(|e| e.name == name)
+                .unwrap_or_else(|| panic!("`{name}` writes a REGEN block and is in no group"));
+            assert!(
+                entry.writes,
+                "`{name}` rewrites a tracked file and `--help` marks it read-only"
+            );
         }
     }
 

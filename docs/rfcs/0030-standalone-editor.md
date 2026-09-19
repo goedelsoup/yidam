@@ -269,7 +269,7 @@ because it is a property of the seam this design chose, not of the code that hit
 > inside this one, and `git rev-parse --show-toplevel` from it answers with yidam, which has
 > no `.yidam/` — so the only way to export it was to copy it elsewhere and `git init` the copy.
 >
-> — [`main.rs:469-473`](../../yidam/cli/src/main.rs#L469-L473)
+> — [`main.rs:478-482`](../../yidam/cli/src/main.rs#L478-L482)
 
 The five commands this surface spawns do not have that flag. So `yidam-edit --root DIR` sets
 the child's working directory and inherits exactly the behaviour the quotation describes:

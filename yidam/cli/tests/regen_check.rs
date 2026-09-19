@@ -138,6 +138,46 @@ fn regen_then_check_passes() {
     assert_eq!(doc["stale"].as_array().unwrap().len(), 0);
 }
 
+/// A `vault-status` block is one this gate reports, which it was not until #831.
+///
+/// The block sat outside the generator list, so `yidam regen` did not populate it and
+/// `--check` did not call it stale. In the corpus that reported it, the block held its "run
+/// this to populate" placeholder from genesis through sixty-two phases and every CI run —
+/// empty at first, and simply *wrong* from the day a vault was declared.
+///
+/// Staged onto the fixture rather than added to it: the fixture is the parity corpus the SDKs
+/// are graded against, and a block here is not a fact about `update_regen`.
+#[test]
+fn a_vault_status_block_is_reported_stale_and_can_be_satisfied() {
+    let tmp = stage();
+    let staged = format!(
+        "{}\n## Artifacts\n\n<!-- REGEN: yidam vault-status\n-->\n\
+         _Run `yidam regen` to populate._\n<!-- /REGEN -->\n",
+        readme(tmp.path())
+    );
+    std::fs::write(tmp.path().join("README.md"), &staged).unwrap();
+
+    let json = run(tmp.path(), &["regen", "--check", "--format", "json"]);
+    let doc: serde_json::Value = serde_json::from_str(&json.stdout).unwrap();
+    let stale: Vec<&str> = doc["stale"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["generator"].as_str().unwrap())
+        .collect();
+    assert_eq!(json.code, 1, "{}", json.stdout);
+    assert!(stale.contains(&"vault-status"), "stale: {stale:?}");
+
+    // Satisfiable, and by the command the gate's own message prescribes.
+    assert_eq!(run(tmp.path(), &["regen"]).code, 0);
+    assert_eq!(run(tmp.path(), &["regen", "--check"]).code, 0);
+    assert!(
+        readme(tmp.path()).contains("No vault configured"),
+        "the block holds what the generator renders: {}",
+        readme(tmp.path())
+    );
+}
+
 /// Both formats agree on the verdict, as every other gate in this contract does.
 #[test]
 fn exit_codes_are_identical_across_formats() {

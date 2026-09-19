@@ -224,6 +224,10 @@ That is their purpose, and it is why every one carries a `*`.
 | `packages-index` * | The domain-computer packages in `packages/` *(no flags)* |
 | `bundle-status` * | Freshness of `.yidam/bundle.yiz` against the corpus it was built from *(no flags)* |
 
+Three more generators are filed by what they report, not by the fact that they generate:
+[`vault-status`](#artifacts), [`decisions-log`](#the-corpus-and-its-history) and
+[`kuten`](#the-practice). `yidam regen` runs all thirteen.
+
 In a derived repository a stale REGEN block is a failing build. Run `mise run regen` before
 committing; `yidam regen --check` is what CI runs.
 
@@ -259,7 +263,7 @@ the read-only overview.
 | `phases` | Active inquiry phases — `ma/*` and `rigpa/*` branches. Each row's `State` is `active`, `settled`, `rewritten` or `position` |
 | `replay` | Corpus health reconstructed across the repository's whole history. `--every` |
 | `cohort <repo>…` | What a set of derived repositories says about the prelude they inherited: per norm, how many kept it. `--paths` |
-| `decisions-log` | Decision records in `.yidam/decisions/`, newest first *(no flags)* |
+| `decisions-log` * | Decision records in `.yidam/decisions/`, newest first. Writes the `<!-- REGEN: yidam decisions-log -->` block where that directory has a README carrying one *(no flags)* |
 | `sangha` | Electors, positions, and settled resolutions |
 | `vocabulary` | The closed commit vocabulary. `--check <subject>` tests a subject line before the commit exists |
 | `rename <old> <new>` * | Rename a node, rewriting every edge into it. `--dry-run` |
@@ -472,7 +476,7 @@ knowledge claim, only the time to re-fetch.
 | `vault status` | Where each named artifact goes and where it is, grouped by store. `--remote` asks each vault — one HEAD per record, never a bucket listing |
 | `vault gc` | Report cached artifacts no committed file names; `--yes` deletes them |
 | `vault materialize` | Hardlink cached artifacts into `.yidam/vault/<slug>/` under names a person can open; `--entry` narrows |
-| `vault-status` | Writes the `<!-- REGEN: yidam vault-status -->` block. Committed files only — never the cache, never the network |
+| `vault-status` * | Writes the `<!-- REGEN: yidam vault-status -->` block in README.md. Committed files only — never the cache, never the network. `yidam vault status`, a hyphen apart, is the read-only report; `yidam regen` runs this one with the rest |
 | `catalog-fetch [entry]` * | Follow a catalog entry's declared address, cache the bytes under their digest, record them in `artifacts:`, and commit it as `refresh:`. `--location` narrows to one address; `--bind name=value` fills a `url_template` slot; `--dry-run` resolves and writes nothing |
 | `catalog-reconcile [entry]` * | Rewrite a drifted `used-by` list to the citations, which are authoritative, and commit it as `reconcile:`. `--dry-run` reports and writes nothing |
 
