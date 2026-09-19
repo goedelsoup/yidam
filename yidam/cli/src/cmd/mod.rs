@@ -108,6 +108,9 @@ pub use phases::phases;
 pub use propose::{propose, Options as ProposeOptions};
 pub use query::query;
 pub use regen::regen;
+// For `help.rs`'s guard that every generator carries the write marker — see
+// `regen::generator_names`.
+pub use regen::generator_names as regen_generator_names;
 // `doctor` asks the same question `regen --check` asks, through the same generator list.
 pub use migrate::{migrate, Operation as MigrateOperation};
 pub use policy::{run as run_policy, PolicyCommand};

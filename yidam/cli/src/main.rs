@@ -216,9 +216,14 @@ enum Command {
     /// Writes the `<!-- REGEN: yidam bundle-status -->` block in the repository's README.
     #[command(name = "bundle-status")]
     BundleStatus,
-    /// Report where this corpus keeps its artifacts, and which store holds each.
+    /// Write the README's `vault-status` block — `yidam vault status` is the read-only report
     ///
-    /// Writes the `<!-- REGEN: yidam vault-status -->` block in the repository's README.
+    /// **This modifies README.md**, which is the one thing its name does not say: it is one
+    /// character from `yidam vault status`, which reads. That command answers "is my vault
+    /// set up?" and touches nothing; this one rewrites the
+    /// `<!-- REGEN: yidam vault-status -->` block, and `yidam regen` runs it alongside every
+    /// other generator — so there is rarely a reason to run it alone.
+    ///
     /// Reads committed files only — never the local cache, and never the network — because a
     /// generated block that varied by machine could not be checked.
     #[command(name = "vault-status")]
@@ -423,7 +428,11 @@ enum Command {
     },
     /// List the decision records in `.yidam/decisions/`, newest first.
     ///
-    /// Read-only.
+    /// **Not read-only**, though it was documented as such until #831: it is a generator like
+    /// the other twelve, and rewrites the `<!-- REGEN: yidam decisions-log -->` block in
+    /// `.yidam/decisions/README.md` when that file carries one. No corpus the prelude creates
+    /// does, so in practice the write is usually a no-op — which is how the claim survived.
+    /// `yidam regen` runs it with the rest.
     #[command(name = "decisions-log")]
     DecisionsLog,
     /// Show corpus node and edge changes between two git refs
@@ -1008,7 +1017,7 @@ fn main() -> Result<()> {
         Command::CratesIndex => yidam::crates_index(),
         Command::PackagesIndex => yidam::packages_index(),
         Command::BundleStatus => yidam::bundle_status(),
-        Command::VaultStatus => yidam::vault_status(),
+        Command::VaultStatus => yidam::vault_status(true),
         Command::Doctor { strict, format } => yidam::doctor(strict, format),
         Command::Due { strict, format } => yidam::due(strict, format),
         Command::Regen { check, format } => yidam::regen(check, format),

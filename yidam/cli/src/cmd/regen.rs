@@ -44,6 +44,15 @@ const GENERATORS: &[Generator] = &[
     ("crates-index", super::crates_index),
     ("packages-index", super::packages_index),
     ("bundle-status", super::bundle_status),
+    // `vault-status` and `decisions-log` were generators that this list did not name (#831),
+    // so `yidam regen` did not populate their blocks and `--check` did not report them stale.
+    // In the corpus that reported it, the vault block held its "run this to populate"
+    // placeholder from genesis through sixty-two phases — it went from empty to *wrong* the
+    // day a vault was declared, and no gate had an opinion either way. `false` is
+    // `vault_status`'s `direct`: see its own note on the one character between it and a
+    // read-only command.
+    ("vault-status", || super::vault_status(false)),
+    ("decisions-log", super::decisions_log),
     // The declaration a corpus makes about its own practice, into the file an agent reads
     // at session start. Regenerated rather than hand-copied: a hand-copied declaration is
     // one re-vendor away from being silently wrong.
@@ -52,9 +61,13 @@ const GENERATORS: &[Generator] = &[
 
 /// The names of every generator this command runs, in order.
 ///
-/// Test-only: it exists so the set can be asserted rather than described in a comment.
-#[cfg(test)]
-fn generator_names() -> Vec<&'static str> {
+/// Public because the guard on the other end of the chain lives in the binary: `help.rs`
+/// declares which commands write, and `main.rs` is a separate compilation unit from this
+/// library, so a `#[cfg(test)]` item here is invisible to it. The chain is the crate's own
+/// `update_file_regen` call sites → [`GENERATORS`] → the `*` marker in `--help`, each link
+/// asserted rather than described, because a generator can be missing from either end and
+/// #831 found it missing from both.
+pub fn generator_names() -> Vec<&'static str> {
     GENERATORS.iter().map(|(name, _)| *name).collect()
 }
 
@@ -173,28 +186,97 @@ fn report_check(stale: Vec<crate::regen::Stale>, format: crate::report::Format) 
 mod tests {
     use super::*;
 
-    /// The set is asserted, not described. If a generator is added to the CLI and not to
-    /// this list, its REGEN block is refreshed by nothing and checked by nothing — which
-    /// is the defect this command exists to close.
+    /// Every generator this crate has, discovered from its own source.
+    ///
+    /// Returns the distinct `<command>` each `update_file_regen` call site names, how many
+    /// call sites were found, and how many of them named their generator with a literal. The
+    /// last two are what stop a call whose command is computed from passing as a silently
+    /// smaller set.
+    ///
+    /// **Discovered rather than listed**, and that is the whole point of it. The test this
+    /// replaced compared [`GENERATORS`] against a second hardcoded array, so it agreed with
+    /// itself for as long as both were edited together and reported nothing when they were
+    /// not — which is how `vault-status` and `decisions-log` came to be generators that
+    /// `yidam regen` did not run and `--check` did not check (#831). A guard whose subject is
+    /// a list cannot see a hole in that list; this one's subject is the crate.
+    ///
+    /// Comment lines are dropped before the scan. Several doc comments here and in
+    /// `lint/mod.rs` name `update_file_regen` and quote generator strings, and a guard that
+    /// counts prose as code is satisfied by prose.
+    fn generators_in_source() -> (std::collections::BTreeSet<String>, usize, usize) {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut found = std::collections::BTreeSet::new();
+        let mut call_sites = 0usize;
+        let mut named = 0usize;
+        for entry in walkdir::WalkDir::new(&src).into_iter().flatten() {
+            if entry.path().extension().is_none_or(|e| e != "rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(entry.path()).expect("a source file reads");
+            let code: String = text
+                .lines()
+                .filter(|l| !l.trim_start().starts_with("//"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            for (at, _) in code.match_indices("update_file_regen(") {
+                // Two things that are not call sites. `fn ` is the definition — it takes
+                // `command: &str` and names no generator. A leading quote is this scanner's
+                // own needle, in this very file: a guard that matches its own source finds a
+                // generator named the empty string and reports it missing.
+                if code[..at].ends_with("fn ") || code[..at].ends_with('"') {
+                    continue;
+                }
+                call_sites += 1;
+                // A generous window: the widest call here spreads the path, the command and
+                // the content over four lines.
+                let window = &code[at..code.len().min(at + 400)];
+                if let Some(start) = window.find("\"yidam ") {
+                    let rest = &window[start + 1..];
+                    if let Some(end) = rest.find('"') {
+                        named += 1;
+                        found.insert(rest[..end].trim_start_matches("yidam ").to_string());
+                    }
+                }
+            }
+        }
+        (found, call_sites, named)
+    }
+
+    /// Every generator the crate has is one this command runs.
+    ///
+    /// A generator absent from [`GENERATORS`] has a REGEN block refreshed by nothing and
+    /// checked by nothing — which is the defect this command exists to close, and which it
+    /// had two instances of while a hardcoded pair of lists guarded the set.
     #[test]
-    fn every_regen_generator_is_listed() {
-        let mut got = generator_names();
-        got.sort_unstable();
-        let mut want = [
-            "agents-index",
-            "bundle-status",
-            "catalog-audit",
-            "corpus-index",
-            "crates-index",
-            "index-status",
-            "kuten",
-            "open-questions",
-            "packages-index",
-            "skills-index",
-            "status",
-        ];
-        want.sort_unstable();
-        assert_eq!(got, want);
+    fn every_generator_in_the_crate_is_listed() {
+        let (found, call_sites, named) = generators_in_source();
+        // A floor on the scanner, not a count of the crate. It says the match still finds a
+        // population; what the population *is* is the assertion below. A guard that reports
+        // "nothing is missing" after matching nothing is the failure this whole test replaced.
+        assert!(
+            found.len() > 5,
+            "the scan found only {} generator(s), so it is no longer reading call sites — the \
+             shape it matches on has changed: {found:?}",
+            found.len()
+        );
+        assert_eq!(
+            named,
+            call_sites,
+            "{} of {call_sites} `update_file_regen` call sites do not name their generator \
+             with a literal, so this scan cannot see which block they write. Name it, or \
+             this guard is smaller than it reads.",
+            call_sites - named
+        );
+        let listed = generator_names();
+        let missing: Vec<&String> = found
+            .iter()
+            .filter(|g| !listed.contains(&g.as_str()))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "{missing:?} write REGEN blocks and are not in GENERATORS — `yidam regen` will \
+             not populate them and `--check` will not report them stale"
+        );
     }
 
     #[test]

@@ -52,6 +52,9 @@ pub mod model;
 pub use cmd::index_build;
 #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
 pub use cmd::index_push;
+/// Every REGEN generator `yidam regen` runs. Public so `help.rs` — which lives in the binary,
+/// a separate compilation unit — can assert that each one carries the write marker.
+pub use cmd::regen_generator_names;
 #[cfg(feature = "tonpa")]
 pub use cmd::tonpa;
 /// Top-level paths `yidam clone` leaves behind. Public so the guard that holds the template

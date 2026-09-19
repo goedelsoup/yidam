@@ -117,6 +117,9 @@ pub enum VaultCommand {
         entry: Option<String>,
     },
     /// What the corpus names, where each artifact goes, and where it is
+    ///
+    /// Read-only, and reports what *this machine* holds. The hyphenated `yidam vault-status`
+    /// is a different command: it writes the README's REGEN block, from committed files only.
     Status {
         /// Ask each vault about the artifacts routed to it. One HEAD per record — bounded by
         /// the catalog, never by the bucket, because nothing here lists a store.
@@ -882,8 +885,27 @@ fn human_bytes(path: &Path) -> String {
 /// what each holds, how much of the catalog routes to it, and what `.yidam/index.lock`
 /// records. All of that is the same in every clone, which is the only way a generated block
 /// can be checked.
-pub fn vault_status() -> Result<()> {
+///
+/// # `direct` — and the one character between this and a read-only command (#831)
+///
+/// `yidam vault-status` writes a tracked file; `yidam vault status` — no hyphen — reads.
+/// A person reaching for "is my vault set up?" wants the second and types the first, and
+/// what this printed first was a status report that looked like the whole point of the
+/// command, with `updated README.md` underneath it *after* the write.
+///
+/// So a direct invocation says what it is about to do before doing it. `yidam regen` passes
+/// `false`: there the write is the entire premise of the command the person ran, and a line
+/// per generator saying so is noise in front of the thirteen it already announces.
+pub fn vault_status(direct: bool) -> Result<()> {
     let root = repo_root()?;
+    if direct {
+        // stderr, not stdout: the block itself goes to stdout, and a notice mixed into it
+        // would end up in anything piping this command's output.
+        eprintln!(
+            "`vault-status` writes the REGEN block in README.md. `yidam vault status` is \
+             the read-only report; `yidam regen` refreshes every block at once."
+        );
+    }
     let content = render_vault_status(&root)?;
     crate::regen::emit(&content);
     crate::regen::update_file_regen(&root.join("README.md"), "yidam vault-status", &content)

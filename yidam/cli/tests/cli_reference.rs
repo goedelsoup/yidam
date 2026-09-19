@@ -35,6 +35,15 @@ fn reference() -> String {
 /// the `*` write-marker or two spaces before its description. The group headings are flush
 /// left and the option block is filtered out by requiring a lowercase-and-hyphens name.
 fn commands_from_help() -> BTreeSet<String> {
+    writers_from_help().into_keys().collect()
+}
+
+/// Every subcommand, and whether `--help` marks it as writing.
+///
+/// The marker is the `*` [`yidam::help`] puts between the name and the description. Parsed
+/// positionally — the column after the name — rather than searched for, because a description
+/// that happened to begin with a star would otherwise read as a writer.
+fn writers_from_help() -> std::collections::BTreeMap<String, bool> {
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_yidam"))
         .arg("--help")
         .output()
@@ -42,7 +51,7 @@ fn commands_from_help() -> BTreeSet<String> {
     assert!(out.status.success(), "`yidam --help` exited nonzero");
     let help = String::from_utf8(out.stdout).expect("--help is utf-8");
 
-    let mut found = BTreeSet::new();
+    let mut found = std::collections::BTreeMap::new();
     for line in help.lines() {
         let Some(rest) = line.strip_prefix("  ") else {
             continue;
@@ -58,7 +67,8 @@ fn commands_from_help() -> BTreeSet<String> {
         if name == "help" {
             continue;
         }
-        found.insert(name.to_string());
+        let writes = rest[name.len()..].trim_start().starts_with("* ");
+        found.insert(name.to_string(), writes);
     }
 
     assert!(
@@ -66,6 +76,11 @@ fn commands_from_help() -> BTreeSet<String> {
         "parsed only {} command(s) from --help — the output shape changed and this test is \
          no longer reading it: {found:?}",
         found.len()
+    );
+    assert!(
+        found.values().filter(|w| **w).count() > 10,
+        "no command parsed as a writer, so the marker column is not where this expects it: \
+         {found:?}"
     );
     found
 }
@@ -77,8 +92,18 @@ fn commands_from_help() -> BTreeSet<String> {
 /// bare subcommand name and would be indistinguishable here, so those rows are excluded by
 /// requiring the row to be in a table whose first column header is `Command`.
 fn commands_from_reference() -> BTreeSet<String> {
+    writers_from_reference().into_keys().collect()
+}
+
+/// Every command the page names, and whether any of its rows carries the `*` marker.
+///
+/// *Any* row, because a parent command gets a row per subcommand: `vault push` writes and
+/// `vault status` does not, and `--help` has one entry for `vault` carrying the marker. So the
+/// page marks a command as writing when one of the things it can do writes, which is what the
+/// single entry in `--help` means too.
+fn writers_from_reference() -> std::collections::BTreeMap<String, bool> {
     let text = reference();
-    let mut found = BTreeSet::new();
+    let mut found = std::collections::BTreeMap::new();
     let mut in_command_table = false;
 
     for line in text.lines() {
@@ -108,8 +133,16 @@ fn commands_from_reference() -> BTreeSet<String> {
         let Some((code, _)) = inner.split_once('`') else {
             continue;
         };
+        // The marker sits outside the backticks, in the same cell: `` `vault push` * ``.
+        let writes = first_cell
+            .split('`')
+            .next_back()
+            .unwrap_or_default()
+            .trim()
+            .starts_with('*');
         if let Some(name) = code.split_whitespace().next() {
-            found.insert(name.to_string());
+            // `|=`: one writing subcommand makes the parent a writer.
+            *found.entry(name.to_string()).or_insert(false) |= writes;
         }
     }
 
@@ -119,7 +152,49 @@ fn commands_from_reference() -> BTreeSet<String> {
          test is no longer reading them: {found:?}",
         found.len()
     );
+    assert!(
+        found.values().filter(|w| **w).count() > 10,
+        "no row parsed as carrying the `*` marker, so this is not reading the cell it thinks \
+         it is: {found:?}"
+    );
     found
+}
+
+/// A command that writes says so on the page, and one that does not says nothing.
+///
+/// The third place #831's defect turned up. `yidam vault-status` writes a tracked file with a
+/// name one character from a read-only command; `decisions-log` writes one and was documented
+/// *"Read-only."*. Each surface that could have said so had its own copy of the answer — the
+/// command's `about`, the `*` in `--help`, this page's marker — and nothing held them to each
+/// other, so all three could disagree and two of them did.
+///
+/// Both sides are rendered output, not source: `--help` as a reader sees it, the page as a
+/// reader reads it.
+#[test]
+fn the_page_marks_the_writers_the_binary_marks() {
+    let binary = writers_from_help();
+    let page = writers_from_reference();
+
+    let mut wrong: Vec<String> = Vec::new();
+    for (name, &writes) in &binary {
+        // A command the page omits is the other tests' finding, not this one's.
+        let Some(&documented) = page.get(name) else {
+            continue;
+        };
+        if documented != writes {
+            wrong.push(format!(
+                "{name}: --help says {}, the page says {}",
+                if writes { "writes" } else { "reads" },
+                if documented { "writes" } else { "reads" }
+            ));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "docs/cli-reference.md disagrees with `yidam --help` about which commands write:\n  \
+         {}\nOne of the two is wrong about a command that modifies the repository.",
+        wrong.join("\n  ")
+    );
 }
 
 #[test]

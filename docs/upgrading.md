@@ -49,6 +49,31 @@ second question.
 Nothing else moves. A corpus that declares no `[index.remote]` — which is every corpus today —
 answers exactly as it did.
 
+### `yidam regen` now populates two more blocks, so `--check` can newly fail
+
+`vault-status` and `decisions-log` write REGEN blocks. `yidam regen` did not run either of
+them, and `yidam regen --check` did not report them stale.
+
+**Both now run, and `mise run ci` can go red on a repository nobody changed.** The README's
+Artifacts block is the one to expect. Most corpora still hold the placeholder the template
+ships there — the italic line telling you to run the generator. It was never checked, so it
+never had to be true.
+
+The repair is the ordinary one:
+
+```
+mise run regen
+git commit -am 'regen: populate the vault-status block'
+```
+
+Read the diff before committing it. The block reports the arrangement your `.yidam/config.toml`
+declares — which stores exist, who may read each, what routes where. If it says something you
+did not intend, the block is right and the configuration is the thing to fix.
+
+Two other corrections travel with it. `yidam decisions-log` no longer describes itself as
+read-only; it writes a block when `.yidam/decisions/README.md` carries one. And `yidam policy`
+no longer carries the `*` write marker in `--help`, because it writes nothing.
+
 ## cli/v0.12.0
 
 ### The README status block no longer counts phases, and refuses a shallow clone
