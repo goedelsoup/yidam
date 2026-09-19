@@ -21,24 +21,40 @@ const sidebar = [
       { slug: 'installation', label: 'Installation' },
     ],
   },
-  // Before the reference, and after the install: a reader who has not decided yet
-  // is answering "what would mine look like", and until #447 the only corpus this
-  // repository shipped was hydrology. The sidebar ran model → reference → model
-  // with no tier for somebody still deciding.
+  // Before 'The model' rather than inside it. Every derived repository answers the alignment
+  // question during bootstrap, and until #613 there was no page to open when it was asked —
+  // the material existed in `prelude/skills/bootstrap.md`, which the site does not publish,
+  // and in a walkthrough labelled "(sketch)".
   {
-    label: 'Walkthroughs',
+    label: 'Ontology',
     items: [
-      { slug: 'walkthroughs/property-research', label: 'Property research' },
-      { slug: 'walkthroughs/investigative-journalism', label: 'Investigative journalism' },
-      { slug: 'walkthroughs/incident-retrospectives', label: 'Incident retrospectives' },
-      { slug: 'walkthroughs/genealogy', label: 'Genealogy (sketch)' },
-      { slug: 'walkthroughs/museum-provenance', label: 'Museum provenance (sketch)' },
-      { slug: 'walkthroughs/language-documentation', label: 'Language documentation (sketch)' },
+      { slug: 'ontology/what-an-ontology-is', label: 'What an ontology is' },
+      { slug: 'ontology/choosing-an-alignment', label: 'Choosing an alignment' },
+      { slug: 'ontology/alignment-in-practice', label: 'Alignment in practice' },
     ],
   },
-  // Reference before concept, deliberately. Someone who has installed the binary
-  // has a question about the binary; the model can be read after, and is one
-  // group down.
+  {
+    label: 'Governance',
+    items: [
+      { slug: 'sangha-resolution-flow', label: 'Sangha resolution' },
+      { slug: 'constitutional-governance', label: 'Constitutional governance' },
+      { slug: 'conduct-norms', label: 'Conduct norms' },
+    ],
+  },
+  {
+    label: 'The model',
+    items: [
+      { slug: 'vocabulary', label: 'Vocabulary' },
+      { slug: 'information-architecture', label: 'Information architecture' },
+      { slug: 'git-branch-model', label: 'Git branch model' },
+      { slug: 'bootstrap-flow', label: 'Bootstrap flow' },
+      { slug: 'domain-computer', label: 'Domain computer' },
+      { slug: 'web-interface', label: 'Web interface' },
+    ],
+  },
+  // Concept before reference. The groups above answer what a corpus is, what it is
+  // aligned to, and how it is governed; this one is the binary that operates on it,
+  // and every page here names something those groups have already defined.
   {
     label: 'Using yidam',
     items: [
@@ -56,35 +72,32 @@ const sidebar = [
       { slug: 'upgrading', label: 'Upgrade notes' },
     ],
   },
-  // Before 'The model' rather than inside it. Every derived repository answers the alignment
-  // question during bootstrap, and until #613 there was no page to open when it was asked —
-  // the material existed in `prelude/skills/bootstrap.md`, which the site does not publish,
-  // and in a walkthrough labelled "(sketch)".
+  // After the reference rather than before it: a walkthrough is the model and the
+  // commands run end to end on one domain, so it reads as the worked example of
+  // everything above it. Until #447 the only corpus this repository shipped was
+  // hydrology, and there was no tier at all for "what would mine look like".
   {
-    label: 'Ontology',
+    label: 'Walkthroughs',
     items: [
-      { slug: 'ontology/what-an-ontology-is', label: 'What an ontology is' },
-      { slug: 'ontology/choosing-an-alignment', label: 'Choosing an alignment' },
-      { slug: 'ontology/alignment-in-practice', label: 'Alignment in practice' },
+      { slug: 'walkthroughs/property-research', label: 'Property research' },
+      { slug: 'walkthroughs/investigative-journalism', label: 'Investigative journalism' },
+      { slug: 'walkthroughs/incident-retrospectives', label: 'Incident retrospectives' },
+      { slug: 'walkthroughs/genealogy', label: 'Genealogy (sketch)' },
+      { slug: 'walkthroughs/museum-provenance', label: 'Museum provenance (sketch)' },
+      { slug: 'walkthroughs/language-documentation', label: 'Language documentation (sketch)' },
     ],
   },
   {
-    label: 'The model',
+    label: 'The project',
     items: [
-      { slug: 'vocabulary', label: 'Vocabulary' },
-      { slug: 'information-architecture', label: 'Information architecture' },
-      { slug: 'git-branch-model', label: 'Git branch model' },
-      { slug: 'bootstrap-flow', label: 'Bootstrap flow' },
-      { slug: 'domain-computer', label: 'Domain computer' },
-      { slug: 'web-interface', label: 'Web interface' },
-    ],
-  },
-  {
-    label: 'Governance',
-    items: [
-      { slug: 'sangha-resolution-flow', label: 'Sangha resolution' },
-      { slug: 'constitutional-governance', label: 'Constitutional governance' },
-      { slug: 'conduct-norms', label: 'Conduct norms' },
+      { slug: 'contributing', label: 'Contributing' },
+      // Beside `contributing` rather than under 'The model': this is a rule set for somebody
+      // about to write a page, which is the same moment they open Contributing. It states the
+      // tier every page belongs to, so it is also what `aesthetic-direction` is measured
+      // against — the register that page commits to is Tier 3's whole justification.
+      { slug: 'style-guide', label: 'Documentation style guide' },
+      { slug: 'versioning', label: 'Versioning and releases' },
+      { slug: 'aesthetic-direction', label: 'Aesthetic direction' },
     ],
   },
   {
@@ -108,45 +121,9 @@ const sidebar = [
     ],
   },
   {
-    label: 'The project',
-    items: [
-      { slug: 'contributing', label: 'Contributing' },
-      // Beside `contributing` rather than under 'The model': this is a rule set for somebody
-      // about to write a page, which is the same moment they open Contributing. It states the
-      // tier every page belongs to, so it is also what `aesthetic-direction` is measured
-      // against — the register that page commits to is Tier 3's whole justification.
-      { slug: 'style-guide', label: 'Documentation style guide' },
-      { slug: 'versioning', label: 'Versioning and releases' },
-      { slug: 'aesthetic-direction', label: 'Aesthetic direction' },
-    ],
-  },
-  {
-    label: 'Research',
-    items: [
-      {
-        label: 'Ontology-anchored path resolution',
-        items: [
-          { slug: 'research/system/README', label: 'Overview' },
-          { slug: 'research/system/outline', label: 'Outline' },
-          {
-            label: 'Notes',
-            collapsed: true,
-            items: [
-              { slug: 'research/system/notes/yidam-case', label: 'yidam case study' },
-              { slug: 'research/system/notes/traversal-cost', label: 'Traversal cost' },
-              { slug: 'research/system/notes/ontology-maps', label: 'Ontology maps' },
-              { slug: 'research/system/notes/focused-scan', label: 'Focused scan' },
-              { slug: 'research/system/notes/efficiency', label: 'Efficiency analysis' },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-  {
     // Working documents, not user documentation: eighteen files, and by volume
     // nearly two thirds of everything under docs/. They get their own collapsed
-    // section, last, rather than a place in the main flow — a reader arriving to
+    // section, near the end, rather than a place in the main flow — a reader arriving to
     // find out what yidam is should not have to scroll past a design backlog to
     // reach the answer. Labels are the index table's short titles, not the H1s,
     // which run to a full sentence each.
@@ -186,6 +163,29 @@ const sidebar = [
       { slug: 'rfcs/0030-standalone-editor', label: '0030 · The standalone editor' },
       { slug: 'rfcs/0031-node-prose-model', label: '0031 · The node prose model' },
       { slug: 'rfcs/0032-reference-grammar', label: '0032 · The reference grammar' },
+    ],
+  },
+  {
+    label: 'Research',
+    items: [
+      {
+        label: 'Ontology-anchored path resolution',
+        items: [
+          { slug: 'research/system/README', label: 'Overview' },
+          { slug: 'research/system/outline', label: 'Outline' },
+          {
+            label: 'Notes',
+            collapsed: true,
+            items: [
+              { slug: 'research/system/notes/yidam-case', label: 'yidam case study' },
+              { slug: 'research/system/notes/traversal-cost', label: 'Traversal cost' },
+              { slug: 'research/system/notes/ontology-maps', label: 'Ontology maps' },
+              { slug: 'research/system/notes/focused-scan', label: 'Focused scan' },
+              { slug: 'research/system/notes/efficiency', label: 'Efficiency analysis' },
+            ],
+          },
+        ],
+      },
     ],
   },
 ];
