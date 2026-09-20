@@ -325,9 +325,9 @@ most expensive thing in the document. The original said so, about this design, a
 > rather than from a Node process that would have to bridge stdio LSP to a WebSocket to get the
 > same answer.
 
-That bridge is now the plan. [`Overlay`](../../yidam/cli/src/cmd/lint/mod.rs#L104) is a
+That bridge is now the plan. [`Overlay`](../../yidam/cli/src/cmd/lint/mod.rs#L105) is a
 `pub struct` in the lint module, and
-[`run_checks_with`](../../yidam/cli/src/cmd/lint/mod.rs#L156) is the entry point the language
+[`run_checks_with`](../../yidam/cli/src/cmd/lint/mod.rs#L157) is the entry point the language
 server calls on every change ([`lsp.rs:217`](../../yidam/cli/src/cmd/lsp.rs#L217)) — but it is
 reachable only through `serve --lsp`. `yidam lint` has no overlay flag, and the extension is no
 prior art here: it carries no LSP client and no dependencies at all, running `lint --format json`
@@ -577,7 +577,7 @@ does not propose to move it.
   invisible to it. #611 keeps the general question.
 - ~~**The design system's React components have never been hydrated.**~~ **Answered 2026-09-06:
   they survive.** No `client:*` directive appeared on any quality page —
-  [`astro.config.mjs:245-249`](../../yidam/web/docs/astro.config.mjs#L245-L249): *"this is a
+  [`astro.config.mjs:246-250`](../../yidam/web/docs/astro.config.mjs#L246-L250): *"this is a
   build-time renderer: React produces HTML and none of it is shipped to a reader."* This surface
   is now the first consumer to ship them to a browser, and the spike was run rather than
   reasoned about: `mise run edit-dev` against the reports golden corpus, driven with headless

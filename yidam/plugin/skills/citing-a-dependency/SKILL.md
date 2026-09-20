@@ -1,6 +1,6 @@
 ---
 name: citing-a-dependency
-description: Use before writing a `cites:` into an installed dependency corpus in a yidam repository — a repository with a .yidam/ directory and a .yidam/tonpa.toml. Whether the citation will hold cannot be answered by reading, and the yidam MCP server answers it before the citation is written. Triggers on "cites", "cite a dependency", "external citation", "tonpa", "span", "pin", "foreign node".
+description: Use before writing a `cites:` in a yidam repository — a repository with a .yidam/ directory. Into an installed dependency, whether the citation will hold cannot be answered by reading, and the yidam MCP server answers it before the citation is written; into a node in this corpus, `cites:` with no `package:` is the form and `yidam lint` decides it. Triggers on "cites", "cite a dependency", "cite a node", "external citation", "local citation", "tonpa", "span", "pin", "foreign node".
 ---
 
 # Citing a dependency
@@ -29,6 +29,31 @@ It is total and never errors — a citation that will not hold is a verdict in t
 - `external-citation-unpinned` (info) — nothing records which commit was read.
 - `dependencies` — what is actually installed and at what pin each. This is the value a
   correct `commit:` must hold, and it is reachable no other way on this surface.
+
+## Citing a node in **this** corpus is the other half, and needs no tool
+
+Leave `package:` off and the citation names a node here — RFC-0034. There is no dependency, no
+pin and nothing to ask a server about: the node is in the tree you are editing, so the only way
+to get it wrong is not to read it.
+
+```yaml
+cites:
+  - node: reach/tailwater      # <class>/<name> in this corpus
+    tag: inference             # the standing THIS corpus holds that span at
+    span: >-
+      Discharge below the dam tracks the release schedule within a day
+```
+
+Four checks, and the third is the one with no external counterpart:
+
+- `local-citation-unresolved` (error) — no `node:`, or this corpus holds no such node.
+- `local-citation-span-drift` (error) — no `span:`, or the span is not in that node.
+- `local-citation-tag-drift` (error) — the span is there and the claim governing it carries a
+  different standing than the one you declared. Across a boundary a tag is the producer's and
+  cannot be checked; here the producer is you.
+- `local-citation-untagged` (info) — a span and no standing.
+
+Citing an `[open]` span is allowed. Calling it `[verified]` is not.
 
 ## The tag does not transfer
 

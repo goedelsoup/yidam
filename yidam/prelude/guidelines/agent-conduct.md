@@ -313,6 +313,39 @@ investigating, not an identity.
 **A stale dependency is a normal state, not a finding.** It is pinned deliberately. Where its
 currency bears on a conclusion, say which pin you read.
 
+## When a claim rests on a node beside it
+
+The same grammar, with `package` left off. **A `cites:` entry with no `package` names a node in
+this corpus**, and it is the form most claims actually need. Measured across seventeen derived
+corpora, 86% of the markdown links that reach a corpus node are written from one node to
+another — and until this shape was given a meaning, none of that could be said in a form a
+gate could read.
+
+```yaml
+cites:
+  - node: reach/tailwater      # <class>/<name> in this corpus; `.yml` may be written or not
+    tag: inference             # the standing this corpus holds that span at, and it must agree
+    span: >-                   # verbatim text from that node
+      Discharge below the dam tracks the release schedule within a day
+```
+
+`commit` has no meaning here and is not read: the node is in this tree, so git already records
+which state it was in. What is different is `tag`. Across a boundary a foreign tag is the
+producer's, recorded and never transferred, and no gate can check it. **Inside one corpus the
+producer is you.** A citation declaring `[verified]` over a paragraph this corpus tags
+`[inference]` says something its own corpus denies, and `local-citation-tag-drift` refuses it.
+Citing an `[open]` span is legal and declaring it as anything else is not — the corpus said it
+does not know, and a citation may rest on that as long as it says so.
+
+**Writing one is opt-in and writing none is a normal state.** Four checks read these and every
+one of them has an empty population in a corpus that writes no `cites:` at all, which is the
+whole of why they can be errors. Prose already links nodes to each other constantly; a link is
+not a citation, and nothing turns one into a finding.
+
+**A citation is still not an edge.** It sits beside `links:` and never inside it, for the same
+reason the external form does: a citation is not a relationship and must never enter a
+traversal.
+
 ## The safeguards were built against carelessness, not against interest
 
 Worth stating plainly, because it is the finding that generalizes furthest and the one

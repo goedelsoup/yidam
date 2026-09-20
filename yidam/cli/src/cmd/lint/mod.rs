@@ -14,6 +14,7 @@ pub(crate) mod history;
 pub mod json;
 pub(crate) mod line_citations;
 pub(crate) mod lineage;
+pub(crate) mod local_citations;
 pub(crate) mod model;
 pub(crate) mod scope;
 pub(crate) mod ttl;
@@ -431,6 +432,12 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     // answers from over MCP (#357). Destructured here rather than pushed after the vec, so
     // the four keep their place in the report's order.
     let [unresolved, span_drift, pin_moved, unpinned] = citations::checks(&nodes, &deps);
+    // The other direction of the same join: a node resting on a verbatim span of another
+    // node in this corpus (RFC-0034). No dependency, no network, no pin — which is why it
+    // is the arm every corpus can actually use, and the external four have never had a
+    // subject in any measured corpus.
+    let [local_unresolved, local_span_drift, local_tag_drift, local_untagged] =
+        local_citations::checks(&nodes, &claim_fields);
     let [scope_unheld, scope_unverifiable] = scope::checks(&scope_audits);
     let [baseline_unmet, baseline_undeclared, holds_unadopted] = lineage::checks(&standings);
 
@@ -467,6 +474,10 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         span_drift,
         pin_moved,
         unpinned,
+        local_unresolved,
+        local_span_drift,
+        local_tag_drift,
+        local_untagged,
         checks::verified_unsourced(&nodes, &sources, &claim_fields),
         checks::catalog_expired(&catalog_ages, &sources, &cites),
         checks::catalog_unobtained_but_cited(&sources, &cites),
