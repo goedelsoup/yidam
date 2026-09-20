@@ -300,6 +300,14 @@ artifacts:                     # optional; what was actually obtained
   Both are kept so the disagreement is visible rather than averaged away
   (`catalog-used-by-drift`). Declaring a list asserts it is current.
 
+  **Omitting the key and writing `used-by: []` are different declarations.** No key at all
+  says nothing about what cites the entry, and nothing checks it — that is the honest state
+  for an entry whose list you do not intend to maintain. An empty sequence says *nothing
+  cites this*, which is a claim, and it is checked like any other: once a node cites the
+  entry, the claim is false and `catalog-used-by-drift` reports it. `catalog-reconcile`
+  repairs an empty list for the same reason it repairs a wrong one, and still leaves an
+  absent key alone.
+
 - **`artifacts`** is what makes `obtained: true` *demonstrable*. The flag says a source was
   fetched; until this existed, nothing anywhere held what was fetched, so an entry marked
   obtained and an entry marked obtained falsely were the same observation and every check

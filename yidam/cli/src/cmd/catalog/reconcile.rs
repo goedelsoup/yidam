@@ -27,6 +27,12 @@
 //! `None` for it and the gate stays silent — so writing one would be this command deciding an
 //! entry ought to make a claim it never made. The list is optional, and an entry that declares
 //! one is asserting it is current; that is the assertion this repairs, and the only one.
+//!
+//! **`used-by: []` is not that case.** An empty sequence is something an author typed, or
+//! something [`record::set_used_by`] wrote so that an entry which claimed something and now
+//! claims nothing still says so. It asserts that nothing cites the entry, and when nodes do,
+//! the assertion is false and gets substituted like any other stale list. Exempting it would
+//! leave `catalog-used-by-drift` firing on a state this command refuses to repair.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -130,7 +136,9 @@ pub fn reconcile(opts: &ReconcileOptions) -> Result<()> {
             .to_string();
         let text =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let declared = parse_frontmatter(&text).used_by.unwrap_or_default();
+        // An `Option`, not a flattened `Vec`. Absence is what this command exempts; an
+        // explicit `used-by: []` is a claim, and a claim is what it repairs.
+        let declared = parse_frontmatter(&text).used_by;
 
         // The citing instances, from the same walk `catalog-audit` reports and the gate
         // counts. `nodes` and not `total()`: `catalog-used-by-drift` compares against the
@@ -142,7 +150,7 @@ pub fn reconcile(opts: &ReconcileOptions) -> Result<()> {
             .unwrap_or_default()
             .nodes;
 
-        let Some(drift) = used_by_drift(&declared, &citing) else {
+        let Some(drift) = used_by_drift(declared.as_deref(), &citing) else {
             continue;
         };
         if drift.claimed_not_citing.is_empty() && drift.citing_not_claimed.is_empty() {
@@ -278,17 +286,62 @@ mod tests {
     fn reconciling_a_drifted_list_leaves_no_drift_behind() {
         let entry = "---\nname: s\nused-by:\n  - ../corpus/gage/gone.yml\n---\n\n# S\n";
         let citing = vec![".yidam/corpus/gage/canyon-outlet.yml".to_string()];
-        let declared = parse_frontmatter(entry).used_by.unwrap();
+        let declared = parse_frontmatter(entry).used_by;
 
-        let before = used_by_drift(&declared, &citing).unwrap();
+        let before = used_by_drift(declared.as_deref(), &citing).unwrap();
         assert_eq!(before.claimed_not_citing, vec!["gone.yml"]);
         assert_eq!(before.citing_not_claimed, vec!["canyon-outlet.yml"]);
 
         let want: Vec<String> = citing.iter().map(|c| as_declared(c)).collect();
         let updated = record::set_used_by(entry, &want).unwrap().unwrap();
-        let after = parse_frontmatter(&updated).used_by.unwrap();
-        let drift = used_by_drift(&after, &citing).unwrap();
+        let after = parse_frontmatter(&updated).used_by;
+        let drift = used_by_drift(after.as_deref(), &citing).unwrap();
         assert!(drift.claimed_not_citing.is_empty(), "{drift:?}");
         assert!(drift.citing_not_claimed.is_empty(), "{drift:?}");
+    }
+
+    /// The same end-to-end agreement for the state this command used to skip. An entry
+    /// sitting at `used-by: []` while nodes cite it is now drift the gate reports, so it has
+    /// to be drift this command repairs — a gate that fires on a state the repair refuses to
+    /// touch leaves the corpus red with no way forward.
+    ///
+    /// `set_used_by` returning `Some` is the load-bearing half: it finds the block by key
+    /// name precisely so that the one-line `used-by: []` form it writes is a form it can also
+    /// find again.
+    #[test]
+    fn reconciling_an_empty_list_that_something_cites_fills_it() {
+        let entry = "---\nname: s\nused-by: []\n---\n\n# S\n";
+        let citing = vec![".yidam/corpus/gage/canyon-outlet.yml".to_string()];
+        let declared = parse_frontmatter(entry).used_by;
+        assert_eq!(declared, Some(vec![]), "`[]` must parse as a declared list");
+
+        let before = used_by_drift(declared.as_deref(), &citing).unwrap();
+        assert_eq!(before.citing_not_claimed, vec!["canyon-outlet.yml"]);
+
+        let want: Vec<String> = citing.iter().map(|c| as_declared(c)).collect();
+        let updated = record::set_used_by(entry, &want).unwrap().unwrap();
+        let after = parse_frontmatter(&updated).used_by;
+        assert_eq!(after, Some(vec!["../corpus/gage/canyon-outlet.yml".into()]));
+        assert_eq!(
+            used_by_drift(after.as_deref(), &citing).unwrap(),
+            UsedByDrift::default(),
+        );
+    }
+
+    /// An entry with no `used-by:` key at all is still left alone, and it is left alone twice
+    /// over: `used_by_drift` exempts it, and `set_used_by` would decline to write one anyway.
+    /// Asserted together because the two guards are in different files and either could be
+    /// removed without the other going red.
+    #[test]
+    fn an_entry_declaring_no_list_is_still_left_alone() {
+        let entry = "---\nname: s\n---\n\n# S\n";
+        let citing = vec![".yidam/corpus/gage/canyon-outlet.yml".to_string()];
+        let declared = parse_frontmatter(entry).used_by;
+        assert_eq!(declared, None);
+        assert_eq!(used_by_drift(declared.as_deref(), &citing), None);
+        assert_eq!(
+            record::set_used_by(entry, &["../corpus/gage/canyon-outlet.yml".into()]).unwrap(),
+            None,
+        );
     }
 }

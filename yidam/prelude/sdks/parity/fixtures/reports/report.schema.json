@@ -697,14 +697,14 @@
             "items": {
               "type": "string"
             },
-            "description": "The entry's declared `used-by` list, verbatim and unresolved. Empty when it declares none. Hand-maintained and therefore able to drift from the citations, which are authoritative."
+            "description": "The entry's declared `used-by` list, verbatim and unresolved. Empty both when the entry declares none and when it declares `used-by: []`; `drift` is what tells those apart, being null for the first and an object for the second. Hand-maintained and therefore able to drift from the citations, which are authoritative."
           },
           "drift": {
             "type": [
               "object",
               "null"
             ],
-            "description": "How `used_by` disagrees with `cited_by`, compared by basename \u2014 or null when the entry declares no list, since absent is not drift. An object with two empty arrays is the different answer: a list was declared and it holds. Computed by the same function `catalog-used-by-drift` gates on, so the report and the gate cannot disagree about what drift is. A consumer MUST NOT recompute it.",
+            "description": "How `used_by` disagrees with `cited_by`, compared by basename \u2014 or null when the entry declares no `used-by:` key at all, since absent is not drift. An explicit `used-by: []` is not absent: it declares that nothing cites the entry, so it gets an object like any other declared list, naming every citer it omits. An object with two empty arrays is the third answer: a list was declared and it holds. Computed by the same function `catalog-used-by-drift` gates on, so the report and the gate cannot disagree about what drift is. A consumer MUST NOT recompute it.",
             "required": [
               "claimed_not_citing",
               "citing_not_claimed"

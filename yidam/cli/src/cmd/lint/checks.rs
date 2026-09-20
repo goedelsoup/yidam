@@ -540,7 +540,10 @@ pub struct Source {
     /// searched for in a node's bytes, and nothing else ever needed it.
     pub path: PathBuf,
     pub obtained: bool,
-    pub used_by: Vec<String>,
+    /// The declared list, or `None` where the key is absent. Not flattened to a `Vec`: an
+    /// absent key and `used-by: []` are different claims and [`used_by_drift`] turns on the
+    /// difference.
+    pub used_by: Option<Vec<String>>,
     pub locations: Vec<crate::parse::CatalogLocation>,
     /// When the entry says it was last fetched, verbatim. See [`super::ttl`].
     pub retrieved: Option<String>,
@@ -579,7 +582,9 @@ pub fn load_sources(root: &Path, paths: &[PathBuf], overlay: &super::Overlay) ->
                 path: p.clone(),
                 // Absent means obtained. Only an explicit `false` claims otherwise.
                 obtained: fm.obtained.unwrap_or(true),
-                used_by: fm.used_by.unwrap_or_default(),
+                // Carried as an `Option`. `unwrap_or_default()` here made `used-by: []`
+                // indistinguishable from an absent key by the time the check saw it.
+                used_by: fm.used_by,
                 locations: fm.location.unwrap_or_default(),
                 retrieved: fm.retrieved,
                 ttl_days: fm.ttl_days,
@@ -2658,16 +2663,23 @@ pub struct UsedByDrift {
 
 /// The disagreement between a declared `used-by` list and the citations, or `None` when the
 /// entry declares no list — **absent is not drift**, and that distinction is the whole
-/// reason this returns an `Option` rather than an empty struct.
+/// reason this takes an `Option` rather than a slice.
 ///
-/// One function because two consumers ask the same question and must not answer it
-/// differently: `catalog-used-by-drift` renders it as a gated violation, and
-/// `catalog-audit` reports it as a field an editor navigates by. A second copy is exactly
-/// how the two counts in this file's own history came to disagree.
-pub fn used_by_drift(used_by: &[String], citing: &[String]) -> Option<UsedByDrift> {
-    if used_by.is_empty() {
-        return None;
-    }
+/// **An empty list is a declaration, not an absence.** `used-by: []` is a value an author
+/// typed, or one [`set_used_by`](crate::cmd::catalog::record::set_used_by) wrote on purpose
+/// so that an entry which claimed something and now claims nothing still says so; either way
+/// it asserts that nothing cites the entry, and an assertion is checkable. It was collapsed
+/// into absence for as long as this took a slice, which made `[]` a silent opt-out of the
+/// check — and the default state of a hand-authored entry, so the check was weakest exactly
+/// where new material enters.
+///
+/// One function because three consumers ask the same question and must not answer it
+/// differently: `catalog-used-by-drift` renders it as a gated violation, `catalog-audit`
+/// reports it as a field an editor navigates by, and `catalog-reconcile` repairs what it
+/// names. A second copy is exactly how the two counts in this file's own history came to
+/// disagree.
+pub fn used_by_drift(used_by: Option<&[String]>, citing: &[String]) -> Option<UsedByDrift> {
+    let used_by = used_by?;
     let claimed: HashSet<&str> = used_by.iter().map(|u| basename(u)).collect();
     let found: HashSet<&str> = citing.iter().map(|a| basename(a)).collect();
     let mut claimed_not_citing: Vec<String> = claimed
@@ -2689,8 +2701,9 @@ pub fn used_by_drift(used_by: &[String], citing: &[String]) -> Option<UsedByDrif
 pub fn catalog_used_by_drift(sources: &[Source], cites: &[Vec<String>]) -> Check {
     let mut violations = Vec::new();
     for (s, actual) in sources.iter().zip(cites) {
-        // `None` is the optional list being absent, which is not drift.
-        let Some(drift) = used_by_drift(&s.used_by, actual) else {
+        // `None` is the optional list being absent, which is not drift. An empty one is a
+        // declaration that nothing cites the entry, and is compared like any other value.
+        let Some(drift) = used_by_drift(s.used_by.as_deref(), actual) else {
             continue;
         };
         let mut detail = Vec::new();
@@ -2717,7 +2730,7 @@ pub fn catalog_used_by_drift(sources: &[Source], cites: &[Vec<String>]) -> Check
         "The citations are authoritative — they cannot drift from the corpus, and a \
          hand-maintained list can. Both are kept so the disagreement is visible rather than \
          averaged away. The list is optional; an entry that declares one is asserting it is \
-         current.",
+         current, and `used-by: []` declares one — it asserts that nothing cites the entry.",
         violations,
     )
 }
@@ -3417,11 +3430,37 @@ mod tests {
     /// its list current indistinguishable from one that has none.
     #[test]
     fn an_absent_used_by_list_is_not_drift_and_an_accurate_one_is_not_either() {
-        assert_eq!(used_by_drift(&[], &["a.yml".into()]), None);
+        assert_eq!(used_by_drift(None, &["a.yml".into()]), None);
         assert_eq!(
-            used_by_drift(&["a.yml".into()], &[".yidam/corpus/c/a.yml".into()]),
+            used_by_drift(Some(&["a.yml".into()]), &[".yidam/corpus/c/a.yml".into()]),
             Some(UsedByDrift::default()),
         );
+    }
+
+    /// The three states the old slice signature could not tell apart, each asserted against
+    /// the same citing node. This is the regression: for as long as an empty `Vec` and an
+    /// absent key arrived here as the same value, `used-by: []` was a silent opt-out of the
+    /// check — and it is the state a hand-authored entry starts in.
+    ///
+    /// Three cases and not two. The empty-declared arm has to be checked both ways round:
+    /// firing when nodes cite the entry, *and* staying silent when none do. A fix that
+    /// dropped the empty check entirely would pass the first assertion alone.
+    #[test]
+    fn an_empty_used_by_list_is_a_claim_and_an_absent_one_is_not() {
+        let citing = [".yidam/corpus/concept/tailwater.yml".to_string()];
+
+        // Absent: undeclared, and exempt. Unchanged.
+        assert_eq!(used_by_drift(None, &citing), None);
+
+        // Declared empty, and cited: a false claim, named in the direction it is false.
+        let drift = used_by_drift(Some(&[]), &citing).expect("`[]` declares a list");
+        assert_eq!(drift.citing_not_claimed, vec!["tailwater.yml"]);
+        assert!(drift.claimed_not_citing.is_empty());
+
+        // Declared empty, and cited by nothing: the sets agree, so no finding — which is
+        // why this needs no special case.
+        let agrees = used_by_drift(Some(&[]), &[]).expect("`[]` declares a list");
+        assert_eq!(agrees, UsedByDrift::default());
     }
 
     /// Basenames, because the list is hand-written and a person writes `tailwater.yml`.
@@ -3430,7 +3469,7 @@ mod tests {
     #[test]
     fn drift_is_reported_in_both_directions_and_compared_by_basename() {
         let drift = used_by_drift(
-            &["mixing-zone.yml".into(), "low-flow.yml".into()],
+            Some(&["mixing-zone.yml".into(), "low-flow.yml".into()]),
             &[
                 ".yidam/corpus/concept/low-flow.yml".into(),
                 ".yidam/corpus/concept/tailwater.yml".into(),
@@ -3441,12 +3480,16 @@ mod tests {
         assert_eq!(drift.citing_not_claimed, vec!["tailwater.yml"]);
     }
 
-    fn source(slug: &str, obtained: bool, used_by: &[&str]) -> Source {
+    /// `used_by` is an `Option` and not a slice so that every fixture has to say which of the
+    /// two states it means. `None` is a catalog entry with no `used-by:` key; `Some(&[])` is
+    /// one that wrote `used-by: []`. While both spelled `&[]`, no fixture could reach the
+    /// second state at all, and the tests below covered one case believing it was both.
+    fn source(slug: &str, obtained: bool, used_by: Option<&[&str]>) -> Source {
         Source {
             rel: format!(".yidam/catalog/{slug}.md"),
             path: PathBuf::from(format!("/repo/.yidam/catalog/{slug}.md")),
             obtained,
-            used_by: used_by.iter().map(|s| s.to_string()).collect(),
+            used_by: used_by.map(|u| u.iter().map(|s| s.to_string()).collect()),
             locations: vec![],
             retrieved: None,
             ttl_days: None,
@@ -3622,7 +3665,7 @@ mod tests {
                 rel: a.entry.clone(),
                 path: std::path::PathBuf::from(&a.entry),
                 obtained: true,
-                used_by: vec![],
+                used_by: None,
                 locations: vec![],
                 retrieved: a.retrieved.clone(),
                 ttl_days: a.ttl_days,
@@ -4525,7 +4568,7 @@ mod tests {
             rel: format!(".yidam/catalog/{slug}.md"),
             path: PathBuf::from(format!("/repo/.yidam/catalog/{slug}.md")),
             obtained,
-            used_by: vec![],
+            used_by: None,
             locations: vec![],
             retrieved: None,
             ttl_days: None,
@@ -4823,19 +4866,19 @@ mod tests {
 
     #[test]
     fn an_unobtained_source_is_not_reported_as_uncited() {
-        let s = vec![source("not-yet-fetched", false, &[])];
+        let s = vec![source("not-yet-fetched", false, None)];
         assert!(catalog_uncited(&s, &[vec![]]).passed());
     }
 
     #[test]
     fn an_obtained_source_nothing_cites_is_reported() {
-        let s = vec![source("fetched", true, &[])];
+        let s = vec![source("fetched", true, None)];
         assert_eq!(catalog_uncited(&s, &[vec![]]).violations.len(), 1);
     }
 
     #[test]
     fn citing_an_unfetched_source_is_an_error() {
-        let s = vec![source("not-yet-fetched", false, &[])];
+        let s = vec![source("not-yet-fetched", false, None)];
         let c = catalog_unobtained_but_cited(&s, &[vec!["corpus/x/y.yml".to_string()]]);
         assert_eq!(c.violations.len(), 1);
         assert_eq!(c.severity, Severity::Error);
@@ -4843,7 +4886,7 @@ mod tests {
 
     #[test]
     fn used_by_drift_reports_both_directions() {
-        let s = vec![source("src", true, &["../corpus/a/one.yml"])];
+        let s = vec![source("src", true, Some(&["../corpus/a/one.yml"]))];
         let c = catalog_used_by_drift(&s, &[vec!["corpus/a/two.yml".to_string()]]);
         assert_eq!(c.violations.len(), 1);
         let d = &c.violations[0].detail;
@@ -4853,13 +4896,72 @@ mod tests {
 
     #[test]
     fn an_absent_used_by_list_is_not_drift() {
-        let s = vec![source("src", true, &[])];
+        let s = vec![source("src", true, None)];
         assert!(catalog_used_by_drift(&s, &[vec!["corpus/a/x.yml".to_string()]]).passed());
+    }
+
+    /// The gate's half of `an_empty_used_by_list_is_a_claim_and_an_absent_one_is_not`,
+    /// against a `Source` built by hand. It does not reach `load_sources` — see
+    /// `the_loader_keeps_an_empty_used_by_apart_from_an_absent_one` for that half, which is
+    /// where the collapse actually lived.
+    #[test]
+    fn an_empty_used_by_list_is_drift_when_something_cites_the_entry() {
+        let s = vec![source("src", true, Some(&[]))];
+        let c = catalog_used_by_drift(&s, &[vec!["corpus/a/x.yml".to_string()]]);
+        assert_eq!(c.violations.len(), 1);
+        let d = &c.violations[0].detail;
+        assert!(d.contains("omits x.yml"), "should name the citer: {d}");
+    }
+
+    /// And silent when nothing does, which is what keeps the change from being a new finding
+    /// on every entry a corpus has correctly emptied.
+    #[test]
+    fn an_empty_used_by_list_agreeing_with_no_citations_is_not_drift() {
+        let s = vec![source("src", true, Some(&[]))];
+        assert!(catalog_used_by_drift(&s, &[vec![]]).passed());
+    }
+
+    /// The half the fixtures above cannot reach. `used_by_drift` reading `Some(&[])`
+    /// correctly buys nothing if the loader flattens `used-by: []` to an absent key before
+    /// the check ever sees it — which is precisely where this defect lived, and a mutation
+    /// restoring the flatten passes every hand-built `Source` in this file.
+    ///
+    /// Through `Overlay` rather than a temp directory: the loader reads catalog text through
+    /// it, so the two entries below are parsed by the same path a real file takes.
+    #[test]
+    fn the_loader_keeps_an_empty_used_by_apart_from_an_absent_one() {
+        let root = Path::new("/repo");
+        let declared = PathBuf::from("/repo/.yidam/catalog/declared-empty.md");
+        let absent = PathBuf::from("/repo/.yidam/catalog/no-key.md");
+
+        let mut overlay = super::super::Overlay::default();
+        overlay.set(
+            declared.clone(),
+            "---\nname: a\nused-by: []\n---\n\n# A\n".into(),
+        );
+        overlay.set(absent.clone(), "---\nname: b\n---\n\n# B\n".into());
+
+        let sources = load_sources(root, &[declared, absent], &overlay);
+        assert_eq!(sources[0].used_by, Some(vec![]), "`[]` is a declared list");
+        assert_eq!(sources[1].used_by, None, "no key is no list");
+
+        // And the gate reached through the loader answers differently for the two.
+        let cites = vec![
+            vec!["corpus/a/x.yml".to_string()],
+            vec!["corpus/a/x.yml".to_string()],
+        ];
+        let c = catalog_used_by_drift(&sources, &cites);
+        assert_eq!(
+            c.violations.len(),
+            1,
+            "only the declared-empty entry drifts"
+        );
+        assert!(c.violations[0].node.contains("declared-empty"));
     }
 
     #[test]
     fn a_url_location_must_be_a_url() {
-        let mut s = source("src", true, &[]);
+        let mut s = source("src", true, None);
         s.locations = vec![crate::parse::CatalogLocation {
             kind: Some("url".into()),
             value: Some("see the reading room".into()),
@@ -4870,7 +4972,7 @@ mod tests {
 
     #[test]
     fn a_well_formed_location_passes() {
-        let mut s = source("src", true, &[]);
+        let mut s = source("src", true, None);
         s.locations = vec![crate::parse::CatalogLocation {
             kind: Some("url".into()),
             value: Some("https://example.org/x".into()),
