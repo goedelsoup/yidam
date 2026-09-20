@@ -31,6 +31,15 @@
 > write one a parse error rather than a line somebody reads as effective. §2.1 below is the
 > record.
 
+> **Amended 2026-09-20 — a capability that depends on model weights must pin them.** §1's
+> input state is *"a commit sha plus a digest over the config and manifest that governed it"*,
+> which is complete for a deterministic calculator and silently incomplete for anything whose
+> output depends on weights: the same `input_state` then produces a different output sha on
+> different hardware, and the corpus records a change that is not one. **§4.1 is the pin**, and
+> it is fields on the manifest rather than a new file, for reasons that turn on which direction
+> the declaration flows. It is specified and deliberately **not built** — no capability in any
+> corpus runs a model today, and §4.1.6 says what would have to be true first.
+
 > **Noted 2026-09-04.** Open question 2 — does a write-capable MCP tool live in the existing tier
 > or a new one — is answered by [RFC-0029](0029-write-tier.md): the same tier mechanism, with an
 > opt-in declaration and an identity gate (declarable only where a git author identity exists).
@@ -258,6 +267,180 @@ wrote outside its declaration, and what makes the operational/epistemic classifi
 Credentials are **named, never carried**. `vault/mod.rs` states the rule this inherits: a committed
 file is not a place for a secret. A capability declares which secret it needs by name; the value
 arrives from the environment.
+
+### 4.1 — A capability whose output depends on weights pins them
+
+*Specified 2026-09-20. Not built — see §4.1.6.*
+
+Everything above assumes a step is a function of its declared inputs. `already_landed` says so
+outright: a calculator *"that is not a function of its inputs — a clock, a random seed, a network
+read it did not declare — would otherwise have its new output silently dropped on the grounds that
+its inputs had not moved, which is the one failure that would make a receipt a lie."*
+
+Model weights are a fourth item on that list and the only one a corpus would add **on purpose**. A
+capability that classifies, embeds or scores is reproducible exactly to the degree that its
+weights, precision, tokenizer and thresholds are fixed and recorded; without that, the same
+`input_state` computes a different output sha on different hardware, and the commit that lands
+records a change to the corpus that did not happen.
+
+#### 4.1.1 — The precedent, and what it establishes
+
+`embed.config.json` — `docs/domain-computer.md`, *"Embedding reproducibility"* — already solved
+this once for the index:
+
+> `model_file` matters as much as `model_id`: quantized and fp32 exports of the same model drift ~1e-2 per element, far beyond retrieval-safe tolerance.
+
+Two things carry over. **A model identity is not a pin** — the weights file is half the answer and
+the precision is the reason. And a tolerance that cannot be met is **declared rather than
+widened**: sentence-transformers cannot load the quantized export, so its looser bound lives in
+the fixture's `[known_delta]` section where a reader meets it, instead of the shared bound being
+loosened until everything passes.
+
+#### 4.1.2 — Fields on the manifest, echoed in the receipt. No new file.
+
+```toml
+[capability.tier-classifier]
+kind   = "calculator"
+run    = ["cargo", "run", "-p", "tier", "--"]
+reads  = [".yidam/corpus/**"]
+writes = [".yidam/computed/**"]
+verb   = "assess"
+
+[capability.tier-classifier.model]
+id            = "Xenova/all-MiniLM-L6-v2"
+revision      = "e4ce9877abf3edfe10b0d82785e83bdcb973e22e"
+weights       = "b4c6…"   # content address of the weights, 64 hex — see 4.1.3
+tokenizer     = "9a1f…"   # ditto, and it is not optional — see below
+precision     = "q8"
+output_digits = 4
+
+[capability.tier-classifier.model.thresholds]
+accept = 0.82
+```
+
+**Why not a file.** `embed.config.json` is written by a producer and read by three runtimes, and
+carried into every index-bearing export; it is an *artifact of a build*. A capability's pin flows
+the other way — a person declares it and one runner reads it — which is what a manifest is. And a
+separate file is the one shape that fails unsafely, for the reason §4.1.5 gives.
+
+**Why no change to the input state.** `Receipt::input_state` already *"takes the declaration whole
+rather than field by field: every field of it is part of the identity, so a signature that
+enumerated them would have to be revisited — and silently could not be — each time #472 adds
+one."* A pin added to `Capability` is in the input state the day it exists, with no second place
+to forget it. `manifest_sha256` covers the same bytes a second time; that redundancy is existing
+behaviour and is left alone.
+
+**The fields, and why each is there.**
+
+| field | what it fixes |
+|---|---|
+| `id` | which model |
+| `revision` | which state of it — a commit on the model host, **never a tag**. A tag moves, which is the defect `external-citation-pin-moved` reports one layer up and for the same reason. |
+| `weights` | §4.1.1's finding as a field: the export, by content, not by name |
+| `tokenizer` | the same argument on the input side. A tokenizer is a second set of weights and nobody thinks of it as one; two tokenizers disagreeing about a sentence is the same failure as two exports disagreeing about a vector, with no error signal either. |
+| `precision` | `q8`, `fp16`, `fp32`. Named rather than inferred from a filename, because a filename is a convention of one model host. |
+| `thresholds` | the number that turns a score into a decision. Untyped, per capability, for the reason a node's `properties` are: the vocabulary is the domain's, not this layer's. |
+| `output_digits` | §4.1.4. |
+
+#### 4.1.3 — Where the weights live: the catalog and the vault, which are one mechanism
+
+Weights are not committed. RFC-0023 is the mechanism and its sentence is the design — *a vault
+stores bytes, git stores the record of them* — and the record already exists. `CatalogArtifact`
+carries `sha256`, `bytes`, `media_type`, `vault` and `redistributable`; `yidam vault push` and
+`pull` already move exactly those bytes; `yidam vault verify` already re-hashes what is cached and
+reports anything that is not what it claims.
+
+Model weights are that object precisely. They are bytes obtained from somewhere, too large to
+commit, with a routing question and — for a model licence — a real `redistributable` question that
+a corpus must not be able to answer casually.
+
+**So the pin carries the content address and nothing else about the bytes.** The catalog entry is
+where they came from, how big they are, which vault holds them, and whether they may leave the
+machine. One hash, two readers: the vault entry's recorded hash **is** the pin, rather than a
+second copy of it that can drift.
+
+Two consequences:
+
+- A new check, `capability-model-unanchored`: a pin whose address no catalog entry declares. That
+  is the join made checkable, and it is the same shape as `catalog-artifact-unroutable`.
+- Before invoking, the executor resolves the address through the vault cache and refuses when the
+  bytes are absent or do not hash to what was declared. `yidam vault verify`'s predicate, called —
+  not a second one.
+
+#### 4.1.4 — Declared output precision, and the honest account of what it buys
+
+`output_digits` says how many significant digits the capability writes. It is **declared, not
+enforced**: nothing here can check that a calculator rounded, and a check that tried would be
+parsing the calculator's own output format.
+
+What it buys is a falsifier, and the mechanism is already built. `already_landed` compares output
+blobs by git object id, so a run whose inputs and weights are unchanged and whose output respects
+the declared digit writes **no commit at all**. A capability that drifts below the declared digit
+therefore lands a commit whose entire content is noise, visibly, on the next run — and the
+question changes from *why did this number move?* to *the capability did not honour its own
+declaration.* That is a smaller and answerable question, which is the whole of the claim.
+
+#### 4.1.5 — The migration hazard, measured, and why the refusal is the right outcome
+
+`Capability` is `#[serde(deny_unknown_fields)]`. A manifest carrying a `[capability.x.model]`
+table therefore **fails to parse on every released binary**. Measured against `yidam 0.12.0`, with
+the table appended to `examples/streamflow`'s manifest:
+
+```
+Error: parsing .yidam/capabilities.toml
+
+Caused by:
+    TOML parse error at line 25, column 22
+       |
+    25 | [capability.low-flow.model]
+       |                      ^^^^^
+    unknown field `model`, expected one of `kind`, `run`, `reads`, `writes`, `verb`
+```
+
+The blast radius, also measured: **every capability in that manifest stops running**, including
+unpinned ones, because the refusal is at `Manifest::parse` and before `get(step)`. `yidam lint` is
+unaffected — it reported `0 finding(s), no errors` on the same tree — so the gate survives and
+only `run` is down.
+
+**This is the correct failure, and it is the reason the pin is not a file.** The alternative is an
+old binary that reads the manifest, ignores the pin, runs a model capability without verifying the
+weights, and reports success — which is the exact defect the pin exists to prevent, delivered
+silently. `deny_unknown_fields`'s own module doc already made this argument about `after`: *"A
+binary that silently ignored an `after = [...]` it did not implement would run a dependent step
+before the step it depends on and report success — the failure would be in the corpus, not in the
+exit code."*
+
+So: **upgrade the binary, then add the pin.** The order is forced, the error names the field, the
+line and the accepted set, and `yidam --version` is the next thing a reader checks. What cannot be
+improved is the message itself — a binary already released cannot be taught to say *this is a
+field from a later version*, and claiming otherwise in this RFC would be describing a fix nobody
+can ship backwards.
+
+#### 4.1.6 — Why this is specified and not built
+
+No capability in any corpus runs a model. Shipping the fields now would add a declaration nothing
+reads and nothing writes, which is the shape this repository keeps finding at the end of a
+measurement rather than the start of one. Three things should be true before the fields land:
+
+1. **A real model capability exists**, so the pin is verified against weights somebody actually
+   loads rather than against a fixture written to satisfy it.
+2. **`capability-model-unanchored` has a subject** — a catalog entry holding those weights — so
+   the join in §4.1.3 is exercised rather than asserted.
+3. **The parity question is asked once**, in the form §4 already answers for the manifest: this
+   stays Rust-only unless a second runtime loads the same weights, and if one does, the precedent
+   is `embed_config`'s — a declared exception with a named non-SDK runner, not a fourth parity
+   function.
+
+The decision this RFC makes now is the shape and the migration, because both are cheaper to settle
+before there is a corpus to migrate than after.
+
+#### 4.1.7 — The pin and the route are the same argument
+
+A capability that classifies is almost always epistemic — `assess`, `establish`, `revise` — so
+§2.1 routes its output to `propose/<head>` and a person reads it before it reaches the corpus.
+**The pin is what makes that review possible.** A reviewer asked to accept a proposal generated by
+a model needs to know which weights, at which precision, above which threshold; without a pin the
+honest answer is *some model, on whoever's machine ran it*, and the proposal branch is a formality.
 
 #### No parity-surface change
 
