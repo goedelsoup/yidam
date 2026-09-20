@@ -558,6 +558,12 @@ hand-maintained list can.* So this is a substitution, not a merge.
 An entry declaring no `used-by` is left alone. Absence is not drift, and the gate stays silent
 about it. Writing one would be a command deciding an entry should make a claim it never made.
 
+An explicit `used-by: []` is a different state, and both the gate and this command read it as
+one. An empty sequence is something an author typed — it asserts that nothing cites the entry.
+When nodes do cite it, that assertion is false, so `catalog-used-by-drift` reports it and
+`catalog-reconcile` substitutes the citations for it. An entry genuinely cited by nothing
+agrees with its own empty list and produces no finding.
+
 Every artifact is named by the SHA-256 of its bytes, in lowercase hex. The cache is
 **machine-wide** — `$XDG_CACHE_HOME/yidam/vault`, or `YIDAM_VAULT_CACHE` — so two repositories
 citing the same source store it once. It is deliberately **not** partitioned by vault. A cache hit

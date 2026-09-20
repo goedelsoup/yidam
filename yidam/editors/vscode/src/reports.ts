@@ -252,14 +252,19 @@ export interface SourceRow {
    * makes the compiler require a guard at every read rather than trusting that they match.
    */
   cited_by?: string[]
-  /** The entry's declared `used-by`, verbatim. Empty when it declares none. */
+  /**
+   * The entry's declared `used-by`, verbatim. Empty both when it declares none and when it
+   * declares `used-by: []`; `drift` is what separates those — null for the first, an object
+   * for the second.
+   */
   used_by?: string[]
   /**
-   * How that list disagrees with the citations, or null when none is declared.
+   * How that list disagrees with the citations, or null when no `used-by:` key is declared.
    *
-   * Null and an empty drift are different answers. **Computed by the CLI**, from the same
-   * function `catalog-used-by-drift` gates on — recomputing it here would be the editor
-   * forming a second opinion about a verdict.
+   * Null and an empty drift are different answers. An explicit `used-by: []` declares that
+   * nothing cites the entry, so it reports as an object naming every citer it omits, not as
+   * null. **Computed by the CLI**, from the same function `catalog-used-by-drift` gates on —
+   * recomputing it here would be the editor forming a second opinion about a verdict.
    *
    * Absent is a third answer, and it means the CLI predates the field — see `cited_by`.
    */

@@ -178,7 +178,9 @@ enum Command {
     /// hand-maintained list can — so this is a substitution, and it commits as `reconcile:`.
     ///
     /// An entry declaring no `used-by` is left alone: absence is not drift, and writing one
-    /// would be this command deciding an entry should make a claim it never made.
+    /// would be this command deciding an entry should make a claim it never made. An explicit
+    /// `used-by: []` is repaired — an empty sequence is a claim that nothing cites the entry,
+    /// and it is false when nodes do.
     #[command(name = "catalog-reconcile")]
     CatalogReconcile {
         /// One entry, by file stem or `name:`. Absent means every entry that declares a list.

@@ -276,12 +276,15 @@ pub fn catalog_audit(format: crate::report::Format) -> Result<()> {
             let counts = cited.counts();
             let artifacts = fm.artifacts.unwrap_or_default();
             let artifacts_cell = artifact_cell(&artifacts);
-            let used_by = fm.used_by.unwrap_or_default();
             // Against `cited.nodes` and not `cited.total()`: `catalog-used-by-drift` compares
             // the list to the citations *the gate reads*, and a report disagreeing with the
             // gate about which entries have drifted is the one defect the shared function
-            // above exists to make impossible.
-            let drift = crate::cmd::lint::checks::used_by_drift(&used_by, &cited.nodes);
+            // above exists to make impossible. The `Option` is passed through for the same
+            // reason: flattening it here would make this row silent about a `used-by: []`
+            // the gate reports.
+            let drift =
+                crate::cmd::lint::checks::used_by_drift(fm.used_by.as_deref(), &cited.nodes);
+            let used_by = fm.used_by.unwrap_or_default();
             source_rows.push(SourceRow {
                 entry: filename.to_string(),
                 kind: kind.clone(),

@@ -28,6 +28,35 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `used-by: []` is now a claim the drift check reads
+
+`catalog-used-by-drift` compares a catalog entry's declared `used-by` against the nodes that
+cite it. It skipped that comparison whenever the list was empty. An empty list and an absent key arrived at
+the check as one value. So `used-by: []` was a silent opt-out.
+
+**An entry sitting at `used-by: []` while nodes cite it now draws a warning it did not draw
+before.** Nothing in a repository changes to bring this about. It is the state a hand-authored
+entry starts in. The entries most likely to be affected are the newest ones.
+
+`used-by:` with no key at all is unchanged and still exempt. Absence declares nothing. A command that
+filled it would decide an entry should make a claim its author never made.
+The two states have always been different; only one of them was being read.
+
+The gate does not go red. The check is `warn` severity, and warnings never reach the
+baseline — `yidam lint` reports one more finding and `mise run ci` passes. The repair is:
+
+```
+yidam catalog-reconcile
+```
+
+which substitutes the citations for the empty list and commits as `reconcile:`. It still
+leaves an entry with no `used-by:` key alone.
+
+One thing to know if you read the report rather than the terminal. In `catalog-audit --format
+json`, the `drift` field distinguishes the two states and `used_by` does not. Both render as
+`[]`. `drift` is `null` for an absent key, and an object for a declared-empty one. A
+client switching on `used_by.length === 0` was never telling them apart and still is not.
+
 ### `degraded_reason` has a fourth value, and it is not a property of the deployment
 
 The MCP contract goes to **0.20.0**. `retrieve` and an anchored `query` may now report

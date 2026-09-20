@@ -239,7 +239,9 @@ pub fn append_artifacts(text: &str, records: &[CatalogArtifact]) -> Result<Strin
 ///
 /// An entry that declares no list gets none. Absence is not drift — `used_by_drift` returns
 /// `None` for it and the gate stays silent — so writing one would be this command deciding an
-/// entry should make a claim it never made.
+/// entry should make a claim it never made. `used-by: []` is a declared list and is rewritten
+/// like any other: [`block_of`] matches on the key name so that the form this function emits
+/// is one it can also find again.
 pub fn set_used_by(text: &str, citing: &[String]) -> Result<Option<String>> {
     let split = split(text)?;
     let lines: Vec<&str> = split.front.split('\n').collect();

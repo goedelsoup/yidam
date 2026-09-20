@@ -83,8 +83,8 @@ author to move prose *into*. None of them is on `CorpusInstance`, so all of them
 dropped by every consumer of the parsed node.
 
 That is not a tidiness complaint, because two families of check disagree as a result.
-[`node_too_long`](../../yidam/cli/src/cmd/lint/checks.rs#L1564) reads the parsed field — the
-comment at [`checks.rs:1417-1422`](../../yidam/cli/src/cmd/lint/checks.rs#L1417-L1422) is explicit
+[`node_too_long`](../../yidam/cli/src/cmd/lint/checks.rs#L1569) reads the parsed field — the
+comment at [`checks.rs:1422-1427`](../../yidam/cli/src/cmd/lint/checks.rs#L1422-L1427) is explicit
 that this is the intent — while [`count_in_node`](../../yidam/cli/src/claims.rs#L1206) takes the
 file's whole text. Two definitions of *the node's prose* inside one binary, and #674 measures the
 gap on a real corpus: median 118 lines read as the file, 21 read as `description`, 34 read as
