@@ -558,6 +558,52 @@ fn a_push_from_a_clone_that_has_fetched_nothing_is_not_a_failure() {
     assert!(said.contains("1 not cached"), "{said}");
 }
 
+/// **The abort path states what it did.** A push that stops part-way has stored what it sent
+/// and skipped nothing, and a re-run continues from there — but until #830 the summary line
+/// that counts it sat below the loop, so an early return jumped over it and a caller saw a
+/// bare failure. The failure here is a store that cannot be written to, which is a different
+/// cause from the connection reset that prompted this and takes the same path out.
+#[test]
+fn a_push_that_aborts_part_way_still_says_how_far_it_got() {
+    let vault = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&vault_config(vault.path())));
+    let cache = tmp.path().join("cache");
+    let first = cached(tmp.path(), &cache, b"the one that lands");
+    let second = cached(tmp.path(), &cache, b"the one the store refuses");
+    assert_ne!(
+        &first[..2],
+        &second[..2],
+        "the test blocks one shard and needs the other to stay writable"
+    );
+    entry(tmp.path(), "a-first", &first, "    redistributable: true\n");
+    entry(
+        tmp.path(),
+        "z-second",
+        &second,
+        "    redistributable: true\n",
+    );
+
+    // A regular file where the second artifact's shard directory must go. `FileStore::put`
+    // creates that directory, so the first artifact is stored and the second cannot be.
+    let shards = vault.path().join("sha256");
+    std::fs::create_dir_all(&shards).unwrap();
+    std::fs::write(shards.join(&second[..2]), b"not a directory").unwrap();
+
+    let r = run(tmp.path(), &cache, &["vault", "push"]);
+    let said = r.failed().said();
+    assert!(
+        said.contains("1 sent"),
+        "the summary must survive the abort: {said}"
+    );
+    assert!(said.contains("resumable"), "{said}");
+    assert!(
+        said.contains("`yidam vault push` again"),
+        "the message must say what continues it: {said}"
+    );
+    // The claim the message makes is true: what was sent is in the store.
+    assert!(holds(vault.path(), &first), "the first artifact landed");
+}
+
 // ── pull and status ──────────────────────────────────────────────────────────
 
 #[test]

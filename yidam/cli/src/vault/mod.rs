@@ -30,6 +30,10 @@ mod config;
 pub(crate) mod creds;
 mod derived;
 mod policy;
+/// Sending a request again when what failed was the connection. Gated with the transport it
+/// serves: a `file://` store has no connection to lose.
+#[cfg(feature = "vault-s3")]
+mod retry;
 #[cfg(feature = "vault-s3")]
 mod s3;
 /// AWS Signature Version 4. Public because `s3vectors::transport` signs with it against a
