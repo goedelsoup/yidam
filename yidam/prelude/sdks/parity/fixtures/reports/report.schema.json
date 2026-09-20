@@ -160,6 +160,7 @@
               "title",
               "severity",
               "rationale",
+              "escalation_eligible",
               "violations"
             ],
             "properties": {
@@ -177,6 +178,10 @@
               "rationale": {
                 "type": "string",
                 "description": "`lint` only. Why the check exists."
+              },
+              "escalation_eligible": {
+                "type": "boolean",
+                "description": "`lint` only. Whether `[lint] escalate_after` can reach this check's findings AT ALL. Escalation needs two things at once \u2014 a threshold the corpus declared, and a finding carrying `age` \u2014 so a check that dates none of its findings is unreachable by every value of the threshold, and most checks here are. That went unstated until #774, when a derived corpus declined to arm `escalate_after` because the bulk of its findings were a shape no value of it could ever have escalated. Read it here rather than inferring it from `violations[].age`: a check that found nothing emits no violations and is still the kind of check that ages. True does NOT mean anything escalated \u2014 that is `violations[].severity` \u2014 only that this check is in the population the threshold acts on."
               },
               "violations": {
                 "type": "array",
@@ -998,7 +1003,7 @@
                     "uncited",
                     "unstated"
                   ],
-                  "description": "What the ontology declared for this class, reading both ends of every edge: `uncited` for a source class nothing is meant to point at, `cited` for a class the ontology says something points at, `unstated` when it declared neither. Either end may declare the relationship — `direction: in` on one class and `direction: out` on the other state the same fact — so a class carrying no `edges:` of its own can still be `cited`. Being NAMED is not being pointed at, and the difference is the direction: `gauge` declaring `target: concept, direction: in` says instances of a concept point at a gauge, so it says nothing about anything pointing at a concept, and a `concept` declaring nothing stays `unstated` (#659)."
+                  "description": "What the ontology declared for this class, reading both ends of every edge: `uncited` for a source class nothing is meant to point at, `cited` for a class the ontology says something points at, `unstated` when it declared neither. Either end may declare the relationship \u2014 `direction: in` on one class and `direction: out` on the other state the same fact \u2014 so a class carrying no `edges:` of its own can still be `cited`. Being NAMED is not being pointed at, and the difference is the direction: `gauge` declaring `target: concept, direction: in` says instances of a concept point at a gauge, so it says nothing about anything pointing at a concept, and a `concept` declaring nothing stays `unstated` (#659)."
                 },
                 "meets_expectation": {
                   "type": [
@@ -1772,7 +1777,7 @@
             },
             "suffixed_commits": {
               "type": "integer",
-              "description": "How many of `off_vocabulary_commits` are a recognised verb wearing a conventional-commits scope — `phase(a-flat-grant):` rather than a coinage. A STRICT SUBSET, never a second population: every commit counted here is counted there too, and a consumer that subtracts one from the other is performing the suffix-strip GRAPH.md forbids. It exists so a divergence can say which of the two mistakes it found (#673) — one derived repository's 49% was 80 suffixed verbs and 130 genuine coinages, and a reader shown only the share concludes the vocabulary is being ignored rather than misspelled. NOT required, for the reason `open_questions` gives: a CLI released before this field emits a measurement without it, and its output must still validate."
+              "description": "How many of `off_vocabulary_commits` are a recognised verb wearing a conventional-commits scope \u2014 `phase(a-flat-grant):` rather than a coinage. A STRICT SUBSET, never a second population: every commit counted here is counted there too, and a consumer that subtracts one from the other is performing the suffix-strip GRAPH.md forbids. It exists so a divergence can say which of the two mistakes it found (#673) \u2014 one derived repository's 49% was 80 suffixed verbs and 130 genuine coinages, and a reader shown only the share concludes the vocabulary is being ignored rather than misspelled. NOT required, for the reason `open_questions` gives: a CLI released before this field emits a measurement without it, and its output must still validate."
             },
             "nodes": {
               "type": "integer"

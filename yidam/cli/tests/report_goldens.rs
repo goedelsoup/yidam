@@ -1320,11 +1320,30 @@ fn each_check_shapes_required_list_is_load_bearing() {
         doc
     };
 
-    for (label, doc, other_label, other, fields) in [
-        ("lint", &lint, "doctor", &doctor, required("a lint check")),
-        ("doctor", &doctor, "lint", &lint, required("a doctor check")),
+    // The width each branch is expected to have. Not a restatement of the field names — those
+    // are read off the schema above — but a guard on the loop itself: a `required` emptied or
+    // shortened makes the body below vacuous, and a vacuous mutation test passes. Per branch
+    // because the two are not the same width, which they were until `escalation_eligible`
+    // (#774). A branch that gains a required field is meant to fail this line.
+    for (label, doc, other_label, other, fields, width) in [
+        (
+            "lint",
+            &lint,
+            "doctor",
+            &doctor,
+            required("a lint check"),
+            6,
+        ),
+        (
+            "doctor",
+            &doctor,
+            "lint",
+            &lint,
+            required("a doctor check"),
+            5,
+        ),
     ] {
-        assert_eq!(fields.len(), 5, "{label}'s branch requires {fields:?}");
+        assert_eq!(fields.len(), width, "{label}'s branch requires {fields:?}");
         for field in &fields {
             let mutated = without(doc, field);
             assert_ne!(&mutated, doc, "`{label}` emits no `{field}` to drop");

@@ -454,6 +454,22 @@ repository that has to live with it.
 An escalated finding is ordinary debt: `yidam lint --bless` records it like any other, and
 the gate is quiet until something new ages past the line.
 
+**It reaches the checks that date their findings, and today that is `orphan-in` alone.** The
+first paragraph above is the reason: a finding about an immutable event has no clock, so no
+threshold can act on it. Most of the report is in that position, which means arming this
+number changes less than its prose suggests — and a corpus reading the prose alone has
+declined it on the strength of a risk that did not apply.
+
+So the declaration is on the check rather than in this document, where it would go stale:
+
+```
+$ yidam lint --format json | jq -r '.checks[] | select(.escalation_eligible) | .id'
+orphan-in
+```
+
+Every check that ran is in that array, including the ones that found nothing — which is the
+case that matters, because the question is asked before adopting rather than after.
+
 ## The baseline, and its own clock
 
 `.yidam/lint-baseline.yml` records the error-severity findings that were already true when
@@ -494,7 +510,7 @@ They are named apart because they are different questions:
 
 | Declaration | Where | Counts | Asks |
 |---|---|---|---|
-| `escalate_after` | `.yidam/config.toml` | commits | how long a **finding** may hold before it becomes an error |
+| `escalate_after` | `.yidam/config.toml` | commits | how long a **dated finding** may hold before it becomes an error |
 | `expire_after` | `.yidam/lint-baseline.yml` | commits | how long an **accepted entry** may stand before it gates again |
 | `ttl_days` | a catalog entry, or `[catalog]` in `.yidam/config.toml` | **days** | how long a **source record** may stand before it is worth looking at again |
 

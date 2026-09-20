@@ -74,6 +74,20 @@ pub struct CheckOut {
     /// what happened.
     pub severity: &'static str,
     pub rationale: &'static str,
+    /// Whether `[lint] escalate_after` can reach this check's findings at all.
+    ///
+    /// **The population the threshold applies to, which nothing on the wire stated until
+    /// #774.** Escalation needs a threshold *and* a finding carrying an `age`, and only a
+    /// few checks date their findings — so most of this array is unreachable by every value
+    /// of `escalate_after`, and a corpus weighing whether to arm it had to read the source
+    /// to find that out. One did not, and declined the mechanism on a risk that did not
+    /// exist for it.
+    ///
+    /// Read it here rather than inferring it from `violations[].age`: a check that found
+    /// nothing this run emits no findings and is still the kind of check that ages. True
+    /// here does **not** mean anything escalated — that is `violations[].severity`, and it
+    /// also depends on a number this corpus may not have declared.
+    pub escalation_eligible: bool,
     pub violations: Vec<ViolationOut>,
 }
 
@@ -213,6 +227,7 @@ pub fn build(root: &Path, all: &[Check], baseline: &Baseline, d: &Diff) -> LintR
                 title: check.title,
                 severity: check.severity.as_str(),
                 rationale: check.rationale,
+                escalation_eligible: check.escalation_eligible,
                 violations: check
                     .violations
                     .iter()

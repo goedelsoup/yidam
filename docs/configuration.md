@@ -111,6 +111,32 @@ breadth sweep landing twelve nodes it will link over the next eighty commits is 
 repository and over-collection in another. A value compiled into the binary would be one
 corpus's answer arriving as a build failure in a repository that never agreed to it.
 
+#### It reaches one check, and the report says which
+
+"A dated finding" is a small population. Escalation needs two things at once: this threshold,
+and a finding carrying a clock. Most checks date nothing. So most of the report is unreachable
+by *every* value of `escalate_after`. Arming it today escalates aged `orphan-in` findings and
+nothing else.
+
+That is not a number to keep here, where it would go stale. Each check declares it instead.
+`yidam lint --format json` carries the declaration on every check, including the ones that
+found nothing. That is the case that matters when you are deciding whether to adopt:
+
+```
+$ yidam lint --format json | jq -r '.checks[] | select(.escalation_eligible) | .id'
+orphan-in
+```
+
+`yidam lint --explain` says the same thing beside a check it is already printing.
+
+`escalation_eligible: true` does not mean anything escalated. That is
+`violations[].severity`, and it also depends on this number being set. True means the
+threshold can reach this check at all.
+
+**Worth reading before deciding not to adopt.** Suppose your report is mostly one undated
+finding shape. Arming this changes nothing about that shape. So "most of our findings are
+awaiting an editorial pass" is not by itself an argument against it.
+
 ### `[propose] withdraw_uncited_after`
 
 Corpus-touching commits an uncited node may hold before [`yidam propose`](cli-reference.md#propose-is-deliberately-small)
