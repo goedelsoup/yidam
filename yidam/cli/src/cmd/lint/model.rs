@@ -100,6 +100,10 @@ pub struct Violation {
     /// fix a verb, so a finding about an immutable event has no clock and gating on it
     /// could only ever be noise. An orphaned node can be linked or deleted today, so it
     /// has one.
+    ///
+    /// Which checks write this is not a detail of the checks — it is the whole population
+    /// `[lint] escalate_after` can act on, and a consumer must be able to read it off a
+    /// check that found nothing. [`Check::escalation_eligible`] is where it is declared.
     pub age: Option<super::history::Age>,
     /// This finding's severity, where the check's declared level cannot speak for all of
     /// them.
@@ -145,6 +149,27 @@ pub struct Check {
     /// Why this check exists. Printed with `--explain`, because a check whose rationale
     /// lives only in a commit message gets deleted by the next person to trip it.
     pub rationale: &'static str,
+    /// Whether `escalate_after` can reach this check's findings **at all**.
+    ///
+    /// Escalation needs two things at once, and [`Self::severity_of`] is where they meet: a
+    /// threshold, and a finding carrying a clock. The first is a corpus's declaration; the
+    /// second is a property of the check, and a check whose findings carry no age is
+    /// unreachable by *every* value of `escalate_after`. Of the whole registry, exactly one
+    /// check is eligible today.
+    ///
+    /// That went unstated, and it produced a wrong decision (#774): a derived corpus
+    /// declined to arm `escalate_after` because the bulk of its findings were one
+    /// malformed-tag shape awaiting an editorial pass — findings no threshold could ever
+    /// have escalated. The prose describes the general shape of the mechanism and the reader
+    /// had no way to discover the population it applies to. This field is that population,
+    /// declared by the check that dates its own findings, carried on the wire as
+    /// `checks[].escalation_eligible`, and held to what the checks actually do by
+    /// `run_checks`'s tests.
+    ///
+    /// Declared rather than derived from `violations`, deliberately: a check that found
+    /// nothing this run is still the kind of check that ages, and a consumer asking *would
+    /// arming this reach me* must get the same answer on a clean corpus as on a dirty one.
+    pub escalation_eligible: bool,
     /// Commits a dated finding may hold before it escalates to [`Severity::Error`].
     ///
     /// **Declared by the corpus, never hard-coded**, and `None` — no escalation ever — is
@@ -169,6 +194,7 @@ impl Check {
             severity,
             rationale,
             escalate_after: None,
+            escalation_eligible: false,
             violations,
         }
     }
@@ -215,6 +241,17 @@ impl Check {
     /// findings, and know nothing about a config file or a repository root.
     pub fn escalating_after(mut self, commits: Option<usize>) -> Self {
         self.escalate_after = commits;
+        self
+    }
+
+    /// Declare that this check dates its findings, and is therefore escalation-eligible.
+    ///
+    /// **Said by the function that attaches the ages**, which is the only place the two can
+    /// be kept honest: a check declaring this and never writing an `age` is a report that
+    /// promises a gate it cannot raise, and one writing ages without declaring it escalates
+    /// findings the contract said it could not. See [`Self::escalation_eligible`].
+    pub fn dated(mut self) -> Self {
+        self.escalation_eligible = true;
         self
     }
 

@@ -481,7 +481,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::catalog_artifact_unroutable(&sources, &declared_vaults),
         checks::malformed_table(&prose),
         checks::malformed_regen_block(&regen_files),
-        orphan_in_dated(root, &nodes, &classes).escalating_after(escalate_after),
+        orphan_in_dated(root, &nodes, &classes),
         checks::catalog_uncited(&sources, &cites),
         checks::class_asserts_purpose(&classes),
         checks::class_claim_uncounted(&classes),
@@ -515,6 +515,20 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         // the key existed.
         let registers = crate::kuten::Registers::of_repo(root);
         all.push(commits::unrecognized_verb(&subjects, &registers));
+    }
+
+    // The corpus's threshold, handed to every check rather than to the one that dates.
+    //
+    // That reads like over-reach and is the opposite. [`Check::severity_of`] escalates only a
+    // finding carrying an age, so a threshold on a check that dates nothing is inert — the
+    // two forms are behaviourally identical, and this one has no second half to forget. The
+    // call site used to read `orphan_in_dated(…).escalating_after(escalate_after)`, which made
+    // opting in a separate act from dating: a check that grew a clock and not that suffix
+    // would have reported itself escalation-eligible and escalated nothing, which is #774's
+    // defect with the halves swapped. Eligibility is now declared once, by `Check::dated`, at
+    // the point the ages are attached.
+    for check in &mut all {
+        check.escalate_after = escalate_after;
     }
 
     suppress_unparsed(&mut all, &nodes, &classes);
@@ -606,7 +620,10 @@ fn file_of(node: &str) -> &str {
 /// progress, one uncited for two hundred is over-collection, and a percentage cannot tell
 /// them apart. That count is what [`Check::severity_of`] escalates on.
 fn orphan_in_dated(root: &Path, nodes: &[checks::Node], classes: &[checks::Class]) -> Check {
-    let mut check = checks::orphan_in(nodes, classes);
+    // Declared before the early return, because eligibility is a property of the check and
+    // not of what this run happened to find. A corpus with no orphans still wants to be told
+    // that arming `escalate_after` would reach this check and nothing else (#774).
+    let mut check = checks::orphan_in(nodes, classes).dated();
     if check.violations.is_empty() {
         return check;
     }
@@ -848,6 +865,21 @@ fn report(all: &[Check], opts: &Options) {
         );
         if opts.explain {
             println!("  {}", check.rationale);
+            // Only where it is true, and only under `--explain`: a line on every block saying
+            // a check *cannot* escalate would be forty-odd lines of nothing. The whole
+            // population is readable from `--format json`, which reports passing checks too;
+            // this is the answer for the check somebody is already looking at (#774).
+            match (check.escalation_eligible, check.escalate_after) {
+                (true, Some(n)) => println!(
+                    "  these findings carry a clock: past {n} corpus commit(s) one escalates \
+                     to an error"
+                ),
+                (true, None) => println!(
+                    "  these findings carry a clock, so `[lint] escalate_after` would reach \
+                     them; unset, nothing escalates"
+                ),
+                (false, _) => {}
+            }
         }
         for v in &check.violations {
             // Marked per finding, because within one escalated block the escalated
@@ -1741,6 +1773,211 @@ decision := {"allow": true, "deny": []}
         let expected = run_checks(sound.path(), &Options::default()).len();
         assert_eq!(all.len(), expected, "every check still ran");
         assert_eq!(errors(&all), 0);
+    }
+
+    /// A corpus that trips a broad set of checks at once.
+    ///
+    /// The two direction guards below are only as exhaustive as the population they see, and
+    /// `repo_with_an_aged_orphan` trips exactly one check — under which a check dating its
+    /// findings without declaring it would go unseen, which is the whole thing they are for.
+    /// This one is deliberately wrong in several unrelated ways, so that a broad slice of the
+    /// report is non-empty and the guards have something to be exhaustive over.
+    fn repo_that_trips_many_checks() -> TempDir {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .current_dir(root)
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.email", "t@t.com"]);
+        git(&["config", "user.name", "T"]);
+
+        let corpus = root.join(".yidam/corpus/reach");
+        fs::create_dir_all(&corpus).unwrap();
+        fs::write(
+            root.join(".yidam/corpus/reach.ont.yml"),
+            "class: reach\nlabel: Reach\ndescription: A reach.\nproperties:\n  - name: depth\n    type: number\n    required: true\n",
+        )
+        .unwrap();
+        // Points at a file that does not exist, and is pointed at by nothing.
+        fs::write(
+            corpus.join("alpha.yml"),
+            "class: reach\nlabel: A\ndescription: A.\nlinks:\n  - target: gone.yml\n    relationship: refines\n",
+        )
+        .unwrap();
+        // No label, no description, no required property, and no links in either direction.
+        fs::write(corpus.join("bare.yml"), "class: reach\n").unwrap();
+        // A class nothing defines.
+        fs::write(
+            corpus.join("stray.yml"),
+            "class: nowhere\nlabel: S\ndescription: S.\n",
+        )
+        .unwrap();
+        // A name the grammar does not admit.
+        fs::write(
+            corpus.join("Not A Slug.yml"),
+            "class: reach\nlabel: N\ndescription: N.\n",
+        )
+        .unwrap();
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "genesis: corpus"]);
+        tmp
+    }
+
+    // ── which findings are dated (#774) ───────────────────────────────────────
+    //
+    // `escalate_after` is documented as a property of findings and reaches one check.
+    // Nothing said which, so a derived corpus read the general prose, assumed the shape
+    // filling its report was at risk, and declined the mechanism on a danger that did not
+    // exist for it. `Check::escalation_eligible` is that population, and these three hold
+    // the declaration to what the checks actually do — read off a real run rather than off a
+    // list, because a list of eligible checks written here is a list that stops covering the
+    // next one without ever going red.
+
+    /// The checks that say they age.
+    fn declared_eligible(all: &[Check]) -> std::collections::BTreeSet<&str> {
+        all.iter()
+            .filter(|c| c.escalation_eligible)
+            .map(|c| c.id)
+            .collect()
+    }
+
+    /// The checks that actually dated a finding on this run.
+    fn observed_dating(all: &[Check]) -> std::collections::BTreeSet<&str> {
+        all.iter()
+            .filter(|c| c.violations.iter().any(|v| v.age.is_some()))
+            .map(|c| c.id)
+            .collect()
+    }
+
+    /// The direction that would be a lie about the gate: a check writing ages without
+    /// declaring it escalates findings the report contract says it cannot reach.
+    ///
+    /// Exhaustive over whatever this corpus trips, which is what makes it worth more than the
+    /// pin below — a check that grows a clock next year is caught here without anyone
+    /// remembering this file exists, provided the fixture trips it.
+    #[test]
+    fn no_check_dates_a_finding_without_declaring_itself_eligible() {
+        let aged = repo_with_an_aged_orphan(6);
+        let broken = repo_that_trips_many_checks();
+        let all: Vec<Check> = [aged.path(), broken.path()]
+            .into_iter()
+            .flat_map(|r| run_checks(r, &Options::default()))
+            .collect();
+        let undeclared: Vec<&str> = observed_dating(&all)
+            .difference(&declared_eligible(&all))
+            .copied()
+            .collect();
+        assert!(
+            undeclared.is_empty(),
+            "{undeclared:?} attach an age to their findings — so `escalate_after` escalates \
+             them — while reporting `escalation_eligible: false`. Call `Check::dated()` where \
+             the ages are attached."
+        );
+    }
+
+    /// The other direction: a check promising a gate it cannot raise. Asked only of the
+    /// checks that fired, because a check with no findings this run has dated nothing and
+    /// that says nothing about it.
+    #[test]
+    fn an_eligible_check_that_fired_dated_at_least_one_finding() {
+        let aged = repo_with_an_aged_orphan(6);
+        let broken = repo_that_trips_many_checks();
+        let all: Vec<Check> = [aged.path(), broken.path()]
+            .into_iter()
+            .flat_map(|r| run_checks(r, &Options::default()))
+            .collect();
+        let empty_promises: Vec<&str> = all
+            .iter()
+            .filter(|c| c.escalation_eligible && !c.passed())
+            .filter(|c| c.violations.iter().all(|v| v.age.is_none()))
+            .map(|c| c.id)
+            .collect();
+        assert!(
+            empty_promises.is_empty(),
+            "{empty_promises:?} report `escalation_eligible: true` and dated none of the \
+             findings they raised, so no value of `escalate_after` can act on them"
+        );
+    }
+
+    /// The population itself, pinned — which is the fact #774 says a corpus has no way to
+    /// learn.
+    ///
+    /// A pin rather than a filter: a second dated check is *supposed* to fail this line, and
+    /// updating it is how the docs that quote the population get updated with it.
+    #[test]
+    fn orphan_in_is_the_whole_escalation_eligible_population() {
+        let tmp = repo_with_an_aged_orphan(6);
+        let all = run_checks(tmp.path(), &Options::default());
+        assert_eq!(
+            declared_eligible(&all),
+            std::collections::BTreeSet::from(["orphan-in"]),
+            "if a check was added or lost here, say so in docs/configuration.md and \
+             prelude/GRAPH.md, which both name this set"
+        );
+    }
+
+    /// The threshold now reaches every check rather than the one that dates, and that must
+    /// not widen the gate by a single finding.
+    ///
+    /// Compared against the same repository unarmed rather than against severities written
+    /// here: the interesting claim is that nothing outside the eligible set moved, and a
+    /// literal would be asserting today's severities instead.
+    #[test]
+    fn arming_the_threshold_moves_only_the_eligible_checks() {
+        // The broad corpus, not the aged orphan: the claim is about the checks that *cannot*
+        // age, so the run has to contain some of them with findings to move.
+        let tmp = repo_that_trips_many_checks();
+        let severities = |all: &[Check]| -> Vec<(&'static str, Vec<Severity>)> {
+            all.iter()
+                .map(|c| {
+                    (
+                        c.id,
+                        c.violations.iter().map(|v| c.severity_of(v)).collect(),
+                    )
+                })
+                .collect()
+        };
+
+        let quiet = run_checks(tmp.path(), &Options::default());
+        let before = severities(&quiet);
+
+        fs::write(
+            tmp.path().join(".yidam/config.toml"),
+            // 1, so every dated finding in the corpus is past it. Anything that moves under
+            // this moves under some threshold.
+            "[lint]\nescalate_after = 1\n",
+        )
+        .unwrap();
+        let armed = run_checks(tmp.path(), &Options::default());
+        let after = severities(&armed);
+
+        assert_eq!(before.len(), after.len(), "the same checks ran");
+        let moved: Vec<&str> = before
+            .iter()
+            .zip(&after)
+            .filter(|((_, b), (_, a))| b != a)
+            .map(|((id, _), _)| *id)
+            .collect();
+        assert_eq!(
+            moved,
+            vec!["orphan-in"],
+            "a threshold handed to a check that dates nothing must be inert"
+        );
+        assert_eq!(
+            moved
+                .iter()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>(),
+            declared_eligible(&armed),
+            "what moved is exactly what the report says can move"
+        );
     }
 
     // ── adoption ──────────────────────────────────────────────────────────────
