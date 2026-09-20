@@ -113,11 +113,18 @@ pub const META_KEY_TEXT_TRUNCATED: &str = "text_truncated";
 /// capped at 2 KB and typed as string, number, boolean or list, so a nested object has no
 /// business there.
 ///
-/// **`AMAZON_BEDROCK_TEXT` and `AMAZON_BEDROCK_METADATA` are here for a phase that has not
-/// been built**, which normally would not justify a line of code. It justifies these two: they
+/// **`AMAZON_BEDROCK_TEXT` and `AMAZON_BEDROCK_METADATA` are here for a route that has not
+/// been taken**, which normally would not justify a line of code. It justifies these two: they
 /// are what Bedrock Knowledge Bases requires to be non-filterable, declaring them is free, and
 /// declaring them *later* is impossible. An index created without them can only be replaced.
-/// Three of the ten keys an index is allowed.
+/// Four of the ten keys an index is allowed.
+///
+/// **That route is further off than #832 assumed, and #834 measured how far.** A knowledge
+/// base embeds the *query* with a model it owns — `embeddingModelArn` is required, and the set
+/// is Titan and Cohere — so it cannot read vectors this crate produced with `fastembed`,
+/// whatever metadata they carry. Populating these two keys today buys nothing. They are held
+/// open for the day an index is built in Bedrock's own vector space, which is a second
+/// embedding backend rather than a metadata change. RFC-0033 §8.1 is the measurement.
 pub const NON_FILTERABLE_KEYS: &[&str] = &[
     "text",
     "embed_config",
