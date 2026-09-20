@@ -341,7 +341,15 @@ pub fn checks(nodes: &[Node], deps: &BTreeMap<String, Installed>) -> [Check; 4] 
     ]
 }
 
-/// Every `(node, citation)` pair in the corpus, in corpus order.
+/// Every `(node, citation)` pair in the corpus whose citation names a dependency, in corpus
+/// order.
+///
+/// **A citation with no `package:` is not an unresolved external one, it is a local one.** The
+/// field was required from the start, which meant the `cites:` grammar could not name a node in
+/// the corpus it was written in and every attempt to was reported here as a defect. RFC-0034
+/// gave that shape a meaning, so the two modules partition the citations between them on this
+/// one test — see [`super::local_citations::is_local`], which is the only place the rule is
+/// written.
 fn all(nodes: &[Node]) -> Vec<(&Node, &ExternalCitation)> {
     nodes
         .iter()
@@ -351,6 +359,7 @@ fn all(nodes: &[Node]) -> Vec<(&Node, &ExternalCitation)> {
                 .as_deref()
                 .unwrap_or_default()
                 .iter()
+                .filter(|c| !super::local_citations::is_local(c))
                 .map(move |c| (n, c))
         })
         .collect()
@@ -451,12 +460,12 @@ fn external_citation_unpinned(violations: Vec<Violation>) -> Check {
 }
 
 /// Whitespace-flattened, for a containment test that survives YAML folding.
-fn flatten(text: &str) -> String {
+pub(super) fn flatten(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// A span short enough to sit in a finding, with the elision visible.
-fn truncate(span: &str) -> String {
+pub(super) fn truncate(span: &str) -> String {
     let flat = flatten(span);
     match flat.chars().count() > 60 {
         true => format!("{}…", flat.chars().take(60).collect::<String>()),

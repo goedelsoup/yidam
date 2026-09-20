@@ -64,6 +64,7 @@ re-deriving it.
 | [0031](0031-node-prose-model.md) | I26 | A node's prose is not one field, and a finding is not a sentence — the node prose model | Draft |
 | [0032](0032-reference-grammar.md) | I27 | One name for a thing, and one parser that reads it — the reference grammar | Draft |
 | [0033](0033-remote-vector-index.md) | I28 | A vector index a corpus is queried out of, not one it carries | Draft |
+| [0034](0034-local-citation.md) | I29 | A claim resting on a node beside it (`cites:` without a package) | Draft |
 
 ## Reading order
 

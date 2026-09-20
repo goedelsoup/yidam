@@ -164,6 +164,7 @@ const sidebar = [
       { slug: 'rfcs/0031-node-prose-model', label: '0031 · The node prose model' },
       { slug: 'rfcs/0032-reference-grammar', label: '0032 · The reference grammar' },
       { slug: 'rfcs/0033-remote-vector-index', label: '0033 · A remote vector index' },
+      { slug: 'rfcs/0034-local-citation', label: '0034 · A claim resting on a node beside it' },
     ],
   },
   {

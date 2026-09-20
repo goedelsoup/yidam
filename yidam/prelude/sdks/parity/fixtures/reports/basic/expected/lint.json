@@ -185,6 +185,38 @@
       "violations": []
     },
     {
+      "id": "local-citation-unresolved",
+      "title": "A local citation names a node this corpus does not hold",
+      "severity": "error",
+      "rationale": "A `cites:` entry with no `package:` rests on a node in this corpus. Renaming or deleting that node breaks the claim, and nothing else notices: `graph-check` reads `links:` and a citation is deliberately not a link, because a citation is not a relationship and must never enter a traversal. Error, under the baseline ratchet like every other citation defect a person here can fix. The population is empty in a corpus that writes no local citations, so this cannot fail a repository that predates it.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "local-citation-span-drift",
+      "title": "A local citation's span is no longer in the node it names",
+      "severity": "error",
+      "rationale": "`agent-conduct.md`: *cite a span, not a node*. A node reference alone rots invisibly, because the node keeps its name while its content is rewritten — and inside one corpus that rewrite is a normal commit, not a dependency bump somebody had to choose. Whitespace is normalized on both sides and nothing else is, so a folded scalar and a re-wrapped quote compare equal while a reworded one does not. The repair is to read the node and decide whether the claim survives; re-quoting the new text to clear the finding is the one response that destroys what the check is for.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "local-citation-tag-drift",
+      "title": "A local citation declares a standing its own corpus does not hold",
+      "severity": "error",
+      "rationale": "A foreign `tag:` is the producer's and `agent-conduct.md` says it does not transfer and cannot be checked — which is why the external family has no equivalent of this and reports a moved pin at Warn instead. A local one has no such excuse: the producer is this corpus, the claim is in the same tree, and a citation resting on `[verified]` over a paragraph this corpus tags `[inference]` asserts something its own corpus denies. The standing is read from the claims that overlap the span, weakest first, which is the direction a derived assertion's tier is computed in. A span no tagged claim covers is reported too: there, nothing licenses the standing that was declared.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "local-citation-untagged",
+      "title": "A local citation records a span and not what it was worth",
+      "severity": "info",
+      "rationale": "The span is there and the claim is anchored, which is most of the value. What is missing is the standing it was read at, and without that a demotion on the far side of the citation moves nothing: the node it rests on can fall from `[verified]` to `[open]` and this citation reads exactly as it did. Info, never gates, never baselined — the remedy is a judgement about the citing node rather than a defect in the corpus, and the same verdict `external-citation-unpinned` reaches about a citation that records what was read and not which state it was read from. The count is the thing to watch.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
       "id": "verified-unsourced",
       "title": "A claim asserted at `[verified]` that rests on nothing",
       "severity": "warn",

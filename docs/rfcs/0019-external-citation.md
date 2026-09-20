@@ -8,6 +8,7 @@
   - RFC-0001 (the report contract the checks emit on)
   - RFC-0003 (the light binary this must run in)
   - RFC-0005 (the MCP surface that already distinguishes foreign nodes by `origin`)
+  - RFC-0034 (the other direction of the same join — `cites:` with no `package:` names a node in **this** corpus, and reuses this RFC's span comparison rather than writing a second one)
 - **Versioning layers touched:** template (the node model gains a field; `prelude/guidelines`
   gains a rule) / tooling (`yidam` CLI implements the checks) — **no parity-surface change and
   no MCP contract change**; see [What this does not touch](#what-this-does-not-touch)
@@ -211,6 +212,13 @@ compiling one. All four read `.yidam/tonpa/<pkg>/` and `tonpa.toml` off disk; no
 
 The first two are #266. The third is #267's data, available at lint time rather than only on
 update — which matters because `tonpa update` is `--features tonpa` and CI is not.
+
+> **Noted 2026-09-20.** All four require a `package:`, and therefore a dependency. Measured
+> across seventeen repositories with a `.yidam/corpus/`: **not one carries a `cites:` block, and
+> not one has a `.yidam/tonpa.toml`**, so this family has never had a subject in a real corpus.
+> [RFC-0034](0034-local-citation.md) gives the package-less shape a meaning — a node in the
+> corpus the citation was written in — on the argument that unreachability is what the zero
+> measures. That RFC names its own falsifier for the argument.
 
 **A missing package and a missing node are one check with two messages, not two checks.**
 #266 asks for them not to be collapsed, and they are not: the finding names which it is and
