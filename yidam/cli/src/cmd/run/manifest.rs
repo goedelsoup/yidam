@@ -63,6 +63,42 @@ impl Kind {
     }
 }
 
+/// Where a run's commit goes, which is a function of the verb and of nothing else.
+///
+/// **This is the second structural route, not a permission that can be granted.** RFC-0026 §2
+/// states the invariant in one sentence — *"A run authors operational commits directly. Every
+/// epistemic commit it produces goes to a proposal branch, and nothing merges itself."* — and
+/// for as long as only the first half existed, the second was enforced by refusing the verb.
+/// That was the right holding action and it made the whole epistemic half of the vocabulary
+/// undeclarable: `yidam run` could compute a number and could not open a question about one.
+///
+/// What replaces the refusal has to be at least as strong, and the property to preserve is
+/// exact: **there is no path, and no config value, by which a run advances the current branch
+/// with an epistemic commit.** So there is no field. `route` takes `&self` and reads one thing,
+/// `verb`, through the parity function that already decides the families. A manifest cannot
+/// declare a route, a policy cannot override one, and the two facts a reader might otherwise
+/// have to reconcile — the verb and the destination — are one fact.
+///
+/// The temptation this forecloses, stated so the next reader does not have to rediscover it: a
+/// `route = "branch"` field, or an `allow_direct = true`, would make the safety argument a
+/// config value, which is exactly the contradiction RFC-0024 named and RFC-0026 §3.1 answered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Route {
+    /// Advances the branch the run was invoked from. Operational verbs only.
+    Branch,
+    /// Lands on `propose/<head>`, leaving the current branch where it was. A person merges.
+    Proposal,
+}
+
+impl Route {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Branch => "branch",
+            Self::Proposal => "proposal",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Capability {
@@ -77,6 +113,22 @@ pub struct Capability {
     pub writes: Vec<String>,
     /// The commit verb a run of this capability authors.
     pub verb: String,
+}
+
+impl Capability {
+    /// Where a commit this capability authors goes — see [`Route`].
+    ///
+    /// Total on the verb, and the verb is closed by [`validate`], so there is no third answer
+    /// and no unreachable arm to get wrong. `classify_commit` is the parity function that draws
+    /// the same line over a subject line; this draws it over the declaration, before anything
+    /// has been written, which is what RFC-0026 §4 means by the classification being decidable
+    /// before the step runs.
+    pub fn route(&self) -> Route {
+        match yidam_core::git::OPERATIONAL_VERBS.contains(&self.verb.as_str()) {
+            true => Route::Branch,
+            false => Route::Proposal,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -129,23 +181,18 @@ fn validate(name: &str, cap: &Capability, registers: &Registers) -> Result<()> {
         bail!("capability `{name}` declares an empty `run`, so there is nothing to invoke");
     }
 
-    // The constitutional rule, in Rust, with no override path — RFC-0026 §3.1. A corpus that
-    // could declare `verb = "establish"` here would have licensed its own runs to author
-    // nodes on the baseline, and the whole safety argument would be a config value.
-    if !yidam_core::git::OPERATIONAL_VERBS.contains(&cap.verb.as_str()) {
-        let what = if yidam_core::git::EPISTEMIC_VERBS.contains(&cap.verb.as_str()) {
-            format!(
-                "`{}` is an epistemic verb, and a run authors operational commits only",
-                cap.verb
-            )
-        } else {
-            format!("`{}` is not in the commit vocabulary at all", cap.verb)
-        };
+    // The closed vocabulary, and nothing outside it. Which *family* the verb falls in is not
+    // checked here any more and is not a permission — see [`Capability::route`], which is the
+    // whole of what an epistemic verb buys and the reason it no longer needs refusing.
+    if !yidam_core::git::is_recognized_verb(&cap.verb) {
         bail!(
-            "capability `{name}` declares `verb = \"{}\"` — {what}.\n  \
-             Operational verbs: {}",
+            "capability `{name}` declares `verb = \"{}\"`, which is not in the commit \
+             vocabulary at all.\n  \
+             Operational verbs: {}\n  \
+             Epistemic verbs: {}",
             cap.verb,
-            yidam_core::git::OPERATIONAL_VERBS.join(", ")
+            yidam_core::git::OPERATIONAL_VERBS.join(", "),
+            yidam_core::git::EPISTEMIC_VERBS.join(", ")
         );
     }
 
@@ -235,16 +282,48 @@ verb   = "compute"
         assert!(c.kind.executable());
     }
 
-    /// The rule that makes this layer safe, asserted on the verb it would be softened for.
+    /// An epistemic verb loads, and what it buys is a destination rather than a permission.
+    ///
+    /// This replaces `an_epistemic_verb_is_refused_by_name`, which asserted the holding action.
+    /// The invariant it was protecting is now [`routes_are_a_total_function_of_the_verb`] and
+    /// the executor test that no epistemic run touches the branch.
     #[test]
-    fn an_epistemic_verb_is_refused_by_name() {
+    fn an_epistemic_verb_loads_and_routes_to_a_proposal() {
         let text = CALC.replace(r#"verb   = "compute""#, r#"verb   = "establish""#);
-        let err = Manifest::parse(&text, &corpus_only())
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("epistemic verb"), "{err}");
+        let m = Manifest::parse(&text, &corpus_only()).unwrap();
+        let c = m.get("low-flow").unwrap();
+        assert_eq!(c.verb, "establish");
+        assert_eq!(c.route(), Route::Proposal);
     }
 
+    /// The property that replaced the refusal: every verb the vocabulary admits has exactly one
+    /// destination, it is decided by the verb, and the two families do not overlap.
+    ///
+    /// Written over the whole vocabulary rather than over a sample, because the claim is about
+    /// the partition and a sample would be about two strings.
+    #[test]
+    fn routes_are_a_total_function_of_the_verb() {
+        let cap = |verb: &str| Capability {
+            kind: Kind::Calculator,
+            run: vec!["true".into()],
+            reads: vec![],
+            writes: vec![".yidam/computed/**".into()],
+            verb: verb.to_string(),
+        };
+        for verb in yidam_core::git::OPERATIONAL_VERBS {
+            assert_eq!(cap(verb).route(), Route::Branch, "{verb}");
+        }
+        for verb in yidam_core::git::EPISTEMIC_VERBS {
+            assert_eq!(cap(verb).route(), Route::Proposal, "{verb}");
+            assert!(
+                !yidam_core::git::OPERATIONAL_VERBS.contains(verb),
+                "{verb} is in both families, so `route` is deciding by which list was consulted \
+                 first rather than by the vocabulary"
+            );
+        }
+    }
+
+    /// A verb in neither family is still refused as such, and the message now names both.
     #[test]
     fn a_verb_outside_the_vocabulary_is_refused_as_such() {
         let text = CALC.replace(r#"verb   = "compute""#, r#"verb   = "lift""#);
@@ -252,6 +331,27 @@ verb   = "compute"
             .unwrap_err()
             .to_string();
         assert!(err.contains("not in the commit vocabulary"), "{err}");
+        assert!(err.contains("establish"), "{err}");
+    }
+
+    /// The field that must never exist. A manifest cannot say where its output goes, and
+    /// `deny_unknown_fields` is what makes an attempt to say so a parse error rather than a
+    /// line somebody reads as effective.
+    #[test]
+    fn a_manifest_cannot_declare_a_route() {
+        for line in [
+            "route  = \"branch\"\n",
+            "allow_direct = true\n",
+            "epistemic = false\n",
+        ] {
+            let text = format!("{CALC}{line}");
+            assert!(
+                Manifest::parse(&text, &corpus_only()).is_err(),
+                "`{}` was accepted, so a corpus can state a destination the executor does not \
+                 read — which is the shape of a permission",
+                line.trim()
+            );
+        }
     }
 
     /// RFC-0028 §4 arm (b), at declaration time.

@@ -19,6 +19,18 @@
 - **Downstream reference case:** none yet. The first consumer is `examples/streamflow`, by
   construction — see "Why the first thing built is not the manifest".
 
+> **Amended 2026-09-20 — the epistemic arm is built.** §2's second sentence had no
+> implementation: `manifest.rs` refused an epistemic verb at load, so nothing could produce an
+> epistemic commit at all and the clause was held by making the whole family undeclarable. It is
+> now a second **destination**. `Capability::route` reads the verb through the families
+> `classify_commit` already draws and returns where the commit goes — the invoking branch for an
+> operational verb, `propose/<head>` for an epistemic one — and the property §3.1 exists to
+> protect is stated in the executor's module doc as the thing that must not weaken: *there is no
+> path, and no config value, by which a run advances the current branch with an epistemic
+> commit.* There is no manifest field, and `deny_unknown_fields` is what makes an attempt to
+> write one a parse error rather than a line somebody reads as effective. §2.1 below is the
+> record.
+
 > **Noted 2026-09-04.** Open question 2 — does a write-capable MCP tool live in the existing tier
 > or a new one — is answered by [RFC-0029](0029-write-tier.md): the same tier mechanism, with an
 > opt-in declaration and an identity gate (declarable only where a git author identity exists).
@@ -137,6 +149,46 @@ Three consequences, each closing a shortcut somebody will reasonably propose:
 **The invariant is mechanically testable**, which is the property that makes it worth stating this
 way: classify every commit a run wrote by leading verb, and assert the epistemic ones are all on a
 `propose/*` ref. `classify_commit` is already a parity function with fixtures in three SDKs.
+
+#### 2.1 — The second route, and why it is not a permission
+
+*Built 2026-09-20.* The first slice implemented half of the sentence above and held the other half
+by refusing the verb at load. That was honest about what existed — there was nowhere for an
+epistemic commit to go — and it had a cost that only became visible when something wanted the arm:
+a run could compute a number and could not open a question about one. Deterministic calculators
+never needed it. A classifier does, and that is what surfaced the gap.
+
+The refusal is replaced by a destination:
+
+| the capability's verb | where its commit goes | what moves |
+|---|---|---|
+| operational (`compute`, `extract`, …) | the branch the run was invoked from | that branch |
+| epistemic (`establish`, `revise`, …) | `propose/<head>` | nothing the person was on |
+
+**`Capability::route` takes `&self` and reads one field.** It is a total function of `verb`, and
+`verb` is closed by the manifest's own validation, so there is no third answer and no arm to get
+wrong. A manifest cannot declare a route; `deny_unknown_fields` means `route = "branch"`,
+`allow_direct = true` and `epistemic = false` are all parse errors rather than ignored lines. That
+distinction is the design: an *ignored* permission is worse than a refused one, because the corpus
+that wrote it believes it is in effect.
+
+The reasoning is §3.1's, unchanged. A field here would make the safety argument a config value,
+which is the contradiction RFC-0024 named. What changed is only that the rule now has two branches
+instead of one and a half.
+
+Three things follow that are worth writing down because somebody will want each of them:
+
+- **The proposal commit is stacked on the proposal branch, not on HEAD**, when one already stands
+  at this head. The receipt still records HEAD as the input state — the step read HEAD — so two
+  epistemic runs at one head accumulate the way `propose`'s commits do rather than each discarding
+  the other.
+- **Idempotence is measured against the proposal branch's tip.** `already_landed` compares the
+  receipt and the output blobs at whatever ref the run is about to move, so a re-run that computes
+  the same answer writes nothing on either route.
+- **Nothing merges itself, and the report says so.** An epistemic run prints the `git log
+  --reverse` that reviews the branch and the two things a person may then do with it. The commit's
+  own trailing paragraph says the corpus is unchanged until somebody merges, where an operational
+  one says the pipeline advanced and no understanding changed.
 
 #### `phase settle` prepares; it does not merge
 
