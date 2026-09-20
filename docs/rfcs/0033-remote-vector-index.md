@@ -9,6 +9,7 @@
 - **Versioning layers touched:** tooling (`yidam index-push`, the read path, `doctor`) / **MCP contract** (§6 — a minor bump, in all three copies). No on-disk format change: `.yidam/index/` keeps its three files and its meaning.
 - **Verified against AWS documentation on 2026-09-19.** Every limit and shape in §3 is quoted from the S3 Vectors API reference rather than recalled; the figures are load-bearing and two of them decide the design.
 - **Not yet verified against a live service.** §8 says exactly which claims that leaves standing and which test discharges each.
+- **Amended 2026-09-20 (#834).** §8's Bedrock row was settled against the documentation and came back false; §8.1 records what that kills, what survives, and what is still unasked. §4.2 and the phase list are corrected to match.
 
 ## Summary
 
@@ -123,8 +124,13 @@ filterable metadata's 2 KB ceiling and string/number/boolean/list typing have no
 
 The last two are Bedrock Knowledge Bases' internal keys, they are unused by anything here, and
 they are declared anyway — because declaring them is free, and declaring them later is
-*impossible*. Three of the ten keys an index is allowed, spent on a phase that may never
-happen, to avoid the one failure mode that cannot be repaired.
+*impossible*. Four of the ten keys an index is allowed, two of them spent on a route that may
+never be taken, to avoid the one failure mode that cannot be repaired.
+
+That route is **not** the one this section originally had in mind, and §8.1 is where it is
+corrected: a knowledge base cannot read vectors this crate embedded, whatever their metadata
+says. The two keys are held open for the day an index is built in Bedrock's own vector space,
+which is the only arrangement on which they do any work.
 
 Filterable: `corpus`, `class`, `label`, `commit`.
 
@@ -278,14 +284,63 @@ What that leaves standing, and what would settle each:
 |---|---|
 | A request signed for `s3vectors` is accepted | The live smoke test. Unit tests pin that the scope differs from `s3` and that the digest covers the body sent; only a server can say the whole is right |
 | `score = 1 - distance` for cosine | Embedding one query against one corpus locally and remotely and comparing scores element-wise. Until then the tests pin monotonicity only |
-| A hand-populated index is consumable by Bedrock Knowledge Bases | Nothing yet. The documented Bedrock path is ingestion from an S3 data source into an index it manages, so this is a premise of a later phase, not a claim of this one. §4.2's key set is what keeps the question open rather than answering it |
+| ~~A hand-populated index is consumable by Bedrock Knowledge Bases~~ | **Settled against the documentation on 2026-09-20, and false as stated** — see §8.1. A knowledge base embeds the *query* with a model it owns, and yidam's vectors are not in that model's space. §4.2's key set survives, but for the route §8.1 names rather than this one |
 | The 40 KB metadata ceiling is comfortable for real corpora | Measuring the `text` length distribution across the derived corpora. The push truncates and flags rather than failing, so the cost of being wrong is visible rather than silent |
+
+### 8.1 — The Bedrock premise, tested and false
+
+The row above was open from the day this RFC was written. It is now closed, against the
+documentation rather than against a live service, and the answer is that **the phase as
+described cannot be built** — for a reason that has nothing to do with metadata keys.
+
+**A knowledge base always embeds the query with a model it owns.**
+[`VectorKnowledgeBaseConfiguration.embeddingModelArn`](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_agent_VectorKnowledgeBaseConfiguration.html)
+is `Required: Yes`. There is no field for precomputed embeddings and no way to omit the model.
+The [supported set](https://docs.aws.amazon.com/bedrock/latest/userguide/knowledge-base-supported.html#knowledge-base-supported-embeddings)
+is Titan Embeddings G1 (1536), Titan Text Embeddings V2 (256, 512, 1024) and Cohere Embed
+English/Multilingual (1024). None of them is a model `fastembed` can load.
+
+So a `Retrieve` against a `yidam index-push` index compares a Titan or Cohere query vector
+against vectors this crate produced with `AllMiniLML6V2Q`. Different weights, different space.
+
+**And the mismatch does not announce itself.** The `fastembed` linked here offers dimensions
+384 (nine models), 512 (two), 768 (ten) and 1024 (nine). Eleven of the thirty therefore produce
+a dimension a knowledge base accepts. A corpus built with `BGELargeENV15` would attach, ingest,
+answer, and rank by noise — with scores in the same range a correct ranking has. This is the
+exact failure `embed.config.json` and the witness record (§4.4, #536) exist to make impossible,
+arriving through a consumer that never reads either.
+
+Two further findings from the same pass, neither decisive on its own:
+
+- **The knowledge-base path caps custom metadata at 1 KB**, filterable and non-filterable
+  together, and 35 keys per vector — against the 40 KB §3 quotes and `request::metadata`
+  truncates to. A row that fits S3 Vectors need not fit a knowledge base reading it.
+- **§4.2 said "three of the ten keys".** Four are declared and two of them are Bedrock's.
+  Corrected below; the argument it was making is unaffected.
+
+**What survives.** `AMAZON_BEDROCK_TEXT` and `AMAZON_BEDROCK_METADATA` stay in
+`NON_FILTERABLE_KEYS`. #832's argument for them was that declaring them later is impossible,
+and that is still true; what has changed is the route they are held open *for*. They are not
+two keys away from a working knowledge base. They are two keys that would still be needed on
+the day a yidam index is built in Bedrock's vector space — which is a different piece of work
+and is now its own issue rather than a phase of this one.
+
+**What is still unverified**, and deliberately so: whether a knowledge base pointed at a
+correctly-spaced hand-populated index retrieves from it at all — whether `Retrieve` requires an
+ingestion job to have run, what shape `AMAZON_BEDROCK_METADATA` must carry for source
+attribution, and whether the vector key format is load-bearing. Those questions only become
+askable once there is an index in Bedrock's space to ask them of, so they belong to that issue.
+Nothing here should be read as having answered them.
 
 ## Phases
 
 1. **This.** One corpus, one remote index: push, query, verify, report.
-2. **AWS-native consumers.** Populate the Bedrock keys §4.2 already declares — after testing the
-   premise in the table above.
+2. ~~**AWS-native consumers.** Populate the Bedrock keys §4.2 already declares — after testing
+   the premise in the table above.~~ **Withdrawn.** The premise was tested and is false: §8.1.
+   Populating the two keys buys nothing while a corpus's vectors are `fastembed`'s, because a
+   knowledge base embeds the query with Titan or Cohere regardless. The route that would make
+   them useful — building the index in Bedrock's vector space — is a second embedding backend,
+   not a metadata change, and is tracked separately.
 3. **Many corpora, one index.** Keys are already prefixed and `corpus` is already filterable, so
    this is a filter and a way to render a foreign corpus's node reference (RFC-0032), not a
    re-push.
