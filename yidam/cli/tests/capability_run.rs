@@ -361,30 +361,152 @@ fn a_step_that_writes_outside_its_declaration_is_refused_and_lands_nothing() {
     }
 }
 
-/// The whole safety argument, asserted where it is enforced.
+/// Re-declare a capability's verb, leaving everything else the example ships.
 ///
-/// A corpus that could declare an epistemic verb here could license its own runs to author
-/// `establish:` on the baseline. RFC-0026 §3 puts the rule in Rust with no override path, and
-/// this is the mutation that shows the rule is load-bearing rather than described.
+/// The mutation is asserted rather than assumed — a `replace` that matched nothing would hand
+/// every test below an unmutated manifest and a green run about the wrong thing, which is a
+/// failure this suite has seen in other shapes.
+fn with_verb(e: &Example, verb: &str) {
+    let manifest = e.path().join(".yidam/capabilities.toml");
+    let before = std::fs::read_to_string(&manifest).unwrap();
+    let after = before.replace("verb   = \"compute\"", &format!("verb   = \"{verb}\""));
+    assert_ne!(
+        before,
+        after,
+        "the manifest at {} was not mutated, so the test asserts nothing",
+        manifest.display()
+    );
+    std::fs::write(&manifest, after).unwrap();
+}
+
+/// The whole safety argument, asserted where it is enforced — **and it is now a destination
+/// rather than a refusal**.
+///
+/// This replaces `a_capability_declaring_an_epistemic_verb_does_not_load`, which pinned the
+/// holding action: for as long as nothing could route an epistemic commit anywhere, refusing
+/// the verb at load was the only way to hold RFC-0026 §2's second sentence. It also made the
+/// epistemic half of the vocabulary undeclarable.
+///
+/// What must not weaken is the property, not the refusal: **no path, and no config value, by
+/// which a run advances the current branch with an epistemic commit.** So this asserts the run
+/// succeeds, the commit exists, it is epistemic, it is on `propose/*` — and the branch the run
+/// was invoked from is byte-for-byte where it was.
 #[test]
-fn a_capability_declaring_an_epistemic_verb_does_not_load() {
+fn an_epistemic_run_lands_on_a_proposal_branch_and_the_branch_does_not_move() {
     for (example, step) in every_capability() {
         let e = Example::materialize(&example);
-        let manifest = e.path().join(".yidam/capabilities.toml");
-        let text = std::fs::read_to_string(&manifest)
-            .unwrap()
-            .replace("verb   = \"compute\"", "verb   = \"establish\"");
-        assert!(
-            text.contains("establish"),
-            "the manifest of {example} was not mutated, so this test asserts nothing"
+        with_verb(&e, "establish");
+
+        let branch = git(&e.path(), &["rev-parse", "--abbrev-ref", "HEAD"]);
+        let before = git(&e.path(), &["rev-parse", "HEAD"]);
+        let short = git(&e.path(), &["rev-parse", "--short", "HEAD"]);
+
+        let (out, err, code) = e.run(&["run", &step, "--format", "json"]);
+        assert_eq!(code, 0, "an epistemic run failed in {example}:\n{out}{err}");
+
+        // The branch is exactly where it was. This is the invariant; everything else below is
+        // evidence that something nonetheless happened.
+        assert_eq!(
+            before,
+            git(&e.path(), &["rev-parse", "HEAD"]),
+            "an epistemic run advanced {branch} in {example}"
         );
-        std::fs::write(&manifest, text).unwrap();
+
+        let report: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(report["route"], "proposal", "{out}");
+        let landed = report["committed"]["branch"]
+            .as_str()
+            .unwrap_or_else(|| panic!("nothing was committed in {example}:\n{out}"));
+        assert_eq!(landed, format!("propose/{short}"), "{out}");
+
+        // The commit is there, it is a run's, and it is epistemic — decided by the classifier
+        // the CLI ships rather than by re-reading the verb here.
+        let subject = git(&e.path(), &["log", "-1", "--format=%s", landed]);
+        assert!(subject.starts_with("establish: "), "{subject}");
+        assert_eq!(
+            git(&e.path(), &["log", "-1", "--format=%ae", landed]),
+            "run@yidam"
+        );
+        assert_eq!(
+            yidam_core::git::classify_commit("", &subject).kind,
+            yidam_core::git::CommitKind::Epistemic,
+            "{subject}"
+        );
+
+        // And nothing merged itself: the proposal is not reachable from the branch.
+        let tip = git(&e.path(), &["rev-parse", landed]);
+        let merged = Command::new("git")
+            .current_dir(e.path())
+            .args(["merge-base", "--is-ancestor", &tip, &before])
+            .status()
+            .unwrap()
+            .success();
+        assert!(
+            !merged,
+            "{landed} is an ancestor of {branch} in {example} — something merged itself"
+        );
+    }
+}
+
+/// The same property over the **whole** epistemic family, not over one verb.
+///
+/// `establish` is the verb the argument is usually made about, and a test that only ever ran
+/// that one would stop covering a family member the day the vocabulary gained one — the
+/// guard-list shape this suite's own header warns about. Every epistemic verb is tried, and
+/// the branch must be untouched by all of them.
+///
+/// One example rather than every example: the claim is about the verb partition, and the
+/// per-example behaviour is what the test above establishes.
+#[test]
+fn no_epistemic_verb_in_the_vocabulary_can_advance_the_branch() {
+    let Some((example, step)) = every_capability().into_iter().next() else {
+        panic!("no example declares a capability, so this asserts nothing");
+    };
+    assert!(
+        !yidam_core::git::EPISTEMIC_VERBS.is_empty(),
+        "the epistemic family is empty, so the loop below runs zero times"
+    );
+    for verb in yidam_core::git::EPISTEMIC_VERBS {
+        let e = Example::materialize(&example);
+        with_verb(&e, verb);
+        let before = git(&e.path(), &["rev-parse", "HEAD"]);
 
         let (out, err, code) = e.run(&["run", &step]);
-        assert_ne!(code, 0, "an epistemic verb was accepted:\n{out}");
-        assert!(
-            err.contains("epistemic verb"),
-            "the refusal does not say why:\n{err}"
+        assert_eq!(code, 0, "`{verb}` was refused in {example}:\n{out}{err}");
+        assert_eq!(
+            before,
+            git(&e.path(), &["rev-parse", "HEAD"]),
+            "`{verb}` advanced the branch in {example}"
         );
+    }
+}
+
+/// A manifest cannot state where its output goes, end to end.
+///
+/// The unit test pins that the field does not deserialize. This pins what that buys: the three
+/// shapes somebody would reach for to license the old behaviour all stop the run rather than
+/// being read as effective, which is the difference between a refused permission and an
+/// ignored one.
+#[test]
+fn a_manifest_that_tries_to_declare_a_destination_does_not_run() {
+    for (example, step) in every_capability() {
+        for line in [
+            "route  = \"branch\"",
+            "allow_direct = true",
+            "epistemic = false",
+        ] {
+            let e = Example::materialize(&example);
+            with_verb(&e, "establish");
+            let manifest = e.path().join(".yidam/capabilities.toml");
+            let text = std::fs::read_to_string(&manifest).unwrap();
+            std::fs::write(&manifest, format!("{text}{line}\n")).unwrap();
+
+            let (out, err, code) = e.run(&["run", &step]);
+            assert_ne!(
+                code, 0,
+                "`{line}` was accepted in {example}, so a corpus can write a destination the \
+                 executor does not read:\n{out}{err}"
+            );
+        }
     }
 }
