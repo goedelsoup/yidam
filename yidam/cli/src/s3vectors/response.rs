@@ -158,6 +158,43 @@ pub fn score_from_distance(metric: &str, distance: f64) -> Result<f32, String> {
     Ok((1.0 - distance) as f32)
 }
 
+/// Why an existing index cannot hold this corpus, or `None` when it can.
+///
+/// Pure, and separate from the call that produces the body, so the field names can be checked
+/// against `GetIndex`'s response shape by a test rather than by a reader. A pointer into the
+/// wrong path would make this check silently unfireable — it would find no dimension, conclude
+/// nothing, and let a push proceed into an index it does not fit.
+///
+/// It lives here rather than beside its one caller because a *live* test has to be able to run
+/// it against a body the service actually sent. A unit test can only confirm the pointers match
+/// the shape as documented; `tests/s3vectors_live.rs` confirms they match the shape as served,
+/// which is the claim RFC-0033 §8 records.
+pub fn disagreement(body: &serde_json::Value, dimension: u32, name: &str) -> Option<String> {
+    let got = body.pointer("/index/dimension").and_then(|v| v.as_u64());
+    if let Some(d) = got {
+        if d != u64::from(dimension) {
+            return Some(format!(
+                "the index {name} already exists with dimension {d}, and this corpus embeds \
+                 into {dimension}.\n  \
+                 A vector index's dimension is fixed when it is created — push to a \
+                 different index name, or delete that one."
+            ));
+        }
+    }
+    let metric = body
+        .pointer("/index/distanceMetric")
+        .and_then(|v| v.as_str())
+        .unwrap_or(DISTANCE_METRIC);
+    if metric != DISTANCE_METRIC {
+        return Some(format!(
+            "the index {name} uses the {metric} distance metric and this build reads only \
+             {DISTANCE_METRIC}.\n  \
+             The metric is fixed when an index is created — push to a different index name."
+        ));
+    }
+    None
+}
+
 /// Decode one `QueryVectors` response.
 ///
 /// Rows whose key belongs to another corpus are skipped rather than returned: the caller asked
@@ -546,5 +583,37 @@ mod tests {
     fn the_page_ceiling_is_far_below_the_top_k_ceiling() {
         assert_eq!(super::super::MAX_RESULTS_PER_PAGE, 100);
         assert_eq!(MAX_TOP_K, 10_000);
+    }
+
+    /// The response shape is `GetIndex`'s, and the pointers must reach into it.
+    ///
+    /// A check that reads the wrong path finds no dimension and concludes nothing, which looks
+    /// exactly like agreement. The body here is the documented response shape, so a pointer
+    /// typo fails rather than passing quietly.
+    #[test]
+    fn an_index_of_another_dimension_or_metric_is_refused() {
+        let body = |dim: u64, metric: &str| {
+            serde_json::json!({"index": {
+                "indexName": "yidam-main",
+                "dataType": "float32",
+                "dimension": dim,
+                "distanceMetric": metric,
+                "metadataConfiguration": {"nonFilterableMetadataKeys": ["text"]},
+            }})
+        };
+        assert_eq!(disagreement(&body(384, "cosine"), 384, "yidam-main"), None);
+
+        let d = disagreement(&body(768, "cosine"), 384, "yidam-main").expect("a dimension clash");
+        assert!(d.contains("768") && d.contains("384"), "{d}");
+
+        let m = disagreement(&body(384, "euclidean"), 384, "yidam-main").expect("a metric clash");
+        assert!(m.contains("euclidean") && m.contains("cosine"), "{m}");
+    }
+
+    /// A body this code cannot read concludes nothing — and that is the failure mode the test
+    /// above exists to prevent, so it is named here rather than left implicit.
+    #[test]
+    fn a_body_with_no_index_object_concludes_nothing() {
+        assert_eq!(disagreement(&serde_json::json!({}), 384, "x"), None);
     }
 }

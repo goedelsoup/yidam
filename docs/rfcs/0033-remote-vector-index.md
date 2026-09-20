@@ -206,10 +206,11 @@ exists for on the other axis.
 So `distanceMetric` is checked on every response and a euclidean index is refused rather than
 converted. For a cosine index the score is `1 - distance`.
 
-**That identity is an assumption, and it is recorded as one.** What the unit tests pin is that
-the conversion is monotone decreasing — a nearer vector always scores higher, which is the
-property ranking depends on and which holds under any affine reading of the metric. The
-absolute values are §8's business.
+**That identity was an assumption, and it was recorded as one until it could be measured.** What
+the unit tests pin is that the conversion is monotone decreasing — a nearer vector always scores
+higher, which is the property ranking depends on and which holds under any affine reading of the
+metric. The absolute values were §8's business, and §8.2 settles them: the identity is exact to
+float32 precision against a live cosine index.
 
 ### 4.7 — A declared remote index wins
 
@@ -271,19 +272,23 @@ configuration, so a server may report it on one request and nothing on the next 
 three before it, which are properties of a deployment and hold for its lifetime. A client
 caching the first `degraded_reason` it sees will be wrong about the second question it asks.
 
-## What is not verified
+## What is verified, and what is not
 
 There is **no emulator for S3 Vectors** — no MinIO, no localstack path this crate can rely on —
 so nothing in CI reaches the service. That is a fact about the design's test strategy, not an
 excuse: it is why the loops take the transport as an argument and are exercised against a
 recorded one, and why `transport.rs` is kept thin enough to check by eye.
 
-What that leaves standing, and what would settle each:
+What that left standing, and what settled each. **Four of these rows were settled against a live
+index on 2026-09-20** — §8.2 records that run and its numbers — and a fifth was settled against
+the documentation (§8.1). One row is still open, and it is the one that needs no account:
 
 | Claim | Settled by |
 |---|---|
-| A request signed for `s3vectors` is accepted | The live smoke test. Unit tests pin that the scope differs from `s3` and that the digest covers the body sent; only a server can say the whole is right |
-| `score = 1 - distance` for cosine | Embedding one query against one corpus locally and remotely and comparing scores element-wise. Until then the tests pin monotonicity only |
+| ~~A request signed for `s3vectors` is accepted~~ | **Settled live on 2026-09-20, and true.** Every operation answered. Signing for `s3` instead is refused by the service in its own words — *"Credential should be scoped to correct service: 's3vectors'"* — so the server is recomputing the signature, which is what a unit test could not establish |
+| ~~`score = 1 - distance` for cosine~~ | **Settled live on 2026-09-20, and true to float32 precision.** Against three vectors whose cosine is known by hand, the service returned distances `0.0`, `0.2928932309150696`, `1.0` for cosines `1`, `0.70710678`, `0` — residual `1.2e-8`, which is f32 rounding. Measured twice: through this crate, and through `aws s3vectors query-vectors` with no yidam code in the path |
+| ~~The mirror's delete reaches the service~~ | **Settled live on 2026-09-20, and true.** A key dropped from the local set stops coming back from `QueryVectors`. Deleting the delete loop from `apply_mirror` makes the live test fail and every recorded-transport test still pass, which is the gap this row existed for |
+| ~~`GetIndex`'s response shape~~ | **Settled live on 2026-09-20, and true.** `/index/dimension` and `/index/distanceMetric` are where `response::disagreement` reads them. The served body carries four fields the unit fixture does not (`vectorBucketName`, `indexArn`, `creationTime`, `encryptionConfiguration`); neither pointer moved |
 | ~~A hand-populated index is consumable by Bedrock Knowledge Bases~~ | **Settled against the documentation on 2026-09-20, and false as stated** — see §8.1. A knowledge base embeds the *query* with a model it owns, and yidam's vectors are not in that model's space. §4.2's key set survives, but for the route §8.1 names rather than this one |
 | The 40 KB metadata ceiling is comfortable for real corpora | Measuring the `text` length distribution across the derived corpora. The push truncates and flags rather than failing, so the cost of being wrong is visible rather than silent |
 
@@ -331,6 +336,46 @@ ingestion job to have run, what shape `AMAZON_BEDROCK_METADATA` must carry for s
 attribution, and whether the vector key format is load-bearing. Those questions only become
 askable once there is an index in Bedrock's space to ask them of, so they belong to that issue.
 Nothing here should be read as having answered them.
+
+### 8.2 — The live run, and why its green means anything
+
+`tests/s3vectors_live.rs` shipped with #832 and had never been run. It was run on **2026-09-20**
+against a vector bucket created for the purpose in an AWS sandbox account (`us-east-2`, a
+4-dimensional cosine index), and the bucket was deleted afterwards. Six tests, all passing.
+
+**Six passing tests is not the finding, and on its own it is not even evidence.** Without
+`YIDAM_S3VECTORS_TEST` set, all six report `ok` in 0.00s having called nothing: the skip notice
+goes to stdout, which cargo captures unless `--nocapture` is passed. A run against no account and
+a run against a healthy index are distinguishable only by their duration. The module doc's claim
+that they "skip loudly" is true only of the `--nocapture` case.
+
+So each of the four claims was settled by **breaking the code and watching the live test fail**,
+not by watching it pass:
+
+| Mutation | What the live suite did |
+|---|---|
+| `score = 1 - distance` → `score = distance` | `the_score_is_the_cosine_similarity_to_five_decimals` fails, and reports the ranking exactly reversed — the failure mode §4.6 describes, produced on demand |
+| `/index/dimension` → `/index/dimensions` | `the_served_get_index_body_has_the_shape_the_push_check_reads` fails on the clash it should have found |
+| the delete loop removed from `ops::apply_mirror` | `a_deleted_key_stops_being_findable` fails with the deleted node still in the results; **every unit test still passes** |
+| signing scope `s3vectors` → `s3` | every test fails 403, with the service naming the correct scope |
+
+Each mutation was reverted and the full suite re-run green.
+
+**Two things the run turned up that are not claims about the design.**
+
+The transport is flaky on a run's first call: two of roughly ten runs failed with
+`error sending request for url` before any request was answered, and passed on an immediate
+retry. A live failure that is a transport error is not a finding about the code, and a person
+reading a red run here should retry once before believing it.
+
+And the `GetIndex` body corroborates a correction §8.1 made in passing: the index reports four
+non-filterable metadata keys — `text`, `embed_config`, `AMAZON_BEDROCK_TEXT`,
+`AMAZON_BEDROCK_METADATA` — which is the "four are declared and two of them are Bedrock's" that
+replaced §4.2's original "three of the ten".
+
+**What is still unsettled** is the last row of the table above: whether the 40 KB metadata ceiling
+is comfortable for real corpora. That one needs no account at all — it is a measurement over the
+derived corpora's `text` lengths — and it was left alone here rather than answered badly.
 
 ## Phases
 

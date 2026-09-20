@@ -196,13 +196,14 @@ fn ensure_index(session: &Session, remote: &RemoteIndex, dimension: i32) -> Resu
         .map_err(|_| anyhow::anyhow!("the contract records a negative embedding_dim"))?;
 
     match session.call(&request::get_index(remote)) {
-        Ok(body) => disagreement(&body, dimension, &remote.index).map_or_else(
-            || {
-                println!("  index exists; not recreating it.");
-                Ok(())
-            },
-            |why| bail!(why),
-        ),
+        Ok(body) => crate::s3vectors::response::disagreement(&body, dimension, &remote.index)
+            .map_or_else(
+                || {
+                    println!("  index exists; not recreating it.");
+                    Ok(())
+                },
+                |why| bail!(why),
+            ),
         Err(e) if e.fault == crate::s3vectors::response::Fault::Missing => {
             session.call(&request::create_index(remote, dimension)?)?;
             println!("  created index {} ({dimension} dimensions).", remote.index);
@@ -210,38 +211,6 @@ fn ensure_index(session: &Session, remote: &RemoteIndex, dimension: i32) -> Resu
         }
         Err(e) => Err(e.into()),
     }
-}
-
-/// Why an existing index cannot hold this corpus, or `None` when it can.
-///
-/// Pure, and separate from the call that produces the body, so the field names are checked
-/// against `GetIndex`'s documented response shape by a test rather than by a reader. A pointer
-/// into the wrong path would make this check silently unfireable — it would find no dimension,
-/// conclude nothing, and let a push proceed into an index it does not fit.
-fn disagreement(body: &serde_json::Value, dimension: u32, name: &str) -> Option<String> {
-    let got = body.pointer("/index/dimension").and_then(|v| v.as_u64());
-    if let Some(d) = got {
-        if d != u64::from(dimension) {
-            return Some(format!(
-                "the index {name} already exists with dimension {d}, and this corpus embeds \
-                 into {dimension}.\n  \
-                 A vector index's dimension is fixed when it is created — push to a \
-                 different index name, or delete that one."
-            ));
-        }
-    }
-    let metric = body
-        .pointer("/index/distanceMetric")
-        .and_then(|v| v.as_str())
-        .unwrap_or(crate::s3vectors::DISTANCE_METRIC);
-    if metric != crate::s3vectors::DISTANCE_METRIC {
-        return Some(format!(
-            "the index {name} uses the {metric} distance metric and this build reads only {}.\n  \
-             The metric is fixed when an index is created — push to a different index name.",
-            crate::s3vectors::DISTANCE_METRIC
-        ));
-    }
-    None
 }
 
 fn report_plan(plan: &MirrorPlan, truncated: usize) {
@@ -331,38 +300,6 @@ mod tests {
     fn a_path_that_cannot_be_keyed_fails_the_push() {
         let rows = [row(&"a/".repeat(600), "text")];
         assert!(to_vectors(&rows, "abc123", "deadbee").is_err());
-    }
-
-    /// The response shape is `GetIndex`'s, and the pointers must reach into it.
-    ///
-    /// A check that reads the wrong path finds no dimension and concludes nothing, which looks
-    /// exactly like agreement. The body here is the documented response shape, so a pointer
-    /// typo fails rather than passing quietly.
-    #[test]
-    fn an_index_of_another_dimension_or_metric_is_refused() {
-        let body = |dim: u64, metric: &str| {
-            serde_json::json!({"index": {
-                "indexName": "yidam-main",
-                "dataType": "float32",
-                "dimension": dim,
-                "distanceMetric": metric,
-                "metadataConfiguration": {"nonFilterableMetadataKeys": ["text"]},
-            }})
-        };
-        assert_eq!(disagreement(&body(384, "cosine"), 384, "yidam-main"), None);
-
-        let d = disagreement(&body(768, "cosine"), 384, "yidam-main").expect("a dimension clash");
-        assert!(d.contains("768") && d.contains("384"), "{d}");
-
-        let m = disagreement(&body(384, "euclidean"), 384, "yidam-main").expect("a metric clash");
-        assert!(m.contains("euclidean") && m.contains("cosine"), "{m}");
-    }
-
-    /// A body this code cannot read concludes nothing — and that is the failure mode the test
-    /// above exists to prevent, so it is named here rather than left implicit.
-    #[test]
-    fn a_body_with_no_index_object_concludes_nothing() {
-        assert_eq!(disagreement(&serde_json::json!({}), 384, "x"), None);
     }
 
     #[test]

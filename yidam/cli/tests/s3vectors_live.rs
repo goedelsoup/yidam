@@ -6,8 +6,10 @@
 //! where a MinIO in a container is enough — so these tests need an AWS account, a vector
 //! bucket, and credentials. They do not run by default and they do not run on a pull request.
 //!
-//! They are committed because they are the **authority** for three claims the rest of the
-//! suite can only approximate, and RFC-0033 §8 names each of them:
+//! They are committed because they are the **authority** for four claims the rest of the
+//! suite can only approximate, and RFC-0033 §8 names each of them. All four were settled
+//! against a live index on 2026-09-20 — §8.2 records the run, and records that each was
+//! settled by breaking the code and watching a test here fail, not by watching one pass:
 //!
 //! 1. **A request signed for `s3vectors` is accepted.** The unit tests pin that the credential
 //!    scope differs from `s3` and that the payload digest covers the bytes sent. Only a server
@@ -20,6 +22,11 @@
 //! 3. **The mirror's delete reaches the service.** `ops` tests assert the request is built and
 //!    ordered correctly against a recorded transport. Whether a deleted key stops coming back
 //!    is a question only the index can answer.
+//! 4. **`GetIndex`'s response shape.** `response::disagreement` reads `/index/dimension` and
+//!    `/index/distanceMetric`. A unit test checks those pointers against the shape as
+//!    *documented*; only the service settles the shape as *served*, and a pointer into the
+//!    wrong path does not fail loudly — it finds no dimension, concludes nothing, and lets a
+//!    push proceed into an index it does not fit.
 //!
 //! # Running them
 //!
@@ -34,8 +41,13 @@
 //!
 //! `--test-threads=1` is not optional: every test here writes to one index.
 //!
-//! Without `YIDAM_S3VECTORS_TEST` they skip loudly rather than failing, so `-- --ignored` on a
-//! machine with no account reports a skip instead of a red suite.
+//! Without `YIDAM_S3VECTORS_TEST` they skip rather than failing, so `-- --ignored` on a machine
+//! with no account reports a skip instead of a red suite.
+//!
+//! **That skip is quiet, and it reads as success.** cargo captures stdout for a passing test, so
+//! an unarmed run prints `6 passed` and the notice is visible only under `--nocapture`. The tell
+//! is the duration: an unarmed run finishes in 0.00s and a real one takes about ten seconds.
+//! Do not take a green run here as evidence that anything was checked without looking at that.
 
 #![cfg(feature = "s3-vectors")]
 
@@ -45,7 +57,7 @@ use yidam::retrieval::Filter;
 use yidam::s3vectors::{
     ops::{self, Session},
     request::{self, OutVector},
-    response::Fault,
+    response::{self, Fault},
     transport::Client,
     RemoteIndex, RemoteIndexConfig, KIND, WITNESS_KEY,
 };
@@ -108,6 +120,14 @@ fn ensure_index(session: &Session, index: &RemoteIndex) {
                 .call(&request::create_index(index, DIMENSION).unwrap())
                 .expect("creating the test index");
         }
+        // A 403 here is the signing failure, arriving before the test that is *about* signing
+        // gets to say so — `ensure_index` is the first call every test in this file makes. It
+        // is named rather than folded into the general case, because "GetIndex failed" sends a
+        // reader to look at GetIndex.
+        Err(e) if e.fault == Fault::Denied => panic!(
+            "the service rejected the signature or the permissions on GetIndex — every test \
+             in this file will fail the same way until that is fixed: {e}"
+        ),
         Err(e) => panic!("GetIndex failed for a reason that is not absence: {e}"),
     }
 }
@@ -168,6 +188,58 @@ fn the_service_accepts_a_request_signed_for_s3vectors() {
         }
         Err(e) => panic!("ListVectors failed: {e}"),
     }
+}
+
+/// `disagreement`'s pointers reach into the body the service actually sends.
+///
+/// The unit test beside the function pins it against `GetIndex`'s *documented* response shape.
+/// This runs the same function against a *served* one, which is the only thing that can catch
+/// the shape having been documented wrong or changed under us.
+///
+/// The load-bearing assertion is the second one. A check that reads the wrong path returns
+/// `None` — agreement — for every input, so asserting that a matching index agrees would pass
+/// just as happily with both pointers broken. Asking it about a dimension the index does *not*
+/// have is what requires the pointer to have found something.
+#[test]
+#[ignore]
+fn the_served_get_index_body_has_the_shape_the_push_check_reads() {
+    if !enabled() {
+        return;
+    }
+    let (client, index) = client();
+    let session = Session::new(&client);
+    ensure_index(&session, &index);
+
+    let body = session
+        .call(&request::get_index(&index))
+        .expect("GetIndex against the live index");
+
+    assert_eq!(
+        response::disagreement(&body, DIMENSION, INDEX),
+        None,
+        "the live index is {DIMENSION}-dimensional and cosine, and the check disagreed: {body}"
+    );
+
+    let wrong = response::disagreement(&body, DIMENSION + 1, INDEX)
+        .expect("a dimension clash the service's own body should expose");
+    assert!(
+        wrong.contains(&DIMENSION.to_string()),
+        "the clash did not name the dimension the index reports: {wrong}"
+    );
+
+    // The metric arm defaults to agreement when its pointer finds nothing, so a broken pointer
+    // there is invisible to `disagreement` alone. Read it directly.
+    assert_eq!(
+        body.pointer("/index/distanceMetric")
+            .and_then(|v| v.as_str()),
+        Some("cosine"),
+        "/index/distanceMetric is not where the push check looks for it: {body}"
+    );
+    assert_eq!(
+        body.pointer("/index/dimension").and_then(|v| v.as_u64()),
+        Some(u64::from(DIMENSION)),
+        "/index/dimension is not where the push check looks for it: {body}"
+    );
 }
 
 /// **The acceptance criterion of RFC-0033.**
