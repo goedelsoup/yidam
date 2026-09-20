@@ -137,6 +137,18 @@ inexpressible is better than checking for it.
 > it, and it needs **no protoc** — that is `lancedb`'s requirement, and `lancedb` is only ever
 > used to *write* an index. See [Installation](installation.md#check-which-build-you-have).
 
+## Finish a push that stopped part-way
+
+`vault push` HEADs each artifact before sending it, so a re-run skips what the store already
+holds. Every run is therefore a resume.
+
+The transport sends a request up to four times when a connection resets or the store is busy.
+S3 resets long-lived connections routinely, and a first push is the one large enough to meet
+one.
+
+A request that still fails ends the run. The summary line prints anyway, so the count of what
+was sent stays on the terminal. The error then says that re-running continues from there.
+
 ## Materialize a file, and reclaim the space
 
 Content addressing is right for storage and useless for opening. `yidam vault materialize`

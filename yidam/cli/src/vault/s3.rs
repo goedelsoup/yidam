@@ -25,6 +25,17 @@
 //! upload is refused with a message that says so rather than failing at the server with an
 //! `EntityTooLarge` nobody can act on. Multipart is a second signing surface and a state
 //! machine; RFC-0023 defers it and names the limit rather than discovering it.
+//!
+//! # Every verb retries a transport failure
+//!
+//! S3 resets long-lived connections as a matter of course, and a corpus large enough to be
+//! worth a vault is large enough that this happens during a push rather than between them.
+//! All three verbs are idempotent — a HEAD, a GET into a temporary file, a PUT of bytes named
+//! by their own digest — so an attempt that failed on the wire can simply be made again.
+//! [`super::retry`] holds the schedule and the reason it is per request.
+//!
+//! Each attempt re-signs and builds a fresh client, which is not incidental: the connection
+//! pool is what held the reset socket, and a retry that reused it would reuse the fault.
 
 use std::path::{Path, PathBuf};
 
@@ -32,6 +43,7 @@ use anyhow::{bail, Context, Result};
 
 use super::cas::ContentHash;
 use super::config::VaultConfig;
+use super::retry::{self, Attempt, Failed, Fault};
 use super::sigv4::{self, Credentials, Signable, EMPTY_PAYLOAD_SHA256};
 use super::store::Store;
 
@@ -204,22 +216,64 @@ fn unix_now() -> u64 {
 /// S3 reports failures as an XML body, and a bare status code sends a reader hunting. The
 /// body is included verbatim and truncated, because it is the only place a `SignatureDoesNotMatch`
 /// says which header it disagreed about.
-async fn check(resp: reqwest::Response, what: &str) -> Result<reqwest::Response> {
+async fn check(resp: reqwest::Response, what: &str) -> Attempt<reqwest::Response> {
     if resp.status().is_success() {
         return Ok(resp);
     }
     let status = resp.status();
+    let fault = status_fault(status.as_u16());
     let body = resp.text().await.unwrap_or_default();
     let body = body.trim();
     let shown: String = body.chars().take(600).collect();
-    bail!(
-        "{what} failed: HTTP {status}{}",
-        if shown.is_empty() {
-            String::new()
-        } else {
-            format!("\n  {shown}")
-        }
-    )
+    Err(Failed::of(
+        fault,
+        anyhow::anyhow!(
+            "{what} failed: HTTP {status}{}",
+            if shown.is_empty() {
+                String::new()
+            } else {
+                format!("\n  {shown}")
+            }
+        ),
+    ))
+}
+
+/// Which HTTP statuses are the store being busy rather than the request being wrong.
+///
+/// 429 and 503 are S3's `SlowDown`, 500 its `InternalError`, and 408 a request it stopped
+/// waiting for; 502 and 504 are whatever sits in front of it. A 403 or a 404 is an answer,
+/// and asking again produces the same one.
+fn status_fault(status: u16) -> Fault {
+    match status {
+        408 | 429 | 500 | 502 | 503 | 504 => Fault::Transient,
+        _ => Fault::Permanent,
+    }
+}
+
+/// Which `reqwest` failures are the connection and which are the answer.
+///
+/// Taken as the three predicates rather than the error itself because a `reqwest::Error`
+/// cannot be constructed outside its crate: as booleans the decision is testable here, and
+/// the reading of it at the call site is one line.
+///
+/// The default is transient, which is the opposite of [`Failed`]'s. It is the right way round
+/// for this question: `send` fails when a request does not complete, and a request that does
+/// not complete is overwhelmingly the wire. The three exceptions are the cases where it is
+/// not — a client that would not build, a status the caller asked to be an error, a body that
+/// would not decode — and none of those is repairable by sending it again.
+fn send_fault(is_builder: bool, is_status: bool, is_decode: bool) -> Fault {
+    match is_builder || is_status || is_decode {
+        true => Fault::Permanent,
+        false => Fault::Transient,
+    }
+}
+
+/// Send a signed request, classifying a failure to complete it.
+async fn send(r: reqwest::RequestBuilder, what: &str) -> Attempt<reqwest::Response> {
+    r.send().await.map_err(|e| {
+        let fault = send_fault(e.is_builder(), e.is_status(), e.is_decode());
+        Failed::of(fault, anyhow::Error::new(e).context(what.to_string()))
+    })
 }
 
 impl Store for S3Store {
@@ -233,56 +287,66 @@ impl Store for S3Store {
     }
 
     fn has(&self, hash: &ContentHash) -> Result<bool> {
-        let req = self.sign("HEAD", hash, EMPTY_PAYLOAD_SHA256)?;
-        let client = self.client()?;
-        self.runtime.block_on(async {
-            let mut r = client.head(&req.url);
-            for (k, v) in &req.headers {
-                r = r.header(k, v);
-            }
-            let resp = r
-                .send()
-                .await
-                .with_context(|| format!("HEAD {}", req.url))?;
-            if resp.status() == reqwest::StatusCode::NOT_FOUND {
-                return Ok(false);
-            }
-            check(resp, &format!("HEAD {}", req.url)).await?;
-            Ok(true)
+        retry::Policy::default().run(|| -> Attempt<bool> {
+            let req = self.sign("HEAD", hash, EMPTY_PAYLOAD_SHA256)?;
+            let client = self.client()?;
+            self.runtime.block_on(async {
+                let mut r = client.head(&req.url);
+                for (k, v) in &req.headers {
+                    r = r.header(k, v);
+                }
+                let what = format!("HEAD {}", req.url);
+                let resp = send(r, &what).await?;
+                if resp.status() == reqwest::StatusCode::NOT_FOUND {
+                    return Ok(false);
+                }
+                check(resp, &what).await?;
+                Ok(true)
+            })
         })
     }
 
     fn get(&self, hash: &ContentHash, dest: &Path) -> Result<()> {
-        let req = self.sign("GET", hash, EMPTY_PAYLOAD_SHA256)?;
-        let client = self.client()?;
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("creating {}", parent.display()))?;
         }
         let tmp = temp_beside(dest, hash);
-        let result = self.runtime.block_on(async {
-            let mut r = client.get(&req.url);
-            for (k, v) in &req.headers {
-                r = r.header(k, v);
+        // The partial file is cleaned up per attempt rather than per call, so the invariant
+        // the module header states — a reader never finds a partial artifact — holds between
+        // two attempts as well as after the last one.
+        retry::Policy::default().run(|| -> Attempt<()> {
+            let req = self.sign("GET", hash, EMPTY_PAYLOAD_SHA256)?;
+            let client = self.client()?;
+            let attempt =
+                self.runtime.block_on(async {
+                    let mut r = client.get(&req.url);
+                    for (k, v) in &req.headers {
+                        r = r.header(k, v);
+                    }
+                    let what = format!("GET {}", req.url);
+                    let resp = send(r, &what).await?;
+                    let mut resp = check(resp, &what).await?;
+                    // Streamed rather than `bytes()`: the whole point of a vault is that it holds
+                    // things too big to want in memory.
+                    let mut file = std::fs::File::create(&tmp)
+                        .with_context(|| format!("creating {}", tmp.display()))?;
+                    // A body that stops arriving is the same fault as a request that never left.
+                    while let Some(chunk) = resp.chunk().await.map_err(|e| {
+                        Failed::transient(anyhow::Error::new(e).context(what.clone()))
+                    })? {
+                        use std::io::Write;
+                        file.write_all(&chunk)
+                            .with_context(|| format!("writing {}", tmp.display()))?;
+                    }
+                    file.sync_all().ok();
+                    Ok(())
+                });
+            if attempt.is_err() {
+                let _ = std::fs::remove_file(&tmp);
             }
-            let resp = r.send().await.with_context(|| format!("GET {}", req.url))?;
-            let mut resp = check(resp, &format!("GET {}", req.url)).await?;
-            // Streamed rather than `bytes()`: the whole point of a vault is that it holds
-            // things too big to want in memory.
-            let mut file = std::fs::File::create(&tmp)
-                .with_context(|| format!("creating {}", tmp.display()))?;
-            while let Some(chunk) = resp.chunk().await.context("reading the response body")? {
-                use std::io::Write;
-                file.write_all(&chunk)
-                    .with_context(|| format!("writing {}", tmp.display()))?;
-            }
-            file.sync_all().ok();
-            anyhow::Ok(())
-        });
-        if let Err(e) = result {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(e);
-        }
+            attempt
+        })?;
         std::fs::rename(&tmp, dest)
             .with_context(|| format!("moving {} into place at {}", tmp.display(), dest.display()))
     }
@@ -305,26 +369,30 @@ impl Store for S3Store {
                 src.display()
             );
         }
-        // The payload hash is the artifact's own name, which is the property that makes a
-        // streamed body signable at all — see the module header.
-        let req = self.sign("PUT", hash, hash.as_str())?;
-        let client = self.client()?;
-        let src = src.to_path_buf();
-        self.runtime.block_on(async move {
-            let file = tokio::fs::File::open(&src)
-                .await
-                .with_context(|| format!("opening {}", src.display()))?;
-            let body = reqwest::Body::wrap_stream(tokio_util::io::ReaderStream::new(file));
-            let mut r = client
-                .put(&req.url)
-                .header("content-length", size)
-                .body(body);
-            for (k, v) in &req.headers {
-                r = r.header(k, v);
-            }
-            let resp = r.send().await.with_context(|| format!("PUT {}", req.url))?;
-            check(resp, &format!("PUT {}", req.url)).await?;
-            anyhow::Ok(())
+        retry::Policy::default().run(|| -> Attempt<()> {
+            // The payload hash is the artifact's own name, which is the property that makes a
+            // streamed body signable at all — see the module header. It is also what makes a
+            // retry safe: the same digest is the same key holding the same bytes.
+            let req = self.sign("PUT", hash, hash.as_str())?;
+            let client = self.client()?;
+            let src = src.to_path_buf();
+            self.runtime.block_on(async move {
+                let file = tokio::fs::File::open(&src)
+                    .await
+                    .with_context(|| format!("opening {}", src.display()))?;
+                let body = reqwest::Body::wrap_stream(tokio_util::io::ReaderStream::new(file));
+                let mut r = client
+                    .put(&req.url)
+                    .header("content-length", size)
+                    .body(body);
+                for (k, v) in &req.headers {
+                    r = r.header(k, v);
+                }
+                let what = format!("PUT {}", req.url);
+                let resp = send(r, &what).await?;
+                check(resp, &what).await?;
+                Ok(())
+            })
         })
     }
 }
@@ -492,5 +560,25 @@ mod tests {
         assert_eq!(s.describe(), "s3://bucket/pre");
         assert!(!s.describe().contains("AKIDEXAMPLE"));
         assert_eq!(store("s3://bucket", None, None).describe(), "s3://bucket");
+    }
+
+    #[test]
+    fn a_busy_store_is_asked_again_and_a_refusal_is_not() {
+        for busy in [408, 429, 500, 502, 503, 504] {
+            assert_eq!(status_fault(busy), Fault::Transient, "HTTP {busy}");
+        }
+        // 403 is the signing failure this store is most likely to hit, and the one where a
+        // retry is worst: three identical rejections before the same message.
+        for answered in [301, 400, 403, 404, 405, 409, 412, 501] {
+            assert_eq!(status_fault(answered), Fault::Permanent, "HTTP {answered}");
+        }
+    }
+
+    #[test]
+    fn a_request_that_did_not_complete_is_the_wire_unless_it_is_not() {
+        assert_eq!(send_fault(false, false, false), Fault::Transient);
+        assert_eq!(send_fault(true, false, false), Fault::Permanent);
+        assert_eq!(send_fault(false, true, false), Fault::Permanent);
+        assert_eq!(send_fault(false, false, true), Fault::Permanent);
     }
 }

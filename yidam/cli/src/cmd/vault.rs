@@ -370,66 +370,77 @@ fn push(dry_run: bool, artifact: Option<&str>, only: Option<&str>) -> Result<()>
     }
 
     let (mut sent, mut present, mut uncached) = (0usize, 0usize, 0usize);
-    for (name, artifacts) in &by_vault {
-        // Only what the licence and the private paths allow is worth opening a store for. A
-        // run in which every artifact is refused must not ask for credentials it will not use.
-        let cfg = vaults.get(name).expect("routed to a declared vault");
-        let heading = heading(name, cfg);
-        let allowed: Vec<&vault::Named> = artifacts
-            .iter()
-            .filter(
-                |a| match verdicts.get(&verdict_key(a)).and_then(Option::as_deref) {
-                    None => true,
-                    Some(why) => {
-                        refused_count += 1;
-                        refused
-                            .entry(heading.clone())
-                            .or_default()
-                            .push(format!("{} — {why}", a.hash));
-                        false
-                    }
-                },
-            )
-            .collect();
-        if allowed.is_empty() {
-            continue;
-        }
+    // The send loop is a closure so that an abort still reaches the summary below it.
+    //
+    // A transport failure part-way through a push leaves the store in a well-defined state —
+    // what was sent is stored, and a re-run sends the rest, because each artifact is HEADed
+    // before it is sent. The only thing that made that state unreadable was an early return
+    // jumping over the line that counts it: the per-artifact `sent …` lines scrolled past and
+    // nothing ever stated the total, so a script saw a non-zero exit and a human saw a bare
+    // transport error, and neither could tell that eighteen artifacts had landed.
+    let outcome: Result<()> = (|| {
+        for (name, artifacts) in &by_vault {
+            // Only what the licence and the private paths allow is worth opening a store for. A
+            // run in which every artifact is refused must not ask for credentials it will not use.
+            let cfg = vaults.get(name).expect("routed to a declared vault");
+            let heading = heading(name, cfg);
+            let allowed: Vec<&vault::Named> = artifacts
+                .iter()
+                .filter(
+                    |a| match verdicts.get(&verdict_key(a)).and_then(Option::as_deref) {
+                        None => true,
+                        Some(why) => {
+                            refused_count += 1;
+                            refused
+                                .entry(heading.clone())
+                                .or_default()
+                                .push(format!("{} — {why}", a.hash));
+                            false
+                        }
+                    },
+                )
+                .collect();
+            if allowed.is_empty() {
+                continue;
+            }
 
-        let store = vault::open(name, cfg)?;
-        // The audience first, the destination under it. Somebody about to move bytes should
-        // read who will be able to see them before they read where they are going.
-        println!("{heading}");
-        println!("  → {}", store.describe());
-        for a in allowed {
-            if !cache.contains(&a.hash) {
-                // Nothing to send. Not an error: a clone that has never fetched an artifact
-                // is a normal state, and reporting it as a failure would make `push` red on
-                // every fresh checkout.
-                eprintln!("  not cached, nothing to send: {} ({})", a.hash, a.rel);
-                uncached += 1;
-                continue;
-            }
-            if dry_run {
-                println!("  would send {} ({})", a.hash, a.rel);
-                if let Some(explain) = store.explain_put(&a.hash) {
-                    for line in explain.lines() {
-                        println!("      {line}");
-                    }
+            let store = vault::open(name, cfg)?;
+            // The audience first, the destination under it. Somebody about to move bytes should
+            // read who will be able to see them before they read where they are going.
+            println!("{heading}");
+            println!("  → {}", store.describe());
+            for a in allowed {
+                if !cache.contains(&a.hash) {
+                    // Nothing to send. Not an error: a clone that has never fetched an artifact
+                    // is a normal state, and reporting it as a failure would make `push` red on
+                    // every fresh checkout.
+                    eprintln!("  not cached, nothing to send: {} ({})", a.hash, a.rel);
+                    uncached += 1;
+                    continue;
                 }
-                println!();
+                if dry_run {
+                    println!("  would send {} ({})", a.hash, a.rel);
+                    if let Some(explain) = store.explain_put(&a.hash) {
+                        for line in explain.lines() {
+                            println!("      {line}");
+                        }
+                    }
+                    println!();
+                    sent += 1;
+                    continue;
+                }
+                if store.has(&a.hash)? {
+                    present += 1;
+                    continue;
+                }
+                store.put(&a.hash, &cache.path_of(&a.hash))?;
+                println!("  sent {} ({})", a.hash, a.rel);
                 sent += 1;
-                continue;
             }
-            if store.has(&a.hash)? {
-                present += 1;
-                continue;
-            }
-            store.put(&a.hash, &cache.path_of(&a.hash))?;
-            println!("  sent {} ({})", a.hash, a.rel);
-            sent += 1;
+            println!();
         }
-        println!();
-    }
+        Ok(())
+    })();
 
     println!(
         "{total} artifact{} {}; {sent} {}; {present} already stored; {uncached} not cached; \
@@ -448,7 +459,18 @@ fn push(dry_run: bool, artifact: Option<&str>, only: Option<&str>) -> Result<()>
             }
         }
     }
-    Ok(())
+    // Said on the error path because it is the one place it is not obvious. The transport has
+    // already retried this request and given up on it, so what is left is a store that is
+    // down or a network that is gone — and the useful thing to know then is that the work
+    // already done is kept, not lost.
+    outcome.map_err(|e| {
+        e.context(format!(
+            "vault push stopped with {sent} of {total} artifact{} sent. The run is \
+             resumable: `yidam vault push` again continues from here, sending only what \
+             the store does not already hold.",
+            if total == 1 { "" } else { "s" },
+        ))
+    })
 }
 
 fn pull(only: Option<&str>) -> Result<()> {
