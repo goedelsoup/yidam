@@ -101,6 +101,9 @@ model = "BAAI/bge-small-en-v1.5"
 
 [object]
 paths = ["web/**", "crates/**"]
+
+[serve]
+act = true
 ```
 
 ### `[lint] escalate_after`
@@ -266,6 +269,61 @@ terminal, the VS Code commit box, and the MCP tool `check_subject`. All three st
 than fixed: closing it means changing a frozen MCP tool.
 
 **This project ships no commit-msg hook.** The stance is conformance, not hooks (RFC-0004).
+
+### `[serve] act`
+
+Whether a server started against this corpus may write to it.
+
+An MCP server is read-only unless this key says otherwise ([RFC-0029](rfcs/0029-write-tier.md)).
+With it, `serve --mcp` serves two more tools. `propose` drafts the epistemic commits this corpus's
+own findings license onto a `propose/<head>` branch. `cycle` reports where the repository is in
+its loop.
+
+Without it, both are absent from `tools/list`. A call to either is refused
+`capability-not-supported`.
+
+**This is the one capability a server declares that is permission rather than ability.** That is
+why it is a key here, and not something a server works out.
+
+Every other capability is filled from what the server *can* do. A corpus with no `.ont.yml` has no
+class contract, so `ontology` is false because it cannot be true. `act` is false on a server that
+could write perfectly well, until this file says otherwise.
+
+A server allowed to discover that it may write has discovered a policy. A policy nobody stated is
+not one.
+
+**It is a key in this file and not a flag, deliberately.** A flag puts the declaration in the
+launcher's argv — a client config, a desktop manifest, a shell alias. *May a tool write into this
+corpus* would then be a fact about who started the server. It is a fact about the corpus, and this
+file is the corpus saying it.
+
+Writing `true` is necessary and not sufficient. Two more conditions are checked at startup, and
+where one fails **the server refuses to start**:
+
+| Condition | Why |
+|---|---|
+| A git author identity resolves — `user.name` and `user.email`, the values a commit here would take | The history these tools write into *is* the knowledge graph. A commit recording what a process did rather than who decided it is what this clause prevents. It applies on every transport, stdio included |
+| Every listening socket is loopback — `serve --mcp --http --bind 0.0.0.0` is refused | A server reachable from another machine has no author for a remote caller. Vacuous over stdio, where the transport has one peer and it is the process that started the server |
+
+The refusal is the point. Serving the read tools and declaring `act: false` would be a silent
+downgrade. Whoever wrote this key would read a running server as the answer to their question.
+
+**The loopback rule is not a security boundary and should not be read as one.** Anything on the
+host reaches loopback. A tunnel in front of a loopback port is the remote case wearing this
+clause's clothes.
+
+What it separates is *this machine* from *another machine*, without inventing an authenticator.
+That is the most a server can see from inside. Whether a caller is the person these conditions
+describe is the operator's declaration, and nothing detects it. That is why this is configuration
+in the first place.
+
+**A proposal is not a merge.** `propose` writes to a branch and nothing else. No commit lands on
+the baseline and nothing merges itself. There is no `establish`, no new node and no edge.
+
+You review the branch as commits and reject it by deleting it. The CLI's `--force` is not offered
+over MCP: replacing a proposal branch discards commits nobody has read.
+
+Absent means read-only, which is what every server did before this key existed.
 
 ## `.yidam/policy/`
 

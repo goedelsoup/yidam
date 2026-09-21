@@ -77,6 +77,20 @@ pub(crate) fn capabilities(state: &ServerState) -> Value {
         "dependencies": !state.dependencies.is_empty(),
         "phases": false,
         "sangha": false,
+        // Whether this server may write — RFC-0029's `act` tier, and the one capability here
+        // that is a statement of PERMISSION rather than of ability.
+        //
+        // Every key above is filled honestly from what this server can back: a projected
+        // mirror carries no class files, so `ontology` is false because it *cannot*. This one
+        // is false unless the corpus's own `[serve] act` says otherwise, even on a server that
+        // could write perfectly well — §2.1's rule, and the reason a second tier mechanism was
+        // not needed to express the difference. A server permitted to discover that it can
+        // write has discovered a policy, which is not a thing a policy can be.
+        //
+        // The other three clauses are checked before this value is ever read: a git author
+        // identity resolves (`serve::act_declared`) and every listening socket is loopback
+        // (`serve_mcp_http`), both of which refuse the server rather than downgrading it here.
+        "act": state.act,
         "resources": true,
     })
 }
@@ -152,9 +166,15 @@ fn refuse_unbacked(state: &ServerState, name: &str) -> Option<String> {
 
 /// Dispatch a tools/call. Tool-level failures come back as MCP tool errors
 /// (`isError: true`), not protocol errors — the agent can read and react.
-pub(crate) fn call(state: &ServerState, name: &str, args: &Value) -> Value {
+pub(crate) fn call(state: &mut ServerState, name: &str, args: &Value) -> Value {
     if let Some(refusal) = refuse_unbacked(state, name) {
         return json!({"content": [{"type": "text", "text": refusal}], "isError": true});
+    }
+    // The write tier, dispatched before the read arms and returning early, because it is the
+    // only path that may leave the snapshot below it stale. Everything after this line reads
+    // `&*state` and could not tell a reload had happened.
+    if let Some(result) = act(state, name, args) {
+        return result;
     }
     let outcome = match name {
         "retrieve" => retrieve(state, args),
@@ -181,6 +201,105 @@ pub(crate) fn call(state: &ServerState, name: &str, args: &Value) -> Value {
             json!({"content": [{"type": "text", "text": message}], "isError": true})
         }
     }
+}
+
+// ── the act tier ──────────────────────────────────────────────────────────────
+
+/// The `act` tier's two tools, or `None` for a name that is not one of them.
+///
+/// # Why this is a separate arm and not two more lines in the match below
+///
+/// Every read tool takes `&ServerState` and could take `&*state` here. These two need the
+/// mutable borrow — `propose` writes, and a write reloads the snapshot — and returning early
+/// keeps that borrow from spanning the read arms. It also puts the whole of what this server
+/// may do to a repository in one function, which is the thing a reviewer asks about.
+///
+/// # What a write may be
+///
+/// `propose` and nothing else. RFC-0026's invariant is the licence: *a run authors
+/// operational commits directly; every epistemic commit it produces goes to a proposal
+/// branch, and nothing merges itself* — and `propose` is the command built to that shape. It
+/// drafts `open:`, `withdraw:` and `close:` against a `propose/<head>` branch, never onto the
+/// baseline, and a person reviews the branch as commits. `cycle` joins the tier and writes
+/// nothing at all: RFC-0029 §2.3 puts it here because the tier means *addressed to an agent
+/// that can act here*, not *performs a write*, so an agent never reads "here is your next
+/// act" from a surface where it cannot act.
+///
+/// Nothing else is reachable. There is no `merge`, no `run`, no `index-build`, and adding one
+/// is a contract event under RFC-0005 rather than an arm in this match.
+fn act(state: &mut ServerState, name: &str, args: &Value) -> Option<Value> {
+    let outcome = match name {
+        "propose" => act_propose(state, args),
+        "cycle" => act_cycle(state),
+        _ => return None,
+    };
+    Some(match outcome {
+        Ok(result) => {
+            let text = serde_json::to_string_pretty(&result).unwrap_or_default();
+            json!({"content": [{"type": "text", "text": text}]})
+        }
+        Err(message) => json!({"content": [{"type": "text", "text": message}], "isError": true}),
+    })
+}
+
+/// `propose` over MCP — draft the commits the gate's findings license, onto a branch.
+///
+/// The CLI's own [`crate::cmd::propose::run`], called with this server's root rather than
+/// re-implemented. That is `query`'s rule — a tool is a call into the CLI's traversal, not a
+/// second walk — and it matters more here than anywhere it has been applied before: two
+/// implementations of what a finding licenses would be two answers to what a tool may write
+/// into a knowledge graph, and the disagreement would be invisible until somebody read the
+/// branch.
+///
+/// **`dry_run` defaults to false and `force` is not offered.** A caller that wants the draft
+/// without the branch asks for it; a caller that wants to replace an existing `propose/<head>`
+/// is asking to discard commits nobody reviewed, and the repair — delete the branch, or merge
+/// it — is a person's. The CLI keeps `--force` because a person can see what they are
+/// replacing.
+///
+/// **The snapshot is reloaded after a write**, so the `get_node` the agent runs next answers
+/// from the corpus this call produced. See [`ServerState::reload`] for what that changed about
+/// a published promise.
+fn act_propose(state: &mut ServerState, args: &Value) -> Result<Value, String> {
+    let dry_run = args["dry_run"].as_bool().unwrap_or(false);
+    let opts = crate::cmd::propose::Options {
+        dry_run,
+        // Never from the caller. See above.
+        force: false,
+        format: crate::report::Format::Json,
+    };
+    let report = crate::cmd::propose::run(&state.root, &opts)
+        .map_err(|e| format!("propose-refused: {e}"))?;
+    let wrote = report.written.is_some();
+    let value = serde_json::to_value(&report).map_err(|e| e.to_string())?;
+
+    // Only where something was written. A dry run and a run with nothing to propose both
+    // leave the corpus exactly as it was, and reloading for them would pay the startup cost
+    // to arrive at the same snapshot.
+    if wrote {
+        state
+            .reload()
+            .map_err(|e| format!("propose-wrote-but-reload-failed: {e}"))?;
+    }
+    Ok(value)
+}
+
+/// `cycle` over MCP — where this repository is in its loop, and what the next act is.
+///
+/// [`crate::cmd::cycle::read_cycle`] against this server's root. `strict` is not offered and
+/// takes `false`: it is an exit code, and an exit code is a thing a scheduled job reads off a
+/// process. There is no process here to exit, and the same report carries the counts a caller
+/// would have branched on.
+///
+/// **The clocks are read live, not from the snapshot**, and the difference is deliberate: a
+/// clock is a fact about the working repository — refs in flight, a source's age against
+/// today, how far the index is behind HEAD — and none of it is in the corpus `ServerState`
+/// loaded. A `cycle` answering from the startup snapshot would tell an agent that a phase it
+/// settled this session is still in flight.
+fn act_cycle(state: &ServerState) -> Result<Value, String> {
+    let report = crate::cmd::cycle::read_cycle(&state.root, false, crate::dates::today_days())
+        .map_err(|e| format!("cycle-unreadable: {e}"))?;
+    serde_json::to_value(&report).map_err(|e| e.to_string())
 }
 
 /// Resolve an id to a node this repository owns.
@@ -1043,7 +1162,7 @@ mod tests {
     /// That tolerance existed and was undeclared; #425 is what made it load-bearing.
     #[test]
     fn an_index_row_path_resolves_to_the_id_get_node_takes() {
-        let state = test_state();
+        let mut state = test_state();
         let node = state.nodes.first().expect("the fixture corpus has a node");
         let id = node.id.clone();
 
@@ -1058,14 +1177,16 @@ mod tests {
 
         // And what it resolves to is fetchable, which is the whole affordance.
         let fetched = call_ok(
-            &state,
+            &mut state,
             "get_node",
             serde_json::json!({"id": resolved.unwrap()}),
         );
         assert_eq!(fetched["id"], id);
     }
 
-    fn call_ok(state: &ServerState, name: &str, args: Value) -> Value {
+    /// `&mut`, because `call` is: RFC-0029's write tier reloads the snapshot behind one
+    /// dispatch arm. Every call in this module is a read tool and none of them reaches it.
+    fn call_ok(state: &mut ServerState, name: &str, args: Value) -> Value {
         let result = call(state, name, &args);
         assert!(
             result["isError"].as_bool() != Some(true),
@@ -1089,8 +1210,12 @@ mod tests {
     /// answering `across` would claim a dependency set that is not there.
     #[test]
     fn spanning_a_repository_with_no_dependencies_answers_locally_and_says_so() {
-        let state = test_state();
-        let result = call_ok(&state, "query", json!({"query": "concept", "across": true}));
+        let mut state = test_state();
+        let result = call_ok(
+            &mut state,
+            "query",
+            json!({"query": "concept", "across": true}),
+        );
 
         assert_eq!(
             result["scope"], "local",
@@ -1101,9 +1226,9 @@ mod tests {
 
     #[test]
     fn an_unknown_class_filter_is_rejected_before_the_search() {
-        let state = test_state();
+        let mut state = test_state();
         let result = call_ok(
-            &state,
+            &mut state,
             "retrieve",
             json!({"query": "graph", "class": "concpt"}),
         );
@@ -1127,9 +1252,9 @@ mod tests {
     /// A declared class nobody has written into is a statement about the corpus.
     #[test]
     fn a_declared_class_with_no_instances_says_so() {
-        let state = test_state();
+        let mut state = test_state();
         let result = call_ok(
-            &state,
+            &mut state,
             "retrieve",
             json!({"query": "graph", "class": "silent"}),
         );
@@ -1151,7 +1276,7 @@ mod tests {
         let mut state = test_state();
         state.classes.clear();
         let result = call_ok(
-            &state,
+            &mut state,
             "retrieve",
             json!({"query": "graph", "class": "gauge"}),
         );
@@ -1170,8 +1295,12 @@ mod tests {
     /// readable as each other.
     #[test]
     fn words_the_corpus_does_not_use_are_not_reported_as_missing_coverage() {
-        let state = test_state();
-        let result = call_ok(&state, "retrieve", json!({"query": "hydropeaking ramping"}));
+        let mut state = test_state();
+        let result = call_ok(
+            &mut state,
+            "retrieve",
+            json!({"query": "hydropeaking ramping"}),
+        );
 
         assert!(result["rejected"].is_null());
         assert_eq!(result["absence"]["code"], "no-term-match");
@@ -1183,8 +1312,8 @@ mod tests {
 
     #[test]
     fn a_query_with_no_searchable_terms_says_so() {
-        let state = test_state();
-        let result = call_ok(&state, "retrieve", json!({"query": "   "}));
+        let mut state = test_state();
+        let result = call_ok(&mut state, "retrieve", json!({"query": "   "}));
 
         assert_eq!(result["absence"]["code"], "query-no-terms");
     }
@@ -1194,8 +1323,8 @@ mod tests {
     /// ambiguous, which is the failure it was added to end.
     #[test]
     fn an_answer_that_found_something_carries_neither_key() {
-        let state = test_state();
-        let result = call_ok(&state, "retrieve", json!({"query": "knowledge graph"}));
+        let mut state = test_state();
+        let result = call_ok(&mut state, "retrieve", json!({"query": "knowledge graph"}));
 
         assert!(!result["results"].as_array().unwrap().is_empty());
         assert!(result["rejected"].is_null());
@@ -1204,8 +1333,8 @@ mod tests {
 
     #[test]
     fn retrieve_without_index_degrades_to_keyword() {
-        let state = test_state();
-        let result = call_ok(&state, "retrieve", json!({"query": "knowledge graph"}));
+        let mut state = test_state();
+        let result = call_ok(&mut state, "retrieve", json!({"query": "knowledge graph"}));
         assert_eq!(result["degraded"], true);
         let results = result["results"].as_array().unwrap();
         assert!(!results.is_empty());
@@ -1215,9 +1344,9 @@ mod tests {
 
     #[test]
     fn retrieve_honors_class_filter_and_k() {
-        let state = test_state();
+        let mut state = test_state();
         let result = call_ok(
-            &state,
+            &mut state,
             "retrieve",
             json!({"query": "graph", "class": "nonexistent", "k": 1}),
         );
@@ -1226,8 +1355,12 @@ mod tests {
 
     #[test]
     fn get_node_returns_content_and_links() {
-        let state = test_state();
-        let result = call_ok(&state, "get_node", json!({"id": "concept/knowledge-graph"}));
+        let mut state = test_state();
+        let result = call_ok(
+            &mut state,
+            "get_node",
+            json!({"id": "concept/knowledge-graph"}),
+        );
         assert_eq!(result["label"], "Knowledge graph");
         assert_eq!(result["links"][0]["target"], "concept/traversal");
         assert_eq!(result["links"][0]["relationship"], "enables");
@@ -1235,9 +1368,9 @@ mod tests {
 
     #[test]
     fn neighbors_walks_both_directions() {
-        let state = test_state();
+        let mut state = test_state();
         // traversal has no outgoing links, but knowledge-graph points at it
-        let result = call_ok(&state, "neighbors", json!({"id": "concept/traversal"}));
+        let result = call_ok(&mut state, "neighbors", json!({"id": "concept/traversal"}));
         let found = result["neighbors"].as_array().unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0]["id"], "concept/knowledge-graph");
@@ -1246,8 +1379,8 @@ mod tests {
 
     #[test]
     fn open_questions_flags_question_labels() {
-        let state = test_state();
-        let result = call_ok(&state, "open_questions", json!({}));
+        let mut state = test_state();
+        let result = call_ok(&mut state, "open_questions", json!({}));
         let qs = result["open_questions"].as_array().unwrap();
         assert_eq!(qs.len(), 1);
         assert_eq!(qs[0]["id"], "concept/traversal");
@@ -1260,9 +1393,9 @@ mod tests {
     /// installed. Labelling them is what keeps that from reading as this repository's claim.
     #[test]
     fn retrieve_spans_dependencies_and_labels_their_origin() {
-        let state = super::super::tests::test_state();
+        let mut state = super::super::tests::test_state();
         let out = call_ok(
-            &state,
+            &mut state,
             "retrieve",
             json!({"query": "knowledge graph", "k": 10}),
         );
@@ -1296,9 +1429,9 @@ mod tests {
     /// affordance than hiding it.
     #[test]
     fn get_node_reads_a_dependency_by_its_qualified_id() {
-        let state = super::super::tests::test_state();
+        let mut state = super::super::tests::test_state();
         let out = call_ok(
-            &state,
+            &mut state,
             "get_node",
             json!({"id": "upstream::concept/knowledge-graph"}),
         );
@@ -1369,8 +1502,12 @@ mod tests {
     /// itself — which is the failure the whole boundary exists to prevent.
     #[test]
     fn a_bare_id_never_resolves_to_a_dependency() {
-        let state = super::super::tests::test_state();
-        let out = call_ok(&state, "get_node", json!({"id": "concept/knowledge-graph"}));
+        let mut state = super::super::tests::test_state();
+        let out = call_ok(
+            &mut state,
+            "get_node",
+            json!({"id": "concept/knowledge-graph"}),
+        );
         assert_eq!(out["id"], "concept/knowledge-graph");
         assert!(
             out["origin"].is_null(),
@@ -1388,8 +1525,12 @@ mod tests {
     /// the boundary is gone.
     #[test]
     fn a_bare_id_holding_only_in_a_dependency_is_not_found() {
-        let state = super::super::tests::test_state();
-        let out = call(&state, "get_node", &json!({"id": "concept/only-upstream"}));
+        let mut state = super::super::tests::test_state();
+        let out = call(
+            &mut state,
+            "get_node",
+            &json!({"id": "concept/only-upstream"}),
+        );
         assert_eq!(
             out["isError"], true,
             "a bare id must never reach a dependency, even when nothing local shadows it: \
@@ -1399,7 +1540,7 @@ mod tests {
         // And it IS reachable by its qualified id — otherwise this test would pass by the
         // node simply being absent from the fixture.
         let ok = call_ok(
-            &state,
+            &mut state,
             "get_node",
             json!({"id": "upstream::concept/only-upstream"}),
         );
@@ -1413,9 +1554,9 @@ mod tests {
     /// reason.
     #[test]
     fn neighbors_refuses_to_cross_a_corpus_boundary() {
-        let state = super::super::tests::test_state();
+        let mut state = super::super::tests::test_state();
         let out = call(
-            &state,
+            &mut state,
             "neighbors",
             &json!({"id": "upstream::concept/knowledge-graph"}),
         );
@@ -1429,8 +1570,8 @@ mod tests {
 
     #[test]
     fn unknown_tool_is_a_tool_error() {
-        let state = test_state();
-        let result = call(&state, "bogus", &json!({}));
+        let mut state = test_state();
+        let result = call(&mut state, "bogus", &json!({}));
         assert_eq!(result["isError"], true);
     }
 
@@ -1444,9 +1585,9 @@ mod tests {
     /// what a node says is worse than one that is merely out of date.
     #[test]
     fn a_citation_is_checked_against_the_corpus_this_server_serves() {
-        let state = test_state();
+        let mut state = test_state();
         let verdict = call_ok(
-            &state,
+            &mut state,
             "check_citation",
             json!({
                 "package": "upstream",
@@ -1467,9 +1608,9 @@ mod tests {
     /// pin is under test.
     #[test]
     fn a_moved_pin_does_not_hold_and_does_not_gate() {
-        let state = test_state();
+        let mut state = test_state();
         let verdict = call_ok(
-            &state,
+            &mut state,
             "check_citation",
             json!({
                 "package": "upstream",
@@ -1494,8 +1635,8 @@ mod tests {
     /// this tool exists to prevent, reintroduced by the tool itself.
     #[test]
     fn the_installed_set_travels_with_the_verdict() {
-        let state = test_state();
-        let verdict = call_ok(&state, "check_citation", json!({"package": "nowhere"}));
+        let mut state = test_state();
+        let verdict = call_ok(&mut state, "check_citation", json!({"package": "nowhere"}));
         assert_eq!(verdict["dependencies"][0]["package"], "upstream");
         assert_eq!(verdict["dependencies"][0]["pin"], "abc1234");
         assert_eq!(verdict["dependencies"][0]["kind"], "fetched");
@@ -1509,15 +1650,15 @@ mod tests {
     /// as a finding. Omitting `package` leaves nothing to check against, and that is the error.
     #[test]
     fn only_a_call_naming_no_package_is_an_error() {
-        let state = test_state();
-        let answered = call_ok(&state, "check_citation", json!({"package": "upstream"}));
+        let mut state = test_state();
+        let answered = call_ok(&mut state, "check_citation", json!({"package": "upstream"}));
         assert_eq!(answered["holds"], false);
         assert_eq!(
             answered["findings"][0]["check"],
             "external-citation-unresolved"
         );
 
-        let refused = call(&state, "check_citation", &json!({"node": "concept/x"}));
+        let refused = call(&mut state, "check_citation", &json!({"node": "concept/x"}));
         assert_eq!(refused["isError"], true);
     }
 
@@ -1544,7 +1685,11 @@ mod tests {
             "an unbacked tool must not be listed: {listed}"
         );
 
-        let result = call(&state, "check_citation", &json!({"package": "upstream"}));
+        let result = call(
+            &mut state,
+            "check_citation",
+            &json!({"package": "upstream"}),
+        );
         let text = result["content"][0]["text"].as_str().unwrap_or_default();
         assert_eq!(result["isError"], true);
         assert!(text.starts_with("capability-not-supported"), "{text}");

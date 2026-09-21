@@ -1,0 +1,6 @@
+class: concept
+label: Release schedule
+description: The published sequence of releases for a reach, by season.
+links:
+  - target: operating-rule.yml
+    relationship: relates-to

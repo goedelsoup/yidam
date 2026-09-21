@@ -1,0 +1,9 @@
+class: concept
+label: Operating rule
+description: >-
+  The schedule a dam is run to. It is the thing a regulated reach's discharge is
+  set by, which is why a statistic defined on an unregulated catchment describes
+  the operator rather than the catchment.
+links:
+  - target: release-schedule.yml
+    relationship: relates-to

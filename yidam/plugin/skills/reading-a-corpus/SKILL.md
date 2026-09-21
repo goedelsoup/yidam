@@ -34,11 +34,16 @@ fell back to keyword search, and why.
 
 ## Trap 2 — the server is answering about a snapshot
 
-Every tool answers from the corpus and index loaded **when the process started**. There are
-no live git operations and no per-request file reads. If you have just edited nodes in this
-repository, the server has not seen them — including `query --select body`, which returns the
-text as it was read then. Restart the server to move the snapshot, and say so rather than
-reporting a stale answer as current.
+Every tool answers from the corpus and index loaded **when the process started**, or from
+this server's own last write. There are no live git operations and no per-request file reads.
+If you have just edited nodes in this repository, the server has not seen them — including
+`query --select body`, which returns the text as it was read then. Restart the server to move
+the snapshot, and say so rather than reporting a stale answer as current.
+
+A server that may write reloads after writing, so its snapshot is startup **or** its last
+write. In practice nothing you can read moves across one: a proposal is built against a
+temporary index and goes to a branch, so the working tree is untouched and every tool here
+answers the same before and after.
 
 ## Which tool
 

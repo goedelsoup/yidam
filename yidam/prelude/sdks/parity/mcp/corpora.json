@@ -6,21 +6,32 @@
       "why": "The tree every case runs against unless it names another — a four-node `concept` graph with an installed dependency, small enough to read in one sitting and shaped so each case has exactly one thing it can fail on. `mcp/README.md` walks its nodes. Its `upstream` dependency is also what makes `dependencies` true here, and so the only corpus on which a citation can be checked against something that is actually installed.",
       "capabilities": {
         "ontology": true,
-        "dependencies": true
+        "dependencies": true,
+        "act": false
       }
     },
     "corpus-unschematised": {
       "why": "Two `gage` instances and no `.ont.yml`. It exists because `class-undeclared` is a frozen `retrieve` code that no case over `corpus/` can force a server to implement: that corpus declares `concept` and `note`, so its class set is never empty and the branch is unreachable from every case in the directory. A conforming server could answer `class-unpopulated` for an unschematised corpus — the one thing the contract says a server MUST NOT do, because it asserts an ontology the server does not have — and pass the whole suite. It is also the only corpus on which the `ontology` tier is unbacked, so it is the only one where a tool a server declines to serve is more than a hypothetical. It installs no dependency either, so it is the corpus on which BOTH optional tiers go unbacked — and `check_citation` is the tool whose unbacked behaviour is worth the most: a server that served it here could answer `external-citation-unresolved` to every citation put to it, be correct every single time, and be asserting a fact about a dependency set it does not have.",
       "capabilities": {
         "ontology": false,
-        "dependencies": false
+        "dependencies": false,
+        "act": false
       }
     },
     "corpus-dated": {
       "why": "Four `tenure` instances over an interval — a `began`, an `ended` absent while the holding is open, and one row known to the year rather than the day. It exists because NO property in `corpus/` is `type: date`, so the branch that compares two dates is unreachable from every case beside it: a server can implement no ordering operator at all, or implement one as a comparison of text, and pass the whole suite over that corpus. The shape is the one #725 measured eleven times across six real corpora, and `allen-county-ohio` states the query in its own `ACTIONS.md` over 83 instances it could not ask. What only this corpus can decide is the precision rule — `partial.yml` knows the year and not the day, so it is inside `began>=1893-06-01` on the years the two sides share and outside it as text, and a lexical implementation answers zero rows where a conforming one answers one. It installs no dependency and needs none: nothing here is about composition.",
       "capabilities": {
         "ontology": true,
-        "dependencies": false
+        "dependencies": false,
+        "act": false
+      }
+    },
+    "corpus-acting": {
+      "why": "The only corpus here that declares `[serve] act = true`, and so the only one on which the write tier is reachable at all. `act` is the one capability in the block that is PERMISSION rather than ability (RFC-0029 §2.1) — every other key is filled from what a server can back, and this one is false unless the deployment said otherwise on a server that could write perfectly well. That is exactly what makes it expressible as a fixture: the corpus's own committed config file is the declaration, so what this directory settles it settles for every conforming server. The other three corpora declare false because they carry no such key, which is what makes the tier's refusal checkable against a server that really does decline it rather than against a hypothetical.\n\nIt holds one expired catalog source and two linked `concept` instances. The source is expired BY CONSTRUCTION — `retrieved: 2020-01-01`, `ttl_days: 1` — so it is past its TTL on any day this suite runs, the same device `corpus-dated/` uses with nineteenth-century dates and for the same reason. `propose` drafts exactly one `open:` against it, which is the one of `due`'s four clocks a tool can discharge at all: the index clock wants a build, and questions and phases want a person. The two instances link to each other so the corpus is clean — `graph-check` passes and `lint` reports no error — because a fixture blocked by construction could not exercise `cycle`'s distinction between blocked and clear.\n\nTwo clauses of the `act` gate are NOT in this directory and cannot be. A git author identity must resolve in the checkout, which a harness supplies when it stages the corpus (`git init` alone does not), and every listening socket must be loopback, which is vacuous over stdio and is the HTTP transport's to check. A harness that stages this corpus without configuring `user.name` and `user.email` gets a server that refuses to start, and that refusal is correct.",
+      "capabilities": {
+        "ontology": true,
+        "dependencies": false,
+        "act": true
       }
     }
   }

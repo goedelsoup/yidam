@@ -121,6 +121,66 @@ Both checks are `warn`, so neither reaches the baseline and neither turns the ga
 got a red squiggle on every tagged link. Rerun `yidam schema` to pick up the new shape, and
 `edge_claims:` in the `universal.yml` schema with it.
 
+### The MCP contract has a write tier, and a server's corpus snapshot is no longer fixed at startup
+
+The contract goes to **0.22.0** and gains one tier, `act`, holding two tools: `propose` and
+`cycle`. Both are **absent from every server that has not been told to write**. That is every
+server today, so nothing about an existing deployment changes until somebody writes the key.
+
+Two things to know if you consume this surface.
+
+**The freshness sentence narrowed, and today nothing you can read moves.** Contract 0.9.1 said
+that every read came from the corpus built on disk at startup. Freshness was a restart.
+That is now *startup, **or the server's own last write***.
+
+A change made **outside** the server is still invisible until a restart, exactly as before. An
+edit, a `tonpa install`, a commit from another process: all unchanged.
+
+The second half is the part worth having before you change any client code. `propose` builds its
+commits against a temporary index and creates the ref with `update-ref`. The working tree is
+untouched and HEAD does not move. Every read tool answers byte-identically across the write.
+
+So the reload is a correct no-op for the only write this tier has, and **no response observably
+differs**. The rule is in the contract for two reasons. It costs one corpus re-walk on a call that
+already wrote to git. And the first act tool that touches the working tree should not also have to
+be a contract change.
+
+If you cached a handshake's `corpus.commit`, it is still correct today. It is no longer guaranteed
+to be.
+
+**`act` is the one capability in the block that is permission rather than ability.** Every other
+key is filled from what the server can back. This one is false unless the corpus says otherwise,
+even on a server that could write perfectly well. A client must never infer it.
+
+To turn it on, in the corpus's own `.yidam/config.toml`:
+
+```toml
+[serve]
+act = true
+```
+
+And three clauses must hold, or **the server refuses to start** rather than quietly serving the
+read tools:
+
+- a git author identity resolves in the corpus being served — `user.name` and `user.email`, the
+  values the commit would take. A checkout with none cannot declare `act` on any transport,
+  stdio included;
+- the declaration is this key and nothing else. A flag would make *may a tool write into this
+  corpus* a property of whoever launched the server;
+- `serve --mcp --http` binds loopback. A server reachable from another machine may not declare
+  it, because no author exists for a remote caller yet.
+
+The refusal is the point rather than an inconvenience. An operator wrote the key and got a
+running server. They would read that as the answer to the question they asked.
+
+**What `propose` may write is unchanged from the CLI.** Three verbs go onto a `propose/<head>`
+branch: `open`, `withdraw`, `close`. Never onto the baseline, and nothing merges itself.
+
+There is no `--force` on this surface. Replacing a proposal branch discards commits nobody has
+reviewed, and that repair is a person's.
+
+`yidam cycle` also ships as a CLI command, available in every build and needing none of this.
+
 ### `used-by: []` is now a claim the drift check reads
 
 `catalog-used-by-drift` compares a catalog entry's declared `used-by` against the nodes that

@@ -29,6 +29,16 @@
 > remote arm. The four clauses an implementer checks, three of them detectable and the fourth
 > honestly not, are in §2.2 under **The criterion, not the transport**.
 
+> **Amended 2026-09-21, building the tier (#474).** §2 decided the tier, the identity gate and
+> the membership, and said nothing about what a write does to the server's **corpus snapshot** —
+> which contract 0.9.1 fixes at startup, in a sentence nine fields of `ServerState` cite. The
+> gap was found while scoping the build and answered by the repository owner on 2026-09-18: **a
+> write invalidates and reloads.** One corpus answers throughout a connection, and #474's
+> read-act-read loop closes within one session. §2.6 carries the decision, the two options
+> declined, and — because building it turned up something the decision was premised on and did
+> not hold — what the reload actually changes today, which is nothing. §2.5's ordering
+> expectation is also stale and §2.6 records the number the claim-at-landing rule gives.
+
 ## Summary
 
 RFC-0005 froze thirteen MCP tool names and every one of them reads. #474 states the consequence:
@@ -256,6 +266,91 @@ changes sharing a version is two changes sharing a rollback.
 
 RFC-0027 receives a dated coordination note to this effect (§7).
 
+### 2.6 The corpus snapshot across a write *(decided 2026-09-18, built 2026-09-21)*
+
+**The question §2 did not ask.** `ServerState` is a startup snapshot and contract 0.9.1 says so
+in as many words — *"every read comes from the corpus built on disk when the server started, and
+that freshness is a restart"* — and the connect-time banner reports the same fact. `graph`,
+`graph_across`, `nodes`, `classes`, `citations` and four more fields are loaded once. So a tier
+that writes raises a question about every read beside it, and §2 decided placement, identity and
+membership without touching it.
+
+**Decision: a write invalidates the snapshot and the server reloads it.** One corpus answers
+throughout a connection. The two declined options were *act tools read the working tree per call
+while the read tier keeps its snapshot* — honest, and it puts two corpora on one connection,
+which is precisely what `graph_across` exists to prevent elsewhere in that file — and *document
+that a re-read needs a restart*, which is cheapest and leaves #474's own loop open.
+
+This is a **contract-visible change** and is carried as one rather than absorbed: `tools.json`
+takes it at 0.22.0, `docs/mcp-server.md`'s snapshot paragraph is amended, the connect-time banner
+says so on an `act`-declaring server, and this section is the dated record the decision asked
+for.
+
+#### What building it found, which the decision was premised on and which does not hold
+
+The premise was that *after an `act` call writes a `propose/*` branch, every read tool on that
+connection keeps answering from the pre-write corpus* — so a proposing agent reading back would
+see stale state. The first half is true and **the consequence does not follow**, for a reason
+`cmd/propose/write.rs` states about itself: the commits are built against a **temporary index**
+and the ref is created with `update-ref`, so *"a run changes nothing a person can see and is safe
+mid-edit."* The working tree is untouched, HEAD does not move, and everything `ServerState::load`
+reads — the corpus walk, the class files, the query graph, the index metadata,
+`provenance.commit` — is byte-identical before and after.
+
+**So the reload is a correct no-op for the only write this tier has, and no response observably
+differs.** That is stated in the contract, the documentation and the upgrade note rather than
+left for a client to discover, because a client that reads "the snapshot may move" and drops a
+correct assumption has paid for a change nobody can see.
+
+It is implemented anyway, and the case for it does not rest on the premise that failed:
+
+- it costs one corpus re-walk on a call that has already written to git;
+- the first act tool that *does* touch the working tree is then not also a contract change,
+  which is the thing this RFC exists to avoid doing twice;
+- a test pins the property in the direction that can go wrong. `a_write_changes_nothing_a_read_
+  tool_answers_today` asserts five read tools answer identically across a `propose`. If that ever
+  goes red, the amendment has started meaning something, and the signal arrives at the change
+  that made it mean something rather than in a client's bug report.
+
+**Reversing this at review** means taking option (c) — the promise stands unchanged, the reload
+comes out, and #474's DoD is met by the receipt the call returns rather than by a re-read. Given
+what the build found, that is now a smaller change than it looked in September: nothing
+observable would move either way. What it would cost is the third bullet.
+
+#### One consequence for the implementation
+
+`ServerState::load(root)` took a root and stored it nowhere, while `propose` resolved its own
+from the working directory via `repo_root()` — so the two disagreed on any server started outside
+its corpus, which `serve --root` (#421) exists precisely to allow. Carrying the root on
+`ServerState` was needed under every option; under this one it is load-bearing, because the
+reload has to know what to reload. `cmd::propose::run(root, opts)` is the entry point that makes
+the server's root the one that governs.
+
+#### The contract version, under §2.5's own rule
+
+§2.5 expected `profiles` at 0.14.0 and this tier at 0.15.0. Both numbers are gone: `profiles`
+never landed, and live `tools.json` passed through 0.15.0–0.21.0 on other changes. That is
+§2.5's rule working rather than failing — **a contract version is claimed at landing, never
+reserved in prose** — and what the rule gives on the day this lands is **0.22.0**. Three copies
+move together: `mcp/tools.json`, `mcp/VERSION`, and the capability example in `mcp/README.md`.
+
+**This number has now moved three times while one change was in flight, and each move is the rule
+earning its keep rather than a mistake corrected.** The owner's 2026-09-18 answer said 0.20.0,
+derived by applying the same rule to the `tools.json` of that day; the build claimed 0.21.0
+because `tools.json` had moved to 0.20.0 under [RFC-0033](0033-remote-vector-index.md)'s remote
+index (`f78633e`); and the edge-claim work took 0.21.0 while this pull request was open, so the
+rebase claims **0.22.0**. In every case the rule governed and the
+number was evidence for it — the same shape as §2.2's transport proxy, one section over.
+
+What the rule is protecting against is visible in the third move and nowhere else: the rebase
+**auto-merged cleanly onto a `tools.json` already at 0.21.0**, leaving two independent contract
+changes sharing one version and no conflict marker to say so. §2.5's binding clause is that they
+are *"two separate minors, never one — two contract changes sharing a version is two changes
+sharing a rollback"*, and a reserved number would have produced exactly that silently. The
+claim-at-landing rule is what makes the collision a thing somebody has to look for; **nothing
+mechanical catches it today**, and a guard comparing the version against the previous release's
+would be worth more than this paragraph.
+
 ## 3 — What the run invariant contributes
 
 The reason a write tier is arguable *now*, when RFC-0020 declined it, is RFC-0026:
@@ -351,6 +446,11 @@ issue text, which this repository amends by comment, not by RFC.
 - **One `act` tier or two?** If a future surface wants *plan* separated from *perform* — an agent
   that may draft proposals but not trigger runs — the single tier splits. Left open because
   nothing yet needs it settled, and an additive split is a minor under §2.5's rule.
-- **What explicit configuration declares `act`?** A `[serve]` key, a flag, or the capability
-  manifest RFC-0026 introduces (`.yidam/capabilities.toml`) — the build decides under this RFC,
-  with the constraint from §2.1 that it is configuration, never inference.
+- ~~**What explicit configuration declares `act`?**~~ **Decided at the build, 2026-09-21: a
+  `[serve] act = true` key in the corpus's own `.yidam/config.toml`.** The third option offered
+  here, `.yidam/capabilities.toml`, **does not exist** — the name appears in RFC-0026 and
+  RFC-0028 prose and nothing reads it — so the choice was a key or a flag. A flag puts the
+  declaration in the argv of whatever launcher spawned the process, which makes *may a tool write
+  into this corpus* a property of who started the server rather than of the corpus that has to
+  live with what got written. §2.1's rule is that the declaration is *configuration*, and a
+  repository's own committed file is what expresses that.

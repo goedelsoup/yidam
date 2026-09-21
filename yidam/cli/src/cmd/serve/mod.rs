@@ -43,6 +43,21 @@ pub(crate) use crate::model::NodeView as Node;
 pub(crate) use crate::retrieval::Retrieval;
 
 pub(crate) struct ServerState {
+    /// The corpus this server was told to serve.
+    ///
+    /// **Carried, where `load(root)` used to take a root and store it nowhere.** Every write
+    /// path needs it and `propose` resolved its own from the working directory via
+    /// `repo_root()`, so the two disagreed on any server started outside its corpus — which
+    /// `--root` exists precisely to allow (#421). Under RFC-0029's reload it is load-bearing
+    /// twice over: the reload has to know what to reload.
+    pub root: std::path::PathBuf,
+    /// Whether this server declares the `act` capability — RFC-0029.
+    ///
+    /// **Configuration, never inference.** Read from `[serve] act` in the corpus's own
+    /// `.yidam/config.toml`; a server that could write and was not told to declares false.
+    /// See [`act_declared`] for the three clauses that must hold before a `true` here is
+    /// honoured, and for what a server does when one does not.
+    pub act: bool,
     pub domain: String,
     pub commit: String,
     pub nodes: Vec<Node>,
@@ -168,6 +183,45 @@ impl ServerState {
         Some(matches!(&self.indexed_commit, Some(i) if *i != self.commit))
     }
 
+    /// Rebuild this snapshot from disk — RFC-0029, and a change to a published promise.
+    ///
+    /// # What this stops being true, and why it had to
+    ///
+    /// Contract 0.9.1 said *every read comes from the corpus built on disk when the server
+    /// started, and that freshness is a restart*. Nine fields above cite it. It was a sound
+    /// promise for a read-only server and it cannot survive a write tier: after an `act` call
+    /// writes a `propose/*` branch, every read tool on that connection would keep answering
+    /// from the pre-write corpus — so #474's own definition of done, *read `due`, run what
+    /// discharges a clock, read the receipt*, has an agent re-reading state the server cannot
+    /// see it changed.
+    ///
+    /// Three shapes were on the table and the repository owner chose this one on 2026-09-18:
+    /// a write **invalidates and reloads**, so one corpus answers throughout a connection and
+    /// the read-act-read loop closes within one session. The alternatives were two corpora on
+    /// one connection — which is exactly what [`Self::graph_across`] exists to prevent
+    /// elsewhere — and documenting that a re-read needs a restart, which leaves the loop
+    /// open. RFC-0029 decided the tier and left this unstated; the dated amendment in §2.6
+    /// is where it is now on the record.
+    ///
+    /// # It is still one snapshot
+    ///
+    /// The promise that survives is the one that mattered: at any moment every tool answers
+    /// from the same corpus. What changes is *when* that moment is — startup, and after each
+    /// write this server itself performed. A `tonpa install` or an edit made outside the
+    /// server is still invisible until a restart, because nothing told the server about it.
+    /// So the contract sentence becomes "startup, or the server's own last write" rather than
+    /// "startup", and the banner says the same.
+    ///
+    /// # Called only after a write, and never on the read path
+    ///
+    /// A reload on every call would be a different server — re-walking the corpus per request
+    /// is what `graph`'s doc says the startup load exists to avoid, and it would make the
+    /// cheapest query the most expensive thing here.
+    pub(crate) fn reload(&mut self) -> Result<()> {
+        *self = Self::load(&self.root.clone())?;
+        Ok(())
+    }
+
     /// Load the corpus at `root`, or refuse if `root` is not one.
     ///
     /// The check is here rather than in each transport's entry point because it is a fact
@@ -196,6 +250,12 @@ impl ServerState {
     /// repository that has simply not been written into yet.
     pub(crate) fn load(root: &Path) -> Result<Self> {
         crate::paths::require_yidam_repo(root)?;
+
+        // Before the corpus, because a server told to write into a repository it cannot
+        // author in must fail at the command rather than at the first call — §5's shape for
+        // the HTTP arm, applied to every transport. Loading ten thousand nodes first and
+        // then refusing would be the same refusal, later and more expensively.
+        let act = act_declared(root)?;
 
         let model = load_domain_model(root)?;
 
@@ -250,6 +310,8 @@ impl ServerState {
         };
         let dependencies = dependencies(root, &dep_nodes);
         Ok(Self {
+            root: root.to_path_buf(),
+            act,
             domain: model.provenance.domain,
             commit: model.provenance.commit,
             nodes,
@@ -265,6 +327,88 @@ impl ServerState {
             graph,
             graph_across,
         })
+    }
+}
+
+/// Whether this server may declare `act`, and why not where it may not — RFC-0029 §2.2.
+///
+/// Two of the four clauses live here; the third and fourth live where they can be answered.
+///
+/// 1. **A git author identity resolves** for the serving process, in the corpus it serves —
+///    `user.name` and `user.email`, the same values the commit would take. This is the
+///    criterion stated literally rather than by the transport proxy §2.2's 2026-09-05
+///    amendment retired. A checkout with no configured identity cannot declare `act` on
+///    *any* transport, stdio included.
+/// 2. **The declaration is configuration, never inference** — [`crate::config::ServeConfig`].
+///    A server that satisfies clause 1 and was not told to write declares false, and that is
+///    the arm taken by every repository that has not written the key.
+/// 3. **Every listening socket is loopback.** Checked in [`serve_mcp_http`], because it is
+///    the only entry point that binds one. Over stdio it is vacuous — the transport has one
+///    peer and it is the process that started the server.
+/// 4. **That the peer is the person clauses 1–3 describe is the operator's declaration, not
+///    something the server detects.** Nothing here checks it, and nothing can. §2.2 says so
+///    in as many words, and it is why `act` is configuration at all.
+///
+/// # A refusal, never a silent downgrade
+///
+/// A repository that declared `act` and cannot satisfy clause 1 gets an error and no server.
+/// The alternative — serve the read tools and declare `act: false` — is a deployment that
+/// asked to be written into, was not, and has no way to find out: the operator reads a
+/// running server as the answer to the question they asked. §5 specifies the refusal for the
+/// HTTP arm and the reasoning does not stop at a transport.
+fn act_declared(root: &Path) -> Result<bool> {
+    if !crate::config::load_yidam_config(root)?.serve.act {
+        return Ok(false);
+    }
+    match git_author(root) {
+        Some(_) => Ok(true),
+        None => anyhow::bail!(
+            "`[serve] act = true` in {}, and this checkout has no git author identity to \n               commit as. An `act` tool writes a proposal branch, and the history it writes \n               into is the knowledge graph — a commit recording what a process did rather than \n               who decided it is what RFC-0029's identity gate exists to prevent.\n               Set `user.name` and `user.email` in this repository, or remove the key.",
+            root.join(".yidam/config.toml").display()
+        ),
+    }
+}
+
+/// The author a commit written here would carry, or `None` where git names none.
+///
+/// Read with `git var GIT_AUTHOR_IDENT` rather than two `config --get` calls, because that is
+/// the value git itself would stamp: it applies the same precedence — repository config, then
+/// global, then `GIT_AUTHOR_NAME`/`EMAIL` from the environment — and it fails where git would
+/// fail rather than where a hand-rolled precedence happens to. A server that checked
+/// `user.email` alone would pass a checkout that git refuses to commit in.
+pub(crate) fn git_author(root: &Path) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .current_dir(root)
+        .args(["var", "GIT_AUTHOR_IDENT"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let ident = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    (!ident.is_empty()).then_some(ident)
+}
+
+/// Whether an address is on this machine and nowhere else — RFC-0029 §2.2 clause 3.
+///
+/// `127.0.0.0/8` and `::1`, and nothing else. Not a security boundary and §2.2 says so: every
+/// socket transport has an unbounded peer set, anything on the host reaches loopback, and the
+/// CLI's own help for `--http` tells an operator to put the server behind a tunnel — which
+/// republishes a loopback port off-machine by design. What this separates is *this machine*
+/// from *another machine* without inventing an authenticator, which is the most a server can
+/// see from inside.
+///
+/// `0.0.0.0` and `::` are the two that matter and are not loopback: they are the default
+/// spelling of "every interface", and a server that read the first octet would call
+/// `0.0.0.0` foreign and `127.0.0.1` local by accident rather than on purpose.
+pub(crate) fn is_loopback(bind: &str) -> bool {
+    match bind.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(v4)) => v4.is_loopback(),
+        Ok(std::net::IpAddr::V6(v6)) => v6.is_loopback(),
+        // A hostname rather than an address. `localhost` resolves to loopback on every
+        // system this runs on, and anything else is a name this function will not guess
+        // about: an unresolvable claim is refused, which is the direction §2.2 asks for.
+        Err(_) => bind == "localhost",
     }
 }
 
@@ -410,6 +554,18 @@ fn banner(state: &ServerState) {
              semantic search"
         ),
     }
+    // What this server may do to the repository, said at connect time to the person who can
+    // still stop it. A reader who sees nothing here is reading a server that only answers,
+    // which is every server this repository shipped before RFC-0029.
+    if state.act {
+        eprintln!(
+            "act: DECLARED — `propose` and `cycle` are served, and `propose` writes a \
+             `propose/*` branch. Nothing merges itself, and no epistemic commit is written \
+             anywhere else. A write reloads this server's corpus snapshot, so reads after it \
+             answer from what was written; an edit made outside this server still needs a \
+             restart."
+        );
+    }
     if let Some(indexed) = &state.indexed_commit {
         let head = &state.commit;
         if state.stale_index() == Some(true) {
@@ -435,13 +591,13 @@ fn banner(state: &ServerState) {
 /// this process — see [`crate::paths::resolve_root`].
 pub fn serve_mcp(root: Option<&Path>) -> Result<()> {
     let root = resolve_root(root)?;
-    let state = ServerState::load(&root)?;
+    let mut state = ServerState::load(&root)?;
     banner(&state);
     eprintln!("serving MCP over stdio");
 
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
-    run_loop(&state, stdin.lock(), stdout.lock())
+    run_loop(&mut state, stdin.lock(), stdout.lock())
 }
 
 /// Serve the same contract over HTTP. Blocks until the process is stopped.
@@ -458,13 +614,23 @@ pub fn serve_mcp_http(
 ) -> Result<()> {
     let root = resolve_root(root)?;
     let state = ServerState::load(&root)?;
+    // RFC-0029 §2.2 clause 3, checked here because this is the only entry point that binds a
+    // socket. A refusal and not a downgrade to `act: false`: an operator who wrote the key
+    // and got a running server would read that as the answer to the question they asked.
+    //
+    // Before the bind, so a server that will not be allowed to write never holds the port.
+    if state.act && !is_loopback(bind) {
+        anyhow::bail!(
+            "`[serve] act = true` and `--bind {bind}`. A server that may write is declarable \n               only where this machine is the whole of its peer set (RFC-0029 §2.2), and \n               `{bind}` is reachable from another one; over HTTP no author exists for a remote \n               caller until #427 supplies one.\n               Bind 127.0.0.1, or drop `[serve] act` and serve the read tools."
+        );
+    }
     banner(&state);
     http::serve(state, bind, port, allow_origin)
 }
 
 /// Read newline-delimited JSON-RPC messages from `input`, write responses to
 /// `output`. Notifications (no `id`) are consumed without a response.
-fn run_loop(state: &ServerState, input: impl BufRead, mut output: impl Write) -> Result<()> {
+fn run_loop(state: &mut ServerState, input: impl BufRead, mut output: impl Write) -> Result<()> {
     for line in input.lines() {
         let line = line?;
         if line.trim().is_empty() {
@@ -518,7 +684,14 @@ impl RpcError {
     }
 }
 
-fn handle(state: &ServerState, method: &str, params: &Value) -> Result<Value, RpcError> {
+/// Dispatch one JSON-RPC method against this server's state.
+///
+/// **`&mut` since RFC-0029's write tier**, and the mutability reaches exactly one place:
+/// `tools/call` on an `act` tool, which reloads the snapshot after writing
+/// ([`ServerState::reload`]). Every other arm reads. The alternative — interior mutability on
+/// the nine snapshot fields — would put the write point out of the type system's sight, in a
+/// server whose whole contract is about when its snapshot was taken.
+fn handle(state: &mut ServerState, method: &str, params: &Value) -> Result<Value, RpcError> {
     match method {
         "initialize" => {
             let requested = params["protocolVersion"].as_str().unwrap_or("2024-11-05");
@@ -603,6 +776,14 @@ mod tests {
     pub(crate) fn test_state() -> ServerState {
         let dep_nodes = dep_nodes();
         ServerState {
+            // A path that does not exist, like `corpus_dir` below and for the same reason:
+            // this state is a snapshot and nothing in it may fall through to a disk read.
+            // A `reload` against it fails loudly, which is what a test of the reload wants.
+            root: std::path::PathBuf::from("/nonexistent/corpus-root"),
+            // Read-only, which is every server that has not written the key. The act tools
+            // are exercised against a real repository in `tests/mcp_serve.rs`, where the
+            // commits they write can be read back.
+            act: false,
             // Built from the nodes above rather than beside them, so the set this server
             // checks citations against is the set it serves. `corpus_dir` names a path that
             // does not exist, deliberately: the snapshot is what must answer, and a read that
@@ -792,7 +973,7 @@ mod tests {
             state.retrieval = retrieval;
             let declared = tools::capabilities(&state)["retrieve"]["reason"].clone();
             let answered = handle(
-                &state,
+                &mut state,
                 "tools/call",
                 &json!({"name": "retrieve", "arguments": {"query": "graph"}}),
             )
@@ -806,9 +987,9 @@ mod tests {
 
     #[test]
     fn initialize_echoes_protocol_version() {
-        let state = test_state();
+        let mut state = test_state();
         let result = handle(
-            &state,
+            &mut state,
             "initialize",
             &json!({"protocolVersion": "2025-03-26"}),
         )
@@ -819,14 +1000,14 @@ mod tests {
 
     #[test]
     fn unknown_method_is_not_found() {
-        let state = test_state();
-        let err = handle(&state, "bogus/method", &json!({})).unwrap_err();
+        let mut state = test_state();
+        let err = handle(&mut state, "bogus/method", &json!({})).unwrap_err();
         assert_eq!(err.code, -32601);
     }
 
     #[test]
     fn run_loop_answers_requests_and_skips_notifications() {
-        let state = test_state();
+        let mut state = test_state();
         let input = concat!(
             r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
             "\n",
@@ -836,7 +1017,7 @@ mod tests {
             "\n",
         );
         let mut out = Vec::new();
-        run_loop(&state, input.as_bytes(), &mut out).unwrap();
+        run_loop(&mut state, input.as_bytes(), &mut out).unwrap();
         let lines: Vec<&str> = std::str::from_utf8(&out).unwrap().lines().collect();
         assert_eq!(
             lines.len(),
