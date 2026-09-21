@@ -162,7 +162,7 @@ a weekly ritual, or the start of a session.
 no traversal will lie, and the gate is green. Fold that into `doctor`'s warnings and it reads as a
 problem. The repository is doing exactly what it is meant to do. The reader would learn to skip
 the line. So the two reports are separate. `due` has its own verdicts: `due`, `ok`, `undeclared`,
-`unmeasurable`. It exits zero unless you pass `--strict` to ask for a signal.
+`declined`, `unmeasurable`. It exits zero unless you pass `--strict` to ask for a signal.
 
 ### Every interval is declared, and a clock nobody set never comes due
 
@@ -184,6 +184,12 @@ to set one number means one of them is wrong.
 A clock with no interval reports what it measured and is never due. Its remedy is the key that
 would set it. That is the state of every repository that has not opted in. It is the design, not a
 degraded mode.
+
+**A corpus may also decline a clock outright**, under
+[`[due.declined]`](configuration.md#duedeclined). That is a different thing from never setting
+one. The clock reads `declined`, still prints what it measured, and prints the decision record
+behind it. The record is required, so a decline is something a corpus wrote down and can be
+asked about.
 
 Two of the four count days and two do not, which is deliberate. How long a question has gone
 unanswered is a fact about the repository, so its clock is `HEAD`. A corpus that has not committed

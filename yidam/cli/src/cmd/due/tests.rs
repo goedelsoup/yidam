@@ -384,3 +384,150 @@ fn a_clean_clock_prints_no_arrow() {
     );
     assert!(!out.contains('→'), "{out}");
 }
+
+// ── a clock a corpus declined ─────────────────────────────────────────────────
+
+/// A decision record, by the identity `decisions-log` gives one.
+fn decision(root: &Path, stem: &str, summary: &str) {
+    let dir = root.join(".yidam/decisions");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join(format!("{stem}.yml")),
+        format!("summary: {summary}\n"),
+    )
+    .unwrap();
+}
+
+/// The state the report had no way to express: a corpus that decided against the thing a
+/// clock measures, rather than one that has not thought about it.
+///
+/// Both read as `undeclared` before this key, and the only remedy on offer to the first was
+/// to declare an interval for work nobody intends.
+#[test]
+fn a_clock_declined_in_writing_is_not_a_clock_nobody_set() {
+    let tmp = repo();
+    let root = tmp.path();
+    decision(
+        root,
+        "due-clocks",
+        "no index; typed retrieval answers these",
+    );
+    config(root, "[due.declined]\nindex = \"due-clocks\"\n");
+
+    let all = clocks(root);
+    let index = find(&all, "index");
+    assert_eq!(index.state, State::Declined, "{index:?}");
+    assert_eq!(
+        index.record.as_deref(),
+        Some(".yidam/decisions/due-clocks.yml"),
+        "the decline must carry where to read why"
+    );
+    assert_eq!(index.remedy, None, "nothing discharges a decline");
+
+    // And it leaves the sentence about unset clocks to the clocks that really are unset.
+    let report = DueReport::new(all, false);
+    assert_eq!(report.declined, 1);
+    assert_eq!(report.undeclared, 3, "a decline was counted as an absence");
+    assert_eq!(report.due, 0);
+}
+
+/// A declined clock still reports its measurement, for [`an_unset_clock_still_says_what_it_measured`]'s
+/// reason: the reader who may one day revisit the decision is the one who needs the number.
+#[test]
+fn a_declined_clock_still_says_what_it_measured() {
+    let tmp = repo();
+    let root = tmp.path();
+    decision(root, "due-clocks", "declined");
+    config(root, "[due.declined]\nindex = \"due-clocks\"\n");
+
+    let index = find(&clocks(root), "index").clone();
+    assert_eq!(index.detail, "no index has been built", "{index:?}");
+}
+
+/// The property that keeps this from being a mute button, and the one `.yidam/lint-baseline.yml`
+/// has: a decline whose record is gone stops being honoured and says so.
+///
+/// The record could be renamed, or never written. Either way what is left is a key asserting
+/// an argument nobody can read, and the clock reverts to what it actually is.
+#[test]
+fn a_decline_whose_record_is_missing_is_not_honoured() {
+    let tmp = repo();
+    let root = tmp.path();
+    config(root, "[due.declined]\nindex = \"due-clocks\"\n");
+
+    let index = find(&clocks(root), "index").clone();
+    assert_eq!(index.state, State::Undeclared, "{index:?}");
+    assert_eq!(index.record, None);
+    let remedy = index.remedy.unwrap_or_default();
+    assert!(remedy.contains("due-clocks"), "{remedy}");
+    assert!(remedy.contains(".yidam/decisions/"), "{remedy}");
+    assert!(index.detail.contains("does not hold"), "{}", index.detail);
+}
+
+/// Declaring an interval and declining the same clock is a contradiction, and the interval
+/// wins.
+///
+/// The direction matters: a corpus that set a clock is asking to be told, and resolving the
+/// contradiction by going quiet would let a decline silence a live interval. The clock reads
+/// as declared and names the contradiction, so the person who wrote both finds out.
+#[test]
+fn an_interval_beats_a_decline_of_the_same_clock() {
+    let tmp = repo();
+    let root = tmp.path();
+    decision(root, "due-clocks", "declined");
+    config(
+        root,
+        "[due]\nindex_after = 5\n\n[due.declined]\nindex = \"due-clocks\"\n",
+    );
+
+    let index = find(&clocks(root), "index").clone();
+    assert_eq!(
+        index.state,
+        State::Due,
+        "a decline silenced an interval: {index:?}"
+    );
+    assert!(index.detail.contains("contradicts"), "{}", index.detail);
+    assert_eq!(index.record, None);
+}
+
+/// A decline keyed on a clock that does not exist does nothing, so the report says so.
+///
+/// A typo here is the same failure as a missing record arriving through the other half of
+/// the key: a declaration that reads as deliberate and has no effect.
+#[test]
+fn a_decline_naming_no_clock_is_reported_rather_than_ignored() {
+    let tmp = repo();
+    let root = tmp.path();
+    decision(root, "due-clocks", "declined");
+    config(root, "[due.declined]\nindices = \"due-clocks\"\n");
+
+    let cfg = crate::config::load_yidam_config(root).unwrap();
+    let all = read_clocks(root, &cfg.due, today());
+    let unknown = unknown_declines(&cfg.due, &all);
+    assert_eq!(unknown, vec!["indices".to_string()]);
+
+    let out = render(&DueReport::new(all, false).noting(unknown), root);
+    assert!(out.contains("names no clock called `indices`"), "{out}");
+    assert!(out.contains("index, catalog"), "{out}");
+}
+
+/// The row prints where the decision is recorded. Without it the report says only that
+/// somebody switched a clock off, which is the reading `Declined` exists to prevent.
+#[test]
+fn a_declined_row_prints_the_record_behind_it() {
+    let declined = Clock {
+        record: Some(".yidam/decisions/due-clocks.yml".to_string()),
+        ..Clock::new("x", "Q", State::Declined, "no index has been built")
+    };
+    let report = DueReport::new(vec![declined], true);
+    let out = render(&report, Path::new("/tmp/x"));
+    assert!(
+        out.contains("→ declined in .yidam/decisions/due-clocks.yml"),
+        "{out}"
+    );
+    assert!(out.contains("1 clock(s) declined"), "{out}");
+    // And it is not owed, under `--strict` or otherwise.
+    assert_eq!(report.due, 0);
+    assert!(report.passed);
+    assert!(!out.contains("can never come due"), "{out}");
+}
