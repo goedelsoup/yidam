@@ -210,6 +210,24 @@ fn graph_summary(state: &ServerState) -> String {
         .iter()
         .filter(|n| is_open_question(state, n))
         .count();
+    // The open **edges**, which `open_questions` now lists beside the node ones (#857). A
+    // summary that stopped at the nodes would tell an agent a smaller number than the tool it
+    // is a summary of. Rendered only when there are some: a corpus that tags no edge reads
+    // exactly as it did.
+    let open_edges: usize = state
+        .nodes
+        .iter()
+        .map(|n| {
+            crate::claims::edge_claims(&n.content)
+                .iter()
+                .filter(|c| c.standing == "open")
+                .count()
+        })
+        .sum();
+    let open = match open_edges {
+        0 => open.to_string(),
+        n => format!("{open} (+{n} on edges)"),
+    };
     let class_lines: Vec<String> = classes(state)
         .iter()
         .map(|(class, count)| format!("  {class}: {count} instance(s)"))

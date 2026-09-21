@@ -23,7 +23,7 @@
   "edits": [
     {
       "file": ".yidam/corpus/concept/mixing-zone.yml",
-      "line": 12,
+      "line": 15,
       "from": "../concept/low-flow.yml",
       "to": "../concept/base-flow.yml"
     },
@@ -35,7 +35,7 @@
     },
     {
       "file": ".yidam/corpus/gauge/riffle-station.yml",
-      "line": 9,
+      "line": 13,
       "from": "../concept/low-flow.yml",
       "to": "../concept/base-flow.yml"
     }

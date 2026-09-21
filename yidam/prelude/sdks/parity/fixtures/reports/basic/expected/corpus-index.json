@@ -18,6 +18,9 @@
       "claims_verified": 0,
       "claims_inference": 0,
       "claims_open": 1,
+      "edge_claims_verified": 0,
+      "edge_claims_inference": 0,
+      "edge_claims_open": 0,
       "lines": 10
     },
     {
@@ -28,7 +31,10 @@
       "claims_verified": 0,
       "claims_inference": 0,
       "claims_open": 0,
-      "lines": 13
+      "edge_claims_verified": 0,
+      "edge_claims_inference": 0,
+      "edge_claims_open": 1,
+      "lines": 17
     },
     {
       "node": "concept/tailwater.yml",
@@ -38,6 +44,9 @@
       "claims_verified": 0,
       "claims_inference": 1,
       "claims_open": 0,
+      "edge_claims_verified": 0,
+      "edge_claims_inference": 0,
+      "edge_claims_open": 0,
       "lines": 18
     },
     {
@@ -48,7 +57,10 @@
       "claims_verified": 1,
       "claims_inference": 0,
       "claims_open": 1,
-      "lines": 10
+      "edge_claims_verified": 0,
+      "edge_claims_inference": 1,
+      "edge_claims_open": 0,
+      "lines": 15
     }
   ]
 }

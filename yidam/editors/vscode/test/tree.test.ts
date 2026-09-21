@@ -1171,15 +1171,18 @@ test('every view builds from the real binary’s own JSON', async (t) => {
     'every open question is placed by the index into one of the corpus’s classes',
   )
 
-  // Both arms of the open-question predicate, from the real report. A corpus using only
+  // Every arm of the open-question predicate, from the real report. A corpus using only
   // one of them cannot tell an implementation that reads both from one that reads either
   // — which is why the MCP cases were split into two nodes, and the same was true here.
   //
-  // Three, not two, since the fixture gained a claim written in backticks. That node is the
-  // one that distinguishes the current rule from the typographic one it replaced: under
-  // "a backticked tag is a mention" it would not be an open question at all.
+  // Three node entries and one edge. The third node is the one that distinguishes the
+  // current rule from the typographic one it replaced: it carries a claim written in
+  // backticks, and under "a backticked tag is a mention" it would not be an open question
+  // at all. The edge is #857's arm — a link tagged `open` is a question in its own right,
+  // listed beside the node ones rather than promoting the node that authors it, so the
+  // count is four over three files and a reader that deduplicated by path would lose it.
   const labels = open.open_questions.map((q) => q.label)
-  assert.equal(labels.length, 3)
+  assert.equal(labels.length, 4)
   assert.ok(
     labels.some((l) => l.startsWith('?')),
     'the arm stated in the label',
@@ -1187,6 +1190,16 @@ test('every view builds from the real binary’s own JSON', async (t) => {
   assert.ok(
     labels.some((l) => !l.startsWith('?')),
     'the arm stated in a declared claim field',
+  )
+  const edges = open.open_questions.filter((q) => q.scope === 'edge')
+  assert.equal(edges.length, 1, 'the arm stated on an edge')
+  assert.ok(
+    edges[0].relationship && edges[0].target,
+    'an edge question says which edge it is about, not only which file',
+  )
+  assert.ok(
+    open.open_questions.every((q) => q.scope === 'node' || q.scope === 'edge'),
+    'every entry says which of the two asked it',
   )
 
   const phases = phasesTree(read<PhasesReport>(['phases']))

@@ -117,7 +117,7 @@ fn mask(text: &str, spans: bool) -> String {
     out
 }
 
-fn blank_into(line: &str, out: &mut String) {
+pub(crate) fn blank_into(line: &str, out: &mut String) {
     for _ in 0..line.len() {
         out.push(' ');
     }

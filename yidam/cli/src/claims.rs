@@ -548,6 +548,14 @@ pub(crate) fn detail_tags(text: &str) -> Vec<DetailTag> {
     out
 }
 
+/// The reserved key holding the graph. Never descended into by a *node's* counters.
+///
+/// A class may name its claim-typed property `claim_tag`, which is also the key a link writes
+/// its standing under — so a walk that reads a declared field "at any depth" reads the edges'
+/// tags as the node's, and reports one standing under two subjects. [`edge_claims`] owns what
+/// is under here (#857).
+const LINKS_KEY: &str = "links";
+
 /// Every value in the document held under one of `fields`, at any depth.
 ///
 /// Depth-first over the whole document rather than only `properties`, because a projected
@@ -558,6 +566,9 @@ fn structural_values(value: &serde_yaml::Value, fields: &[String], out: &mut Vec
         serde_yaml::Value::Mapping(map) => {
             for (k, v) in map {
                 if let Some(key) = k.as_str() {
+                    if key == LINKS_KEY {
+                        continue;
+                    }
                     if fields.iter().any(|f| f == key) {
                         match v {
                             serde_yaml::Value::String(s) => out.push(s.clone()),
@@ -605,6 +616,151 @@ pub fn count_structural(text: &str, fields: &[String]) -> ClaimCounts {
     counts
 }
 
+// ── an edge is a claim, and this is what reads its standing ───────────────────
+//
+// `lint/edge_claims.rs` grades an edge's `claim_tag` and stops there: two checks, and no
+// surface that answers *what is open here* or *how much of this is measured* has ever looked
+// at one (#857). Everything below is the reading half — the same `parse_tag` a node's
+// declared field goes through, applied to the one claim a traversal actually walks.
+//
+// **Counted apart from a node's claims, and served beside them.** `ClaimCounts` is
+// *measured against supposed* over one node's text; an edge is in no node's text and belongs
+// to two nodes at once, so folding the two into one figure would move every derived
+// repository's headline numbers to describe a denominator nobody chose. Two figures side by
+// side is the presentation, and the edge one renders only where a corpus tags edges — so a
+// corpus that tags none reads exactly as it did before this existed.
+
+/// The spellings a link's `claim_tag` holds — one, or one per list entry.
+///
+/// **Held untyped and read here, once.** The class schema admits a bare standing and a list
+/// of them, so [`crate::parse::CorpusLink::claim_tag`] is a [`serde_yaml::Value`] rather than
+/// a guess at which a corpus meant. [`crate::cmd::lint::edge_claims`] grades these spellings
+/// and this module serves them; a second extraction is how a lint finding and a report come
+/// to disagree about how many tags an edge wrote.
+pub(crate) fn link_tag_spellings(value: Option<&serde_yaml::Value>) -> Vec<String> {
+    let scalars: Vec<String> = match value {
+        None | Some(serde_yaml::Value::Null) => return Vec::new(),
+        Some(serde_yaml::Value::Sequence(items)) => items
+            .iter()
+            .map(|v| v.as_str().map(str::to_string).unwrap_or_default())
+            .collect(),
+        Some(v) => vec![v.as_str().map(str::to_string).unwrap_or_default()],
+    };
+    scalars
+        .into_iter()
+        .filter(|s| !s.trim().is_empty())
+        .collect()
+}
+
+/// How an edge's claim reads as a sentence: `flows-into → ../place/tailwater.yml`.
+///
+/// `agent-conduct.md` is why this is the statement and not a stand-in for one — *`a
+/// →[requires]→ b` asserts that a requires b, as flatly as a sentence would*. The triple **is**
+/// the assertion, so a served edge claim needs no text invented for it.
+///
+/// The relationship and the target both, for [`crate::cmd::lint::edge_claims`]'s reason: a node
+/// may author several edges of one relationship, and an address naming half of the pair sends
+/// the reader looking.
+pub(crate) fn edge_statement(link: &crate::parse::CorpusLink) -> String {
+    format!(
+        "{} → {}",
+        link.relationship.as_deref().unwrap_or("(none)"),
+        link.target.as_deref().unwrap_or("(none)")
+    )
+}
+
+/// Every claim the node's **edges** make, with the standing each is made at.
+///
+/// Read through [`parse_tag`], so an edge's field is graded by exactly the rule a node's
+/// declared field is: both spellings, and a qualifier kept rather than discarded.
+///
+/// **No exemption for a structural relationship, and that is deliberate.** The exemption
+/// `universal.yml` declares is from being *asked* for a standing; it is not a rule that a
+/// standing written there means nothing. `edge-verified-unsourced` fires on a structural edge
+/// for the same reason — an edge that wrote a tag opted in by writing it.
+pub fn edge_claims(text: &str) -> Vec<ServedClaim> {
+    let inst = crate::parse::parse_instance(text);
+    let mut out = Vec::new();
+    for (i, link) in inst.links.unwrap_or_default().iter().enumerate() {
+        for spelling in link_tag_spellings(link.claim_tag.as_ref()) {
+            let Some(parsed) = parse_tag(&spelling) else {
+                continue;
+            };
+            let standing = match parsed.standing {
+                VERIFIED => "verified",
+                INFERENCE => "inference",
+                OPEN => "open",
+                _ => continue,
+            };
+            out.push(ServedClaim {
+                text: edge_statement(link),
+                standing,
+                scope: ClaimScope::Edge,
+                property: None,
+                qualifier: parsed.qualifier,
+                relationship: link.relationship.clone(),
+                target: link.target.clone(),
+                // Link order, not a byte offset. An edge claim is never sorted against a
+                // prose one — the two are counted and served as separate populations — and
+                // the position a reader needs to find it by is the triple, which `text` holds.
+                at: i,
+            });
+        }
+    }
+    out
+}
+
+/// The list form of [`edge_claims`], as a tally.
+pub fn count_in_edges(text: &str) -> ClaimCounts {
+    let mut counts = ClaimCounts::default();
+    for claim in edge_claims(text) {
+        match claim.standing {
+            "verified" => counts.verified += 1,
+            "inference" => counts.inference += 1,
+            "open" => counts.open += 1,
+            _ => {}
+        }
+    }
+    counts
+}
+
+/// Blank the top-level `links:` block, keeping every byte offset.
+///
+/// **The node's prose scan must not read the graph.** A link writing `claim_tag: "[open]"` —
+/// the bracketed spelling a corpus adopts after being told the scan needs brackets — was
+/// counted by [`count_in_source`] as an `[open]` in the node's own prose, because the scan
+/// reads the file's bytes and the link's bytes are in the file. So the edge's standing was
+/// already being reported, under the wrong subject and with nothing able to say which edge it
+/// belonged to. Masking here is what lets [`edge_claims`] own it without counting it twice.
+///
+/// Blanked rather than removed, exactly as [`crate::markdown::mask_fenced`] blanks a fence:
+/// every offset a caller reports stays meaningful in the original bytes.
+pub(crate) fn mask_links(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut inside = false;
+    for raw in text.split_inclusive('\n') {
+        let (line, nl) = match raw.strip_suffix('\n') {
+            Some(l) => (l, "\n"),
+            None => (raw, ""),
+        };
+        // A top-level key closes the block. Only a top-level one: every line of the block is
+        // indented, and a blank line inside it is still inside it.
+        if inside && !line.trim().is_empty() && indent_of(line) == 0 {
+            inside = false;
+        }
+        if !inside && line.trim_end().strip_suffix(':') == Some(LINKS_KEY) {
+            inside = true;
+        }
+        if inside {
+            crate::markdown::blank_into(line, &mut out);
+        } else {
+            out.push_str(line);
+        }
+        out.push_str(nl);
+    }
+    out
+}
+
 // ── serving claims, not counting them ─────────────────────────────────────────
 //
 // The counter answers *how many*. An agent needs *which*, with the standing attached, and
@@ -624,6 +780,10 @@ pub enum ClaimScope {
     /// A property the class declared `type: claim`, whose value is the tag itself. The
     /// standing is the *node's*, not one sentence's.
     Node,
+    /// A link's `claim_tag`. The standing is the *edge's* — it belongs to two nodes at once
+    /// and to neither's prose, which is why it is counted as its own population rather than
+    /// folded into the node's (#857).
+    Edge,
 }
 
 /// One assertion a node makes, with the standing it makes it at.
@@ -640,6 +800,16 @@ pub struct ServedClaim {
     /// bare tag, which is the large majority. See [`Tag::qualifier`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub qualifier: Option<String>,
+    /// For [`ClaimScope::Edge`]: the relationship the edge asserts. `None` otherwise.
+    ///
+    /// Beside `text` rather than parsed back out of it, because a consumer that wants the
+    /// graph wants the two halves and a renderer wants the sentence, and splitting a
+    /// formatted string is how those two come to disagree about an arrow.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relationship: Option<String>,
+    /// For [`ClaimScope::Edge`]: the target, as the node wrote it. `None` otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
     /// Byte offset of the marker, so two passes can tell one occurrence from another.
     /// Not part of the served contract; used to dedupe.
     #[serde(skip)]
@@ -1056,6 +1226,8 @@ fn prose_claims(text: &str) -> Vec<ServedClaim> {
                 scope: ClaimScope::Statement,
                 property: None,
                 qualifier: None,
+                relationship: None,
+                target: None,
                 at: i,
             });
         }
@@ -1082,6 +1254,8 @@ fn prose_claims(text: &str) -> Vec<ServedClaim> {
             scope: ClaimScope::Statement,
             property: None,
             qualifier: Some(qualifier),
+            relationship: None,
+            target: None,
             at: tag.start,
         });
     }
@@ -1129,6 +1303,8 @@ fn structural_claims(text: &str, fields: &[String]) -> Vec<ServedClaim> {
                 scope: ClaimScope::Node,
                 property: Some(field),
                 qualifier: parsed.qualifier,
+                relationship: None,
+                target: None,
                 at,
             })
         })
@@ -1144,6 +1320,9 @@ fn named_values(value: &serde_yaml::Value, fields: &[String], out: &mut Vec<(Str
         serde_yaml::Value::Mapping(map) => {
             for (k, v) in map {
                 if let Some(key) = k.as_str() {
+                    if key == LINKS_KEY {
+                        continue;
+                    }
                     if fields.iter().any(|f| f == key) {
                         match v {
                             serde_yaml::Value::String(s) => out.push((key.to_string(), s.clone())),
@@ -1175,8 +1354,12 @@ fn named_values(value: &serde_yaml::Value, fields: &[String], out: &mut Vec<(Str
 /// The list form of [`count_in_node`], and held to it: the two must agree tag for tag, or
 /// the corpus is described one way by `status` and another way by the agent surface.
 pub fn claims_in_node(text: &str, fields: &[String]) -> Vec<ServedClaim> {
+    // The links block is masked out of the prose pass and not out of the structural one: a
+    // link's `claim_tag` is the *edge's* claim and [`edge_claims`] serves it, while a class
+    // that declared a claim-typed property is entitled to have it read wherever it wrote it.
+    let masked = mask_links(text);
     let structural = structural_claims(text, fields);
-    let mut prose = prose_claims(text);
+    let mut prose = prose_claims(&masked);
 
     // Drop the prose sighting of a structural value that was written bracketed. Matched by
     // position rather than by count: `claim_tag: "[open]"` and a genuine `[open]` elsewhere
@@ -1204,7 +1387,9 @@ pub fn claims_in_node(text: &str, fields: &[String]) -> Vec<ServedClaim> {
 /// corpus lands in after reshaping its data to satisfy the old scan, which is most of the
 /// corpora this feature exists for.
 pub fn count_in_node(text: &str, fields: &[String]) -> ClaimCounts {
-    let mut counts = count_in_source(text);
+    // See [`claims_in_node`]: the edges' tags are the edges', and [`count_in_edges`] is the
+    // tally that owns them.
+    let mut counts = count_in_source(&mask_links(text));
     let structural = count_structural(text, fields);
     let bracketed = count_bracketed_structural(text, fields);
     counts.add(structural);
@@ -1259,11 +1444,19 @@ fn count_bracketed_structural(text: &str, fields: &[String]) -> ClaimCounts {
 ///
 /// A change to the arms is a change to that file and a bump of its `contract` version. It is
 /// not a local decision, and the compiler will not tell you.
+///
+/// # And an edge's `open` is not one of them
+///
+/// Contract 0.21.0 added an edge arm to the *tool*, and it is not here: an open edge is a
+/// question in its own right, listed beside the node ones rather than promoting the node that
+/// authors it (#857). So the `links:` block is masked out of the prose arm below, where a
+/// bracketed `claim_tag: "[open]"` used to be read as an `[open]` in the node's own sentences.
+/// [`edge_claims`] is where that standing is answered for, and the surfaces call both.
 pub fn is_open_question(label: &str, text: &str, fields: &[String]) -> bool {
     label.trim_start().starts_with('?')
         // Masked, for the same reason the counter is: a node explaining what `[open]` means
         // is not thereby an open question.
-        || count_tag(&crate::markdown::mask_fenced(text), OPEN) > 0
+        || count_tag(&crate::markdown::mask_fenced(&mask_links(text)), OPEN) > 0
         || count_structural(text, fields).open > 0
         // A question `yidam propose` carried here. RFC-0020 put it where this predicate
         // looks, deliberately, and moving it out of the prose must not move it out of view:
@@ -2530,5 +2723,179 @@ mod structural_tests {
             "label: Lead\nproperties:\n  - name: claim_tag\n    type: claim\n    description: x\n",
         );
         assert_eq!(ClaimFields::load(&corpus).for_class("lead"), ["claim_tag"]);
+    }
+}
+
+/// An edge is a claim, and #857 is the surfaces learning to read one.
+#[cfg(test)]
+mod edge_tests {
+    use super::*;
+
+    const NODE: &str = r#"class: person
+label: Aldermanic clerk
+description: |
+  Clerk to the ninth ward board. [verified]
+links:
+  - target: ../person.ont.yml
+    relationship: instance-of
+  - target: ../place/ward-nine.yml
+    relationship: resided-in
+    claim_tag: inference
+  - target: ../place/city-hall.yml
+    relationship: worked-at
+    claim_tag: verified
+    source: 1889-municipal-register
+  - target: ../place/the-annex.yml
+    relationship: worked-at
+    claim_tag: "[open]"
+"#;
+
+    #[test]
+    fn an_edges_tag_is_read_by_the_rule_a_nodes_is() {
+        let claims = edge_claims(NODE);
+        assert_eq!(
+            claims.len(),
+            3,
+            "the untagged `instance-of` asserts nothing"
+        );
+        assert_eq!(
+            count_in_edges(NODE),
+            ClaimCounts {
+                verified: 1,
+                inference: 1,
+                open: 1
+            }
+        );
+    }
+
+    /// Both spellings, because `parse_tag` is the one reader: `inference` is what a typed
+    /// vocabulary stores and `"[open]"` is what a corpus writes after being told the prose
+    /// scan needs brackets.
+    #[test]
+    fn both_spellings_are_the_same_standing() {
+        let standings: Vec<&str> = edge_claims(NODE).iter().map(|c| c.standing).collect();
+        assert_eq!(standings, ["inference", "verified", "open"]);
+    }
+
+    /// The triple is the statement — `agent-conduct.md` says so — and both halves are carried
+    /// beside it for a consumer that wants the graph rather than the sentence.
+    #[test]
+    fn the_triple_is_the_statement_and_the_halves_are_kept() {
+        let open = edge_claims(NODE)
+            .into_iter()
+            .find(|c| c.standing == "open")
+            .expect("the annex edge is open");
+        assert_eq!(open.text, "worked-at → ../place/the-annex.yml");
+        assert_eq!(open.relationship.as_deref(), Some("worked-at"));
+        assert_eq!(open.target.as_deref(), Some("../place/the-annex.yml"));
+        assert_eq!(open.scope, ClaimScope::Edge);
+    }
+
+    /// **The count this change exists to stop.** A bracketed link tag is in the file's bytes,
+    /// so the node's byte scan saw it and reported the edge's standing as the node's prose.
+    #[test]
+    fn a_bracketed_edge_tag_is_the_edges_claim_and_not_the_nodes() {
+        assert_eq!(
+            count_in_source(NODE),
+            ClaimCounts {
+                verified: 1,
+                inference: 0,
+                open: 1
+            },
+            "the raw scan still sees the link's `[open]` — this is the defect"
+        );
+        assert_eq!(
+            count_in_node(NODE, &[]),
+            ClaimCounts {
+                verified: 1,
+                inference: 0,
+                open: 0
+            },
+            "and the node's counter no longer does"
+        );
+        assert!(
+            !claims_in_node(NODE, &[])
+                .iter()
+                .any(|c| c.standing == "open"),
+            "nor does the list form"
+        );
+    }
+
+    /// And the node is not promoted to an open question by an edge's tag: the edge is listed
+    /// in its own right instead, which is the whole point of asking the edge.
+    #[test]
+    fn an_open_edge_does_not_make_its_node_an_open_question() {
+        assert!(!is_open_question("Aldermanic clerk", NODE, &[]));
+        assert_eq!(count_in_edges(NODE).open, 1);
+    }
+
+    /// A claim-typed property named `claim_tag` on the **node** still counts. The mask covers
+    /// the `links:` block and nothing else.
+    #[test]
+    fn masking_the_links_block_leaves_the_node_alone() {
+        let node = "class: concept\nproperties:\n  claim_tag: open\nlinks:\n  \
+                    - target: ../concept.ont.yml\n    relationship: instance-of\n    \
+                    claim_tag: open\n";
+        let fields = ["claim_tag".to_string()];
+        assert_eq!(count_in_node(node, &fields).open, 1, "the node's own field");
+        assert_eq!(count_in_edges(node).open, 1, "and the edge's, separately");
+    }
+
+    #[test]
+    fn masking_preserves_every_byte_offset() {
+        let masked = mask_links(NODE);
+        assert_eq!(masked.len(), NODE.len());
+        assert_eq!(masked.lines().count(), NODE.lines().count());
+        assert!(masked.contains("Clerk to the ninth ward board. [verified]"));
+        assert!(!masked.contains("worked-at"));
+    }
+
+    /// A qualifier narrows an edge's standing as it narrows a node's, and is kept.
+    #[test]
+    fn a_qualified_edge_tag_keeps_its_qualifier() {
+        let node = "links:\n  - target: ../a.yml\n    relationship: within\n    \
+                    claim_tag: \"[verified — as surveyed]\"\n";
+        let claims = edge_claims(node);
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims[0].standing, "verified");
+        assert_eq!(claims[0].qualifier.as_deref(), Some("as surveyed"));
+    }
+
+    /// A list of standings is a list of claims, exactly as it is on a node's field.
+    #[test]
+    fn a_list_of_tags_is_one_claim_each() {
+        let node = "links:\n  - target: ../a.yml\n    relationship: within\n    \
+                    claim_tag:\n      - verified\n      - open\n";
+        assert_eq!(count_in_edges(node).total(), 2);
+    }
+
+    /// A spelling that names no standing is `edge-untagged`'s finding and is no claim here.
+    /// Serving it would invent a fourth standing out of a typo.
+    #[test]
+    fn a_tag_that_spells_no_standing_is_served_as_nothing() {
+        let node = "links:\n  - target: ../a.yml\n    relationship: within\n    \
+                    claim_tag: verifed\n";
+        assert!(edge_claims(node).is_empty());
+    }
+
+    /// A structural relationship is exempt from being *asked* for a standing. One that wrote
+    /// a standing anyway opted in by writing it — the same argument `edge-verified-unsourced`
+    /// runs on, and the reason it is unconditional.
+    #[test]
+    fn a_structural_relationship_that_wrote_a_tag_is_read_on_it() {
+        let node = "links:\n  - target: ../a.ont.yml\n    relationship: instance-of\n    \
+                    claim_tag: open\n";
+        assert_eq!(count_in_edges(node).open, 1);
+    }
+
+    /// A node with no links, and one whose bytes do not parse, are both nothing rather than
+    /// a panic: every surface here reads a corpus it does not control.
+    #[test]
+    fn a_node_with_no_edges_and_one_that_does_not_parse_count_nothing() {
+        assert_eq!(
+            count_in_edges("class: place\nlabel: Ward nine\n").total(),
+            0
+        );
+        assert_eq!(count_in_edges("class: [unterminated\n").total(), 0);
     }
 }

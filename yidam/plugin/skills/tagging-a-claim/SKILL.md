@@ -31,6 +31,9 @@ how each may be written — tens of tokens instead of a prose file held in conte
   `edge-verified-unsourced` reports a `verified` edge naming no source in any corpus;
   `edge-untagged` reports an edge that declares no standing, and only where
   `universal.yml` says `edge_claims: required: true`. See `GRAPH.md`.
+- **A tagged edge is reported, not only graded.** `open_questions` lists an edge tagged `open`
+  in its own right, beside the node ones, and `claims` serves every tagged edge. So the tag
+  goes on the link it is about: writing it into the node body keeps it out of both.
 
 ## Naming a tag rather than making one
 

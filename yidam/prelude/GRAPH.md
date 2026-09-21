@@ -166,6 +166,15 @@ links:
 `claim_tag` is graded by the same reader that grades a `type: claim` property, so `verified`,
 `[verified]` and `[verified — as proposed]` all read, and so does a list of standings.
 
+It is also **reported**. `yidam status` and `yidam corpus-index` count tagged edges in a figure
+beside the node one — beside and not added to it, because a node's claims are measured over its
+text and an edge is in no node's text — and both render it only where a corpus tags edges. An
+edge tagged `open` is listed by `yidam open-questions` in its own right, addressed by its triple,
+rather than promoting the node that authors it. The MCP `claims` and `open_questions` tools
+answer the same way. A link's tag is the *edge's* claim throughout: the node's own counters skip
+the `links:` block, so writing `claim_tag: "[open]"` on a link no longer reads as an `[open]` in
+the node's prose.
+
 | Check | Finding | Gates |
 |---|---|---|
 | `edge-verified-unsourced` | an edge asserting `verified` and naming no `source:` | no — Warn |

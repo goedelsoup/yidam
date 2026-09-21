@@ -16,6 +16,16 @@ struct StatusReport {
     claims_verified: usize,
     claims_inference: usize,
     claims_open: usize,
+    /// The same three over the corpus's **edges** — every link's `claim_tag` (#857).
+    ///
+    /// Beside the node figures and never folded into them. `ClaimCounts` is *measured against
+    /// supposed* over one node's text; an edge is in no node's text and belongs to two nodes
+    /// at once, so one merged number would answer about a denominator nobody chose — and
+    /// would move every derived repository's headline figures on upgrade. A consumer that
+    /// wants the corpus-wide total adds the two.
+    edge_claims_verified: usize,
+    edge_claims_inference: usize,
+    edge_claims_open: usize,
     index_present: bool,
     /// Bounded work not yet on the baseline. Before `phase_tally` this counted every
     /// `ma/*` and `rigpa/*` ref and no `phase/*` ref at all — see [`crate::git::RefKind`].
@@ -82,6 +92,7 @@ pub fn status(format: crate::report::Format) -> Result<()> {
     // How much of the corpus is measured against how much is supposed. This is the
     // template's most-adopted convention by a wide margin and nothing reported on it.
     let mut claims = crate::claims::ClaimCounts::default();
+    let mut edge_claims = crate::claims::ClaimCounts::default();
     for p in &instances {
         let text = std::fs::read_to_string(p).unwrap_or_default();
         let inst = crate::parse::parse_instance(&text);
@@ -89,6 +100,7 @@ pub fn status(format: crate::report::Format) -> Result<()> {
             &text,
             fields.for_class(inst.class.as_deref().unwrap_or_default()),
         ));
+        edge_claims.add(crate::claims::count_in_edges(&text));
     }
 
     let catalog_paths = walk_md_files(&catalog);
@@ -123,9 +135,17 @@ pub fn status(format: crate::report::Format) -> Result<()> {
         0 => format!("{catalog_entries} sources"),
         n => format!("{catalog_entries} sources · {n} expired"),
     };
+    // Rendered only where the corpus tags edges. This line is committed into the README and
+    // `yidam regen --check` gates it, so a permanent `edges —` would redden that gate in every
+    // derived repository on upgrade over a distinction none of them had made. Where the corpus
+    // *has* made it, the figure is the point.
+    let edges_cell = match edge_claims.total() {
+        0 => String::new(),
+        _ => format!("edges {} · ", edge_claims.cell()),
+    };
     let content = format!(
         "**{node_count} nodes** · {open_count} open · {sources_cell} · \
-         claims {} · index {index_freshness} · genesis {genesis}",
+         claims {} · {edges_cell}index {index_freshness} · genesis {genesis}",
         claims.cell()
     );
 
@@ -145,6 +165,9 @@ pub fn status(format: crate::report::Format) -> Result<()> {
                 claims_verified: claims.verified,
                 claims_inference: claims.inference,
                 claims_open: claims.open,
+                edge_claims_verified: edge_claims.verified,
+                edge_claims_inference: edge_claims.inference,
+                edge_claims_open: edge_claims.open,
                 index_present: index_path.exists(),
                 active_phases: phases.active,
                 settled_phases: phases.settled,
