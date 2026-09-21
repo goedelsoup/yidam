@@ -25,9 +25,9 @@ how each may be written — tens of tokens instead of a prose file held in conte
   — nothing proposes a promotion for you. Over-counting evidence is the flattering error.
 - **A tag on a claim you cited from a dependency does not transfer.** The producer's standing
   is theirs. See the `citing-a-dependency` skill.
-- **An edge is a claim too, and it takes the tag on the link.** `claim_tag:` beside `target`
-  and `relationship`, plus `source:` where the standing is `verified`. Saying it in the node
-  body instead puts the tag where nothing associates it with the edge it is about.
+- **An edge is a claim too, and it takes the tag on the link.** `claim_tag:` on the link
+  itself, plus `source:` where the standing is `verified`. Saying it in the node body instead
+  puts the tag where nothing associates it with the edge it is about.
   `edge-verified-unsourced` reports a `verified` edge naming no source in any corpus;
   `edge-untagged` reports an edge that declares no standing, and only where
   `universal.yml` says `edge_claims: required: true`. See `GRAPH.md`.
