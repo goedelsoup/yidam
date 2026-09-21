@@ -430,6 +430,13 @@ That is exactly what makes the omission quiet. It is still not the node. The raw
 the claims and never the edges between them. On a knowledge graph that is most of what it came
 for. Retrieval chooses what to read; `get_node` is the read.
 
+**`truncated` says whether that `text` is all of it.** Present on every result, `false` almost
+always. A remote index (`[index.remote]`) stores each row's text under a 40 KB ceiling. A row
+over that ceiling is stored cut. Such a row is rare — one in the low thousands. It is also the
+kind that grows without a bound. A node's text is the fields somebody wrote; a catalog source's
+is a whole document. A `true` here means read the file, not the result. Keyword search and a
+local index answer `false` about every row. Neither has a ceiling to cut against.
+
 **An empty `retrieve` says which kind of empty it is.** `results: []` used to mean four different
 things at once. An agent that cannot tell them apart fills the gap from its own weights. The claim
 will then be attributed to having worked in the corpus. Every response carries `rejected` and

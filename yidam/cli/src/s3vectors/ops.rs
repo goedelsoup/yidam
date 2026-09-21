@@ -272,7 +272,7 @@ pub fn apply_mirror(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::s3vectors::{Operation, RemoteIndexConfig, KIND};
+    use crate::s3vectors::{Operation, RemoteIndexConfig, KIND, MAX_METADATA_BYTES};
     use serde_json::json;
     use std::cell::RefCell;
 
@@ -338,6 +338,57 @@ mod tests {
 
     fn row(key: &str, distance: f64) -> Value {
         json!({"key": key, "distance": distance, "metadata": {"class": "concept", "label": "l", "text": "t"}})
+    }
+
+    /// The push cut a row, said so in its metadata, and the read path has to say so too.
+    ///
+    /// **The metadata is built by the push rather than written by hand**, which is the point of
+    /// the test: the flag is a contract between two modules, and a fixture that spells the key
+    /// itself would pass while `request::metadata` renamed it. So the row that arrives here is
+    /// the row `index-push` would have sent for a catalog source too large to carry whole —
+    /// which is not hypothetical, one such source exists across the sixteen corpora #848
+    /// measured (RFC-0033 §8.3).
+    ///
+    /// The two rows are the same in everything but size, so what the assertion holds is that
+    /// they come back **distinguishable**. A test asserting only that the field exists would
+    /// pass against a decoder that hard-coded `false`.
+    #[test]
+    fn a_row_the_push_had_to_cut_comes_back_saying_so() {
+        let whole = "x".repeat(64);
+        let over = "y".repeat(MAX_METADATA_BYTES * 2);
+        let meta = |text: &str| request::metadata("c1", "concept", "l", "dead", text).unwrap();
+        let (whole_meta, whole_cut) = meta(&whole);
+        let (over_meta, over_cut) = meta(&over);
+        assert!(!whole_cut, "the short row was not the whole-text case");
+        assert!(over_cut, "the long row was not the truncated case");
+
+        let api = Fake::ok(vec![page(
+            json!([
+                {"key": "c1/whole.yml", "distance": 0.1, "metadata": whole_meta},
+                {"key": "c1/cut.yml", "distance": 0.2, "metadata": over_meta},
+            ]),
+            None,
+        )]);
+        let hits = query(
+            &session(&api),
+            &idx(),
+            "c1",
+            &[0.1, 0.2],
+            &Filter::any(),
+            |_| true,
+            2,
+        )
+        .unwrap();
+
+        assert_eq!(
+            hits.iter()
+                .map(|h| (h.path.as_str(), h.truncated))
+                .collect::<Vec<_>>(),
+            vec![("whole.yml", false), ("cut.yml", true)]
+        );
+        // And the flag is about something: the cut row really is short of what was pushed.
+        assert_eq!(hits[0].text, whole);
+        assert!(hits[1].text.len() < over.len());
     }
 
     #[test]

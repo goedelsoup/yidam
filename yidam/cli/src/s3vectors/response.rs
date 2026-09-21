@@ -238,6 +238,15 @@ pub fn decode_query(corpus: &str, body: &Value) -> Result<Page, String> {
             label: text_field(super::META_KEY_LABEL),
             text: text_field(super::META_KEY_TEXT),
             score: score_from_distance(metric, distance)?,
+            // The push writes this key only on a row it had to cut, so its absence is the
+            // statement that `text` is whole — see `request::metadata`. Read as a bool and
+            // not merely tested for presence: a non-boolean under this key is a row this
+            // crate did not write, and reading it as `true` would report a cut on the word
+            // of something else.
+            truncated: meta
+                .get(super::META_KEY_TEXT_TRUNCATED)
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         });
     }
 
@@ -474,6 +483,7 @@ mod tests {
             label: String::new(),
             text: String::new(),
             score,
+            truncated: false,
         }
     }
 

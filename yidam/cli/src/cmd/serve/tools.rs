@@ -422,40 +422,7 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
                     ))
                 }
             };
-            let results: Vec<Value> = hits
-                .iter()
-                .map(|r| {
-                    json!({
-                        // Present on both arms now. `retrieve` finds and `get_node` reads, and
-                        // the handle between them was on the DEGRADED path and absent from the
-                        // good one — a corpus that built an index got results it could not
-                        // follow (#425). `find_node` tolerating a full repo path made it work by
-                        // accident; that is a tolerance in the resolver, not a promise of this
-                        // shape, and no case asserted it.
-                        //
-                        // Null rather than absent when a row resolves to no node — a catalog
-                        // source, or an index built before a file moved — following the
-                        // convention `origin` sets one arm over: a client testing the key must
-                        // not have to distinguish "unfollowable" from "a server too old to say".
-                        //
-                        // Resolved through `find_node`, which is what `get_node` resolves with.
-                        // That is the point: an id produced by one and rejected by the other is
-                        // the affordance this fixes, so they answer from one function rather
-                        // than from two that agree today. It already tolerates this exact path
-                        // form — the tolerance #425 notes was doing the work by accident, now
-                        // load-bearing on purpose and asserted below.
-                        "id": find_node(state, &r.path).map(|n| n.qualified_id()),
-                        "path": r.path,
-                        // No `origin` here, and that asymmetry is deliberate and documented:
-                        // `yidam embed` gathers this repository only, so its absence says the
-                        // search never looked outside this corpus.
-                        "class": r.class,
-                        "label": r.label,
-                        "text": r.text,
-                        "score": r.score,
-                    })
-                })
-                .collect();
+            let results: Vec<Value> = hits.iter().map(|r| vector_result(state, r)).collect();
             let absent = results
                 .is_empty()
                 .then(|| super::absence::diagnose(state, query, class_filter, true).to_json());
@@ -469,6 +436,51 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
         class_filter,
         state.retrieval.degraded_reason(),
     ))
+}
+
+/// One row of the vector path's answer, rendered.
+///
+/// A named function rather than a closure in the loop because the shape is what the contract
+/// freezes, and a test has to be able to hold one row against another without standing up a
+/// remote index — which is the one thing no test in this repository can do.
+#[cfg(feature = "vector-read")]
+fn vector_result(state: &ServerState, r: &crate::retrieval::Hit) -> Value {
+    json!({
+        // Present on both arms now. `retrieve` finds and `get_node` reads, and the handle
+        // between them was on the DEGRADED path and absent from the good one — a corpus that
+        // built an index got results it could not follow (#425). `find_node` tolerating a full
+        // repo path made it work by accident; that is a tolerance in the resolver, not a
+        // promise of this shape, and no case asserted it.
+        //
+        // Null rather than absent when a row resolves to no node — a catalog source, or an
+        // index built before a file moved — following the convention `origin` sets one arm
+        // over: a client testing the key must not have to distinguish "unfollowable" from "a
+        // server too old to say".
+        //
+        // Resolved through `find_node`, which is what `get_node` resolves with. That is the
+        // point: an id produced by one and rejected by the other is the affordance this fixes,
+        // so they answer from one function rather than from two that agree today. It already
+        // tolerates this exact path form — the tolerance #425 notes was doing the work by
+        // accident, now load-bearing on purpose and asserted below.
+        "id": find_node(state, &r.path).map(|n| n.qualified_id()),
+        "path": r.path,
+        // No `origin` here, and that asymmetry is deliberate and documented: `yidam embed`
+        // gathers this repository only, so its absence says the search never looked outside
+        // this corpus.
+        "class": r.class,
+        "label": r.label,
+        "text": r.text,
+        "score": r.score,
+        // Whether that `text` is all of it. Only a remote index can say no: S3 Vectors caps
+        // per-vector metadata at 40 KB and the push cuts `text` to fit, flagging the row. The
+        // flag made the whole trip and this renderer dropped it, so a half-read source came
+        // back looking exactly like a whole one (#853).
+        //
+        // Present and false rather than absent, the convention `origin` and `degraded_reason`
+        // already follow here: a client testing this key must not have to distinguish "whole"
+        // from "a server too old to say".
+        "truncated": r.truncated,
+    })
 }
 
 /// The `retrieve` response, around whichever path produced the results.
@@ -559,6 +571,11 @@ fn keyword_retrieve(
                 "label": n.label,
                 "text": n.description,
                 "score": score,
+                // Always false on this path, and it is an answer rather than a filler. Keyword
+                // search reads nodes out of the model this process loaded, so its `text` is the
+                // node's own `description` and there is no ceiling anywhere between the file and
+                // this line. Only a remote index can cut a row; see `vector_result`.
+                "truncated": false,
             })
         })
         .collect();
@@ -1329,6 +1346,52 @@ mod tests {
         assert!(!result["results"].as_array().unwrap().is_empty());
         assert!(result["rejected"].is_null());
         assert!(result["absence"].is_null());
+    }
+
+    /// The other end of #853: a cut row must render differently from a whole one.
+    ///
+    /// Held against `vector_result` directly rather than through a `retrieve` call, because a
+    /// truncated row can only come from a remote index and no test in this repository can
+    /// stand one up. The transport half of the round trip — that the flag the push writes is
+    /// the flag the decoder reads — is `s3vectors::ops`'s
+    /// `a_row_the_push_had_to_cut_comes_back_saying_so`.
+    #[cfg(feature = "vector-read")]
+    #[test]
+    fn a_cut_row_renders_differently_from_a_whole_one() {
+        let state = test_state();
+        let hit = |truncated: bool| crate::retrieval::Hit {
+            path: ".yidam/catalog/a-long-source.md".to_string(),
+            class: "source".to_string(),
+            label: "A long source".to_string(),
+            text: "half of it".to_string(),
+            score: 0.5,
+            truncated,
+        };
+
+        let whole = vector_result(&state, &hit(false));
+        let cut = vector_result(&state, &hit(true));
+
+        assert_ne!(whole, cut, "a cut row rendered exactly like a whole one");
+        assert_eq!(cut["truncated"], true);
+        // Present and false, not absent: a client testing the key must not have to tell
+        // "whole" apart from "a server too old to say".
+        assert_eq!(whole["truncated"], false);
+    }
+
+    /// The keyword path answers the same key, and answers `false` about every row.
+    ///
+    /// Not a formality: `truncated` is required on every result, and the light build renders
+    /// only this arm — so a key added on the vector path alone would be a contract a light
+    /// server silently failed.
+    #[test]
+    fn the_keyword_path_says_its_text_is_whole() {
+        let mut state = test_state();
+        let result = call_ok(&mut state, "retrieve", json!({"query": "knowledge graph"}));
+        let results = result["results"].as_array().unwrap();
+        assert!(!results.is_empty());
+        for r in results {
+            assert_eq!(r["truncated"], false, "{r:#?}");
+        }
     }
 
     #[test]
