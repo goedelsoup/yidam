@@ -11,6 +11,7 @@
 - **Not yet verified against a live service.** §8 says exactly which claims that leaves standing and which test discharges each.
 - **Amended 2026-09-20 (#834).** §8's Bedrock row was settled against the documentation and came back false; §8.1 records what that kills, what survives, and what is still unasked. §4.2 and the phase list are corrected to match.
 - **Amended 2026-09-20 (#837).** §4.5's class push-down is no longer deferred. The premise it was deferred on is stated more precisely — it is about two *derivations*, never about data drift — and discharged: one derivation, and a `class_source` claim an index earns by checking its own records. Open question 3 is answered. `embed.config.json` gains one optional key and `format_version` does not move, which is what that document already says an additive field does; an index without the key is read exactly as it was before, so nothing on disk has to be rebuilt.
+- **Amended 2026-09-21 (#848).** §8's last row is settled, and it needed no account: §8.3 records the composed-`text` distribution over 3,246 rows in sixteen derived corpora. The answer is *not* "comfortable" — one row in 3,246 is cut, and the largest row that is not cut clears the ceiling by 597 bytes. The same pass found `MAX_FILTERABLE_METADATA_BYTES` declared and never read; it is enforced now, and §8.3 records the headroom that had made the hole latent.
 
 ## Summary
 
@@ -311,8 +312,10 @@ excuse: it is why the loops take the transport as an argument and are exercised 
 recorded one, and why `transport.rs` is kept thin enough to check by eye.
 
 What that left standing, and what settled each. **Four of these rows were settled against a live
-index on 2026-09-20** — §8.2 records that run and its numbers — and a fifth was settled against
-the documentation (§8.1). One row is still open, and it is the one that needs no account:
+index on 2026-09-20** — §8.2 records that run and its numbers — a fifth was settled against the
+documentation (§8.1), and the last was settled on 2026-09-21 by measurement over the derived
+corpora, with no account involved at all (§8.3). **Every row is closed, and two of the six came
+back false.**
 
 | Claim | Settled by |
 |---|---|
@@ -321,7 +324,7 @@ the documentation (§8.1). One row is still open, and it is the one that needs n
 | ~~The mirror's delete reaches the service~~ | **Settled live on 2026-09-20, and true.** A key dropped from the local set stops coming back from `QueryVectors`. Deleting the delete loop from `apply_mirror` makes the live test fail and every recorded-transport test still pass, which is the gap this row existed for |
 | ~~`GetIndex`'s response shape~~ | **Settled live on 2026-09-20, and true.** `/index/dimension` and `/index/distanceMetric` are where `response::disagreement` reads them. The served body carries four fields the unit fixture does not (`vectorBucketName`, `indexArn`, `creationTime`, `encryptionConfiguration`); neither pointer moved |
 | ~~A hand-populated index is consumable by Bedrock Knowledge Bases~~ | **Settled against the documentation on 2026-09-20, and false as stated** — see §8.1. A knowledge base embeds the *query* with a model it owns, and yidam's vectors are not in that model's space. §4.2's key set survives, but for the route §8.1 names rather than this one |
-| The 40 KB metadata ceiling is comfortable for real corpora | Measuring the `text` length distribution across the derived corpora. The push truncates and flags rather than failing, so the cost of being wrong is visible rather than silent |
+| ~~The 40 KB metadata ceiling is comfortable for real corpora~~ | **Measured on 2026-09-21 over sixteen derived corpora, and false as stated** — see §8.3. One row in 3,246 is cut, so truncation is not routine; but the largest row that is *not* cut sits **597 bytes** under the ceiling, which is not what "comfortable" claims. Measured by running the functions that compose the text — `yidam embed --dry-run` — over corpora nothing was written into |
 
 ### 8.1 — The Bedrock premise, tested and false
 
@@ -404,9 +407,128 @@ non-filterable metadata keys — `text`, `embed_config`, `AMAZON_BEDROCK_TEXT`,
 `AMAZON_BEDROCK_METADATA` — which is the "four are declared and two of them are Bedrock's" that
 replaced §4.2's original "three of the ten".
 
-**What is still unsettled** is the last row of the table above: whether the 40 KB metadata ceiling
-is comfortable for real corpora. That one needs no account at all — it is a measurement over the
-derived corpora's `text` lengths — and it was left alone here rather than answered badly.
+**What this run did not settle** is the last row of the table above: whether the 40 KB metadata
+ceiling is comfortable for real corpora. That one needs no account at all — it is a measurement
+over the derived corpora's `text` lengths — and it was left alone here rather than answered
+badly. §8.3 is that measurement.
+
+### 8.3 — The 40 KB ceiling, measured, and not comfortable
+
+Run on **2026-09-21** over **sixteen derived corpora**: 3,246 rows, 2,759 corpus nodes and 487
+catalog sources, 9,238,363 bytes of composed text.
+
+**The composing functions were run, not a proxy for them.** `text` is not a field. For a node it
+is `compose_text(label, description, links)` over `prose::text`, which since #746 reaches the
+properties a class has flagged as well as the declared prose fields — so a grep for
+`description:` under-counts. For a catalog source it is `compose_source_text(…)`, whose bulk is
+the whole markdown body. `yidam embed --dry-run` (#848) composes every record, hands each to
+`request::metadata`, and writes nothing — not the record, not `.yidam/embeddings/`, not the
+directory. The corpora it was run over are read, not ours to leave artifacts in, and each was
+checked unchanged afterwards: `git status` in all sixteen, the whole tree hashed before and
+after in one, and — in the two that already carried an `.yidam/embeddings/` from their own
+earlier runs — no file under it newer than the measurement.
+
+**Two repositories are out of the population, and the reason is the measurement rather than
+hygiene.** `watermark-directory` is a declared non-vendoring consumer: 496 corpus files on disk
+and **0 tracked**, a git-ignored projection from its own exporter. Counting it measures a
+generator. `enamel-pin-design` has no commits. For each of the sixteen that remain, the walked
+set was compared against `git ls-files` and matched **exactly** — corpus and catalog both — so
+the walk read what git tracks and nothing else.
+
+| corpus | rows | node `text` p50 / max | source `text` p50 / max | largest row | filterable max | cut |
+|---|---:|---:|---:|---:|---:|---:|
+| allen-county-ohio | 864 | 3,459 / 21,076 | 3,782 / 19,860 | 21,464 | 184 | 0 |
+| ohio-budget | 797 | 531 / 7,704 | 2,565 / 7,355 | 7,930 | 156 | 0 |
+| hegeomai | 219 | 1,869 / 8,404 | 1,863 / 3,902 | 8,609 | 162 | 0 |
+| demi-moore | 207 | 2,144 / 8,094 | 2,745 / 4,415 | 8,365 | 224 | 0 |
+| matt-huffman | 185 | 3,096 / 33,610 | 7,228 / **72,910** | 40,350 | **237** | **1** |
+| ohio-education-funding | 181 | 6,387 / **39,630** | 4,726 / 13,124 | **40,363** | 166 | 0 |
+| grindcore | 146 | 2,000 / 23,701 | 3,191 / 27,439 | 27,941 | 167 | 0 |
+| allen-recorder | 141 | 597 / 13,295 | 4,878 / 20,348 | 20,891 | 158 | 0 |
+| bitrecover-bitwipe | 121 | 1,572 / 8,097 | 2,552 / 5,133 | 8,342 | 158 | 0 |
+| hermetic-ch | 94 | 1,168 / 3,904 | 1,293 / 2,119 | 4,139 | 185 | 0 |
+| audio-effect-design | 79 | 1,251 / 4,692 | 1,769 / 8,080 | 8,356 | 144 | 0 |
+| bitlocker | 67 | 2,358 / 5,716 | 2,934 / 6,027 | 6,280 | 169 | 0 |
+| shawnee-township-event-planning | 66 | 1,668 / 15,484 | 6,246 / 17,262 | 17,745 | 150 | 0 |
+| yidam-proto-001e | 42 | 1,983 / 3,391 | 2,903 / 3,132 | 3,582 | 137 | 0 |
+| yidam-proto-001d | 27 | 638 / 1,174 | 1,769 / 3,866 | 4,003 | 162 | 0 |
+| yidam-proto-002c | 10 | 293 / 399 | — | 552 | 141 | 0 |
+
+`allen-county-ohio`, `ohio-budget` and `ohio-education-funding` are public and the rest are
+private or have no remote, so three of the sixteen rows can be re-derived by anyone with the
+binary. Every figure is bytes. The last three columns are against 40,960 and 2,048.
+
+**The distribution, merged.** Counts rather than percentiles, because counts add across
+repositories and medians do not — the per-corpus p50s above are the medians, and this is the
+shape they sum to. The bucket is the *whole row* as `request::metadata` renders it, which is
+what the ceiling is on: every field, plus the JSON escaping that makes a byte of prose not
+always a byte of body.
+
+| row bytes | rows | share | cumulative |
+|---|---:|---:|---:|
+| ≤ 256 | 3 | 0.09% | 0.09% |
+| 256 – 1,024 | 965 | 29.73% | 29.82% |
+| 1,024 – 4,096 | 1,528 | 47.07% | 76.89% |
+| 4,096 – 16,384 | 712 | 21.93% | 98.83% |
+| 16,384 – 40,960 | 38 | 1.17% | 100.00% |
+| > 40,960 | 0 | 0.00% | 100.00% |
+
+**Four things this says.**
+
+**1 — Truncation is not routine.** One row in 3,246, or 0.031%. The row said the cost of being
+wrong would be visible rather than silent; the honest reading is that it has been paid once. A
+finding that truncation were routine would have belonged here and would have been the answer;
+it is not what the corpora say.
+
+**2 — "Comfortable" is still the wrong word.** The largest row that is *not* cut is
+`ohio-education-funding`'s `.yidam/corpus/formula-component/fsfp-local-capacity-measure.yml` at
+**40,363 of 40,960 bytes** — 597 bytes of headroom, 98.54% of the ceiling, on an ordinary
+corpus node nobody wrote with a ceiling in mind. A ceiling one row clears by less than a
+paragraph is not a comfortable one; it is one the next edit to that node crosses.
+
+**3 — The two tails are different, and only one of them is bounded.** Node text tops out at
+39,630 bytes and averages 2,447; source text tops out at 72,910 and averages 5,108. A node's
+text is what a person wrote into declared fields. A catalog source's text is a whole markdown
+document, and nothing in the format caps it. The one row that is cut is a catalog source —
+matt-huffman's `.yidam/catalog/ohio-lobbying-register.md`, 72,910 bytes composed and 37,399
+kept, **48.7% of it dropped**. So the ceiling binds on the half of the corpus RFC-0033 was not
+thinking about when it wrote the row.
+
+**4 — The flag is written and never read.** `request::metadata` sets `text_truncated` so that
+"a consumer reading `text` and finding no such key is reading all of it" — and this crate's own
+consumer does not look. `response::decode_query` builds a `Hit` from `class`, `label`, `text`
+and the distance, and drops every other key. So the one row that is cut comes back from
+`retrieve` rendered as if whole, with nothing in the result saying half of it is missing. That
+is a read-path gap rather than a push-path one, it is not fixed here, and it is
+[#853](https://github.com/goedelsoup/yidam/issues/853): the fix is a field on `retrieval::Hit`
+that both backends answer for and that the surfaces render, which is a change to the retrieval
+layer rather than to this one.
+
+#### The 2 KB filterable ceiling, which nothing was enforcing
+
+`MAX_FILTERABLE_METADATA_BYTES` was declared in `s3vectors/mod.rs` and read by nothing.
+
+It was a hole rather than a dead constant. `NON_FILTERABLE_KEYS` is `text`, `embed_config` and
+the two Bedrock keys, so `corpus`, `class`, `label`, `commit` and `text_truncated` are all
+filterable and share that 2 KB — and the shrink loop only ever cuts `text`, which is not in it.
+A row whose filterable half was too large would pass the 40 KB check, be truncated or not, go
+on the wire, and come back a `ValidationException` naming a constraint rather than a node.
+**Cutting `text` cannot fix it**, which is why one check could never have stood in for the
+other.
+
+`request::metadata` now refuses such a row locally, on both its return paths — the one that
+fits and the one that had to cut — with a message that names the class and the label's size.
+Both guards are load-bearing: deleting either reddens a test written for it.
+
+**It stays latent, and the measurement is why that is worth saying.** The largest filterable
+half anywhere in the sixteen corpora is **237 bytes of 2,048** — 8.6× headroom, and the
+per-corpus maxima run 137 to 237, a range of a hundred bytes across corpora spanning ten rows
+to eight hundred. The figure barely moves because four of the five filterable keys are
+structural — `corpus` is twelve characters, `commit` is seven, `class` is a directory name, and
+`text_truncated` is a boolean. `label` is the only one a corpus controls the size of, and no
+corpus has yet written a long one. That is an argument for an
+assertion and a test — which is what this is — rather than for a redesign, and re-running
+`yidam embed --dry-run` is how anyone would find out that the headroom had started closing.
 
 ## Phases
 
