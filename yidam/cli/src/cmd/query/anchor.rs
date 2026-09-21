@@ -440,6 +440,7 @@ mod tests {
             label: String::new(),
             text: String::new(),
             score,
+            truncated: false,
         }
     }
 

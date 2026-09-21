@@ -28,6 +28,25 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### A `retrieve` result says whether its text is all of it
+
+**MCP contract 0.22.0 → 0.23.0.** Every entry of `results` carries `truncated`, a boolean
+(#853). It is `false` on keyword search and on a local index. Neither has a per-row ceiling to
+cut against. Only a corpus served out of a remote vector index can answer `true`. A server built
+against 0.22.0 still answers every call. A client built against it reads a cut row as a whole
+one, which is the state this ends.
+
+**A remote index stores each row's text under a 40 KB ceiling.** `yidam index-push` already cut
+the rows that exceeded it, and already said so in its report. What was missing was the other
+end. The flag travelled back with the row and `retrieve` dropped it. So half a document rendered
+exactly like all of one. Nothing about what is stored changes here, and no index needs
+rebuilding.
+
+**Expect almost no `true`.** Across sixteen measured corpora, one row in 3,246 is cut. It is a
+catalog source rather than a node. A node's text is the fields somebody wrote; a source's is a
+whole markdown document that no format caps. A remote index over catalog sources is where this
+bites. It is where you find out which of them you have been reading half of.
+
 ### An edge may no longer assert a standing its endpoints contradict
 
 `edge-standing-unheld` is a new `warn` (#858). It reports an edge asserting a standing **stronger**

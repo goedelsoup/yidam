@@ -119,6 +119,10 @@ pub(crate) fn search(
             label: r.label.clone(),
             text: r.text.clone(),
             score: r.vector.iter().zip(&query_vec).map(|(a, b)| a * b).sum(),
+            // Not a placeholder. A local index carries whole text — there is no per-row
+            // ceiling in `.yidam/index/` to cut against — so this backend answers `false`
+            // about every row it will ever hold.
+            truncated: false,
         })
         .collect();
 

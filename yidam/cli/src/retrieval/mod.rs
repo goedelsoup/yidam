@@ -116,8 +116,11 @@ pub(crate) enum Searched {
 /// two call sites that would each have to know which they were looking at — there is one, and
 /// the local scan pays a clone per returned row. That is `k` clones, where `k` defaults to 5.
 ///
-/// The fields are exactly what both call sites read: `cmd/serve/tools.rs` renders all five,
-/// and `cmd/query/anchor.rs` uses `path` to resolve a node and `score` to rank it.
+/// The fields are exactly what both call sites read: `cmd/serve/tools.rs` renders all six,
+/// and `cmd/query/anchor.rs` uses `path` to resolve a node and `score` to rank it. An anchored
+/// step reads neither `text` nor `truncated` on purpose — it resolves the row to a node and
+/// reads that node's own text out of this repository, so a cut carried by the index is not a
+/// cut in what it renders.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hit {
     /// Repository-relative path, as the index recorded it. The handle both call sites resolve
@@ -131,6 +134,21 @@ pub struct Hit {
     /// same quantity or the remote backend refuses to answer — see
     /// [`crate::s3vectors::response::score_from_distance`].
     pub score: f32,
+    /// Whether [`Self::text`] is a cut of what the corpus holds rather than all of it.
+    ///
+    /// **A remote index is the only place this can be true, and it is not a defect there.**
+    /// S3 Vectors caps per-vector metadata at 40 KB, so a row whose text exceeds it is pushed
+    /// cut and flagged — see [`crate::s3vectors::request::metadata`]. The flag travelled back
+    /// with the row and nothing read it, so a cut answer rendered exactly like a whole one
+    /// (#853). The population it can happen to is small and unbounded: over 3,246 rows in
+    /// sixteen measured corpora one is cut, and the one that is is a catalog source, whose
+    /// text is a whole markdown document that no format caps (RFC-0033 §8.3).
+    ///
+    /// **The local scan answers `false`, and that is the answer rather than a placeholder.**
+    /// A local index carries whole text — nothing in `.yidam/index/` has a per-row ceiling —
+    /// so `false` is a fact about that backend, and the asymmetry between the two is exactly
+    /// what a reader of a result should be able to see.
+    pub truncated: bool,
 }
 
 /// What a search may return, in the part of the question a server can be asked.
@@ -671,6 +689,7 @@ mod tests {
             label: String::new(),
             text: String::new(),
             score: 1.0,
+            truncated: false,
         }
     }
 
