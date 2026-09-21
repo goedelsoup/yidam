@@ -6,7 +6,20 @@ use crate::parse::{frontmatter_body, parse_frontmatter, CorpusInstance};
 use crate::paths::{
     class_of_path, repo_root, yidam_catalog_dir, yidam_corpus_dir, yidam_embeddings_dir,
 };
+use crate::s3vectors::request;
 use crate::walk::{walk_corpus_instances, walk_md_files};
+
+/// The `corpus` a dry run measures with when the repository cannot see its own root commit.
+///
+/// A real push refuses that repository outright — its keys would not be stable — but a
+/// measurement can still be made, and the field's *length* is what the ceiling counts. Twelve
+/// characters, the same as a real one, so the number does not move.
+const UNKNOWN_CORPUS: &str = "000000000000";
+
+/// The two values [`EmbedRecord::kind`] takes. Named because a dry run partitions its report
+/// on them and a typo would silently file every source under `node`.
+const KIND_NODE: &str = "node";
+const KIND_SOURCE: &str = "source";
 
 /// What `yidam embed` reads.
 #[derive(Debug, Clone)]
@@ -22,11 +35,24 @@ pub struct EmbedOptions {
     /// The flag exists because a repository whose catalog holds material it does not want
     /// retrievable should be able to say so, once, rather than by not knowing.
     pub catalog: bool,
+    /// Compose every record, write none of them, and report what the composed text would
+    /// cost as a remote vector's metadata.
+    ///
+    /// It exists because the question RFC-0033 §8 left open — whether the 40 KB metadata
+    /// ceiling is comfortable for real corpora — can only be answered by the thing that
+    /// composes the text, and the corpora worth asking it of are not ours to write into.
+    /// `text` is not a field: it is [`compose_text`] over a label, every declared prose
+    /// field and the edge names, or [`compose_source_text`] over a catalog entry's whole
+    /// markdown body. A grep under-measures both.
+    pub dry_run: bool,
 }
 
 impl Default for EmbedOptions {
     fn default() -> Self {
-        Self { catalog: true }
+        Self {
+            catalog: true,
+            dry_run: false,
+        }
     }
 }
 
@@ -109,6 +135,186 @@ fn compose_text(label: &str, description: &str, links: &[crate::parse::CorpusLin
     parts.join(" ")
 }
 
+/// What the composed records would cost as one remote vector's metadata each.
+///
+/// Measured with [`request::metadata`] itself and not by adding up field
+/// lengths: the ceiling is on a JSON body, and a body's length is its escaping as much as its
+/// content — a node whose prose is full of quotes is larger on the wire than `text.len()`.
+#[derive(Default)]
+struct Footprints {
+    /// Composed `text` bytes, before any cut, and whether the record was a node or a source.
+    ///
+    /// Split because the two are composed by different functions over different material —
+    /// a node's declared prose against a catalog entry's whole markdown body — and the
+    /// question of whether a ceiling binds is answered differently for each. A merged figure
+    /// would hide which half is near it.
+    text: Vec<(usize, bool)>,
+    /// Whole-row metadata bytes, as the request renders them.
+    row: Vec<usize>,
+    /// The largest whole row seen, and whose it was. The figure the 40 KB ceiling is on —
+    /// larger than any `text` by the other four fields and by JSON escaping.
+    row_max: (usize, String),
+    /// The largest filterable half seen, and whose it was.
+    filterable_max: (usize, String),
+    /// Rows whose text did not fit: path, composed bytes, bytes kept.
+    truncated: Vec<(String, usize, usize)>,
+    /// Rows a push would refuse outright, and why.
+    refused: Vec<(String, String)>,
+}
+
+/// The bucket edges the row histogram counts into, in bytes.
+///
+/// Counts rather than percentiles because counts **merge**: a figure computed per repository
+/// can be added across a set of them, and a median cannot. The cross-corpus number RFC-0033
+/// §8 wanted is the sum of these columns.
+const ROW_BUCKETS: &[usize] = &[
+    256,
+    1024,
+    4 * 1024,
+    16 * 1024,
+    crate::s3vectors::MAX_METADATA_BYTES,
+];
+
+impl Footprints {
+    fn observe(&mut self, corpus: &str, commit: &str, rec: &EmbedRecord) {
+        let text_bytes = rec.text.len();
+        self.text.push((text_bytes, rec.kind == KIND_NODE));
+        match request::metadata(corpus, &rec.class, &rec.label, commit, &rec.text) {
+            Ok((m, cut)) => {
+                let bytes = serde_json::to_vec(&m).map_or(0, |b| b.len());
+                self.row.push(bytes);
+                if bytes > self.row_max.0 {
+                    self.row_max = (bytes, rec.path.clone());
+                }
+                let filterable = request::filterable_len(&m);
+                if filterable > self.filterable_max.0 {
+                    self.filterable_max = (filterable, rec.path.clone());
+                }
+                if cut {
+                    let kept = m[crate::s3vectors::META_KEY_TEXT]
+                        .as_str()
+                        .map_or(0, str::len);
+                    self.truncated.push((rec.path.clone(), text_bytes, kept));
+                }
+            }
+            // Recorded rather than propagated: a push refuses the whole run on the first bad
+            // row, which is right for a push and wrong for a measurement — the point of
+            // running this is to find out how many there are.
+            Err(e) => self.refused.push((rec.path.clone(), e.to_string())),
+        }
+    }
+
+    fn report(&self, corpus: &str, nodes: usize, sources: usize, skipped: usize) {
+        let ceiling = crate::s3vectors::MAX_METADATA_BYTES;
+        let filterable_ceiling = crate::s3vectors::MAX_FILTERABLE_METADATA_BYTES;
+        println!("\nmetadata footprint — what `yidam index-push` would put on the wire");
+        println!("  corpus:      {corpus}");
+        println!(
+            "  rows:        {} ({nodes} node, {sources} source{})",
+            self.text.len(),
+            if skipped > 0 {
+                format!("; {skipped} unparseable and skipped")
+            } else {
+                String::new()
+            }
+        );
+        if self.text.is_empty() {
+            return;
+        }
+        for (label, is_node) in [("node ", true), ("source", false)] {
+            let mut text: Vec<usize> = self
+                .text
+                .iter()
+                .filter(|(_, n)| *n == is_node)
+                .map(|(b, _)| *b)
+                .collect();
+            if text.is_empty() {
+                continue;
+            }
+            text.sort_unstable();
+            println!(
+                "  {label} text: min {}  p50 {}  p90 {}  p99 {}  max {}  total {}",
+                text[0],
+                quantile(&text, 50),
+                quantile(&text, 90),
+                quantile(&text, 99),
+                text[text.len() - 1],
+                text.iter().sum::<usize>(),
+            );
+        }
+
+        println!("  row bytes against the {ceiling}-byte ceiling:");
+        let total = self.row.len().max(1);
+        let mut lower = 0usize;
+        for &edge in ROW_BUCKETS {
+            let n = self.row.iter().filter(|&&b| b > lower && b <= edge).count();
+            println!(
+                "    {:>6} < b ≤ {:>6}   {:>6}  {:>5.1}%",
+                lower,
+                edge,
+                n,
+                100.0 * n as f64 / total as f64
+            );
+            lower = edge;
+        }
+        let over = self.row.iter().filter(|&&b| b > ceiling).count();
+        println!(
+            "    {:>6} < b            {:>6}  {:>5.1}%",
+            ceiling,
+            over,
+            100.0 * over as f64 / total as f64
+        );
+        // Zero by construction — `metadata` cuts until the row fits — and printed anyway: a
+        // reader should be able to see that the bucket was counted rather than assumed, and
+        // `embed_dry_run.rs` holds it to zero over every example corpus.
+
+        println!(
+            "  largest row: {} of {ceiling} ({})",
+            self.row_max.0,
+            if self.row_max.1.is_empty() {
+                "—"
+            } else {
+                &self.row_max.1
+            }
+        );
+        println!(
+            "  filterable:  max {} of {filterable_ceiling} ({})",
+            self.filterable_max.0,
+            if self.filterable_max.1.is_empty() {
+                "—"
+            } else {
+                &self.filterable_max.1
+            }
+        );
+        println!(
+            "  truncated:   {} row(s) would have their text cut",
+            self.truncated.len()
+        );
+        for (path, composed, kept) in self.truncated.iter().take(10) {
+            println!("    - {path}: {composed} composed, {kept} kept");
+        }
+        if self.truncated.len() > 10 {
+            println!("    … and {} more", self.truncated.len() - 10);
+        }
+        if !self.refused.is_empty() {
+            println!(
+                "  refused:     {} row(s) a push would not send",
+                self.refused.len()
+            );
+            for (path, why) in self.refused.iter().take(10) {
+                println!("    - {path}: {why}");
+            }
+        }
+    }
+}
+
+/// The `p`th percentile of a sorted slice, by nearest rank. Empty is not a case: every caller
+/// has returned already.
+fn quantile(sorted: &[usize], p: usize) -> usize {
+    let rank = (p * sorted.len()).div_ceil(100).max(1);
+    sorted[rank - 1]
+}
+
 pub fn embed(opts: EmbedOptions) -> Result<()> {
     let root = repo_root()?;
     let corpus_dir = yidam_corpus_dir(&root);
@@ -129,7 +335,21 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
         return Ok(());
     }
 
-    std::fs::create_dir_all(&embeddings_dir)?;
+    // A dry run composes everything and writes nothing — not the directory either. These
+    // corpora are read, not ours to leave an empty `.yidam/embeddings/` behind in.
+    if !opts.dry_run {
+        std::fs::create_dir_all(&embeddings_dir)?;
+    }
+    // Only a dry run asks: `genesis_hash` shells out to git, and a plain `embed` has never
+    // needed the corpus identity to write a record.
+    let corpus = if opts.dry_run {
+        crate::git::genesis_hash(&root)
+            .as_deref()
+            .map_or_else(|| UNKNOWN_CORPUS.to_string(), request::corpus_id)
+    } else {
+        String::new()
+    };
+    let mut footprints = Footprints::default();
 
     let mut count = 0;
     let mut skipped = 0usize;
@@ -171,21 +391,25 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
             label,
             text,
             commit: commit.clone(),
-            kind: "node".to_string(),
+            kind: KIND_NODE.to_string(),
         };
 
-        let out_dir = embeddings_dir.join(&class);
-        std::fs::create_dir_all(&out_dir)?;
-        let json_name = path
-            .file_stem()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string()
-            + ".json";
-        std::fs::write(
-            out_dir.join(&json_name),
-            serde_json::to_string_pretty(&record)?,
-        )?;
+        if opts.dry_run {
+            footprints.observe(&corpus, &commit, &record);
+        } else {
+            let out_dir = embeddings_dir.join(&class);
+            std::fs::create_dir_all(&out_dir)?;
+            let json_name = path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string()
+                + ".json";
+            std::fs::write(
+                out_dir.join(&json_name),
+                serde_json::to_string_pretty(&record)?,
+            )?;
+        }
         count += 1;
     }
 
@@ -226,14 +450,18 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
             label: name,
             text: composed,
             commit: commit.clone(),
-            kind: "source".to_string(),
+            kind: KIND_SOURCE.to_string(),
         };
-        let out_dir = embeddings_dir.join("_catalog");
-        std::fs::create_dir_all(&out_dir)?;
-        std::fs::write(
-            out_dir.join(format!("{stem}.json")),
-            serde_json::to_string_pretty(&record)?,
-        )?;
+        if opts.dry_run {
+            footprints.observe(&corpus, &commit, &record);
+        } else {
+            let out_dir = embeddings_dir.join("_catalog");
+            std::fs::create_dir_all(&out_dir)?;
+            std::fs::write(
+                out_dir.join(format!("{stem}.json")),
+                serde_json::to_string_pretty(&record)?,
+            )?;
+        }
         source_count += 1;
     }
 
@@ -241,6 +469,15 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
         println!("  {source_count} catalog source(s)");
     } else if !opts.catalog {
         println!("  catalog skipped (--no-catalog)");
+    }
+
+    if opts.dry_run {
+        footprints.report(&corpus, count, source_count, skipped);
+        println!(
+            "\nNothing was written. Drop --dry-run to write {}.",
+            embeddings_dir.display()
+        );
+        return Ok(());
     }
 
     if skipped > 0 {
@@ -327,7 +564,20 @@ mod tests {
     #[test]
     fn the_catalog_is_on_by_default_and_the_flag_turns_it_off() {
         assert!(EmbedOptions::default().catalog);
-        assert!(!EmbedOptions { catalog: false }.catalog);
+        assert!(
+            !EmbedOptions {
+                catalog: false,
+                ..Default::default()
+            }
+            .catalog
+        );
+    }
+
+    /// A dry run is off by default. The flag is what a measurement over a corpus that is not
+    /// ours to write into asks for, and nothing else should get it by accident.
+    #[test]
+    fn a_dry_run_is_off_by_default() {
+        assert!(!EmbedOptions::default().dry_run);
     }
 
     /// Node composition is unchanged — this is a scope change, not a re-embedding of the

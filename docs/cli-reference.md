@@ -441,13 +441,21 @@ One step per invocation: dependency order, freshness and `--dry-run` are not bui
 
 | Command | What it does |
 |---|---|
-| `embed` * | Extract embedding text from corpus instances to `.yidam/embeddings/`. `--no-catalog` |
+| `embed` * | Extract embedding text from corpus instances to `.yidam/embeddings/`. `--no-catalog`, `--dry-run` |
 | `index-build` * | Build the LanceDB vector index and export Arrow IPC for the web shell. `--model`. **Needs `--features index`** |
 | `index-push` | Mirror `.yidam/index/` into the vector bucket `[index.remote]` declares. `--dry-run`, `--create`. **Needs `--features vector-read`** |
 
 `embed` walks `.yidam/catalog/` by default. In a real derived corpus the catalog was 51.3% of
 the indexable text, against the corpus's 41.9%. Leaving it out had been a scope decision nobody
 made on purpose.
+
+`embed --dry-run` composes every record and writes none of them — not the record, not
+`.yidam/embeddings/`, not the directory. It reports what a push would carry: the composed
+`text` distribution, split by node and source. It names the largest row against the 40 KB
+per-vector ceiling. It names the largest filterable half against the 2 KB one. Any row whose
+text would be cut is listed. Run it before declaring a remote index. It is also how
+[RFC-0033 §8.3](rfcs/0033-remote-vector-index.md) was measured, over corpora nothing was
+written into.
 
 `index-push` is a mirror. It writes every row the local index holds, and deletes the ones this
 corpus no longer has. A node removed from the corpus stops being findable. It never touches a
