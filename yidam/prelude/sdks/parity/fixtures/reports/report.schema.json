@@ -287,7 +287,7 @@
     },
     "passed": {
       "type": "boolean",
-      "description": "`graph-check`, `regen --check`, `index-verify` and `doctor`. The gate verdict. A consumer MUST NOT recompute it. On `due` it is true unless `--strict` was passed and a clock is due \u2014 being owed is not a failure, and this field is here so a consumer does not infer one."
+      "description": "`graph-check`, `regen --check`, `index-verify` and `doctor`. The gate verdict. A consumer MUST NOT recompute it. On `due` it is true unless `--strict` was passed and a clock is due \u2014 being owed is not a failure, and this field is here so a consumer does not infer one. On `cycle` it is true unless `--strict` was passed and something is owed OR blocking."
     },
     "failed": {
       "type": "integer",
@@ -472,7 +472,7 @@
     },
     "due": {
       "type": "integer",
-      "description": "`due` only. Clocks past their interval. A consumer MUST NOT render this as a fault count."
+      "description": "`due` only. Clocks past their interval. A consumer MUST NOT render this as a fault count. `cycle` carries the same count, for the same reason and with the same prohibition."
     },
     "undeclared": {
       "type": "integer",
@@ -491,7 +491,7 @@
     },
     "strict": {
       "type": "boolean",
-      "description": "`doctor` and `due`. Whether `--strict` was passed. It is the only thing that makes a due clock exit nonzero, and the only thing that makes a doctor warning do so."
+      "description": "`doctor` and `due`. Whether `--strict` was passed. It is the only thing that makes a due clock exit nonzero, and the only thing that makes a doctor warning do so. On `cycle` it is what makes being owed or blocked exit nonzero."
     },
     "corpus_empty": {
       "type": "boolean",
@@ -2256,6 +2256,221 @@
               }
             }
           }
+        }
+      }
+    },
+    "owed": {
+      "type": "array",
+      "description": "`cycle` only. What this repository is owed \u2014 the same four clocks `due` reports, read through `due`'s own reader and carrying the same item shape. A consumer MUST NOT render a `due` clock as a fault: a corpus with three expired sources is owed, not unhealthy, and `doctor` is the report that answers whether anything is wrong.",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "question",
+          "state",
+          "overdue",
+          "detail"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable identifier: `index`, `catalog`, `questions` or `phases`."
+          },
+          "question": {
+            "type": "string",
+            "description": "What the clock measures, in the form a person would ask it."
+          },
+          "state": {
+            "enum": [
+              "due",
+              "ok",
+              "undeclared",
+              "declined",
+              "unmeasurable"
+            ],
+            "description": "`due` is not a defect. A corpus with three expired sources is owed, not unhealthy \u2014 `doctor` is the report that answers whether anything is wrong. `undeclared` means this corpus set no interval, so the clock can never come due; `declined` means it set none deliberately, having decided against the thing the clock measures, and `record` names where it argued that; `unmeasurable` means it set one and there is nothing to measure against, which is a gap in bookkeeping rather than a stale subject. A consumer MUST NOT render `declined` as `undeclared`: the first is a decision and the second is its absence."
+          },
+          "interval": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The declaration that sets this clock's interval, as a reader would write it. Null when this corpus has not set one. The catalog clock reads `[catalog] ttl_days` and each entry's own `ttl_days:`; the other three read `[due]` keys."
+          },
+          "overdue": {
+            "type": "integer",
+            "description": "Subjects past the interval. Zero on every state but `due`."
+          },
+          "detail": {
+            "type": "string",
+            "description": "What was measured, whether or not an interval applies."
+          },
+          "remedy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The command or act that discharges it \u2014 or, on an `undeclared` clock, the key that would set it. Null when there is nothing to do, which includes every `declined` clock: nothing discharges a decision not to want the thing."
+          },
+          "record": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The decision record behind a `declined` clock, repo-relative under `.yidam/decisions/`. Null on every other state. The record is required for a decline to be honoured at all \u2014 a `[due.declined]` entry naming a record the repository does not hold leaves the clock in the state it was really in, so a decline cannot rot into a silenced row."
+          }
+        }
+      }
+    },
+    "in_flight": {
+      "type": "array",
+      "description": "`cycle` only. The UNSETTLED inquiry refs \u2014 `phases`' own rows, filtered to the state it publishes. A settled phase and a standing position are both absent, and that filter is the point: a list headed \"in flight\" holding refs that have landed is the conflation `phases` grew a `state` column to undo.",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "ref_name",
+          "owner",
+          "started",
+          "commits"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The phase's name, humanized from its ref."
+          },
+          "ref_name": {
+            "type": "string",
+            "description": "The git ref, local or remote-tracking."
+          },
+          "owner": {
+            "type": "string",
+            "description": "Author of the ref's tip commit, or `unknown`."
+          },
+          "started": {
+            "type": "string",
+            "description": "Date of the first commit unique to this ref, or `\u2014` where git could give none. A row with no readable start date is unmeasured, not fresh."
+          },
+          "commits": {
+            "type": "integer",
+            "description": "Commits unique to this ref, against the baseline."
+          }
+        }
+      }
+    },
+    "blocking": {
+      "type": "array",
+      "description": "`cycle` only. What a gate would fail on TODAY \u2014 not everything the corpus was ever forgiven. `lint`'s findings are read through the baseline ratchet, so a corpus carrying accepted findings is not listed as blocked by them: the gate is green over it, and listing them would tell a reader that a repository doing exactly what it agreed to has things to fix. NOT SPELLED `blocked`, which this schema already gives to `rename` as an array of strings with a different meaning \u2014 one property name cannot carry two types, which is the defect `rejected.code` was repaired for. The half is still called *blocked* in the text report; this is what the list holds.",
+      "items": {
+        "type": "object",
+        "required": [
+          "gate",
+          "check",
+          "detail",
+          "remedy"
+        ],
+        "properties": {
+          "gate": {
+            "enum": [
+              "lint",
+              "graph-check"
+            ],
+            "description": "Which gate says so. A consumer branches on this to know which command repairs it."
+          },
+          "check": {
+            "type": "string",
+            "description": "The check or condition, as that gate names it. `lint`'s check id, or `graph` for a graph-check finding."
+          },
+          "node": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The node or file, repo-relative, where there is one."
+          },
+          "detail": {
+            "type": "string",
+            "description": "Why it blocks. For `lint` this distinguishes a finding introduced against the baseline, an entry past its expiry, and a stale entry the run no longer reproduces \u2014 three different events with three different repairs."
+          },
+          "remedy": {
+            "type": "string",
+            "description": "What discharges it."
+          }
+        }
+      }
+    },
+    "next": {
+      "type": "array",
+      "description": "`cycle` only. What to do next, one act per half, ranked BY THE SERVER. No kuten profile declares a phase order \u2014 what one declares is a SET of phase types \u2014 so a consumer MUST NOT read this as an order the corpus specified. It is an argument the report makes and states, and it is a list to disagree with.",
+      "items": {
+        "type": "object",
+        "required": [
+          "source",
+          "act",
+          "why"
+        ],
+        "properties": {
+          "source": {
+            "enum": [
+              "blocked",
+              "owed",
+              "in_flight",
+              "practice"
+            ],
+            "description": "Which half produced the act \u2014 what a reader needs in order to argue with the ranking. Deliberately not a severity or a priority number: the ordering is an argument rather than a measurement, and a number would present it as the second thing."
+          },
+          "act": {
+            "type": "string",
+            "description": "The command or act, as a reader would run or perform it. For an owed clock this is `due`'s own remedy verbatim \u2014 three of the four clocks are discharged by something that is not a command at all."
+          },
+          "why": {
+            "type": "string",
+            "description": "The finding, clock or declaration behind it."
+          }
+        }
+      }
+    },
+    "practice": {
+      "type": "object",
+      "description": "`cycle` only. What this corpus declared its work is aimed at, from its kuten. A corpus holding none is the SUPPORTED state and every repository measured so far is in it; `undeclared` is non-null there and says which of three ways this half is short. A consumer MUST NOT render a null `kuten` as a defect.",
+      "required": [
+        "phase_types"
+      ],
+      "properties": {
+        "kuten": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The profile this corpus adopted. Null where it holds none."
+        },
+        "revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "The revision its decision record names. Null where it holds no record."
+        },
+        "phase_types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The phase types the profile declares \u2014 A SET, NOT A SEQUENCE. Nothing declares an order between them, and a consumer that renders this as steps has invented one."
+        },
+        "question_pressure": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The kind of question this practice presses toward. It creates pressure and authors nothing."
+        },
+        "undeclared": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Why this half is short, in words. Non-null in three different cases \u2014 no decision record, a record naming a profile this repository does not hold, and a record or profile that did not parse \u2014 and they are different facts rather than one absence."
         }
       }
     }

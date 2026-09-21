@@ -91,7 +91,12 @@ pub const GROUPS: &[Group] = &[
         // against declared criteria and reports a row each; it has no verdict to give and
         // exits zero however it reads, so filing it under the gates would teach a reader
         // that a low reading is a defect — which is the one thing it must not say.
-        commands: &[r("due"), w("kuten"), r("score")],
+        // `cycle` is here and not with the gates for the reason the group title gives. It
+        // composes `due`, `phases`, `lint` and `graph-check` into one reading and exits zero
+        // however much is owed; two of the four surfaces it reads *are* gates, and filing the
+        // composition under them would make the whole report inherit a verdict that only a
+        // quarter of it has.
+        commands: &[r("due"), r("cycle"), w("kuten"), r("score")],
     },
     Group {
         title: "README blocks — each rewrites its <!-- REGEN --> block where it is run",
