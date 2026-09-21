@@ -203,6 +203,7 @@ fn edge_untagged(violations: Vec<Violation>) -> Check {
          standings an edge deserves is the author's judgement and nothing here proposes one.",
         violations,
     )
+    .spanning_links()
 }
 
 fn edge_verified_unsourced(violations: Vec<Violation>) -> Check {
@@ -225,6 +226,7 @@ fn edge_verified_unsourced(violations: Vec<Violation>) -> Check {
          bookkeeping that claims to be verified has stopped being bookkeeping.",
         violations,
     )
+    .spanning_links()
 }
 
 #[cfg(test)]

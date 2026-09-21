@@ -68,15 +68,15 @@ at depth 2 and all of it at depth 3.
 
 `.ont.yml` now declares, and lint now enforces: the class an instance belongs to
 ([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L991), Error), the properties it may
-and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1490),
-[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1663)), the type of each value
-([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1917)), which relationships a class
-licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1983)), and which class
+and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1491),
+[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1664)), the type of each value
+([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1918)), which relationships a class
+licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1984)), and which class
 each relationship may land on
-([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L2049), Error).
+([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L2051), Error).
 
 `unlicensed-edge`'s own rationale states the gap in as many words
-([`checks.rs:1738`](../../yidam/cli/src/cmd/lint/checks.rs#L1738)):
+([`checks.rs:1739`](../../yidam/cli/src/cmd/lint/checks.rs#L1739)):
 
 > a relationship in no declaration is worth seeing, because **a traversal that walks by
 > relationship will not find it**
@@ -290,7 +290,7 @@ relationship the class does not declare resolves as:
 
 The first row is load-bearing and is easy to omit. `unlicensed_edge` short-circuits on an empty
 edge list **before** it consults the policy
-([`checks.rs:1953-1954`](../../yidam/cli/src/cmd/lint/checks.rs#L1953-L1954)):
+([`checks.rs:1954-1955`](../../yidam/cli/src/cmd/lint/checks.rs#L1954-L1955)):
 
 ```rust
 if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic { continue; }
@@ -344,7 +344,7 @@ If a class declares the relationship but only toward class C, a hop asking for c
 **rejected**, naming the declared targets. `edge-target-class` is Error severity for the same
 reason: an edge to the wrong thing resolves, traverses, and exports, and is simply false. A
 declaration with an empty `target` licenses every class, exactly as the check reads it
-([`checks.rs:1303`](../../yidam/cli/src/cmd/lint/checks.rs#L1303)), and so does a query hop
+([`checks.rs:1304`](../../yidam/cli/src/cmd/lint/checks.rs#L1304)), and so does a query hop
 against it. `*` on the target side is the query-side twin of that empty `target:` and licenses
 every class in the same way.
 

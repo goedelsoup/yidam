@@ -1107,6 +1107,7 @@ pub fn dangling_edge(nodes: &[Node]) -> Check {
          which is why node filenames are meant to be stable.",
         violations,
     )
+    .spanning_links()
 }
 
 /// The class an instance belongs to, from its path: `.yidam/corpus/person/x.yml` → `person`.
@@ -1998,6 +1999,7 @@ pub fn unlicensed_edge(nodes: &[Node], classes: &[Class]) -> Check {
          checked.",
         violations,
     )
+    .spanning_links()
 }
 
 /// Licensed edges that land on a node of the wrong class.
@@ -2055,6 +2057,7 @@ pub fn edge_target_class(nodes: &[Node], classes: &[Class]) -> Check {
          names none licenses any target.",
         violations,
     )
+    .spanning_links()
 }
 
 /// Separators that turn a tag into a tag-plus-something.

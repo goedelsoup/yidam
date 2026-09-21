@@ -84,6 +84,28 @@ impl fmt::Display for Severity {
     }
 }
 
+/// Which half of a node file a check's findings are located in.
+///
+/// The report's spans are *inferred*: `lint::json::span_for` has no location from the check,
+/// so it finds the first line naming the thing the detail complains about. Over a whole file
+/// that search cannot tell two identically-named things apart, and a node's `links:` block now
+/// spells some of the same keys its body does — a link carrying `claim_tag:` (#857) made
+/// `missing-property`'s "this instance does not carry `claim_tag`" point at a line that carries
+/// it (#861).
+///
+/// So the check says which half it means. Nothing here is a guess about the finding's
+/// *identity* — that is still the node — and a scope that matches nothing yields no span,
+/// which is the documented and strictly better outcome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpanScope {
+    /// Everything but the top-level `links:` block. The default, and right for every finding
+    /// about what the node itself declares.
+    Body,
+    /// The top-level `links:` block alone. For the checks whose subject is an edge —
+    /// `dangling-edge` quotes a target, and a target only ever appears there.
+    Links,
+}
+
 /// One node failing one check.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Violation {
@@ -177,6 +199,8 @@ pub struct Check {
     /// applied to every other, and a corpus that has just adopted this cannot argue with
     /// it. Set through `.yidam/config.toml`; see [`crate::config::LintConfig`].
     pub escalate_after: Option<usize>,
+    /// Where in a node file this check's inferred spans may land. See [`SpanScope`].
+    pub span_scope: SpanScope,
     pub violations: Vec<Violation>,
 }
 
@@ -195,6 +219,7 @@ impl Check {
             rationale,
             escalate_after: None,
             escalation_eligible: false,
+            span_scope: SpanScope::Body,
             violations,
         }
     }
@@ -252,6 +277,18 @@ impl Check {
     /// findings the contract said it could not. See [`Self::escalation_eligible`].
     pub fn dated(mut self) -> Self {
         self.escalation_eligible = true;
+        self
+    }
+
+    /// Declare that this check's findings are about edges, so an inferred span must come from
+    /// the `links:` block and from nowhere else.
+    ///
+    /// Builder-shaped like the two above, and for the same reason: the check functions take
+    /// nodes and return findings. [`SpanScope::Body`] is the default because it is what almost
+    /// every check means, and because the failure it prevents — a body finding anchored in the
+    /// graph — is the one that misleads a reader about whether the finding is right at all.
+    pub fn spanning_links(mut self) -> Self {
+        self.span_scope = SpanScope::Links;
         self
     }
 
