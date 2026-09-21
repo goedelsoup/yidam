@@ -409,7 +409,7 @@
     },
     "clocks": {
       "type": "array",
-      "description": "`due` only. The four clocks, each with the interval this corpus declared for it. A clock in state `undeclared` still reports what it measured: nobody has set it, which is not the same as its reading zero.",
+      "description": "`due` only. The four clocks, each with the interval this corpus declared for it. A clock in state `undeclared` still reports what it measured: nobody has set it, which is not the same as its reading zero. Nor is it the same as `declined`, which is a corpus that decided against what the clock measures and recorded why — the two read identically until `record` is read.",
       "items": {
         "type": "object",
         "required": [
@@ -433,9 +433,10 @@
               "due",
               "ok",
               "undeclared",
+              "declined",
               "unmeasurable"
             ],
-            "description": "`due` is not a defect. A corpus with three expired sources is owed, not unhealthy \u2014 `doctor` is the report that answers whether anything is wrong. `undeclared` means this corpus set no interval, so the clock can never come due; `unmeasurable` means it set one and there is nothing to measure against, which is a gap in bookkeeping rather than a stale subject."
+            "description": "`due` is not a defect. A corpus with three expired sources is owed, not unhealthy \u2014 `doctor` is the report that answers whether anything is wrong. `undeclared` means this corpus set no interval, so the clock can never come due; `declined` means it set none deliberately, having decided against the thing the clock measures, and `record` names where it argued that; `unmeasurable` means it set one and there is nothing to measure against, which is a gap in bookkeeping rather than a stale subject. A consumer MUST NOT render `declined` as `undeclared`: the first is a decision and the second is its absence."
           },
           "interval": {
             "type": [
@@ -457,7 +458,14 @@
               "string",
               "null"
             ],
-            "description": "The command or act that discharges it \u2014 or, on an `undeclared` clock, the key that would set it. Null when there is nothing to do."
+            "description": "The command or act that discharges it \u2014 or, on an `undeclared` clock, the key that would set it. Null when there is nothing to do, which includes every `declined` clock: nothing discharges a decision not to want the thing."
+          },
+          "record": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The decision record behind a `declined` clock, repo-relative under `.yidam/decisions/`. Null on every other state. The record is required for a decline to be honoured at all \u2014 a `[due.declined]` entry naming a record the repository does not hold leaves the clock in the state it was really in, so a decline cannot rot into a silenced row."
           }
         }
       }
@@ -468,7 +476,18 @@
     },
     "undeclared": {
       "type": "integer",
-      "description": "`due` only. Clocks this corpus declared no interval for, which therefore can never come due."
+      "description": "`due` only. Clocks this corpus declared no interval for, which therefore can never come due. Declined clocks are NOT counted here \u2014 a corpus that decided against something has not left a clock unset."
+    },
+    "declined": {
+      "type": "integer",
+      "description": "`due` only. Clocks this corpus declined in writing under `[due.declined]`, each with a decision record behind it. Not owed, and not a fault."
+    },
+    "unknown_declines": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "`due` only. Keys under `[due.declined]` naming no clock this command reads. Empty in a corpus whose declines all land. A key here is a declaration that reads as deliberate and has no effect."
     },
     "strict": {
       "type": "boolean",

@@ -93,6 +93,9 @@ questions_after = 100
 phases_after = 60
 index_after = 25
 
+[due.declined]
+index = "due-clocks"
+
 [index]
 model = "BAAI/bge-small-en-v1.5"
 
@@ -183,6 +186,35 @@ committed to the corpus.
 
 `index_after = 1` means any change at all makes a rebuild due. A larger number is a corpus
 saying it is content for retrieval to lag its own edits by that much.
+
+### `[due.declined]`
+
+Clocks this corpus decided it does not want, each naming the record that argues it.
+
+```toml
+[due.declined]
+index = "due-clocks"
+```
+
+The key is the clock's id: `index`, `catalog`, `questions` or `phases`. The value is a
+decision record in `.yidam/decisions/`, by its `id:` or its file stem.
+
+**Unset and declined are different states.** Without this key they report the same. A corpus
+that examined a vector index and chose against it looks like one that never considered it. The
+only remedy on offer is to declare an interval for work nobody intends. That clock is then
+permanently due, and a permanently red row is one a reader learns to skip.
+
+A declined clock reports `declined`. It still prints what it measured, and it prints the
+record. It is not counted among the clocks with no interval declared.
+
+**The record is required.** That is what makes this a declaration rather than a mute button.
+If the named record is missing, the decline is not honoured. The clock reverts to what it
+really is, and says so. A key naming no clock is reported too. The property is
+`.yidam/lint-baseline.yml`'s: a decline that no longer has anything behind it goes red rather
+than quiet.
+
+Declaring an interval and declining the same clock is a contradiction. The interval wins, and
+the row names the contradiction.
 
 ### `[index] model`
 

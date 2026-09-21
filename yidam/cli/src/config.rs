@@ -179,6 +179,28 @@ pub struct DueConfig {
     /// index_after = 25
     /// ```
     pub index_after: Option<usize>,
+    /// Clocks this corpus decided it does not want, each naming the record that argues it.
+    ///
+    /// **Unset and declined are different states, and only one of them was a choice.** A
+    /// corpus with no `index_after` and a corpus that examined a vector index and did not
+    /// choose it report identically without this key, and the only remedy `due` offers the
+    /// second is to declare an interval for work nobody intends — a clock that is
+    /// permanently due, which is a clock a reader learns to skip.
+    ///
+    /// The key is the clock's `id` — `index`, `catalog`, `questions`, `phases` — and the
+    /// value is a decision record in `.yidam/decisions/`, by its `id:` or its file stem.
+    /// **The record is required**, and that is the whole of what makes this a declaration
+    /// rather than a mute button: a decline naming a record this repository does not hold
+    /// is not honoured, and `due` says so. It is `.yidam/lint-baseline.yml`'s property —
+    /// an accepted finding and an unnoticed one are different objects, and a decline that
+    /// no longer has anything behind it goes red rather than quiet.
+    ///
+    /// ```toml
+    /// [due.declined]
+    /// index = "due-clocks"
+    /// ```
+    #[serde(default)]
+    pub declined: BTreeMap<String, String>,
 }
 
 /// Where the artifact this corpus is about lives, in this repository.

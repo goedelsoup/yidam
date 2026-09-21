@@ -254,3 +254,63 @@ fn outside_a_derived_repository_it_refuses_rather_than_reporting_zero() {
         r.stdout
     );
 }
+
+/// A clock a corpus declined, end to end and through the binary.
+///
+/// Read here rather than only in the unit tests because the JSON is the contract: a consumer
+/// switching on `state` must be handed `declined` and the record behind it, and a report that
+/// carried the distinction internally and flattened it on the way out would be no distinction
+/// at all.
+#[test]
+fn a_declined_clock_reaches_the_json_as_its_own_state_and_is_not_owed() {
+    let tmp = stage();
+    let root = tmp.path();
+    std::fs::create_dir_all(root.join(".yidam/decisions")).unwrap();
+    std::fs::write(
+        root.join(".yidam/decisions/due-clocks.yml"),
+        "summary: no index; typed retrieval already answers these questions\n",
+    )
+    .unwrap();
+    // The interval is dropped in the same breath. Declaring one and declining it is a
+    // contradiction, and the interval would win.
+    std::fs::write(
+        root.join(".yidam/config.toml"),
+        "[catalog]\nttl_days = 30\n\n[due]\nquestions_after = 1\nphases_after = 1\n\n\
+         [due.declined]\nindex = \"due-clocks\"\n",
+    )
+    .unwrap();
+
+    let v = json(root);
+    let index = v["clocks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == "index")
+        .expect("an index clock");
+    assert_eq!(index["state"], "declined", "{index}");
+    assert_eq!(
+        index["record"], ".yidam/decisions/due-clocks.yml",
+        "{index}"
+    );
+    assert_eq!(index["remedy"], serde_json::Value::Null, "{index}");
+
+    // Three clocks remain due, and the declined one is neither owed nor counted as unset.
+    assert_eq!(v["due"], 3, "{}", serde_json::to_string_pretty(&v).unwrap());
+    assert_eq!(v["declined"], 1);
+    assert_eq!(v["undeclared"], 0);
+    assert_eq!(v["unknown_declines"].as_array().unwrap().len(), 0);
+
+    // And `--strict` still reads the decline as settled rather than as something owed.
+    let text = run(root, &["due"]);
+    assert!(
+        text.stdout
+            .contains("declined in .yidam/decisions/due-clocks.yml"),
+        "{}",
+        text.stdout
+    );
+    assert!(
+        !text.stdout.contains("can never come due"),
+        "{}",
+        text.stdout
+    );
+}

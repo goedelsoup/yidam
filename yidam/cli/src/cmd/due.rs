@@ -75,6 +75,16 @@ pub enum State {
     /// No interval is declared, so nothing here can be due. What was measured is still
     /// reported: a clock nobody has set is not a clock that reads zero.
     Undeclared,
+    /// This corpus wrote down that it does not want what this clock measures, and named the
+    /// record that argues it.
+    ///
+    /// **Not a quieter [`Undeclared`](Self::Undeclared).** The two look identical in a report
+    /// and are opposite facts: one is a corpus that has not decided, and the other is a
+    /// corpus that decided. Before this state existed the second could only present as the
+    /// first, and the only remedy on offer was to declare an interval for an act nobody
+    /// intends — a clock permanently due, which is the shape of row a reader learns to skip,
+    /// and the cost is the three clocks beside it.
+    Declined,
     /// The interval is declared and there is nothing to measure against — no history, no
     /// date, no index metadata.
     Unmeasurable,
@@ -86,6 +96,7 @@ impl State {
             Self::Due => "due",
             Self::Ok => "ok",
             Self::Undeclared => "—",
+            Self::Declined => "no",
             Self::Unmeasurable => "?",
         }
     }
@@ -114,6 +125,14 @@ pub struct Clock {
     pub detail: String,
     /// The command or act that discharges it. `None` when nothing is due.
     pub remedy: Option<String>,
+    /// The decision record behind a [`State::Declined`] clock, repo-relative. `None` on
+    /// every other state.
+    ///
+    /// A decline prints where to read why it was made, which is the difference between a
+    /// corpus that argued itself out of something and one that switched a row off. A
+    /// consumer rendering this as a link gives the next reader the argument rather than the
+    /// absence of a number.
+    pub record: Option<String>,
 }
 
 impl Clock {
@@ -136,6 +155,7 @@ impl Clock {
             overdue: 0,
             detail: detail.into(),
             remedy: None,
+            record: None,
         }
     }
 
@@ -159,6 +179,47 @@ impl Clock {
         self.remedy = Some(format!("declare {where_}"));
         self
     }
+
+    /// What this corpus declined, applied to the clock it declined.
+    ///
+    /// Three arms, and the two that do not produce a [`State::Declined`] are the ones that
+    /// keep this key from being a mute button:
+    ///
+    /// **An interval wins.** Declaring one is a corpus saying it wants the thing; declining
+    /// is a corpus saying it does not. Both at once is a contradiction somebody has to
+    /// resolve, and the clock reads as declared — the direction that keeps reporting rather
+    /// than the direction that goes quiet — with the contradiction named in the detail.
+    ///
+    /// **A decline with no record is not a decline.** The key's value names an argument, and
+    /// a pointer resolving to nothing is a decline that has rotted: the record was renamed,
+    /// or never written. The clock reverts to what it actually is and the remedy says which.
+    /// This is `.yidam/lint-baseline.yml`'s property — an entry whose finding no longer
+    /// occurs fails rather than lingering — and it is why the record is required at all. A
+    /// bare `index = false` could not go stale, because there would be nothing to go stale.
+    fn declined(mut self, record: &str, decisions: &Path) -> Self {
+        if self.interval.is_some() {
+            let _ = write!(
+                self.detail,
+                "; also declined in `[due.declined]`, which the declared interval contradicts"
+            );
+            return self;
+        }
+        let Some(path) = crate::cmd::decisions::find_decision(decisions, record) else {
+            let _ = write!(
+                self.detail,
+                "; declined against `{record}`, which this repository does not hold"
+            );
+            self.remedy = Some(format!(
+                "record `{record}` in .yidam/decisions/, or drop `[due.declined] {}`",
+                self.id
+            ));
+            return self;
+        };
+        self.state = State::Declined;
+        self.remedy = None;
+        self.record = Some(path);
+        self
+    }
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -167,7 +228,19 @@ pub struct DueReport {
     /// Clocks past their interval.
     pub due: usize,
     /// Clocks this corpus has not set an interval for.
+    ///
+    /// Declined clocks are **not** counted here, and that is the count the summary sentence
+    /// is about. A corpus that decided against something has not left a clock unset, and
+    /// reporting it as one degrades the sentence for the clocks that really are unset.
     pub undeclared: usize,
+    /// Clocks this corpus declined in writing, each with a record behind it.
+    pub declined: usize,
+    /// Keys under `[due.declined]` naming no clock this command reads.
+    ///
+    /// Reported rather than ignored. A typo here is a decline that silently does nothing,
+    /// which is the same failure as a decline whose record went missing, arriving through
+    /// the other half of the key.
+    pub unknown_declines: Vec<String>,
     pub strict: bool,
     /// Whether the run exits zero. True unless `--strict` and something is due — being owed
     /// is not a failure, and this field exists so a consumer does not infer one.
@@ -181,13 +254,25 @@ impl DueReport {
             .iter()
             .filter(|c| c.state == State::Undeclared)
             .count();
+        let declined = clocks.iter().filter(|c| c.state == State::Declined).count();
         Self {
             passed: !strict || due == 0,
             clocks,
             due,
             undeclared,
+            declined,
+            unknown_declines: Vec::new(),
             strict,
         }
+    }
+
+    /// Record the `[due.declined]` keys that named no clock.
+    ///
+    /// Separate from [`Self::new`] because it is the one thing in this report that cannot be
+    /// derived from the clocks: a key naming nothing produces no clock to count.
+    fn noting(mut self, unknown: Vec<String>) -> Self {
+        self.unknown_declines = unknown;
+        self
     }
 }
 
@@ -502,13 +587,33 @@ fn clock_phases(root: &Path, after: Option<u32>, today: i64) -> Clock {
 /// `today` is passed rather than read, so a report over a fixture is the same report
 /// tomorrow. Two of these clocks count days, and a wall-clock feature whose own tests depend
 /// on the day they run is the failure the argument in `lint::today_iso` describes.
+/// A decline is applied **after** the clock is read, never instead of reading it, so a
+/// declined clock still reports what it measured. That is [`State::Undeclared`]'s rule and it
+/// matters more here: a corpus that declined an index and later wants to revisit that is
+/// exactly the reader who needs the number the decline is about.
 pub(crate) fn read_clocks(root: &Path, cfg: &crate::config::DueConfig, today: i64) -> Vec<Clock> {
+    let decisions = crate::paths::yidam_decisions_dir(root);
     vec![
         clock_index(root, cfg.index_after),
         clock_catalog(root, today),
         clock_questions(root, cfg.questions_after),
         clock_phases(root, cfg.phases_after, today),
     ]
+    .into_iter()
+    .map(|c| match cfg.declined.get(c.id) {
+        Some(record) => c.declined(record, &decisions),
+        None => c,
+    })
+    .collect()
+}
+
+/// `[due.declined]` keys that name no clock, in the order the config declared them.
+fn unknown_declines(cfg: &crate::config::DueConfig, clocks: &[Clock]) -> Vec<String> {
+    cfg.declined
+        .keys()
+        .filter(|k| !clocks.iter().any(|c| c.id == k.as_str()))
+        .cloned()
+        .collect()
 }
 
 /// `yidam due`. Read-only, offline, and exits zero however much is owed unless `--strict`.
@@ -517,7 +622,8 @@ pub fn due(strict: bool, format: crate::report::Format) -> Result<()> {
     require_yidam_repo(&root)?;
     let cfg = crate::config::load_yidam_config(&root)?;
     let clocks = read_clocks(&root, &cfg.due, crate::dates::today_days());
-    let report = DueReport::new(clocks, strict);
+    let unknown = unknown_declines(&cfg.due, &clocks);
+    let report = DueReport::new(clocks, strict).noting(unknown);
     let passed = report.passed;
 
     if format.is_json() {
@@ -547,6 +653,11 @@ pub(crate) fn render(report: &DueReport, root: &Path) -> String {
                 let _ = writeln!(out, "  {:<5} {:<10} → {remedy}", "", "");
             }
         }
+        // A decline prints where to read why. Without it the row says only that somebody
+        // switched a clock off, which is the reading this state exists to prevent.
+        if let Some(record) = &c.record {
+            let _ = writeln!(out, "  {:<5} {:<10} → declined in {record}", "", "");
+        }
     }
     out.push('\n');
 
@@ -565,6 +676,13 @@ pub(crate) fn render(report: &DueReport, root: &Path) -> String {
              in .yidam/config.toml under [due]."
         ),
     };
+    // Said, rather than left to the em-dash column. A corpus that argued itself out of
+    // something has a report that states the decision, which is the whole of what this
+    // sentence is for.
+    let declined = match report.declined {
+        0 => String::new(),
+        n => format!(" {n} clock(s) declined, each against a record in .yidam/decisions/."),
+    };
     // Stated on every run, including the quiet one. It is the sentence that keeps this
     // report from being read as a second `doctor`, and a reader who only ever sees the clean
     // run is exactly the reader who needs to be told what the clean run means.
@@ -579,7 +697,23 @@ pub(crate) fn render(report: &DueReport, root: &Path) -> String {
                       owed, because you asked it to."
             .to_string(),
     };
-    let _ = write!(out, "{head}{unset}\n{line}");
+    let _ = write!(out, "{head}{unset}{declined}\n{line}");
+    // Last, because it is about the configuration rather than about what is owed, and a
+    // reader who has one is reading a key that is doing nothing.
+    if !report.unknown_declines.is_empty() {
+        let names: Vec<&str> = report.clocks.iter().map(|c| c.id).collect();
+        let _ = write!(
+            out,
+            "\n\n`[due.declined]` names no clock called {} — the clocks are {}.",
+            report
+                .unknown_declines
+                .iter()
+                .map(|k| format!("`{k}`"))
+                .collect::<Vec<_>>()
+                .join(", "),
+            names.join(", ")
+        );
+    }
     out
 }
 
