@@ -123,6 +123,7 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
     };
 
     let prose_fields = crate::prose::ProseFields::load(&corpus_dir);
+    let retrievable = crate::retrievable::Retrievable::load(&corpus_dir);
     let instances = walk_corpus_instances(&corpus_dir);
     if instances.is_empty() && sources.is_empty() {
         println!("No corpus instances found in {}.", corpus_dir.display());
@@ -158,9 +159,17 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
         // true of `properties.method`, a block scalar on 341 nodes across 214 KB in the
         // measured corpora, none of which was in any embedding.
         //
+        // Since #717 it is `retrievable::text` and not `prose::text`, because this is the one
+        // reader for which prose was nearly the right question and not the same one. A gage's
+        // `parameter: "00060"` and `units: cubic feet per second` are not prose — flagging
+        // them as prose would make `node-too-long` count the code and `missing-description`
+        // accept it — and they are exactly the strings a query is typed in. `prose::text` is
+        // still what the two checks read, and the union of the two axes is taken there rather
+        // than here, so this callsite cannot ask for one and silently miss the other.
+        //
         // Node text is what an index is built from, so a corpus that flags a property must
         // re-embed. That is the change rather than a side effect of it.
-        let description = crate::prose::text(&inst, &prose_fields, &class);
+        let description = crate::retrievable::text(&inst, &prose_fields, &retrievable, &class);
         let links = inst.links.as_deref().unwrap_or(&[]);
         let text = compose_text(&label, &description, links);
 

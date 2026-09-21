@@ -177,6 +177,30 @@ pub fn corpus_ontology_schema() -> Value {
                                             rather than a type of its own because \
                                             prose-ness is orthogonal to what a value is: \
                                             `method` and `identifier` are both strings."
+                        },
+                        "retrievable": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "Whether this property's value belongs in the \
+                                            node's embedding though it is not prose. \
+                                            Identifiers, codes and units are the part of a \
+                                            corpus most likely to be typed verbatim into a \
+                                            query, and they were the part excluded: a gage \
+                                            declaring `parameter: 00060` and `units: cubic \
+                                            feet per second` had neither string in its \
+                                            vector, so a query for either could not reach \
+                                            the node that writes it. A third flag rather \
+                                            than a second meaning for `prose`, because \
+                                            `prose` does not stay in the embedding — it is \
+                                            also `node-too-long` counting the code toward \
+                                            the node's length and `missing-description` \
+                                            accepting a node that says nothing but the \
+                                            code. Prose is already retrievable, so flagging \
+                                            a prose property here is redundant rather than \
+                                            wrong. `embed` is the only reader, which means a \
+                                            corpus that flags one must re-embed and no \
+                                            report changes. Absent means false, for \
+                                            `required`'s reason."
                         }
                     },
                     "required": ["name", "type", "description"],

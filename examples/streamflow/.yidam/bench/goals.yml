@@ -160,3 +160,35 @@ goals:
       the ontology has no vocabulary for, where flat retrieval should answer immediately
       from prose. It is §3's fallback regime with a name, and the standing argument for
       keeping retrieval in the system rather than replacing it.
+
+  # ── Added after the fact, and labelled ─────────────────────────────────────────────
+  #
+  # Rule 1 above says the goals are fixed before any result is visible, and this one was
+  # not: it was written for #717, which made `parameter` and `units` retrievable, and it
+  # would have been unanswerable by construction before that change. A goal set chosen
+  # after seeing results measures the chooser, so the honest thing is not to omit it —
+  # the property-shaped query was outside this goal set by construction, which is exactly
+  # why nothing here could see the miss — but to say when it arrived and let a reader
+  # discount it. Anything added later gets the same treatment, below this line.
+  #
+  # This section is a comment and not a field on the goal, which means `bench` cannot
+  # report the distinction and a reader has to open the file to find it. That is a gap
+  # and it is filed as #854, not forgotten.
+  - id: the-units-discharge-is-published-in
+    question: Which stations publish discharge in cubic feet per second?
+    kind: traversal
+    hops: 0
+    anchored: 'gage~"cubic feet per second"'
+    flat: cubic feet per second
+    expect:
+      - gage/canyon-outlet.yml
+      - gage/valley-bridge.yml
+    why: >
+      The one goal whose anchor text is the node's own language rather than the user's,
+      and deliberately so — rule 3 forbids lifting a node's *sentence* into its anchor
+      because that tests string matching and reports it as semantic anchoring. A unit of
+      measure is not a sentence. `cubic feet per second` is what a reader types precisely
+      because it is the phrase the corpus writes, and until #717 the phrase was in no
+      vector at all: `properties:` was never composed, so the two nodes that declare the
+      units were unreachable by them. This goal is the regression guard on that, and it
+      is the only one in the set that a change to `embed` alone can take from 0 to 1.

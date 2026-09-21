@@ -25,6 +25,10 @@ mod prose;
 pub mod provenance;
 mod regen;
 pub mod report;
+/// Which of a node's properties belong in its embedding although they are not prose (#717).
+/// Named for the question rather than for [`retrieval`], which answers a different one: that
+/// module is how a search is *run*, this one is what a node is made retrievable *on*.
+mod retrievable;
 /// How text becomes entry nodes. Public for the reason [`vault`] is: the vocabulary a search
 /// answers in — [`retrieval::Hit`] and [`retrieval::Filter`] — is shared by a local scan and a
 /// remote vector index, and [`s3vectors`] has to be able to speak it.

@@ -103,7 +103,7 @@ is quiet and delayed: the edit works locally, survives review, and disappears at
 ### The one editor integration that exists is a copy-paste
 
 `yidam schema --settings` prints a `yaml.schemas` mapping for the user to paste into
-`.vscode/settings.json` ([`schema.rs:214-251`](../../yidam/cli/src/cmd/schema.rs#L214-L251)).
+`.vscode/settings.json` ([`schema.rs:238-275`](../../yidam/cli/src/cmd/schema.rs#L238-L275)).
 It works, and it is the whole of the editor story. It requires a third-party extension, a manual
 step at genesis, and a second manual step whenever the schema set changes. The doc comment on
 `editor_settings` names Neovim and Helix as targets too — a signal worth keeping (see Phase 3).
@@ -294,7 +294,7 @@ rewritten in one transaction, refused outright if any edge would dangle. That cl
 the docs warn about three times and currently guard zero times.
 
 And it is how Neovim and Helix get all of this for free — users the codebase already names in
-[`schema.rs:210-213`](../../yidam/cli/src/cmd/schema.rs#L210-L213). The VS Code extension becomes
+[`schema.rs:234-237`](../../yidam/cli/src/cmd/schema.rs#L234-L237). The VS Code extension becomes
 a thin LSP client plus the views, decorations, and SCM integration that are genuinely
 VS Code-shaped.
 
