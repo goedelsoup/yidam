@@ -65,6 +65,7 @@ re-deriving it.
 | [0032](0032-reference-grammar.md) | I27 | One name for a thing, and one parser that reads it — the reference grammar | Draft |
 | [0033](0033-remote-vector-index.md) | I28 | A vector index a corpus is queried out of, not one it carries | Draft |
 | [0034](0034-local-citation.md) | I29 | A claim resting on a node beside it (`cites:` without a package) | Draft |
+| [0035](0035-class-extent.md) | I30 | What a class is meant to span, and what a hole in it is worth (`coverage:`) | Draft |
 
 ## Reading order
 

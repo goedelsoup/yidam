@@ -165,6 +165,7 @@ const sidebar = [
       { slug: 'rfcs/0032-reference-grammar', label: '0032 · The reference grammar' },
       { slug: 'rfcs/0033-remote-vector-index', label: '0033 · A remote vector index' },
       { slug: 'rfcs/0034-local-citation', label: '0034 · A claim resting on a node beside it' },
+      { slug: 'rfcs/0035-class-extent', label: '0035 · What a class is meant to span' },
     ],
   },
   {
