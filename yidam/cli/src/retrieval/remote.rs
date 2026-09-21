@@ -37,6 +37,13 @@ pub(crate) struct RemoteState {
     pub embedder: RefCell<Option<fastembed::TextEmbedding>>,
     /// The witness verdict, computed once beside the embedder and reused after.
     pub space: RefCell<Option<Verdict>>,
+    /// Whether the witness says this index's rows carry the class their path derives.
+    ///
+    /// Beside [`Self::space`] and for the same reason: it is read off the same document, on
+    /// the same first-search fetch. `false` until that fetch has happened, which is the
+    /// honest state — an index that has told this process nothing has not told it yes — and
+    /// the filter is applied after it, never before.
+    pub classes_are_path_derived: std::cell::Cell<bool>,
 }
 
 /// The top `k` rows the filter admits, highest similarity first.
@@ -60,7 +67,8 @@ pub(crate) fn search(
         let loaded = fastembed::TextEmbedding::try_new(fastembed::InitOptions::new(model))
             .map_err(|e| format!("loading embedding model {}: {e}", state.model_id))?;
 
-        let verdict = match witness_contract(&session, state) {
+        let contract = witness_contract(&session, state);
+        let verdict = match &contract {
             Some(config) => {
                 let probe = loaded
                     .embed(
@@ -69,13 +77,16 @@ pub(crate) fn search(
                     )
                     .map_err(|e| format!("embedding the verification probe: {e}"))?
                     .remove(0);
-                crate::embed_config::verify(&config, &probe, None).verdict
+                crate::embed_config::verify(config, &probe, None).verdict
             }
             // No contract that could be read. An index pushed before the witness existed is
             // here, and so is one whose `GetVectors` was throttled — neither is a contract
             // that *disagrees*, which is the only thing that should stop a search.
             None => Verdict::Unverifiable,
         };
+        state
+            .classes_are_path_derived
+            .set(contract.is_some_and(|c| c.classes_are_path_derived()));
         *state.space.borrow_mut() = Some(verdict);
         *embedder = Some(loaded);
     }
@@ -91,12 +102,17 @@ pub(crate) fn search(
         .map_err(|e| format!("embedding query: {e}"))?
         .remove(0);
 
+    // Asked of the witness that was just fetched, and not by the caller: a remote index does
+    // not know its own contract until then, and the caller built this filter before the first
+    // round trip had happened.
+    let filter = filter.as_applied(state.classes_are_path_derived.get());
+
     match ops::query(
         &session,
         &state.index,
         &state.corpus,
         &query_vec,
-        filter,
+        &filter,
         residual,
         k,
     ) {

@@ -66,6 +66,32 @@ pub async fn index_build(model_arg: Option<String>) -> Result<()> {
     }
 
     println!("Loaded {} embedding record(s).", records.len());
+
+    // Whether this index may vouch for its own class metadata (RFC-0033 §4.5).
+    //
+    // Checked here because here is where every row that will exist is in hand at once. An
+    // anchored query narrows a remote search on the recorded `class` and resolves the node
+    // from `path`; the two are the same derivation applied at different times, and a reader
+    // has no way to establish that for itself without fetching the whole index back. So it
+    // is established once, over all of them, and written into the contract that travels.
+    //
+    // A disagreement is not a build failure. The index is correct and every reader that
+    // narrows locally is unaffected — what it loses is the push-down, which is a round trip
+    // and never an answer.
+    let misfiled = records
+        .iter()
+        .find(|r| !crate::paths::class_matches_path(&r.path, &r.class));
+    if let Some(r) = misfiled {
+        println!(
+            "  note: {} is recorded as class `{}`, which is not the directory it sits in.\n  \
+             This index will not declare `{}`, so a remote query narrows after fetching \
+             rather than during the search. Re-run `yidam embed` with this yidam to fix it.",
+            r.path,
+            r.class,
+            crate::embed_config::CLASS_SOURCE_PARENT_DIRECTORY
+        );
+    }
+
     println!("Initializing model ({model_name})…");
     println!("  (first run downloads model weights)");
 
@@ -185,7 +211,8 @@ pub async fn index_build(model_arg: Option<String>) -> Result<()> {
         &model_file,
         &format!("{embedding_model:?}"),
     )
-    .with_verification(probe.first().map(Vec::as_slice).unwrap_or(&[]));
+    .with_verification(probe.first().map(Vec::as_slice).unwrap_or(&[]))
+    .with_class_source(misfiled.is_none());
     std::fs::write(
         index_dir.join(EMBED_CONFIG_FILENAME),
         serde_json::to_string_pretty(&embed_config)?,

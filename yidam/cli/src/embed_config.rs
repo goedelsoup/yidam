@@ -43,7 +43,31 @@ pub struct EmbedConfig {
     /// unverifiable index is not a wrong one — see [`Verdict::Unverifiable`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verification: Option<Verification>,
+    /// How the `class` on every row of this index was derived, when the index can vouch for it.
+    ///
+    /// **Not an embedding setting, and it is here anyway.** Everything else on this struct
+    /// pins how to embed a query. This pins how to read a row's *metadata* — which is a
+    /// different question with the same audience and the same distribution problem: it has to
+    /// reach a consumer holding an index and nothing else, including one holding it through a
+    /// vector bucket, where this document is the only thing that travels. A second travelling
+    /// contract for one string would be a second thing to forget to carry.
+    ///
+    /// [`CLASS_SOURCE_PARENT_DIRECTORY`] is the only value, and `None` means the index makes
+    /// no claim: every index built before this field existed is there, and so is one whose
+    /// rows were found not to satisfy it. A reader that needs the claim treats `None` as "no",
+    /// which costs it a wider search and never a wrong answer — see
+    /// [`crate::retrieval::Filter::as_applied`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub class_source: Option<String>,
 }
+
+/// A row's `class` is the name of the directory its `path` sits in — [`crate::paths::class_of_path`].
+///
+/// The only value [`EmbedConfig::class_source`] takes today. It is a *claim about the rows*,
+/// checked against every one of them when the index is built, and not a statement about which
+/// binary built it: a derivation that changes takes a new value here, and every index carrying
+/// the old one goes on being read correctly by the readers that understand it.
+pub const CLASS_SOURCE_PARENT_DIRECTORY: &str = "parent-directory";
 
 /// The sentence the contract is witnessed on.
 ///
@@ -243,7 +267,31 @@ impl EmbedConfig {
             normalize: true,
             fastembed_model_enum: model_enum.to_string(),
             verification: None,
+            // Not claimed by a constructor. [`EmbedConfig::class_source`] is a claim about
+            // rows, and this function has never seen one — `index_build` attaches it after
+            // checking every record, the way [`Self::with_verification`] attaches a witness
+            // after embedding the probe.
+            class_source: None,
         }
+    }
+
+    /// Declare that every row of this index carries the class its own path derives.
+    ///
+    /// Takes the checked flag rather than doing the check, so the caller holding the records
+    /// is the one that answers, and a corpus that fails it produces a contract saying nothing
+    /// rather than one saying the wrong thing.
+    pub fn with_class_source(mut self, path_derived: bool) -> Self {
+        self.class_source = path_derived.then(|| CLASS_SOURCE_PARENT_DIRECTORY.to_string());
+        self
+    }
+
+    /// Whether this index vouches for its rows' `class` being their path's parent directory.
+    ///
+    /// An unrecognised value is a "no", not an error: a contract written by a later yidam
+    /// naming a derivation this binary does not implement is exactly the case where a reader
+    /// must not assume.
+    pub fn classes_are_path_derived(&self) -> bool {
+        self.class_source.as_deref() == Some(CLASS_SOURCE_PARENT_DIRECTORY)
     }
 
     /// Attach the witness, from an embedding of [`VERIFICATION_PROBE`].
@@ -304,5 +352,60 @@ mod tests {
         assert_eq!(v["pooling"], "mean");
         assert_eq!(v["normalize"], true);
         assert_eq!(v["fastembed_model_enum"], "AllMiniLML6V2Q");
+    }
+
+    /// An index that has not been checked declares nothing, and the document it writes is the
+    /// one it wrote before the field existed.
+    ///
+    /// That matters twice. A reader holding it cannot mistake silence for a claim, and a
+    /// corpus whose records *do* satisfy the rule produces a byte-identical
+    /// `embed.config.json` to the one it produced yesterday — so the field appearing in a diff
+    /// is a fact about the index, not about the yidam that built it.
+    #[test]
+    fn an_index_that_cannot_vouch_writes_no_class_source_at_all() {
+        let cfg = sample().with_class_source(false);
+        assert!(!cfg.classes_are_path_derived());
+        let v: serde_json::Value = serde_json::to_value(&cfg).unwrap();
+        assert!(
+            v.get("class_source").is_none(),
+            "a contract that claims nothing must not carry the key: {v}"
+        );
+    }
+
+    #[test]
+    fn an_index_that_checked_its_records_declares_the_derivation_by_name() {
+        let cfg = sample().with_class_source(true);
+        assert!(cfg.classes_are_path_derived());
+        let v: serde_json::Value = serde_json::to_value(&cfg).unwrap();
+        assert_eq!(v["class_source"], CLASS_SOURCE_PARENT_DIRECTORY);
+    }
+
+    /// Every index built before this field existed reads as "no claim" rather than failing to
+    /// parse — the whole population on disk today is in that state.
+    #[test]
+    fn a_contract_written_before_the_field_existed_still_parses_and_claims_nothing() {
+        let older = serde_json::json!({
+            "format_version": "1",
+            "model_id": "Xenova/all-MiniLM-L6-v2",
+            "embedding_dim": 384,
+            "model_file": "onnx/model_quantized.onnx",
+            "pooling": "mean",
+            "normalize": true,
+            "fastembed_model_enum": "AllMiniLML6V2Q"
+        });
+        let cfg: EmbedConfig = serde_json::from_value(older).unwrap();
+        assert_eq!(cfg.class_source, None);
+        assert!(!cfg.classes_are_path_derived());
+    }
+
+    /// A derivation this binary does not implement is a "no", not a parse error and not a
+    /// yes. It is what a contract written by a *later* yidam looks like from here, and
+    /// assuming it would be the one case where the push-down is wrong in a way no residual
+    /// catches.
+    #[test]
+    fn a_derivation_this_binary_does_not_implement_is_not_vouched_for() {
+        let mut cfg = sample();
+        cfg.class_source = Some("some-later-rule".to_string());
+        assert!(!cfg.classes_are_path_derived());
     }
 }

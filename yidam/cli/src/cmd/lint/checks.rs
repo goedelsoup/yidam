@@ -1110,12 +1110,12 @@ pub fn dangling_edge(nodes: &[Node]) -> Check {
 }
 
 /// The class an instance belongs to, from its path: `.yidam/corpus/person/x.yml` → `person`.
+///
+/// A [`crate::paths::class_of_path`] over the node's path, and deliberately nothing more —
+/// `yidam embed` stamps the same rule onto every index row, and the two bodies drifting apart
+/// is the hazard [`crate::paths::class_of_path`] documents.
 pub(crate) fn class_of(n: &Node) -> String {
-    n.path
-        .parent()
-        .and_then(|d| d.file_name())
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_default()
+    crate::paths::class_of_path(&n.path)
 }
 
 /// Whether a name is a slug: lowercase ASCII words joined by single hyphens.

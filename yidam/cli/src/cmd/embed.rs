@@ -3,7 +3,9 @@ use serde::Serialize;
 
 use crate::git::head_commit_short;
 use crate::parse::{frontmatter_body, parse_frontmatter, CorpusInstance};
-use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir, yidam_embeddings_dir};
+use crate::paths::{
+    class_of_path, repo_root, yidam_catalog_dir, yidam_corpus_dir, yidam_embeddings_dir,
+};
 use crate::walk::{walk_corpus_instances, walk_md_files};
 
 /// What `yidam embed` reads.
@@ -143,12 +145,11 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
             }
         };
 
-        let class = path
-            .parent()
-            .and_then(|d| d.file_name())
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-            .to_string();
+        // `crate::paths::class_of_path` and not a copy of its body: this value is written
+        // into every index row and every remote vector, and the query path recomputes the
+        // same rule from the file on disk. Two functions were what RFC-0033 §4.5 declined to
+        // push a class filter on.
+        let class = class_of_path(path);
 
         let label = inst.label.as_deref().unwrap_or("").to_string();
         // Every declared prose field, and since #746 the properties a class flagged too. A

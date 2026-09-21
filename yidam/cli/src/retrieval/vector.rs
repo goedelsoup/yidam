@@ -95,6 +95,18 @@ pub(crate) fn search(
         .map_err(|e| format!("embedding query: {e}"))?
         .remove(0);
 
+    // What this index will actually apply. A filter naming *nodes* is a claim about a
+    // derivation the index has to vouch for — see `crate::retrieval::Filter::as_applied`.
+    // A local scan pays nothing for the wider read, so a "no" only ever costs a remote index
+    // a round trip; it is asked here anyway, because one reading of a filter across both
+    // backends is what stops them disagreeing about what one means.
+    let filter = filter.as_applied(
+        index
+            .embed_config
+            .as_ref()
+            .is_some_and(|c| c.classes_are_path_derived()),
+    );
+
     // Index vectors are L2-normalized (see embed.config.json), so cosine
     // similarity reduces to the dot product.
     let hits: Vec<Hit> = index
