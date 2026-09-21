@@ -91,7 +91,12 @@ use crate::model::DomainModel;
 /// falls through to `keyword_retrieve` and an anchored step to `keyword_entries` — so the
 /// honest answer is the one they already give when there is no index at all, with its own
 /// reason.
-#[cfg(feature = "vector-read")]
+///
+/// Ungated on `vector-read`, though only that build can produce one. The shape of a search's
+/// outcome — and everything `cmd/query/anchor.rs` decides from it — carries no dependency on
+/// the ML stack, and the build CI compiles on a pull request is the light one. Gating it put
+/// the anchored step's whole control flow in the build nothing checks until main.
+#[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
 pub(crate) enum Searched {
     Hits(Vec<Hit>),
     /// This binary embeds into a different space than the index was built in.
@@ -146,26 +151,88 @@ pub struct Filter {
     /// state to render — the remote translation refuses it rather than sending `$in: []`,
     /// which S3 Vectors rejects as a validation error.
     pub classes: Option<Vec<String>>,
+    /// Whether `classes` names **nodes** rather than rows.
+    ///
+    /// The difference is the whole of RFC-0033 §4.5. `retrieve`'s class filter is a claim
+    /// about the row: the caller asked for rows the index labels `concept`, and the index's
+    /// own labels answer for that. An anchored step's is a claim about the *node* the row
+    /// resolves to — the step narrowed to classes the corpus uses, and a row's recorded label
+    /// only answers for it while the index derived that label the way this binary does.
+    ///
+    /// So only this kind of filter has a precondition, and [`Self::as_applied`] is where an
+    /// index that cannot meet it says so.
+    pub about_nodes: bool,
 }
 
 impl Filter {
     /// Every class.
     pub fn any() -> Self {
-        Self { classes: None }
+        Self {
+            classes: None,
+            about_nodes: false,
+        }
     }
 
     /// One class, or every class when `None` — `retrieve`'s shape exactly.
     pub fn class(name: Option<&str>) -> Self {
         Self {
             classes: name.map(|c| vec![c.to_string()]),
+            about_nodes: false,
         }
     }
 
-    /// A set of classes — an anchored step's shape.
+    /// A set of classes, as a claim about the rows — the shape a test or a row-level caller
+    /// wants. An anchored step wants [`Self::nodes_of`].
     pub fn classes(names: &[String]) -> Self {
         Self {
             classes: Some(names.to_vec()),
+            about_nodes: false,
         }
+    }
+
+    /// A set of classes, as a claim about the **nodes** the rows resolve to — an anchored
+    /// step's shape.
+    ///
+    /// An empty set is [`Self::any()`] rather than a filter admitting nothing. A step that
+    /// narrowed to no class has no candidate node either, so its residual returns the same
+    /// nothing — and `Some(&[])` would reach the remote translation, which refuses it.
+    pub fn nodes_of(names: &[String]) -> Self {
+        if names.is_empty() {
+            return Self::any();
+        }
+        Self {
+            classes: Some(names.to_vec()),
+            about_nodes: true,
+        }
+    }
+
+    /// The part of this filter an index may actually apply.
+    ///
+    /// **This is where RFC-0033 §4.5's premise is discharged instead of assumed.** A row's
+    /// `class` was written by whatever `yidam embed` wrote when the index was built; a node's
+    /// class is computed now by [`crate::paths::class_of_path`]. Both are a function of the
+    /// *same string* — the row carries the path its class was derived from — so they can only
+    /// disagree if the derivation itself differed between the binary that built the index and
+    /// this one. Not if a node moved: a node's class **is** its parent directory, so a move
+    /// changes the path too, and a row whose path no longer names a node is already rejected
+    /// by the caller's residual.
+    ///
+    /// That is a question an index can be asked once rather than guessed at per row:
+    /// `path_derived` is [`crate::embed_config::EmbedConfig::classes_are_path_derived`], which
+    /// `index_build` writes only after checking every record it indexed. An index that makes
+    /// no such claim — every index built before the field existed — is handed `any()`, which
+    /// is exactly what this surface did before the claim existed. The residual is
+    /// authoritative either way, so the cost of a "no" is a wider fetch and never a wrong or
+    /// empty answer.
+    ///
+    /// Applied by each backend rather than by the caller, because a remote index does not know
+    /// its own contract until the witness has been fetched — which happens on the first
+    /// search, after the caller has already built the filter.
+    pub fn as_applied(&self, path_derived: bool) -> Self {
+        if self.about_nodes && !path_derived {
+            return Self::any();
+        }
+        self.clone()
     }
 
     /// Whether this filter admits a row of `class`. The local backend's whole reading of it.
@@ -334,6 +401,7 @@ fn remote_state(
         client: crate::s3vectors::transport::Client::new(index, creds)?,
         embedder: std::cell::RefCell::new(None),
         space: std::cell::RefCell::new(None),
+        classes_are_path_derived: std::cell::Cell::new(false),
     }))
 }
 
@@ -594,5 +662,66 @@ mod tests {
     #[test]
     fn an_empty_query_matches_nothing() {
         assert_eq!(keyword_score(&[], "anything at all"), None);
+    }
+
+    fn row(path: &str, class: &str) -> Hit {
+        Hit {
+            path: path.to_string(),
+            class: class.to_string(),
+            label: String::new(),
+            text: String::new(),
+            score: 1.0,
+        }
+    }
+
+    /// A filter naming rows is pushed whatever the index says about its class metadata.
+    ///
+    /// `retrieve`'s shape. The caller asked for rows the index labels `concept`, and the
+    /// index's own labels are what answer that — there is no second derivation involved and
+    /// nothing to vouch for.
+    #[test]
+    fn a_filter_about_rows_is_applied_whether_or_not_the_index_vouches() {
+        let f = Filter::class(Some("concept"));
+        assert_eq!(f.as_applied(true), f);
+        assert_eq!(f.as_applied(false), f);
+    }
+
+    /// A filter naming nodes is applied only by an index that can vouch for its class
+    /// metadata, and widens to `any()` otherwise.
+    #[test]
+    fn a_filter_about_nodes_widens_against_an_index_that_vouches_for_nothing() {
+        let f = Filter::nodes_of(&["concept".to_string(), "person".to_string()]);
+        assert_eq!(f.as_applied(true), f);
+        assert_eq!(f.as_applied(false), Filter::any());
+    }
+
+    /// Widening is to every class, not to none. The distinction is the difference between a
+    /// wider fetch and an empty result, which is the whole of RFC-0033 §4.5.
+    #[test]
+    fn widening_admits_every_class() {
+        let widened = Filter::nodes_of(&["concept".to_string()]).as_applied(false);
+        assert!(widened.admits("concept"));
+        assert!(widened.admits("anything-at-all"));
+    }
+
+    /// An empty class set is `any()` from the start, in either shape: `Some(&[])` reaches the
+    /// remote translation, which refuses it rather than sending `$in: []`.
+    #[test]
+    fn a_step_that_narrowed_to_no_class_never_produces_an_empty_class_set() {
+        let f = Filter::nodes_of(&[]);
+        assert_eq!(f, Filter::any());
+        assert_eq!(f.as_applied(true), Filter::any());
+    }
+
+    /// A row a search returns is checked against nothing here, and that is the point of asking
+    /// the index once: a catalog source's `class` is its catalog `type` and its path's parent
+    /// is `catalog`, so a per-row check of the two derivations would have to know which rows
+    /// were nodes before it could run at all.
+    #[test]
+    fn the_question_is_asked_of_the_index_and_not_of_a_row() {
+        let source = row(".yidam/catalog/streamgage-api.md", "api");
+        assert!(Filter::nodes_of(&["api".to_string()])
+            .as_applied(true)
+            .admits(&source.class));
     }
 }

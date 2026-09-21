@@ -156,7 +156,7 @@ pub fn resolve(
 /// `strip_prefix(root)` of the same walk, so they agree on separator and case on any one
 /// platform. A row that resolves to no node here is a catalog source or an index built before
 /// a file moved, and either way it is not a node this query may enter through.
-#[cfg(feature = "vector-read")]
+#[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
 fn candidates<'a>(
     nodes: &'a [Node],
     classes: &[String],
@@ -169,11 +169,11 @@ fn candidates<'a>(
 }
 
 /// What a step resolved to: its entries, and the nodes reading them charged.
-#[cfg(feature = "vector-read")]
+#[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
 type Entries = (Vec<Entry>, Vec<String>);
 
 /// A vector step's outcome: what it found, or the frozen reason it could not.
-#[cfg(feature = "vector-read")]
+#[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
 enum Anchored {
     Found(Entries),
     /// `(degraded_reason, repair)` — both frozen strings from [`crate::retrieval`], never
@@ -183,7 +183,7 @@ enum Anchored {
 }
 
 /// Fold an [`Anchored`] into entries, recording the reason when it degraded.
-#[cfg(feature = "vector-read")]
+#[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
 fn degrade_or(
     searched: Anchored,
     reason: &mut Option<&'static str>,
@@ -205,15 +205,18 @@ fn degrade_or(
 /// `search` is passed rather than the backend, so the local and remote arms differ in one
 /// expression rather than in a copy of everything after it.
 ///
-/// **The class set is not pushed to the service, and that is deliberate.** A remote row's
-/// `class` was written by whatever `yidam embed` wrote when the index was built; a node's
-/// class is computed now, from its parent directory. The two derivations agree today and
-/// nothing holds them to it — and a pushed predicate that assumed they agree would turn a
-/// disagreement into an empty result rather than an error. The ownership test below is
-/// authoritative either way, so the cost of not pushing is a wider fetch and never a wrong
-/// answer. `retrieve`'s class filter *is* pushed, because there the filter is a claim about
-/// the row rather than about a node.
-#[cfg(feature = "vector-read")]
+/// **The class set is pushed, as a claim about nodes.** RFC-0033 §4.5 passed
+/// [`crate::retrieval::Filter::any()`] here and did the whole narrowing locally, on a premise
+/// it stated and could not hold: a row's `class` was written by whatever `yidam embed` wrote
+/// when the index was built, a node's class is computed now, the two agree today and nothing
+/// held them to it. [`crate::retrieval::Filter::nodes_of`] is that premise made into a
+/// question the index answers — see [`crate::retrieval::Filter::as_applied`] for how, and for
+/// why an index that answers "no" leaves this function doing exactly what it did before.
+///
+/// The residual is unchanged and stays authoritative whichever way the index answered: a row
+/// may be of the right class and still belong to a dependency, a catalog source, or a file
+/// that has since moved.
+#[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
 fn search_index(
     search: impl FnOnce(
         &crate::retrieval::Filter,
@@ -229,7 +232,7 @@ fn search_index(
     // count nodes the step could actually match, or a `k` of 1 against a corpus whose nearest
     // row is of another class resolves to nothing and looks like a miss.
     let residual = |hit: &crate::retrieval::Hit| candidates.contains_key(hit.path.as_str());
-    let searched = search(&crate::retrieval::Filter::any(), &residual)?;
+    let searched = search(&crate::retrieval::Filter::nodes_of(classes), &residual)?;
 
     let hits = match searched {
         crate::retrieval::Searched::Hits(hits) => hits,
@@ -316,7 +319,6 @@ mod tests {
     /// neither, which is the shape where one of them gets forgotten. A reason with no repair is
     /// a diagnosis with no treatment, and the states exist precisely because their treatments
     /// differ.
-    #[cfg(feature = "vector-read")]
     #[test]
     fn degrading_records_the_reason_and_the_repair_and_falls_back() {
         let mut reason = None;
@@ -336,7 +338,6 @@ mod tests {
     }
 
     /// A step that found something reports no reason and does not run the fallback.
-    #[cfg(feature = "vector-read")]
     #[test]
     fn finding_something_records_nothing_and_does_not_fall_back() {
         let mut reason = Some("stale-from-an-earlier-step");
@@ -376,6 +377,159 @@ mod tests {
         assert_eq!(reason, Some("remote_unavailable"));
         assert_ne!(reason, Some(crate::retrieval::STALE_CONTRACT));
         assert!(repair.is_some_and(|r| r.contains("index.remote")));
+    }
+
+    /// A backend, faithful in the three things [`search_index`] depends on: it asks the
+    /// filter what it may apply, applies it, and applies the residual before returning —
+    /// which is what both real backends do.
+    ///
+    /// `path_derived` is the answer the index gives about its own class metadata. It is a
+    /// constructor argument and not a constant because both answers are behaviour under test.
+    struct Backend {
+        rows: Vec<crate::retrieval::Hit>,
+        path_derived: bool,
+        seen: std::cell::RefCell<Vec<crate::retrieval::Filter>>,
+    }
+
+    impl Backend {
+        fn new(path_derived: bool, rows: Vec<crate::retrieval::Hit>) -> Self {
+            Self {
+                rows,
+                path_derived,
+                seen: std::cell::RefCell::new(Vec::new()),
+            }
+        }
+
+        fn search(
+            &self,
+            filter: &crate::retrieval::Filter,
+            residual: &dyn Fn(&crate::retrieval::Hit) -> bool,
+        ) -> Result<crate::retrieval::Searched, String> {
+            let applied = filter.as_applied(self.path_derived);
+            self.seen.borrow_mut().push(applied.clone());
+            let mut hits: Vec<crate::retrieval::Hit> = self
+                .rows
+                .iter()
+                .filter(|r| applied.admits(&r.class))
+                .filter(|r| residual(r))
+                .cloned()
+                .collect();
+            // `s3vectors::response::finish`'s ordering, which both real backends return in:
+            // score descending, ties broken on the path.
+            hits.sort_by(|a, b| {
+                b.score
+                    .total_cmp(&a.score)
+                    .then_with(|| a.path.cmp(&b.path))
+            });
+            Ok(crate::retrieval::Searched::Hits(hits))
+        }
+
+        fn applied(&self) -> Vec<crate::retrieval::Filter> {
+            self.seen.borrow().clone()
+        }
+    }
+
+    /// One indexed row: the path the index recorded, and the class it recorded for it.
+    ///
+    /// The two are separate arguments precisely because the premise under test is that they
+    /// agree. A helper deriving one from the other could not express a stale index.
+    fn row(path: &str, class: &str, score: f32) -> crate::retrieval::Hit {
+        crate::retrieval::Hit {
+            path: path.to_string(),
+            class: class.to_string(),
+            label: String::new(),
+            text: String::new(),
+            score,
+        }
+    }
+
+    fn entries_of(backend: &Backend, classes: &[&str], nodes: &[Node]) -> Vec<String> {
+        let classes: Vec<String> = classes.iter().map(|c| c.to_string()).collect();
+        let anchored = search_index(
+            |filter, residual| backend.search(filter, residual),
+            &classes,
+            5,
+            nodes,
+            ".yidam/corpus",
+        )
+        .unwrap();
+        match anchored {
+            Anchored::Found((entries, _)) => entries.into_iter().map(|e| e.node).collect(),
+            Anchored::Degraded(why, _) => panic!("degraded: {why}"),
+        }
+    }
+
+    /// An index that vouches for its class metadata is handed the step's class set.
+    ///
+    /// This is the change RFC-0033 §4.5 deferred: the narrowing used to happen after the
+    /// fetch, and `Filter::any()` was all a service ever saw.
+    #[test]
+    fn an_anchored_step_pushes_its_class_set_to_an_index_that_vouches_for_it() {
+        let dir = fixture();
+        let nodes = nodes(dir.path());
+        let backend = Backend::new(
+            true,
+            vec![
+                row(".yidam/corpus/gage/outlet.yml", "gage", 0.9),
+                row(".yidam/corpus/reach/tailwater.yml", "reach", 0.8),
+            ],
+        );
+
+        assert_eq!(
+            entries_of(&backend, &["reach"], &nodes),
+            ["reach/tailwater.yml"]
+        );
+        assert_eq!(
+            backend.applied(),
+            vec![crate::retrieval::Filter::nodes_of(&["reach".to_string()])],
+            "the class set was not pushed"
+        );
+    }
+
+    /// An index that makes no claim about its class metadata is searched wide, and the
+    /// narrowing happens where it always did.
+    ///
+    /// The rows here are what an older binary's derivation could have written — the right
+    /// nodes under a name this corpus does not use. Pushed, they would be excluded and the
+    /// step would resolve to nothing; unpushed, the residual finds them by path.
+    #[test]
+    fn an_index_that_cannot_vouch_is_searched_wide_and_still_answers() {
+        let dir = fixture();
+        let nodes = nodes(dir.path());
+        let backend = Backend::new(
+            false,
+            vec![
+                row(".yidam/corpus/reach/tailwater.yml", "Reach", 0.9),
+                row(".yidam/corpus/reach/canyon.yml", "Reach", 0.8),
+                row(".yidam/corpus/gage/outlet.yml", "Gage", 0.7),
+            ],
+        );
+
+        assert_eq!(
+            entries_of(&backend, &["reach"], &nodes),
+            ["reach/tailwater.yml", "reach/canyon.yml"],
+            "a class derivation this binary does not share turned into an empty result"
+        );
+        assert_eq!(
+            backend.applied(),
+            vec![crate::retrieval::Filter::any()],
+            "a filter naming nodes was pushed to an index that vouches for nothing"
+        );
+    }
+
+    /// A step that narrowed to no class pushes nothing: `$in: []` is a validation error at the
+    /// service, and there is no candidate node for it to have matched either way.
+    #[test]
+    fn an_empty_class_set_is_not_pushed() {
+        let dir = fixture();
+        let nodes = nodes(dir.path());
+        let backend = Backend::new(
+            true,
+            vec![row(".yidam/corpus/reach/tailwater.yml", "reach", 0.9)],
+        );
+
+        assert!(entries_of(&backend, &[], &nodes).is_empty());
+        assert_eq!(backend.applied(), vec![crate::retrieval::Filter::any()]);
     }
 
     fn fixture() -> tempfile::TempDir {

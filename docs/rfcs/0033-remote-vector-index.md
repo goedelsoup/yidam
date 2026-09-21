@@ -10,6 +10,7 @@
 - **Verified against AWS documentation on 2026-09-19.** Every limit and shape in §3 is quoted from the S3 Vectors API reference rather than recalled; the figures are load-bearing and two of them decide the design.
 - **Not yet verified against a live service.** §8 says exactly which claims that leaves standing and which test discharges each.
 - **Amended 2026-09-20 (#834).** §8's Bedrock row was settled against the documentation and came back false; §8.1 records what that kills, what survives, and what is still unasked. §4.2 and the phase list are corrected to match.
+- **Amended 2026-09-20 (#837).** §4.5's class push-down is no longer deferred. The premise it was deferred on is stated more precisely — it is about two *derivations*, never about data drift — and discharged: one derivation, and a `class_source` claim an index earns by checking its own records. Open question 3 is answered. `embed.config.json` gains one optional key and `format_version` does not move, which is what that document already says an additive field does; an index without the key is read exactly as it was before, so nothing on disk has to be rebuilt.
 
 ## Summary
 
@@ -183,13 +184,43 @@ carries the pushable half — the class set — and the residual stays a closure
 Both backends read the one type: the local scan tests it in Rust, the remote one renders it as
 a metadata filter, and an equivalence test holds the two to admitting the same rows.
 
-`retrieve` pushes its class filter, because there the filter is a claim about the row.
-**An anchored step does not**, and the reason is worth stating: a remote row's `class` was
-written by whatever `yidam embed` wrote when the index was built, and a node's class is computed
-now from its parent directory. The two derivations agree today and nothing holds them to it — a
+`retrieve` pushes its class filter, because there the filter is a claim about the row: the
+caller asked for rows the index labels `concept`, and the index's own labels are what answer
+that. **An anchored step's class set is a claim about the *node* a row resolves to**, which is a
+different thing, and it was originally not pushed at all. The reason as first written: a row's
+`class` was written by whatever `yidam embed` wrote when the index was built, a node's class is
+computed now from its parent directory, the two agree today and nothing holds them to it — and a
 pushed predicate assuming they agree would turn a disagreement into an empty result rather than
-an error. The ownership test is authoritative either way, so not pushing costs a wider fetch and
-never a wrong answer.
+an error.
+
+**It is pushed now (#837), because the premise turned out to be checkable rather than hopeful.**
+A class is a function of a path, and a row carries the path its class was derived from. So the
+two derivations can disagree only if the *derivation* differed between the binary that built the
+index and this one — never because a node moved, since a node's class **is** its parent
+directory: a move changes the path too, and the ownership residual already rejects a row whose
+path names no node.
+
+That turns a premise held per row into a question an index can be asked once. Two things answer
+it:
+
+- **`paths::class_of_path` is the one derivation.** `yidam embed` and the query path both call
+  it, so no index this binary builds can disagree with itself. `tests/class_derivation.rs` holds
+  it in the *output* as well as in the source — it runs `yidam embed` over all four example
+  corpora and checks every record written (45 nodes, 14 classes, measured 2026-09-20) — because
+  a shared function says nothing about records already on disk.
+- **An index declares whether its own rows satisfy the rule.** `index-build` checks every record
+  it indexes and writes `class_source: "parent-directory"` into `embed.config.json` only when
+  all of them do, so the claim is earned over the actual rows rather than asserted by whichever
+  binary happened to run. That document already travels everywhere an index goes, including into
+  a vector bucket as the witness record, so a remote reader gets the answer on a fetch it
+  already makes.
+
+`Filter::as_applied` is where the two meet: a filter naming nodes is applied by an index that
+vouches for its class metadata and widened to `any()` by one that does not. Every index built
+before the field existed is in the second case — which is exactly what this surface did before,
+a wider fetch and never a wrong or empty answer. Each backend asks the question with what it
+has, and a remote one asks it *after* the witness fetch rather than before, because that is when
+it first knows.
 
 Results are owned rather than borrowed, because a row that arrives over a network is not
 borrowed from anything this process holds. Both backends order through one function: score
@@ -399,6 +430,10 @@ derived corpora's `text` lengths — and it was left alone here rather than answ
 2. **Should `indexed_commit` be answerable for a remote index?** It is `None` today, because
    reading it would cost a round trip at startup on a path that may never search. The commit is
    on every record's metadata; a phase that wanted the answer could put it on the witness.
-3. **What should an anchored step do about class push-down?** §4.5 declines it on a stated
-   premise about two class derivations. Holding them to each other with a guard would make the
-   push-down safe and is a smaller change than it sounds.
+3. ~~**What should an anchored step do about class push-down?**~~ **Answered by #837: it
+   pushes.** The premise was tighter than it looked — a class is a function of a path and a row
+   carries its path, so only a derivation that differed *between binaries* can produce a
+   disagreement, and an index can be asked about that once rather than trusted about it per
+   query. §4.5 records the two halves: one derivation, held in the output by
+   `tests/class_derivation.rs`, and a `class_source` claim `index-build` earns by checking
+   every record. An index that claims nothing is searched exactly as wide as it was before.

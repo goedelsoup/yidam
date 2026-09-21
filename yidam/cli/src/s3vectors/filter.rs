@@ -62,6 +62,10 @@ mod tests {
     fn f(classes: Option<&[&str]>) -> Filter {
         Filter {
             classes: classes.map(|cs| cs.iter().map(|c| c.to_string()).collect()),
+            // Rendering is downstream of `Filter::as_applied`: by the time a filter reaches
+            // this module a backend has already decided what it may push, so what a filter
+            // was a claim *about* no longer changes a byte of the JSON.
+            about_nodes: false,
         }
     }
 

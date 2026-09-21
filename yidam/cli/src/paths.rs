@@ -97,6 +97,54 @@ pub fn yidam_corpus_dir(root: &Path) -> PathBuf {
     root.join(".yidam").join("corpus")
 }
 
+/// The class an instance belongs to, from its path: `.yidam/corpus/person/x.yml` → `person`.
+///
+/// **The one derivation, and it is one on purpose.** This rule is applied twice at different
+/// times: `yidam embed` writes it onto every record, and so into every index row and every
+/// vector pushed to a remote bucket; the query path recomputes it from the file on disk. Those
+/// were two functions with the same body in two modules, and RFC-0033 §4.5 declined to push an
+/// anchored step's class filter to a vector service on exactly that premise — that they agree
+/// today and nothing holds them to it. One function is what holds them to it, for every index
+/// this binary builds.
+///
+/// It does not, and cannot, hold an index some *other* binary built. That half is discharged
+/// where it can be: `cmd/query/anchor.rs` checks the rows a pushed filter returned against
+/// this function before trusting the narrowing, and falls back to the wide fetch when they
+/// disagree.
+pub fn class_of_path(path: &Path) -> String {
+    path.parent()
+        .and_then(|d| d.file_name())
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
+/// Whether a record's recorded `class` is the one [`class_of_path`] derives from its path.
+///
+/// The check `index_build` runs over every record before an index is allowed to declare
+/// `class_source` — see [`crate::embed_config::CLASS_SOURCE_PARENT_DIRECTORY`]. It lives here
+/// rather than beside its caller because its caller is behind `--features index`, and this is
+/// the decision, not the plumbing: a predicate only the heavy build can compile is one no pull
+/// request checks.
+///
+/// **A catalog source is not a node and is not held to this.** A source's `class` is its
+/// catalog `type` — `paper`, `dataset`, `api` — and it sits under `.yidam/catalog/`, so the
+/// two were never the same quantity. The claim being made is about the corpus nodes an
+/// anchored step narrows over, and the query path's ownership residual rejects a source row
+/// before any class is compared.
+#[cfg_attr(not(feature = "index"), allow(dead_code))]
+pub fn class_matches_path(path: &str, class: &str) -> bool {
+    let path = Path::new(path);
+    // [`Path::starts_with`] compares components rather than text. It matters on Windows,
+    // where a record's separator is `\` and a textual prefix test against `.yidam/corpus`
+    // would exempt every node — a check that passes having looked at nothing. Not asserted in
+    // the tests below: such a path is a single component on the platforms CI runs, so the
+    // assertion would pin this runner rather than the rule.
+    if !path.starts_with(".yidam/corpus") {
+        return true;
+    }
+    class_of_path(path) == class
+}
+
 pub fn yidam_catalog_dir(root: &Path) -> PathBuf {
     root.join(".yidam").join("catalog")
 }
@@ -445,5 +493,67 @@ mod resolve_root_tests {
         std::fs::create_dir_all(&dir).unwrap();
         assert_eq!(resolve_root(Some(&dir)).unwrap(), dir);
         assert!(require_yidam_repo(&dir).is_err());
+    }
+}
+
+#[cfg(test)]
+mod class_tests {
+    use super::*;
+
+    #[test]
+    fn a_class_is_the_directory_the_instance_sits_in() {
+        assert_eq!(
+            class_of_path(Path::new(".yidam/corpus/person/ada.yml")),
+            "person"
+        );
+    }
+
+    /// A path with nothing above the file derives no class rather than a placeholder. The two
+    /// derivations this replaced disagreed here — one answered `"unknown"`, the other `""` —
+    /// and a placeholder that looks like a class name is the worse of the two: it can collide
+    /// with a real one.
+    #[test]
+    fn a_path_with_no_directory_derives_no_class() {
+        assert_eq!(class_of_path(Path::new("ada.yml")), "");
+    }
+
+    #[test]
+    fn a_record_filed_where_its_class_says_it_belongs_matches() {
+        assert!(class_matches_path(".yidam/corpus/person/ada.yml", "person"));
+    }
+
+    /// The case RFC-0033 §4.5 refused to push a filter on: the right node under a name this
+    /// corpus does not use. Nothing about the row looks wrong on its own.
+    #[test]
+    fn a_record_stamped_with_another_name_does_not_match() {
+        assert!(!class_matches_path(
+            ".yidam/corpus/person/ada.yml",
+            "Person"
+        ));
+        assert!(!class_matches_path(
+            ".yidam/corpus/person/ada.yml",
+            "unknown"
+        ));
+    }
+
+    /// A catalog source's `class` is its catalog `type`, which is not any directory. Held out
+    /// of the check rather than failing it — and asserted, because a check that reported every
+    /// corpus with a catalog would be switched off rather than fixed.
+    #[test]
+    fn a_catalog_source_is_not_held_to_a_node_s_rule() {
+        assert!(class_matches_path(
+            ".yidam/catalog/streamgage-api.md",
+            "api"
+        ));
+        assert!(class_matches_path(".yidam/catalog/paper.md", "source"));
+    }
+
+    /// A path that merely mentions the corpus directory deeper down is not a corpus path.
+    #[test]
+    fn only_a_path_rooted_at_the_corpus_is_checked() {
+        assert!(class_matches_path(
+            "vendor/.yidam/corpus/person/ada.yml",
+            "Person"
+        ));
     }
 }
