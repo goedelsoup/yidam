@@ -15,11 +15,11 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 
 use super::{
-    Operation, RemoteIndex, DATA_TYPE, DISTANCE_METRIC, MAX_DIMENSION, MAX_KEYS_PER_GET,
-    MAX_KEY_LEN, MAX_LIST_PAGE, MAX_METADATA_BYTES, MAX_PAYLOAD_BYTES, MAX_TOP_K,
-    MAX_VECTORS_PER_WRITE, META_CORPUS, META_KEY_CLASS, META_KEY_COMMIT, META_KEY_CORPUS,
-    META_KEY_EMBED_CONFIG, META_KEY_LABEL, META_KEY_TEXT, META_KEY_TEXT_TRUNCATED,
-    NON_FILTERABLE_KEYS, WITNESS_KEY,
+    Operation, RemoteIndex, DATA_TYPE, DISTANCE_METRIC, MAX_DIMENSION,
+    MAX_FILTERABLE_METADATA_BYTES, MAX_KEYS_PER_GET, MAX_KEY_LEN, MAX_LIST_PAGE,
+    MAX_METADATA_BYTES, MAX_PAYLOAD_BYTES, MAX_TOP_K, MAX_VECTORS_PER_WRITE, META_CORPUS,
+    META_KEY_CLASS, META_KEY_COMMIT, META_KEY_CORPUS, META_KEY_EMBED_CONFIG, META_KEY_LABEL,
+    META_KEY_TEXT, META_KEY_TEXT_TRUNCATED, NON_FILTERABLE_KEYS, WITNESS_KEY,
 };
 
 /// One request, ready to be signed.
@@ -53,6 +53,22 @@ pub struct OutVector {
     pub metadata: Value,
 }
 
+/// How many characters of the genesis hash a corpus is identified by.
+///
+/// Twelve characters of a SHA-1, which is what the rest of this repository uses when it needs
+/// a short commit and is comfortably past the point where two corpora collide.
+///
+/// It lives here rather than in `cmd::index_push` because the push is behind two features and
+/// this is not: anything that wants to know what a row would cost — `yidam embed --dry-run`
+/// measuring against the ceiling, say — needs the same twelve characters in the same `corpus`
+/// field, and a second copy of `take(12)` would be a second answer waiting to disagree.
+pub const CORPUS_ID_LEN: usize = 12;
+
+/// The corpus identity a key and a row carry, from the genesis hash.
+pub fn corpus_id(genesis_hash: &str) -> String {
+    genesis_hash.chars().take(CORPUS_ID_LEN).collect()
+}
+
 /// The key a node's row is stored under: `<corpus>/<repo-relative path>`.
 ///
 /// Prefixed by the corpus from the first push, which costs nothing now and is what lets an
@@ -81,11 +97,63 @@ pub fn path_from_key<'a>(corpus: &str, key: &'a str) -> Option<&'a str> {
     key.strip_prefix(corpus)?.strip_prefix('/')
 }
 
+/// The bytes the service counts against the *filterable* ceiling: every key not named in
+/// [`NON_FILTERABLE_KEYS`].
+///
+/// A separate figure from the whole row's, and not derivable from it, which is why it is a
+/// function rather than a subtraction: `text` and `embed_config` are the two large fields and
+/// both are excluded, so a row at 39 KB of metadata may be 200 bytes of filterable metadata.
+///
+/// **This counts the filterable keys as a JSON object**, braces, quotes and key names
+/// included. AWS publishes the 2 KB limit and not the accounting behind it, so this is the
+/// conservative reading — it can only over-count, which makes the local refusal stricter than
+/// the service rather than looser. Over the sixteen corpora RFC-0033 §8.3 measured, the
+/// largest figure it returns anywhere is 237 bytes, so the difference between readings is
+/// nowhere near load-bearing.
+pub fn filterable_len(metadata: &Value) -> usize {
+    let filterable: serde_json::Map<String, Value> = metadata
+        .as_object()
+        .map(|m| {
+            m.iter()
+                .filter(|(k, _)| !NON_FILTERABLE_KEYS.contains(&k.as_str()))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    json_len(&Value::Object(filterable))
+}
+
+/// Refuse a row whose filterable half exceeds [`MAX_FILTERABLE_METADATA_BYTES`].
+///
+/// **Cutting `text` cannot fix this**, which is the whole reason it is checked separately.
+/// `text` is non-filterable, so the shrink loop below moves this number not at all; a row that
+/// broke the 2 KB ceiling would pass the 40 KB check, be truncated or not, go on the wire, and
+/// come back a `ValidationException` naming a constraint rather than a node.
+///
+/// `label` is the only one of the four filterable keys a corpus controls the size of —
+/// `corpus` is twelve characters, `commit` is seven, `class` is a directory name — so the
+/// message names it.
+fn refuse_if_unfilterable(m: &Value, class: &str, label: &str) -> Result<()> {
+    let len = filterable_len(m);
+    if len > MAX_FILTERABLE_METADATA_BYTES {
+        bail!(
+            "the filterable metadata for a {class} node is {len} bytes — S3 Vectors allows \
+             {MAX_FILTERABLE_METADATA_BYTES}, and `text` is not in that budget, so truncating \
+             it would not help. Its label is {} bytes.",
+            label.len()
+        );
+    }
+    Ok(())
+}
+
 /// The metadata for one row, and whether its text had to be cut to fit.
 ///
 /// The ceiling is AWS's 40 KB per vector, and `text` is the only field that can approach it.
 /// Cutting is done on a character boundary and announced with [`META_KEY_TEXT_TRUNCATED`], so a
 /// consumer reading `text` and finding no such flag is reading all of it.
+///
+/// The 2 KB filterable ceiling is checked too, and separately — see [`refuse_if_unfilterable`]
+/// for why one check cannot stand in for the other.
 pub fn metadata(
     corpus: &str,
     class: &str,
@@ -109,6 +177,7 @@ pub fn metadata(
 
     let full = build(text, false);
     if json_len(&full) <= MAX_METADATA_BYTES {
+        refuse_if_unfilterable(&full, class, label)?;
         return Ok((full, false));
     }
 
@@ -133,6 +202,7 @@ pub fn metadata(
         }
         let candidate = build(&text[..cut], true);
         if json_len(&candidate) <= MAX_METADATA_BYTES {
+            refuse_if_unfilterable(&candidate, class, label)?;
             return Ok((candidate, true));
         }
         if cut == 0 {
@@ -593,6 +663,68 @@ mod tests {
             // otherwise, but the round trip is what proves the string is intact.
             assert!(m[META_KEY_TEXT].as_str().is_some());
         }
+    }
+
+    /// The gap #848 found: `MAX_FILTERABLE_METADATA_BYTES` was declared and never read.
+    ///
+    /// A 3 KB label is nowhere near the 40 KB row ceiling, so the check above passes it and
+    /// the shrink loop never runs. Before this guard the row went on the wire and the service
+    /// refused it, naming a constraint rather than a node.
+    #[test]
+    fn a_label_over_the_filterable_ceiling_is_refused_though_the_row_fits() {
+        let label = "L".repeat(MAX_FILTERABLE_METADATA_BYTES + 1);
+        let m = metadata("abc123", "concept", &label, "dead", "short");
+        let e = m.unwrap_err().to_string();
+        assert!(e.contains("filterable"), "{e}");
+        assert!(e.contains("2048"), "{e}");
+    }
+
+    /// And the check is not made redundant by truncation, which is the reason it is separate:
+    /// `text` is non-filterable, so cutting it moves the filterable figure by nothing. This
+    /// row takes the shrink path and must still be refused.
+    #[test]
+    fn truncating_text_does_not_rescue_an_oversize_filterable_half() {
+        let label = "L".repeat(MAX_FILTERABLE_METADATA_BYTES + 1);
+        let text = "x".repeat(MAX_METADATA_BYTES * 2);
+        assert!(metadata("abc123", "concept", &label, "dead", &text).is_err());
+    }
+
+    /// The four filterable keys, and nothing else. A row whose `text` is at the 40 KB ceiling
+    /// is a few hundred bytes of filterable metadata — the two budgets do not track.
+    #[test]
+    fn filterable_len_excludes_the_large_fields() {
+        let text = "x".repeat(MAX_METADATA_BYTES * 2);
+        let (m, truncated) = metadata("abc123", "concept", "A label", "dead", &text).unwrap();
+        assert!(truncated);
+        assert!(json_len(&m) > MAX_METADATA_BYTES / 2);
+        assert!(
+            filterable_len(&m) < 128,
+            "{} bytes filterable on a maximal row",
+            filterable_len(&m)
+        );
+        // `text_truncated` is filterable and is counted; `text` is not and is not.
+        assert!(
+            filterable_len(&m)
+                > filterable_len(
+                    &metadata("abc123", "concept", "A label", "dead", "x")
+                        .unwrap()
+                        .0
+                )
+        );
+    }
+
+    /// Twelve characters, and the same twelve wherever a corpus is named — the push's keys
+    /// and a dry run's measurement of what those keys would carry.
+    #[test]
+    fn a_corpus_is_identified_by_twelve_characters_of_its_genesis_hash() {
+        assert_eq!(
+            corpus_id("da4eeb36530f1111222233334444555566667777"),
+            "da4eeb36530f"
+        );
+        // A hash shorter than the window is used whole rather than padded — a test fixture
+        // repository has one, and panicking on it would make the command untestable.
+        assert_eq!(corpus_id("abc"), "abc");
+        assert_eq!(corpus_id(""), "");
     }
 
     #[test]

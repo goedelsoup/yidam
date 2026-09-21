@@ -35,12 +35,6 @@ use crate::s3vectors::{
 };
 use crate::vault::creds;
 
-/// The genesis hash, shortened to the length a key carries.
-///
-/// Twelve characters of a SHA-1, which is what the rest of this repository uses when it needs
-/// a short commit and is comfortably past the point where two corpora collide.
-const CORPUS_ID_LEN: usize = 12;
-
 pub fn index_push(dry_run: bool, create: bool) -> Result<()> {
     let root = repo_root()?;
 
@@ -86,7 +80,7 @@ pub fn index_push(dry_run: bool, create: bool) -> Result<()> {
         .provenance
         .genesis_hash
         .as_deref()
-        .map(corpus_id)
+        .map(request::corpus_id)
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "this repository cannot see its own genesis commit, so a push has no corpus \
@@ -179,11 +173,6 @@ fn to_vectors(
         });
     }
     Ok((vectors, truncated))
-}
-
-/// The corpus identity a key carries.
-fn corpus_id(genesis_hash: &str) -> String {
-    genesis_hash.chars().take(CORPUS_ID_LEN).collect()
 }
 
 /// Create the index if it is not there, and refuse to write into one that disagrees.
@@ -300,14 +289,5 @@ mod tests {
     fn a_path_that_cannot_be_keyed_fails_the_push() {
         let rows = [row(&"a/".repeat(600), "text")];
         assert!(to_vectors(&rows, "abc123", "deadbee").is_err());
-    }
-
-    #[test]
-    fn a_corpus_id_is_the_short_genesis_hash() {
-        assert_eq!(corpus_id("0123456789abcdef0123"), "0123456789ab");
-        // A hash shorter than the window is used whole rather than padded — a test fixture
-        // repository has one, and panicking on it would make the command untestable.
-        assert_eq!(corpus_id("abc"), "abc");
-        assert_eq!(corpus_id(""), "");
     }
 }
