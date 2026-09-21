@@ -380,6 +380,11 @@ const COMMANDS: &[(&str, &[&str])] = &[
 const LIVE: &[(&str, &[&str])] = &[
     ("doctor", &["doctor"]),
     ("due", &["due"]),
+    // Beside `due` and for its reason exactly: `cycle` composes `due`'s four clocks, so a
+    // golden of it would go red on the calendar the moment a source's overdue count ticked.
+    // It writes nothing — every half reads a surface that reads — and unlike `propose` it
+    // needs no flag to make that true.
+    ("cycle", &["cycle"]),
     ("regen", &["regen", "--check"]),
     ("propose", &["propose", "--dry-run"]),
     // Not a golden, and for `redact_first_commit`'s reason rather than the calendar's: every
@@ -1959,6 +1964,15 @@ const UNREACHED: &[(&str, &str)] = &[
         "findings[].region",
         "`check-diff` sets it only inside a `generated` or `imported` region, and the fixture's \
          crate declares none",
+    ),
+    (
+        "in_flight",
+        "`cycle` only, and it needs a phase with commits AHEAD of the baseline. All three of the \
+         fixture's refs are created at HEAD — `stage.toml` says so and says why: a branch with \
+         nothing ahead has nothing in flight, which is the correct reading and what the `phases` \
+         golden and the `due` phases clock are both staged against. Giving one a unique commit \
+         would move both to reach five declarations. The active arm is exercised in \
+         `cmd/cycle/tests.rs`, which can afford to build commits",
     ),
     (
         "index",

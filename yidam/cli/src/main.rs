@@ -266,6 +266,34 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// Where is this repository in its loop, and what is the next act?
+    ///
+    /// One report in four halves: what is **owed** (`due`'s four clocks), what is **in
+    /// flight** (the unsettled inquiry refs `phases` lists), what is **blocked** (what
+    /// `lint`'s ratchet and `graph-check` would fail on today), and what is **next**.
+    ///
+    /// It composes and does not compute: every number is read from the command that already
+    /// owns it, so this report and its sources cannot come to disagree.
+    ///
+    /// **The order under `next` is this command's — blocked, owed, in flight, practice — and
+    /// not a kuten's.** No kuten profile declares a phase order; what one declares is a *set*
+    /// of phase types and the kind of question the practice presses toward, and those are
+    /// named as what they are. A repository holding no kuten gets the other three halves and
+    /// is told that one needs a declaration.
+    ///
+    /// **Being owed is not being broken.** This exits zero however much is owed; `--strict`
+    /// exits nonzero, for a scheduled job that wants a signal. `yidam doctor` answers what is
+    /// wrong and `yidam lint` is the gate. Read-only, offline, and it writes nothing.
+    Cycle {
+        /// Exit nonzero when anything is owed or blocked. For a cron or CI job that wants a
+        /// signal off the whole loop rather than off one of its halves.
+        #[arg(long)]
+        strict: bool,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Refresh every REGEN block in one pass.
     Regen {
         /// Report which blocks are stale and write nothing. Exits nonzero when any is.
@@ -1026,6 +1054,7 @@ fn main() -> Result<()> {
         Command::VaultStatus => yidam::vault_status(true),
         Command::Doctor { strict, format } => yidam::doctor(strict, format),
         Command::Due { strict, format } => yidam::due(strict, format),
+        Command::Cycle { strict, format } => yidam::cycle(strict, format),
         Command::Regen { check, format } => yidam::regen(check, format),
         Command::Cohort {
             repos,

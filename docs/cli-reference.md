@@ -51,14 +51,59 @@ baseline is what makes that the question. — see
 
 ## The practice
 
-Three commands, and none is a gate. Each exits zero however much is owed, however far a
+Four commands, and none is a gate. Each exits zero however much is owed, however far a
 corpus has drifted, and however a contribution reads.
 
 | Command | What it answers |
 |---|---|
 | `due` | What is due? Four clocks read together — index staleness, catalog TTL, unanswered questions, phases in flight. `--strict` exits nonzero on a due clock |
+| `cycle` | Where is this repository in its loop, and what is the next act? Owed, in flight, blocked, next — composed from `due`, `phases`, `lint` and `graph-check`. `--strict` exits nonzero on owed or blocked |
 | `kuten` * | What is this corpus's practice aimed at? Writes the declaration into `AGENTS.md`. `kuten check` reads the history against it; `kuten adopt <name>` declares one |
 | `score <range>` | How did this session's work read? One row per declared criterion, with its evidence |
+
+### `cycle` gives the loop an object
+
+Four surfaces each answered a quarter of *where am I, and what next*. `due` says what is owed,
+`phases` says what is in flight, `lint` and `graph-check` say what is blocked. A person opening
+a session runs none of them, or one.
+
+`cycle` is those four read together, in four headed halves:
+
+| Half | What it reads |
+|---|---|
+| **owed** | `due`'s four clocks, through `due`'s own reader |
+| **in flight** | the unsettled inquiry refs `yidam phases` lists — `active`, never a settled phase or a standing position |
+| **blocked** | what `lint`'s baseline ratchet and `graph-check` would fail on **today** |
+| **next** | one act per half, each carrying the finding, clock or declaration behind it |
+
+It **composes rather than computes**. Every number is read from the command that already owns
+it. So this report and its sources cannot come to disagree. That is what `status` did: it
+reported 26 active phases against a true count of 1.
+
+**Blocked means what a gate would fail on, not what the corpus was forgiven.** Take a corpus
+carrying two hundred blessed error-severity findings. It is not blocked by them: it agreed to
+them, and `yidam lint` is green over it.
+
+What appears here is what `lint` itself gates on. Three things do. A finding introduced against
+the baseline; an entry past its expiry; a stale entry the run no longer reproduces.
+
+**The order under `next` is the command's, not a kuten's.** No kuten profile declares a phase
+order. The `phases` slot is a *set* of four type names and a commit-share band. Nothing reads
+it as a sequence.
+
+What a kuten does declare is named as what it is. Two things are: the phase types a phase
+opened now would be named from. And the kind of question the practice presses toward.
+
+The ranking itself is blocked, owed, in flight, practice. It is an argument the command makes,
+and it states it at the bottom of every report.
+
+**A repository holding no kuten gets the other three halves** and is told that one needs a
+declaration. Holding none is a supported state.
+
+Like `due`, it exits zero however much is owed. `--strict` exits nonzero when anything is owed
+*or* blocked. That is the union of the two signals it composes. A scheduled job wants one signal
+off the whole loop. It should not go quiet because the half that fired was the other one. This
+writes nothing and drafts no commit.
 
 ### A kuten declares what the work is for
 
