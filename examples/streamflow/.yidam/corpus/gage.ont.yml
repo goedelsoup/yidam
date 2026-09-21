@@ -6,9 +6,11 @@ description: |
 properties:
   - name: parameter
     type: string
+    retrievable: true
     description: The measured quantity, by its publisher's parameter code.
   - name: units
     type: string
+    retrievable: true
     description: The units discharge is published in.
   - name: claim_tag
     type: claim

@@ -208,6 +208,42 @@ always were. `missing-description` stops reporting a node whose whole substance 
 transcription in a property. And `yidam embed` composes it, so **re-run `yidam index-build`**:
 on that same corpus the flag adds 10.4% more prose and changes the text of 380 nodes of 694.
 
+### Retrievable without being prose
+
+`prose:` is the right question for `node-too-long` and for `missing-description`. For `embed`
+it is nearly the right question and not the same one.
+
+`examples/streamflow`'s gage declares `parameter: "00060"` and `units: cubic feet per second`.
+Neither string was in the node's vector, so a query for the units could not reach the node that
+writes the phrase, and a query for the parameter code could not reach the node the catalog
+entry for that source is *organised around*. **Identifiers, codes and units are the part of a
+corpus most likely to be typed verbatim into a query**, and they were the part excluded.
+
+Flagging them `prose: true` would have fixed the embedding and broken two reports along the
+way: `node-too-long` would count `00060` toward the node's length, and `missing-description`
+would accept a node that says nothing but `00060` as a node with something said about it. So
+retrievability is declared on its own:
+
+```yaml
+# <class>.ont.yml
+properties:
+  - name: parameter
+    type: string
+    retrievable: true
+    description: The measured quantity, by its publisher's parameter code.
+```
+
+**Prose is already retrievable.** `embed` composes every declared prose field, so flagging a
+`prose: true` property `retrievable` as well is redundant rather than wrong — it is composed
+once either way. The implication runs one way only: a retrievable identifier is not thereby
+prose.
+
+**`embed` is the only reader**, which is the whole shape of the flag. Flagging a property
+changes what is retrievable and changes no report — so **re-run `yidam index-build`**, because
+node text is what an index is built from. **Absent means false**, for `required:`'s reason, so
+a class that flags nothing emits byte-identical embeddings to a corpus written before the
+field existed.
+
 **`description` is always in the set**, including for a class that declares `prose:` and omits
 it. Silence is not a contract, here as everywhere: naming `findings` says findings is prose,
 and never said *and description is not*. Reading it as the second would let one added line

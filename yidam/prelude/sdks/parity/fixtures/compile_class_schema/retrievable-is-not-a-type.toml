@@ -1,0 +1,59 @@
+function = "compile_class_schema"
+description = "A property declared `retrievable: true` compiles to exactly the schema it would without the flag. Retrievability is a fact `embed` reads (#717); like `prose` it is not a type, and unlike `prose` no report reads it at all — so a corpus flagging one must re-embed and nothing else may change, this fixture included"
+
+[input]
+name = "gage"
+content = """
+class: gage
+label: Gage
+description: A fixed station on a channel.
+properties:
+  - name: parameter
+    type: string
+    retrievable: true
+    description: The measured quantity, by its publisher's parameter code.
+  - name: method
+    type: string
+    prose: true
+    retrievable: true
+    description: How discharge was derived from stage.
+  - name: operator
+    type: string
+    description: The agency that maintains the station.
+"""
+
+[expected]
+schema = """
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "yidam corpus node — gage",
+  "description": "A fixed station on a channel.",
+  "type": "object",
+  "properties": {
+    "class": { "const": "gage" },
+    "properties": {
+      "type": "object",
+      "properties": {
+        "parameter": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The measured quantity, by its publisher's parameter code."
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1,
+          "description": "How discharge was derived from stage."
+        },
+        "operator": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The agency that maintains the station."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["class"],
+  "additionalProperties": true
+}
+"""
