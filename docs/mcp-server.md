@@ -249,6 +249,8 @@ authentication. Neither is in this transport, and neither is planned for it.
 | `query` | A typed path over the graph — `reach -measured-by-> gage`, optionally `across` the dependency set | You know the *shape* of the answer, not the node |
 | `pack` | That path's answer as prose, filled to a token budget, with what did not fit | You are about to write from the corpus and have a budget |
 | `estimate` | What that would cost, in nodes and approximate tokens, before you pay for it | You have a budget and want to know what fits |
+| `cycle` | Where this repository is in its loop: what is owed, in flight, blocked, and what the next act is | You are starting a session and do not know where to begin |
+| `propose` | Drafts the epistemic commits this corpus's findings license, onto a `propose/<head>` branch | You have been told a clock is due and can discharge it |
 
 **`claims` returns assertions; every other tool returns documents.** A node is 2–10 sentences by
 the model's own rule. Asking `get_node` what a corpus takes as verified pays node-sized tokens for
@@ -286,14 +288,32 @@ edges exist and go somewhere else. **An empty result is where an agent invents**
 field that stops it. `absence.elsewhere` names installed packages holding what this corpus does
 not. It is a pointer, and whatever it names is that corpus's claim, not this one's.
 
-**Every tool answers from the corpus the server loaded at startup.** `retrieve`, `get_node`,
-`neighbors` and `query` all read the corpus and index built on disk when the process started.
-There are no live git operations and no per-request file reads. `query --select body` is included:
-it returns the node text as it was read then, not as the file reads now. A server left running
-while the corpus is edited keeps answering with the corpus it was started against. That is what
-the staleness banner at connect time is reporting. This is one snapshot on purpose. A `body` that
-read the working tree at request time would answer about a different corpus. It would be one
-field, on one tool, out of step with every field beside it. Restart to move the snapshot.
+**Every read tool answers from the corpus the server loaded at startup, or from its own last
+write.** `retrieve`, `get_node`, `neighbors` and `query` all read the corpus and index built on
+disk when the process started. There are no live git operations and no per-request file reads.
+`query --select body` is included: it returns the node text as it was read then, not as the file
+reads now. A server left running while the corpus is edited keeps answering with the corpus it
+was started against. That is what the staleness banner at connect time is reporting. This is one
+snapshot on purpose. A `body` that read the working tree at request time would answer about a
+different corpus. It would be one field, on one tool, out of step with every field beside it.
+Restart to move the snapshot.
+
+The one thing that moves it without a restart is a write this server performed. Until the write
+tier there was none, and the sentence was simply *freshness is a restart*. A `propose` that
+writes a branch **reloads the snapshot**.
+
+Anything that changed the repository from outside is still invisible until a restart. An edit, a
+`tonpa install`, a commit from another process: nothing told the server about any of them. So
+there is still exactly one snapshot at any moment. What changed is when it was taken.
+
+**In practice nothing you can read moves, and that is worth knowing before you design around
+it.** `propose` builds its commits against a temporary index and creates the ref with
+`update-ref`. The working tree is untouched and HEAD does not move. So every read tool answers
+byte-identically before and after. The reload is a correct no-op for the only write this tier has.
+
+It is there for two reasons. It costs one corpus re-walk on a call that already wrote to git. And
+the first tool that *does* touch the working tree should not also have to be a contract change.
+
 
 **A `query` response says what it is about.** `kind` is `query`, and the CLI's `--between`
 emits a series under the same envelope. A client must not tell the two apart by testing for an
@@ -337,6 +357,69 @@ to span a repository with no dependencies installed answers `local`, and that is
 two corpora would put a dependency's prose under this repository's class names. The
 `omitted_by_class` receipt would then be arithmetic over a category nobody declared. Retrieve
 across, query across, then pack what you decided to keep.
+
+### Two tools that write, and one that does not, behind a declaration
+
+`propose` and `cycle` sit at the **`act` tier**, and no server serves them unless the corpus it
+serves says so. That is one key in the corpus's own `.yidam/config.toml`:
+
+```toml
+[serve]
+act = true
+```
+
+Until it is written, `tools/list` carries the thirteen read tools. A call to either of these
+comes back `capability-not-supported`, exactly as an unbacked `query` does.
+
+**This is the one capability in the handshake that is permission rather than ability.** Every
+other key is filled honestly from what the server *can* do. A projected mirror holds no class
+files, so `ontology` is false because it cannot be true. `act` is false on a server that could
+write perfectly well, until a deployment says otherwise.
+
+A server permitted to discover that it may write has discovered a policy. A policy a process can
+discover about itself is not one.
+
+Three more things must hold. Where one does not, **the server refuses to start** rather than
+quietly serving the read tools:
+
+- **A git author identity must resolve** in the corpus being served — the `user.name` and
+  `user.email` a commit here would carry. The history these tools write into *is* the knowledge
+  graph. A commit recording what a process did rather than who decided it is what this clause
+  prevents. A checkout with no identity cannot declare `act` on any transport, stdio included.
+- **The declaration is that key and nothing else.** A flag would put it in the launcher's argv —
+  a client config, a desktop manifest, a shell alias. *May a tool write into this corpus* is a
+  fact about the corpus, not about its launcher.
+- **Every listening socket must be loopback.** `serve --mcp --http --bind 0.0.0.0` with `act`
+  declared is refused. It is not a security boundary and should not be read as one. Anything on
+  the host reaches loopback. A tunnel in front of a loopback port is the remote case wearing this
+  clause's clothes. What it separates is *this machine* from *another machine*, without inventing
+  an authenticator. That is the most a server can see from inside. Over stdio the clause is
+  vacuous: the transport has one peer, and it is the process that started the server.
+
+The refusal is the point rather than an inconvenience. An operator wrote the key and got a
+running server. They would read that as the answer to the question they asked.
+
+**`propose` may write one thing: a branch.** Three verbs are drafted as commits onto
+`propose/<head>`: `open`, `withdraw`, `close`. Each asserts only what a finding or the corpus's
+own declarations already assert.
+
+Nothing lands on the baseline, nothing is merged, and nothing is synthesized. There is no
+`establish`, no new node, no edge and no retag. You review the branch as commits, and you reject
+it by deleting it.
+
+It takes `dry_run` and no `force`. Replacing a proposal branch discards commits nobody has read,
+and that repair belongs to a person.
+
+**`cycle` is in the tier and writes nothing**, which is what the tier means rather than an
+exception to it. It reports where the repository is in its loop: owed, in flight, blocked, and
+what to do next.
+
+A report telling an agent what to do next belongs only where the agent can do it. Shipped at a
+read tier it would be one more tool naming an act the caller cannot perform.
+
+One thing to know about its answer. The order under `next` is the server's ranking, not a
+declaration. No kuten declares a phase *order*; what one declares is a *set* of phase types. So a
+client must not read that list as something the corpus specified.
 
 **`retrieve` finds; `get_node` reads.** The distinction is worth stating plainly, because the gap
 is easy to miss. A `retrieve` result carries `label`, `class`, `path`, `score` and a `text`. That

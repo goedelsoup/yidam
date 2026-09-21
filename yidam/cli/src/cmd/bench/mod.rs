@@ -403,7 +403,10 @@ pub struct BenchReport {
 /// that this is provably the same path an agent takes — envelope, error convention and all.
 /// The envelope carries the payload as pretty-printed JSON in `content[0].text`.
 fn flat_arm(
-    state: &ServerState,
+    // `&mut` only because `tools::call` is, since RFC-0029's write tier put a reload behind
+    // one dispatch arm. Nothing here writes: `retrieve` is a core read tool, and this arm
+    // exists precisely to run it down the same path an agent takes.
+    state: &mut ServerState,
     query: &str,
     budget: usize,
     expect: &[String],
@@ -601,7 +604,7 @@ pub fn run(root: &std::path::Path, budget: usize) -> Result<BenchReport> {
     }
     let set = parse_goals(&std::fs::read_to_string(&goals_path)?)?;
 
-    let state = ServerState::load(root)?;
+    let mut state = ServerState::load(root)?;
     if let Some(reason) = state.retrieval.degraded_reason() {
         bail!(
             "the flat arm would be keyword search ({reason}), and beating keyword search \
@@ -621,7 +624,7 @@ pub fn run(root: &std::path::Path, budget: usize) -> Result<BenchReport> {
         .map(|goal| {
             let expect: Vec<String> = goal.expect.iter().map(|e| expected_id(e)).collect();
             let flat = match &goal.flat {
-                Some(query) => flat_arm(&state, query, budget, &expect, &chars),
+                Some(query) => flat_arm(&mut state, query, budget, &expect, &chars),
                 None => ArmReport::unavailable(
                     "flat",
                     goal.flat_omitted_because.clone().unwrap_or_default(),

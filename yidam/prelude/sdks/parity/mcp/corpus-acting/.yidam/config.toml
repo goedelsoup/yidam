@@ -1,0 +1,15 @@
+# The declaration that makes this corpus the one where the write tier is reachable.
+#
+# `act` is the one capability in the block that is PERMISSION rather than ability
+# (RFC-0029 §2.1): every other key is filled from what a server can back, and this one is
+# false unless a corpus says otherwise, on a server that could write perfectly well. It is
+# therefore the one capability a fixture corpus can decide by being a directory of files —
+# which is what makes it expressible here at all, and what `corpora.json` freezes.
+#
+# Two of the other three clauses are not in this file and cannot be: a git author identity
+# must resolve in the checkout (the harness's staging sets one, as `git init` alone does
+# not), and every listening socket must be loopback, which is vacuous over stdio and is the
+# HTTP transport's to check. The fourth — that the peer is the person those clauses describe
+# — is the operator's declaration and nothing detects it.
+[serve]
+act = true

@@ -26,6 +26,7 @@
 //! values and returns an [`Outcome`]. None of it needs a socket, so all of it is tested in this
 //! file's own unit tests rather than behind an integration harness that binds a port.
 
+use std::cell::RefCell;
 use std::convert::Infallible;
 use std::io::Write;
 use std::net::SocketAddr;
@@ -228,7 +229,7 @@ pub(crate) fn classify(msg: &Value) -> Outcome {
 /// Dispatch one JSON-RPC request body and render the JSON-RPC response.
 ///
 /// Identical in every respect to the stdio loop's arm, because it calls the same [`super::handle`].
-fn answer(state: &ServerState, msg: &Value) -> Value {
+fn answer(state: &mut ServerState, msg: &Value) -> Value {
     let id = msg.get("id").cloned().unwrap_or(Value::Null);
     let method = msg["method"].as_str().unwrap_or("");
     let params = msg.get("params").cloned().unwrap_or_else(|| json!({}));
@@ -267,7 +268,7 @@ fn json_response(status: StatusCode, value: &Value) -> Response<Full<Bytes>> {
 
 /// Serve one HTTP request. The only function here that touches hyper types.
 async fn serve_one(
-    state: &ServerState,
+    state: &RefCell<ServerState>,
     allowed_origins: &[String],
     req: Request<hyper::body::Incoming>,
 ) -> Response<Full<Bytes>> {
@@ -331,7 +332,11 @@ async fn serve_one(
     };
 
     match classify(&msg) {
-        Outcome::Answer => json_response(StatusCode::OK, &answer(state, &msg)),
+        // The borrow opens and closes inside this expression, and `answer` is synchronous —
+        // so no `RefMut` is ever held across an `.await`, which is the one way a `RefCell`
+        // behind a shared `Rc` panics on a second connection. The reload RFC-0029 requires
+        // is what makes the state mutable at all; see `ServerState::reload`.
+        Outcome::Answer => json_response(StatusCode::OK, &answer(&mut state.borrow_mut(), &msg)),
         // 202 with no body, which the spec requires in those words for a notification or a
         // response. The stdio loop's equivalent is writing nothing at all.
         Outcome::Accepted => {
@@ -376,7 +381,7 @@ pub(crate) fn serve(
     let local = tokio::task::LocalSet::new();
 
     local.block_on(&runtime, async move {
-        let state = Rc::new(state);
+        let state = Rc::new(RefCell::new(state));
         let allowed = Rc::new(allow_origin);
 
         let listener = tokio::net::TcpListener::bind(addr)
@@ -621,11 +626,11 @@ mod tests {
     /// would have to be run twice.
     #[test]
     fn the_http_answer_is_the_stdio_answer() {
-        let state = super::super::tests::test_state();
+        let mut state = super::super::tests::test_state();
         let msg = json!({"jsonrpc":"2.0","id":7,"method":"tools/list","params":{}});
-        let over_http = answer(&state, &msg);
+        let over_http = answer(&mut state, &msg);
 
-        let direct = super::super::handle(&state, "tools/list", &json!({})).unwrap();
+        let direct = super::super::handle(&mut state, "tools/list", &json!({})).unwrap();
         assert_eq!(over_http["result"], direct);
         assert_eq!(over_http["id"], 7);
         assert_eq!(over_http["jsonrpc"], "2.0");

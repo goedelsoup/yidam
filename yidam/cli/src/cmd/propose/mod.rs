@@ -300,13 +300,34 @@ fn plan(
 
 pub fn propose(opts: Options) -> Result<()> {
     let root = repo_root()?;
-    require_yidam_repo(&root)?;
-    write::require_committed_corpus(&root)?;
+    let report = run(&root, &opts)?;
 
-    let (_, head) = write::head(&root)?;
-    let cfg = crate::config::load_yidam_config(&root)?;
+    if opts.format.is_json() {
+        return crate::report::emit(&root, report);
+    }
+    println!("{}", render(&report, opts.dry_run));
+    Ok(())
+}
+
+/// Draft — and unless `--dry-run`, write — against the corpus at `root`.
+///
+/// **Split out so a caller that already knows its corpus can say so.** [`propose`] resolved
+/// the root from the working directory, which is the only answer a person at a terminal
+/// needs; an MCP server is a subprocess whose working directory is whatever its client
+/// happened to use, and `serve --root` exists because of that (#421). The two would have
+/// disagreed on any server started outside its corpus — the server serving one repository and
+/// its `propose` tool writing a branch into another.
+///
+/// It returns the report rather than printing it, because the second caller renders JSON into
+/// a tool result rather than to stdout.
+pub(crate) fn run(root: &Path, opts: &Options) -> Result<ProposeReport> {
+    require_yidam_repo(root)?;
+    write::require_committed_corpus(root)?;
+
+    let (_, head) = write::head(root)?;
+    let cfg = crate::config::load_yidam_config(root)?;
     let checks = lint::run_checks(
-        &root,
+        root,
         &lint::Options {
             warn_only: true,
             explain: false,
@@ -317,15 +338,15 @@ pub fn propose(opts: Options) -> Result<()> {
             format: crate::report::Format::Text,
         },
     );
-    let (proposals, skipped) = plan(&root, &checks, cfg.propose.withdraw_uncited_after, &head)?;
+    let (proposals, skipped) = plan(root, &checks, cfg.propose.withdraw_uncited_after, &head)?;
 
     let written = if opts.dry_run || proposals.is_empty() {
         None
     } else {
-        Some(write::write(&root, &proposals, opts.force)?)
+        Some(write::write(root, &proposals, opts.force)?)
     };
 
-    let report = ProposeReport {
+    Ok(ProposeReport {
         branch: write::branch_for(&head),
         head: head.clone(),
         proposals: proposals
@@ -342,13 +363,7 @@ pub fn propose(opts: Options) -> Result<()> {
         skipped,
         written,
         withdraw_uncited_after: cfg.propose.withdraw_uncited_after,
-    };
-
-    if opts.format.is_json() {
-        return crate::report::emit(&root, report);
-    }
-    println!("{}", render(&report, opts.dry_run));
-    Ok(())
+    })
 }
 
 /// The text report.

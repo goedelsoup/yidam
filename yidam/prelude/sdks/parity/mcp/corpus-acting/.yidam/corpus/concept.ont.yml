@@ -1,0 +1,8 @@
+class: concept
+label: Concept
+description: A unit of understanding in the write-tier conformance corpus.
+edges:
+  - relationship: relates-to
+    target: concept
+    direction: out
+    description: A bare association between two concepts.

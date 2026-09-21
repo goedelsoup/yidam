@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "contract": "0.21.0",
+  "contract": "0.22.0",
   "description": "The frozen MCP tool contract (RFC-0005). Names are bare — no `yidam_` prefix — because the server is already namespaced by its own name in every client that mounts one. `tier` is `core` (every server MUST back it) or a capability name (backed iff the server declares that capability true). This file is the only place the list lives; a harness that restates it is a second freeze, which is how three servers ended up sharing one name out of five capabilities. A TOOL A SERVER DOES NOT BACK MUST REFUSE, NOT MERELY GO UNLISTED (contract 0.11.1). Omitting an unbacked tool from `tools/list` and dispatching it anyway re-opens the hole the capability block exists to close, from the other side: the block is what lets a client learn the holes at connect time rather than through a tool-not-found error, and a server that answers a tool it has just said it does not serve has told a client two things at once. The refusal is an MCP tool error (`isError: true`) whose text begins `capability-not-supported`, and that token is frozen — `unknown tool` is a different repair, and a caller told it will go hunting for a spelling mistake in a name this file froze. It was unenforceable until a fixture corpus existed on which some tier goes unbacked; `corpora.json` ships one.",
   "capabilities": {
     "corpus": {
@@ -27,7 +27,8 @@
     "sangha": "Reads elector positions from those refs. Same constraint as `phases`.",
     "resources": "Serves the `yidam://` URI scheme over MCP `resources/*`. A tools-only server declares false and MUST map each URI to its tool peer without diverging — `read_resource(\"yidam://corpus/<class>/<name>\")` returns the same node as `get_node(\"<class>/<name>\")`.",
     "ontology": "Backs the class contract: what a class declares it may link to. A server whose corpus is a projected mirror holds nodes and edges and may hold no `.ont.yml` at all — it can back `graph` and not this. Optional is not absent: such a server declares false and its cases are skipped rather than passed. Whether a server declares it is a fact about ITS CORPUS, not about its build: a corpus with no `.ont.yml` has no class contract to back, so a conforming server pointed at one declares false — which is what `corpora.json` freezes for `corpus-unschematised/`. One consequence is worth stating, because it reads as a gap otherwise: `query`'s `unschematised` is therefore always `false` on this surface. The only corpus that would make it true is one where `query` is not served at all, so the `true` arm is reachable from a CLI and not from a conforming server, and no case here can assert it.",
-    "dependencies": "Backs the four `cites:` checks against the dependencies actually installed. True iff the server resolved at least one — a fact about ITS CORPUS, not about its build, in exactly the way `ontology` is. A server that resolved none MUST declare false and refuse `check_citation`, and MUST NOT serve it answering `external-citation-unresolved` to everything: that verdict is literally correct and asserts a fact about a dependency set the server does not have, which is the shape `class-unpopulated` on an unschematised corpus already has a MUST NOT for. A projected mirror carries no `.yidam/tonpa/` and would be reporting about the mirror while its caller reads it as being about the repository the mirror came from. Optional is not absent: such a server declares false and its cases are skipped rather than passed."
+    "dependencies": "Backs the four `cites:` checks against the dependencies actually installed. True iff the server resolved at least one — a fact about ITS CORPUS, not about its build, in exactly the way `ontology` is. A server that resolved none MUST declare false and refuse `check_citation`, and MUST NOT serve it answering `external-citation-unresolved` to everything: that verdict is literally correct and asserts a fact about a dependency set the server does not have, which is the shape `class-unpopulated` on an unschematised corpus already has a MUST NOT for. A projected mirror carries no `.yidam/tonpa/` and would be reporting about the mirror while its caller reads it as being about the repository the mirror came from. Optional is not absent: such a server declares false and its cases are skipped rather than passed.",
+    "act": "THE ONE CAPABILITY HERE THAT IS PERMISSION RATHER THAN ABILITY (contract 0.22.0, RFC-0029). Every other key says what this server CAN back — a projected mirror holds no class files, so `ontology` is false because it cannot. `act` is false unless the deployment explicitly said otherwise, on a server that could write perfectly well. THE DECLARATION IS OPT-IN AND MUST NEVER BE INFERRED from what the server is capable of: a server permitted to discover that it may write has discovered a policy, and that is not a thing a policy can be.\n\nA SERVER MAY DECLARE IT ONLY WHERE A GIT AUTHOR IDENTITY EXISTS, in the corpus it serves — `user.name` and `user.email`, the values the commit would actually take. The history an act tool writes into IS the knowledge graph, and a commit recording what a process did rather than who decided it is what this clause exists to prevent. A checkout with no configured identity cannot declare `act` on ANY transport, stdio included.\n\nAND ONLY WHERE EVERY LISTENING SOCKET IS LOOPBACK — `127.0.0.1` or `::1`. That is not a security boundary and must not be read as one: every socket transport has an unbounded peer set, and an operator can put a tunnel in front of a loopback port, which is the remote case wearing this clause's clothes. What it separates is THIS MACHINE from ANOTHER MACHINE without inventing an authenticator, which is the most a server can see from inside. A server reachable from another machine MUST NOT declare `act` until a remote author exists. Over stdio the clause is vacuous: the transport has one peer and it is the process that started the server.\n\nA SERVER THAT WAS TOLD TO WRITE AND CANNOT SATISFY THOSE CLAUSES MUST REFUSE TO START. Serving the read tools and declaring `act: false` is a silent downgrade, and the operator who wrote the declaration reads a running server as the answer to the question they asked.\n\nWHAT THE TIER MEANS IS *ADDRESSED TO AN AGENT THAT CAN ACT HERE*, NOT *PERFORMS A WRITE*. `cycle` is in it and writes nothing: a server that declares `act` serves the actions and the report that orients them, and one that does not serves neither — so an agent never reads \"here is your next act\" from a surface where it cannot act.\n\nTHE ONLY WRITE IN THE TIER IS A PROPOSAL BRANCH. A run authors operational commits directly; every EPISTEMIC commit goes to a `propose/*` ref, and nothing merges itself (RFC-0026). An act tool that wrote an epistemic commit onto the baseline is a divergence, and the check is mechanical: classify every commit the call produced by leading verb and assert the epistemic ones are all on `propose/*`."
   },
   "tools": [
     {
@@ -454,6 +455,55 @@
           "note"
         ],
         "notes": "`declares_edges: false` DOES NOT MEAN THE CLASS LICENSES NOTHING. It means the class has said nothing, and the gate skips it. The two answers are opposite and a client that collapses them will report every instance in a corpus whose ontology is not filled in. `note` states which case this is in words, so a client that reads only prose still gets it right.\n\nEVERY DECLARED EDGE, BOTH DIRECTIONS. An edge is documented from both ends — `person` declares `played in` as `direction: out` and `band` declares the same relationship as `direction: in`. The licensing check ignores direction, so filtering to `out` here would answer a question the gate does not ask.\n\nAN EMPTY `target` LICENSES ANY TARGET CLASS, rather than none.\n\nLICENSING APPLIES ONLY TO EDGES BETWEEN INSTANCES. The `instance-of` link to `../<class>.ont.yml` and a citation into the catalog are not relationships and no class declares them; an edge to a file that is not there is `dangling-edge`'s finding, not this one's.\n\nTHE CLASS IS ITS FILENAME. Where a `.ont.yml`'s `class:` field disagrees with its stem, the stem governs — it is what the gate keys on and what an instance's directory must match."
+      }
+    },
+    {
+      "name": "propose",
+      "tier": "act",
+      "description": "Draft the epistemic commits this corpus's own findings license, onto a `propose/<head>` branch. The one write in the contract. Nothing is merged, nothing is synthesized, and no commit lands on the baseline — the branch is reviewed as commits and rejected by deleting it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "dry_run": {
+            "type": "boolean",
+            "description": "Draft everything and write no branch. Default false. The whole report is returned either way; `written` is null on a dry run."
+          }
+        },
+        "required": []
+      },
+      "response": {
+        "required": [
+          "branch",
+          "head",
+          "proposals",
+          "skipped",
+          "written",
+          "withdraw_uncited_after"
+        ],
+        "notes": "EACH ENTRY IN `proposals` CARRIES `verb`, `subject`, `check`, `node`, `detail` AND `paths`. Stated here because a case in `cases/propose/` already asserts that shape and the contract did not say it — a conformance case pinning something the contract leaves unstated is a rule with no reader. `check` is the finding's own id, as `lint` reports it, and `detail` is the finding's own words, which the commit body quotes: a client can therefore verify the carriage rule for itself rather than trusting that it held.\n\nTHREE VERBS AND NO OTHERS: `open`, `withdraw`, `close`. Each asserts only what a finding or the corpus's own declarations already assert. There is no `establish`, no edge, no retag and no new node — a tool proposing a synthesis would be asserting something nobody authored, and deciding a question is answered is the resolution event Article V confines to a sangha.\n\n`written` IS NULL ON A DRY RUN AND ON A RUN WITH NOTHING TO PROPOSE, and those are different facts: `proposals` is empty in the second and populated in the first. A client that reads only `written` cannot tell a corpus with no findings from a draft it asked not to be written.\n\n`skipped` IS NOT AN ERROR LIST. A finding this run could not draft about is reported with its reason rather than dropped, because a finding silently not proposed about is the exact failure this surface exists to remove.\n\n`withdraw_uncited_after` IS NULL IN EVERY CORPUS THAT HAS NOT DECLARED IT, which means no withdrawal is ever drafted there. That is the default and not a degraded state.\n\nNO `force`. Replacing an existing `propose/<head>` discards commits nobody has reviewed, and the repair — merge the branch, or delete it — is a person's. The CLI offers `--force` to a person who can see what they are replacing; this surface does not.\n\nA WRITE INVALIDATES THE SERVER'S CORPUS SNAPSHOT AND THE SERVER MUST RELOAD IT (contract 0.22.0). This narrows 0.9.1's sentence: the snapshot is taken at startup OR at the server's own last write, and a change made outside the server still needs a restart. There is still exactly one snapshot at any moment; what moved is when it was taken.\n\nAND TODAY NO RESPONSE OBSERVABLY DIFFERS, WHICH A CLIENT SHOULD KNOW BEFORE DESIGNING AROUND THIS. The rule was written against the expectation that a proposing agent reading back would see stale state. It would not: this tool builds its commits against a TEMPORARY INDEX and creates the ref with `update-ref`, so the working tree is untouched, HEAD does not move, and everything a read tool reads is byte-identical before and after. The reload is therefore a correct no-op for the only write this tier has. It is required anyway, because it costs a corpus re-walk on a call that already wrote to git and because the first act tool that touches the working tree is then not also a contract change. A CONFORMING SERVER MUST RELOAD AND MUST NOT CLAIM THE RELOAD CHANGES AN ANSWER.\n\nIT REFUSES RATHER THAN DRAFTING FROM AN UNCOMMITTED CORPUS. A proposal is built against a commit, and one drafted from a dirty working tree quotes findings about text that is not in it. The refusal text begins `propose-refused`."
+      }
+    },
+    {
+      "name": "cycle",
+      "tier": "act",
+      "description": "Where this repository is in its loop, and what the next act is: what is owed, what is in flight, what is blocked, and what to do next. Composed from the clocks, the inquiry refs and the gates rather than measured again. It writes nothing.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "response": {
+        "required": [
+          "owed",
+          "in_flight",
+          "blocking",
+          "next",
+          "practice",
+          "due",
+          "strict",
+          "passed"
+        ],
+        "notes": "IT IS IN THE `act` TIER AND WRITES NOTHING, and that is the tier's meaning rather than an exception to it: a report telling an agent what to do next belongs only on a surface where the agent can do it. Shipped at a read tier it would be one more tool telling an agent what to do while it still cannot act.\n\nTHE FIELD IS `blocking`, NOT `blocked`. The report contract's property namespace is flat across every report and `blocked` is already an array of strings elsewhere in it; one name cannot carry two types. The half is still called *blocked* in prose, and `blocking` is what the list holds.\n\n`blocking` IS WHAT A GATE WOULD FAIL ON TODAY, NOT WHAT THE CORPUS WAS FORGIVEN. A corpus carrying accepted findings in its baseline is not blocked by them — the gate is green over it — and listing them would tell a caller that a repository doing exactly what it agreed to has things to fix.\n\n`next` IS RANKED BY THE SERVER AND NOT BY A DECLARATION. No kuten profile declares a phase order: what one declares is a SET of phase types and the kind of question the practice presses toward. A server reporting an order as though a profile had declared one would be citing a field that does not exist.\n\n`practice.undeclared` IS NON-NULL IN EVERY CORPUS HOLDING NO KUTEN, which is a supported state and not a degraded one. The other three halves are unaffected — they need no declaration at all.\n\n`passed` IS TRUE HOWEVER MUCH IS OWED. Being owed is not being broken; it is the whole reading this report exists to prevent, and a client that renders `due > 0` as a failure has reintroduced it."
       }
     }
   ]

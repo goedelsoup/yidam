@@ -40,7 +40,7 @@ The rule was unenforceable until a corpus existed on which some tier goes unback
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.21.0",
+    "contract": "0.22.0",
     "corpus": {
       "domain": "streamflow",
       "commit": "a1b2c3d",
@@ -49,7 +49,7 @@ The rule was unenforceable until a corpus existed on which some tier goes unback
     },
     "retrieve": { "vector": false, "reason": "no_index" },
     "graph": true, "ontology": true, "dependencies": true,
-    "phases": false, "sangha": false, "resources": true
+    "phases": false, "sangha": false, "act": false, "resources": true
   }
 }
 ```
@@ -202,6 +202,64 @@ property of the type rather than of the discipline. The rejection code is now it
 with a private constructor: a literal at a call site does not compile, and the roster is the
 only place a code can be minted. The omission still possible is a code left out of the frozen
 list — and that is the one this gate reads.
+
+## A tier that writes (contract 0.22.0)
+
+`act` — one tier, two tools: `propose` and `cycle`. RFC-0005 froze thirteen names and every one
+of them reads, so this is a change to a frozen contract rather than an addition, and
+[RFC-0029](https://github.com/goedelsoup/yidam/blob/main/docs/rfcs/0029-write-tier.md) is the
+argument.
+
+**It is the one capability here that is permission rather than ability.** Every other key is
+filled from what a server *can* back — a projected mirror holds no `.ont.yml`, so `ontology` is
+false because it cannot be true. `act` is false on a server that could write perfectly well,
+until a deployment says otherwise. **A server MUST NOT infer it**, and a server that could write
+and was not told to declares `false`. A capability a process may discover about itself is an
+ability; this is a policy, and a policy nobody stated is not one.
+
+Three more clauses, and where one fails **a server that was told to write MUST refuse to start**
+rather than serving the read tools with `act: false`. A silent downgrade leaves an operator who
+wrote the declaration reading a running server as the answer to the question they asked.
+
+| Clause | What it checks | Where |
+|---|---|---|
+| a git author identity resolves | `user.name` and `user.email`, the values the commit would take, in the corpus being served | every transport, stdio included |
+| the declaration is configuration | a corpus's own committed file, not an argv | — |
+| every listening socket is loopback | `127.0.0.1` or `::1` | wherever the server binds one; vacuous over stdio |
+| the peer is the person those describe | **nothing detects this** | the operator's declaration |
+
+The fourth is stated because the third reads like a security boundary and is not one. Every
+socket transport has an unbounded peer set — anything on the host reaches loopback, and a tunnel
+in front of a loopback port is the remote case wearing clause three's clothes. What clause three
+separates is *this machine* from *another machine* without inventing an authenticator, which is
+the most a server can see from inside. That is exactly why `act` is configuration.
+
+**What the tier means is *addressed to an agent that can act here*, not *performs a write*.**
+`cycle` is in it and writes nothing. A server that declares `act` serves the actions and the
+report that orients them; one that does not serves neither, so an agent never reads *here is your
+next act* from a surface where it cannot act. A cycle report at a read tier would be a fourteenth
+tool naming an act its caller cannot perform, which is the complaint the tier exists to answer.
+
+**The only write is a proposal branch.** A run authors operational commits directly; every
+*epistemic* commit goes to a `propose/*` ref, and nothing merges itself (RFC-0026). That is what
+makes a write tier arguable where RFC-0020 declined one: the property the decline protected — a
+person reading the branch — is enforced on the commits rather than by keeping the transport a
+shell. The check is mechanical and a harness can run it: classify every commit the call produced
+by leading verb and assert the epistemic ones are all on `propose/*`.
+
+**The snapshot moves with a write, and today nothing observable moves with it.** Contract 0.9.1's
+*freshness is a restart* becomes *startup, or the server's own last write*. A conforming server
+MUST reload after a write and MUST NOT claim the reload changes an answer: `propose` builds its
+commits against a temporary index and creates the ref with `update-ref`, so the working tree is
+untouched, HEAD does not move, and every read tool answers byte-identically across the call. The
+rule is in the contract because it costs one corpus re-walk on a call that already wrote to git,
+and because the first act tool that *does* touch the tree is then not also a contract change.
+RFC-0029 §2.6 records that the decision was made on a premise that turned out not to hold, and
+why it stands anyway.
+
+`corpus-acting/` is the fixture on which any of this is reachable — the only one declaring
+`[serve] act = true`, and therefore the only one where a tier's refusal is checkable against a
+server that really does decline it rather than against a hypothetical.
 
 ## Querying a dependency, on request (contract 0.11.0)
 

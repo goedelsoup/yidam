@@ -19,7 +19,7 @@ A corpus node has **eleven** string forms across this repository. Two of them ca
 corpus a node came from, one can say which revision, and none can say both. The forms are not
 alternatives a caller chooses between — they are what different surfaces invented independently
 because there was no first form to reuse, and one of them,
-[`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L199), already accepts three spellings that
+[`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L318), already accepts three spellings that
 no contract mentions. An ad-hoc resolver is what an absent grammar looks like from the inside.
 
 The absence has a second face. A derived corpus folded 168 crate paths and 145 catalog and node
@@ -44,9 +44,9 @@ corpus.
 
 That is not a latent tidiness issue. [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56)
 interpolates `node.id` into the URI, and the loop it sits in reads `state.nodes` only —
-[`dep_nodes`](../../yidam/cli/src/cmd/serve/mod.rs#L55) is a separate field by deliberate design.
+[`dep_nodes`](../../yidam/cli/src/cmd/serve/mod.rs#L70) is a separate field by deliberate design.
 So a dependency node has **no resource URI at all**, while
-[`find_any_node`](../../yidam/cli/src/cmd/serve/tools.rs#L222) reads one happily by its qualified
+[`find_any_node`](../../yidam/cli/src/cmd/serve/tools.rs#L341) reads one happily by its qualified
 id. One server answers a question through its tool surface that its resource surface cannot
 address, and RFC-0005 declares the scheme normative without mentioning dependencies.
 
@@ -129,7 +129,7 @@ relative path, which is a *fifth* convention, and unrelated to any of the above.
 |---|---|---|---|
 | `class/name` | [`corpus_nodes`](../../yidam/cli/src/model.rs#L460-L483) | — | — |
 | `pkg::class/name` | [`qualified_id`](../../yidam/cli/src/model.rs#L413) | yes | — |
-| `.yidam/corpus/class/name.yml` | tolerated by [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L199) | — | — |
+| `.yidam/corpus/class/name.yml` | tolerated by [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L318) | — | — |
 | `../other-class/thing.yml` | [`resolve_link_target`](../../yidam/cli/src/model.rs#L430) | — | — |
 | `yidam://corpus/class/name` | [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56) | — | — |
 | the same string as an RDF subject | [`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L135) | — | — |
@@ -296,7 +296,7 @@ Guessing would either invent a conflict on every bundle built before the field o
 ### 4.6 — One parser
 
 `yidam_core::uri` parses and renders the grammar and becomes the only place an identifier is
-built or split. It retires [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L199)'s three
+built or split. It retires [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L318)'s three
 tolerated spellings, [`qualified_id`](../../yidam/cli/src/model.rs#L413),
 [`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L135),
 [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56)'s prefix chain and

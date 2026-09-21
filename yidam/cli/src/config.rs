@@ -21,6 +21,8 @@ pub struct YidamConfig {
     pub due: DueConfig,
     #[serde(default)]
     pub object: ObjectConfig,
+    #[serde(default)]
+    pub serve: ServeConfig,
     /// The stores this corpus keeps artifacts in, by name.
     ///
     /// Plural before it needs to be, and the reasoning is
@@ -236,6 +238,46 @@ pub struct ObjectConfig {
     /// ```
     #[serde(default)]
     pub paths: Vec<String>,
+}
+
+/// What this repository permits a server it starts to do — RFC-0029.
+///
+/// # Why a repository's own file and not a flag
+///
+/// RFC-0029 §2.1 decides that an `act` declaration is **configuration, never inference**: a
+/// server that satisfies every condition for writing and was not told to write declares
+/// false. A flag would put the declaration in the argv of whatever launcher happened to spawn
+/// the process — an agent's client config, a desktop app's manifest, a shell alias — so the
+/// answer to *may this corpus be written to by a tool* would be a property of who started the
+/// server rather than of the corpus. This file is committed, and the repository is the thing
+/// that has to live with what a tool wrote into it.
+///
+/// RFC-0029's open question offered `.yidam/capabilities.toml` as a third option. **It does
+/// not exist** — the name appears in RFC-0026 and RFC-0028 prose and nothing reads it — so the
+/// choice was this key or a flag.
+#[derive(Debug, Default, Deserialize)]
+pub struct ServeConfig {
+    /// Whether a server started against this corpus may declare the `act` capability.
+    ///
+    /// **`false` is the default and a server that satisfies every other condition still
+    /// declares false without this key.** That is §2.1's rule and it is the whole difference
+    /// between the write tier and every read tier: a read tier's absence says the server
+    /// *cannot*, and is therefore discovered; this says the deployment *will not*, and a
+    /// policy that a server can discover about itself is not a policy.
+    ///
+    /// Declaring it true is not sufficient either. RFC-0029 §2.2's clause 1 requires that a
+    /// git author identity resolve in the corpus being served — `user.name` and `user.email`,
+    /// the values the commit would actually take — and clause 3 requires every listening
+    /// socket to be loopback. Both are checked at startup, and both fail the server rather
+    /// than quietly downgrading it: a server that was told to write and serves reads instead
+    /// is a deployment that believes something false about itself.
+    ///
+    /// ```toml
+    /// [serve]
+    /// act = true
+    /// ```
+    #[serde(default)]
+    pub act: bool,
 }
 
 pub fn load_yidam_config(root: &Path) -> Result<YidamConfig> {
