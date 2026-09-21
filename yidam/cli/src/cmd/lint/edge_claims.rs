@@ -1,4 +1,4 @@
-//! An edge is a claim, and these two checks are the ones that ask it for its standing (#587).
+//! An edge is a claim, and these are the checks that ask it for its standing (#587, #858).
 //!
 //! # The asymmetry this closes
 //!
@@ -23,7 +23,7 @@
 //! [`crate::parse::CorpusLink`] gained the two fields in #714 and carried them uninterpreted.
 //! This is what reads them.
 //!
-//! # Two checks, mirroring the two prose rules
+//! # Three checks, two mirroring the prose rules and one comparing an edge to its ends
 //!
 //! - **`edge-untagged`** — an empirical edge that declares no standing, or one whose
 //!   `claim_tag` spells none. The mirror of `claim-tag-malformed`, which is the prose rule for
@@ -31,6 +31,9 @@
 //! - **`edge-verified-unsourced`** — an edge asserting `verified` with no `source:`. The mirror
 //!   of `verified-unsourced`, and the same one-directional argument: over-counting evidence is
 //!   the flattering error, and it is the one the vocabulary exists to prevent.
+//! - **`edge-standing-unheld`** — an edge asserting a standing **stronger** than one its own
+//!   endpoints declare. #587's closing comment named this as the remaining question and #858
+//!   answers it; see the section below, because what had to be settled was not the comparison.
 //!
 //! # The first is opt-in and the second is not
 //!
@@ -47,6 +50,52 @@
 //! the exemption and the gate are separate keys, and why the declaration is corpus-wide rather
 //! than per class.
 //!
+//! # The third check compares two things, and defining the second one is the whole of it
+//!
+//! `local-citation-tag-drift` is the precedent and it is close — *a citation resting on
+//! `[verified]` over a paragraph this corpus tags `[inference]` asserts something its own corpus
+//! denies* — but it compares a declared standing to the claims overlapping **one** span. An edge
+//! has two ends and no span, so neither half transfers unexamined.
+//!
+//! **A node's standing is not the weakest tag in it.** [`crate::claims::node_standing`] carries
+//! the argument: `count_in_node` returns counts and not a verdict, a synthesis node carries all
+//! three tags by design, and reading its weakest would grade the best-made node in every corpus
+//! `[open]`. The definition that survives is the one the vocabulary already provides for the
+//! purpose — a property the class declared `type: claim`, which is
+//! [`crate::claims::ClaimScope::Node`], *the standing is the node's, not one sentence's*. A node
+//! that only tags prose declares no standing and is compared to nothing.
+//!
+//! **Weakest-first, restated for two ends.** The endpoint standing an edge is measured against
+//! is the weaker of the two ends that declare one, and the edge's own is the **strongest** it
+//! spells. Both are the direction that cannot flatter: the strongest thing the edge claims is
+//! what needs support, and the weakest thing the corpus will say about an end is what it has to
+//! rest on. An end declaring nothing is skipped rather than counted as `[open]`, because silence
+//! is not a grade.
+//!
+//! **One direction only.** An `open` edge between two `verified` nodes is not a defect and is
+//! never reported: it is a corpus saying it knows both things and not that they are related,
+//! which is what the vocabulary is for. Only the edge that outranks an end is a finding.
+//!
+//! # Warn, and this is the one in the family that cannot be Error
+//!
+//! Every other contradiction check here ships at Error on one ground — its population is empty
+//! by construction, so no repository that predates it can be put in debt by it. That argument is
+//! unavailable to this check and saying otherwise would be wrong. Both sides of the comparison
+//! are opt-in *separately*: a corpus can adopt edge tags this year on nodes whose `type: claim`
+//! properties were written years ago, and the contradiction between them is then a finding it
+//! inherits rather than one it wrote. Warn reports it and gates nothing, which is also the
+//! severity both siblings here carry, and for the adjacent reason — which of the two sides is
+//! wrong is the author's judgement and nothing here proposes an answer.
+//!
+//! # `lint` and not `graph-check`, though the question is about a walk
+//!
+//! It only arises once both endpoints are in hand, which is `graph-check`'s business. It is here
+//! anyway, for two reasons that outweigh that one: the two checks it extends are here and
+//! resolve their endpoints through the same [`super::checks::instance_links`], so this costs no
+//! second walk and no second resolver; and a corpus reads one report about its edges' standings
+//! rather than two. The seam between the two commands is about structure versus prose, and an
+//! evidence standing is prose that happens to be stored on a link.
+//!
 //! # Only edges between instances, and that is the existing boundary
 //!
 //! [`super::checks::instance_links`] is the reader, exactly as it is for `unlicensed-edge` and
@@ -59,10 +108,11 @@ use super::checks::{instance_links, nodes_by_path, Node};
 use super::model::{Check, Severity, Violation};
 use crate::universal::Universal;
 
-/// The two check ids, named once — a filter keyed on a literal would drift from the id the
-/// baseline records the moment either was reworded.
+/// The check ids, named once — a filter keyed on a literal would drift from the id the
+/// baseline records the moment any of them was reworded.
 pub const UNTAGGED: &str = "edge-untagged";
 pub const VERIFIED_UNSOURCED: &str = "edge-verified-unsourced";
+pub const STANDING_UNHELD: &str = "edge-standing-unheld";
 
 /// What a link's `claim_tag` spells.
 ///
@@ -111,6 +161,55 @@ fn standing_of(value: Option<&serde_yaml::Value>) -> Standing {
     Standing::Declared(standings)
 }
 
+impl Standing {
+    /// The **strongest** standing the edge spells, bare, or `None` where it spells none.
+    ///
+    /// Strongest and not weakest, which is the opposite of how an endpoint is read and the same
+    /// non-flattering direction: what an edge needs support for is the most it claims. A list
+    /// holding `verified` and `open` has claimed `verified` about the relationship, exactly as
+    /// `edge-verified-unsourced` already reads it.
+    fn strongest(&self) -> Option<&'static str> {
+        match self {
+            Self::Declared(standings) => standings
+                .iter()
+                .filter_map(|s| crate::claims::bare_standing(s))
+                .max_by_key(|s| crate::claims::standing_rank(s)),
+            Self::Absent | Self::Unreadable(_) => None,
+        }
+    }
+}
+
+/// The weaker of the two endpoints' declared standings, and which end declared it.
+///
+/// `None` where neither end declares one — a node that only tags prose has no standing under
+/// [`crate::claims::node_standing`]'s definition, and an end that is silent is skipped rather
+/// than read as `[open]`, because silence is not a grade.
+///
+/// Where both declare one the weaker wins, and where they tie the **near** node is named: a
+/// finding is reported against the file that authored the edge, so the end a reader can act on
+/// from there is the one to name first.
+fn endpoint_standing<'a>(
+    near: &'a Node,
+    far: &'a Node,
+    fields: &crate::claims::ClaimFields,
+) -> Option<(&'static str, &'a str)> {
+    let of = |n: &'a Node| {
+        let class = n.inst.class.clone().unwrap_or_default();
+        crate::claims::node_standing(&n.text, fields.for_class(&class)).map(|s| (s, n.rel.as_str()))
+    };
+    match (of(near), of(far)) {
+        (Some(a), Some(b)) => Some(
+            if crate::claims::standing_rank(b.0) < crate::claims::standing_rank(a.0) {
+                b
+            } else {
+                a
+            },
+        ),
+        (Some(a), None) => Some(a),
+        (None, b) => b,
+    }
+}
+
 /// How a finding names the edge it is about — `located-in → place/tailwater.yml`.
 ///
 /// The relationship **and** the target, because a node may author several edges of the same
@@ -124,18 +223,23 @@ fn edge_address(link: &crate::parse::CorpusLink) -> String {
     )
 }
 
-/// The two checks, over one walk of the corpus.
+/// The three checks, over one walk of the corpus.
 ///
 /// Returned together and destructured at the call site for [`super::citations::checks`]'s
-/// reason: two public functions is what makes two walks look free.
+/// reason: three public functions is what makes three walks look free.
 #[must_use]
-pub fn checks(nodes: &[Node], universal: &Universal) -> [Check; 2] {
+pub fn checks(
+    nodes: &[Node],
+    universal: &Universal,
+    fields: &crate::claims::ClaimFields,
+) -> [Check; 3] {
     let by_path = nodes_by_path(nodes);
     let required = universal.edge_claims_required();
     let mut untagged = Vec::new();
     let mut unsourced = Vec::new();
+    let mut unheld = Vec::new();
     for n in nodes {
-        for (link, _) in instance_links(n, &by_path) {
+        for (link, far) in instance_links(n, &by_path) {
             let rel = link.relationship.as_deref().unwrap_or_default();
             let structural = universal.is_structural_relationship(rel);
             let standing = standing_of(link.claim_tag.as_ref());
@@ -176,9 +280,72 @@ pub fn checks(nodes: &[Node], universal: &Universal) -> [Check; 2] {
                     ),
                 ));
             }
+
+            // ── the edge against its own ends (#858) ──────────────────────────
+            //
+            // Unconditional, for `edge-verified-unsourced`'s reason: an edge that wrote a
+            // standing opted in by writing it. A structural relationship is not exempt here
+            // either — an exemption says the relationship is bookkeeping, and bookkeeping
+            // asserting more than the nodes it files has stopped being bookkeeping.
+            if let (Some(edge), Some((endpoint, at))) =
+                (standing.strongest(), endpoint_standing(n, far, fields))
+            {
+                // One direction. An `open` edge between two `verified` nodes is a corpus
+                // saying it knows both things and not that they are related, which is the
+                // vocabulary working rather than failing.
+                if crate::claims::standing_rank(edge) > crate::claims::standing_rank(endpoint) {
+                    let end = if at == n.rel.as_str() {
+                        "this node".to_string()
+                    } else {
+                        format!("`{at}`")
+                    };
+                    unheld.push(Violation::new(
+                        &n.rel,
+                        format!(
+                            "{} asserts `[{edge}]` and {end} declares `[{endpoint}]` — the \
+                             edge claims more about the relationship than this corpus claims \
+                             about what it relates. Demote the edge, or promote the node and \
+                             say why",
+                            edge_address(link)
+                        ),
+                    ));
+                }
+            }
         }
     }
-    [edge_untagged(untagged), edge_verified_unsourced(unsourced)]
+    [
+        edge_untagged(untagged),
+        edge_verified_unsourced(unsourced),
+        edge_standing_unheld(unheld),
+    ]
+}
+
+fn edge_standing_unheld(violations: Vec<Violation>) -> Check {
+    Check::new(
+        STANDING_UNHELD,
+        "An edge asserts a standing its own endpoints do not hold",
+        Severity::Warn,
+        "The graph half of `local-citation-tag-drift`: a citation resting on `[verified]` over a \
+         paragraph this corpus tags `[inference]` asserts something its own corpus denies, and an \
+         edge asserting `verified` between two nodes this corpus grades `[open]` does the same \
+         thing in the form a reader is least likely to check. A node's standing here is a \
+         property its class declared `type: claim` — the node's own grade, not the weakest marker \
+         in its prose, because a synthesis node carries all three tags by design. A node that \
+         declares none is compared to nothing. \
+         \
+         One-directional, like every check in this family: an `open` edge between two `verified` \
+         nodes is not a defect, it is a corpus saying it knows both things and not that they are \
+         related, which is what the vocabulary is for. The endpoint compared against is the \
+         weaker of the two ends, and the edge's own standing is the strongest it spells. \
+         \
+         Warn, and this one cannot be Error. Every other contradiction check here gates on the \
+         ground that its population is empty by construction; this one's is not, because a corpus \
+         can adopt edge tags on a graph whose nodes were graded years earlier and inherit \
+         findings it did not create. Which of the two sides is wrong is the author's judgement \
+         and nothing here proposes an answer.",
+        violations,
+    )
+    .spanning_links()
 }
 
 fn edge_untagged(violations: Vec<Violation>) -> Check {
@@ -254,8 +421,24 @@ mod tests {
 
     const TAGGED: &str = "edge_claims:\n  required: true\n  structural:\n    - instance-of\n";
 
-    /// `(edge-untagged details, edge-verified-unsourced details)` over one staged corpus.
+    /// `(edge-untagged, edge-verified-unsourced)` details over one staged corpus, with no class
+    /// declaring a claim field — so `edge-standing-unheld` has no endpoint standing to read and
+    /// the two original checks are measured exactly as they were.
     fn run(files: &[(String, String)], universal: &str) -> (Vec<String>, Vec<String>) {
+        let (untagged, unsourced, unheld) = run_all(files, universal, &[]);
+        assert!(
+            unheld.is_empty(),
+            "no class declared a claim field, so no node declares a standing: {unheld:?}"
+        );
+        (untagged, unsourced)
+    }
+
+    /// All three checks, with `fields` the properties every class here declared `type: claim`.
+    fn run_all(
+        files: &[(String, String)],
+        universal: &str,
+        fields: &[&str],
+    ) -> (Vec<String>, Vec<String>, Vec<String>) {
         let tmp = tempfile::tempdir().unwrap();
         let mut paths = Vec::new();
         for (rel, text) in files {
@@ -265,10 +448,17 @@ mod tests {
             paths.push(path);
         }
         let nodes = super::super::checks::load_nodes(tmp.path(), &paths, &Overlay::default());
-        let [untagged, unsourced] = checks(&nodes, &Universal::parse(universal));
+        let declared: Vec<String> = fields.iter().map(|f| (*f).to_string()).collect();
+        let claim_fields = crate::claims::ClaimFields::from_declarations(
+            ["place", "concept"]
+                .into_iter()
+                .map(|c| (c.to_string(), declared.clone())),
+        );
+        let [untagged, unsourced, unheld] =
+            checks(&nodes, &Universal::parse(universal), &claim_fields);
         let details =
             |c: Check| -> Vec<String> { c.violations.into_iter().map(|v| v.detail).collect() };
-        (details(untagged), details(unsourced))
+        (details(untagged), details(unsourced), details(unheld))
     }
 
     /// The finding the issue is about: an edge beside correctly tagged prose, saying nothing.
@@ -417,6 +607,177 @@ mod tests {
             assert_eq!(untagged.len(), *want_untagged, "{tag}: {untagged:?}");
             assert_eq!(unsourced.len(), *want_unsourced, "{tag}: {unsourced:?}");
         }
+    }
+
+    // ── #858: the edge against the standings its own endpoints declare ──────────
+
+    /// `class: place` with a declared node standing and the given links.
+    fn graded(standing: &str, links: &str) -> String {
+        format!("class: place\nlabel: A place\nstatus: {standing}\nlinks:\n{links}")
+    }
+
+    /// The finding the issue is about: `verified` asserted across a relation whose ends are live.
+    #[test]
+    fn an_edge_outranking_its_endpoints_is_reported() {
+        let files = vec![
+            (
+                "place/tailwater.yml".to_string(),
+                graded(
+                    "open",
+                    "  - target: ./canyon.yml\n    relationship: located-in\n    claim_tag: verified\n    source: a-record\n",
+                ),
+            ),
+            ("place/canyon.yml".to_string(), graded("open", BACK)),
+        ];
+        let (_, unsourced, unheld) = run_all(&files, TAGGED, &["status"]);
+        assert!(unsourced.is_empty(), "{unsourced:?}");
+        assert_eq!(unheld.len(), 1, "{unheld:?}");
+        assert!(
+            unheld[0].contains("`located-in` \u{2192} `./canyon.yml`"),
+            "{unheld:?}"
+        );
+        assert!(
+            unheld[0].contains("asserts `[verified]`") && unheld[0].contains("`[open]`"),
+            "{unheld:?}"
+        );
+    }
+
+    /// The direction that is not a defect, and the reason the check is one-directional: a corpus
+    /// knowing both things and not saying they are related is the vocabulary working.
+    #[test]
+    fn an_open_edge_between_verified_nodes_is_not_a_finding() {
+        let files = vec![
+            (
+                "place/tailwater.yml".to_string(),
+                graded(
+                    "verified",
+                    "  - target: ./canyon.yml\n    relationship: located-in\n    claim_tag: open\n",
+                ),
+            ),
+            (
+                "place/canyon.yml".to_string(),
+                graded("verified", "  - target: ./tailwater.yml\n    relationship: located-in\n    claim_tag: open\n"),
+            ),
+        ];
+        let (_, _, unheld) = run_all(&files, TAGGED, &["status"]);
+        assert!(unheld.is_empty(), "{unheld:?}");
+    }
+
+    /// An edge tied with its ends, and one weaker than them. Neither claims more than it rests on.
+    #[test]
+    fn an_edge_no_stronger_than_its_ends_is_not_a_finding() {
+        for (node, edge) in [("inference", "inference"), ("inference", "open")] {
+            let files = vec![
+                (
+                    "place/tailwater.yml".to_string(),
+                    graded(
+                        node,
+                        &format!("  - target: ./canyon.yml\n    relationship: located-in\n    claim_tag: {edge}\n"),
+                    ),
+                ),
+                ("place/canyon.yml".to_string(), graded(node, BACK)),
+            ];
+            let (_, _, unheld) = run_all(&files, TAGGED, &["status"]);
+            assert!(unheld.is_empty(), "{node}/{edge}: {unheld:?}");
+        }
+    }
+
+    /// The weaker of the two ends is the one an edge is measured against, and the finding names
+    /// it — otherwise a reader opens the node the edge was authored in and finds nothing wrong.
+    #[test]
+    fn the_weaker_end_is_the_one_compared_and_the_one_named() {
+        let files = vec![
+            (
+                "place/tailwater.yml".to_string(),
+                graded(
+                    "verified",
+                    "  - target: ./canyon.yml\n    relationship: located-in\n    claim_tag: verified\n    source: a-record\n",
+                ),
+            ),
+            ("place/canyon.yml".to_string(), graded("inference", BACK)),
+        ];
+        let (_, _, unheld) = run_all(&files, TAGGED, &["status"]);
+        assert_eq!(unheld.len(), 1, "{unheld:?}");
+        assert!(unheld[0].contains("`[inference]`"), "{unheld:?}");
+        assert!(
+            unheld[0].contains("place/canyon.yml"),
+            "the far end is named: {unheld:?}"
+        );
+    }
+
+    /// A node that only tags prose declares no standing, and silence is not `[open]` — the
+    /// definition #858 had to settle, asserted rather than described.
+    #[test]
+    fn a_node_that_only_tags_prose_declares_no_standing() {
+        let files = vec![
+            (
+                "place/tailwater.yml".to_string(),
+                "class: place\nlabel: A place\ndescription: |\n  Much of this is unsettled. [open]\nlinks:\n  - target: ./canyon.yml\n    relationship: located-in\n    claim_tag: verified\n    source: a-record\n".to_string(),
+            ),
+            (
+                "place/canyon.yml".to_string(),
+                "class: place\nlabel: A place\ndescription: |\n  Also unsettled. [open]\nlinks:\n  - target: ./tailwater.yml\n    relationship: located-in\n    claim_tag: open\n".to_string(),
+            ),
+        ];
+        let (_, _, unheld) = run_all(&files, TAGGED, &["status"]);
+        assert!(
+            unheld.is_empty(),
+            "a prose `[open]` is not the node's grade: {unheld:?}"
+        );
+    }
+
+    /// The synthesis node the definition exists for: all three standings declared, and the
+    /// weakest of them is what the node is willing to say about itself.
+    #[test]
+    fn several_declared_standings_read_weakest_first() {
+        let files = vec![
+            (
+                "place/tailwater.yml".to_string(),
+                "class: place\nlabel: A place\nstatus: verified\nprovenance: open\nlinks:\n  - target: ./canyon.yml\n    relationship: located-in\n    claim_tag: inference\n".to_string(),
+            ),
+            ("place/canyon.yml".to_string(), graded("verified", BACK)),
+        ];
+        let (_, _, unheld) = run_all(&files, TAGGED, &["status", "provenance"]);
+        assert_eq!(unheld.len(), 1, "{unheld:?}");
+        assert!(unheld[0].contains("`[open]`"), "{unheld:?}");
+    }
+
+    /// The strongest thing a listed `claim_tag` claims is what needs support, which is the same
+    /// entry `edge-verified-unsourced` reads.
+    #[test]
+    fn a_listed_edge_tag_is_read_at_its_strongest() {
+        let files = vec![
+            (
+                "place/tailwater.yml".to_string(),
+                graded(
+                    "open",
+                    "  - target: ./canyon.yml\n    relationship: located-in\n    claim_tag:\n      - open\n      - verified\n    source: a-record\n",
+                ),
+            ),
+            ("place/canyon.yml".to_string(), graded("open", BACK)),
+        ];
+        let (_, _, unheld) = run_all(&files, TAGGED, &["status"]);
+        assert_eq!(unheld.len(), 1, "{unheld:?}");
+        assert!(unheld[0].contains("asserts `[verified]`"), "{unheld:?}");
+    }
+
+    /// No declaration switches this on and none is needed: writing the tag is the opt-in, and a
+    /// relationship the corpus called bookkeeping is still read on a standing it wrote.
+    #[test]
+    fn it_needs_no_declaration_and_exempts_no_relationship() {
+        let files = vec![
+            (
+                "place/tailwater.yml".to_string(),
+                graded(
+                    "open",
+                    "  - target: ./canyon.yml\n    relationship: instance-of\n    claim_tag: inference\n",
+                ),
+            ),
+            ("place/canyon.yml".to_string(), graded("open", BACK)),
+        ];
+        let (untagged, _, unheld) = run_all(&files, "", &["status"]);
+        assert!(untagged.is_empty(), "{untagged:?}");
+        assert_eq!(unheld.len(), 1, "{unheld:?}");
     }
 
     /// The boundary `unlicensed-edge` and `edge-target-class` already draw: a link to the class

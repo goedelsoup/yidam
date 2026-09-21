@@ -54,7 +54,7 @@ epistemic commit written outside a resolution event, and licenses it on exactly 
 > It is carriage and not synthesis, which is what makes it legal outside a resolution event:
 > Article V confines synthesis to resolutions, and copying a file verbatim introduces no node,
 > edge or claim that its author did not hold.
-> — [`GRAPH.md:689-691`](../../yidam/prelude/GRAPH.md#L689-L691), on `transport`
+> — [`GRAPH.md:706-708`](../../yidam/prelude/GRAPH.md#L706-L708), on `transport`
 
 `propose` inherits that test and this RFC makes it mechanical: **a proposal's commit body must
 contain the finding's own words, verbatim.** That is the constitutional rule expressed as
@@ -119,7 +119,7 @@ people what good looks like, and that has to be said here.
 
 **(c) `orphan-in` is the only check that carries an age.** `Violation::age` is `None` for every
 finding except those `orphan_in_dated` decorates
-([`orphan_in_dated`](../../yidam/cli/src/cmd/lint/mod.rs#L616-L641),
+([`orphan_in_dated`](../../yidam/cli/src/cmd/lint/mod.rs#L620-L645),
 [`model.rs:58`](../../yidam/cli/src/cmd/lint/model.rs#L58)). "Past its residence threshold" is
 therefore well-defined for exactly one check today. That is not a problem to fix here — it is a
 bound on how much of the corpus `propose` can speak about, and the command should say so rather

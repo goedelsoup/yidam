@@ -132,7 +132,7 @@ links:
     source: 1889-municipal-register
 ```
 
-Two checks read them, and both are named in `GRAPH.md`. `edge-verified-unsourced` reports an
+Three checks read them, and all three are named in `GRAPH.md`. `edge-verified-unsourced` reports an
 edge asserting `verified` with no `source:` — the edge half of `verified-unsourced`, and it needs
 no declaration, because writing the tag is what opts an edge in. `edge-untagged` reports an
 empirical edge that declares no standing, or one whose `claim_tag` spells none, and it runs only
@@ -152,6 +152,16 @@ Unconditionally that check would open with one finding per edge in the graph, wh
 arriving in a corpus that never agreed to it. The two keys are separate on purpose: naming the
 verbs that are bookkeeping is a fact about a vocabulary, and recording it must not switch a gate
 on as a side effect.
+
+**And an edge cannot outrank what it relates.** `edge-standing-unheld` reports an edge asserting a
+standing stronger than one its own endpoints declare — `verified` across a relation between two
+nodes this corpus grades `[open]` claims more about the relationship than the corpus claims about
+either end of it. A node's standing there is the field the section below documents, not the weakest
+marker in its prose: a synthesis node carries all three tags by design, and a node that declares
+no claim-typed field has no standing and is compared to nothing. The check is one-directional, so
+an `open` edge between two `verified` nodes is not a defect — it says the corpus knows both things
+and not that they are related, which is what the vocabulary is for. Prefer the demotion to the
+promotion, for the reason the whole section gives.
 
 **And the tag is read, not only graded.** `open-questions`, `status`, `corpus-index` and the MCP
 `claims` and `open_questions` tools all see a tagged edge, exactly as the section below promises

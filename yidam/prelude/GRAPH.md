@@ -179,6 +179,7 @@ the node's prose.
 |---|---|---|
 | `edge-verified-unsourced` | an edge asserting `verified` and naming no `source:` | no — Warn |
 | `edge-untagged` | an empirical edge declaring no standing, or one spelling none | no — Warn, and only where the corpus asked |
+| `edge-standing-unheld` | an edge asserting a standing **stronger** than one its endpoints declare | no — Warn |
 
 The first needs no declaration: its population is empty in a corpus that tags no edges, because
 writing `claim_tag: verified` is itself the opt-in. The second cannot be that — its population is
@@ -202,6 +203,22 @@ authored by many classes at once, which is why this is declared corpus-wide rath
 The two keys are separate deliberately. Recording which verbs are bookkeeping is a fact about a
 vocabulary; `required: true` is a request for a gate over every other edge in the corpus, and one
 must not arrive as a side effect of the other.
+
+The third also needs no declaration, and it reads an edge's standing against the ones its **own
+endpoints** declare: an edge asserting `verified` between two nodes this corpus grades `[open]`
+claims more about the relationship than the corpus claims about what it relates.
+
+A node's standing here is a property its class declared `type: claim` — the node's own grade, not
+the weakest marker in its prose, because a synthesis node carries all three tags by design and is
+meant to. A node that declares no such property has no standing and is compared to nothing. The
+end an edge is measured against is the **weaker** of the two that declare one, and the edge's own
+standing is the **strongest** it spells.
+
+It is one-directional, like every check in this family. An `open` edge between two `verified`
+nodes is not a defect: that is a corpus saying it knows both things and not that they are
+related, which is what the vocabulary is for. And it never gates — both sides of the comparison
+are opted into separately, so a corpus can adopt edge tags on a graph whose nodes were graded
+years earlier and inherit findings it did not create.
 
 ### Which keys hold prose
 

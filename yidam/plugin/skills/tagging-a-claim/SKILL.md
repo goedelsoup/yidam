@@ -31,6 +31,11 @@ how each may be written — tens of tokens instead of a prose file held in conte
   `edge-verified-unsourced` reports a `verified` edge naming no source in any corpus;
   `edge-untagged` reports an edge that declares no standing, and only where
   `universal.yml` says `edge_claims: required: true`. See `GRAPH.md`.
+- **An edge cannot outrank what it relates.** `edge-standing-unheld` reports an edge asserting
+  a standing stronger than one its endpoints declare — `verified` between two nodes graded
+  `[open]`. A node's standing there is its claim-typed field, not the weakest marker in its
+  prose, and a node that declares none is compared to nothing. One-directional: an `open` edge
+  between two `verified` nodes is not a defect. Prefer the demotion to the promotion.
 - **A tagged edge is reported, not only graded.** `open_questions` lists an edge tagged `open`
   in its own right, beside the node ones, and `claims` serves every tagged edge. So the tag
   goes on the link it is about: writing it into the node body keeps it out of both.
