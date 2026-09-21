@@ -103,6 +103,39 @@ Two other corrections travel with it. `yidam decisions-log` no longer describes 
 read-only; it writes a block when `.yidam/decisions/README.md` carries one. And `yidam policy`
 no longer carries the `*` write marker in `--help`, because it writes nothing.
 
+### A property can be retrievable without being prose
+
+`prose: true`, added in cli/v0.11.0, is right for what a node *says*. A gage's `parameter` and
+its `units` are not that. Neither string was in any vector. A query for `cubic feet per second`
+could not reach the node that writes the phrase. Identifiers, codes and units are what a reader
+types verbatim, and they were the part excluded.
+
+Flagging them `prose: true` would reach the embedding. It would also make `node-too-long` count
+the code. And `missing-description` would accept a node that says nothing but the code. So
+there is a second flag:
+
+```yaml
+# <class>.ont.yml
+properties:
+  - name: parameter
+    type: string
+    retrievable: true
+    description: The measured quantity, by its publisher's parameter code.
+```
+
+**Who this affects.** Any corpus keeping identifiers, codes or units in a property. Nothing
+changes for a corpus that flags none. Absent means false, exactly as `required:` and `prose:`
+are.
+
+**What changes when you flag one.** No report. `yidam embed` composes the property, and nothing
+else reads the flag. So **re-run `yidam index-build`**, and expect no movement in `lint`. A
+property already flagged `prose: true` needs nothing. Prose reaches the embedding already, and
+a property flagged both is composed once.
+
+**What it does not reach.** A property holding anything but a string. A prose key holding a
+list is not prose either. It is a real state, and guessing a rendering would put words in the
+corpus's mouth.
+
 ## cli/v0.12.0
 
 ### The README status block no longer counts phases, and refuses a shallow clone
@@ -382,39 +415,6 @@ flag adds 10.4% more prose and rewrites the text of 380 nodes of 694.
 key. Together those are 17% of the nested prose measured. The first belongs to the edge
 vocabulary. The second needs a class contract that describes the key. Neither is in this
 release.
-
-### A property can be retrievable without being prose
-
-The flag above is right for what a node *says*. A gage's `parameter` and its `units` are not
-that. Neither string was in any vector. A query for `cubic feet per second` could not reach the
-node that writes the phrase. Identifiers, codes and units are what a reader types verbatim, and
-they were the part excluded.
-
-Flagging them `prose: true` would reach the embedding. It would also make `node-too-long` count
-the code. And `missing-description` would accept a node that says nothing but the code. So
-there is a second flag:
-
-```yaml
-# <class>.ont.yml
-properties:
-  - name: parameter
-    type: string
-    retrievable: true
-    description: The measured quantity, by its publisher's parameter code.
-```
-
-**Who this affects.** Any corpus keeping identifiers, codes or units in a property. Nothing
-changes for a corpus that flags none. Absent means false, exactly as `required:` and `prose:`
-are.
-
-**What changes when you flag one.** No report. `yidam embed` composes the property, and nothing
-else reads the flag. So **re-run `yidam index-build`**, and expect no movement in `lint`. A
-property already flagged `prose: true` needs nothing. Prose reaches the embedding already, and
-a property flagged both is composed once.
-
-**What it does not reach.** A property holding anything but a string. A prose key holding a
-list is not prose either. It is a real state, and guessing a rendering would put words in the
-corpus's mouth.
 
 A baseline holding the old counts still passes, so nothing goes red. It also leaves room for
 regressions that nothing will report.
