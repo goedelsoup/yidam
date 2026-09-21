@@ -11,7 +11,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use super::baseline::{Baseline, Diff};
-use super::model::Check;
+use super::model::{Check, SpanScope};
 use crate::report::Span;
 
 #[derive(Debug, Serialize)]
@@ -147,14 +147,25 @@ pub(crate) fn node_line(node: &str) -> Option<(&str, usize)> {
 }
 
 /// Best-effort location for a violation. Never part of its identity.
-fn span_for(root: &Path, node: &str, detail: &str) -> Option<Span> {
+///
+/// The search is confined to the half of the file the check declares it is about
+/// ([`SpanScope`]), because the two halves spell some of the same keys: a link carrying
+/// `claim_tag:` answers a search for the property a *node* was found not to carry, and sends
+/// the reader to the one line in the file that makes the finding look wrong (#861). Masking
+/// blanks in place, so a line number found in either half is a line number in the original.
+fn span_for(root: &Path, node: &str, detail: &str, scope: SpanScope) -> Option<Span> {
     if let Some((_, line)) = node_line(node) {
         return Some(Span { line });
     }
     // Otherwise: find the first line naming the thing the detail complains about.
     let needle = detail_needle(detail)?;
     let text = std::fs::read_to_string(root.join(node)).ok()?;
-    text.lines()
+    let searchable = match scope {
+        SpanScope::Body => crate::claims::mask_links(&text),
+        SpanScope::Links => crate::claims::mask_outside_links(&text),
+    };
+    searchable
+        .lines()
         .position(|l| l.contains(needle))
         .map(|i| Span { line: i + 1 })
 }
@@ -246,7 +257,7 @@ pub fn build(root: &Path, all: &[Check], baseline: &Baseline, d: &Diff) -> LintR
                             commits: a.commits,
                         }),
                         in_baseline: f[i],
-                        span: span_for(root, &v.node, &v.detail),
+                        span: span_for(root, &v.node, &v.detail, check.span_scope),
                     })
                     .collect(),
             }
@@ -362,8 +373,60 @@ mod tests {
             "class: c\nlabel: L\nlinks:\n  - target: ../gone.yml\n",
         )
         .unwrap();
-        let s = span_for(tmp.path(), "n.yml", "`../gone.yml` does not resolve");
+        let s = span_for(
+            tmp.path(),
+            "n.yml",
+            "`../gone.yml` does not resolve",
+            SpanScope::Links,
+        );
         assert_eq!(s, Some(Span { line: 4 }));
+    }
+
+    /// The node file both halves of which spell `claim_tag` — the shape #857 made
+    /// reachable. A finding about the node's own properties must not be anchored in the
+    /// graph, and a finding about the edge must still be anchored there.
+    #[test]
+    fn a_scope_keeps_the_two_halves_of_a_node_apart() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("n.yml"),
+            "class: c\nlabel: L\nproperties:\n  datum: navd88\nlinks:\n               - target: ../other.yml\n    claim_tag: \"[open]\"\n",
+        )
+        .unwrap();
+        let detail = "`claim_tag` is declared by `c.ont.yml` and this instance does not carry it";
+        // Body: the only line naming it is the link's, and that one is not an answer.
+        assert_eq!(span_for(tmp.path(), "n.yml", detail, SpanScope::Body), None);
+        // Links: the same token, asked about by an edge check, is exactly that line.
+        assert_eq!(
+            span_for(
+                tmp.path(),
+                "n.yml",
+                "`claim_tag` is unreadable",
+                SpanScope::Links
+            ),
+            Some(Span { line: 7 })
+        );
+    }
+
+    /// The body search is not blinded by the mask: a property the node does carry is still
+    /// located, and located at its own line rather than at a link that repeats the key.
+    #[test]
+    fn the_body_search_still_sees_the_body() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("n.yml"),
+            "class: c\nlinks:\n  - target: ../o.yml\n    datum: navd88\nproperties:\n               datum: navd88\n",
+        )
+        .unwrap();
+        assert_eq!(
+            span_for(
+                tmp.path(),
+                "n.yml",
+                "`datum` is declared `date`",
+                SpanScope::Body
+            ),
+            Some(Span { line: 6 })
+        );
     }
 
     /// `dangling-edge` names its target after a colon rather than in backticks.
@@ -383,8 +446,14 @@ mod tests {
     #[test]
     fn span_is_absent_rather_than_guessed() {
         let tmp = tempfile::tempdir().unwrap();
-        assert_eq!(span_for(tmp.path(), "missing.yml", "`x` broke"), None);
+        assert_eq!(
+            span_for(tmp.path(), "missing.yml", "`x` broke", SpanScope::Body),
+            None
+        );
         std::fs::write(tmp.path().join("n.yml"), "nothing relevant\n").unwrap();
-        assert_eq!(span_for(tmp.path(), "n.yml", "`absent` broke"), None);
+        assert_eq!(
+            span_for(tmp.path(), "n.yml", "`absent` broke", SpanScope::Body),
+            None
+        );
     }
 }

@@ -736,6 +736,27 @@ pub fn count_in_edges(text: &str) -> ClaimCounts {
 /// Blanked rather than removed, exactly as [`crate::markdown::mask_fenced`] blanks a fence:
 /// every offset a caller reports stays meaningful in the original bytes.
 pub(crate) fn mask_links(text: &str) -> String {
+    mask_around_links(text, true)
+}
+
+/// The complement of [`mask_links`]: blank everything *outside* the top-level `links:` block.
+///
+/// Same offsets, opposite survivor. A reader looking for where an *edge* finding belongs wants
+/// the one region [`mask_links`] throws away, and wants the rest thrown away for the same
+/// reason: a token that names a link — a relationship verb, a target path, a `claim_tag` — can
+/// appear in the node's own prose, and a search over the whole file answers with whichever came
+/// first rather than with the edge. See `lint::json::span_for`, which asks both questions.
+pub(crate) fn mask_outside_links(text: &str) -> String {
+    mask_around_links(text, false)
+}
+
+/// Blank one side of the top-level `links:` block, keeping every byte offset.
+///
+/// `blank_inside` picks the side: `true` blanks the block, `false` blanks everything else.
+/// Blanked rather than removed, exactly as [`crate::markdown::mask_fenced`] blanks a fence —
+/// every offset a caller reports stays meaningful in the original bytes, which is the whole
+/// reason either direction is useful for locating something.
+fn mask_around_links(text: &str, blank_inside: bool) -> String {
     let mut out = String::with_capacity(text.len());
     let mut inside = false;
     for raw in text.split_inclusive('\n') {
@@ -751,7 +772,7 @@ pub(crate) fn mask_links(text: &str) -> String {
         if !inside && line.trim_end().strip_suffix(':') == Some(LINKS_KEY) {
             inside = true;
         }
-        if inside {
+        if inside == blank_inside {
             crate::markdown::blank_into(line, &mut out);
         } else {
             out.push_str(line);
@@ -2848,6 +2869,31 @@ links:
         assert_eq!(masked.lines().count(), NODE.lines().count());
         assert!(masked.contains("Clerk to the ninth ward board. [verified]"));
         assert!(!masked.contains("worked-at"));
+    }
+
+    /// The complement keeps the same offsets and the opposite half, which is what lets a
+    /// caller locating an edge report a line number in the original file.
+    #[test]
+    fn the_complement_keeps_the_other_half_at_the_same_offsets() {
+        let masked = mask_outside_links(NODE);
+        assert_eq!(masked.len(), NODE.len());
+        assert_eq!(masked.lines().count(), NODE.lines().count());
+        assert!(masked.contains("worked-at"));
+        assert!(!masked.contains("Clerk to the ninth ward board. [verified]"));
+        // Every line survives in exactly one of the two halves.
+        let body = mask_links(NODE);
+        for (i, ((a, b), orig)) in body
+            .lines()
+            .zip(masked.lines())
+            .zip(NODE.lines())
+            .enumerate()
+        {
+            assert!(
+                (a == orig) ^ (b == orig) || orig.trim().is_empty(),
+                "line {} belongs to neither half or to both: {orig:?}",
+                i + 1
+            );
+        }
     }
 
     /// A qualifier narrows an edge's standing as it narrows a node's, and is kept.
