@@ -146,6 +146,54 @@ still `edge-target-class`'s question, and that check does not read the policy at
 declares them, so the licensing checks read only links landing on another corpus instance.
 A link that resolves to nothing is `dangling-edge`'s finding and is not reported twice.
 
+### What an edge rests on
+
+Everything above asks whether an edge is *well-formed*. None of it asks whether it is **true**,
+and `guidelines/agent-conduct.md` is explicit that an edge is a claim written as structure,
+asserted in the form a reader is least likely to check. A link may say so:
+
+```yaml
+links:
+  - target: ../place/ward-nine.yml
+    relationship: resided-in
+    claim_tag: inference
+  - target: ../place/city-hall.yml
+    relationship: worked-at
+    claim_tag: verified
+    source: 1889-municipal-register
+```
+
+`claim_tag` is graded by the same reader that grades a `type: claim` property, so `verified`,
+`[verified]` and `[verified — as proposed]` all read, and so does a list of standings.
+
+| Check | Finding | Gates |
+|---|---|---|
+| `edge-verified-unsourced` | an edge asserting `verified` and naming no `source:` | no — Warn |
+| `edge-untagged` | an empirical edge declaring no standing, or one spelling none | no — Warn, and only where the corpus asked |
+
+The first needs no declaration: its population is empty in a corpus that tags no edges, because
+writing `claim_tag: verified` is itself the opt-in. The second cannot be that — its population is
+every edge — so it runs only where the corpus says so, once, for the whole graph:
+
+```yaml
+# .yidam/corpus/universal.yml
+edge_claims:
+  required: true
+  structural:
+    - instance-of
+    - concerns
+    - subject-of
+```
+
+`structural:` names the relationships that are **bookkeeping**: they file a node rather than
+assert something about the world, and a standing on one of them would grade nothing. They are
+authored by many classes at once, which is why this is declared corpus-wide rather than per class
+— the argument `universal.yml` already makes about a property every class carries.
+
+The two keys are separate deliberately. Recording which verbs are bookkeeping is a fact about a
+vocabulary; `required: true` is a request for a gate over every other edge in the corpus, and one
+must not arrive as a side effect of the other.
+
 ### Which keys hold prose
 
 `description` was the only key anything read as prose, and corpora write more than one.

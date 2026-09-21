@@ -53,7 +53,7 @@ class CorpusLink:
 
     target: str | None = None
     relationship: str | None = None
-    #: A standing, or a list of them. Carried, not interpreted — see #587.
+    #: A standing, or a list of them. Carried here; graded by ``edge-untagged`` (#587).
     claim_tag: Any = None
     source: str | None = None
 

@@ -116,7 +116,7 @@ authoritative for terms this project minted.
 ### 3 — Only a struct can say *which corpus, at which revision*
 
 [`qualified_id`](../../yidam/cli/src/model.rs#L413) renders `pkg::class/name` and is the only
-string form carrying a corpus. [`ExternalCitation`](../../yidam/prelude/sdks/rust/src/corpus.rs#L77)
+string form carrying a corpus. [`ExternalCitation`](../../yidam/prelude/sdks/rust/src/corpus.rs#L83)
 carries `package`, `node`, `commit` and `tag` — the only identifier in the system that can name a
 foreign node at a known revision, and it is four fields rather than a string, so it cannot appear
 in a resource URI, an RDF subject, a query result, or a rendered citation. Meanwhile
@@ -136,7 +136,7 @@ relative path, which is a *fifth* convention, and unrelated to any of the above.
 | `file:///…/class/name.yml` | [`path_to_uri`](../../yidam/cli/src/cmd/lsp.rs#L106) | n/a | — |
 | `/node/class/name` | [`graph.ts:145`](../../yidam/editors/web/src/lib/graph.ts#L145) | — | — |
 | a GraphML `node id` | `export_graphml.rs` | — | — |
-| `{package, node, commit, tag}` | [`ExternalCitation`](../../yidam/prelude/sdks/rust/src/corpus.rs#L77) | yes | yes |
+| `{package, node, commit, tag}` | [`ExternalCitation`](../../yidam/prelude/sdks/rust/src/corpus.rs#L83) | yes | yes |
 | `<public-base>/class/name` | RFC-0027 §5, unshipped | yes | — |
 
 Nine of the eleven can say neither. Three surfaces also disagreed about *encoding* the same id
@@ -230,7 +230,7 @@ corpus and an offline clone, none of which have a host. A locator must be follow
 ### 4.3 — A revision is a pin, not identity
 
 `x` and `x@abc` denote the same node in two states, and the resolver reports which it returned.
-[`ExternalCitation`](../../yidam/prelude/sdks/rust/src/corpus.rs#L77) already settled this by
+[`ExternalCitation`](../../yidam/prelude/sdks/rust/src/corpus.rs#L83) already settled this by
 holding `node` and `commit` as two fields; following the split means no existing identifier
 changes meaning, where folding the revision into identity would silently make every id in every
 corpus name something else.

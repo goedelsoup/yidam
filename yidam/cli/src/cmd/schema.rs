@@ -22,6 +22,30 @@ fn non_empty_string() -> Value {
     json!({ "type": "string", "minLength": 1 })
 }
 
+/// The shape a value of `type: claim` may take — one standing, or a list of them.
+///
+/// **Not an `enum`, and the reason is that the reader is not one either.**
+/// [`crate::claims::parse_tag`] accepts the bare `open` a typed vocabulary stores, the
+/// `[open]` a corpus writes after being told the scan needs brackets, and a *qualified* tag
+/// like `[verified — as proposed]`, whose detail is free text. An enum of the six bare and
+/// bracketed spellings would underline, in the editor, a tag every counter in this repository
+/// reads — and the pattern that admits the qualifier admits everything after the standing
+/// anyway. What the schema can say without guessing is that the value opens with one of the
+/// three, and `edge-untagged` reports the rest.
+fn claim_standing() -> Value {
+    let one = json!({
+        "type": "string",
+        "pattern": "^\\[?(verified|inference|open)",
+        "description": "An evidence standing: `verified`, `inference` or `open` — bare, \
+                        bracketed, or bracketed with a detail that narrows what is \
+                        asserted. `yidam lint` grades the value with the same reader that \
+                        grades a node's `type: claim` property."
+    });
+    json!({
+        "anyOf": [one, { "type": "array", "minItems": 1, "items": one }]
+    })
+}
+
 /// Schema for a corpus instance — `.yidam/corpus/<class>/<instance>.yml`.
 pub fn corpus_node_schema() -> Value {
     json!({
@@ -50,7 +74,19 @@ pub fn corpus_node_schema() -> Value {
                     "properties": {
                         "target": non_empty_string(),
                         "relationship": non_empty_string(),
-                        "note": { "type": "string" }
+                        "note": { "type": "string" },
+                        // An edge is a claim written as structure, so it may say at what
+                        // standing (#587). Not `required`: the keys are a corpus's to adopt,
+                        // and the gate that asks for them is a declaration in
+                        // `universal.yml` rather than a shape every node must satisfy.
+                        //
+                        // These were the keys the closed shape below **rejected**. A corpus
+                        // writing them got a red squiggle on the one practice the
+                        // guidelines' own `An edge is a claim` section asks for, which is
+                        // the failure the `additionalProperties: true` note describes
+                        // arriving through the one sub-object that stayed closed.
+                        "claim_tag": claim_standing(),
+                        "source": non_empty_string()
                     },
                     "required": ["target", "relationship"],
                     "additionalProperties": false
@@ -323,6 +359,41 @@ pub fn corpus_universal_schema() -> Value {
                                 sixteen times, and a seventeenth class would silently not \
                                 have it. Unioned with each class's own `prose:`, and with \
                                 `description`, which is always prose."
+            },
+            "edge_claims": {
+                "type": "object",
+                "description": "What this corpus has said about the standing of its own \
+                                edges (#587). An edge is a claim written as structure, and \
+                                the relationships that are bookkeeping rather than \
+                                empirical — `instance-of`, `concerns`, `subject-of` — are \
+                                authored by many classes at once, so naming them per class \
+                                would be the same repetition the property list exists to \
+                                avoid. Absent is the common case and nothing is checked.",
+                "properties": {
+                    "required": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Whether an edge outside `structural:` must carry \
+                                        `claim_tag`. Absent means false: every corpus \
+                                        written before the field existed tags no edges, so \
+                                        a default of true would open with one finding per \
+                                        edge in the graph. `edge-untagged` runs only where \
+                                        this is true; `edge-verified-unsourced` needs no \
+                                        declaration, because an edge that wrote `verified` \
+                                        opted in by writing it."
+                    },
+                    "structural": {
+                        "type": "array",
+                        "default": [],
+                        "items": non_empty_string(),
+                        "description": "Relationships that assert nothing about the world \
+                                        and are exempt from tagging. A separate key from \
+                                        `required:` on purpose: recording which verbs are \
+                                        bookkeeping is a fact about the vocabulary, and it \
+                                        must not switch a gate on as a side effect."
+                    }
+                },
+                "additionalProperties": false
             },
             "properties": {
                 "type": "array",

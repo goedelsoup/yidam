@@ -67,7 +67,7 @@ declaration rather than a format.
 
 An instance is a YAML document. `class`, `label`, a `description` block scalar carrying every
 paragraph the node asserts, a `properties` bag typed by the class, and `links`. The parser is
-[`CorpusInstance`](../../yidam/prelude/sdks/rust/src/corpus.rs#L87), and `description` is the only prose field
+[`CorpusInstance`](../../yidam/prelude/sdks/rust/src/corpus.rs#L93), and `description` is the only prose field
 it declares.
 
 Corpora did not stay inside it. The node schema is permissive at the top level, and the comment
@@ -76,7 +76,7 @@ that made it so records why:
 > Measured: with `false`, one derived repository was rejected 117 nodes of 117 (`summary`,
 > `findings`, `revisions`, `unfilled` at the top level), a projecting consumer 199 of 199
 >
-> — [`schema.rs:78-80`](../../yidam/cli/src/cmd/schema.rs#L78-L80)
+> — [`schema.rs:114-116`](../../yidam/cli/src/cmd/schema.rs#L114-L116)
 
 `summary` and `findings` are prose. So is `analytic_note`, which `class-asserts-purpose` tells an
 author to move prose *into*. None of them is on `CorpusInstance`, so all of them are silently
@@ -172,14 +172,13 @@ prose. Upstream gives three different answers to those two keys:
 
 | Component | Answer |
 |---|---|
-| [`CorpusLink`](../../yidam/prelude/sdks/rust/src/corpus.rs#L61) | ~~dropped~~ — **kept since #714**: the struct now declares `claim_tag` and `source` beside `target` and `relationship`, carried and not interpreted. What *reads* them is still #587's question |
-| the published schema, [`schema.rs:43-58`](../../yidam/cli/src/cmd/schema.rs#L43-L58) | rejected — `additionalProperties: false` on the link item |
-| `yidam lint` | nothing |
+| [`CorpusLink`](../../yidam/prelude/sdks/rust/src/corpus.rs#L67) | ~~dropped~~ — **kept since #714**: the struct declares `claim_tag` and `source` beside `target` and `relationship` |
+| the published schema, [`schema.rs`](../../yidam/cli/src/cmd/schema.rs#L50) | ~~rejected~~ — **both keys named since #587**; the link item stays closed and now names what a corpus writes |
+| `yidam lint` | ~~nothing~~ — **`edge-untagged` and `edge-verified-unsourced`**, in [`lint/edge_claims.rs`](../../yidam/cli/src/cmd/lint/edge_claims.rs) |
 
-So the editor underlines 1,270 links as invalid while the runtime silently discards what they
-say, and no check reports either fact. Whatever is decided about prose, this one is a defect
-today: the schema and the parser must give the same answer, and neither of them currently gives
-the answer the corpus needs.
+The defect as filed was that the editor underlined 1,270 links as invalid while the runtime
+silently discarded what they said, and no check reported either fact. All three components now
+give one answer. §2.1 is done and open question 2 below is answered.
 
 ### 1.5 The bridge recorded as built
 
@@ -225,7 +224,7 @@ prose: [summary, description, findings]
 Absent, the set is `[description]` — which is every corpus written before this field existed, so
 nothing changes for them. This is the shape `claim_tag` already has: the corpus says, and no key
 name is blessed. It is deliberately *not* a fixed list of blessed names, for the reason
-[`schema.rs:78-80`](../../yidam/cli/src/cmd/schema.rs#L78-L80) already measured — a closed set is
+[`schema.rs:114-116`](../../yidam/cli/src/cmd/schema.rs#L114-L116) already measured — a closed set is
 what sent 117 nodes of 117 to be reshaped around a validator.
 
 Then every reader takes the declared set rather than the literal `description`:
@@ -240,13 +239,12 @@ in any declared field*.
 
 ### 2.1 Phase 1 — the link, reconciled
 
-`CorpusLink` gains `claim_tag` and `source`, both optional; the published schema opens the link
-item to match. Structural relationships (`instance-of`, and whatever the corpus declares as
-such) are exempt from any expectation of a tag.
+**Done (#587).** `CorpusLink` gains `claim_tag` and `source`, both optional; the published schema
+names both on the link item. Structural relationships are exempt from any expectation of a tag —
+declared, not hardcoded; see open question 2.
 
-Whether the two lint rules #587 asks for — untagged empirical edge, verified edge with no source —
-ship in this phase is left open below. The parser and the schema agreeing is not optional and is
-not a new feature; it is one fact currently stated three ways.
+Both lint rules shipped in this phase after all. The parser and the schema agreeing was never
+optional and was not a new feature; it was one fact stated three ways.
 
 ### 2.2 Phase 2 — a finding is a record
 
@@ -314,7 +312,7 @@ node model that products would, for the first time, actually run.
    > The catalog schema describes frontmatter inside markdown, which yaml-language-server cannot
    > apply to a .md file
    >
-   > — [`schema.rs:577-579`](../../yidam/cli/src/cmd/schema.rs#L577-L579)
+   > — [`schema.rs:648-649`](../../yidam/cli/src/cmd/schema.rs#L648-L649)
 
    Every compiled per-class schema is delivered through `yaml.schemas`. Under Markdown nodes,
    none of them reaches a node in a third-party editor. This is the strongest argument against,
@@ -336,7 +334,7 @@ population already names:
 - **prose-to-structure ratio per node** — what fraction of a node's bytes are inside prose fields.
   #674 is one data point at roughly 34 of 118 lines; one is not a population.
 - **how many corpora already grew top-level prose keys**, and which. Two are known from
-  [`schema.rs:78-80`](../../yidam/cli/src/cmd/schema.rs#L78-L80) and one from #674.
+  [`schema.rs:114-116`](../../yidam/cli/src/cmd/schema.rs#L114-L116) and one from #674.
 - **how much of `claims.rs` is YAML-awareness** rather than claim semantics, measured by deleting
   it against a Markdown fixture set rather than estimated.
 
@@ -399,7 +397,7 @@ that much history, by as much as 17 points. One falls by under two points. The t
 own corpus, and it falls by 39, which is the next finding rather than a counter-example.
 
 **2. Coining is one corpus of sixteen, and the projecting consumer has stopped.** The three data
-points [`schema.rs:78-80`](../../yidam/cli/src/cmd/schema.rs#L78-L80) and #674 rest on are one
+points [`schema.rs:114-116`](../../yidam/cli/src/cmd/schema.rs#L114-L116) and #674 rest on are one
 corpus and one generator. Re-measured: that corpus — `ohio-education-funding`, public and already
 named upstream as the divergence canary — still coins, now on 129 nodes of 129 (`summary` on all
 of them, `findings` on 91, plus `figures`, `revisions` and `unfilled`). The projecting consumer
@@ -673,10 +671,18 @@ RFC-0030 shipping first.
    times, which is the exact argument `universal.yml` was created to answer. Probably both, with
    the class winning — this needs the same treatment universal properties already got.
 
-2. **Do #587's two lint rules ship in Phase 1?** Reconciling the parser and the schema is not
-   optional. Gating on untagged empirical edges is a new expectation arriving in corpora that
-   never agreed to it, and by the argument `required` and `edge_policy` both settled, it should
-   be something a class declares. Which declaration is not yet designed.
+2. ~~**Do #587's two lint rules ship in Phase 1?**~~ **Answered yes, both, 2026-09-21 (#587).**
+   The two rules are not alike in this respect and that is what unblocked it.
+   `edge-verified-unsourced` needs no declaration at all: its population is empty in a corpus
+   that tags no edges, because writing `claim_tag: verified` is itself the opt-in — the same
+   condition `local-citation-*` ships at Error under. `edge-untagged`'s population is every edge,
+   so it does need one, and the declaration is **`edge_claims:` in `universal.yml`**, not on the
+   class. A relationship like `concerns` is authored by many classes at once, so a per-class
+   exemption is the sixteen-copies argument that created `universal.yml` in the first place —
+   which is open question 1 above, resolved the other way for a reason that is specific to
+   relationships. The gate (`required: true`) and the exemption list (`structural:`) are separate
+   keys, because recording which verbs are bookkeeping is a fact about a vocabulary and must not
+   switch a gate on as a side effect.
 
 3. **Is a finding record a node-level key or its own file?** In the node, it is beside what it is
    about and travels with a rename. In `.yidam/findings/`, it does not enlarge every node that

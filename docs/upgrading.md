@@ -28,6 +28,41 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### An edge may say what it rests on, and a `verified` one is asked for a source
+
+A link could always be written with extra keys and nothing read them. `claim_tag:` and `source:`
+are now part of the link shape, and two checks read them (#587).
+
+**`edge-verified-unsourced` reports in every corpus, with no declaration.** A link writing
+`claim_tag: verified` and no `source:` is a new warning where there was none. Tagging edges is the practice this came from, and the published schema used to
+underline it as invalid. If your corpus does it, expect one finding per verified link with
+nothing behind it. The repair is a `source:` or a demotion to `inference`. Which of the two is
+yours to decide; nothing proposes a promotion.
+
+**`edge-untagged` reports nothing until you ask for it.** Its population is every edge, so it
+runs only where `.yidam/corpus/universal.yml` says so:
+
+```yaml
+edge_claims:
+  required: true
+  structural:
+    - instance-of
+    - concerns
+    - subject-of
+```
+
+`structural:` names the relationships that are bookkeeping rather than empirical. Both keys are
+new and both are optional; a corpus that writes neither is checked exactly as it was. Writing
+`structural:` alone records the exemption and switches nothing on.
+
+Both checks are `warn`, so neither reaches the baseline and neither turns the gate red.
+`yidam lint` reports more findings and `mise run ci` passes.
+
+**The editor stops underlining the two keys.** The link item in the published node schema listed
+`target`, `relationship` and `note`, and closed the object. So a corpus writing edge provenance
+got a red squiggle on every tagged link. Rerun `yidam schema` to pick up the new shape, and
+`edge_claims:` in the `universal.yml` schema with it.
+
 ### `used-by: []` is now a claim the drift check reads
 
 `catalog-used-by-drift` compares a catalog entry's declared `used-by` against the nodes that
