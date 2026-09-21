@@ -28,6 +28,38 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### An edge's standing is now counted and listed, and where it used to be counted it was the node's
+
+`claim_tag` on a link was graded by two lint checks and read by nothing else. `open-questions`,
+`status`, `corpus-index` and the MCP `claims` and `open_questions` tools now read it too (#857).
+A corpus that tags no edge sees none of this: every figure and every table below appears only
+where there is something to report.
+
+**A bracketed edge tag stops being counted as a node's claim.** A link writing `claim_tag:
+"[open]"` — the spelling a corpus adopts after being told the prose scan needs brackets — was
+visible to the byte scan over the node's file, so it was already being reported, as an `[open]`
+in the node's own prose. It now belongs to the edge. If your corpus writes the bracketed form on
+links, expect `status` and `corpus-index` to show **fewer** node claims and a new edge figure
+carrying the difference, and expect the node to leave `open-questions` and the edge to arrive in
+its own right. The bare form — `claim_tag: open` — was never counted anywhere and only gains.
+
+**`status` and `corpus-index` grow a second figure rather than a bigger one.** `claims` still
+counts a node's prose and its claim-typed properties; `edges` is the same three over its links.
+A corpus-wide total is the two added, and nothing adds them for you: an edge is in no node's text
+and belongs to two nodes at once, so one merged number would answer about a denominator nobody
+chose. The `edges` segment and the `Edges` column are rendered only where some edge is tagged, so
+`yidam regen --check` stays green in a repository that has not made the distinction.
+
+**An open edge is its own entry in `open-questions`, not a promotion of the node.** It is
+listed under the node's label with the triple beside it, and the link still points at the node,
+because that is the file it is written in. The JSON gains `scope` — `node` or `edge` — on every
+entry, and `relationship` and `target` on the edge ones.
+
+**MCP contract 0.20.0 → 0.21.0.** `claims` serves edge claims with `scope: edge`;
+`open_questions` gains the edge arm and `scope` on every entry. A server built against 0.20.0
+still answers every call — the additions are new fields and new entries — but it under-reports a
+corpus that tags edges, in exactly the way the CLI did before this.
+
 ### An edge may say what it rests on, and a `verified` one is asked for a source
 
 A link could always be written with extra keys and nothing read them. `claim_tag:` and `source:`

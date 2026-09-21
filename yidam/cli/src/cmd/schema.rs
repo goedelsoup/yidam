@@ -39,7 +39,9 @@ fn claim_standing() -> Value {
         "description": "An evidence standing: `verified`, `inference` or `open` — bare, \
                         bracketed, or bracketed with a detail that narrows what is \
                         asserted. `yidam lint` grades the value with the same reader that \
-                        grades a node's `type: claim` property."
+                        grades a node's `type: claim` property, and the reports read it — a \
+                        tagged edge is counted by `status` and `corpus-index` and served by \
+                        the MCP `claims` and `open_questions` tools."
     });
     json!({
         "anyOf": [one, { "type": "array", "minItems": 1, "items": one }]

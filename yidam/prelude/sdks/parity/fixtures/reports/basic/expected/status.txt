@@ -1,2 +1,2 @@
-**4 nodes** · 3 open · 2 sources · claims 1v / 1i / 2o · index not initialized · genesis 2026-01-01
+**4 nodes** · 3 open · 2 sources · claims 1v / 1i / 2o · edges 0v / 1i / 1o · index not initialized · genesis 2026-01-01
   updated <ROOT>/README.md

@@ -693,19 +693,42 @@ fn list_nodes(state: &ServerState, args: &Value) -> Value {
     json!({"nodes": nodes})
 }
 
+/// Every open question the corpus holds — the node ones, and the edges (#857).
+///
+/// **An open edge is a question in its own right and is listed as one.** Folding it into the
+/// node that authors it was the alternative, and it answers the wrong question: a node may
+/// author a dozen edges, and *this node has an open question somewhere* does not tell a reader
+/// which assertion is unsettled. The triple is the label, because the triple is the statement —
+/// `agent-conduct.md` says so in as many words.
+///
+/// `scope` is on every entry, node and edge alike, so a consumer tells them apart by reading a
+/// field rather than by noticing that `relationship` is absent.
 fn open_questions(state: &ServerState) -> Value {
-    let questions: Vec<Value> = state
-        .nodes
-        .iter()
-        .filter(|n| is_open_question(state, n))
-        .map(|n| {
-            json!({
+    let mut questions: Vec<Value> = Vec::new();
+    for n in &state.nodes {
+        let path = format!(".yidam/corpus/{}.yml", n.id);
+        if is_open_question(state, n) {
+            questions.push(json!({
                 "id": n.id,
                 "label": n.label,
-                "path": format!(".yidam/corpus/{}.yml", n.id),
-            })
-        })
-        .collect();
+                "path": path,
+                "scope": "node",
+            }));
+        }
+        for claim in crate::claims::edge_claims(&n.content) {
+            if claim.standing != "open" {
+                continue;
+            }
+            questions.push(json!({
+                "id": n.id,
+                "label": claim.text,
+                "path": path,
+                "scope": "edge",
+                "relationship": claim.relationship,
+                "target": claim.target,
+            }));
+        }
+    }
     json!({"open_questions": questions})
 }
 
@@ -741,7 +764,10 @@ fn claims(state: &ServerState, args: &Value) -> Value {
             continue;
         }
         let fields = state.claim_fields.for_class(&node.class);
-        for claim in crate::claims::claims_in_node(&node.content, fields) {
+        let node_and_edge = crate::claims::claims_in_node(&node.content, fields)
+            .into_iter()
+            .chain(crate::claims::edge_claims(&node.content));
+        for claim in node_and_edge {
             if want_standing.is_some_and(|s| s != claim.standing) {
                 continue;
             }
@@ -749,9 +775,15 @@ fn claims(state: &ServerState, args: &Value) -> Value {
                 // A node-scoped standing has no sentence of its own — the subject is the
                 // node, so the node is what a reader needs to see. `property` says where
                 // the standing came from either way.
+                //
+                // An edge's is the triple, which `agent-conduct.md` already treats as a
+                // sentence: `a →[requires]→ b` asserts that a requires b as flatly as one
+                // would. `relationship` and `target` carry the halves for a consumer that
+                // wants the graph rather than the prose.
                 "text": match claim.scope {
                     crate::claims::ClaimScope::Node => node.label.clone(),
-                    crate::claims::ClaimScope::Statement => claim.text.clone(),
+                    crate::claims::ClaimScope::Statement
+                    | crate::claims::ClaimScope::Edge => claim.text.clone(),
                 },
                 "standing": claim.standing,
                 // The scope the tag carries, when it carries one — `as proposed`, `for the
@@ -761,6 +793,8 @@ fn claims(state: &ServerState, args: &Value) -> Value {
                 "qualifier": claim.qualifier,
                 "scope": claim.scope,
                 "property": claim.property,
+                "relationship": claim.relationship,
+                "target": claim.target,
                 "node": node.id,
                 "class": node.class,
                 "sources": state.citations.get(&node.id).cloned().unwrap_or_default(),

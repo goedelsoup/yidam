@@ -5,6 +5,11 @@ description: >-
   cited, and no link here resolves to the catalog entry of that name.
 properties:
   station: "03274000"
+# The tagged edge (#857). Its standing is the EDGE's and is reported apart from the node's:
+# `status` and `corpus-index` grow a second figure rather than a larger one, and this node's
+# `claims_*` are unchanged by it. `inference` and not `verified`, so the fixture exercises the
+# reading without also owing `edge-verified-unsourced` a `source:`.
 links:
   - target: ../concept/low-flow.yml
     relationship: measured-by
+    claim_tag: inference

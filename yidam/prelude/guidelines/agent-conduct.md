@@ -153,6 +153,15 @@ arriving in a corpus that never agreed to it. The two keys are separate on purpo
 verbs that are bookkeeping is a fact about a vocabulary, and recording it must not switch a gate
 on as a side effect.
 
+**And the tag is read, not only graded.** `open-questions`, `status`, `corpus-index` and the MCP
+`claims` and `open_questions` tools all see a tagged edge, exactly as the section below promises
+for a node's declared field. An edge tagged `open` is an open question in its own right, listed
+beside the node ones and addressed by its triple, because the triple is what it asserted. The
+counts are reported **beside** the node ones rather than added to them: a node's claims are
+measured over its text, an edge is in no node's text, and one figure over two denominators
+answers a question nobody asked. The structural exemption above is an exemption from being
+*asked* for a standing — an edge that writes one is read on it either way.
+
 ### A tag may be a field rather than a sentence
 
 Inline tags are the default and stay the default: a claim is usually a sentence, and the tag

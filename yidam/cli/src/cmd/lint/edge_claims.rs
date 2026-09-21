@@ -92,18 +92,10 @@ enum Standing {
 /// admits a qualified tag — `[verified — as proposed]` — as the standing it names. An edge's
 /// field is graded by exactly the rule a node's field is.
 fn standing_of(value: Option<&serde_yaml::Value>) -> Standing {
-    let scalars: Vec<String> = match value {
-        None | Some(serde_yaml::Value::Null) => return Standing::Absent,
-        Some(serde_yaml::Value::Sequence(items)) => items
-            .iter()
-            .map(|v| v.as_str().map(str::to_string).unwrap_or_default())
-            .collect(),
-        Some(v) => vec![v.as_str().map(str::to_string).unwrap_or_default()],
-    };
-    let written: Vec<String> = scalars
-        .into_iter()
-        .filter(|s| !s.trim().is_empty())
-        .collect();
+    // Extraction is [`crate::claims::link_tag_spellings`] — the same one the reporting
+    // surfaces read through (#857). Two extractions is how a finding that says *untagged* and
+    // a tally that counts the tag come to describe one edge two ways.
+    let written = crate::claims::link_tag_spellings(value);
     if written.is_empty() {
         return Standing::Absent;
     }

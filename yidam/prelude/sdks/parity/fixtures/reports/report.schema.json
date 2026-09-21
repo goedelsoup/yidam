@@ -633,6 +633,18 @@
             "type": "integer",
             "description": "`corpus-index` only."
           },
+          "edge_claims_verified": {
+            "type": "integer",
+            "description": "`corpus-index` only. The same three over the node's **edges** — its links' `claim_tag` (#857). BESIDE the node counts and never folded into them: a node's claims are measured over its text, an edge is in no node's text and belongs to two nodes at once, so one merged figure would answer about a denominator nobody chose. A consumer wanting the corpus-wide total adds the two. NOT required: a CLI released before this field emits a measurement without it, and its output must still validate."
+          },
+          "edge_claims_inference": {
+            "type": "integer",
+            "description": "`corpus-index` only. The same three over the node's **edges** — its links' `claim_tag` (#857). BESIDE the node counts and never folded into them: a node's claims are measured over its text, an edge is in no node's text and belongs to two nodes at once, so one merged figure would answer about a denominator nobody chose. A consumer wanting the corpus-wide total adds the two. NOT required: a CLI released before this field emits a measurement without it, and its output must still validate."
+          },
+          "edge_claims_open": {
+            "type": "integer",
+            "description": "`corpus-index` only. The same three over the node's **edges** — its links' `claim_tag` (#857). BESIDE the node counts and never folded into them: a node's claims are measured over its text, an edge is in no node's text and belongs to two nodes at once, so one merged figure would answer about a denominator nobody chose. A consumer wanting the corpus-wide total adds the two. NOT required: a CLI released before this field emits a measurement without it, and its output must still validate."
+          },
           "lines": {
             "type": "integer",
             "description": "`corpus-index` only. Length of the node file."
@@ -659,7 +671,23 @@
           },
           "label": {
             "type": "string",
-            "description": "The node's label, which for a `?`-titled node is the question itself."
+            "description": "The node's label, which for a `?`-titled node is the question itself. For a `scope: edge` entry it is still the NODE's label, because the node is the file a reader opens; `relationship` and `target` say which of its edges asked."
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "node",
+              "edge"
+            ],
+            "description": "Which asked it (#857). An edge tagged `open` is an open question in its own right and is listed as one rather than promoting the node that authors it \u2014 a node may author a dozen edges, and an entry saying only that something under it is unsettled sends the reader looking. On EVERY entry, node and edge alike, so the two are told apart by reading a field rather than by noticing that `relationship` is absent. NOT required: a CLI released before this field emits node entries without it, and its output must still validate."
+          },
+          "relationship": {
+            "type": "string",
+            "description": "`scope: edge` only. The relationship the open edge asserts."
+          },
+          "target": {
+            "type": "string",
+            "description": "`scope: edge` only. The edge's target, exactly as the node wrote it, so a consumer can find it in the file."
           }
         }
       }
@@ -1060,6 +1088,18 @@
     "claims_open": {
       "type": "integer",
       "description": "`status` only."
+    },
+    "edge_claims_verified": {
+      "type": "integer",
+      "description": "`status` only. The same three over the node's **edges** — its links' `claim_tag` (#857). BESIDE the node counts and never folded into them: a node's claims are measured over its text, an edge is in no node's text and belongs to two nodes at once, so one merged figure would answer about a denominator nobody chose. A consumer wanting the corpus-wide total adds the two. NOT required: a CLI released before this field emits a measurement without it, and its output must still validate."
+    },
+    "edge_claims_inference": {
+      "type": "integer",
+      "description": "`status` only. The same three over the node's **edges** — its links' `claim_tag` (#857). BESIDE the node counts and never folded into them: a node's claims are measured over its text, an edge is in no node's text and belongs to two nodes at once, so one merged figure would answer about a denominator nobody chose. A consumer wanting the corpus-wide total adds the two. NOT required: a CLI released before this field emits a measurement without it, and its output must still validate."
+    },
+    "edge_claims_open": {
+      "type": "integer",
+      "description": "`status` only. The same three over the node's **edges** — its links' `claim_tag` (#857). BESIDE the node counts and never folded into them: a node's claims are measured over its text, an edge is in no node's text and belongs to two nodes at once, so one merged figure would answer about a denominator nobody chose. A consumer wanting the corpus-wide total adds the two. NOT required: a CLI released before this field emits a measurement without it, and its output must still validate."
     },
     "meta_present": {
       "type": "boolean",

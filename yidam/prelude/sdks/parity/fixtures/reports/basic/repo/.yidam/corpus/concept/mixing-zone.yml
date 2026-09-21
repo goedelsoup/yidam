@@ -8,6 +8,10 @@ description: >-
 # concept, and its satisfied arm belongs in a golden too. See the README.
 properties:
   datum: navd88
+# An edge tagged `open` is an open question in its own right, listed beside the node ones and
+# not folded into the node that authors it (#857). This node is already open by its label, so
+# the golden shows the two entries side by side and proves they are counted separately.
 links:
   - target: ../concept/low-flow.yml
     relationship: relates-to
+    claim_tag: "[open]"

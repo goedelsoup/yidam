@@ -40,14 +40,42 @@ pub(crate) fn render_corpus_index(link_prefix: &str, corpus: &Path) -> String {
     }
     // `Claims` is verified / inference / open. It tells a reader how much of a node is
     // measured against how much is supposed, without opening the file.
-    let mut rows = vec![
-        "| Instance | Class | Label | Links out | Claims | Lines |".to_string(),
-        "|---|---|---|---|---|---|".to_string(),
-    ];
-    for path in &instances {
-        let text = std::fs::read_to_string(path).unwrap_or_default();
-        let claims = crate::claims::count_in_source(&text).cell();
-        let inst = crate::parse::parse_instance(&text);
+    //
+    // `Edges` is the same three over the node's links (#857), and it is a **column that
+    // appears only where some node tags an edge**. Two figures rather than one because the
+    // denominators differ — a node's claims are measured over its text, and an edge is in no
+    // node's text — and hidden when empty because this table is committed and gated: a
+    // permanent `—` column would redden `yidam regen --check` in every derived repository on
+    // upgrade, over a distinction none of them had made.
+    let read: Vec<(std::path::PathBuf, String)> = instances
+        .iter()
+        .map(|p| (p.clone(), std::fs::read_to_string(p).unwrap_or_default()))
+        .collect();
+    let with_edges = read
+        .iter()
+        .any(|(_, text)| crate::claims::count_in_edges(text).total() > 0);
+    let (head, rule) = if with_edges {
+        (
+            "| Instance | Class | Label | Links out | Claims | Edges | Lines |",
+            "|---|---|---|---|---|---|---|",
+        )
+    } else {
+        (
+            "| Instance | Class | Label | Links out | Claims | Lines |",
+            "|---|---|---|---|---|---|",
+        )
+    };
+    let mut rows = vec![head.to_string(), rule.to_string()];
+    for (path, text) in &read {
+        // Masked, like every other node-scoped reading: a link that wrote `claim_tag:
+        // "[open]"` is visible to the byte scan and is the edge's claim, not the node's.
+        let claims = crate::claims::count_in_source(&crate::claims::mask_links(text)).cell();
+        let edges = if with_edges {
+            format!(" {} |", crate::claims::count_in_edges(text).cell())
+        } else {
+            String::new()
+        };
+        let inst = crate::parse::parse_instance(text);
         let class = inst.class.unwrap_or_else(|| "—".to_string());
         let label = inst.label.unwrap_or_else(|| "—".to_string());
         let links = inst.links.unwrap_or_default().len();
@@ -55,7 +83,8 @@ pub(crate) fn render_corpus_index(link_prefix: &str, corpus: &Path) -> String {
         let rel = path.strip_prefix(corpus).unwrap_or(path);
         let filename = path.file_name().unwrap_or_default().to_string_lossy();
         rows.push(format!(
-            "| [{filename}]({link_prefix}{}) | {class} | {label} | {links} | {claims} | {lines} |",
+            "| [{filename}]({link_prefix}{}) | {class} | {label} | {links} | {claims} |{edges} \
+             {lines} |",
             slash_path(rel)
         ));
     }
@@ -77,9 +106,24 @@ pub(crate) fn render_open_questions(root: &Path, corpus: &Path) -> String {
         let inst = crate::parse::parse_instance(&text);
         let label = inst.label.clone().unwrap_or_default();
         let class = inst.class.clone().unwrap_or_default();
+        let rel = path.strip_prefix(root).unwrap_or(path);
         if crate::claims::is_open_question(&label, &text, fields.for_class(&class)) {
-            let rel = path.strip_prefix(root).unwrap_or(path);
             items.push(format!("- [{label}]({})", slash_path(rel)));
+        }
+        // An edge tagged `open` is a question in its own right (#857), and it is listed as
+        // one rather than promoting the node that authors it: a node may author a dozen
+        // edges, and a line that said only *this node has something open* would send the
+        // reader to find out which. The link still points at the node, because that is the
+        // file the edge is written in.
+        for claim in crate::claims::edge_claims(&text) {
+            if claim.standing != "open" {
+                continue;
+            }
+            items.push(format!(
+                "- [{label}]({}) — `{}`",
+                slash_path(rel),
+                claim.text
+            ));
         }
     }
     if items.is_empty() {
@@ -348,6 +392,15 @@ pub struct IndexRow {
     pub claims_verified: usize,
     pub claims_inference: usize,
     pub claims_open: usize,
+    /// The same three over the node's **edges** (#857) — its links' `claim_tag`.
+    ///
+    /// Three more fields rather than three larger ones: a consumer that adds them gets the
+    /// corpus-wide total, and one that does not keeps the number it has been reading. Folding
+    /// them in would have moved every derived repository's figures to describe a denominator
+    /// nobody asked for.
+    pub edge_claims_verified: usize,
+    pub edge_claims_inference: usize,
+    pub edge_claims_open: usize,
     pub lines: usize,
 }
 
@@ -370,6 +423,7 @@ pub(crate) fn corpus_index_data(root: &Path, corpus: &Path) -> CorpusIndexReport
                 &text,
                 fields.for_class(inst.class.as_deref().unwrap_or_default()),
             );
+            let edges = crate::claims::count_in_edges(&text);
             let rel = path.strip_prefix(corpus).unwrap_or(path);
             IndexRow {
                 node: slash_path(rel),
@@ -379,6 +433,9 @@ pub(crate) fn corpus_index_data(root: &Path, corpus: &Path) -> CorpusIndexReport
                 claims_verified: claims.verified,
                 claims_inference: claims.inference,
                 claims_open: claims.open,
+                edge_claims_verified: edges.verified,
+                edge_claims_inference: edges.inference,
+                edge_claims_open: edges.open,
                 lines: line_count(path),
             }
         })
@@ -393,6 +450,16 @@ pub(crate) fn corpus_index_data(root: &Path, corpus: &Path) -> CorpusIndexReport
 pub struct OpenQuestion {
     pub node: String,
     pub label: String,
+    /// `node` or `edge` — which of the two asked it (#857).
+    ///
+    /// On every entry rather than only the new ones, so a consumer tells the two apart by
+    /// reading a field rather than by noticing that `relationship` is missing.
+    pub scope: &'static str,
+    /// The edge's relationship and target, for a `scope: edge` question. `None` for a node's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relationship: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -402,23 +469,37 @@ pub struct OpenQuestionsReport {
 
 pub(crate) fn open_questions_data(root: &Path, corpus: &Path) -> OpenQuestionsReport {
     let fields = crate::claims::ClaimFields::load(corpus);
-    let open_questions = walk_corpus_instances(corpus)
-        .iter()
-        .filter_map(|path| {
-            let text = std::fs::read_to_string(path).unwrap_or_default();
-            let inst = crate::parse::parse_instance(&text);
-            let label = inst.label.clone().unwrap_or_default();
-            let class = inst.class.clone().unwrap_or_default();
-            if !crate::claims::is_open_question(&label, &text, fields.for_class(&class)) {
-                return None;
-            }
-            let rel = path.strip_prefix(root).unwrap_or(path);
-            Some(OpenQuestion {
+    let mut open_questions = Vec::new();
+    for path in walk_corpus_instances(corpus).iter() {
+        let text = std::fs::read_to_string(path).unwrap_or_default();
+        let inst = crate::parse::parse_instance(&text);
+        let label = inst.label.clone().unwrap_or_default();
+        let class = inst.class.clone().unwrap_or_default();
+        let rel = path.strip_prefix(root).unwrap_or(path);
+        if crate::claims::is_open_question(&label, &text, fields.for_class(&class)) {
+            open_questions.push(OpenQuestion {
                 node: slash_path(rel),
-                label,
-            })
-        })
-        .collect();
+                label: label.clone(),
+                scope: "node",
+                relationship: None,
+                target: None,
+            });
+        }
+        // See [`render_open_questions`]: the edge is the subject, and the triple is what it
+        // asserted. The label stays the node's, because that is where the reader opens.
+        for claim in crate::claims::edge_claims(&text) {
+            if claim.standing != "open" {
+                continue;
+            }
+            open_questions.push(OpenQuestion {
+                node: slash_path(rel),
+                label: label.clone(),
+                scope: "edge",
+                relationship: claim.relationship,
+                target: claim.target,
+            });
+        }
+    }
     OpenQuestionsReport { open_questions }
 }
 

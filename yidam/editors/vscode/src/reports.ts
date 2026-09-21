@@ -133,6 +133,14 @@ export interface StatusReport extends Envelope {
   claims_verified: number
   claims_inference: number
   claims_open: number
+  /**
+   * The same three over the corpus's edges (#857). Beside the node counts and never added to
+   * them — a consumer wanting the corpus-wide total adds the two itself. Optional, because a
+   * pinned binary older than the fields omits them.
+   */
+  edge_claims_verified?: number
+  edge_claims_inference?: number
+  edge_claims_open?: number
   index_present: boolean
   active_phases: number
   genesis: string
@@ -146,6 +154,14 @@ export interface IndexRow {
   claims_verified: number
   claims_inference: number
   claims_open: number
+  /**
+   * The same three over the node's edges — its links' `claim_tag` (#857). Beside the node
+   * counts and never folded into them: a node's claims are measured over its text, and an edge
+   * is in no node's text. Optional, because a pinned binary older than the fields omits them.
+   */
+  edge_claims_verified?: number
+  edge_claims_inference?: number
+  edge_claims_open?: number
   lines: number
 }
 
@@ -154,7 +170,23 @@ export interface CorpusIndexReport extends Envelope {
 }
 
 export interface OpenQuestionsReport extends Envelope {
-  open_questions: { node: string; label: string }[]
+  open_questions: {
+    node: string
+    label: string
+    /**
+     * `node` or `edge` — which of the two asked it (#857). An edge tagged `open` is listed in
+     * its own right beside the node ones, so two entries may name the same `node` path and a
+     * view that deduplicated by path would drop one.
+     *
+     * Optional because a pinned binary older than the field omits it, for the same reason
+     * `PhasesReport.state` is.
+     */
+    scope?: string
+    /** `scope: 'edge'` only: the relationship the open edge asserts. */
+    relationship?: string
+    /** `scope: 'edge'` only: the target, exactly as the node wrote it. */
+    target?: string
+  }[]
 }
 
 export interface PhasesReport extends Envelope {
