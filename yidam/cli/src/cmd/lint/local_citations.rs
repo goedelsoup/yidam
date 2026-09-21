@@ -130,8 +130,13 @@ fn key_of(node: &str) -> String {
     t.strip_suffix(".yml").unwrap_or(t).to_string()
 }
 
-/// The three standings, weakest first. `[open]` rests on nothing, `[verified]` on evidence.
-const WEAKEST_FIRST: [&str; 3] = ["open", "inference", "verified"];
+/// The three standings, weakest first — [`crate::claims::WEAKEST_FIRST`].
+///
+/// Aliased rather than restated. This ordering was declared here, where the first comparison of
+/// two standings landed; #858's comparison of an edge's standing to its endpoints' is in a
+/// different module, and an ordering with two homes is how two checks come to disagree about
+/// which way is up.
+use crate::claims::WEAKEST_FIRST;
 
 /// The bare standing a `tag:` value spells, or `None` when it spells none.
 ///
@@ -166,7 +171,7 @@ fn governing(text: &str, span: &str, fields: &[String]) -> Option<&'static str> 
         if !statement.contains(&needle) && !needle.contains(&statement) {
             continue;
         }
-        let rank = |s: &str| WEAKEST_FIRST.iter().position(|w| *w == s).unwrap_or(0);
+        let rank = crate::claims::standing_rank;
         found = Some(match found {
             Some(prev) if rank(prev) <= rank(claim.standing) => prev,
             _ => WEAKEST_FIRST

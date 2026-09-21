@@ -777,7 +777,7 @@ constitutional finding with a stated ground, not a scoping convenience.
 
 1. **RFC-0020, for findings:** a proposal is legal iff it carries what a finding or a corpus
    declaration already said — `transport`'s licence
-   ([`GRAPH.md:689-690`](../../yidam/prelude/GRAPH.md#L689-L690)): *carriage and not synthesis,
+   ([`GRAPH.md:706-707`](../../yidam/prelude/GRAPH.md#L706-L707)): *carriage and not synthesis,
    which is what makes it legal outside a resolution event*, because carrying introduces no
    node, edge or claim its author did not hold.
 2. **RFC-0026, for executions:** a run authors operational commits directly; every epistemic

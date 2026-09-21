@@ -440,8 +440,11 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     let [local_unresolved, local_span_drift, local_tag_drift, local_untagged] =
         local_citations::checks(&nodes, &claim_fields);
     // The graph's own half of the same discipline (#587): an edge is a claim written as
-    // structure, and these are the two checks that ask it what it rests on.
-    let [edge_untagged, edge_verified_unsourced] = edge_claims::checks(&nodes, &universal);
+    // structure, and these are the checks that ask it what it rests on. The third compares
+    // that standing to the ones its own endpoints declare (#858), which is why the claim
+    // fields go in — a node's standing is a property its class declared `type: claim`.
+    let [edge_untagged, edge_verified_unsourced, edge_standing_unheld] =
+        edge_claims::checks(&nodes, &universal, &claim_fields);
     let [scope_unheld, scope_unverifiable] = scope::checks(&scope_audits);
     let [baseline_unmet, baseline_undeclared, holds_unadopted] = lineage::checks(&standings);
 
@@ -476,6 +479,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::edge_target_class(&nodes, &classes),
         edge_untagged,
         edge_verified_unsourced,
+        edge_standing_unheld,
         unresolved,
         span_drift,
         pin_moved,

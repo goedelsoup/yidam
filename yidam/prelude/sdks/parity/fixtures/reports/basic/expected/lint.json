@@ -169,6 +169,24 @@
       "violations": []
     },
     {
+      "id": "edge-standing-unheld",
+      "title": "An edge asserts a standing its own endpoints do not hold",
+      "severity": "warn",
+      "rationale": "The graph half of `local-citation-tag-drift`: a citation resting on `[verified]` over a paragraph this corpus tags `[inference]` asserts something its own corpus denies, and an edge asserting `verified` between two nodes this corpus grades `[open]` does the same thing in the form a reader is least likely to check. A node's standing here is a property its class declared `type: claim` — the node's own grade, not the weakest marker in its prose, because a synthesis node carries all three tags by design. A node that declares none is compared to nothing. One-directional, like every check in this family: an `open` edge between two `verified` nodes is not a defect, it is a corpus saying it knows both things and not that they are related, which is what the vocabulary is for. The endpoint compared against is the weaker of the two ends, and the edge's own standing is the strongest it spells. Warn, and this one cannot be Error. Every other contradiction check here gates on the ground that its population is empty by construction; this one's is not, because a corpus can adopt edge tags on a graph whose nodes were graded years earlier and inherit findings it did not create. Which of the two sides is wrong is the author's judgement and nothing here proposes an answer.",
+      "escalation_eligible": false,
+      "violations": [
+        {
+          "node": ".yidam/corpus/gauge/riffle-station.yml",
+          "detail": "`measured-by` → `../concept/low-flow.yml` asserts `[inference]` and `.yidam/corpus/concept/low-flow.yml` declares `[open]` — the edge claims more about the relationship than this corpus claims about what it relates. Demote the edge, or promote the node and say why",
+          "severity": "warn",
+          "in_baseline": false,
+          "span": {
+            "line": 14
+          }
+        }
+      ]
+    },
+    {
       "id": "external-citation-unresolved",
       "title": "Citation into a dependency that is not there",
       "severity": "error",

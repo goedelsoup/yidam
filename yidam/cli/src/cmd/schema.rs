@@ -380,9 +380,10 @@ pub fn corpus_universal_schema() -> Value {
                                         written before the field existed tags no edges, so \
                                         a default of true would open with one finding per \
                                         edge in the graph. `edge-untagged` runs only where \
-                                        this is true; `edge-verified-unsourced` needs no \
-                                        declaration, because an edge that wrote `verified` \
-                                        opted in by writing it."
+                                        this is true; `edge-verified-unsourced` and \
+                                        `edge-standing-unheld` need no declaration, because \
+                                        an edge that wrote a standing opted in by writing \
+                                        it."
                     },
                     "structural": {
                         "type": "array",
@@ -392,7 +393,11 @@ pub fn corpus_universal_schema() -> Value {
                                         and are exempt from tagging. A separate key from \
                                         `required:` on purpose: recording which verbs are \
                                         bookkeeping is a fact about the vocabulary, and it \
-                                        must not switch a gate on as a side effect."
+                                        must not switch a gate on as a side effect. An \
+                                        exemption is from being *asked* for a standing: an \
+                                        edge here that writes one is still read on it, by \
+                                        `edge-verified-unsourced` and \
+                                        `edge-standing-unheld` both."
                     }
                 },
                 "additionalProperties": false

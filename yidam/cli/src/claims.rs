@@ -686,11 +686,8 @@ pub fn edge_claims(text: &str) -> Vec<ServedClaim> {
             let Some(parsed) = parse_tag(&spelling) else {
                 continue;
             };
-            let standing = match parsed.standing {
-                VERIFIED => "verified",
-                INFERENCE => "inference",
-                OPEN => "open",
-                _ => continue,
+            let Some(standing) = bare_standing(parsed.standing) else {
+                continue;
             };
             out.push(ServedClaim {
                 text: edge_statement(link),
@@ -722,6 +719,75 @@ pub fn count_in_edges(text: &str) -> ClaimCounts {
         }
     }
     counts
+}
+
+/// The three standings, weakest first. `[open]` rests on nothing, `[verified]` on evidence.
+///
+/// **One ordering, named once.** Weakest-first is not a presentation choice — it is the
+/// direction `agent-conduct.md` computes a derived assertion's tier in, and every comparison of
+/// two standings in this repository has to agree about which way is up. It was private to
+/// `lint/local_citations`, which is where the first such comparison landed; the second one
+/// (#858) is in a different module, and two copies of an ordering is how two checks come to
+/// disagree about whether `inference` outranks `open`.
+pub const WEAKEST_FIRST: [&str; 3] = ["open", "inference", "verified"];
+
+/// How strong a bare standing is: `0` for the weakest, `2` for `verified`.
+///
+/// A spelling that is no standing ranks weakest rather than panicking. Nothing reaches here
+/// with one — [`parse_tag`] is the gate — and ranking an unknown as the strongest is the one
+/// failure that would let a check flatter an edge.
+#[must_use]
+pub fn standing_rank(standing: &str) -> usize {
+    WEAKEST_FIRST
+        .iter()
+        .position(|w| *w == standing)
+        .unwrap_or(0)
+}
+
+/// The bare spelling of a bracketed standing: `[verified]` → `verified`.
+///
+/// [`parse_tag`] answers in the bracketed constants a prose scan works in, and a
+/// [`ServedClaim`] carries the bare word. The conversion was written inline at each place that
+/// crosses that line, and #858's comparison of an edge's standing to its endpoints' needed it at
+/// one more — so it is one function, and the two served-claim builders read it too.
+#[must_use]
+pub fn bare_standing(standing: &str) -> Option<&'static str> {
+    match standing {
+        VERIFIED => Some("verified"),
+        INFERENCE => Some("inference"),
+        OPEN => Some("open"),
+        _ => None,
+    }
+}
+
+/// The standing a node declares **about itself**, or `None` where it declares none.
+///
+/// # A node's standing is not the weakest tag in it
+///
+/// This is the definition #858 had to settle before an edge's standing could be contradicted,
+/// and the obvious reading is wrong. [`count_in_node`] returns counts, not a verdict, and the
+/// weakest marker anywhere in a node's prose is not that node's grade: a synthesis node carries
+/// all three tags by design and is *meant* to, so reading its weakest would say every well-made
+/// node in the corpus is `[open]`. A rule like that reports a contradiction against the corpora
+/// that follow the guidelines most closely.
+///
+/// So the only reading that survives is the one the vocabulary already provides for exactly this
+/// purpose: a property the class declared `type: claim`, whose value *is* the node's standing.
+/// [`ClaimScope::Node`]'s own documentation says so — *the standing is the node's, not one
+/// sentence's*. A node that only tags prose has no standing under this definition and is
+/// compared to nothing, which is the honest answer rather than a gap.
+///
+/// Where a node declares several such properties the weakest of them is the node's standing.
+/// That is [`WEAKEST_FIRST`], for the reason a derived assertion's tier is computed that way:
+/// a node that says it has verified one thing about a subject and left another open has not
+/// verified the subject.
+#[must_use]
+pub fn node_standing(text: &str, fields: &[String]) -> Option<&'static str> {
+    claims_in_node(text, fields)
+        .into_iter()
+        .filter(|c| c.scope == ClaimScope::Node)
+        .map(|c| c.standing)
+        .min_by_key(|s| standing_rank(s))
 }
 
 /// Blank the top-level `links:` block, keeping every byte offset.
@@ -1307,12 +1373,7 @@ fn structural_claims(text: &str, fields: &[String]) -> Vec<ServedClaim> {
             // qualifier — `status: "[verified — as proposed]"` — keeps it. `tag_of` is that
             // function's standing half; reading the value twice would let the two disagree.
             let parsed = parse_tag(&value)?;
-            let standing = match parsed.standing {
-                VERIFIED => "verified",
-                INFERENCE => "inference",
-                OPEN => "open",
-                _ => return None,
-            };
+            let standing = bare_standing(parsed.standing)?;
             // Where the value sits in the raw bytes, so a bracketed one can be matched
             // against the prose pass's finding. `find` is enough: the value is a short
             // scalar and a false match would have to be the same string in the same file,

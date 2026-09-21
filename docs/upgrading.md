@@ -28,6 +28,30 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### An edge may no longer assert a standing its endpoints contradict
+
+`edge-standing-unheld` is a new `warn` (#858). It reports an edge asserting a standing **stronger**
+than one its own endpoints declare. `claim_tag: verified` between two nodes graded `[open]` claims
+more about the relation than the corpus claims about either end.
+
+**It reports in every corpus, with no declaration**, like `edge-verified-unsourced`. Writing the
+tag is the opt-in. A relationship listed under `structural:` is not exempt. Bookkeeping that
+asserts more than the nodes it files has stopped being bookkeeping.
+
+**A node's standing is a property its class declared `type: claim`.** Nothing else. Not the
+weakest marker in its prose. A synthesis node carries all three tags by design, so reading its
+weakest would grade your best-made nodes `[open]`. A corpus whose classes declare no claim-typed
+field therefore sees nothing here, however its edges are tagged.
+
+**It is one-directional.** An `open` edge between two `verified` nodes is never reported. Such a
+corpus knows both things and does not say they are related. That is the vocabulary working.
+
+**This check's population is not empty by construction, and it is the only one here.** That is why
+it is `warn`, and why it stays `warn`. Both sides of the comparison are opted into separately. So a
+corpus can adopt edge tags on nodes graded years earlier, and inherit findings it did not write.
+The repair is a demotion on the edge, or a promotion on the node with a reason. Nothing proposes
+the promotion for you. `yidam lint` reports more findings and `mise run ci` passes.
+
 ### An edge's standing is now counted and listed, and where it used to be counted it was the node's
 
 `claim_tag` on a link was graded by two lint checks and read by nothing else. `open-questions`,
