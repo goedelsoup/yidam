@@ -113,6 +113,46 @@ Prefer a weaker relationship you can defend to a stronger one you cannot. `relat
 two things that genuinely relate is worth more than `causes` between two things that might not,
 because the first is honest about how much it knows.
 
+**The tag belongs on the edge, and the link carries two keys for it.** Saying what an edge rests
+on *in the node body* was the only remedy this section could offer for as long as a link had
+nowhere to put one, and it puts the tag where nothing associates it with the edge it is about — a
+node whose description says in so many words that a `resided-in` edge is a legal inference, with
+the edge two lines below saying nothing at all. So a link may declare `claim_tag:`, read by the
+same rule a `type: claim` property is read by, and `source:` where the standing is `verified`:
+
+```yaml
+# person/aldermanic-clerk.yml
+links:
+  - target: ../place/ward-nine.yml
+    relationship: resided-in
+    claim_tag: inference       # the roster states an address, not a residence
+  - target: ../place/city-hall.yml
+    relationship: worked-at
+    claim_tag: verified
+    source: 1889-municipal-register
+```
+
+Two checks read them, and both are named in `GRAPH.md`. `edge-verified-unsourced` reports an
+edge asserting `verified` with no `source:` — the edge half of `verified-unsourced`, and it needs
+no declaration, because writing the tag is what opts an edge in. `edge-untagged` reports an
+empirical edge that declares no standing, or one whose `claim_tag` spells none, and it runs only
+where the corpus asked for it:
+
+```yaml
+# .yidam/corpus/universal.yml
+edge_claims:
+  required: true
+  structural:              # bookkeeping — these assert nothing, so nothing is asked of them
+    - instance-of
+    - concerns
+    - subject-of
+```
+
+Unconditionally that check would open with one finding per edge in the graph, which is a gate
+arriving in a corpus that never agreed to it. The two keys are separate on purpose: naming the
+verbs that are bookkeeping is a fact about a vocabulary, and recording it must not switch a gate
+on as a side effect.
+
 ### A tag may be a field rather than a sentence
 
 Inline tags are the default and stay the default: a claim is usually a sentence, and the tag

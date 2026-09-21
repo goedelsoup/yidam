@@ -15,6 +15,20 @@
 //! Between them these were 29 of that corpus's 29 `undeclared-property` findings — every
 //! one of which was the corpus working as designed.
 //!
+//! # The same file says which relationships assert something
+//!
+//! `edge_claims:` is the other thing a corpus knows about itself and cannot say per class. An
+//! edge is a claim written as structure (`guidelines/agent-conduct.md`, *An edge is a claim*),
+//! and a corpus that tags its edges has to name the relationships that are **bookkeeping** —
+//! `instance-of`, `concerns`, `subject-of` — because a tag on one of those would assert a
+//! standing about nothing. Those relationships are authored by many classes at once, so
+//! declaring them per class is the same sixteen copies of one decision the property list
+//! exists to avoid.
+//!
+//! The exemption list and the gate are **separate keys**, and that is deliberate. A corpus
+//! naming three structural verbs is exempting them; it is not asking to have every other edge
+//! in the corpus reported. `required: true` is the ask, written once and on purpose.
+//!
 //! # Not a way to stop declaring things
 //!
 //! This is deliberately *not* `property_policy: characteristic`, the property-side twin of
@@ -59,6 +73,39 @@ pub struct Universal {
     /// applies to every class, and declaring it per class would be sixteen copies of one
     /// decision with a seventeenth class silently missing it. See [`crate::prose`].
     prose: Vec<String>,
+    /// What the corpus has said about tagging its edges. See [`EdgeClaims`].
+    edge_claims: EdgeClaims,
+}
+
+/// What a corpus has said about the standing of its own edges (#587).
+///
+/// An edge is a claim written as structure, and until this existed the corpus's most
+/// load-bearing assertions were the only ones exempt from its own evidence discipline: a
+/// `claim_tag` on a link survived the parse and nothing read it.
+///
+/// **Two keys and not one**, because they answer two different questions. `structural:` says
+/// which relationships assert nothing about the world; `required:` says that everything else
+/// does and must name its standing. A corpus could want the first and not the second — the
+/// exemption is a fact about its vocabulary — and turning a gate on as a side effect of
+/// recording that fact is the shape this repository has rejected for `edges:` and for
+/// `properties:` both.
+#[derive(Default)]
+pub struct EdgeClaims {
+    /// Whether an edge outside [`Self::structural`] must carry `claim_tag`.
+    ///
+    /// **Absent means no, and the default cannot be otherwise.** Every corpus written before
+    /// the field existed tags none of its edges, so a default of `true` would open with one
+    /// finding per empirical edge — 1,270 of them in the repository that filed #587, and the
+    /// whole graph in one that has never heard of the practice. That is the gate arriving in
+    /// a corpus that never agreed to it, which is what `required:` on a class property and
+    /// `edge_policy:` on a class both exist to avoid.
+    required: bool,
+    /// Relationships that are bookkeeping rather than empirical — exempt from tagging.
+    ///
+    /// Held as written, compared as written: a relationship is already a token the ontology
+    /// declares and the instances spell, and normalizing here would be a second opinion about
+    /// what `unlicensed-edge` matches literally.
+    structural: Vec<String>,
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -67,6 +114,16 @@ struct File {
     properties: Vec<Declared>,
     #[serde(default)]
     prose: Vec<String>,
+    #[serde(default)]
+    edge_claims: DeclaredEdgeClaims,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct DeclaredEdgeClaims {
+    #[serde(default)]
+    required: bool,
+    #[serde(default)]
+    structural: Vec<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -88,6 +145,10 @@ impl Universal {
         Self {
             properties: Vec::new(),
             prose: Vec::new(),
+            edge_claims: EdgeClaims {
+                required: false,
+                structural: Vec::new(),
+            },
         }
     }
 
@@ -128,7 +189,35 @@ impl Universal {
                 .map(|k| k.trim().to_string())
                 .filter(|k| !k.is_empty())
                 .collect(),
+            edge_claims: EdgeClaims {
+                required: file.edge_claims.required,
+                structural: file
+                    .edge_claims
+                    .structural
+                    .into_iter()
+                    .map(|r| r.trim().to_string())
+                    .filter(|r| !r.is_empty())
+                    .collect(),
+            },
         }
+    }
+
+    /// Whether an edge outside the structural list must declare its standing.
+    pub fn edge_claims_required(&self) -> bool {
+        self.edge_claims.required
+    }
+
+    /// Whether this relationship is bookkeeping, and so asserts nothing to tag.
+    pub fn is_structural_relationship(&self, relationship: &str) -> bool {
+        self.edge_claims
+            .structural
+            .iter()
+            .any(|r| r == relationship)
+    }
+
+    /// The structural relationships, as declared — what the schema and the report echo back.
+    pub fn structural_relationships(&self) -> &[String] {
+        &self.edge_claims.structural
     }
 
     /// The top-level prose keys every class may carry.
@@ -168,13 +257,16 @@ impl Universal {
             .filter_map(|p| Some((p.pattern.as_ref()?.as_str(), p.r#type.as_str())))
     }
 
-    /// Whether the corpus declared nothing universal at all — properties or prose.
+    /// Whether the corpus declared nothing universal at all — properties, prose or edges.
     ///
-    /// Both axes, deliberately. A reader asking whether this file says anything is asking
+    /// Every axis, deliberately. A reader asking whether this file says anything is asking
     /// about the file, and answering from the property list alone would report a corpus that
-    /// declares only `prose:` as having declared nothing.
+    /// declares only `prose:` — or only `edge_claims:` — as having declared nothing.
     pub fn is_empty(&self) -> bool {
-        self.properties.is_empty() && self.prose.is_empty()
+        self.properties.is_empty()
+            && self.prose.is_empty()
+            && !self.edge_claims.required
+            && self.edge_claims.structural.is_empty()
     }
 }
 
@@ -249,5 +341,41 @@ properties:
     fn a_declaration_naming_neither_licenses_nothing() {
         let u = Universal::parse("properties:\n  - type: text\n    description: nothing\n");
         assert!(u.is_empty());
+    }
+
+    // ── edge claims (#587) ────────────────────────────────────────────────────
+
+    const TAGGED_EDGES: &str = "edge_claims:\n  required: true\n  structural:\n    - instance-of\n    - concerns\n    - subject-of\n";
+
+    #[test]
+    fn the_declared_structural_relationships_are_exempt_and_nothing_else_is() {
+        let u = Universal::parse(TAGGED_EDGES);
+        assert!(u.edge_claims_required());
+        for rel in ["instance-of", "concerns", "subject-of"] {
+            assert!(u.is_structural_relationship(rel), "{rel} is declared");
+        }
+        for rel in ["located-in", "within", "flows-into", "instance", "concern"] {
+            assert!(!u.is_structural_relationship(rel), "{rel} is not declared");
+        }
+        assert_eq!(u.structural_relationships().len(), 3);
+    }
+
+    /// The exemption list is a fact about the vocabulary; the gate is a separate ask. A
+    /// corpus recording the first must not find the second switched on.
+    #[test]
+    fn naming_structural_relationships_does_not_turn_the_gate_on() {
+        let u = Universal::parse("edge_claims:\n  structural:\n    - instance-of\n");
+        assert!(!u.edge_claims_required());
+        assert!(u.is_structural_relationship("instance-of"));
+        assert!(!u.is_empty(), "the file said something");
+    }
+
+    /// And the gate without a list is legal: a corpus whose every relationship is empirical
+    /// has nothing to exempt.
+    #[test]
+    fn the_gate_stands_alone_when_there_is_nothing_to_exempt() {
+        let u = Universal::parse("edge_claims:\n  required: true\n");
+        assert!(u.edge_claims_required());
+        assert!(u.structural_relationships().is_empty());
     }
 }

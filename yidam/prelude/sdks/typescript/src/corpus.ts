@@ -17,7 +17,7 @@ import YAML from 'yaml'
 export interface CorpusLink {
   target: string | null
   relationship: string | null
-  /** A standing, or a list of them. Carried, not interpreted — see #587. */
+  /** A standing, or a list of them. Carried here; graded by `edge-untagged` (#587). */
   claim_tag: unknown | null
   source: string | null
 }

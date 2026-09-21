@@ -53,10 +53,16 @@ use serde::{Deserialize, Serialize};
 
 /// One relationship, as the instance wrote it.
 ///
-/// `claim_tag` and `source` are **carried and not interpreted**. They are on a large share of
-/// the edges in every corpus measured and were being dropped on the floor by a struct that
-/// named neither; what reads them is #587's question, and a parser that discards them settles
-/// it by default in the one direction nobody argued for.
+/// `claim_tag` and `source` say what the edge rests on. An edge is a claim written as structure
+/// (`guidelines/agent-conduct.md`), and until #587 the graph a calculator actually walks held
+/// the only claims exempt from the corpus's own evidence discipline: the two keys were on a
+/// large share of the edges in every corpus measured and were being dropped on the floor by a
+/// struct that named neither.
+///
+/// **This parser still does not interpret them**, and that is the division of labour rather
+/// than a gap. `edge-untagged` and `edge-verified-unsourced` grade the values, through
+/// `claims::parse_tag` — the same reader that grades a node's `type: claim` property, so an
+/// edge's standing is not a second opinion about what the vocabulary admits.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct CorpusLink {
     pub target: Option<String>,

@@ -10,6 +10,7 @@ pub(crate) mod baseline;
 pub(crate) mod checks;
 pub(crate) mod citations;
 pub(crate) mod commits;
+pub(crate) mod edge_claims;
 pub(crate) mod history;
 pub mod json;
 pub(crate) mod line_citations;
@@ -438,6 +439,9 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     // subject in any measured corpus.
     let [local_unresolved, local_span_drift, local_tag_drift, local_untagged] =
         local_citations::checks(&nodes, &claim_fields);
+    // The graph's own half of the same discipline (#587): an edge is a claim written as
+    // structure, and these are the two checks that ask it what it rests on.
+    let [edge_untagged, edge_verified_unsourced] = edge_claims::checks(&nodes, &universal);
     let [scope_unheld, scope_unverifiable] = scope::checks(&scope_audits);
     let [baseline_unmet, baseline_undeclared, holds_unadopted] = lineage::checks(&standings);
 
@@ -470,6 +474,8 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::unimplemented_class(&classes, &types),
         checks::unlicensed_edge(&nodes, &classes),
         checks::edge_target_class(&nodes, &classes),
+        edge_untagged,
+        edge_verified_unsourced,
         unresolved,
         span_drift,
         pin_moved,

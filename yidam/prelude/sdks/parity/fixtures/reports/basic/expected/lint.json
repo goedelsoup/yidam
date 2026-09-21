@@ -153,6 +153,22 @@
       "violations": []
     },
     {
+      "id": "edge-untagged",
+      "title": "An empirical edge that does not say what it rests on",
+      "severity": "warn",
+      "rationale": "`agent-conduct.md`: *an edge is a claim written as structure*, asserted in the form a reader is least likely to check. The prose rules have applied to node bodies since the vocabulary existed and the graph — the part a traversal actually walks — was exempt from them. This asks an edge the same question: `claim_tag: verified`, `inference` or `open` on the link, beside `target` and `relationship`, or the honest third option the guidelines name, which is to leave the edge out. A value spelling no standing is reported separately from a missing one, because a typo in the field is a claim graded into somewhere nothing can read it. Runs only where `.yidam/corpus/universal.yml` declares `edge_claims: required: true`, and never on a relationship that file lists as `structural:` — `instance-of`, `concerns`, `subject-of` and whatever else a corpus's bookkeeping is spelled with. Unconditionally it would open with one finding per edge in the graph, which is a gate arriving in a corpus that never agreed to it. Warn, because which of the three standings an edge deserves is the author's judgement and nothing here proposes one.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "edge-verified-unsourced",
+      "title": "An edge asserted at `verified` that names no source",
+      "severity": "warn",
+      "rationale": "The edge half of `verified-unsourced`, and the same one-directional argument: over-counting evidence is the flattering error and it is the one the claim vocabulary exists to prevent. `verified` means supported by a committed primary source; an edge claiming it with no `source:` has claimed a standing it cannot demonstrate. The fix is a source or a demotion, and which of the two is the author's call — nothing here proposes a promotion, ever. This needs no declaration to switch on and gets none: its population is empty in a corpus that tags no edges, because writing `claim_tag: verified` is itself the declaration the check reads. So it cannot put a repository that predates it in debt, and it reports on an edge that asserted `verified` even where the corpus exempted that relationship from being asked — an exemption says the relationship is bookkeeping, and bookkeeping that claims to be verified has stopped being bookkeeping.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
       "id": "external-citation-unresolved",
       "title": "Citation into a dependency that is not there",
       "severity": "error",
