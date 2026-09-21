@@ -512,6 +512,10 @@ enum Command {
         /// decision nobody had made on purpose.
         #[arg(long)]
         no_catalog: bool,
+        /// Compose every record, write nothing, and report the metadata footprint a push
+        /// would carry — against the 40 KB per-vector and 2 KB filterable ceilings.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Build LanceDB vector index from embeddings and export Arrow IPC for the web shell
     #[command(name = "index-build")]
@@ -1119,8 +1123,12 @@ fn main() -> Result<()> {
                 yidam::run_export(root.as_deref(), format.unwrap(), out.as_deref(), &options)
             }
         }
-        Command::Embed { no_catalog } => yidam::embed(yidam::EmbedOptions {
+        Command::Embed {
+            no_catalog,
+            dry_run,
+        } => yidam::embed(yidam::EmbedOptions {
             catalog: !no_catalog,
+            dry_run,
         }),
         Command::IndexBuild { model } => {
             #[cfg(feature = "index")]

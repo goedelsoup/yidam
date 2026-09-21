@@ -517,7 +517,7 @@ disagree again, for the same reason and about a different fifth of the corpus:
   entire substance is a `properties.verbatim` transcription answers *no*.
 - `embed` composes a node's text from its label, its declared prose, and the names of the
   nodes it links to, and from nothing else — the composition is
-  [`embed.rs:85`](../../yidam/cli/src/cmd/embed.rs#L85). So `properties.method`'s 214 KB is in
+  [`embed.rs:111`](../../yidam/cli/src/cmd/embed.rs#L111). So `properties.method`'s 214 KB is in
   no embedding anywhere, and a query that would have matched it cannot.
 
 #### 4.1 The declaration already exists
