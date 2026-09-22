@@ -111,13 +111,22 @@ test('the design system travelled into the client bundle with it', () => {
   // bundled rather than externalised, tree-shaken to a shell, or resolved to the `.d.ts`.
   // If the design system renames either token this test goes red, which is correct: the
   // contents of the client bundle would have changed and somebody should look.
+  //
+  // Which chunk holds it is the bundler's call, not ours. While one island used `Input` it
+  // was inlined into `NodeTable.*.js`; the day a second island imported it (#607) Vite
+  // hoisted it into a shared chunk and this test went red on a bundle that was fine. So the
+  // assertion follows the island's static imports one hop: the component is in the island's
+  // chunk or in a chunk that chunk loads. Either way the browser downloads it.
   const island = chunks.find((c) => c.name.startsWith('NodeTable'))
   assert.ok(island, 'no island chunk to read')
+  const imported = [...island.text.matchAll(/from\s*"\.\/([^"]+)"/g)].map((m) => m[1])
+  const reachable = [island, ...chunks.filter((c) => imported.includes(c.name))]
   for (const marker of ['shadow-focus-gold', 'border-focus']) {
     assert.ok(
-      island.text.includes(marker),
-      `the island chunk does not contain \`${marker}\`, so the design system's Input is not ` +
-        'in it. The spike this file records was run against a bundle that had it.',
+      reachable.some((c) => c.text.includes(marker)),
+      `neither the island chunk nor a chunk it imports (${imported.join(', ')}) contains ` +
+        `\`${marker}\`, so the design system's Input is not in it. The spike this file ` +
+        'records was run against a bundle that had it.',
     )
   }
 })

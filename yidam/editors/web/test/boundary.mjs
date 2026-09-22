@@ -221,46 +221,71 @@ test('a report is parsed in exactly one place', () => {
   // second framing of the one contract, not a second contract; the payload it parses is
   // still bytes the binary printed. What it may not become is a place that parses a request
   // body — `dryRunOf` reads the query string for exactly that reason.
+  //
+  // `lsp.ts` is the fourth and the same rule again: JSON-RPC off `yidam serve --lsp`, framed
+  // by Content-Length rather than by newline. The overlay's `change` route takes a request
+  // body — the buffer — and reads it with `request.text()`, which is why the body is text and
+  // the addressing is on the query string: there is nothing in it to parse.
+  //
+  // `NodeForm.jsx` is the browser's side of that stream and the one island on the list: it
+  // reads what `sseEvent` serialised, the way `Propose.jsx` reads a route's `response.json()`.
+  // Neither is a report entering this process — they run in the page — and the gate's
+  // subject is the server. It is listed rather than exempted by directory so that a second
+  // island parsing something else has to say what.
   const ALLOWED = new Set([
     path.join('src', 'lib', 'cli.ts'),
     path.join('src', 'lib', 'handshake.ts'),
     path.join('src', 'lib', 'act.ts'),
+    path.join('src', 'lib', 'lsp.ts'),
+    path.join('src', 'islands', 'NodeForm.jsx'),
   ])
   const parsers = FILES.filter((f) => f.text.includes('JSON.parse')).map((f) => f.rel)
   for (const rel of parsers) {
     assert.ok(
       ALLOWED.has(rel),
-      `${rel} calls JSON.parse. Reports enter this process through spawnReport and spawnAct ` +
-        'and nowhere else.',
+      `${rel} calls JSON.parse. Reports enter this process through spawnReport, spawnAct ` +
+        'and LspClient, and nowhere else.',
     )
   }
   assert.ok(
-    parsers.length >= 3,
-    'expected cli.ts, handshake.ts and act.ts to parse — the scan has stopped seeing them',
+    parsers.length >= 4,
+    'expected cli.ts, handshake.ts, act.ts and lsp.ts to parse — the scan has stopped seeing them',
   )
 })
 
-test('the binary is spawned in exactly three places, and never as `yidam propose`', () => {
+test('the binary is spawned in exactly four places, and never as `yidam propose`', () => {
   // The act tier is reached through the MCP dispatch and nowhere else (RFC-0029 §2.2: *not a
   // second route into the tier*). Spawning `yidam propose` directly would skip the `[serve]
   // act = true` declaration, the identity refusal and the frozen refusal shape, all of which
-  // live behind `handle`. The cheapest place to hold that is the import: three files may
+  // live behind `handle`. The cheapest place to hold that is the import: four files may
   // reach `node:child_process`, and none of them may put `propose` on an argv.
+  //
+  // `lsp.ts` is the fourth since #607: the overlay is `yidam serve --lsp` held open across
+  // requests, and it is the only long-lived child this process has. A fifth spawner is a
+  // second overlay or a second act route, and either needs an argument here first.
   const ALLOWED = new Set([
     path.join('src', 'lib', 'cli.ts'),
     path.join('src', 'lib', 'binary.ts'),
     path.join('src', 'lib', 'act.ts'),
+    path.join('src', 'lib', 'lsp.ts'),
   ])
   const spawners = FILES.filter((f) =>
     specifiers(f.text).some((spec) => spec === 'node:child_process' || spec === 'child_process'),
   ).map((f) => f.rel)
   for (const rel of spawners) {
-    assert.ok(ALLOWED.has(rel), `${rel} imports child_process. The binary is spawned in three places.`)
+    assert.ok(ALLOWED.has(rel), `${rel} imports child_process. The binary is spawned in four places.`)
   }
   assert.equal(
     spawners.length,
-    3,
-    `expected cli.ts, binary.ts and act.ts to spawn — the scan sees ${spawners.join(', ')}`,
+    4,
+    `expected cli.ts, binary.ts, act.ts and lsp.ts to spawn — the scan sees ${spawners.join(', ')}`,
+  )
+
+  const lsp = FILES.find((f) => f.rel === path.join('src', 'lib', 'lsp.ts'))
+  assert.ok(lsp, 'src/lib/lsp.ts is not in the scan')
+  assert.ok(
+    lsp.text.includes("['serve', '--lsp']"),
+    'lsp.ts no longer spawns `yidam serve --lsp`; the overlay has a second source of verdicts',
   )
 
   const act = FILES.find((f) => f.rel === path.join('src', 'lib', 'act.ts'))
@@ -279,25 +304,33 @@ test('every verdict route goes through the spawn', () => {
   // A route under `src/pages/api/` that never mentions the spawn is a route serving something
   // this process made up.
   //
-  // Two spawns since #608, and a route names one of them: `reportRoute` for a report the
-  // binary printed, `actRoute` for an answer the binary's MCP dispatch gave. A route under
-  // `api/act/` that reached for `reportRoute` would be a read wearing a write's path, and one
-  // elsewhere that reached for `actRoute` would be a write with no method rule in front of
-  // it — so the two are held apart, not just counted.
+  // Three spawns since #607, and a route names one of them: `reportRoute` for a report the
+  // binary printed, `actRoute` for an answer the binary's MCP dispatch gave, and the two
+  // overlay helpers for what the LSP child published. A route under `api/act/` that reached
+  // for `reportRoute` would be a read wearing a write's path, and one elsewhere that reached
+  // for `actRoute` would be a write with no method rule in front of it — so the three are
+  // held apart by directory, not just counted.
   const routes = FILES.filter((f) => f.rel.startsWith(path.join('src', 'pages', 'api')))
-  assert.ok(routes.length >= 5, `found only ${routes.length} API routes`)
+  assert.ok(routes.length >= 7, `found only ${routes.length} API routes`)
   const ACT = path.join('src', 'pages', 'api', 'act')
+  const OVERLAY = path.join('src', 'pages', 'api', 'overlay')
   let actRoutes = 0
+  let overlayRoutes = 0
   for (const { rel, text } of routes) {
     const reads = text.includes('spawnReport') || text.includes('reportRoute')
     const acts = text.includes('spawnAct') || text.includes('actRoute')
-    assert.ok(reads || acts, `${rel} serves a payload that did not come from the binary.`)
+    const overlays = text.includes('overlayStream') || text.includes('overlayChange')
+    assert.ok(reads || acts || overlays, `${rel} serves a payload that did not come from the binary.`)
     if (rel.startsWith(ACT + path.sep)) {
-      assert.ok(acts && !reads, `${rel} is under api/act/ and does not go through actRoute.`)
+      assert.ok(acts && !reads && !overlays, `${rel} is under api/act/ and does not go through actRoute.`)
       actRoutes += 1
+    } else if (rel.startsWith(OVERLAY + path.sep)) {
+      assert.ok(overlays && !reads && !acts, `${rel} is under api/overlay/ and does not go through the bridge.`)
+      overlayRoutes += 1
     } else {
-      assert.ok(reads && !acts, `${rel} reaches the act tier from outside api/act/.`)
+      assert.ok(reads && !acts && !overlays, `${rel} reaches the act tier or the overlay from outside its directory.`)
     }
   }
   assert.equal(actRoutes, 2, 'the act tier has exactly two tools: propose and cycle')
+  assert.equal(overlayRoutes, 2, 'the overlay has exactly two routes: the stream and the change')
 })

@@ -1,0 +1,47 @@
+---
+/**
+ * A node that does not exist yet, judged as it is typed — RFC-0030 Phase 2, #607.
+ *
+ * The page renders the graph report once, on the server, and hands the island what a form
+ * is generated from: the classes with their declared properties and edges, and every node
+ * with its links — for the relationship picker's second and third tiers, which are what the
+ * corpus does rather than what the ontology declares. The island holds the stream; this
+ * page holds nothing that changes.
+ *
+ * Nothing on this page writes a file. Phase 3 found that the one act tool takes no content
+ * (`act.astro` says why), so what a person leaves with is a buffer they copy and a verdict
+ * on it from the same checks the gate runs. That is what the issue asked for: a linting
+ * sandbox for a node before it exists.
+ */
+import Shell from '../layouts/Shell.astro'
+import { session } from '../lib/session.ts'
+import { spawnReport } from '../lib/cli.ts'
+import { type GraphReport } from '../lib/graph.ts'
+import { NodeForm } from '../islands/NodeForm.jsx'
+
+const { root, binary } = await session()
+const result =
+  binary.command === null
+    ? null
+    : await spawnReport<GraphReport>({ command: binary.command, root }, 'graph')
+
+const classes = result && result.ok ? (result.report.classes ?? []) : []
+const nodes = result && result.ok ? (result.report.nodes ?? []) : []
+---
+
+<Shell title="Draft">
+  {
+    classes.length === 0 ? (
+      <p>No classes to draft from — see the header.</p>
+    ) : (
+      <>
+        <p class="rationale">
+          A node before it exists. The form is generated from the ontology; the buffer it
+          produces is judged by <code>yidam serve --lsp</code> as you type, with the same
+          checks the gate runs. Nothing here is saved.
+        </p>
+        <NodeForm client:load classes={classes} nodes={nodes} />
+      </>
+    )
+  }
+</Shell>

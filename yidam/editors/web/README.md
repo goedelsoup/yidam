@@ -9,7 +9,8 @@ npx @yidam/edit --root /srv/corpus --port 9000 --no-open
 
 Specified by [RFC-0030](../../../docs/rfcs/0030-standalone-editor.md), **as amended
 2026-09-05**. Phase 1 is the read surface; Phase 3 added the one write the contract has —
-`propose`, through the `act` tier, onto a branch. No overlay yet, and no forms.
+`propose`, through the `act` tier, onto a branch; Phase 2 added the overlay and the node form —
+a buffer judged as it is typed, by `yidam serve --lsp`, and never saved.
 
 ## What it is
 
@@ -206,11 +207,30 @@ assert against, through the same `stage.toml` — as a real git repository at
 dev`, so what runs is the entry point `npx @yidam/edit` runs. What CI checks and what a person
 sees stay one repository.
 
+## The overlay, and why there is a child process
+
+`/draft` is a linting sandbox for a node before it exists. The form is generated from the
+ontology (`src/lib/form.ts`: declared properties by type, declared out-edges first in the
+relationship picker, relationships already in use beside them with the reason each is offered,
+and a free-text escape), and everything it produces is one YAML buffer. The buffer goes to
+`POST /api/overlay/change?client=&doc=` and its verdict comes back over `GET /api/overlay`,
+server-sent events.
+
+The verdict is computed by `yidam serve --lsp` — the same function that draws the squiggle in
+Neovim — because the overlay is reachable through nothing else. `src/lib/lsp.ts` is the client
+(Content-Length framing, id correlation, a polite shutdown with a kill behind it) and
+`src/lib/overlay.ts` is the supervisor: one child per process, started by the first page to
+subscribe, stopped by the last to leave, restarted on the next change after it dies — with every
+held buffer replayed — and abandoned after three starts in a minute. A child that dies is
+announced on the stream, and the page says *verdicts stopped* rather than showing a clean node
+it has no judge for.
+
+A buffer for a file that is not on disk is linted at all only by a CLI that declares
+`experimental.yidam.unsavedInstances` (after 0.13.0). On an older binary no check sees it — a
+clean verdict is silence — and the page says so rather than showing the silence as clean.
+
 ## What is not here yet
 
-The overlay and the ontology-driven forms are Phase 2 (#607), and the reversal made that phase
-the expensive one: the overlay is reachable only through `yidam serve --lsp`, so it needs a
-supervised child and an LSP bridge rather than the in-process call the original design had.
 A form's save is not `propose` and is not here: it would be a new `act` tool with an input
 schema, which is a contract event (RFC-0005) that needs its own argument — RFC-0030's open
 question *does Phase 2 write at all?* records where that stands. The npm name, the Layer 4 row, the publish

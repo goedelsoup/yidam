@@ -96,6 +96,12 @@ export interface GraphClass {
 export interface GraphReport {
   nodes?: GraphNode[]
   classes?: GraphClass[]
+  /**
+   * Where the corpus lives, relative to the root — `.yidam/corpus` by default. The only
+   * report that says, and the one field the overlay bridge needs to address a buffer that
+   * is not a file yet (`overlay.ts`). Optional for the reason `required` is.
+   */
+  corpus_dir?: string
 }
 
 /** The node with this identity, or nothing. A miss is a real state — see `[...id].astro`. */
