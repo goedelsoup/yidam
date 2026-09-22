@@ -60,6 +60,7 @@
         "ma/dredger@ddddddd"
       ],
       "synthesized_by": [],
+      "independence": "distinct-seats",
       "branch_present": false
     },
     {
@@ -73,6 +74,7 @@
       "synthesized_by": [
         "ma/hydrologist"
       ],
+      "independence": "",
       "branch_present": true
     }
   ]

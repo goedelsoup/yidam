@@ -6528,6 +6528,7 @@ mod resolution_record_tests {
             date: "2026-01-01".to_string(),
             tips: tips.iter().map(|t| t.to_string()).collect(),
             synthesized_by: by.iter().map(|b| b.to_string()).collect(),
+            independence: String::new(),
             branch_present: true,
         }
     }

@@ -12,6 +12,7 @@ pub(crate) mod citations;
 pub(crate) mod commits;
 pub(crate) mod edge_claims;
 pub(crate) mod history;
+pub(crate) mod independence;
 pub mod json;
 pub(crate) mod line_citations;
 pub(crate) mod lineage;
@@ -295,6 +296,14 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     // A repository with no resolutions — every corpus not running a sangha — spawns nothing.
     let scope_audits = scope::audit(root, &sangha.resolutions);
 
+    // What `electors.md` said about each participating seat at that seat's own tip (#823).
+    // Read here and not at HEAD: a seat's row is mutable and a model upgrade is material, so
+    // HEAD would re-judge every past resolution the day somebody bumps a model. Like the
+    // scope audit, the git reading happens where there is a repository and the check stays
+    // pure. A tip this clone does not carry reads as `unrecorded`, which is already the
+    // vocabulary's word for *the registry does not say*.
+    let independence_audits = independence::audit(root, &sangha.resolutions);
+
     // Where each elector branch stands in the settled line, and what it says about where it
     // stands. Read here for the same reason the scope audit is: the checks stay pure, and the
     // refs are the one thing they cannot be handed off disk.
@@ -512,6 +521,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         checks::resolution_annotation_decides(&annotations),
         checks::resolution_elector_unregistered(&sangha.resolutions, &registered),
         checks::resolution_executor_unrecorded(&sangha.resolutions, keys_bind_seats),
+        independence::independence_mismatch(&independence_audits),
         attest::elector_signature_unverified(&attestations),
         scope_unheld,
         scope_unverifiable,

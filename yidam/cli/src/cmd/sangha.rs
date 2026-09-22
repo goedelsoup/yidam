@@ -86,6 +86,15 @@ pub struct Resolution {
     /// operator's git author, so nothing else in the record or in git tells the auditor's
     /// position from the owner's.
     pub synthesized_by: Vec<String>,
+    /// The `independence:` field, verbatim — or empty where the record carries none.
+    ///
+    /// **Verbatim, and not parsed into the vocabulary here.** PROTOCOL.md draws it from a
+    /// closed set of three, and a value outside that set is a finding
+    /// (`resolution-independence-mismatch`) rather than something for this reader to
+    /// normalize away. Narrowing it to an enum at the parse boundary would turn a misspelt
+    /// `distinct_seats` into an absent field, which reads downstream as the one state the
+    /// amendment says a consumer must not confuse with the others.
+    pub independence: String,
     /// Whether `rigpa/<evolution>` still exists.
     pub branch_present: bool,
 }
@@ -256,6 +265,7 @@ pub(crate) struct RecordHead {
     pub date: String,
     pub tips: Vec<String>,
     pub synthesized_by: Vec<String>,
+    pub independence: String,
 }
 
 /// Read a resolution record's frontmatter.
@@ -286,6 +296,9 @@ fn parse_resolution(text: &str) -> RecordHead {
             list = None;
         } else if let Some(v) = line.strip_prefix("date:") {
             head.date = unquote(v);
+            list = None;
+        } else if let Some(v) = line.strip_prefix("independence:") {
+            head.independence = unquote(v);
             list = None;
         } else if let Some(v) = line.strip_prefix("synthesized-by:") {
             list = Some("synthesized_by");
@@ -389,6 +402,7 @@ pub(crate) fn sangha_data(root: &Path) -> SanghaReport {
                 date: head.date,
                 tips: head.tips,
                 synthesized_by: head.synthesized_by,
+                independence: head.independence,
             }
         })
         .collect();
@@ -649,6 +663,41 @@ mod tests {
             parse_resolution("---\nevolution: e\ndate: 2026-01-01\ntips:\n  - ma/x@1\n---\n");
         assert!(head.synthesized_by.is_empty(), "{head:?}");
         assert_eq!(head.tips, ["ma/x@1"]);
+    }
+
+    /// `independence:` is read, and a value outside the vocabulary is read too.
+    ///
+    /// The parser's job is to say what the record carries, not to judge it. Dropping a
+    /// misspelt value here would hand the check an empty string, which the amendment reads as
+    /// *the record states nothing* — a different fact from *the record states something
+    /// wrong*, and the check reports them differently.
+    #[test]
+    fn independence_is_read_verbatim_including_a_value_outside_the_vocabulary() {
+        let stated = parse_resolution(
+            "---\nevolution: e\nindependence: shared-configuration\ntips:\n  - ma/x@1\n---\n",
+        );
+        assert_eq!(stated.independence, "shared-configuration");
+        assert_eq!(stated.tips, ["ma/x@1"], "the following list was absorbed");
+
+        let wrong = parse_resolution("---\nevolution: e\nindependence: independent\n---\n");
+        assert_eq!(wrong.independence, "independent");
+
+        let absent = parse_resolution("---\nevolution: e\ntips:\n  - ma/x@1\n---\n");
+        assert_eq!(absent.independence, "");
+    }
+
+    /// `independence:` between a list and its items must not swallow the items.
+    ///
+    /// It is a scalar key, so it ends whatever list preceded it — the same rule `date:`
+    /// follows. A parser that forgot to reset would file `- ma/b@2` under `synthesized_by`.
+    #[test]
+    fn independence_ends_the_list_above_it() {
+        let head = parse_resolution(
+            "---\ntips:\n  - ma/a@1\nindependence: distinct-seats\nsynthesized-by: ma/a\n---\n",
+        );
+        assert_eq!(head.tips, ["ma/a@1"]);
+        assert_eq!(head.independence, "distinct-seats");
+        assert_eq!(head.synthesized_by, ["ma/a"]);
     }
 
     /// A record with no frontmatter costs its fields and nothing else.
