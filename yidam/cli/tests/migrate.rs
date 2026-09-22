@@ -392,3 +392,113 @@ fn the_suggested_commit_subject_uses_a_recognized_verb() {
         "`{verb}` is not in the closed vocabulary"
     );
 }
+
+// ── the findings lift ─────────────────────────────────────────────────────────
+
+/// The node the lift is run against, carrying a paragraph as a released binary wrote one.
+///
+/// Written literally rather than drafted: #712 deleted the machinery that composed these, so no
+/// version of this tree can produce one to migrate.
+const NODE: &str = ".yidam/corpus/gage/canyon-outlet.yml";
+
+fn carrying_a_legacy_paragraph(c: &Corpus) -> String {
+    let before = c.read(NODE);
+    let text = before.replace(
+        "properties:",
+        "\n  Opened by `yidam propose` at 8d35441 [orphan-in] — nothing links to this node. \
+         What follows\n  from that is unresolved here: `yidam propose` carries findings into \
+         the corpus and does\n  not answer them. [open]\nproperties:",
+    );
+    assert_ne!(text, before, "the fixture node has no `properties:` key");
+    std::fs::write(c.path().join(NODE), &text).unwrap();
+    c.git(&["add", "-A"]);
+    c.git(&[
+        "commit",
+        "-q",
+        "-m",
+        "establish: a question an earlier release opened",
+    ]);
+    before
+}
+
+#[test]
+fn a_dry_run_of_a_findings_lift_prints_the_plan_and_changes_nothing() {
+    let c = Corpus::new();
+    let with_paragraph = {
+        carrying_a_legacy_paragraph(&c);
+        c.read(NODE)
+    };
+    let (ok, out) = c.run(&["migrate", "--dry-run", "findings"]);
+    assert!(ok, "{out}");
+    assert!(out.contains("Would migrate"), "{out}");
+    assert!(out.contains("orphan-in"), "{out}");
+    assert_eq!(c.read(NODE), with_paragraph, "a dry run rewrote the node");
+    assert!(!c.dirty(), "a dry run wrote to the tree");
+    assert!(
+        !c.path().join(".yidam/migrations").exists(),
+        "a dry run wrote a record"
+    );
+}
+
+/// The lift itself: the paragraph becomes a record, the corpus still gates, and a record of the
+/// migration names the node it touched.
+#[test]
+fn a_findings_lift_replaces_the_paragraph_and_the_corpus_still_gates() {
+    let c = Corpus::new();
+    let before = carrying_a_legacy_paragraph(&c);
+
+    let (ok, out) = c.run(&["migrate", "findings"]);
+    assert!(ok, "{out}");
+    assert!(out.contains("Migrated"), "{out}");
+
+    let after = c.read(NODE);
+    assert!(
+        !after.contains("Opened by `yidam propose` at"),
+        "the paragraph survived:\n{after}"
+    );
+    assert!(after.contains("check: orphan-in"), "{after}");
+    assert!(after.contains("opened_at: 8d35441"), "{after}");
+    // Everything the node said before the paragraph arrived is still there, byte for byte, up
+    // to the record appended at the end.
+    for line in before.lines().filter(|l| !l.trim().is_empty()) {
+        assert!(after.contains(line), "the lift dropped `{line}`:\n{after}");
+    }
+    assert!(c.gate_is_clean(), "the lift left the corpus failing");
+
+    let dir = c.path().join(".yidam/migrations");
+    let record = std::fs::read_dir(&dir)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let text = std::fs::read_to_string(&record).unwrap();
+    assert!(text.contains("operation: findings"), "{text}");
+    assert!(text.contains(NODE), "{text}");
+}
+
+/// Run twice, and the second run has nothing to do — the property that makes this safe to run
+/// over a corpus part-way through the lift.
+#[test]
+fn a_findings_lift_is_idempotent() {
+    let c = Corpus::new();
+    carrying_a_legacy_paragraph(&c);
+    assert!(c.run(&["migrate", "findings"]).0);
+    let once = c.read(NODE);
+
+    let (ok, out) = c.run(&["migrate", "findings"]);
+    assert!(ok, "{out}");
+    assert!(out.contains("Nothing to lift"), "{out}");
+    assert_eq!(c.read(NODE), once, "a second run rewrote the node");
+}
+
+/// A corpus that never ran the old `propose` gets told so, rather than being told it migrated
+/// nothing.
+#[test]
+fn a_corpus_with_no_paragraphs_says_there_is_nothing_to_lift() {
+    let c = Corpus::new();
+    let (ok, out) = c.run(&["migrate", "findings"]);
+    assert!(ok, "{out}");
+    assert!(out.contains("Nothing to lift"), "{out}");
+    assert!(!c.dirty(), "it wrote to a corpus with nothing to migrate");
+}
