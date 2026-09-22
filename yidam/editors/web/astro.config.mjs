@@ -22,4 +22,20 @@ export default defineConfig({
   // and now has a Node process in it should not carry the flag that turns it into #236.
   // A container reaches this by publishing a port, which is the container's decision.
   server: { host: '127.0.0.1' },
+  // The loopback names, so that Astro's own cross-site check is *correct* rather than off.
+  //
+  // Astro 5 builds `Astro.url` from the `Host` header only when the host is listed here, and
+  // otherwise from the literal `localhost` — with no port. Its CSRF middleware compares a
+  // POST's `Origin` to that `url.origin`, so with the list empty it refused every POST a
+  // page on `127.0.0.1:8788` could make, and passed only a client that spelled
+  // `Origin: http://localhost`. `src/lib/api.ts` compares against `Host` for the same reason
+  // (see `wrongOrigin`), and #608's write route was where the two rules first had to agree.
+  //
+  // Not `checkOrigin: false`. Astro's check and `actRefusal` refuse the same request for the
+  // same reason, and a second layer that agrees costs nothing; a switched-off one is what a
+  // person finds when they go looking for why a write from another site went through.
+  // Hostnames only, no port: `--port` is a flag, and a pattern with no port matches any.
+  security: {
+    allowedDomains: [{ hostname: '127.0.0.1' }, { hostname: 'localhost' }, { hostname: '[::1]' }],
+  },
 })
