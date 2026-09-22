@@ -1267,6 +1267,10 @@
               "type": "string"
             },
             "description": "The `synthesized-by:` seats \u2014 the elector branch that executed the synthesis, and a list where it was joint. NOT REQUIRED, deliberately: a released CLI predates the field and emits records without it, and every record written before the field existed carries none, so a consumer that assumes it is present is wrong in two directions at once. Empty means the record does not say who executed it, which is a finding (`resolution-executor-unrecorded`) rather than a gap in this report."
+          },
+          "independence": {
+            "type": "string",
+            "description": "The `independence:` field, verbatim \u2014 what the record says `electors.md` distinguishes among the seats it read, drawn from a closed vocabulary of `distinct-seats` / `shared-configuration` / `unrecorded`. NOT REQUIRED, for the reason `synthesized_by` records: a released CLI predates the field and every record written before it existed carries none. Verbatim and not normalized \u2014 a value outside the vocabulary is reported (`resolution-independence-mismatch`) rather than rounded to the nearest member, because `unrecorded` is not a weaker `distinct-seats`: a consumer MUST NOT read it as either other value. An empty string means the record does not say, which is the state of every record written before the field existed and is itself distinct from a stated `unrecorded`."
           }
         }
       }

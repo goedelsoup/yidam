@@ -94,13 +94,36 @@
 > `rigpa/<evolution>` that admitted this seat, blank for a bootstrap seat or for a registry that
 > does not record it. Nothing computes it, and this amendment says so rather than implying a
 > check exists. **It is deliberately outside
-> [#823](https://github.com/goedelsoup/yidam/issues/823)'s `independence:` derivation**, which
-> reads `Kind`, `Model`, `Version` and `Config`: those four describe a seat's *occupant*, which
+> [#823](https://github.com/goedelsoup/yidam/issues/823)'s `independence:` derivation** — built
+> 2026-09-22, see below — which reads `Kind`, `Model`, `Version` and `Config`: those four
+> describe a seat's *occupant*, which
 > is what `shared-configuration` is about, while `Seated` describes the provenance of the row.
 > Three seats admitted by one resolution are still three seats if their occupants differ, and
 > folding `Seated` in would report the normal single-operator case as a finding. This amendment
 > changes nothing about what those four columns mean — it says what they are properties *of* —
 > so #823's derivation stands as written.
+
+> **Built 2026-09-22** ([#823](https://github.com/goedelsoup/yidam/issues/823)). The four
+> attestation columns now have a consumer that is not a reader: `resolution-independence-mismatch`
+> derives a resolution's `independence:` from them and reports a stated value that disagrees. The
+> columns stop being a record nothing consults, which is the charge this RFC's own amendment
+> levelled at the fingerprint column it removed.
+>
+> Two decisions were the issue's, and both constrain anyone changing the check. **The registry is
+> read at each seat's own tip, never at HEAD.** Proposal 4 below says a material change is recorded
+> as an update, *"so the ancestry of a position includes the state of the agent that held it"* —
+> read at HEAD, that same sentence makes every model bump re-judge every resolution the bumped
+> seat ever took part in. A tip the clone does not carry derives `unrecorded` and does not fall
+> back, for the reason `resolution-scope-unverifiable` exists: an answer that changes with how the
+> repository was fetched is not an answer. **And it reports at Info rather than gating**, because
+> every record written before the field existed carries no value — the same debt-that-cannot-be-
+> paid argument that keeps `resolution-executor-unrecorded` at Warn, with the same escalation
+> available once records carry the field.
+>
+> It is vacuous in every corpus whose registry binds none of the four columns, which is every
+> corpus today — including the measured one, where all 29 records derive `unrecorded` and none
+> states a value, so the check is silent on all of them. That silence is the check running: it
+> arms itself as registries fill in, one seat at a time, with no flag to flip.
 
 ## Summary
 

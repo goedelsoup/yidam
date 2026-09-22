@@ -79,3 +79,19 @@ could tell its participating seats apart — and `shared-configuration` is a leg
 costs the resolution only the right to call itself a synthesis of positions. A blank column
 yields `unrecorded`, which is neither an accusation nor a clearance. See
 [PROTOCOL.md](PROTOCOL.md).
+
+Two consequences of that reading which bear on how this table is *edited*, now that
+`resolution-independence-mismatch` computes the value rather than trusting it.
+
+**This table is read at each seat's tip, not as it stands.** A resolution's derived
+`independence:` comes from the registry as it was at the `ma/<elector>@<hash>` each seat's row is
+looked up under. So correcting a row here does not re-open a settled record, and neither does
+updating one: the resolutions that read that seat keep the answer they had. That is the whole
+reason the reading is at the tips — a model bump is a material change, and a material change
+should not turn somebody else's correct record red.
+
+**A human seat's `—` is not a blank.** The `unrecorded` rule above is about agent seats, which is
+what `shared-configuration` is about at all; a row whose `Kind` is `human` is distinct by being a
+different person and its dashed agent columns are read as such. A row that leaves `Kind` itself
+empty gets no such reading — the registry has not said what to expect, which is the ordinary
+meaning of an empty column here and not a defect.

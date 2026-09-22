@@ -468,7 +468,7 @@
           "severity": "error",
           "in_baseline": true,
           "span": {
-            "line": 6
+            "line": 7
           }
         }
       ]
@@ -485,6 +485,24 @@
           "detail": "no `synthesized-by:` — the record names which tips were read and not who read them",
           "severity": "warn",
           "in_baseline": false
+        }
+      ]
+    },
+    {
+      "id": "resolution-independence-mismatch",
+      "title": "Resolution's stated independence is not the one its seats derive",
+      "severity": "info",
+      "rationale": "`independence:` states what `electors.md` distinguishes among the seats a resolution read, and it is derivable rather than judged: the record names its tips, each tip names a seat, and the registry carries `Kind`, `Model`, `Version` and `Config`. That makes a stated value that disagrees with the registry the one part of the record which is checkable and was, until this check, invisible. It reports rather than gates because every record written before the field existed carries no value at all, so a gate would be red on the whole corpus the day it armed — and it carries the derived answer rather than only the complaint, so the finding is also the repair. The registry is read at each seat's own tip, never at HEAD: a seat's row is mutable and a model upgrade is material, so reading HEAD would turn somebody else's upgrade into a finding against a record that was correct when it was written.",
+      "escalation_eligible": false,
+      "violations": [
+        {
+          "node": ".yidam/sangha/resolutions/silt-budget.md",
+          "detail": "states `distinct-seats`; its seats derive `unrecorded` — at the tips it names, the registry could not be read at `ma/hydrologist@ccccccc` and `ma/dredger@ddddddd`, which name no commit in this clone",
+          "severity": "info",
+          "in_baseline": false,
+          "span": {
+            "line": 4
+          }
         }
       ]
     },

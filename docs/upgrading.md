@@ -28,6 +28,25 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `yidam lint` now derives a resolution's `independence:`
+
+**New Info finding, `resolution-independence-mismatch` (#823).** It reports a record whose
+stated `independence:` is not the one its seats derive. The derived value rides in the finding,
+so the finding is also the repair. Info, not a gate: your exit code does not change.
+
+**It is silent unless your registry binds `Kind`, `Model`, `Version` and `Config`.** Without
+those columns every record derives `unrecorded`. A record that states nothing over an
+`unrecorded` derivation is passed over. Filling the columns in is what arms it.
+
+**The registry is read at each seat's own tip, not at HEAD.** A checkout without the `ma/*`
+commits reads `unrecorded` rather than falling back. `--depth 1` and `--single-branch` are both
+that checkout. So a record that *does* state a value will report there. Fetch the elector
+branches to get the real answer in CI. `resolution-scope-unverifiable` already warns about the
+same thin clone.
+
+**`yidam sangha --json` gains `resolutions[].independence`**, a string, empty where the record
+carries none. Not required by the schema, for the reason `synthesized_by` is not.
+
 ## cli/v0.13.0
 
 ### Several corpora can share one vector index, and a query can ask across them

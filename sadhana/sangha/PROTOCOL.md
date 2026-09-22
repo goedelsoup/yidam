@@ -321,14 +321,33 @@ A closed vocabulary of three:
   confession. *Cannot tell* gets a word of its own, which is the same discipline `doctor`'s
   `skipped` verdict and the MCP handshake's tri-state `stale` already follow.
 
-**Derivable, and not yet derived.** The record already names its `tips:`, each tip names a seat,
-and the registry carries the columns — so the value is a function of things already written down
-rather than a judgement. **Nothing computes it today.** No `yidam lint` check reads this field,
-and a check needs two questions answered first: whether to read the registry as it stands or as
-it stood at the named tips (a seat's row is mutable — *"a material change is recorded as an
-update"* — so the two disagree for any record old enough to matter), and whether a disagreement
-between the stated value and the derived one is a finding or a gate. Until then the synthesizer
-writes it, and a reader who doubts it can check: resolve the tips, read the rows.
+**Derived, since 2026-09-22.** The record already names its `tips:`, each tip names a seat, and
+the registry carries the columns — so the value is a function of things already written down
+rather than a judgement, and `yidam lint`'s `resolution-independence-mismatch` computes it. The
+synthesizer still writes the field; what changed is that a stated value which disagrees with the
+registry is now visible instead of being a defect nothing could see.
+
+Both questions that check needed answered are answered, and both answers constrain anyone
+changing it.
+
+**The registry is read at the tips, never at HEAD — and each seat at its own tip.** A seat's row
+is mutable, *"a material change is recorded as an update"*, so the two readings disagree for any
+record old enough to matter. Reading HEAD would re-judge settled history every time somebody bumps
+a model: a resolution correct the day it was written would go red on a commit that has nothing to
+do with it. Reading each seat's row out of the blob at its own `ma/<elector>@<hash>` is what *"the
+state of the agent that held it"* means literally, and it is the only reading under which a settled
+record's derived value never changes again. **A tip this clone does not carry yields `unrecorded`,
+and there is no fallback to HEAD** — a shallow or single-branch checkout does not have the `ma/*`
+commits, and an answer that depended on how the repository was fetched would be worse than no
+answer. `unrecorded` is already the word for *the registry does not say*.
+
+**A disagreement is a finding, not a gate.** It reports at Info and carries the derived value in
+the finding, the arrangement `elector-baseline-undeclared` already uses, because every record
+written before this field existed carries no value at all — a gate would be red on the whole
+corpus the day it armed, which is how a gate gets switched off rather than answered. One silence
+is deliberate: a record that states nothing, whose seats derive `unrecorded`, is passed over.
+There is nothing to write down, and *"add `independence: unrecorded`"* is a request to record
+*we do not know*, which is already what absence means.
 
 **What `shared-configuration` costs, which is the entire point of writing it down.** A resolution
 carrying it **is not a synthesis of positions and must not describe itself as one.** It is one

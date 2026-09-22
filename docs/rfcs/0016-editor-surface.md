@@ -84,7 +84,7 @@ gating against `.yidam/lint-baseline.yml`
 ([`lint/mod.rs`](../../yidam/cli/src/cmd/lint/mod.rs), and the rationale in its module doc:
 conflating the two "produces a gate that is either permanently red or permanently ignored").
 Two distinct things fail it — a violation not in the baseline, and a baseline entry that no
-longer occurs ([`lint/mod.rs:706-740`](../../yidam/cli/src/cmd/lint/mod.rs#L706-L740)).
+longer occurs ([`lint/mod.rs:716-750`](../../yidam/cli/src/cmd/lint/mod.rs#L716-L750)).
 
 An extension that renders every finding as an Error reproduces exactly the failure the baseline
 was designed to prevent, one layer up: a Problems panel permanently full of inherited debt is a
