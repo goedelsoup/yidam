@@ -6,10 +6,14 @@
 # extension the walker never reaches reports nothing. Both read from the outside exactly like
 # a codebase with nothing wrong with it.
 #
-# `oxlint --rules` is not used to check the first of those, the way the adherence self-test
-# does: the flag still exists but prints nothing from 1.83 onward, so a name-against-inventory
-# comparison would be matching against an empty string. Every rule is made to FIRE instead,
-# which is the property actually wanted — that it is implemented *and* switched on.
+# `oxlint --rules` is not used to check the first of those. From 1.66.0 the flag answers
+# differently depending on who runs it: under the agent output format, auto-detected from
+# `AI_AGENT`/`CLAUDECODE`/`CURSOR_AGENT` and friends, it prints nothing and still exits zero,
+# so a name-against-inventory comparison matches against an empty string and reports every
+# rule as missing (oxc-project/oxc#26343). Every rule is made to FIRE instead, which is the
+# property actually wanted anyway: that it is implemented *and* switched on. The adherence
+# self-test was still reading that inventory; #877 moved it onto `--print-config`, which
+# answers with the rules oxlint resolved rather than the ones it documents.
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)

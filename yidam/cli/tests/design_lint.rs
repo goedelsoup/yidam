@@ -21,9 +21,12 @@
 //! The three findings above were all true and none of them was the problem. #467 pointed a
 //! deliberately-broken file at the lint and it reported nothing, because:
 //!
-//! 4. **`no-restricted-syntax` is not a rule oxlint has.** It is absent from `oxlint --rules`,
-//!    and an unknown rule key is accepted at load and ignored at run. All 47 selectors —
-//!    every prop contract, the hex rule, the px rule, the font rule — did nothing at all.
+//! 4. **`no-restricted-syntax` is not a rule oxlint has.** An unknown rule key is accepted
+//!    at load and ignored at run, so all 47 selectors — every prop contract, the hex rule,
+//!    the px rule, the font rule — did nothing at all. (This was established from `oxlint
+//!    --rules`, the linter's own inventory. From 1.66.0 that flag prints nothing — while
+//!    still exiting zero — whenever oxlint detects it is being run by a coding agent, so the
+//!    self-test reads the resolved config instead: #877, oxc-project/oxc#26343.)
 //! 5. **`no-restricted-imports` is implemented, and was switched off everywhere.** An
 //!    `overrides` block exempting `**/index.js` disabled the rule for every file, not for
 //!    that one; and its patterns were written for bare specifiers (`components/core/**`)
@@ -234,9 +237,22 @@ fn the_lint_is_proved_against_a_file_that_breaks_it() {
     let script = "scripts/design-lint-selftest.sh";
     let selftest = read(script);
     assert!(
-        selftest.contains("--rules"),
+        selftest.contains("--print-config"),
         "{script} no longer checks that the config names rules oxlint implements — the defect \
-         that hid 47 dead selectors for the life of the config"
+         that hid 47 dead selectors for the life of the config. It is checked by reading \
+         oxlint's resolved config, because the inventory it used to read answers differently \
+         depending on who runs it — empty, and still exit zero, under a coding agent (#877)."
+    );
+    // The negative control is the half that keeps the half above honest, so it is registered
+    // too. `oxlint --rules` did not fail when it stopped answering — it kept exiting zero and
+    // printing nothing, and did it only in the environments nobody runs CI in. A check that
+    // proves its own mechanism still discriminates cannot go quiet that way; one that drops
+    // the proof can.
+    assert!(
+        selftest.contains("no-such-rule-as-this"),
+        "{script} no longer spikes the config with a rule that cannot exist. Without that \
+         probe, nothing notices if `--print-config` stops telling an implemented rule from \
+         an invented one — which is exactly how `--rules` rotted undetected (#877)."
     );
 
     let fixture_dir = repo_root().join("yidam/tests/design-lint-selftest");

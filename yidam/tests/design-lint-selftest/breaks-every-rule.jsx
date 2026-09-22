@@ -5,10 +5,9 @@
 //
 // Why a fixture and not a reading of the config: for the whole of its life the config's rules
 // were inert. Forty-seven `no-restricted-syntax` selectors named a rule oxlint does not
-// implement — it is absent from `oxlint --rules` and an unknown key is accepted and ignored —
-// and the one rule that is implemented was disabled everywhere by an `overrides` block meant
-// to exempt `index.js`, against patterns that could not have matched a relative import
-// anyway. `design_lint.rs` asserted the rules were present, were errors, and were invoked,
+// implement — an unknown key is accepted at load and ignored at run — and the one rule that
+// is implemented was disabled everywhere by an `overrides` block meant to exempt `index.js`,
+// against patterns that could not have matched a relative import anyway. `design_lint.rs` asserted the rules were present, were errors, and were invoked,
 // and every one of those assertions was true of a lint that caught nothing.
 //
 // Reading a config cannot tell you whether a linter enforces it. Running it can.
