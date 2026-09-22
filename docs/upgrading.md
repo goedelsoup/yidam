@@ -28,6 +28,8 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+## cli/v0.13.0
+
 ### Several corpora can share one vector index, and a query can ask across them
 
 **MCP contract 0.23.0 → 0.24.0.** `retrieve` takes an optional `corpora` argument, every
