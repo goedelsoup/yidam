@@ -120,6 +120,11 @@ pub const GROUPS: &[Group] = &[
         commands: &[
             r("graph"),
             r("neighbors"),
+            // Before `query` because it is the one a reader reaches for first: `retrieve`
+            // finds where a subject is written about, and `query` walks from there. It had
+            // no terminal route at all until #835 — the tool an agent uses before it knows
+            // enough to write a query was the one surface a person could not try.
+            r("retrieve"),
             r("query"),
             r("pack"),
             r("estimate"),

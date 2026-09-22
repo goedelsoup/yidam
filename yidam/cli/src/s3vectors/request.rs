@@ -97,6 +97,20 @@ pub fn path_from_key<'a>(corpus: &str, key: &'a str) -> Option<&'a str> {
     key.strip_prefix(corpus)?.strip_prefix('/')
 }
 
+/// A key split into the corpus that owns it and the path within that corpus.
+///
+/// [`path_from_key`] answers *"is this mine, and where"*; this answers *"whose is it"*, which
+/// is the question a query spanning several corpora asks of every row it gets back (#835).
+///
+/// Split at the **first** separator, so a corpus id that is a prefix of another is not a
+/// hazard here at all: an id contains no `/` and a path always follows one. The witness key
+/// `__yidam__/embed-config` splits too — into a corpus no query names — which is the
+/// structural half of the exclusion the positive `corpus` predicate makes on the wire.
+pub fn split_key(key: &str) -> Option<(&str, &str)> {
+    let (corpus, path) = key.split_once('/')?;
+    (!corpus.is_empty() && !path.is_empty()).then_some((corpus, path))
+}
+
 /// The bytes the service counts against the *filterable* ceiling: every key not named in
 /// [`NON_FILTERABLE_KEYS`].
 ///
@@ -500,6 +514,7 @@ mod tests {
             index: "yidam-main".to_string(),
             region: "us-east-1".to_string(),
             endpoint: None,
+            corpora: Default::default(),
         })
         .unwrap()
     }

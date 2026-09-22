@@ -236,7 +236,7 @@ authentication. Neither is in this transport, and neither is planned for it.
 
 | Tool | Answers | Reach for it when |
 |---|---|---|
-| `retrieve` | Top-k nodes for a natural-language query, with `class` and `k`; an empty answer says which kind of empty | You do not know which node holds the answer |
+| `retrieve` | Top-k nodes for a natural-language query, with `class`, `k` and `corpora`; an empty answer says which kind of empty | You do not know which node holds the answer |
 | `get_node` | One node's full YAML content and its outgoing links | You know the id and need what it actually says |
 | `neighbors` | Nodes linked to one node, both directions, to `depth` hops | You want the argument around a node, not the node |
 | `list_nodes` | Every node, optionally in one class | You want the shape of the corpus |
@@ -436,6 +436,28 @@ over that ceiling is stored cut. Such a row is rare — one in the low thousands
 kind that grows without a bound. A node's text is the fields somebody wrote; a catalog source's
 is a whole document. A `true` here means read the file, not the result. Keyword search and a
 local index answer `false` about every row. Neither has a ceiling to cut against.
+
+**`corpora` reaches past this corpus, where an index is shared.** Several corpora may push to
+one vector index. `retrieve` takes a list of the others and searches them
+alongside its own. Name one by a nickname this corpus declared, or by a genesis hash. This corpus is always in the set. A caller
+that wants only the others filters on `corpus`.
+
+**`scope` says whether that happened.** It reads `across` only when rows could come from more
+than one corpus, and `local` otherwise. A server with no shared index answers `local` however
+it was asked. That is not an error. It is how a caller tells a span that did
+not happen from a corpus with nothing to say.
+
+**A row from another corpus is named, not fetchable.** `corpus` carries its identity: twelve
+characters of its genesis hash, null for this server's own rows. Its `id` is the reference
+grammar's absolute form, `yidam://<corpus>/node/<class>/<name>`. `get_node` cannot resolve
+it — that corpus is not installed here — so its `text` is all a reader gets. This is where
+`truncated` matters most: the row cannot be opened to see what was cut.
+
+**`corpus` is not `origin`, and the difference is what you can follow.** `origin` names an
+installed dependency, whose nodes this server read. A corpus sharing an index is not installed.
+A misspelled name in `corpora` is **rejected** (`unknown-corpus`) before any search. The
+reason is `unknown-class`'s: searching only the names that were recognised would answer a
+question nobody asked.
 
 **An empty `retrieve` says which kind of empty it is.** `results: []` used to mean four different
 things at once. An agent that cannot tell them apart fills the gap from its own weights. The claim

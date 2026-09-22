@@ -74,14 +74,14 @@ pub use cmd::{
     decisions_log, diff_corpus, doctor, due, embed, estimate, export, graph, graph_check,
     index_status, index_verify, label_range, label_symbols, lint, list_formats, log, migrate,
     neighbors, open_questions, overlay, pack, packages_index, parse_bench_goals, parse_binding,
-    phases, propose, query, regen, relocate, rename, replay, run_capability, run_export, run_kuten,
-    run_policy, run_score, run_vault, samudaya_audit, sangha, schema, serve_lsp, serve_mcp,
-    skills_index, slid_line_citation, status, unverified_line_citation, vault_status, vocabulary,
-    BenchGoal, BenchGoalSet, CohortOptions, EmbedOptions, ExportFormat, ExportOptions,
+    phases, propose, query, regen, relocate, rename, replay, retrieve, run_capability, run_export,
+    run_kuten, run_policy, run_score, run_vault, samudaya_audit, sangha, schema, serve_lsp,
+    serve_mcp, skills_index, slid_line_citation, status, unverified_line_citation, vault_status,
+    vocabulary, BenchGoal, BenchGoalSet, CohortOptions, EmbedOptions, ExportFormat, ExportOptions,
     FetchOptions, KutenCommand, LineCitation, LineFragment, LintCheck, LintOptions, LintViolation,
     LogFilter, MigrateOperation, PolicyCommand, PreludeNorm, ProposeOptions, RdfFormat,
-    ReconcileOptions, Relocation, RunOptions, VaultCommand, COMMIT_KINDS, LINT_SEVERITIES,
-    PRELUDE_NORMS,
+    ReconcileOptions, Relocation, RetrieveOptions, RunOptions, VaultCommand, COMMIT_KINDS,
+    LINT_SEVERITIES, PRELUDE_NORMS,
 };
 
 /// The remote transport (#423). Gated because the feature is what pulls the server, and

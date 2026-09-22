@@ -120,9 +120,16 @@ pub fn resolve(
         }
         #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
         Retrieval::Remote(remote) => {
+            // This corpus alone, even where the index holds several (#835). An anchor's whole
+            // job is to enter *this* graph: the residual below rejects any row that does not
+            // resolve to a node this repository owns, so a foreign row could only ever be
+            // fetched and discarded. The MCP contract already refuses the same thing for
+            // dependencies, under `anchor-across`, and for the same reason — a ranking that
+            // entered someone else's corpus would be a ranking nothing here can walk from.
+            let corpora = remote.corpora(&[]);
             let searched = search_index(
                 |filter, residual| {
-                    crate::retrieval::remote::search(remote, text, k, filter, residual)
+                    crate::retrieval::remote::search(remote, text, k, &corpora, filter, residual)
                 },
                 classes,
                 k,
@@ -441,6 +448,7 @@ mod tests {
             text: String::new(),
             score,
             truncated: false,
+            corpus: None,
         }
     }
 

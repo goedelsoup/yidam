@@ -20,7 +20,7 @@
 
 use std::cell::RefCell;
 
-use super::{Filter, Hit, Searched};
+use super::{Corpora, Filter, Hit, Searched};
 use crate::embed_config::{EmbedConfig, Verdict};
 use crate::s3vectors::{ops, transport::Client, RemoteIndex};
 
@@ -46,15 +46,30 @@ pub(crate) struct RemoteState {
     pub classes_are_path_derived: std::cell::Cell<bool>,
 }
 
+impl RemoteState {
+    /// This corpus, plus the ones a caller named — the set one search asks about.
+    ///
+    /// Here rather than at each call site so that the *own* half cannot be got wrong: a
+    /// `Corpora` built beside a `RemoteState` from some other string would filter on a corpus
+    /// this index does not key this repository's rows under, and answer nothing while looking
+    /// like a search.
+    pub fn corpora(&self, across: &[String]) -> Corpora {
+        Corpora::across(self.corpus.clone(), across)
+    }
+}
+
 /// The top `k` rows the filter admits, highest similarity first.
 ///
-/// The shape is [`super::vector::search`]'s exactly, because both feed the same two call sites
-/// and a caller that had to know which backend it was talking to would be a third place for
-/// the `degraded` convention to live.
+/// The shape is [`super::vector::search`]'s plus `corpora`, and that one extra argument is the
+/// whole of what a shared index adds: a local scan has one corpus to search and this may have
+/// several (#835). Everything else — the degraded convention, the ordering, the residual — is
+/// one shape across both backends, because a caller that had to know which one it was talking
+/// to would be a third place for that convention to live.
 pub(crate) fn search(
     state: &RemoteState,
     query: &str,
     k: usize,
+    corpora: &Corpora,
     filter: &Filter,
     residual: impl Fn(&Hit) -> bool,
 ) -> Result<Searched, String> {
@@ -110,7 +125,7 @@ pub(crate) fn search(
     match ops::query(
         &session,
         &state.index,
-        &state.corpus,
+        corpora,
         &query_vec,
         &filter,
         residual,
