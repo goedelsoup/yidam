@@ -117,6 +117,19 @@ jobs:
         run: npm run check
         working-directory: yidam/web/docs
 
+      # Linting, which this site also never did (#690). It is a separate tool from the step
+      # above and catches separate things: `tsc` has nothing to say about an unused import in
+      # `.astro` frontmatter, which is five of the seven findings the first run turned up.
+      #
+      # `scripts/` and `test/` are in scope on purpose — they are the prose and anchor
+      # checkers, and a bug in a checker is worse than a bug in what it checks.
+      #
+      # Here rather than in the build matrix, for the reason the two steps around it are here:
+      # it grades *this* tree, and a released tag ships its own copy of the site.
+      - name: Lint
+        run: npm run lint
+        working-directory: yidam/web/docs
+
       - name: The site's own tests
         run: npm test
         working-directory: yidam/web/docs

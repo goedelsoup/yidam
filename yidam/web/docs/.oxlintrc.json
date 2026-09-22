@@ -1,0 +1,19 @@
+// The docs site. Rules come from the repository's shared contract; this file carries only
+// what is true of this package.
+//
+// `no-console` off in `scripts/` and `test/`. Those are the prose and anchor checkers and
+// the runners that read them — gates themselves, whose output is the verdict. They are
+// deliberately IN scope for every other rule: a bug in a checker is worse than a bug in
+// what it checks, which is why this narrows one rule rather than excluding the directories.
+//
+// `src/` keeps `no-console`, and that is not a formality: the quality pages render report
+// data, and a stray `console.log` there ships to every reader of the built site.
+{
+  "extends": ["../../../.oxlintrc.json"],
+  "overrides": [
+    {
+      "files": ["scripts/**/*.mjs", "test/**/*.mjs"],
+      "rules": { "eslint/no-console": "off" }
+    }
+  ]
+}

@@ -35,6 +35,7 @@
     "dev": "astro dev",
     "preview": "node ./bin/yidam-edit.mjs --no-open",
     "check": "astro check",
+    "lint": "oxlint --deny-warnings .",
     "test:unit": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=junit.xml test/*.mjs",
     "test": "npm run test:unit"
   },
@@ -48,6 +49,7 @@
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
     "@types/node": "^22.20.3",
+    "oxlint": "^1.83",
     "typescript": "^5.9.3"
   }
 }
