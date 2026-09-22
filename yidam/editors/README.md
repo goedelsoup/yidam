@@ -1,13 +1,14 @@
 # Editor surfaces
 
-Two of them, and the split is deliberate.
+Three of them, and the split is deliberate.
 
 | | |
 |---|---|
 | **`yidam serve --lsp`** | The language server. Diagnostics, definition, references, hover, and rename — everything that is a *judgement*, computed by the same functions `yidam lint` runs. Any LSP-capable editor. |
 | [**`vscode/`**](vscode/) | The VS Code extension. The views, the claim decoration, the SCM commit box, the task wiring, the guards — everything that is VS Code-shaped and has no LSP equivalent. |
+| [**`web/`**](web/) | `@goedelsoup/yidam-edit` — an Astro application served over loopback by `npx`. The one surface that needs no configured editor to reach, for a reader who has a corpus and a terminal. |
 
-The rule both obey is RFC-0016's:
+The rule all three obey is RFC-0016's:
 
 > **TypeScript computes affordances. The CLI computes verdicts.**
 
@@ -82,3 +83,16 @@ Beside `yaml-language-server` rather than instead of it: that one applies the JS
 The extension does not use the LSP today. Its providers already cover navigation, and
 migrating working code to gain a process would be a change with no user-visible upside. The
 one thing it lacks is rename — see [`vscode/README.md`](vscode/README.md).
+
+### The web editor
+
+`web/` is the one client that *does*, and for a reason neither of the others has: `/draft`
+lints a node that is not on disk yet, and a buffer is reachable through nothing but an LSP
+overlay. It spawns `yidam serve --lsp` as a child, supervised — one per process, started by the
+first page to subscribe and stopped by the last to leave. See
+[`web/README.md`](web/README.md).
+
+It is published to npm on its own `edit/v*` tag — Layer 4's third artifact, versioned
+independently of both the CLI and the extension. [`VERSIONING.md`](../../VERSIONING.md) has the
+row; [`scripts/check-package.mjs`](web/scripts/check-package.mjs) is the gate that runs the
+tarball before it can be published.

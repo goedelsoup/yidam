@@ -2,7 +2,7 @@
  * The command line, as data.
  *
  * ```
- * npx @yidam/edit [--root DIR] [--port N] [--no-open]
+ * npx @goedelsoup/yidam-edit [--root DIR] [--port N] [--no-open]
  * ```
  *
  * Three flags, and the two that are missing are the point. There is no `--bind`: this server

@@ -754,8 +754,14 @@ run = [
 # assembler. `--deny-warnings` is in the npm script for the reason `design-lint` passes it:
 # a lint that only warns in CI is a lint that is off.
 
+# `npm run package` last, and on every pull request rather than first at the tag. #871 is the
+# reason: `ci (vscode)` never packaged, so two `vsce` refusals stayed green for weeks and both
+# arrived during a release — the one moment at which finding out is no longer free. It packs
+# the tarball `npm publish` would upload, installs its *production* dependencies somewhere
+# outside this repository, and starts the server there. See `scripts/check-package.mjs` for
+# what each of those steps catches that the one before it cannot.
 [tasks.ci-editor-web]
-description = "CI for the web editor surface: type-check, lint, build, RFC-0016 boundary gates, and unit tests."
+description = "CI for the web editor surface: type-check, lint, build, RFC-0016 boundary gates, unit tests, and the packed tarball."
 dir = "yidam/editors/web"
 run = [
   "\"$MISE_PROJECT_ROOT/scripts/npm-ensure.sh\" .",
@@ -763,6 +769,7 @@ run = [
   "npm run lint",
   "npm run build",
   "npm run test",
+  "npm run package",
 ]
 
 # The lint gate's own gate (#690), after `design-lint-selftest.sh` and for its reason: a
@@ -833,10 +840,10 @@ node --experimental-strip-types scripts/stage-fixture.ts
 # two halves of that sentence were about two repositories.
 #
 # It builds rather than running `astro dev`, because `bin/yidam-edit.mjs` is the entry point
-# `npx @yidam/edit` runs and the dev server is not. Driving the surface a person gets means
+# `npx @goedelsoup/yidam-edit` runs and the dev server is not. Driving the surface a person gets means
 # driving the one with the flag parsing, the port claim and the built `dist/` in it.
 [tasks.edit-dev]
-description = "Stage the reports fixture and serve it with the web editor, as `npx @yidam/edit` would."
+description = "Stage the reports fixture and serve it with the web editor, as `npx @goedelsoup/yidam-edit` would."
 depends = ["ext-fixture"]
 run = """
 set -eu

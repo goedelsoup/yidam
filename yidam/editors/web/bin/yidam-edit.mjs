@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * `npx @yidam/edit` — the entry point this whole surface exists to provide.
+ * `npx @goedelsoup/yidam-edit` — the entry point this whole surface exists to provide.
  *
  * #420's sentence is *every surface arrives in a terminal*, and this is the one editor
  * surface that did not. `serve --lsp` needs an LSP-capable editor and a hand-written config

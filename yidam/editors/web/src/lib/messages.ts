@@ -29,7 +29,7 @@ export function describeFailure(h: Handshake): string {
     case 'unsupported-version':
       return (
         'This yidam speaks a report contract this editor does not understand. Verdicts are ' +
-        `disabled rather than guessed at. Update \`@yidam/edit\`, or re-pin the binary. ${REPIN}`
+        `disabled rather than guessed at. Update \`@goedelsoup/yidam-edit\`, or re-pin the binary. ${REPIN}`
       )
   }
 }

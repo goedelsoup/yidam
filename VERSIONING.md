@@ -189,13 +189,14 @@ changed check to a changed model.
 
 ## Layer 4 — Tooling
 
-The tooling layer covers the two things a *person* runs rather than a derived repo
-inherits: the `yidam` CLI and the editor client.
+The tooling layer covers the three things a *person* runs rather than a derived repo
+inherits: the `yidam` CLI and the two editor clients.
 
 | Artifact | Manifest | Tag | Registry |
 |---|---|---|---|
 | `yidam` CLI | `yidam/cli/Cargo.toml` | `cli/v{major}.{minor}.{patch}` | crates.io, GitHub releases, `goedelsoup/homebrew-tap` |
 | `goedelsoup.yidam-vscode` extension | `yidam/editors/vscode/package.json` | `editor/v{major}.{minor}.{patch}` | Open VSX, GitHub releases |
+| `@goedelsoup/yidam-edit` | `yidam/editors/web/package.json` | `edit/v{major}.{minor}.{patch}` | npm |
 
 **The VS Code Marketplace is not in that row, and its absence is the point.** The `goedelsoup`
 publisher needs an Azure DevOps organisation that has not been created (#314), so `VSCE_PAT`
@@ -213,6 +214,20 @@ subset: the row above, the publish path in `editor.yml`, and the channel check i
 `install-channels.yml`. **Open VSX does not serve VS Code proper** — it serves VSCodium,
 Cursor, Windsurf, Gitpod and code-server — so until then a VS Code user installs the `.vsix`
 from the GitHub release, which is why that asset is attached before either registry is tried.
+
+**`@goedelsoup/yidam-edit` is the third artifact, and npm is its only channel.** It publishes no
+GitHub release, because there is nothing to attach: the package *is* the artifact, `npx` fetches
+it from the registry, and a release carrying no asset would be a row in the release list that
+answers for a layer while serving nobody. That makes it the one artifact here whose version
+cannot be resolved from the releases API, so `install-channels.yml` resolves it from the tag —
+see `edit-released` there.
+
+The name was settled on #610 and the reason is this table's rule rather than a preference: the
+npm scope `goedelsoup` is held by this project with nothing published under it, so the row could
+be written on the day it was true. `@yidam/edit` was the design's lean and would have needed a
+registration first. A 404 on a *package* says nothing about a scope —
+`https://registry.npmjs.org/-/org/<scope>/user` is the endpoint that answers, and it answered
+404 for `yidam` and `{"goedelsoup":"owner"}` for this one.
 
 **The `.mcpb` bundle is not a layer, and does not earn a version.** #421 asked which, and the
 answer is neither: a bundle is the CLI binary in a different wrapper, cut on the same `cli/v*`
@@ -245,14 +260,21 @@ A hand-edited formula is the failure this arrangement is shaped against: it is a
 the version lives, it goes stale on the first release nobody remembers to follow, and the
 staleness is invisible from here — it shows up as a stranger installing an old binary.
 
-**Two artifacts, one layer — the same shape as Layer 2.** The SDKs are three packages held
+**Three artifacts, one layer — the same shape as Layer 2.** The SDKs are three packages held
 together by one jointly-versioned contract (`yidam/prelude/sdks/parity/VERSION`), of which
-one is released. This layer is the same arrangement with two artifacts and
+one is released. This layer is the same arrangement with three artifacts and
 a different contract: `format_version`.
 
 That is what makes separate tags safe. A Marketplace release needs a public, semver-shaped
-version and its own cadence; a CLI patch should not imply an extension release, and an
-extension patch should not imply a CLI one. Neither version is what the two negotiate on.
+version and its own cadence; a CLI patch should not imply an editor release, and an editor
+patch should not imply a CLI one. No artifact's version is what any two of them negotiate on.
+
+**`edit/v*` and `editor/v*` are two patterns four characters apart, and they are disjoint.**
+`edit/v0.1.0` does not match `editor/v*` and `editor/v0.1.0` does not match `edit/v*`, because
+the separator is part of the prefix — but every other place in this repository that resolves "a
+tag" has at some point answered for the wrong layer, so the three workflows say which pattern is
+theirs and `every_publishing_workflow_triggers_on_its_own_tag_pattern_only` refuses any of them
+listening on another's.
 
 ### The contract between them is `format_version`
 
