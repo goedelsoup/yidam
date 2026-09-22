@@ -76,6 +76,13 @@ updates:
     groups:
       npm-extension:
         patterns: ["*"]
+    # `@types/vscode` follows `engines.vscode` in package.json, not the registry: vsce refuses
+    # to package an extension whose types are newer than the floor it declares, and the group
+    # bumped it to 1.138 against a floor of 1.90 — green on every PR, because `ci (vscode)`
+    # packaged nothing, and red on the first `editor/v*` tag. Raising it is the decision to
+    # drop every VS Code older than the new types, which is a floor change and not a bump.
+    ignore:
+      - dependency-name: "@types/vscode"
   - package-ecosystem: npm
     directory: /yidam/web/docs
     schedule: { interval: weekly, day: monday }
