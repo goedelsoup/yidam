@@ -435,6 +435,12 @@ export function openQuestionsTree(
   if (open.open_questions.length === 0) {
     return [{ id: 'open:none', label: 'No open questions', icon: 'check' }]
   }
+  // An id must be unique across the view or VS Code refuses to render it, and since #857 a
+  // node path is not unique: an edge tagged `open` is listed in its own right, under the
+  // same `node`, beside the node's own question and beside the node's other open edges.
+  // The id carries the scope and, for an edge, the triple; the counter is for two links
+  // that wrote the same triple twice, which YAML permits and nothing here should crash on.
+  const seen = new Map<string, number>()
   return open.open_questions
     .filter((q) =>
       matches(filter, {
@@ -444,14 +450,24 @@ export function openQuestionsTree(
         open: true,
       }),
     )
-    .map((q) => ({
-      id: `open:${q.node}`,
-      label: named(q.label, stem(q.node)),
-      description: q.node,
-      icon: 'question',
-      file: q.node,
-      context: 'yidam.openQuestion',
-    }))
+    .map((q) => {
+      const edge = q.scope === 'edge'
+      const key = edge
+        ? `open:edge:${q.node}:${q.relationship ?? ''}:${q.target ?? ''}`
+        : `open:node:${q.node}`
+      const n = (seen.get(key) ?? 0) + 1
+      seen.set(key, n)
+      return {
+        id: n === 1 ? key : `${key}#${n}`,
+        label: named(q.label, stem(q.node)),
+        // The CLI's own rendering: the label is the node's, because that is the file the
+        // reader opens, and the triple is what the edge asserted.
+        description: edge ? `${q.relationship ?? '?'} → ${q.target ?? '?'}` : q.node,
+        icon: 'question',
+        file: q.node,
+        context: 'yidam.openQuestion',
+      }
+    })
 }
 
 /** Local or remote-tracking, `ma/auditor` and `origin/ma/auditor` alike. */
