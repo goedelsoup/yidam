@@ -152,6 +152,15 @@ pub(crate) struct ServerState {
     /// does not have. A projected mirror carries no `.yidam/tonpa/` and would be answering for
     /// a repository whose dependencies it cannot see.
     pub dependencies: std::collections::BTreeMap<String, crate::cmd::lint::citations::Installed>,
+    /// The corpora this repository can name, from `[index.remote.corpora]`.
+    ///
+    /// **Read in every build, including the one that cannot query a vector bucket at all.**
+    /// A caller naming a corpus this repository has never heard of is a misspelling wherever
+    /// it is typed, and a diagnosis that depended on whether the binary carries an ONNX
+    /// runtime would be one surface answering differently by how it was compiled — the shape
+    /// `Searched` and `Filter` are ungated to avoid. What a light build cannot do is *act* on
+    /// a name it resolved: its answer says `scope: "local"` and means it.
+    pub corpus_aliases: crate::s3vectors::Aliases,
     /// Catalog entries each node cites, keyed by node id.
     ///
     /// Resolved once at startup with the gate's own resolver rather than from
@@ -297,6 +306,17 @@ impl ServerState {
             })
             .collect();
         let citations = load_citations(root, &nodes);
+        // A declared table that does not parse is a startup failure and not a quiet empty
+        // map: a corpus that wrote a name down meant to be able to use it, and a name that
+        // silently resolves to nothing answers a question about one corpus fewer without
+        // saying so.
+        let corpus_aliases = crate::s3vectors::Aliases::resolve(
+            &crate::config::load_yidam_config(root)?
+                .index
+                .remote
+                .map(|r| r.corpora)
+                .unwrap_or_default(),
+        )?;
         let graph = crate::cmd::query::Graph::load(root);
         // A directory listing decides whether the second corpus load happens at all, so a
         // repository with no dependencies pays for none of this.
@@ -324,6 +344,7 @@ impl ServerState {
             claim_fields,
             classes,
             citations,
+            corpus_aliases,
             graph,
             graph_across,
         })
@@ -849,6 +870,10 @@ mod tests {
                 ),
             ],
             citations: Default::default(),
+            // Nothing declared, which is every corpus that has not written an
+            // `[index.remote.corpora]` table — and the state `unknown_corpus` reports
+            // against.
+            corpus_aliases: Default::default(),
             // Empty, and the reason is worth stating: every query assertion worth making is
             // an assertion about a *corpus*, and this fixture is a hand-built `ServerState`
             // with no directory behind it. The query tool's cases live in the contract's

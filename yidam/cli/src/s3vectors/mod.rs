@@ -208,6 +208,113 @@ pub struct RemoteIndexConfig {
     /// regional public endpoint.
     #[serde(default)]
     pub endpoint: Option<String>,
+    /// The other corpora sharing this index, by a name this repository chose for each.
+    ///
+    /// ```toml
+    /// [index.remote.corpora]
+    /// ohio-budget = "3f2a9c4d1b70"
+    /// ```
+    ///
+    /// **A nickname, and RFC-0032 §4.5 is where that word is argued.** The value is the
+    /// corpus's identity — the twelve-character genesis hash its keys are written under — and
+    /// the key is what a person types instead. The nickname is chosen by *this* repository, so
+    /// it is unique within this file and means nothing outside it, which is exactly what §4.5
+    /// says a declared name is. Nothing here verifies that the hash names the corpus the name
+    /// claims; nothing can, from this side.
+    ///
+    /// Declaring one is never required: a query may name a corpus by its hash directly. This
+    /// is so that asking a question does not require reading one.
+    #[serde(default)]
+    pub corpora: std::collections::BTreeMap<String, String>,
+}
+
+/// The corpora a repository can name, and what each one's identity is.
+///
+/// **Resolution is separate from the transport**, so a light build — which cannot query a
+/// vector bucket at all — still answers a caller who names a corpus that does not exist. A
+/// misspelled corpus is a misspelling wherever it is typed, and reporting it only from the
+/// build that carries an ONNX runtime would make one surface's diagnosis depend on how the
+/// binary was compiled.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Aliases(std::collections::BTreeMap<String, String>);
+
+impl Aliases {
+    /// Check a declared table: every value a genesis hash, every key a name a result can
+    /// carry.
+    ///
+    /// Refused rather than skipped, because a corpus that declared `ohio-budget = "3f2a"` and
+    /// got no error would have a name that silently resolves to nothing and a question that
+    /// silently answers about one corpus fewer.
+    pub fn resolve(declared: &std::collections::BTreeMap<String, String>) -> Result<Self> {
+        let mut out = std::collections::BTreeMap::new();
+        for (name, hash) in declared {
+            if !yidam_core::uri::is_slug(name) {
+                bail!(
+                    "[index.remote.corpora] name {name:?} is not a slug — it is rendered into \
+                     identifiers and read back by the one parser, which is what makes escaping \
+                     unnecessary everywhere in the grammar"
+                );
+            }
+            // One message rather than a context chain: `anyhow`'s `to_string` prints only the
+            // outermost layer, so a wrapped cause would name the key and leave out what was
+            // wrong with the value — which is the whole of what a person needs.
+            let id = checked_corpus_id(hash)
+                .map_err(|e| anyhow::anyhow!("[index.remote.corpora] {name}: {e}"))?;
+            out.insert(name.clone(), id);
+        }
+        Ok(Self(out))
+    }
+
+    /// The corpus a caller named, or `None` when this repository has never heard of it.
+    ///
+    /// A declared name first, then a genesis hash written out in full or to its first twelve
+    /// characters. Both are accepted because they answer different needs: a name is for a
+    /// corpus you ask about often enough to have written down, and a hash is for the one you
+    /// found in an index five minutes ago.
+    pub fn id_of(&self, name: &str) -> Option<String> {
+        self.0
+            .get(name)
+            .cloned()
+            .or_else(|| checked_corpus_id(name).ok())
+    }
+
+    /// The name this repository declared for a corpus, if it declared one.
+    ///
+    /// For rendering to a person, never into a result: a nickname is this repository's and a
+    /// result's identity must not change with who is reading it.
+    pub fn name_of(&self, id: &str) -> Option<&str> {
+        self.0
+            .iter()
+            .find(|(_, v)| v.as_str() == id)
+            .map(|(k, _)| k.as_str())
+    }
+
+    /// Every declared name, with the corpus it names.
+    pub fn declared(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.0.iter().map(|(k, v)| (k.as_str(), v.as_str()))
+    }
+}
+
+/// A genesis hash, cut to the length a key carries — or a reason it is not one.
+///
+/// Lowercase hex and at least [`request::CORPUS_ID_LEN`] of it. A shorter prefix is refused rather than
+/// padded or matched loosely: keys carry exactly twelve characters, so an eight-character
+/// prefix would name no corpus at all while looking like it named one.
+pub fn checked_corpus_id(hash: &str) -> Result<String> {
+    use request::CORPUS_ID_LEN;
+    let hash = hash.trim();
+    if hash.len() < CORPUS_ID_LEN
+        || !hash
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+    {
+        bail!(
+            "{hash:?} is not a corpus identity — a corpus is named by its genesis commit \
+             hash, in lowercase hex, and a vector index keys on the first {CORPUS_ID_LEN} \
+             characters of it"
+        );
+    }
+    Ok(request::corpus_id(hash))
 }
 
 /// The six operations, each its own path. There are no query strings and no path parameters.
@@ -362,7 +469,73 @@ mod tests {
             index: "yidam-main".to_string(),
             region: "us-east-1".to_string(),
             endpoint: None,
+            corpora: Default::default(),
         }
+    }
+
+    fn table(pairs: &[(&str, &str)]) -> std::collections::BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(n, h)| ((*n).to_string(), (*h).to_string()))
+            .collect()
+    }
+
+    /// A declared name resolves to the twelve characters a key carries, and a full hash cuts
+    /// to the same thing.
+    #[test]
+    fn a_corpus_is_named_by_a_nickname_or_by_its_own_hash() {
+        let a = Aliases::resolve(&table(&[(
+            "ohio-budget",
+            "3f2a9c4d1b70e8a1b2c3d4e5f60718293a4b5c6d",
+        )]))
+        .unwrap();
+        assert_eq!(a.id_of("ohio-budget").as_deref(), Some("3f2a9c4d1b70"));
+        assert_eq!(a.name_of("3f2a9c4d1b70"), Some("ohio-budget"));
+
+        // A hash nobody named is still a corpus: asking about one must not require editing a
+        // committed file first.
+        assert_eq!(
+            a.id_of("0123456789abcdef0123").as_deref(),
+            Some("0123456789ab")
+        );
+        assert_eq!(a.name_of("0123456789ab"), None);
+    }
+
+    /// Anything that is neither is `None` — the `unknown-corpus` rejection's ground.
+    ///
+    /// The short prefix is the case worth pinning: keys carry exactly twelve characters, so an
+    /// eight-character prefix names no corpus while looking like it names one, and matching it
+    /// loosely would make `3f2a9c4d` and `3f2a9c4dffff` the same question.
+    #[test]
+    fn a_name_that_is_neither_resolves_to_nothing() {
+        let a = Aliases::resolve(&table(&[("ohio-budget", "3f2a9c4d1b70")])).unwrap();
+        for name in [
+            "ohi-budget",
+            "3f2a9c4d",
+            "3F2A9C4D1B70",
+            "not-hex-at-all",
+            "",
+        ] {
+            assert_eq!(a.id_of(name), None, "{name} resolved and should not have");
+        }
+    }
+
+    /// A declaration that is not a corpus identity is refused when the table is read, not
+    /// skipped — a name that silently resolves to nothing answers a question about one corpus
+    /// fewer without saying so.
+    #[test]
+    fn a_declared_value_that_is_not_a_hash_is_refused() {
+        let e = Aliases::resolve(&table(&[("ohio-budget", "3f2a")]))
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("ohio-budget"), "{e}");
+        assert!(e.contains("genesis"), "{e}");
+    }
+
+    /// And a name that is not a slug, because the name is rendered and read back.
+    #[test]
+    fn a_declared_name_that_is_not_a_slug_is_refused() {
+        assert!(Aliases::resolve(&table(&[("Ohio Budget", "3f2a9c4d1b70")])).is_err());
     }
 
     #[test]

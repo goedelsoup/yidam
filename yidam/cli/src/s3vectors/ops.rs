@@ -26,7 +26,7 @@ use serde_json::Value;
 
 use super::response::{self, Failure, Fetched, Page};
 use super::{filter, request, Api, RemoteIndex, MAX_LIST_PAGE, WITNESS_KEY};
-use crate::retrieval::{Filter, Hit};
+use crate::retrieval::{Corpora, Filter, Hit};
 
 /// One conversation with the service: a transport, and what to do when it says "later".
 pub struct Session<'a> {
@@ -93,16 +93,20 @@ impl<'a> Session<'a> {
 ///
 /// `residual` is the half of a caller's filter that could not be pushed — see
 /// [`crate::retrieval::Filter`]. Everything else was applied by the service during the search.
+///
+/// `corpora` is the other half of what the service applies: one corpus, or several sharing the
+/// index (#835). It is rendered into the same pushed filter, and it is checked again against
+/// every key that comes back.
 pub fn query(
     session: &Session,
     idx: &RemoteIndex,
-    corpus: &str,
+    corpora: &Corpora,
     query_vector: &[f32],
     filter: &Filter,
     residual: impl Fn(&Hit) -> bool,
     k: usize,
 ) -> Result<Vec<Hit>, Failure> {
-    let pushed = filter::to_json(corpus, filter).map_err(|e| Failure::invalid(e.to_string()))?;
+    let pushed = filter::to_json(corpora, filter).map_err(|e| Failure::invalid(e.to_string()))?;
     let top_k = response::top_k_request(k, true);
 
     let mut collected: Vec<Hit> = Vec::new();
@@ -114,7 +118,7 @@ pub fn query(
             .map_err(|e| Failure::invalid(e.to_string()))?;
         let body = session.call(&req)?;
         let Page { hits, next } =
-            response::decode_query(corpus, &body).map_err(Failure::invalid)?;
+            response::decode_query(corpora, &body).map_err(Failure::invalid)?;
 
         let empty = hits.is_empty();
         collected.extend(hits);
@@ -153,6 +157,80 @@ pub fn fetch_witness(session: &Session, idx: &RemoteIndex) -> Result<Option<Fetc
     } else {
         Some(got.remove(0))
     })
+}
+
+/// Whether a push may write into this index, and what it could not check where it cannot say.
+///
+/// # One index, one vector space
+///
+/// An index carries exactly one witness record and every push overwrites it (RFC-0033 §4.4).
+/// That was unremarkable while an index held one corpus. Now that a query can span several
+/// (#835) it is the mechanism by which a shared index would go wrong: two corpora of the same
+/// dimension and different models can both be pushed, the second overwrites the first's
+/// contract, and a spanning query then ranks one corpus's rows in the other's space —
+/// plausibly, with scores in the range a correct ranking has. Eleven of `fastembed`'s thirty
+/// models produce a dimension another model also produces, so *the dimension would catch it*
+/// is false.
+///
+/// So a disagreeing witness is `Err` and the push is refused. The repair is a different index:
+/// a vector index's dimension and metric are fixed at creation and its space should be too.
+///
+/// # Evidence, not fail-closed, and the asymmetry is argued
+///
+/// A witness that **disagrees** refuses. A witness that could not be **read** is a note and
+/// the push proceeds. The reason is IAM rather than optimism: a push needs `ListVectors`,
+/// `PutVectors` and `DeleteVectors`, and a write-only credential is a legitimate shape for
+/// one — so treating a 403 on `GetVectors` as a refusal would break pushes that have nothing
+/// wrong with them, on a check that exists to protect a *reader*. `Ok(None)` from the fetch is
+/// the empty index and the index pushed before the witness existed: there is no contract to
+/// disagree with, and this push writes one.
+///
+/// What that leaves standing is stated rather than hidden. This makes a mixed-space index
+/// detectable at the moment it would be created, by any pusher that can read the index it is
+/// writing to. It is not a proof about an index nobody could read, and the thing that would be
+/// one — a witness per corpus rather than per index — is a change to both the push and the
+/// read path.
+///
+/// Takes the fetch's outcome rather than performing it, so the rule is exercised by the light
+/// build: `index-push` is behind two features and a decision written inside it would be one no
+/// pull request compiles.
+pub fn witness_agreement(
+    fetched: Result<Option<Fetched>, Failure>,
+    ours: &crate::embed_config::EmbedConfig,
+) -> Result<Option<String>, String> {
+    let fetched = match fetched {
+        Ok(Some(f)) => f,
+        Ok(None) => return Ok(None),
+        Err(e) => {
+            return Ok(Some(format!(
+                "could not read this index's embedding contract, so nothing here has checked \
+                 that it is the same vector space as this corpus's: {e}"
+            )))
+        }
+    };
+    let Some(theirs) = fetched
+        .metadata
+        .get(super::META_KEY_EMBED_CONFIG)
+        .and_then(Value::as_str)
+        .and_then(|raw| serde_json::from_str::<crate::embed_config::EmbedConfig>(raw).ok())
+    else {
+        return Ok(Some(
+            "this index carries a witness record with no readable contract in it, so nothing \
+             here has checked that it is the same vector space as this corpus's"
+                .to_string(),
+        ));
+    };
+    match crate::embed_config::space_disagreement(&theirs, ours) {
+        None => Ok(None),
+        Some(why) => Err(format!(
+            "this index was built in a different vector space than this corpus embeds into: \
+             {why}.\n  \
+             An index carries one embedding contract and a push overwrites it, so two spaces \
+             in one index means a query spanning its corpora ranks one against the other — \
+             with scores in the range a correct ranking has. Push to a different index, or \
+             rebuild this corpus's index with the settings this one declares."
+        )),
+    }
 }
 
 /// Every key currently in the index, across all pages.
@@ -195,6 +273,20 @@ pub struct MirrorPlan {
     pub delete: Vec<String>,
     /// Keys the push leaves alone: the witness, and anything belonging to another corpus.
     pub untouched: usize,
+    /// The other corpora sharing this index, by the id their keys are prefixed with, with how
+    /// many rows each holds.
+    ///
+    /// **Reported because this listing is the only place the answer exists.** A query can be
+    /// asked across several corpora (#835) and a caller has to get their ids from somewhere;
+    /// a push already reads every key in the index, so the roster is a fold over a listing
+    /// that has already happened rather than a round trip anyone has to pay for. `--dry-run`
+    /// is then the read-only way to find out who else is in an index — which is how a
+    /// `[index.remote.corpora]` table gets written without guessing.
+    ///
+    /// A prefix that is not a corpus id — the witness, or anything a future reserved record
+    /// keys under `__yidam__/` — is not in here: the roster names corpora, and a reader
+    /// copying an entry into a query must get a corpus every time.
+    pub others: Vec<(String, usize)>,
 }
 
 /// Diff the remote index against the keys a push is about to write.
@@ -213,11 +305,20 @@ pub fn plan_mirror(
     let mut delete = Vec::new();
     let mut untouched = 0;
     let mut present = 0;
+    let mut others: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
     for key in &remote {
         // **The safety property.** Anything that is not this corpus's is not this push's to
         // remove: the witness lives beside the rows, and an index may hold another corpus.
         if key == WITNESS_KEY || !key.starts_with(&prefix) {
             untouched += 1;
+            // Whose it is, where the key says so. A prefix is a corpus only if it is one —
+            // `checked_corpus_id` is the same predicate a query resolves a caller's argument
+            // with, so nothing can appear in this roster that could not be asked about.
+            if let Some((other, _)) = request::split_key(key) {
+                if let Ok(id) = super::checked_corpus_id(other) {
+                    *others.entry(id).or_default() += 1;
+                }
+            }
             continue;
         }
         if local.contains(key.as_str()) {
@@ -233,6 +334,7 @@ pub fn plan_mirror(
         new: local_keys.len().saturating_sub(present),
         delete,
         untouched,
+        others: others.into_iter().collect(),
     })
 }
 
@@ -272,6 +374,7 @@ pub fn apply_mirror(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::s3vectors::response::Fault;
     use crate::s3vectors::{Operation, RemoteIndexConfig, KIND, MAX_METADATA_BYTES};
     use serde_json::json;
     use std::cell::RefCell;
@@ -283,6 +386,7 @@ mod tests {
             index: "yidam-main".to_string(),
             region: "us-east-1".to_string(),
             endpoint: None,
+            corpora: Default::default(),
         })
         .unwrap()
     }
@@ -372,7 +476,7 @@ mod tests {
         let hits = query(
             &session(&api),
             &idx(),
-            "c1",
+            &Corpora::own("c1"),
             &[0.1, 0.2],
             &Filter::any(),
             |_| true,
@@ -438,7 +542,7 @@ mod tests {
         let hits = query(
             &session(&api),
             &idx(),
-            "c1",
+            &Corpora::own("c1"),
             &[0.1, 0.2],
             &Filter::any(),
             |_| true,
@@ -471,7 +575,7 @@ mod tests {
         let hits = query(
             &session(&api),
             &idx(),
-            "c1",
+            &Corpora::own("c1"),
             &[0.1],
             &Filter::any(),
             |h| h.path.starts_with("keep"),
@@ -497,7 +601,7 @@ mod tests {
         let hits = query(
             &session(&api),
             &idx(),
-            "c1",
+            &Corpora::own("c1"),
             &[0.1],
             &Filter::any(),
             |_| true,
@@ -520,7 +624,7 @@ mod tests {
         let hits = query(
             &session(&api),
             &idx(),
-            "c1",
+            &Corpora::own("c1"),
             &[0.1],
             &Filter::any(),
             |_| true,
@@ -534,7 +638,7 @@ mod tests {
         let hits = query(
             &session(&api),
             &idx(),
-            "c1",
+            &Corpora::own("c1"),
             &[0.1],
             &Filter::any(),
             |_| true,
@@ -551,7 +655,7 @@ mod tests {
         query(
             &session(&api),
             &idx(),
-            "c1",
+            &Corpora::own("c1"),
             &[0.1],
             &Filter::class(Some("concept")),
             |_| true,
@@ -645,6 +749,223 @@ mod tests {
         assert_eq!(plan.untouched, 1);
     }
 
+    /// The roster: who else is in this index, from the listing the plan already read.
+    ///
+    /// Realistic ids, because the roster only admits what a query could resolve — a prefix
+    /// that is not twelve characters of lowercase hex is not a corpus and is left out rather
+    /// than reported as one. The witness is the case that proves it: it has a prefix, and the
+    /// prefix is not a corpus.
+    #[test]
+    fn the_plan_reports_the_other_corpora_sharing_the_index() {
+        let ours = "3f2a9c4d1b70";
+        let theirs = "0123456789ab";
+        let api = Fake::ok(vec![listing(&[
+            WITNESS_KEY,
+            "3f2a9c4d1b70/a.yml",
+            "0123456789ab/theirs.yml",
+            "0123456789ab/also-theirs.yml",
+            "not-a-corpus/x.yml",
+        ])]);
+        let plan = plan_mirror(
+            &session(&api),
+            &idx(),
+            ours,
+            &["3f2a9c4d1b70/a.yml".to_string()],
+        )
+        .unwrap();
+        assert_eq!(plan.others, vec![(theirs.to_string(), 2)]);
+        // And the roster is a report, not a licence: none of it is this push's to delete.
+        assert!(plan.delete.is_empty());
+        assert_eq!(plan.untouched, 4);
+    }
+
+    /// An index holding one corpus reports no roster, so nothing is printed where there is
+    /// nothing to say.
+    #[test]
+    fn an_index_holding_one_corpus_has_no_roster() {
+        let api = Fake::ok(vec![listing(&[WITNESS_KEY, "3f2a9c4d1b70/a.yml"])]);
+        let plan = plan_mirror(
+            &session(&api),
+            &idx(),
+            "3f2a9c4d1b70",
+            &["3f2a9c4d1b70/a.yml".to_string()],
+        )
+        .unwrap();
+        assert!(plan.others.is_empty());
+    }
+
+    /// A query across two corpora sends one filter and returns rows from both, each saying
+    /// whose it is.
+    ///
+    /// Through the recorded transport, so what is asserted is the request as it would go on
+    /// the wire *and* the decoding of what came back — the two halves that a unit test of
+    /// either alone would leave able to disagree.
+    #[test]
+    fn a_query_across_two_corpora_asks_for_both_and_says_which_is_which() {
+        let ours = "3f2a9c4d1b70";
+        let theirs = "0123456789ab";
+        let api = Fake::ok(vec![page(
+            json!([
+                {"key": "3f2a9c4d1b70/corpus/concept/a.yml", "distance": 0.1,
+                 "metadata": {"class": "concept", "label": "Ours"}},
+                {"key": "0123456789ab/corpus/concept/b.yml", "distance": 0.2,
+                 "metadata": {"class": "concept", "label": "Theirs"}},
+            ]),
+            None,
+        )]);
+        let corpora = Corpora::across(ours, &[theirs.to_string()]);
+        let hits = query(
+            &session(&api),
+            &idx(),
+            &corpora,
+            &[0.1, 0.2],
+            &Filter::any(),
+            |_| true,
+            5,
+        )
+        .unwrap();
+
+        assert_eq!(
+            api.calls()[0].body["filter"],
+            json!({"corpus": {"$in": [ours, theirs]}}),
+            "the corpus predicate is positive and names both"
+        );
+        assert_eq!(
+            hits.iter()
+                .map(|h| (h.path.as_str(), h.corpus.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("corpus/concept/a.yml", None),
+                ("corpus/concept/b.yml", Some(theirs)),
+            ]
+        );
+    }
+
+    /// The same page, asked for one corpus: the foreign row is dropped.
+    ///
+    /// The pair is the assertion. A decoder that ignored the set would pass the test above and
+    /// this one would fail; one that never returned a foreign row would pass this and fail
+    /// that. Only a decoder that reads what was asked passes both.
+    #[test]
+    fn the_same_page_asked_of_one_corpus_returns_only_its_own() {
+        let api = Fake::ok(vec![page(
+            json!([
+                {"key": "3f2a9c4d1b70/corpus/concept/a.yml", "distance": 0.1, "metadata": {}},
+                {"key": "0123456789ab/corpus/concept/b.yml", "distance": 0.2, "metadata": {}},
+            ]),
+            None,
+        )]);
+        let hits = query(
+            &session(&api),
+            &idx(),
+            &Corpora::own("3f2a9c4d1b70"),
+            &[0.1, 0.2],
+            &Filter::any(),
+            |_| true,
+            5,
+        )
+        .unwrap();
+        assert_eq!(
+            api.calls()[0].body["filter"],
+            json!({"corpus": {"$eq": "3f2a9c4d1b70"}})
+        );
+        assert_eq!(
+            hits.iter().map(|h| h.path.as_str()).collect::<Vec<_>>(),
+            vec!["corpus/concept/a.yml"]
+        );
+    }
+
+    // ── one index, one vector space ───────────────────────────────────────────
+
+    fn contract_of(model: &str, weights: &str) -> crate::embed_config::EmbedConfig {
+        crate::embed_config::EmbedConfig::for_fastembed_model(model, 384, weights, "Enum")
+    }
+
+    fn witness_row(contract: &crate::embed_config::EmbedConfig) -> Fetched {
+        Fetched {
+            key: WITNESS_KEY.to_string(),
+            data: vec![1.0],
+            metadata: json!({
+                super::super::META_KEY_EMBED_CONFIG:
+                    serde_json::to_string(contract).unwrap(),
+                super::super::META_KEY_CORPUS: super::super::META_CORPUS,
+            }),
+        }
+    }
+
+    /// A push into an index of another vector space is refused, and the message names both.
+    #[test]
+    fn a_push_into_another_vector_space_is_refused() {
+        let theirs = contract_of("Xenova/all-MiniLM-L6-v2", "onnx/model_quantized.onnx");
+        let ours = contract_of("BAAI/bge-small-en-v1.5", "onnx/model.onnx");
+        let why = witness_agreement(Ok(Some(witness_row(&theirs))), &ours)
+            .expect_err("two spaces in one index");
+        assert!(why.contains("bge-small-en-v1.5"), "{why}");
+        assert!(
+            why.contains("different index") || why.contains("Push to a different"),
+            "{why}"
+        );
+    }
+
+    /// The same space is silent — no refusal and nothing to print.
+    #[test]
+    fn a_push_into_its_own_vector_space_says_nothing() {
+        let same = contract_of("Xenova/all-MiniLM-L6-v2", "onnx/model_quantized.onnx");
+        assert_eq!(
+            witness_agreement(Ok(Some(witness_row(&same))), &same),
+            Ok(None)
+        );
+    }
+
+    /// An index with no witness is the empty one and the one pushed before the witness
+    /// existed. Neither is a contract that disagrees, and this push writes one.
+    #[test]
+    fn an_index_with_no_witness_is_not_a_disagreement() {
+        let ours = contract_of("Xenova/all-MiniLM-L6-v2", "onnx/model_quantized.onnx");
+        assert_eq!(witness_agreement(Ok(None), &ours), Ok(None));
+    }
+
+    /// A witness that could not be read is a note and not a refusal.
+    ///
+    /// **Both halves are asserted, because the asymmetry is the decision.** A push needs list,
+    /// put and delete; a write-only credential is a legitimate shape for one, and refusing on
+    /// a 403 from `GetVectors` would break pushes that have nothing wrong with them. The note
+    /// is what keeps that from being silent.
+    #[test]
+    fn a_witness_that_could_not_be_read_is_a_note_rather_than_a_refusal() {
+        let ours = contract_of("Xenova/all-MiniLM-L6-v2", "onnx/model_quantized.onnx");
+        for failure in [
+            Failure {
+                fault: Fault::Denied,
+                message: "403 AccessDeniedException: no GetVectors".to_string(),
+            },
+            Failure {
+                fault: Fault::Transient,
+                message: "429 TooManyRequestsException".to_string(),
+            },
+        ] {
+            let note = witness_agreement(Err(failure.clone()), &ours)
+                .expect("a failed read is not a refusal")
+                .expect("and it is not silence either");
+            assert!(note.contains("nothing here has checked"), "{note}");
+            assert!(note.contains(&failure.message), "{note}");
+        }
+    }
+
+    /// A witness record carrying no readable contract is the same kind of unknown.
+    #[test]
+    fn a_witness_with_no_contract_in_it_is_a_note() {
+        let ours = contract_of("Xenova/all-MiniLM-L6-v2", "onnx/model_quantized.onnx");
+        let empty = Fetched {
+            key: WITNESS_KEY.to_string(),
+            data: vec![1.0],
+            metadata: json!({"model_id": "not the contract"}),
+        };
+        assert!(witness_agreement(Ok(Some(empty)), &ours)
+            .unwrap()
+            .is_some_and(|n| n.contains("no readable contract")));
+    }
+
     fn out(key: &str) -> request::OutVector {
         request::OutVector {
             key: key.to_string(),
@@ -661,6 +982,7 @@ mod tests {
             new: 1,
             delete: vec!["c1/gone.yml".to_string()],
             untouched: 0,
+            others: Vec::new(),
         };
         let witness = out(WITNESS_KEY);
         apply_mirror(
@@ -693,6 +1015,7 @@ mod tests {
             new: 0,
             delete: Vec::new(),
             untouched: 0,
+            others: Vec::new(),
         };
         apply_mirror(&session(&api), &idx(), &[out("c1/a.yml")], None, &plan).unwrap();
         assert_eq!(api.calls().len(), 1);

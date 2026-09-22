@@ -161,6 +161,7 @@ mod tests {
             bucket: "yidam-corpora".to_string(),
             index: "yidam-main".to_string(),
             region: "us-east-1".to_string(),
+            corpora: Default::default(),
             endpoint: None,
         })
         .unwrap();

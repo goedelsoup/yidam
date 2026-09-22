@@ -28,6 +28,16 @@
 //!    wrong path does not fail loudly — it finds no dimension, concludes nothing, and lets a
 //!    push proceed into an index it does not fit.
 //!
+//! **Two more arrived with #835 and have not been run**, and saying so is the point of this
+//! list. `a_query_can_ask_across_two_corpora_in_one_index` is the first request this crate has
+//! ever made with `$in` on a metadata *field* — every shipped query filtered `corpus` with
+//! `$eq`, and the class filter's `$in` arm was never exercised live either — so what it
+//! settles is the operator, not only the idea. And
+//! `a_push_into_another_vector_space_is_refused_against_a_stored_witness` puts the witness
+//! through the service in both directions, which a unit test handing `witness_agreement` a
+//! hand-built `Fetched` cannot. Neither is settled until someone runs this file and reports
+//! the numbers in §8, the way §8.2 did for the four above.
+//!
 //! # Running them
 //!
 //! ```sh
@@ -53,7 +63,7 @@
 
 use serde_json::json;
 
-use yidam::retrieval::Filter;
+use yidam::retrieval::{Corpora, Filter};
 use yidam::s3vectors::{
     ops::{self, Session},
     request::{self, OutVector},
@@ -70,6 +80,13 @@ const DIMENSION: u32 = 4;
 /// The corpus these tests write under. Not a real genesis hash; the point is that it is *a*
 /// prefix and that nothing outside it is touched.
 const CORPUS: &str = "livetest0001";
+/// A second corpus in the same index — what a shared bucket is (#835).
+///
+/// Twelve lowercase hex characters, unlike [`CORPUS`], because a spanning query resolves the
+/// names it is given through `checked_corpus_id` and a roster only admits what a query could
+/// ask about. A prefix that is not a corpus identity would be excluded from both, and the
+/// test would then be checking something a real corpus never does.
+const OTHER: &str = "0123456789ab";
 
 fn enabled() -> bool {
     if std::env::var("YIDAM_S3VECTORS_TEST").is_err() {
@@ -92,6 +109,7 @@ fn client() -> (Client, RemoteIndex) {
         index: INDEX.to_string(),
         region,
         endpoint: None,
+        corpora: Default::default(),
     })
     .expect("the test configuration resolves");
     let creds = yidam::vault::sigv4::Credentials {
@@ -153,12 +171,27 @@ fn row(path: &str, data: Vec<f32>) -> OutVector {
     }
 }
 
-/// Everything under this test's prefix, gone — so each test starts from a known index.
+/// A row belonging to another corpus, keyed and tagged as that corpus's.
+fn foreign_row(path: &str, data: Vec<f32>) -> OutVector {
+    let (metadata, _) =
+        request::metadata(OTHER, "concept", "Theirs", "deadbeef", "their text").unwrap();
+    OutVector {
+        key: request::vector_key(OTHER, path).unwrap(),
+        data,
+        metadata,
+    }
+}
+
+/// Everything under this suite's prefixes, gone — so each test starts from a known index.
+///
+/// Both prefixes, since #835: a test that left the second corpus's rows behind would leave the
+/// *next* test spanning them, and a spanning assertion that passes because of a previous run's
+/// residue is the one failure this suite cannot afford.
 fn clear(session: &Session, index: &RemoteIndex) {
     let keys: Vec<String> = ops::list_keys(session, index)
         .expect("listing")
         .into_iter()
-        .filter(|k| k.starts_with(&format!("{CORPUS}/")))
+        .filter(|k| k.starts_with(&format!("{CORPUS}/")) || k.starts_with(&format!("{OTHER}/")))
         .collect();
     for batch in request::delete_batches(index, &keys).unwrap() {
         session.call(&batch).expect("deleting");
@@ -273,7 +306,7 @@ fn the_score_is_the_cosine_similarity_to_five_decimals() {
     let hits = ops::query(
         &session,
         &index,
-        CORPUS,
+        &Corpora::own(CORPUS),
         &query,
         &Filter::any(),
         |_| true,
@@ -338,7 +371,7 @@ fn a_deleted_key_stops_being_findable() {
     let hits = ops::query(
         &session,
         &index,
-        CORPUS,
+        &Corpora::own(CORPUS),
         &unit([1.0, 0.0, 0.0, 0.0]),
         &Filter::any(),
         |_| true,
@@ -389,7 +422,7 @@ fn the_witness_is_stored_and_never_returned() {
     let hits = ops::query(
         &session,
         &index,
-        CORPUS,
+        &Corpora::own(CORPUS),
         &unit([1.0, 0.0, 0.0, 0.0]),
         &Filter::any(),
         |_| true,
@@ -439,7 +472,7 @@ fn a_pushed_class_filter_narrows_the_result() {
     let hits = ops::query(
         &session,
         &index,
-        CORPUS,
+        &Corpora::own(CORPUS),
         &unit([1.0, 0.0, 0.0, 0.0]),
         &Filter::class(Some("concept")),
         |_| true,
@@ -452,4 +485,128 @@ fn a_pushed_class_filter_narrows_the_result() {
         "the class filter did not narrow the result — `other.yml` is the nearer vector, so it \
          would come first if the filter were not applied"
     );
+}
+
+/// Two corpora in one index, and a query that asks across them.
+///
+/// **The unverified half was the operator, not the idea.** Every query this crate sent before
+/// #835 filtered `corpus` with `$eq`; a spanning one sends `$in`, which nothing here had ever
+/// put on the wire for a *string* field — the class filter's `$in` arm was equally unexercised
+/// live. So this is the test for the request as much as for the result.
+///
+/// Three assertions, and the middle one is the one that fails if the filter is not applied at
+/// all: the foreign row is the **nearer** vector, so a query scoped to this corpus that
+/// returned it would have returned it first.
+#[test]
+#[ignore]
+fn a_query_can_ask_across_two_corpora_in_one_index() {
+    if !enabled() {
+        return;
+    }
+    let (client, index) = client();
+    let session = Session::new(&client);
+    ensure_index(&session, &index);
+    clear(&session, &index);
+
+    let query = unit([1.0, 0.0, 0.0, 0.0]);
+    session
+        .call(
+            &request::put_vectors(
+                &index,
+                &[
+                    row("ours.yml", unit([1.0, 0.2, 0.0, 0.0])),
+                    foreign_row("theirs.yml", unit([1.0, 0.0, 0.0, 0.0])),
+                ],
+            )
+            .unwrap(),
+        )
+        .expect("putting a row in each corpus");
+
+    // Scoped to this corpus: the nearer row belongs to the other one and must not come back.
+    let mine = ops::query(
+        &session,
+        &index,
+        &Corpora::own(CORPUS),
+        &query,
+        &Filter::any(),
+        |_| true,
+        10,
+    )
+    .expect("querying one corpus");
+    assert_eq!(
+        mine.iter().map(|h| h.path.as_str()).collect::<Vec<_>>(),
+        vec!["ours.yml"],
+        "a single-corpus query returned another corpus's row — the `corpus` predicate is not \
+         being applied by the service"
+    );
+    assert!(mine[0].corpus.is_none(), "this corpus's row named a corpus");
+
+    // Across both: both rows, each saying whose it is, nearest first.
+    let both = ops::query(
+        &session,
+        &index,
+        &Corpora::across(CORPUS, &[OTHER.to_string()]),
+        &query,
+        &Filter::any(),
+        |_| true,
+        10,
+    )
+    .expect("querying across two corpora");
+    assert_eq!(
+        both.iter()
+            .map(|h| (h.path.as_str(), h.corpus.as_deref()))
+            .collect::<Vec<_>>(),
+        vec![("theirs.yml", Some(OTHER)), ("ours.yml", None)],
+        "a spanning query did not return both corpora, or did not say which row was whose"
+    );
+}
+
+/// A push into an index built in another vector space is refused, against a witness the
+/// service actually stored.
+///
+/// The unit tests hand `witness_agreement` a `Fetched` they built. This one writes a witness
+/// through `PutVectors`, reads it back through `GetVectors`, and hands *that* to the same
+/// function — so the JSON round trip through the service's metadata is in the path, which is
+/// where a contract that serialises but does not come back would hide.
+#[test]
+#[ignore]
+fn a_push_into_another_vector_space_is_refused_against_a_stored_witness() {
+    if !enabled() {
+        return;
+    }
+    let (client, index) = client();
+    let session = Session::new(&client);
+    ensure_index(&session, &index);
+
+    let theirs = yidam::embed_config::EmbedConfig::for_fastembed_model(
+        "Xenova/all-MiniLM-L6-v2",
+        DIMENSION as i32,
+        "onnx/model_quantized.onnx",
+        "AllMiniLML6V2Q",
+    );
+    session
+        .call(
+            &request::put_vectors(&index, &[request::witness(&theirs).unwrap()])
+                .expect("the witness is a vector a put accepts"),
+        )
+        .expect("storing the witness");
+
+    // The same model, the other weights file: one dimension, two spaces. The dimension check
+    // and the index's own metadata are both silent about this.
+    let ours = yidam::embed_config::EmbedConfig::for_fastembed_model(
+        "Xenova/all-MiniLM-L6-v2",
+        DIMENSION as i32,
+        "onnx/model.onnx",
+        "AllMiniLML6V2",
+    );
+    let fetched = ops::fetch_witness(&session, &index).expect("fetching the witness");
+    assert!(fetched.is_some(), "the witness did not come back");
+    let why = ops::witness_agreement(Ok(fetched), &ours)
+        .expect_err("a stored witness in another space must refuse the push");
+    assert!(why.contains("weights"), "{why}");
+
+    // And the same contract is silent, so the refusal is about the disagreement rather than
+    // about the fetch having happened at all.
+    let again = ops::fetch_witness(&session, &index).expect("fetching the witness");
+    assert_eq!(ops::witness_agreement(Ok(again), &theirs), Ok(None));
 }

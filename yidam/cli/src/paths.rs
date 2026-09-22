@@ -145,6 +145,60 @@ pub fn class_matches_path(path: &str, class: &str) -> bool {
     class_of_path(path) == class
 }
 
+/// What a repository-relative path names, as an RFC-0032 reference.
+///
+/// **The one derivation from a path to a reference.** `yidam migrate references` had it, as a
+/// private `locate` that rendered a string; #835 needed the same rule for a row that came back
+/// from a shared vector index, where the path is all there is and the corpus is another
+/// repository. Two functions mapping `.yidam/corpus/<class>/<name>.yml` to a `node` would be
+/// the shape RFC-0032 §1 diagnoses — a reference form invented per surface — reintroduced by
+/// the work that is supposed to end it.
+///
+/// `corpus` is the authority: `None` renders the relative form a corpus uses about itself, and
+/// `Some(<genesis12>)` the absolute identifier for a node in another corpus. It is never
+/// checked against anything here, because nothing on this side of a remote index can check it.
+///
+/// `None` for a path this repository's layout gives no kind to — a README, an ontology file, a
+/// path outside the corpus. That is not a failure: a caller renders what it can name and says
+/// nothing about what it cannot, which is what the resource surface already does for a kind it
+/// cannot serve.
+pub fn reference_of_path(corpus: Option<&str>, rel: &Path) -> Option<yidam_core::uri::Reference> {
+    use yidam_core::uri::Kind;
+
+    let parts: Vec<String> = rel
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    let parts: Vec<&str> = parts.iter().map(String::as_str).collect();
+    fn stem(s: &str) -> &str {
+        s.strip_suffix(".yml")
+            .or_else(|| s.strip_suffix(".md"))
+            .unwrap_or(s)
+    }
+    let (kind, path, fragment) = match parts.as_slice() {
+        // An `.ont.yml` is the class declaration, not an instance of one. It sits in the same
+        // directory as the nodes and is not a node.
+        [".yidam", "corpus", class, name] if !name.ends_with(".ont.yml") => {
+            (Kind::Node, format!("{class}/{}", stem(name)), None)
+        }
+        [".yidam", "catalog", name] => (Kind::Catalog, stem(name).to_string(), None),
+        [".yidam", "decisions", name] => (Kind::Decision, stem(name).to_string(), None),
+        [".yidam", "skills", name] => (Kind::Skill, stem(name).to_string(), None),
+        ["crates", name] => (Kind::Crate, (*name).to_string(), None),
+        // A crate's `<path>` is one segment (RFC-0032 §4.1's arity rule), so a file inside one
+        // is the fragment — which §4.4's amendment widened to admit exactly this.
+        ["crates", name, rest @ ..] => (Kind::Crate, (*name).to_string(), Some(rest.join("/"))),
+        _ => return None,
+    };
+    Some(yidam_core::uri::Reference {
+        corpus: corpus.map(str::to_string),
+        kind,
+        path,
+        rev: None,
+        fragment,
+    })
+}
+
 pub fn yidam_catalog_dir(root: &Path) -> PathBuf {
     root.join(".yidam").join("catalog")
 }
@@ -546,6 +600,111 @@ mod class_tests {
             "api"
         ));
         assert!(class_matches_path(".yidam/catalog/paper.md", "source"));
+    }
+
+    // ── path → reference ──────────────────────────────────────────────────────
+
+    fn rendered(corpus: Option<&str>, rel: &str) -> Option<String> {
+        reference_of_path(corpus, Path::new(rel))
+            .as_ref()
+            .map(yidam_core::uri::render_reference)
+    }
+
+    /// Each kind the repository's layout gives a path, relative and absolute.
+    ///
+    /// The absolute column is what a row from another corpus's half of a shared vector index
+    /// renders as (#835), and it is asserted beside the relative one because the two must be
+    /// the same derivation with a different authority — not two mappings that agree today.
+    #[test]
+    fn a_path_renders_as_the_reference_its_position_makes_it() {
+        for (rel, relative, absolute) in [
+            (
+                ".yidam/corpus/concept/funding.yml",
+                "concept/funding",
+                "yidam://abc123def456/node/concept/funding",
+            ),
+            (
+                ".yidam/catalog/ohio-lobbying-register.md",
+                "catalog/ohio-lobbying-register",
+                "yidam://abc123def456/catalog/ohio-lobbying-register",
+            ),
+            (
+                ".yidam/decisions/due-clocks.md",
+                "decision/due-clocks",
+                "yidam://abc123def456/decision/due-clocks",
+            ),
+            (
+                ".yidam/skills/bootstrap.md",
+                "skill/bootstrap",
+                "yidam://abc123def456/skill/bootstrap",
+            ),
+            (
+                "crates/yidam",
+                "crate/yidam",
+                "yidam://abc123def456/crate/yidam",
+            ),
+            (
+                "crates/yidam/src/lib.rs",
+                "crate/yidam#src/lib.rs",
+                "yidam://abc123def456/crate/yidam#src/lib.rs",
+            ),
+        ] {
+            assert_eq!(rendered(None, rel).as_deref(), Some(relative), "{rel}");
+            assert_eq!(
+                rendered(Some("abc123def456"), rel).as_deref(),
+                Some(absolute),
+                "{rel}"
+            );
+        }
+    }
+
+    /// A rendered reference parses back to what was rendered, for every kind.
+    ///
+    /// The property RFC-0032 §4.6 rests on, asserted over this mapping's own output rather
+    /// than over hand-written strings — which is the only way it can catch a path shape that
+    /// renders into something the parser reads as a different thing.
+    #[test]
+    fn every_reference_a_path_renders_round_trips_through_the_parser() {
+        for rel in [
+            ".yidam/corpus/concept/funding.yml",
+            ".yidam/catalog/source.md",
+            ".yidam/decisions/d.md",
+            ".yidam/skills/s.md",
+            "crates/yidam",
+            "crates/yidam/src/lib.rs",
+        ] {
+            for corpus in [None, Some("abc123def456")] {
+                let reference = reference_of_path(corpus, Path::new(rel)).expect(rel);
+                let text = yidam_core::uri::render_reference(&reference);
+                assert_eq!(
+                    yidam_core::uri::parse_reference(&text).as_ref(),
+                    Some(&reference),
+                    "{text} did not parse back to what rendered it"
+                );
+                assert!(
+                    yidam_core::uri::reference_conforms(&reference),
+                    "{text} is not a conforming reference"
+                );
+            }
+        }
+    }
+
+    /// A path the layout gives no kind is `None` rather than a guess.
+    ///
+    /// The class declaration is the case worth naming: `.ont.yml` sits in the same directory
+    /// as the nodes and is not one, so a reference minted for it would name an instance that
+    /// does not exist.
+    #[test]
+    fn a_path_the_layout_does_not_name_renders_nothing() {
+        for rel in [
+            ".yidam/corpus/concept/concept.ont.yml",
+            ".yidam/corpus/README.md",
+            ".yidam/index/meta.json",
+            "README.md",
+            "",
+        ] {
+            assert_eq!(rendered(Some("abc123def456"), rel), None, "{rel}");
+        }
     }
 
     /// A path that merely mentions the corpus directory deeper down is not a corpus path.

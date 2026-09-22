@@ -28,6 +28,48 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### Several corpora can share one vector index, and a query can ask across them
+
+**MCP contract 0.23.0 → 0.24.0.** `retrieve` takes an optional `corpora` argument, every
+response carries `scope`, and every result carries `corpus` (#835). A server built against
+0.23.0 answers every call unchanged. A client built against it never asks to span, so nothing
+it does today behaves differently.
+
+**Nothing on disk or in a bucket moves.** Vector keys have carried the corpus since the first
+push. So has `corpus`, as a filterable metadata key. An index several corpora already push to
+can be asked a spanning question, with no re-push by any of them.
+
+**Only a remote index can answer one.** A local `.yidam/index/` is one corpus by construction.
+A call that asks to span it is not an error. It is not silently honoured either: it answers
+locally and reports `scope: "local"`. Compare `scope` against what you asked to know whether
+the span happened.
+
+**A result from another corpus cannot be fetched.** Its `id` is the reference grammar's
+absolute form: `yidam://<corpus>/node/<class>/<name>`. `get_node` cannot resolve it, because
+that corpus is not installed here. Its `text` is all you get. `corpus` is null for
+this server's own rows, so a client can tell the two apart without parsing anything.
+
+**`corpus` is not `origin`.** `origin` names an installed dependency under `.yidam/tonpa/`,
+whose nodes this server read and whose ids it resolves. A corpus that merely shares an index is
+neither. One word for both would say a row is followable when it is not.
+
+### `yidam retrieve`, and one vector space per index
+
+**A new command, and a new refusal from `index-push`.** Neither changes a corpus. `yidam
+retrieve <words>` is the retrieval `serve --mcp` performs, dispatched through the same tool
+call, with `--k`, `--class` and `--corpora`. It had no terminal route before.
+
+**`index-push` now refuses an index built in another vector space.** An index carries one
+embedding contract and every push overwrites it. Two spaces in one index would let a spanning
+query rank one corpus's rows against the other's. The scores would look ordinary. If your push
+starts refusing, that index already holds a contract your `embed.config.json` disagrees with.
+Push to a different index, or rebuild with the settings it declares.
+
+**Where the contract cannot be read, the push proceeds and says so.** A write-only credential
+is a legitimate shape for a pusher. So a 403 on `GetVectors` is a printed note, not a
+refusal. A push also now reports the other corpora it found in the index, with a row count
+each. `--dry-run` is the read-only way to ask.
+
 ### A `retrieve` result says whether its text is all of it
 
 **MCP contract 0.22.0 → 0.23.0.** Every entry of `results` carries `truncated`, a boolean

@@ -19,8 +19,8 @@
 
 use serde_json::Value;
 
-use super::{request::path_from_key, DISTANCE_METRIC, MAX_TOP_K};
-use crate::retrieval::Hit;
+use super::{request::split_key, DISTANCE_METRIC, MAX_TOP_K};
+use crate::retrieval::{Corpora, Hit};
 
 /// How many rows to ask for per row wanted, when a residual filter will discard some locally.
 ///
@@ -197,11 +197,13 @@ pub fn disagreement(body: &serde_json::Value, dimension: u32, name: &str) -> Opt
 
 /// Decode one `QueryVectors` response.
 ///
-/// Rows whose key belongs to another corpus are skipped rather than returned: the caller asked
-/// about one corpus, and a foreign row is not an answer to that question. With the filter this
-/// crate sends there should be none — the skip is what keeps a filter bug from becoming a
-/// result a person acts on.
-pub fn decode_query(corpus: &str, body: &Value) -> Result<Page, String> {
+/// Rows whose key belongs to a corpus this query did not ask about are skipped rather than
+/// returned: the caller named the corpora it was asking, and a row from another one is not an
+/// answer to that question. With the filter this crate sends there should be none — the skip
+/// is what keeps a filter bug from becoming a result a person acts on, and it is the only
+/// thing standing between the witness record and a caller's results if the corpus predicate
+/// were ever dropped.
+pub fn decode_query(corpora: &Corpora, body: &Value) -> Result<Page, String> {
     let metric = body
         .get("distanceMetric")
         .and_then(Value::as_str)
@@ -218,9 +220,12 @@ pub fn decode_query(corpus: &str, body: &Value) -> Result<Page, String> {
             .get("key")
             .and_then(Value::as_str)
             .ok_or("a returned vector has no key")?;
-        let Some(path) = path_from_key(corpus, key) else {
+        let Some((corpus, path)) = split_key(key) else {
             continue;
         };
+        if !corpora.admits(corpus) {
+            continue;
+        }
         let distance = row
             .get("distance")
             .and_then(Value::as_f64)
@@ -238,15 +243,18 @@ pub fn decode_query(corpus: &str, body: &Value) -> Result<Page, String> {
             label: text_field(super::META_KEY_LABEL),
             text: text_field(super::META_KEY_TEXT),
             score: score_from_distance(metric, distance)?,
-            // The push writes this key only on a row it had to cut, so its absence is the
-            // statement that `text` is whole — see `request::metadata`. Read as a bool and
-            // not merely tested for presence: a non-boolean under this key is a row this
-            // crate did not write, and reading it as `true` would report a cut on the word
-            // of something else.
+            // Absent means whole, which is what the push writes: the key is set only on a row
+            // whose text had to be cut. A consumer that read `text` and never this key was
+            // reading half a document as though it were all of it (#853).
             truncated: meta
                 .get(super::META_KEY_TEXT_TRUNCATED)
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
+            // From the **key**, not from the `corpus` metadata. The key is what the service
+            // stores a row under and what the mirror's delete prefix is computed from, so it
+            // is the one that cannot disagree with where the row actually lives; metadata is
+            // a copy, and a copy is the thing that drifts.
+            corpus: corpora.foreign(corpus),
         });
     }
 
@@ -399,7 +407,7 @@ mod tests {
         let e = score_from_distance("euclidean", 0.4).unwrap_err();
         assert!(e.contains("euclidean") && e.contains("cosine"), "{e}");
         let body = response(json!([{"key": "c/a.yml", "distance": 0.1}]), "euclidean");
-        assert!(decode_query("c", &body).is_err());
+        assert!(decode_query(&Corpora::own("c"), &body).is_err());
     }
 
     #[test]
@@ -412,7 +420,7 @@ mod tests {
             }]),
             "cosine",
         );
-        let page = decode_query("abc123", &body).unwrap();
+        let page = decode_query(&Corpora::own("abc123"), &body).unwrap();
         assert_eq!(page.next, None);
         assert_eq!(page.hits.len(), 1);
         let h = &page.hits[0];
@@ -424,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn a_row_from_another_corpus_is_skipped_rather_than_returned() {
+    fn a_row_from_a_corpus_that_was_not_asked_about_is_skipped_rather_than_returned() {
         let body = response(
             json!([
                 {"key": "other9/x.yml", "distance": 0.0, "metadata": {"class": "concept"}},
@@ -432,9 +440,57 @@ mod tests {
             ]),
             "cosine",
         );
-        let page = decode_query("abc123", &body).unwrap();
+        let page = decode_query(&Corpora::own("abc123"), &body).unwrap();
         assert_eq!(page.hits.len(), 1);
         assert_eq!(page.hits[0].path, "y.yml");
+    }
+
+    /// The same two rows, asked for across both corpora: both come back, and only the foreign
+    /// one carries an origin.
+    ///
+    /// Written against the *same* body as the test above, so what it isolates is the asking
+    /// rather than the answer. A decoder that returned everything would pass that test and
+    /// this one; a decoder that never returned a foreign row would pass that one and fail
+    /// this; only one that reads the set passes both.
+    #[test]
+    fn a_row_from_a_corpus_that_was_asked_about_comes_back_saying_whose_it_is() {
+        let body = response(
+            json!([
+                {"key": "other9/x.yml", "distance": 0.0, "metadata": {"class": "concept"}},
+                {"key": "abc123/y.yml", "distance": 0.5, "metadata": {"class": "concept"}},
+            ]),
+            "cosine",
+        );
+        let corpora = Corpora::across("abc123", &["other9".to_string()]);
+        let page = decode_query(&corpora, &body).unwrap();
+        assert_eq!(
+            page.hits
+                .iter()
+                .map(|h| (h.path.as_str(), h.corpus.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![("x.yml", Some("other9")), ("y.yml", None)]
+        );
+    }
+
+    /// The witness has a key, a distance and metadata, and is not a row. It is excluded on the
+    /// wire by the corpus predicate; here is the second refusal, which is what a filter bug
+    /// would run into.
+    #[test]
+    fn the_witness_is_not_decoded_as_a_result_even_when_the_service_returns_it() {
+        let body = response(
+            json!([{
+                "key": super::super::WITNESS_KEY,
+                "distance": 0.0,
+                "metadata": {"corpus": super::super::META_CORPUS},
+            }]),
+            "cosine",
+        );
+        for corpora in [
+            Corpora::own("abc123"),
+            Corpora::across("abc123", &["other9".to_string()]),
+        ] {
+            assert!(decode_query(&corpora, &body).unwrap().hits.is_empty());
+        }
     }
 
     /// Missing metadata is a thin answer, not a failure: an index written by an older push, or
@@ -442,7 +498,7 @@ mod tests {
     #[test]
     fn a_row_without_metadata_still_decodes() {
         let body = response(json!([{"key": "abc123/y.yml", "distance": 0.5}]), "cosine");
-        let h = &decode_query("abc123", &body).unwrap().hits[0];
+        let h = &decode_query(&Corpora::own("abc123"), &body).unwrap().hits[0];
         assert_eq!(h.path, "y.yml");
         assert_eq!(h.class, "");
         assert_eq!(h.text, "");
@@ -453,27 +509,32 @@ mod tests {
     #[test]
     fn a_row_without_a_distance_is_an_error_rather_than_a_zero() {
         let body = response(json!([{"key": "abc123/y.yml"}]), "cosine");
-        let e = decode_query("abc123", &body).unwrap_err();
+        let e = decode_query(&Corpora::own("abc123"), &body).unwrap_err();
         assert!(e.contains("distance"), "{e}");
     }
 
     #[test]
     fn a_response_missing_its_shape_says_which_part() {
-        assert!(decode_query("c", &json!({"vectors": []}))
+        assert!(decode_query(&Corpora::own("c"), &json!({"vectors": []}))
             .unwrap_err()
             .contains("distanceMetric"));
-        assert!(decode_query("c", &json!({"distanceMetric": "cosine"}))
-            .unwrap_err()
-            .contains("vectors"));
+        assert!(
+            decode_query(&Corpora::own("c"), &json!({"distanceMetric": "cosine"}))
+                .unwrap_err()
+                .contains("vectors")
+        );
     }
 
     #[test]
     fn an_empty_next_token_means_no_next_page() {
         let mut body = response(json!([]), "cosine");
         body["nextToken"] = json!("");
-        assert_eq!(decode_query("c", &body).unwrap().next, None);
+        assert_eq!(decode_query(&Corpora::own("c"), &body).unwrap().next, None);
         body["nextToken"] = json!("t");
-        assert_eq!(decode_query("c", &body).unwrap().next, Some("t".into()));
+        assert_eq!(
+            decode_query(&Corpora::own("c"), &body).unwrap().next,
+            Some("t".into())
+        );
     }
 
     fn hit(path: &str, score: f32) -> Hit {
@@ -484,6 +545,7 @@ mod tests {
             text: String::new(),
             score,
             truncated: false,
+            corpus: None,
         }
     }
 

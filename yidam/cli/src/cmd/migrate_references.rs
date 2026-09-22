@@ -287,33 +287,15 @@ fn normalise(path: &Path) -> Option<std::path::PathBuf> {
 }
 
 /// Which kind a path that exists is, by where it sits.
+///
+/// The rule itself is [`crate::paths::reference_of_path`], which is also what renders a row
+/// that came back from another corpus's half of a shared vector index (#835). This is the
+/// caller that has a root to make the path relative to.
 fn locate(root: &Path, path: &Path) -> Option<String> {
     let rel = path.strip_prefix(root).ok()?;
-    let parts: Vec<String> = rel
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy().into_owned())
-        .collect();
-    let parts: Vec<&str> = parts.iter().map(String::as_str).collect();
-    fn stem(s: &str) -> &str {
-        s.strip_suffix(".yml")
-            .or_else(|| s.strip_suffix(".md"))
-            .unwrap_or(s)
-    }
-    match parts.as_slice() {
-        [".yidam", "corpus", class, name] if !name.ends_with(".ont.yml") => Some(reference_string(
-            Kind::Node,
-            &format!("{class}/{}", stem(name)),
-            None,
-        )),
-        [".yidam", "catalog", name] => Some(reference_string(Kind::Catalog, stem(name), None)),
-        [".yidam", "decisions", name] => Some(reference_string(Kind::Decision, stem(name), None)),
-        [".yidam", "skills", name] => Some(reference_string(Kind::Skill, stem(name), None)),
-        ["crates", name] => Some(reference_string(Kind::Crate, name, None)),
-        ["crates", name, rest @ ..] => {
-            Some(reference_string(Kind::Crate, name, Some(&rest.join("/"))))
-        }
-        _ => None,
-    }
+    Some(render_reference(&crate::paths::reference_of_path(
+        None, rel,
+    )?))
 }
 
 /// A reference, rendered by the grammar's own renderer rather than by formatting a string.

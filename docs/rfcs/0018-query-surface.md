@@ -506,7 +506,7 @@ unproductive the report says so rather than shrugging:
 
 A rejected query **emits its report and exits 1**. That is the shape four commands already
 have — `doctor`
-([`std::process::exit(1)`](../../yidam/cli/src/cmd/doctor.rs#L1514)), `regen`
+([`std::process::exit(1)`](../../yidam/cli/src/cmd/doctor.rs#L1539)), `regen`
 ([`std::process::exit(1)`](../../yidam/cli/src/cmd/regen.rs#L180)), `rename`
 ([`std::process::exit(1)`](../../yidam/cli/src/cmd/rename.rs#L413)) and `index-verify`
 ([`std::process::exit(1)`](../../yidam/cli/src/cmd/index_verify.rs#L266)) all print, then

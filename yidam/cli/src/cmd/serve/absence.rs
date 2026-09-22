@@ -118,6 +118,30 @@ pub(crate) fn reject_unknown_class(state: &ServerState, class: Option<&str>) -> 
     })
 }
 
+/// Validate a named corpus before searching.
+///
+/// The `class` argument's rule (see [`reject_unknown_class`]) applied to the other name a
+/// caller can get wrong. A corpus is named either by a nickname this repository declared in
+/// `[index.remote.corpora]` or by its genesis hash, and anything else is a typo: searching
+/// the corpora that *were* recognised and reporting the result would answer a question
+/// nobody asked, with the missing corpus invisible in the answer.
+///
+/// The message lists what this repository has declared, because the usual mistake is a
+/// nickname that was never written down or was written down differently.
+pub(crate) fn unknown_corpus(state: &ServerState, name: &str) -> Rejection {
+    let declared: Vec<&str> = state.corpus_aliases.declared().map(|(n, _)| n).collect();
+    let known = match declared.is_empty() {
+        true => ", and this corpus declares no `[index.remote.corpora]` names".to_string(),
+        false => format!(" — declared names are {}", declared.join(", ")),
+    };
+    Rejection {
+        code: "unknown-corpus",
+        message: format!(
+            "`{name}` is neither a corpus name this repository declares nor a genesis hash{known}"
+        ),
+    }
+}
+
 /// How many nodes the class filter admitted — local and dependency alike, which is the set
 /// `retrieve` actually searches.
 fn candidates(state: &ServerState, class: Option<&str>) -> usize {

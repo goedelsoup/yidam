@@ -1043,6 +1043,24 @@ fn check_remote_index(root: &Path) -> Answer {
         }
     };
 
+    // The names this corpus declared for the others sharing that index (#835). Checked here
+    // because a malformed table is a *startup* failure for `serve` and `retrieve` — the
+    // corpus a person asks with the surface they ask through — and a `doctor` that passed on
+    // a repository whose server will not start is answering a different question than the one
+    // it was asked.
+    let named = match crate::s3vectors::Aliases::resolve(&declared.corpora) {
+        Ok(a) => a,
+        Err(e) => {
+            return Answer::fail(
+                first_line(&e.to_string()),
+                Some(
+                    "A corpus is named by its genesis commit hash. `yidam index-push \
+                      --dry-run` lists the corpora an index holds.",
+                ),
+            )
+        }
+    };
+
     if let Err(e) = crate::vault::creds::resolve_scope(&crate::vault::creds::index_scope(), |k| {
         std::env::var(k).ok()
     }) {
@@ -1055,7 +1073,14 @@ fn check_remote_index(root: &Path) -> Answer {
         );
     }
 
-    Answer::ok(remote.describe())
+    let shared = named.declared().count();
+    match shared {
+        0 => Answer::ok(remote.describe()),
+        n => Answer::ok(format!(
+            "{} (+{n} corpus name(s) declared)",
+            remote.describe()
+        )),
+    }
 }
 
 /// Are the vaults configured, and is everything they need in place — **without asking them**.

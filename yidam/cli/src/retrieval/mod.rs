@@ -149,6 +149,29 @@ pub struct Hit {
     /// so `false` is a fact about that backend, and the asymmetry between the two is exactly
     /// what a reader of a result should be able to see.
     pub truncated: bool,
+    /// The corpus this row came from, or `None` when it is this repository's own.
+    ///
+    /// **A row from another corpus is what a shared index makes possible** (RFC-0033 phase 3).
+    /// Keys are `<genesis12>/<path>`, so a query naming more than one corpus gets rows whose
+    /// `path` is a path in a repository this process cannot open. The value is the
+    /// twelve-character genesis hash the index keys on — the corpus's one identity, and the
+    /// authority [`crate::paths::reference_of_path`] renders into an RFC-0032 identifier.
+    ///
+    /// **`corpus` and not `origin`, which this surface already uses for something else.** A
+    /// keyword result's `origin` names an installed dependency: a corpus under
+    /// `.yidam/tonpa/`, whose nodes this process has read and `get_node` can return. A corpus
+    /// sharing a vector index is not installed and not readable — what came back is the row
+    /// and nothing else. Spelling both as `origin` would tell a client it could fetch
+    /// something it cannot, which is the affordance the `id` field exists to keep honest.
+    ///
+    /// **Null for local**, the convention `origin` already follows here: absence of a corpus
+    /// *is* the statement that the row is this repository's. A local index can never set it —
+    /// one index directory is one corpus.
+    ///
+    /// It is deliberately not the declared alias a caller may have used to ask. An alias is a
+    /// nickname chosen by the repository that declared it (RFC-0032 §4.5), and a result whose
+    /// identity changed with the reader's config would not be an identity.
+    pub corpus: Option<String>,
 }
 
 /// What a search may return, in the part of the question a server can be asked.
@@ -259,6 +282,85 @@ impl Filter {
             None => true,
             Some(cs) => cs.iter().any(|c| c == class),
         }
+    }
+}
+
+/// The corpora one search is asking about, and which of them is the asking repository's own.
+///
+/// **A local index is one corpus by construction and a remote one is not.** Keys in a vector
+/// bucket are `<genesis12>/<path>` and `corpus` is filterable from the first push (RFC-0033
+/// §4.2), so several corpora can share an index without any of them re-pushing — and the
+/// question *"which of these already says something about X"* becomes askable. This is the
+/// asking.
+///
+/// **Own is always in the set, and the named ones are added to it.** A server answers for the
+/// corpus it was started in: its `absence` diagnosis counts that corpus's nodes, its
+/// `get_node` reads that corpus's files, and a span that could *replace* its corpus rather
+/// than widen past it would make every one of those answers about something else. A caller
+/// that wants only the neighbours filters on [`Hit::origin`], which is exactly what that field
+/// is for.
+///
+/// Ungated, like [`Filter`] and [`Searched`] and for the same reason: only a remote backend
+/// can span, and the control flow that decides whether a span happened is compiled into every
+/// build — including the light one CI runs on a pull request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Corpora {
+    own: String,
+    /// The others, deduplicated, without `own`, in the order the caller named them.
+    also: Vec<String>,
+}
+
+impl Corpora {
+    /// This corpus alone — what every query asked before #835, and what a query with no
+    /// `corpora` argument still asks.
+    pub fn own(own: impl Into<String>) -> Self {
+        Self {
+            own: own.into(),
+            also: Vec::new(),
+        }
+    }
+
+    /// This corpus and the ones named.
+    ///
+    /// Naming your own corpus is a no-op rather than an error: a caller listing the corpora in
+    /// a shared index has no reason to remove itself from the list, and `$in [x, x]` is a
+    /// predicate nobody should have to think about.
+    pub fn across(own: impl Into<String>, also: &[String]) -> Self {
+        let own = own.into();
+        let mut seen = std::collections::BTreeSet::new();
+        let also = also
+            .iter()
+            .filter(|c| **c != own && seen.insert((*c).clone()))
+            .cloned()
+            .collect();
+        Self { own, also }
+    }
+
+    /// Every corpus this search may return a row from, own first.
+    pub fn ids(&self) -> Vec<&str> {
+        std::iter::once(self.own.as_str())
+            .chain(self.also.iter().map(String::as_str))
+            .collect()
+    }
+
+    /// Whether this search reaches past the corpus it was asked in.
+    ///
+    /// What the MCP contract's `scope` reports, and it reports what *happened*: a call naming
+    /// only corpora this one already is answers `local`, the same way `query --across` answers
+    /// `local` for a repository with no dependencies installed.
+    pub fn is_across(&self) -> bool {
+        !self.also.is_empty()
+    }
+
+    /// What [`Hit::corpus`] should say about a row keyed under `corpus`: `Some` when the row
+    /// belongs to another corpus, `None` when it is this repository's own.
+    pub fn foreign(&self, corpus: &str) -> Option<String> {
+        (corpus != self.own).then(|| corpus.to_string())
+    }
+
+    /// Whether a row keyed under `corpus` is one this search asked for.
+    pub fn admits(&self, corpus: &str) -> bool {
+        self.own == corpus || self.also.iter().any(|c| c == corpus)
     }
 }
 
@@ -690,6 +792,7 @@ mod tests {
             text: String::new(),
             score: 1.0,
             truncated: false,
+            corpus: None,
         }
     }
 
@@ -742,5 +845,55 @@ mod tests {
         assert!(Filter::nodes_of(&["api".to_string()])
             .as_applied(true)
             .admits(&source.class));
+    }
+
+    // ── which corpora a search is about ───────────────────────────────────────
+
+    fn also(names: &[&str]) -> Vec<String> {
+        names.iter().map(|n| n.to_string()).collect()
+    }
+
+    /// One corpus is one corpus, and the asking one leads the set.
+    ///
+    /// The order is asserted because it reaches a canonical request: `filter::to_json` renders
+    /// `ids()` into a `$in` array, and a set whose order moved between runs would make a
+    /// signed request that differs from one query to the next while meaning the same thing.
+    #[test]
+    fn own_is_one_corpus_and_leads_a_wider_set() {
+        assert_eq!(Corpora::own("abc123").ids(), vec!["abc123"]);
+        assert!(!Corpora::own("abc123").is_across());
+
+        let wide = Corpora::across("abc123", &also(&["other9", "third4"]));
+        assert_eq!(wide.ids(), vec!["abc123", "other9", "third4"]);
+        assert!(wide.is_across());
+    }
+
+    /// The asking corpus cannot be excluded, and naming it again does not duplicate it.
+    ///
+    /// Both halves of the rule the MCP contract states: the serving corpus is always in the
+    /// set, because every other answer the tool gives is about that corpus.
+    #[test]
+    fn the_asking_corpus_is_always_in_the_set_exactly_once() {
+        let named_itself = Corpora::across("abc123", &also(&["abc123"]));
+        assert_eq!(named_itself.ids(), vec!["abc123"]);
+        // And it is `local`: nothing beyond this corpus was asked for, whatever was typed.
+        assert!(!named_itself.is_across());
+
+        let repeated = Corpora::across("abc123", &also(&["other9", "other9", "abc123"]));
+        assert_eq!(repeated.ids(), vec!["abc123", "other9"]);
+    }
+
+    /// A row's origin is `None` for the asking corpus and its id for any other, and a corpus
+    /// nobody asked about is admitted by neither.
+    #[test]
+    fn a_rows_corpus_is_named_only_when_it_is_not_this_one() {
+        let wide = Corpora::across("abc123", &also(&["other9"]));
+        assert_eq!(wide.foreign("abc123"), None);
+        assert_eq!(wide.foreign("other9"), Some("other9".to_string()));
+        assert!(wide.admits("abc123") && wide.admits("other9"));
+        assert!(!wide.admits("third4"));
+        // The witness's corpus is not a corpus, and no set admits it.
+        assert!(!wide.admits(crate::s3vectors::META_CORPUS));
+        assert!(!Corpora::own("abc123").admits(crate::s3vectors::META_CORPUS));
     }
 }
