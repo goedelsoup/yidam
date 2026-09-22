@@ -12,7 +12,9 @@
 #     publish-crates.yml, by the person who then tagged them in the other order
 #     seven hours later.
 #   - Tag patterns differ per layer: `v*` template, `sdk/rust/v*` SDK,
-#     `cli/v*` CLI, `bootstrap/v*` protocol, `editor/v*` extension.
+#     `cli/v*` CLI, `bootstrap/v*` protocol, `editor/v*` extension,
+#     `edit/v*` the web editor. The last two are four characters apart and
+#     are disjoint patterns; `edit` is not an abbreviation of `editor` here.
 #   - A workflow fires only if it EXISTS at the ref being pushed. Adding the
 #     workflow after the tag produces a tag that triggers nothing, silently.
 #
@@ -50,7 +52,8 @@ layers:
   sdk/rust    tag sdk/rust/v<version>     — publishes yidam-core to crates.io
   cli         tag cli/v<version>          — binaries, tap, and yidam to crates.io
   bootstrap   tag bootstrap/v<version>    — protocol version; no workflow
-  editor      tag editor/v<version>       — VS Code Marketplace
+  editor      tag editor/v<version>       — the VS Code extension
+  edit        tag edit/v<version>         — @goedelsoup/yidam-edit on npm
 
 Order: sdk/rust before cli, always. The CLI depends on yidam-core by
 { path, version } and cannot publish until crates.io holds a matching one.
@@ -90,6 +93,11 @@ case "$LAYER" in
     TAG="bootstrap/v$VERSION";     MANIFEST="yidam/tests/harness/yidam-harness/src/lib.rs"; WORKFLOWS="" ;;
   editor)
     TAG="editor/v$VERSION";        MANIFEST="yidam/editors/vscode/package.json";        WORKFLOWS=".github/workflows/editor.yml" ;;
+  edit)
+    # The web editor, published to npm and nowhere else. Its own layer argument
+    # rather than a flag on `editor`, because the two artifacts carry separate
+    # versions and a shared entrance is a shared cadence by accident.
+    TAG="edit/v$VERSION";          MANIFEST="yidam/editors/web/package.json";           WORKFLOWS=".github/workflows/edit.yml" ;;
   *)
     refuse unknown-layer "'$LAYER' is not a layer; see VERSIONING.md"
     usage
@@ -255,6 +263,31 @@ if [ "$LAYER" = "cli" ] || [ "$LAYER" = "sdk/rust" ]; then
       printf 'the packaged crate builds.\n'
     else
       refuse package-unbuildable "cargo publish --dry-run failed for $MANIFEST — the published crate would not build. See /tmp/release-package-check.log"
+    fi
+  fi
+fi
+
+# The npm equivalent, and the same argument one ecosystem over. `npm publish`
+# packs only what lives under the package root, so a module imported from outside
+# it resolves in the working tree and in every CI job and is absent from the
+# tarball — the identical failure signature `packaging.rs` records twice for
+# `cargo package`. `check-package.mjs` packs, installs the tarball's production
+# dependencies into a directory outside this repository, and starts the server
+# there; an import that only resolves from inside the tree fails at that start.
+#
+# It runs in `ci-editor-web` on every pull request as well. This is the second
+# entrance, for the reason the cli branch above has one: a green CI run is not
+# evidence about the tree being tagged, and the tag is the moment at which finding
+# out is no longer free.
+if [ "$LAYER" = "edit" ]; then
+  if ! command -v npm >/dev/null 2>&1; then
+    refuse npm-missing "npm is not on PATH, so the packed tarball cannot be verified"
+  else
+    printf 'verifying the packed tarball (npm pack, install, run)...\n'
+    if (cd yidam/editors/web && npm run build && npm run package) >/tmp/release-pack-check.log 2>&1; then
+      printf 'the packed tarball runs.\n'
+    else
+      refuse package-unbuildable "npm run package failed for yidam/editors/web — the published tarball would not run. See /tmp/release-pack-check.log"
     fi
   fi
 fi

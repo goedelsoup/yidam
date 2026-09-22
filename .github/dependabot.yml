@@ -1,7 +1,7 @@
 # Dependency updates, proposed rather than discovered after they break.
 #
 # The weekly schedule in ci.yml exists to catch arrow/lancedb version-lock rot — *after* it
-# rots. Nothing proposed an update across three cargo manifests, two npm projects and every
+# rots. Nothing proposed an update across three cargo manifests, three npm projects and every
 # pinned action, so every bump in this repository has been a reaction (#463).
 #
 # **Grouped on purpose.** Ungrouped, this opens five or more pull requests a week across six
@@ -68,7 +68,7 @@ updates:
       cargo-harness:
         patterns: ["*"]
 
-  # ── npm ×2 ─────────────────────────────────────────────────────────────────
+  # ── npm ×3 ─────────────────────────────────────────────────────────────────
   - package-ecosystem: npm
     directory: /yidam/editors/vscode
     schedule: { interval: weekly, day: monday }
@@ -89,6 +89,18 @@ updates:
     open-pull-requests-limit: 2
     groups:
       npm-docs:
+        patterns: ["*"]
+  # The web editor (#609). Its own entry rather than a pattern on one of the two above, for
+  # the reason the cargo block gives: dependabot resolves per-manifest, so an entry that does
+  # not name this directory leaves this lockfile to drift — and unlike the other two npm
+  # projects, this one's lockfile is *published*, in the sense that the tarball it produces is
+  # what an `npx` user runs. `astro` and `@astrojs/node` are its runtime, not its toolchain.
+  - package-ecosystem: npm
+    directory: /yidam/editors/web
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 2
+    groups:
+      npm-edit:
         patterns: ["*"]
 
   # ── actions ────────────────────────────────────────────────────────────────

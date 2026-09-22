@@ -1,5 +1,5 @@
 {
-  "name": "@yidam/edit",
+  "name": "@goedelsoup/yidam-edit",
   "version": "0.1.0",
   "description": "Local authoring surface for a yidam-derived knowledge repository. Renders verdicts the yidam binary computes; computes none of its own.",
   "type": "module",
@@ -37,7 +37,8 @@
     "check": "astro check",
     "lint": "oxlint --deny-warnings .",
     "test:unit": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=junit.xml test/*.mjs",
-    "test": "npm run test:unit"
+    "test": "npm run test:unit",
+    "package": "node ./scripts/check-package.mjs"
   },
   "dependencies": {
     "@astrojs/node": "^9.0.0",

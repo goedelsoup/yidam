@@ -1,10 +1,10 @@
-# `@yidam/edit` — the editor that arrives in a terminal
+# `@goedelsoup/yidam-edit` — the editor that arrives in a terminal
 
 The third client of one contract, and the first that needs no configured editor to reach.
 
 ```
-npx @yidam/edit            # in a checkout with a .yidam/ corpus
-npx @yidam/edit --root /srv/corpus --port 9000 --no-open
+npx @goedelsoup/yidam-edit            # in a checkout with a .yidam/ corpus
+npx @goedelsoup/yidam-edit --root /srv/corpus --port 9000 --no-open
 ```
 
 Specified by [RFC-0030](../../../docs/rfcs/0030-standalone-editor.md), **as amended
@@ -204,7 +204,7 @@ YIDAM_EDIT_PORT=4399 mise run edit-dev   # if 8788 is taken
 That stages the reports golden corpus — the same one the goldens and the extension's tests
 assert against, through the same `stage.toml` — as a real git repository at
 `.local/ext-fixture`, then serves it through `bin/yidam-edit.mjs` rather than through `astro
-dev`, so what runs is the entry point `npx @yidam/edit` runs. What CI checks and what a person
+dev`, so what runs is the entry point `npx @goedelsoup/yidam-edit` runs. What CI checks and what a person
 sees stay one repository.
 
 ## The overlay, and why there is a child process
@@ -233,6 +233,28 @@ clean verdict is silence — and the page says so rather than showing the silenc
 
 A form's save is not `propose` and is not here: it would be a new `act` tool with an input
 schema, which is a contract event (RFC-0005) that needs its own argument — RFC-0030's open
-question *does Phase 2 write at all?* records where that stands. The npm name, the Layer 4 row, the publish
-path and the channel check are #610 and Phase 4 (#609) — **nothing here is published, and the
-`@yidam` scope is not yet registered.**
+question *does Phase 2 write at all?* records where that stands.
+
+## How it ships
+
+Phase 4 (#609). This package is Layer 4's third artifact: a row in
+[VERSIONING.md](../../../VERSIONING.md)'s Layer 4 table, a publish path in
+[`edit.yml`](../../../.github/workflows/edit.yml) that fires on `edit/v*` and on nothing else,
+and a channel check in [`install-channels.yml`](../../../.github/workflows/install-channels.yml)
+that asks npm which version it serves. `the_registries_layer_4_names_are_delivered_and_checked`
+refuses any two of the three without the other, because a registry named in a versioning
+document is read as a promise and #232 is what an unkeepable one costs.
+
+**npm is the only channel, and there is no GitHub release.** Every other Layer 4 artifact has a
+file to attach; here the package *is* the artifact. That has one consequence worth knowing
+before reading `install-channels.yml`: this is the one layer whose version cannot be resolved
+from the releases API, so `edit-released` resolves it from the tag.
+
+[`scripts/check-package.mjs`](scripts/check-package.mjs) is what stands between a green build
+and a published tarball that does not run. It packs what `npm publish` would upload, installs
+its *production* dependencies in a directory outside this repository, and starts the server
+there — which catches both of the failures a file listing cannot: a module imported from
+outside the package root, and a runtime import that is only a `devDependency`. It runs in
+`ci-editor-web` on every pull request rather than first at the tag, because #871 is the
+precedent: `ci (vscode)` never packaged, and two `vsce` refusals stayed green for weeks before
+arriving during a release.

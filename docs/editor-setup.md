@@ -1,13 +1,14 @@
 # Editor setup
 
-Two surfaces, and the split is deliberate.
+Three surfaces, and the split is deliberate.
 
 | | |
 |---|---|
 | **`yidam serve --lsp`** | The language server. Diagnostics, definition, references, hover, rename — everything that is a *judgement*, computed by the same functions `yidam lint` runs. Any LSP-capable editor. |
 | **The VS Code extension** | The views, claim decoration, the SCM commit box, task wiring — everything that is VS Code-shaped and has no LSP equivalent. |
+| **`npx @goedelsoup/yidam-edit`** | A local web editor. The same verdicts in a browser, for a reader who has a corpus and a terminal and no configured editor. |
 
-Both obey one rule, from [RFC-0016](rfcs/0016-editor-surface.md):
+All three obey one rule, from [RFC-0016](rfcs/0016-editor-surface.md):
 
 > **TypeScript computes affordances. The CLI computes verdicts.**
 
@@ -17,7 +18,7 @@ whether the corpus is sound. Verdicts cross the process boundary as JSON from th
 repository pins, and the editor renders them. It never derives them, because a TypeScript
 re-implementation of the checks is precisely the drift the RFC set exists to close.
 
-**Install the CLI first.** Neither surface bundles, downloads, or builds a binary; with none
+**Install the CLI first.** No surface bundles, downloads, or builds a binary; with none
 reachable there is nothing to render. See [Installation](installation.md).
 
 ---
@@ -195,3 +196,41 @@ code --install-extension yidam/editors/vscode/dist/yidam-vscode.vsix
 
 `mise run ext-dev` instead opens an Extension Development Host against a staged fixture, which
 is the loop for working *on* it — see [Contributing](contributing.md#the-editor-extension).
+
+## Run the web editor
+
+```sh
+npx @goedelsoup/yidam-edit
+```
+
+No install, no configured editor, no extension host. It serves the corpus in the current
+directory on `http://127.0.0.1:8788` and opens a browser at it.
+
+```sh
+npx @goedelsoup/yidam-edit --root /srv/corpus --port 9000 --no-open
+```
+
+`--root` names a corpus instead of inheriting the working directory. `--port` moves it.
+`--no-open` starts the server and prints the URL rather than launching anything.
+
+It renders status, a browsable graph, and one node at a time against its class declaration.
+The `lint` and `graph-check` reports are there, and so are open questions.
+
+Two pages go further. `/draft` lints a node as you type it, over `serve --lsp`, and never saves
+it. `/act` is `propose` behind a button.
+
+### It binds loopback, and there is no flag that changes that
+
+The server authenticates nobody, so `--bind` does not exist. The flag that would deploy it is
+the flag that makes it a service with no access control. A
+container reaches it by publishing a port, which is the container's decision to make.
+
+### What it computes
+
+Nothing. Every finding on every page came off the same JSON envelope the extension reads. It
+comes from the binary this repository pins — [RFC-0016](rfcs/0016-editor-surface.md)'s rule,
+unchanged.
+It resolves that binary the way the extension does, and says so in the header.
+
+[RFC-0030](rfcs/0030-standalone-editor.md) specifies it. It is versioned on its own `edit/v*`
+tag and published to npm; see [Versioning](versioning.md).

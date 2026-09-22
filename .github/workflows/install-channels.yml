@@ -551,6 +551,88 @@ jobs:
   # there is nothing to obtain. If it could and the asset is missing, that is a
   # broken release and this goes red. Comments are stripped before the match, so
   # the prose above cannot answer for the matrix key it names.
+  # ── the web editor, whose whole channel is a registry ──────────────────────
+  #
+  # Layer 4's third artifact (#609). It resolves its version from the **tag** and
+  # not from the releases API, which is the one place this job differs from
+  # `released` and `editor-released` above, and the reason is structural rather
+  # than stylistic: `edit.yml` creates no GitHub release, because npm is the only
+  # channel and the package *is* the artifact. There is nothing to attach.
+  #
+  # `git ls-remote` rather than `gh api .../releases`: the refs are the record.
+  # Sorted by `-V` on the numeric part, because ls-remote returns refs in
+  # lexicographic order and `edit/v0.10.0` sorts below `edit/v0.9.0` there — the
+  # same trap `releases/latest` was, one layer down.
+  edit-released:
+    name: what is released (edit)
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - name: Resolve the latest edit tag
+        run: |
+          set -euo pipefail
+          tag=$(git ls-remote --tags --refs \
+                  "https://github.com/${{ github.repository }}.git" 'refs/tags/edit/v*' \
+                | sed 's#.*refs/tags/##' | sort -V | tail -n1)
+          if [ -z "$tag" ]; then
+            echo "no edit/v* tag yet — nothing to obtain, so nothing to check."
+            echo "This job arms itself on the first one; see #609."
+            exit 0
+          fi
+          echo "version=${tag#edit/v}" >> "$GITHUB_OUTPUT"
+          echo "latest edit tag: $tag"
+        id: v
+
+  # npm serves an unauthenticated document naming every published version, and it
+  # is asked the question every job here asks: is what you are serving the version
+  # that was released?
+  #
+  # NOT `npx @goedelsoup/yidam-edit` run for real. That would start a server and
+  # need something to kill it, and what it would prove — that the published
+  # tarball runs — is proved before publishing rather than after, by
+  # `yidam/editors/web/scripts/check-package.mjs`, which installs the tarball's
+  # production dependencies outside the repository and starts it. What can be
+  # wrong *here* is the publish: a step that failed on a missing NPM_TOKEN, a
+  # scope nobody holds, a version that never registered. Every one of those is
+  # visible in the version the registry reports.
+  edit-npm:
+    name: npx @goedelsoup/yidam-edit
+    needs: edit-released
+    if: needs.edit-released.outputs.version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: The version npm serves
+        run: |
+          set -euo pipefail
+          expected="${{ needs.edit-released.outputs.version }}"
+          curl -sS https://registry.npmjs.org/@goedelsoup/yidam-edit > packument.json
+          # Fetched to a file rather than piped, for `mcpb-bundle`'s reason: under
+          # `pipefail` a failed request inside a pipeline is indistinguishable from
+          # a key that is absent, and a transient outage would green this forever.
+          got=$(jq -r '."dist-tags".latest // ""' packument.json)
+          echo "npm: '$got'  expected: '$expected'"
+          if [ -z "$got" ]; then
+            echo "::error::npm does not know @goedelsoup/yidam-edit. Either edit.yml's"
+            echo "::error::publish step never ran, or NPM_TOKEN is unset. VERSIONING.md's"
+            echo "::error::Layer 4 table names npm as a registry this project delivers to,"
+            echo "::error::and README.md and docs/editor-setup.md tell a reader to type"
+            echo "::error::\`npx @goedelsoup/yidam-edit\` — which is a sentence that cannot"
+            echo "::error::succeed on any machine until this is fixed."
+            exit 1
+          fi
+          [ "$got" = "$expected" ] || {
+            echo "::error::npm serves $got; the latest edit tag is $expected"
+            exit 1
+          }
+          # And it must be installable as that version, not merely named as it.
+          # `npm pack` fetches the published tarball without running anything in
+          # it, which is as far as this job goes: the tarball's contents were
+          # graded before publishing, and re-grading them here would be checking
+          # the gate rather than the channel.
+          npm pack "@goedelsoup/yidam-edit@${expected}" --pack-destination .
+          ls -l "goedelsoup-yidam-edit-${expected}.tgz"
+
   mcpb-bundle:
     name: .mcpb on the release
     needs: released

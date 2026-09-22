@@ -116,12 +116,13 @@ means, which is why it is not folded into the template layer.
 
 ## Layer 4 — Tooling
 
-The two things a *person* runs rather than a derived repo inherits.
+The three things a *person* runs rather than a derived repo inherits.
 
 | Artifact | Manifest | Tag | Delivered to |
 |---|---|---|---|
 | `yidam` CLI | `yidam/cli/Cargo.toml` | `cli/v{x.y.z}` | crates.io, GitHub releases, `goedelsoup/homebrew-tap` |
 | `goedelsoup.yidam-vscode` | `yidam/editors/vscode/package.json` | `editor/v{x.y.z}` | Open VSX, GitHub releases |
+| `@goedelsoup/yidam-edit` | `yidam/editors/web/package.json` | `edit/v{x.y.z}` | npm |
 
 **The VS Code Marketplace is not in that table, and its absence is the point.** The publisher
 needs an Azure DevOps organisation that has not been created, so the Marketplace step notices the
@@ -144,12 +145,23 @@ must carry `version_prefix = "cli/v"`, or `latest` resolves whichever layer was 
 recently — and an `editor/v*` release ships only a `.vsix`, so the install does not degrade, it
 fails. See [installation](installation.md#mise).
 
-### The contract between the CLI and the editor is `format_version`
+**`@goedelsoup/yidam-edit` publishes no GitHub release at all**, because npm is its only channel
+and the package *is* the artifact. That makes it the one layer whose version cannot be read off
+the release list — the channel check resolves it from the `edit/v*` tag instead. `edit/v*` and
+`editor/v*` are four characters apart and disjoint as patterns, so neither tag starts the
+other's workflow; a test holds that, because a workflow firing on the wrong tag publishes
+nothing and looks exactly like one that has not finished.
 
-Not either one's version. Every `yidam <command> --format json` carries `format_version`
+### The contract between the CLI and the editor clients is `format_version`
+
+Not any one of their versions. Every `yidam <command> --format json` carries `format_version`
 alongside the CLI's own version and build commit, and a consumer versioned independently of the
 binary a repository pins reads that first. It is what makes separate tags safe: a CLI patch
-should not imply an extension release, and an extension patch should not imply a CLI one.
+should not imply an editor release, and an editor patch should not imply a CLI one.
+
+It has three consumers now — the CLI declares it, and both editor clients name the major they
+will parse. A client that meets a major it does not know says so and disables verdict features
+rather than guessing at an envelope it cannot read.
 
 ## Release process
 

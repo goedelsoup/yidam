@@ -130,6 +130,10 @@ fn every_layer_versioning_md_names_is_one_the_script_can_release() {
         ("`cli/v{major}.{minor}.{patch}`", "cli)"),
         ("`bootstrap/v{major}.{minor}.{patch}`", "bootstrap)"),
         ("`editor/v{major}.{minor}.{patch}`", "editor)"),
+        // Four characters from the row above it, and a separate layer argument rather than a
+        // flag on `editor`: the two editor clients carry separate versions, and a shared
+        // entrance is a shared cadence by accident.
+        ("`edit/v{major}.{minor}.{patch}`", "edit)"),
         ("`v{major}.{minor}.{patch}`", "template)"),
     ];
     let versioning = read("VERSIONING.md");

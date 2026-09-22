@@ -42,7 +42,7 @@ does not serve VS Code proper ([VERSIONING.md § Layer 4](../../VERSIONING.md#la
 Neither reaches somebody who has a corpus and a terminal.
 
 This RFC proposes `yidam-edit`: a local authoring surface, an Astro application on
-`@astrojs/node`, published to npm and run against a checkout — `npx @yidam/edit` — whose node
+`@astrojs/node`, published to npm and run against a checkout — `npx @goedelsoup/yidam-edit` — whose node
 forms are generated from the ontology rather than typed as YAML, and which **computes no verdict
 of its own**. Every judgement it renders comes from the `yidam` binary the repository pins,
 resolved the way the extension resolves it and spoken to over the contract RFC-0001 froze.
@@ -210,7 +210,7 @@ That is Layer 4's existing argument about the extension, applied a third time:
 
 So:
 
-- **A third row in Layer 4's table**, artifact `@yidam/edit`, manifest
+- **A third row in Layer 4's table**, artifact `@goedelsoup/yidam-edit`, manifest
   `yidam/editors/web/package.json`, tag `edit/v{major}.{minor}.{patch}`, registry npm.
 - **A release channel**, and therefore a check in `install-channels.yml` that asks npm what it
   serves — for the reason #231 established: a channel with a publisher and no check is an
@@ -220,21 +220,50 @@ So:
   and this client is exactly that. It reads the envelope first and degrades loudly on an unknown
   major, as RFC-0016 requires and as the extension already does.
 
-**The row does not land yet, and withholding it is deliberate.** VERSIONING.md's own rule:
+**The row lands with its publish path and its check, or not at all.** VERSIONING.md's own rule:
 
 > This table names registries this project *delivers to*, never ones it intends to.
 
-Nothing publishes to npm today, and `the_registries_layer_4_names_are_delivered_and_checked`
-refuses a row whose publish path and channel check are not there with it — the same test that
-holds the Marketplace row out. The row, the `npm publish` step, and the channel check land
-together in Phase 4, as one change. Until then Layer 4 is unchanged and this RFC is the record
-of what will change it. #232 is what the other order costs: `cargo binstall yidam` stood in the
-README for a release cycle while `yidam` did not exist on crates.io.
+`the_registries_layer_4_names_are_delivered_and_checked` refuses a row whose publish path and
+channel check are not there with it — the same test that holds the Marketplace row out. So the
+row, the `npm publish` step and the channel check landed together in Phase 4, as one change.
+#232 is what the other order costs: `cargo binstall yidam` stood in the README for a release
+cycle while `yidam` did not exist on crates.io.
+
+### The name, settled 2026-09-18
+
+**`@goedelsoup/yidam-edit`**, decided by the repository owner on #610.
+
+This RFC's lean was `@yidam/edit`, and it is declined. The argument for it was consistency with
+[`@yidam/core`](../../yidam/prelude/sdks/typescript/package.json), which is in-tree and
+unpublished — consistency with something unpublished, used as the basis for a *blocking*
+dependency, since the `@yidam` scope would have had to be registered before the row could be
+written truthfully.
+
+The check that decided it is worth recording, because the obvious one gives the wrong answer. A
+`GET https://registry.npmjs.org/<pkg>` returns 404 for `@yidam/edit`, `@goedelsoup/yidam-edit`
+and unscoped `yidam-edit` alike, and that only says those *packages* do not exist — a scope can
+be held with nothing published under it. The endpoint that answers ownership is
+`GET https://registry.npmjs.org/-/org/<scope>/user`: `yidam` answers 404 *Scope not found*, and
+`goedelsoup` answers `{"goedelsoup":"owner"}`. It discriminates rather than answering 200 to
+anything, so the 404 is evidence and not silence.
+
+**Owning the identity elsewhere is not owning the npm scope**, and nothing unauthenticated can
+tell whether a held handle belongs to this project or to a namesake. That question was the
+owner's, and the answer was yes: the npm account `goedelsoup` is this project's. So
+`@goedelsoup/yidam-edit` is the only candidate needing no registration on the day the Layer 4
+row is written, which is exactly what VERSIONING.md's rule asks for. It is also the handle the
+VS Code extension already publishes under, so the two things a person installs live under one
+name rather than two.
+
+`yidam-edit` unscoped was viable — shortest to type, and `npx` is this surface's whole entry
+point — and was declined for that identity reason. Unscoped names are first-come and cannot be
+reserved without publishing, which is a cost the scoped name does not carry either.
 
 ### The command surface
 
 ```
-npx @yidam/edit [--root DIR] [--port N] [--no-open]
+npx @goedelsoup/yidam-edit [--root DIR] [--port N] [--no-open]
 ```
 
 The `yidam` binary gains nothing. There is no `yidam edit` subcommand, no route table in
@@ -401,7 +430,7 @@ from two near-misses this repository has already paid for.
 
 **Phase 0 — this RFC and this amendment.** The decisions above are the deliverable.
 
-**Phase 1 — the read surface.** `npx @yidam/edit` serving an Astro MPA for browse / node /
+**Phase 1 — the read surface.** `npx @goedelsoup/yidam-edit` serving an Astro MPA for browse / node /
 reports / open-questions / status, against the design system's components. Binary resolution and
 the handshake, both from the extension's modules. **The three boundary gates from
 [§ The boundary, now breakable](#the-boundary-now-breakable) land in this phase**, before there
@@ -499,8 +528,27 @@ the phase shipped as two routes and one page. Three things it settled by being b
 **Phase 4 — the artifact, and the gates.** The Layer 4 row, the `npm publish` path and the
 `install-channels.yml` check, landing as one change. A `ci-editor-web` mise task and a CI job
 mirroring `vscode`; a Dependabot npm group; a row in [`editor-setup.md`](../editor-setup.md) and
-in [`yidam/editors/README.md`](../../yidam/editors/README.md); a sidebar entry, without which
-`astro build` fails.
+in [`yidam/editors/README.md`](../../yidam/editors/README.md).
+
+*Landed 2026-09-22, #609.* Four things it settled by being built:
+
+- **The name is `@goedelsoup/yidam-edit`** — [§ The name](#the-name-settled-2026-09-18).
+- **The publish path is [`edit.yml`](../../.github/workflows/edit.yml)**, a fifth tag pattern
+  and the first Layer 4 artifact whose release creates no GitHub release. npm is its only
+  channel, so `edit-released` in `install-channels.yml` resolves the version from the *tag*
+  rather than from the releases API — the one resolution in this repository that had no
+  release list to read.
+- **The packing test is [`scripts/check-package.mjs`](../../yidam/editors/web/scripts/check-package.mjs)**,
+  and it runs on every pull request rather than first at the tag. #871 is why: `ci (vscode)`
+  never packaged, so two `vsce` refusals were green for weeks and both arrived during a
+  release. It packs, installs the tarball's *production* dependencies into a directory outside
+  this repository, and starts the server there. A module imported from outside the package
+  root, or a runtime import that is only a devDependency, fails at that start rather than on a
+  stranger's machine.
+- **No sidebar entry was needed.** This phase's plan said one was, on the grounds that
+  `astro build` fails on a published page the sidebar does not reach. That is true and does not
+  apply: the web editor is a third section of [`editor-setup.md`](../editor-setup.md), which the
+  sidebar has always listed, and no page was added.
 
 ### The identity gate, answered — and what the reversal does to the answer
 
@@ -619,11 +667,8 @@ does not propose to move it.
 
 ## Open questions
 
-- **Which npm name, and who owns it.** The lean is `@yidam/edit`, for consistency with
-  [`@yidam/core`](../../yidam/prelude/sdks/typescript/package.json). Neither is published and the
-  `@yidam` scope is unclaimed, so the scope has to be registered before the Layer 4 row can land
-  — a precondition, not a detail. `yidam-edit` unscoped and `@goedelsoup/yidam-edit` are the
-  fallbacks, and the second matches the VS Code publisher this project already owns.
+- ~~**Which npm name, and who owns it.**~~ **Settled 2026-09-18 — see
+  [§ The name](#the-name-settled-2026-09-18) below.**
 - **Should the report commands take `--root`?** `serve` and `export` do; `lint`, `graph`,
   `graph-check`, `status` and `open-questions` do not, and
   [§ A corpus inside a corpus](#a-corpus-inside-a-corpus) is what that costs this surface.

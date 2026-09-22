@@ -133,29 +133,33 @@ fn the_documented_format_version_is_the_declared_one() {
 
 /// The other end of that contract, which nothing was checking.
 ///
-/// `format_version` is the whole reason the CLI and the extension can carry separate tags
-/// (VERSIONING.md, Layer 4). It is written down three times: `report.rs` declares it,
-/// `VERSIONING.md` quotes it, and `handshake.ts` names the major this build of the extension
-/// will parse. The test above pins the first two to each other — the two *documents*. The
-/// one place that acts on the value was pinned to nothing.
+/// `format_version` is the whole reason the CLI and the editor clients can carry separate tags
+/// (VERSIONING.md, Layer 4). It is written down once per consumer plus twice in documents:
+/// `report.rs` declares it, `VERSIONING.md` quotes it, and each client's `handshake.ts` names
+/// the major that build will parse. The test above pins the first two to each other — the two
+/// *documents*. The places that act on the value were pinned to nothing.
 ///
 /// That was survivable while the extension reached people only as a `.vsix` built from a
 /// checkout, because the two constants were then the same checkout by construction. It stops
-/// being survivable the moment the extension publishes: two artifacts, two tags, two release
-/// cadences, and a reader who has one of each.
+/// being survivable the moment a client publishes: separate artifacts, separate tags, separate
+/// release cadences, and a reader who has one of each. #609 added the third consumer —
+/// `@goedelsoup/yidam-edit`, which an `npx` user fetches from npm with no checkout at all.
 ///
 /// The failure this prevents is quiet in the worst direction. `handshake.ts` degrades loudly
 /// on a major it does not know — says so, disables verdict features rather than guessing. It
-/// is *bumping* `FORMAT_VERSION` without bumping the extension that is silent: every
-/// published extension starts refusing every current binary, and the first report of it comes
-/// from a user.
+/// is *bumping* `FORMAT_VERSION` without bumping the clients that is silent: every published
+/// client starts refusing every current binary, and the first report of it comes from a user.
 ///
 /// Compared as majors, because that is what `handshake.ts` compares. A minor added to the
 /// contract must not fail this — consumers are required to ignore fields they do not know,
 /// and if an additive change broke the check, the check would be arguing for the opposite of
 /// what Layer 4 says.
+///
+/// The consumers are **discovered** under `yidam/editors/`, not listed. A list here would have
+/// gone on passing over two clients on the day a third was added, which is the whole of #609's
+/// definition of done: a file-scanning check that looks at nothing passes.
 #[test]
-fn the_extension_understands_the_contract_the_cli_speaks() {
+fn every_client_understands_the_contract_the_cli_speaks() {
     let major = |v: &str| v.split('.').next().unwrap_or_default().to_string();
 
     let report = std::fs::read_to_string(repo_root().join("yidam/cli/src/report.rs")).unwrap();
@@ -165,23 +169,69 @@ fn the_extension_understands_the_contract_the_cli_speaks() {
         .and_then(|t| t.split('"').next())
         .expect("report.rs declares FORMAT_VERSION");
 
-    let handshake = repo_root().join("yidam/editors/vscode/src/handshake.ts");
-    let understood = std::fs::read_to_string(&handshake)
-        .expect("the extension's handshake.ts")
-        .split("export const SUPPORTED_FORMAT_VERSION = '")
-        .nth(1)
-        .and_then(|t| t.split('\'').next())
-        .map(str::to_string)
-        .expect("handshake.ts declares SUPPORTED_FORMAT_VERSION");
-
-    assert_eq!(
-        major(declared),
-        major(&understood),
-        "the CLI emits report contract {declared:?} and the published extension parses \
-         {understood:?}. Bumping FORMAT_VERSION strands every installed extension on the \
-         old major — update SUPPORTED_FORMAT_VERSION in \
-         yidam/editors/vscode/src/handshake.ts and release the editor layer with it."
+    let consumers = format_version_consumers();
+    assert!(
+        consumers.len() >= 2,
+        "found {} consumer(s) of SUPPORTED_FORMAT_VERSION under yidam/editors/; there have \
+         been two since #609 landed the web editor, so this walk is reading the wrong tree \
+         and the assertions below are vacuous: {consumers:?}",
+        consumers.len()
     );
+
+    for (path, understood) in &consumers {
+        assert_eq!(
+            major(declared),
+            major(understood),
+            "the CLI emits report contract {declared:?} and {path} parses {understood:?}. \
+             Bumping FORMAT_VERSION strands every installed copy of that client on the old \
+             major — update SUPPORTED_FORMAT_VERSION there and release its layer with it."
+        );
+    }
+}
+
+/// Every `SUPPORTED_FORMAT_VERSION` declared under `yidam/editors/`, with the file it is in.
+///
+/// Walks rather than lists, and matches on the declaration rather than on a filename, so a
+/// client that puts it somewhere other than `handshake.ts` is still covered. `node_modules`
+/// and build output are skipped: a stale copy of this project's own module inside a
+/// dependency tree would answer for the source, and `dist/` is the source compiled.
+fn format_version_consumers() -> Vec<(String, String)> {
+    fn walk(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<(String, String)>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if path.is_dir() {
+                if matches!(name.as_str(), "node_modules" | "dist" | ".astro") {
+                    continue;
+                }
+                walk(&path, root, out);
+            } else if name.ends_with(".ts") {
+                let Ok(text) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                if let Some(v) = text
+                    .split("export const SUPPORTED_FORMAT_VERSION = '")
+                    .nth(1)
+                    .and_then(|t| t.split('\'').next())
+                {
+                    let rel = path
+                        .strip_prefix(root)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .to_string();
+                    out.push((rel, v.to_string()));
+                }
+            }
+        }
+    }
+    let root = repo_root();
+    let mut out = Vec::new();
+    walk(&root.join("yidam/editors"), &root, &mut out);
+    out.sort();
+    out
 }
 
 /// Layer 3 declares `PROTOCOL_VERSION` as the bootstrap protocol's version, and quotes the
@@ -212,20 +262,69 @@ fn the_documented_protocol_version_is_the_declared_one() {
     );
 }
 
-/// Layer 4's two artifacts must both carry a version their registries can read.
+/// Every Layer 4 artifact must carry a version its registry can read.
+///
+/// The population is **read out of VERSIONING.md's Layer 4 table**, not listed here. This
+/// test used to be `both_tooling_artifacts_declare_a_version` and named its two manifests
+/// inline; #609 added a third row and the test went on passing without looking at it, which
+/// is the shape `guard lists rot into holes` describes — a hardcoded set stops covering a new
+/// member without ever going red. A fourth row is covered the moment it is written.
+///
+/// The manifest column is the join. It is already checked to resolve on disk by
+/// `every_file_versioning_md_names_exists`; what is added here is that the file it names
+/// declares something a registry can publish.
 #[test]
-fn both_tooling_artifacts_declare_a_version() {
+fn every_tooling_artifact_declares_a_version() {
     let root = repo_root();
-    let cargo = std::fs::read_to_string(root.join("yidam/cli/Cargo.toml")).unwrap();
+    let manifests = layer_4_manifests();
     assert!(
-        cargo.lines().any(|l| l.starts_with("version = \"")),
-        "the CLI has no version for crates.io to publish"
+        manifests.len() >= 3,
+        "the Layer 4 table yielded {} manifest(s); the table has had three rows since #609, \
+         so this is parsing the wrong thing and every assertion below is vacuous: {manifests:?}",
+        manifests.len()
     );
-    let package = std::fs::read_to_string(root.join("yidam/editors/vscode/package.json")).unwrap();
-    assert!(
-        package.contains("\"version\":"),
-        "the extension has no version for the Marketplace to publish"
-    );
+
+    for manifest in &manifests {
+        let text = std::fs::read_to_string(root.join(manifest))
+            .unwrap_or_else(|e| panic!("VERSIONING.md names {manifest} as a manifest: {e}"));
+        // Two manifest formats, one question. `Cargo.toml` declares `version = "…"` at the
+        // top level; `package.json` declares `"version": "…"`. Anchored on the line start
+        // for the TOML so a dependency's `version = ` three tables down cannot answer for
+        // the package's own.
+        let declared = match manifest.rsplit('.').next() {
+            Some("toml") => text.lines().any(|l| l.starts_with("version = \"")),
+            _ => text.contains("\"version\":"),
+        };
+        assert!(
+            declared,
+            "{manifest} declares no version, so the registry VERSIONING.md names for it has \
+             nothing to publish"
+        );
+    }
+}
+
+/// The `Manifest` column of VERSIONING.md's Layer 4 table.
+///
+/// Rows only — the header and the `|---|` separator are dropped by requiring the cell to
+/// look like a path, which is also what keeps this from collecting the other layers' tables:
+/// it reads the slice of the document between `## Layer 4` and the next `## `.
+fn layer_4_manifests() -> Vec<String> {
+    let doc = versioning();
+    let from = doc
+        .find("## Layer 4")
+        .expect("VERSIONING.md has a Layer 4 section");
+    let section = &doc[from..];
+    let section = match section[3..].find("\n## ") {
+        Some(end) => &section[..end + 3],
+        None => section,
+    };
+    section
+        .lines()
+        .filter(|l| l.starts_with('|'))
+        .filter_map(|l| l.split('|').nth(2))
+        .map(|cell| cell.trim().trim_matches('`').to_string())
+        .filter(|cell| cell.contains('/') && cell.contains('.'))
+        .collect()
 }
 
 /// The MCP contract states its version twice, and the two must agree.
@@ -336,55 +435,181 @@ fn the_cli_release_workflow_triggers_on_the_documented_tag_pattern() {
     }
 }
 
-/// The editor layer's tag pattern, and the two workflows that must not answer to it.
+/// No publishing workflow answers to another layer's tag.
 ///
-/// Same reasoning as the CLI check above, and a sharper case for it. Three patterns in this
-/// repository end in `v*` and two of them are prefixed; `release.sh` is the only place that
-/// knows which belongs to which layer, and it knows it as a string. A workflow listening on
-/// the wrong one publishes the wrong artifact on someone else's release, and every spelling
-/// involved looks correct in a diff.
+/// Same reasoning as the CLI check above, generalised, and the case for it got sharper with
+/// every layer added. Five patterns in this repository end in `v*` and four of them are
+/// prefixed; `release.sh` is the only place that knows which belongs to which layer, and it
+/// knows it as a string. A workflow listening on the wrong one publishes the wrong artifact
+/// on someone else's release, and every spelling involved looks correct in a diff.
 ///
-/// The inverse matters as much: `release.yml` must NOT fire on `editor/v*`. A CLI patch
-/// must not imply an extension release and an extension patch must not imply a CLI one —
-/// that independence is the whole reason Layer 4 carries two tags for one layer.
+/// `edit/v*` and `editor/v*` are the pair that makes this non-negotiable: four characters
+/// apart, disjoint as glob patterns, and both correct-looking. Crossing them is silent in
+/// both directions — a workflow that fires on the wrong tag publishes nothing and reads
+/// exactly like one that has not finished.
+///
+/// The inverse matters as much. A CLI patch must not imply an editor release and an editor
+/// patch must not imply a CLI one; that independence is the whole reason Layer 4 carries
+/// three tags for one layer.
 #[test]
-fn the_editor_workflow_triggers_on_the_documented_tag_pattern() {
-    let workflow = repo_root().join(".github/workflows/editor.yml");
-    let text = std::fs::read_to_string(&workflow).unwrap_or_else(|e| {
-        panic!(
-            "{} is unreadable ({e}) — release.sh names it as the editor layer's workflow, \
-             and refuses to tag editor/v* without it",
-            workflow.display()
-        )
-    });
-
+fn every_publishing_workflow_triggers_on_its_own_tag_pattern_only() {
+    let layers = layer_tag_patterns();
     assert!(
-        text.contains("'editor/v*'")
-            || text.contains("\"editor/v*\"")
-            || text.contains("- editor/v*"),
-        "editor.yml must trigger on the `editor/v*` pattern VERSIONING.md's artifact table \
-         documents for the extension"
+        layers.len() >= 5,
+        "release.sh yielded {} layer(s); it has had five since #609 — this is parsing the \
+         wrong thing and every assertion below is vacuous: {layers:?}",
+        layers.len()
     );
 
-    for line in text.lines() {
-        let t = line
-            .trim()
-            .trim_start_matches("- ")
-            .trim_matches(['\'', '"']);
+    // Every tag pattern any layer publishes on, so "listens on someone else's" is answerable
+    // without naming the someone else. `edit/v*` and `editor/v*` are the pair this matters
+    // most for: four characters apart, and a workflow that listened on the wrong one would
+    // publish nothing and look exactly like one that had not finished.
+    let patterns: Vec<String> = layers.iter().map(|(p, _)| p.clone()).collect();
+
+    let mut checked = 0;
+    // Which layers were actually *heard* — a pattern some workflow of that layer listens
+    // on. Counting graded triggers is not the same question: a scanner that quietly stopped
+    // reading one workflow's `tags:` list would still clear a count floor on the others,
+    // and the layer it stopped reading would be unguarded without ever going red.
+    let mut heard_by: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for (pattern, workflows) in &layers {
+        for workflow in workflows {
+            let path = repo_root().join(workflow);
+            let text = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+                panic!(
+                    "{workflow} is unreadable ({e}) — release.sh names it for the {pattern} \
+                     layer, and refuses to tag without it"
+                )
+            });
+
+            // A workflow a layer requires need not be tag-triggered at all: `tap.yml` and
+            // `publish-crates.yml` are required by `cli`, and `publish-crates.yml` is shared
+            // with `sdk/rust`. What is checked is the contrapositive — a workflow that
+            // listens on tags at all must not listen on a pattern that is not one of the
+            // layers requiring it.
+            let listens: Vec<String> = tag_patterns_listened_for(&text);
+            if listens.is_empty() {
+                continue;
+            }
+
+            let mine: Vec<&String> = layers
+                .iter()
+                .filter(|(_, ws)| ws.iter().any(|w| w == workflow))
+                .map(|(p, _)| p)
+                .collect();
+
+            for heard in &listens {
+                // Only patterns some layer actually publishes on are graded. A workflow may
+                // listen on anything else it likes; what it may not do is fire on another
+                // layer's release.
+                if !patterns.contains(heard) {
+                    continue;
+                }
+                assert!(
+                    mine.contains(&heard),
+                    "{workflow} triggers on {heard:?}, which belongs to another layer. \
+                     release.sh names this workflow for {mine:?} only, so a release of that \
+                     other layer would start it — and a workflow that publishes the wrong \
+                     artifact, or nothing, is indistinguishable from one still running."
+                );
+                checked += 1;
+                heard_by.insert(heard.to_string());
+            }
+        }
+    }
+    assert!(
+        checked >= 3,
+        "graded only {checked} tag trigger(s); release.sh names five layers and at least \
+         three of them have a tag-triggered workflow, so this walk is reading nothing"
+    );
+
+    // Per layer, not a floor. `edit/v*` is the newest of these and would be the first to
+    // fall out of the scan; a layer that publishes through a workflow and is heard by none
+    // of them is either mis-triggered or invisible to this test, and those are the same
+    // failure from here.
+    for (pattern, workflows) in &layers {
+        if workflows.is_empty() {
+            continue;
+        }
         assert!(
-            t != "v*" && t != "cli/v*",
-            "editor.yml listens on {t:?}, which belongs to another layer; it must publish \
-             on `editor/v*` only"
+            heard_by.contains(pattern),
+            "release.sh releases {pattern:?} through {workflows:?}, and no tag trigger in \
+             any of them was read as {pattern:?}. Either nothing fires on that tag, or this \
+             scan stopped seeing that workflow's `tags:` list — which looks identical from \
+             here and leaves the layer ungraded."
         );
     }
+}
 
-    let cli = std::fs::read_to_string(repo_root().join(".github/workflows/release.yml"))
-        .expect("release.yml");
-    assert!(
-        !cli.contains("editor/v*"),
-        "release.yml triggers on the editor layer's tag — a CLI release workflow must not \
-         fire on an extension release"
-    );
+/// `(tag pattern, the workflows release.sh requires at HEAD)` for every layer the script
+/// knows, read out of its own `case` branches.
+///
+/// Derived rather than listed. This test used to be
+/// `the_editor_workflow_triggers_on_the_documented_tag_pattern` and named `editor.yml` and
+/// `editor/v*` inline; when #609 added a fifth layer whose pattern is `editor/v*` minus two
+/// characters it went on passing over it, which is the hole a hardcoded population always
+/// has. `release.sh` is the right source because it is the only file that must already agree
+/// with both VERSIONING.md (`every_layer_versioning_md_names_is_one_the_script_can_release`)
+/// and the filesystem (`every_workflow_release_sh_requires_exists`).
+fn layer_tag_patterns() -> Vec<(String, Vec<String>)> {
+    let script = std::fs::read_to_string(repo_root().join("release.sh")).expect("release.sh");
+    let mut out = Vec::new();
+    for line in script.lines() {
+        let Some(rest) = line.split("TAG=\"").nth(1) else {
+            continue;
+        };
+        let Some(tag) = rest.split('"').next() else {
+            continue;
+        };
+        // `cli/v$VERSION` → `cli/v*`, which is the form a workflow's `tags:` list spells.
+        let Some(prefix) = tag.strip_suffix("$VERSION") else {
+            continue;
+        };
+        let workflows: Vec<String> = line
+            .split("WORKFLOWS=\"")
+            .nth(1)
+            .and_then(|c| c.split('"').next())
+            .unwrap_or_default()
+            .split_whitespace()
+            .map(str::to_string)
+            .collect();
+        out.push((format!("{prefix}*"), workflows));
+    }
+    out
+}
+
+/// The tag patterns a workflow's `on: push: tags:` list names.
+///
+/// Comment lines are stripped first. Every one of these workflows explains in prose which
+/// patterns it is *not* listening on — editor.yml's trigger comment says "NOT `v*` … and NOT
+/// `cli/v*`" — and a scan over the raw text reads those as triggers, which would make this
+/// test fail on the files that are most careful. `prose answers for code` is the lesson;
+/// here it would have answered in the wrong direction.
+fn tag_patterns_listened_for(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut in_tags = false;
+    for line in text.lines() {
+        let raw = line.trim_end();
+        let trimmed = raw.trim();
+        if trimmed.starts_with('#') || trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.starts_with("tags:") {
+            in_tags = true;
+            continue;
+        }
+        if !in_tags {
+            continue;
+        }
+        let Some(item) = trimmed.strip_prefix("- ") else {
+            // The list ended at the first non-item line.
+            in_tags = false;
+            continue;
+        };
+        out.push(item.trim().trim_matches(['\'', '"']).to_string());
+    }
+    out
 }
 
 /// `release.sh` names a workflow file per layer, and refuses a tag whose workflow is absent
@@ -453,6 +678,15 @@ fn the_registries_layer_4_names_are_delivered_and_checked() {
             "vsce publish",
             "marketplace.visualstudio.com",
         ),
+        // Layer 4's third artifact (#609). The publish string is the command with its
+        // argument, not a bare `npm publish`: `npm publish` alone would be satisfied by a
+        // workflow that repacks from source, and what has to exist is the step that uploads
+        // the tarball `check-package.mjs` graded and ran.
+        (
+            "npm",
+            "npm publish dist/yidam-edit.tgz",
+            "registry.npmjs.org",
+        ),
     ];
 
     let text = versioning();
@@ -509,7 +743,7 @@ fn the_registries_layer_4_names_are_delivered_and_checked() {
         }
     }
     assert!(
-        named >= 5,
+        named >= 6,
         "found only {named} registries in Layer 4 — the scan is broken"
     );
 }

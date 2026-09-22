@@ -1,0 +1,158 @@
+# The web editor — pack it, run the packed tarball, publish it to npm.
+#
+# `@goedelsoup/yidam-edit` is Layer 4's third artifact and the only one whose *whole* channel
+# is a registry. The CLI has five platform tarballs, a Homebrew formula, crates.io and a
+# GitHub release; the extension has two registries and a `.vsix` attached to a release. This
+# one has npm, and npm is the artifact — there is no second file to attach, and a GitHub
+# release would carry nothing but its own notes.
+#
+# That has one consequence worth stating here rather than leaving to be discovered:
+# `install-channels.yml` cannot resolve this layer's version from the releases API the way
+# `released` and `editor-released` do, because this layer creates no release. `edit-released`
+# resolves it from the **tag**. See VERSIONING.md's Layer 4 section.
+#
+# ── `edit/v*`, not `editor/v*` ───────────────────────────────────────────────
+#
+# Four characters apart, and disjoint: `edit/v0.1.0` does not match `editor/v*` and
+# `editor/v0.4.0` does not match `edit/v*`, so neither tag starts the other's workflow.
+# `every_publishing_workflow_triggers_on_its_own_tag_pattern_only` is what holds that, because the
+# failure it prevents is silent in both directions — a tag that publishes nothing looks
+# exactly like a tag whose workflow has not finished.
+#
+# ── the gate is `ci-editor-web`, unchanged ───────────────────────────────────
+#
+# Not a reduced version of it. That task ends in `npm run package`, which packs the tarball,
+# installs its production dependencies in a directory outside this repository and starts the
+# server there — so by the time this workflow reaches npm, the exact bytes it is about to
+# upload have already been run. #871 is why that step is in `ci-editor-web` rather than only
+# here: `ci (vscode)` never packaged, and two `vsce` refusals stayed green for weeks before
+# arriving during a release.
+#
+# The tarball is carried from the gate to the publish job as an artifact, and `npm publish`
+# is handed that file. It is not re-packed. editor.yml passes `--packagePath` to both registry
+# tools for the same reason: a tool that repacks from source publishes something nothing
+# inspected.
+#
+# ── the token ────────────────────────────────────────────────────────────────
+#
+# A missing `NPM_TOKEN` FAILS here. It does not notice-and-skip the way editor.yml's
+# Marketplace step does, and the difference is not politeness — it is which of the two
+# registries this project actually delivers to. The Marketplace needs an Azure DevOps
+# organisation nobody has created (#314) and VERSIONING.md does not name it. npm is named in
+# VERSIONING.md's Layer 4 table, the `@goedelsoup` scope is held by this project, and
+# `install-channels.yml` asks npm what it serves. A channel that is documented, checked, and
+# silently unpublished is #232 exactly.
+
+name: Edit
+
+on:
+  push:
+    tags:
+      # The `edit` layer's pattern, per VERSIONING.md's Layer 4 table. NOT `editor/v*` —
+      # see the header — and NOT `cli/v*`: a CLI patch must not imply an editor release.
+      - 'edit/v*'
+  # Buildable without tagging, to check that the package still packs and still runs.
+  # Publishes nothing.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: package and gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
+
+      # No yidam binary, and none is needed: every gate in this package is a property of the
+      # package. ci.yml's `editor-web` job says why at length — a gate that needed a corpus
+      # to run is a gate that gets skipped on the day it matters.
+      #
+      # `GITHUB_REF_NAME` is what makes the last step of this task assert the tag and
+      # `package.json` name the same version. On `workflow_dispatch` it is a branch name,
+      # the assertion does not apply, and nothing is published either.
+      - name: The gate, ending in the packed tarball
+        run: mise run ci-editor-web
+        env:
+          YIDAM_PACK_OUT: ${{ github.workspace }}/dist/yidam-edit.tgz
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: npm-tarball
+          path: dist/yidam-edit.tgz
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: package
+    runs-on: ubuntu-latest
+    # Only a tag publishes. `workflow_dispatch` packs, runs the tarball, and stops — which is
+    # what makes it usable as a pre-tag check, exactly as in release.yml and editor.yml.
+    if: startsWith(github.ref, 'refs/tags/edit/v')
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: npm-tarball
+          path: dist
+
+      # No checkout. This job needs no source — it uploads a file that was already built,
+      # graded and run. `setup-node` writes the `.npmrc` that points `npm publish` at the
+      # registry and reads `NODE_AUTH_TOKEN`.
+      - name: npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -eu
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "::error::secrets.NPM_TOKEN is not set, so @goedelsoup/yidam-edit was not"
+            echo "::error::published. This is a FAILURE and not a skip: VERSIONING.md's Layer 4"
+            echo "::error::table names npm as a registry this project delivers to, the"
+            echo "::error::@goedelsoup scope is held by this project, and install-channels.yml"
+            echo "::error::asks npm which version it serves. A documented and checked channel"
+            echo "::error::that quietly publishes nothing is #232."
+            echo "::error::Create an npm automation token for the @goedelsoup scope, add it as"
+            echo "::error::NPM_TOKEN, and re-run this job — the tag is not spent and the"
+            echo "::error::tarball is still attached to this run."
+            exit 1
+          fi
+          # `--access public`: a scoped package defaults to restricted, and the first publish
+          # is the one that sets it. Passed on every publish rather than only the first
+          # because the flag is idempotent and a comment saying "only needed once" is a thing
+          # somebody deletes.
+          #
+          # `--provenance` is deliberately absent. It needs `id-token: write` and a trusted
+          # publisher configured on npm for a package that does not exist yet; it can be
+          # added once there is something to configure it against.
+          npm publish dist/yidam-edit.tgz --access public
+
+      # #231's sentence: a channel with a publisher and no check is an artifact that builds
+      # while nobody has asked whether it can be obtained. The standing check is
+      # `install-channels.yml`'s `edit-npm` job, which runs weekly and on dispatch. This one
+      # asks the same question at the one moment the answer just changed, so a publish that
+      # returned 0 and registered nothing is visible now rather than on Monday.
+      - name: What npm serves
+        run: |
+          set -eu
+          expected="${GITHUB_REF_NAME#edit/v}"
+          # npm's registry is read-your-writes behind a CDN; the version is usually there
+          # immediately and occasionally a few seconds later. Poll rather than sleep.
+          for _ in $(seq 1 20); do
+            got=$(curl -sS https://registry.npmjs.org/@goedelsoup/yidam-edit \
+                    | jq -r '."dist-tags".latest // ""')
+            [ "$got" = "$expected" ] && break
+            sleep 6
+          done
+          echo "npm: '$got'  expected: '$expected'"
+          [ "$got" = "$expected" ] || {
+            echo "::error::npm serves '$got' as latest; this tag published $expected."
+            echo "::error::The publish step above exited 0, so either the registry has not"
+            echo "::error::caught up after two minutes or it accepted a different version."
+            exit 1
+          }

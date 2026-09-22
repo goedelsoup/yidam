@@ -109,6 +109,10 @@ struct Channel {
 /// than a version hardcoded anywhere.
 const CLI_VERSION: &str = "needs.released.outputs.version";
 const EDITOR_VERSION: &str = "needs.editor-released.outputs.version";
+/// Layer 4's third artifact (#609), and the one resolved from a *tag* rather than from the
+/// releases API — `edit.yml` creates no GitHub release, because npm is the only channel and
+/// the package is the artifact. See VERSIONING.md's Layer 4 section.
+const EDIT_VERSION: &str = "needs.edit-released.outputs.version";
 
 const CHANNELS: &[Channel] = &[
     Channel {
@@ -189,6 +193,24 @@ const CHANNELS: &[Channel] = &[
         // asset that downloads and unpacks is not evidence it is the one that was cut.
         probe: "extension/package.json",
         version_probe: EDITOR_VERSION,
+    },
+    // ── the web editor, whose whole channel is a registry ──────────────────────────────
+    //
+    // #609. Every other row here ends in an artifact on disk — a binary, a `.vsix`, a
+    // `.mcpb`. This one ends in whatever `npx` fetched into a cache nobody owns, so the
+    // `probe` is the registry rather than a file: what can be wrong here is the publish, and
+    // a publish that failed, published nothing, or published a different version is visible
+    // in the version the registry reports.
+    //
+    // Not `npx` run for real, for the reason the job says: it would start a server and need
+    // something to kill it, and the thing that would prove — that the published tarball runs
+    // — is proved *before* publishing by `yidam/editors/web/scripts/check-package.mjs`, which
+    // installs the tarball's production dependencies outside this repository and starts it.
+    Channel {
+        opener: "npx @goedelsoup/yidam-edit",
+        marker: "npx @goedelsoup/yidam-edit",
+        probe: "registry.npmjs.org",
+        version_probe: EDIT_VERSION,
     },
 ];
 
