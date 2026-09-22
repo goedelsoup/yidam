@@ -32,6 +32,11 @@ node_modules/**
 **/*.vsix
 .local/**
 
+# What `test:unit` writes for CI's test-results step. Git ignores it, but vsce packages
+# from the tree and not from git, so a package built after the tests — which is the order
+# the gate runs them — shipped it.
+junit.xml
+
 # The Marketplace icon's source. `resources/icon.png` is what package.json names and what
 # ships; the SVG it was rendered from stays in git for the next render and is dead weight
 # in the package.

@@ -692,7 +692,7 @@ env NEXTEST_PROFILE=default cargo mutants \
 # and the root defines the CI entry points. Keeping both in step is why this duplicates
 # the subproject's task rather than delegating to it.
 [tasks.ci-vscode]
-description = "CI for the VS Code extension: compile (src + tests), lint, unit tests."
+description = "CI for the VS Code extension: compile (src + tests), lint, unit tests, package."
 dir = "yidam/editors/vscode"
 run = [
   # `$MISE_PROJECT_ROOT` because `dir` above put us inside the package. See #646.
@@ -700,6 +700,10 @@ run = [
   "npm run compile",
   "npm run lint",
   "npm run test:unit",
+  # The `.vsix` the tag ships, built and checked here rather than first at the tag: vsce's
+  # own refusals — types newer than `engines.vscode`, a file missing from the package — are
+  # about the package and not the source, so the three steps above cannot see them.
+  "npm run package",
 ]
 
 # The web editor surface (RFC-0030, #606). Same shape as `ci-vscode` and for the same reason:
