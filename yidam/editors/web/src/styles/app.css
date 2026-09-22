@@ -233,3 +233,44 @@ ul.questions {
   font-size: var(--text-sm);
   margin: 0.25rem 0 0.75rem;
 }
+
+/* The act page. The two buttons sit together because they are one run with a flag flipped;
+ * the refusal is in open-question colours because a refused write is an answer, not an
+ * outage — the outage colours are `.shell-unavailable`'s and mean no server answered. */
+.propose-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.proposal-head {
+  margin: 0.5rem 0;
+}
+
+.proposals {
+  padding-left: 1.25rem;
+}
+
+.proposals.skipped {
+  color: var(--text-secondary);
+}
+
+.proposal-paths {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.proposal-commits {
+  padding-left: 1.25rem;
+  font-size: var(--text-sm);
+}
+
+.proposal-refused {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.75rem;
+  background: var(--status-open-bg);
+  color: var(--status-open-fg);
+  border: 1px solid var(--status-open-border);
+  white-space: pre-wrap;
+}

@@ -8,7 +8,8 @@ npx @yidam/edit --root /srv/corpus --port 9000 --no-open
 ```
 
 Specified by [RFC-0030](../../../docs/rfcs/0030-standalone-editor.md), **as amended
-2026-09-05**. This is Phase 1 — the read surface. No writes, no overlay.
+2026-09-05**. Phase 1 is the read surface; Phase 3 added the one write the contract has —
+`propose`, through the `act` tier, onto a branch. No overlay yet, and no forms.
 
 ## What it is
 
@@ -66,12 +67,40 @@ So the rule is [three gates](test/boundary.mjs), and they land in this phase rat
 last one, because a gate written after the code it governs is a gate written around it:
 
 - nothing under `src/` imports a corpus-evaluating module, or anything outside the package root;
-- a report envelope is parsed in exactly one place, [`src/lib/cli.ts`](src/lib/cli.ts);
-- every route under `src/pages/api/` reaches its payload through the spawn.
+- the binary's output is parsed in exactly the places that read it — a report in
+  [`src/lib/cli.ts`](src/lib/cli.ts), an MCP answer in [`src/lib/act.ts`](src/lib/act.ts) —
+  and never a request body;
+- every route under `src/pages/api/` reaches its payload through one of the two spawns, and the
+  routes under `api/act/` through the act one only;
+- the binary is spawned in three files, and none of them puts `propose` on an argv.
 
 Mutation-test them before trusting them. `the scan sees a population` is the guard against the
 guard — a file-scanning check that looks at nothing passes, which is how a lint reads 40 files
 and reports nothing on a tree with 21 hand-written hex colours in it.
+
+## The write, and why it goes through the MCP server
+
+`POST /api/act/propose` and `POST /api/act/cycle` are RFC-0029's two `act` tools, and the page at
+`/act` is a button for the first and a rendering of the second. There is no form: `propose` takes
+`{ dry_run }` and nothing else, drafts `open:`/`withdraw:`/`close:` commits from the gate's own
+findings on the *committed* corpus, and lands them on a `propose/<head>` branch with `HEAD`
+unmoved. Preview is the same run with nothing written.
+
+The route does not spawn `yidam propose`. It spawns `yidam serve --mcp`, one stdio connection
+per request, and speaks the protocol to it for one call — because the `[serve] act = true`
+declaration, the no-author refusal at startup and the frozen `capability-not-supported` refusal
+all live behind the MCP dispatch, and a route that went around them would be the second route
+into the tier RFC-0029 §2.2 forbids. So a corpus that has not opted in gets a `409` carrying the
+binary's own refusal, verbatim, and the page says which of three states it is in: undeclared
+(add the key), a binary that predates the tier (re-pin), or a refusal from a declared server
+(the text says why). Nothing in this package decides whether a corpus may be written to.
+
+`POST` only, and `Origin` required — a browser sends it on every `POST`, so a request without
+one did not come from a page. Astro's own cross-site check sits in front of that and agrees;
+building this found it had been refusing every same-origin `POST`, because it compares against
+a `url.origin` it makes up as `http://localhost` unless the host is listed, and
+[`astro.config.mjs`](astro.config.mjs) now lists the three loopback names. `force` cannot be
+sent from here by any spelling: the frame has no field for it.
 
 ## Two flags that are missing on purpose
 
@@ -182,6 +211,8 @@ sees stay one repository.
 The overlay and the ontology-driven forms are Phase 2 (#607), and the reversal made that phase
 the expensive one: the overlay is reachable only through `yidam serve --lsp`, so it needs a
 supervised child and an LSP bridge rather than the in-process call the original design had.
-Writes are Phase 3 (#608), gated on RFC-0029's build. The npm name, the Layer 4 row, the publish
+A form's save is not `propose` and is not here: it would be a new `act` tool with an input
+schema, which is a contract event (RFC-0005) that needs its own argument — RFC-0030's open
+question *does Phase 2 write at all?* records where that stands. The npm name, the Layer 4 row, the publish
 path and the channel check are #610 and Phase 4 (#609) — **nothing here is published, and the
 `@yidam` scope is not yet registered.**

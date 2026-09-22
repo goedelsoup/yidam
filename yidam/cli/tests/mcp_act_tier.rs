@@ -712,3 +712,75 @@ fn an_act_declaring_server_refuses_a_non_loopback_bind() {
         "the refusal must name the bind and the declaration: {err}"
     );
 }
+
+/// The frame `yidam-edit` sends — RFC-0030 Phase 3, #608.
+///
+/// The web editor reaches the act tier by spawning `yidam serve --mcp` once per request and
+/// writing three lines at once — `initialize`, `notifications/initialized`, one `tools/call`
+/// — then closing stdin, and reading everything back after the process exits. That is not how
+/// [`McpClient`] speaks (one line, one answer, in turn), and nothing above would notice if
+/// the server started needing the conversation to be interactive: a server that waited for
+/// `initialized` to be acknowledged, or that flushed only on exit, or that wrote its banner
+/// to stdout, would break the editor and pass every test here. This holds the three facts
+/// the editor's `src/lib/act.ts` depends on: every stdout line is JSON-RPC, both ids come
+/// back, and EOF on stdin is a clean exit.
+#[test]
+fn a_one_shot_connection_answers_both_ids_and_exits_at_eof() {
+    let repo = stage_streamflow();
+    let frame = [
+        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+               "params": {"protocolVersion": "2024-11-05", "clientInfo": {"name": "yidam-edit"}}}),
+        json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+        json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+               "params": {"name": "propose", "arguments": {"dry_run": true}}}),
+    ]
+    .iter()
+    .map(|m| format!("{m}\n"))
+    .collect::<String>();
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .args(["serve", "--mcp"])
+        .current_dir(repo.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        // All of it, then EOF — the editor never reads before it has finished writing.
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(frame.as_bytes()).unwrap();
+    }
+    let out = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "EOF on stdin is not a clean exit: {stderr}"
+    );
+
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    let mut by_id = std::collections::BTreeMap::new();
+    for line in stdout.lines().filter(|l| !l.trim().is_empty()) {
+        let msg: Value = serde_json::from_str(line)
+            .unwrap_or_else(|e| panic!("stdout carried a line that is not JSON-RPC ({e}): {line}"));
+        if let Some(id) = msg.get("id").and_then(Value::as_u64) {
+            by_id.insert(id, msg);
+        }
+    }
+    let init = by_id.get(&1).expect("no answer to initialize");
+    assert_eq!(init["result"]["capabilities"]["yidam"]["act"], json!(true));
+    let call = by_id.get(&2).expect("no answer to tools/call");
+    assert!(
+        call.get("error").is_none(),
+        "the call was not understood: {call}"
+    );
+    assert_ne!(call["result"]["isError"], json!(true), "{call}");
+    let text = call["result"]["content"][0]["text"].as_str().unwrap();
+    let report: Value = serde_json::from_str(text).expect("the tool's text is its JSON report");
+    assert_eq!(report["written"], Value::Null, "dry_run wrote a branch");
+    assert_eq!(
+        git_out(repo.path(), &["branch", "--list", "propose/*"]).trim(),
+        "",
+        "a dry run left a propose/ branch behind"
+    );
+}

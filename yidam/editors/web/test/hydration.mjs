@@ -74,7 +74,25 @@ test('the page still asks for an island', () => {
   )
 })
 
+test('the act page still asks for its island', () => {
+  // The same one-word edit, with a worse failure. `Propose` is two buttons and nothing else;
+  // un-hydrated, they render as markup a person can click with no effect — a write surface
+  // that looks whole and does nothing, which is quieter than a missing filter.
+  const act = readFileSync(path.join(pkg, 'src', 'pages', 'act.astro'), 'utf8')
+  assert.match(
+    act,
+    /<Propose\s+client:load/,
+    'act.astro no longer hydrates Propose, so the act page has no working button on it.',
+  )
+})
+
 test('the island is bundled for the browser', () => {
+  for (const name of ['NodeTable', 'Propose']) {
+    assert.ok(
+      chunks.find((c) => c.name.startsWith(name)),
+      `no ${name} chunk in ${CLIENT} — found ${chunks.map((c) => c.name).join(', ')}`,
+    )
+  }
   const island = chunks.find((c) => c.name.startsWith('NodeTable'))
   assert.ok(
     island,

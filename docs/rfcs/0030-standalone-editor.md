@@ -297,7 +297,7 @@ The server spawns the pinned binary per request and parses the envelope. Nothing
 | `GET /api/corpus` | `yidam graph --format json`, whose nodes and resolved edges come from [`model::corpus_nodes()`](../../yidam/cli/src/model.rs#L460) — the function `serve`, `graphml` and `rdf` already share |
 | `GET /api/reports` | `lint` and `graph-check` as the RFC-0001 envelope, byte-identical to `--format json` |
 | `GET /api/overlay` (SSE) | Diagnostics from a supervised `yidam serve --lsp` — see below |
-| `POST /api/act/*` | Deferred to RFC-0029's build. The decision is Accepted; the tier does not exist yet. |
+| `POST /api/act/propose`, `POST /api/act/cycle` | The two tools of RFC-0029's `act` tier, through `yidam serve --mcp` — one stdio connection per request, three lines down and two back ([`act.ts:129`](../../yidam/editors/web/src/lib/act.ts#L129)). `?dry_run=true` is the tool's own argument; `force` has no field to arrive in. Landed 2026-09-22 (#608) |
 
 **Binary resolution is the extension's, and this is the one place the reversal is free.**
 [`binary.ts`](../../yidam/editors/vscode/src/binary.ts) and
@@ -420,6 +420,31 @@ which is why #427 is not in this phase's dependencies. The editor's writes are `
 behind a second framing, for the reason [`http.rs:9`](../../yidam/cli/src/cmd/serve/http.rs#L9)
 gives about the first: *"Not a second contract. `super::handle` is the seam RFC-0005 left for
 exactly this."*
+
+*Landed 2026-09-22, #608, independently of Phase 2.* The build it waited on arrived in #864, and
+the phase shipped as two routes and one page. Three things it settled by being built:
+
+- **It spawns `yidam serve --mcp`, not `yidam propose`.** The obvious frame — `spawnReport` with
+  a different argv — would have been the second route RFC-0029 §2.2 forbids: `yidam propose` is a
+  person's command and carries none of the tier. The `[serve] act = true` declaration, the
+  startup refusal on a checkout with no author, and the frozen `capability-not-supported` shape
+  all live behind `handle`, so the editor speaks the protocol to a child for exactly one call and
+  reads the answer off stdout. [`a_one_shot_connection_answers_both_ids_and_exits_at_eof`](../../yidam/cli/tests/mcp_act_tier.rs#L728)
+  pins, on the CLI side, that a three-line frame followed by EOF is a conversation the server
+  finishes.
+- **It did not need Phase 2.** `propose`'s whole input schema is `{ dry_run }`
+  ([`tools.rs:264`](../../yidam/cli/src/cmd/serve/tools.rs#L264)); it drafts from the gate's
+  findings on the committed corpus and refuses a dirty `.yidam/`
+  ([`write.rs:110`](../../yidam/cli/src/cmd/propose/write.rs#L110)). Nothing a form produces can
+  reach it. The two phases were ordered by an assumption that a write takes content, and this one
+  does not.
+- **The method rule is the origin rule doing more work.** A `POST` from a browser page always
+  carries `Origin`, so the route requires it and refuses any other method with `405`
+  ([`actRefusal`](../../yidam/editors/web/src/lib/api.ts#L95)). Building it found that Astro's own
+  cross-site check had been refusing every same-origin `POST` — it compares against a `url.origin`
+  it synthesises as `http://localhost` unless the host is listed — so
+  [`astro.config.mjs:39`](../../yidam/editors/web/astro.config.mjs#L39) lists the loopback names.
+  Two checks that agree, not one switched off.
 
 **Phase 4 — the artifact, and the gates.** The Layer 4 row, the `npm publish` path and the
 `install-channels.yml` check, landing as one change. A `ci-editor-web` mise task and a CI job
@@ -599,11 +624,20 @@ does not propose to move it.
 - **Does Phase 2 write at all?** A form whose output cannot be saved is a strange object. The
   alternative is a small, editor-only write path that does not wait for RFC-0029 — which is a
   second answer to "how does something outside the corpus write into it", and is the thing this
-  RFC is trying not to create.
-- **Does a commit affordance belong here?** An editor that cannot commit cannot finish the work,
-  and the closed vocabulary makes the affordance cheap and safe. But the extension's SCM box is
-  VS Code-shaped; a browser page driving `git commit` on the host is a larger claim than
-  rendering one, and it deserves its own argument.
+  RFC is trying not to create. *Narrowed 2026-09-22 (#608):* Phase 3 shipped first and takes no
+  content, so the question is no longer whether the forms wait on the write path — they do not —
+  but what a form's save *is*. It is not `propose`, which drafts from findings and never from a
+  browser. A save is a new `act` tool with an input schema, which is a contract event under
+  RFC-0005 and needs RFC-0029's argument made again for content that a person typed rather than a
+  finding the gate computed. That argument is not made here, and no editor-only path was built in
+  its place.
+- ~~**Does a commit affordance belong here?**~~ **Answered 2026-09-22, no** (#608). The only write
+  this surface performs is `propose`'s, and `propose` lands on a `propose/<head>` branch with
+  `HEAD` unmoved; the baseline is changed by a person merging a branch they reviewed as commits.
+  A button that committed the working tree would be an `act` tool the contract does not have,
+  with the same RFC-0005 cost as a form save and a larger claim — the extension's SCM box is
+  VS Code-shaped, and a browser page driving `git commit` on the host deserves its own argument
+  before it deserves a route.
 - **The port, and coexistence.** `--http` defaults to 8787. Whether this surface takes a
   neighbouring default, and whether both may run against one corpus at once, is unsettled and
   cheap to settle. The supervised `serve --lsp` child makes the second half of the question

@@ -61,3 +61,35 @@ export function describeRootMismatch(asked: string, resolved: string | null): st
     'another git repository resolves to the outer one. Open it as its own checkout.'
   )
 }
+
+/**
+ * Why the act tier is not available here, keyed off the server's own handshake.
+ *
+ * Three states and three repairs, and collapsing them would send a person to the wrong one.
+ * A binary that predates the tier answers `initialize` with no `act` key at all, and the fix
+ * is a re-pin; a corpus on a current binary that has not opted in answers `false`, and the
+ * fix is one key in a file it owns. Neither is a defect: RFC-0029 §2.1 makes the declaration
+ * configuration, never inference, so a corpus that has not said it may be written to by a
+ * process is exactly as it should be until somebody says so.
+ *
+ * Returns null when the tier is declared, so the page shows nothing in the case that works.
+ */
+export function describeUndeclared(act: 'declared' | 'undeclared' | 'predates-act'): string | null {
+  switch (act) {
+    case 'declared':
+      return null
+    case 'undeclared':
+      return (
+        'This corpus has not declared the act tier, so nothing here may write to it. ' +
+        'That is configuration and never inference (RFC-0029 §2.1): to let this surface draft ' +
+        'proposal branches, add `[serve]\\nact = true` to `.yidam/config.toml` in the checkout ' +
+        'and reload. A checkout with no git author identity is refused at startup rather ' +
+        'than downgraded.'
+      )
+    case 'predates-act':
+      return (
+        'This yidam predates the act tier (MCP contract 0.22.0, cli/v0.13.0): its handshake ' +
+        `carries no \`act\` capability at all. Writes are unavailable. ${REPIN}`
+      )
+  }
+}

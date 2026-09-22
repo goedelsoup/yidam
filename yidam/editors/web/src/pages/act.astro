@@ -1,0 +1,160 @@
+---
+/**
+ * Where this corpus is in its loop, and the one act this surface can perform — Phase 3, #608.
+ *
+ * Two tools, and the page is shaped by what they are rather than by what an editor page
+ * usually is. `cycle` is read on every render and says what is owed, in flight, blocked and
+ * next. `propose` is the island below it: draft the commits the gate's own findings license,
+ * onto a `propose/<head>` branch, and never onto the baseline.
+ *
+ * **There is no form on this page, and that is the finding this phase turned up rather than
+ * an omission.** `propose`'s whole input schema is `{ dry_run }`. It drafts from findings on
+ * the *committed* corpus — it refuses a dirty working tree — so it takes no content from a
+ * browser and nothing Phase 2's forms will produce can reach it. A write that saves a form is
+ * a new act tool, which is a contract event under RFC-0005 and RFC-0030's open question
+ * *"does Phase 2 write at all?"*, not this route wearing a field.
+ *
+ * Both calls go through `yidam serve --mcp`, one connection per call — `src/lib/act.ts` says
+ * why it is not `yidam propose`. This page renders what came back. It decides nothing about
+ * the corpus, including whether it may be written to.
+ */
+import Shell from '../layouts/Shell.astro'
+import { session } from '../lib/session.ts'
+import { spawnAct } from '../lib/act.ts'
+import { describeUndeclared } from '../lib/messages.ts'
+import { Propose } from '../islands/Propose.jsx'
+
+/** The report's shape, as `cmd/cycle.rs` prints it and `tools.json` freezes it. */
+interface CycleReport {
+  owed: { id: string; question: string; state: string; interval: string | null; overdue: number; detail: string; remedy: string | null }[]
+  in_flight: { name: string; ref_name: string; owner: string; started: string; commits: number }[]
+  blocking: { gate: string; check: string; node: string | null; detail: string; remedy: string }[]
+  next: { source: string; act: string; why: string }[]
+  practice: { kuten: string | null; revision: number | null; phase_types: string[]; question_pressure: string | null; undeclared: string | null }
+  due: number
+  passed: boolean
+}
+
+const { root, binary } = await session()
+const cycle =
+  binary.command === null
+    ? null
+    : await spawnAct<CycleReport>({ command: binary.command, root }, 'cycle')
+
+// What stands between this page and the tier, if anything. The server's handshake says
+// which of the three states this is; a refusal from a declared server is its own text.
+const undeclared =
+  cycle && !cycle.ok && cycle.kind === 'refused' ? describeUndeclared(cycle.act) : null
+const unavailable =
+  cycle === null
+    ? null
+    : cycle.ok
+      ? null
+      : cycle.kind === 'no-server'
+        ? cycle.error
+        : undeclared ?? cycle.error
+
+const report = cycle && cycle.ok ? cycle.result : null
+---
+
+<Shell title="Act">
+  {
+    cycle === null ? (
+      <p>Unavailable — see the header.</p>
+    ) : unavailable ? (
+      <p class="shell-unavailable" role="alert">
+        {unavailable}
+      </p>
+    ) : null
+  }
+
+  {
+    report && (
+      <>
+        <section>
+          <h2>cycle</h2>
+          <p class="rationale">
+            {report.due === 0 ? 'Nothing owed.' : `${report.due} owed.`} Being owed is not
+            being broken — the report's own rule, and this page renders it as one.
+          </p>
+
+          <h3>Owed</h3>
+          <ul>
+            {report.owed.map((clock) => (
+              <li>
+                <span class="tag">{clock.state}</span> <code>{clock.id}</code> — {clock.detail}
+                {clock.remedy && (
+                  <>
+                    {' '}
+                    <span class="rationale">→ {clock.remedy}</span>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+
+          <h3>In flight</h3>
+          {report.in_flight.length === 0 ? (
+            <p class="rationale">No inquiry refs in flight.</p>
+          ) : (
+            <ul>
+              {report.in_flight.map((r) => (
+                <li>
+                  <code>{r.ref_name}</code> — {r.owner}, since {r.started}, {r.commits} commits
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <h3>Blocking</h3>
+          {report.blocking.length === 0 ? (
+            <p class="rationale">Nothing a gate would fail on today.</p>
+          ) : (
+            <ul>
+              {report.blocking.map((b) => (
+                <li>
+                  <span class="tag">{b.gate}</span> <code>{b.check}</code>
+                  {b.node && (
+                    <>
+                      {' '}
+                      <code>{b.node}</code>
+                    </>
+                  )}{' '}
+                  — {b.detail} <span class="rationale">→ {b.remedy}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <h3>Next</h3>
+          {report.next.length === 0 ? (
+            <p class="rationale">Nothing to do next.</p>
+          ) : (
+            <ol>
+              {report.next.map((a) => (
+                <li>
+                  <span class="tag">{a.source}</span> <code>{a.act}</code>
+                  <p class="rationale">{a.why}</p>
+                </li>
+              ))}
+            </ol>
+          )}
+
+          {report.practice.undeclared && <p class="rationale">{report.practice.undeclared}</p>}
+        </section>
+
+        <section>
+          <h2>propose</h2>
+          <p class="rationale">
+            Draft the commits this corpus's own findings license, onto a{' '}
+            <code>propose/&lt;head&gt;</code> branch. Three verbs and no others — <code>open</code>,{' '}
+            <code>withdraw</code>, <code>close</code> — and nothing lands on the baseline: the branch
+            is reviewed as commits and rejected by deleting it. Preview first; the preview is the
+            same run with nothing written.
+          </p>
+          <Propose client:load />
+        </section>
+      </>
+    )
+  }
+</Shell>
