@@ -33,6 +33,17 @@
 //!    while every import in the tree is relative (`../core/Badge.jsx`), so it could not have
 //!    matched even had it run.
 //!
+//! # And it could not reach the code that breaks it (#611)
+//!
+//! A fourth thing, found by asking where the surviving rule could ever fire. It forbids
+//! reaching past `index.js` into a component's internals — and the task linted `yidam/design`,
+//! so the only files in a position to do that were outside the path. The rule was live, proved
+//! by a fixture, and unreachable by every consumer in the repository.
+//!
+//! The path is now the repository. Not a list of consumer directories: a list would stop
+//! covering the next surface without going red, which is the same defect one layer up from the
+//! extension rosters #611 found in `design_tokens.rs` and `design_system.rs`.
+//!
 //! The lesson is the one this file was already about, applied to itself: **reading a config
 //! cannot tell you whether a linter enforces it.** Three tests here asserted the rules were
 //! present, were errors, and were invoked, and all three were true of a lint that caught
@@ -52,6 +63,124 @@ fn read(rel: &str) -> String {
 }
 
 const CONFIG: &str = "yidam/design/_adherence.oxlintrc.json";
+
+/// The `design-lint` task body with comments stripped.
+///
+/// Stripping is load-bearing and has been since the first version of this file: the note above
+/// the task explaining *why* it passes `--deny-warnings` satisfied the check that it passes it,
+/// and the flag could be deleted under a green test. Same shape as #461's guard reading its own
+/// comment, and the reason every assertion below reads this rather than the file.
+fn design_lint_task() -> String {
+    let mise: String = read("mise.toml")
+        .lines()
+        .map(|l| l.split('#').next().unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join("\n");
+    mise.split("[tasks.design-lint]")
+        .nth(1)
+        .unwrap_or_else(|| panic!("mise.toml declares no `design-lint` task"))
+        .split("\n[tasks.")
+        .next()
+        .unwrap_or_default()
+        .to_string()
+}
+
+const SELFTEST: &str = "scripts/design-lint-selftest.sh";
+
+/// The self-test script with whole-line comments stripped, for the same reason
+/// [`design_lint_task`] strips them: that script is two-thirds prose, and every string these
+/// assertions look for is discussed in it before it is used.
+fn selftest_code() -> String {
+    read(SELFTEST)
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// One oxlint invocation in the task: its flags, and the paths it lints.
+struct Invocation {
+    flags: Vec<String>,
+    paths: Vec<String>,
+}
+
+impl Invocation {
+    fn has(&self, flag: &str) -> bool {
+        self.flags.iter().any(|f| f == flag)
+    }
+    /// The value given to a flag, for the flags that take one.
+    fn value(&self, flag: &str) -> Option<&str> {
+        self.flags
+            .iter()
+            .position(|f| f == flag)
+            .and_then(|i| self.flags.get(i + 1))
+            .map(String::as_str)
+    }
+}
+
+/// Every oxlint invocation the task runs, parsed into flags and paths.
+///
+/// A parse rather than a `contains`, because what is asserted below is *which paths* are
+/// linted, and that is the thing a `contains("yidam/design")` cannot tell you: the invocation
+/// that covers the consumers also names the config under `yidam/design/`. The check that
+/// #611's finding is fixed has to be able to tell a config argument from a target.
+fn oxlint_invocations() -> Vec<Invocation> {
+    // Flags that consume the next token. Anything else starting with `-` is a bare flag, and
+    // everything left is a path oxlint will walk.
+    const TAKES_VALUE: &[&str] = &[
+        "--config",
+        "-c",
+        "--ignore-pattern",
+        "--ignore-path",
+        "-A",
+        "-D",
+        "-W",
+        "--allow",
+        "--deny",
+        "--warn",
+        "--format",
+        "-f",
+        "--max-warnings",
+        "--threads",
+        "--tsconfig",
+    ];
+    let mut out = Vec::new();
+    for line in design_lint_task().lines() {
+        let line = line.trim().trim_matches(',').trim_matches('"').trim();
+        if !line.starts_with("oxlint ") {
+            continue;
+        }
+        let tokens: Vec<String> = line
+            .split_whitespace()
+            .skip(1)
+            .map(|t| t.trim_matches('\'').to_string())
+            .collect();
+        let mut flags = Vec::new();
+        let mut paths = Vec::new();
+        let mut i = 0;
+        while i < tokens.len() {
+            let t = &tokens[i];
+            if t.starts_with('-') {
+                flags.push(t.clone());
+                if TAKES_VALUE.contains(&t.as_str()) {
+                    if let Some(v) = tokens.get(i + 1) {
+                        flags.push(v.clone());
+                    }
+                    i += 1;
+                }
+            } else {
+                paths.push(t.clone());
+            }
+            i += 1;
+        }
+        out.push(Invocation { flags, paths });
+    }
+    assert!(
+        !out.is_empty(),
+        "the `design-lint` task runs no oxlint invocation at all"
+    );
+    out
+}
 
 fn config() -> serde_json::Value {
     serde_json::from_str(&read(CONFIG)).expect("_adherence.oxlintrc.json parses as JSON")
@@ -215,20 +344,7 @@ fn no_rule_is_merely_a_warning() {
 /// that no task reads.
 #[test]
 fn a_task_runs_the_lint_and_a_workflow_runs_the_task() {
-    // Comments stripped before anything is asserted about the task. Without that, the
-    // note above the task explaining *why* it passes `--deny-warnings` satisfies the check
-    // that it passes it — which is how the first version of this test stayed green while
-    // the flag was deleted. Same shape as #461's guard reading its own comment.
-    let mise: String = read("mise.toml")
-        .lines()
-        .map(|l| l.split('#').next().unwrap_or(""))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let task = mise
-        .split("[tasks.design-lint]")
-        .nth(1)
-        .unwrap_or_else(|| panic!("mise.toml declares no `design-lint` task"));
-    let body = task.split("\n[tasks.").next().unwrap_or("");
+    let body = design_lint_task();
 
     assert!(
         body.contains("oxlint") && body.contains(CONFIG.trim_start_matches("yidam/design/")),
@@ -259,6 +375,93 @@ fn a_task_runs_the_lint_and_a_workflow_runs_the_task() {
     );
 }
 
+/// The lint reaches the code that can break it.
+///
+/// #611's half of this file. `no-restricted-imports` forbids importing a component's internals
+/// instead of the barrel, and for the life of the rule the task linted `yidam/design` — where
+/// the only file that imports internals is `index.js`, the barrel itself, which the config
+/// ignores by name. A rule that cannot fire is the same nothing as a rule that is not there,
+/// and this one was in the stronger-looking position of having a fixture prove it worked.
+///
+/// What is asserted is that some invocation lints the *repository*, not that it lints a list of
+/// places consumers currently live. Those are different gates: the second stops covering the
+/// next surface silently, which is how three extension rosters in this repository came to have
+/// the same hole in them.
+#[test]
+fn the_lint_reaches_every_consumer_and_not_by_a_roster() {
+    let invocations = oxlint_invocations();
+    let repo_wide: Vec<&Invocation> = invocations
+        .iter()
+        .filter(|i| i.paths.iter().any(|p| p == "." || p == "./"))
+        .collect();
+    assert_eq!(
+        repo_wide.len(),
+        1,
+        "exactly one oxlint invocation should lint the repository, and {} do. Every path this \
+         task lints: {:?}. A path under `yidam/design` covers the design system and no consumer \
+         of it, which is the state #611 found: the import boundary could not fire on the only \
+         code in a position to cross it. A roster of consumer directories is not the repair — \
+         it goes quiet the moment a surface appears somewhere the roster does not name.",
+        repo_wide.len(),
+        invocations
+            .iter()
+            .flat_map(|i| i.paths.clone())
+            .collect::<Vec<_>>()
+    );
+    let repo_wide = repo_wide[0];
+
+    assert!(
+        repo_wide.has("--deny-warnings"),
+        "the repository-wide pass no longer passes `--deny-warnings`, so a rule that reports at \
+         warning level reports and exits zero"
+    );
+
+    // `-A correctness`, and the assertion is that it is *there*. Without it this config becomes
+    // a second opinion about correctness over the whole tree: measured, it reports
+    // `const { home, ...v }` as an unused binding, which the root `.oxlintrc.json` exempts on
+    // purpose for three packages. Two configs answering one question differently is how an
+    // exemption stops being a decision and starts being an argument.
+    assert_eq!(
+        repo_wide.value("-A").or_else(|| repo_wide.value("--allow")),
+        Some("correctness"),
+        "the repository-wide pass no longer suppresses oxlint's default category. Correctness \
+         has one home here — the root `.oxlintrc.json` three packages extend — and this config \
+         is about adherence. `scripts/design-lint-selftest.sh` proves the flag does not also \
+         suppress the two rules this config names."
+    );
+
+    // The one exclusion, and it is checked for staleness rather than merely for presence. A
+    // pattern naming a directory that has moved excludes nothing and says nothing; a pattern
+    // that has grown excludes the repository and still reads like an exclusion.
+    let ignored: Vec<&String> = repo_wide
+        .flags
+        .windows(2)
+        .filter(|w| w[0] == "--ignore-pattern")
+        .map(|w| &w[1])
+        .collect();
+    assert_eq!(
+        ignored.len(),
+        1,
+        "the repository-wide pass excludes {} path patterns; it should exclude exactly one, the \
+         self-test fixture that breaks the rule on purpose: {ignored:?}",
+        ignored.len()
+    );
+    let ignored = ignored[0].trim_matches('\'');
+    let dir = ignored.trim_end_matches("/**").trim_end_matches('*');
+    assert!(
+        repo_root().join(dir).is_dir(),
+        "the repository-wide pass excludes `{ignored}`, and `{dir}` is not a directory. An \
+         exclusion naming a path that has moved excludes nothing and reads exactly like one \
+         that works."
+    );
+    assert!(
+        dir.starts_with("yidam/tests/"),
+        "the only thing this pass may exclude is the self-test's deliberately-broken fixture, \
+         and `{dir}` is not under `yidam/tests/`. Everything else in the repository is either a \
+         consumer or silent about the design system, and silence costs this lint nothing."
+    );
+}
+
 /// The lint is proved by running it, not by reading it.
 ///
 /// The whole of #467's finding in one assertion. Three tests in this file were green against
@@ -267,7 +470,7 @@ fn a_task_runs_the_lint_and_a_workflow_runs_the_task() {
 /// proof exists and that the task performs it; the proof itself lives in the script.
 #[test]
 fn the_lint_is_proved_against_a_file_that_breaks_it() {
-    let script = "scripts/design-lint-selftest.sh";
+    let script = SELFTEST;
     let selftest = read(script);
     assert!(
         selftest.contains("--print-config"),
@@ -330,23 +533,88 @@ fn the_lint_is_proved_against_a_file_that_breaks_it() {
         fixture_dir.display()
     );
 
-    // Comments stripped: the task's own note explains what the self-test is for, and a check
-    // satisfied by that note is the mistake this file has now found three times.
-    let mise: String = read("mise.toml")
-        .lines()
-        .map(|l| l.split('#').next().unwrap_or(""))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let task = mise
-        .split("[tasks.design-lint]")
-        .nth(1)
-        .expect("mise.toml declares no `design-lint` task")
-        .split("\n[tasks.")
-        .next()
-        .unwrap_or_default();
+    let task = design_lint_task();
     assert!(
         task.contains(script),
         "the `design-lint` task no longer runs {script}, so the lint is back to being \
          checked only by reading it"
+    );
+}
+
+/// What the gates declare in scope is what oxlint is made to prove it can read.
+///
+/// The last silence #611 left. `scripts/design-lint-selftest.sh` discovers file types from the
+/// tree, which proves a type the moment a file of it exists — one commit *after* the surface
+/// whose coverage was the point. `tsx` is that case: three gates put it in scope and this tree
+/// holds no `.tsx` file, so discovery alone would have proved every type except the one the
+/// issue was about.
+///
+/// The repair was not to hardcode `tsx` in the script. That is the roster a fourth time, and it
+/// covers `tsx` while going quiet for whatever comes next; the script unions in
+/// `CONSUMER_EXTENSIONS` instead, read out of the gate that declares it. So an extension cannot
+/// enter the token gate's scope without this script demanding oxlint prove it can read that
+/// type — and if oxlint cannot, the script says so rather than the type being covered by nobody.
+///
+/// Both halves of that derivation are checked here, because either can fail silently: the union
+/// can be deleted, and the `sed` that reads the const can stop matching if the const is
+/// reformatted. The second is checked by running the script's own expression rather than a
+/// second copy of it — a guard comparing two hardcoded copies is the defect #831 found.
+#[test]
+fn the_selftest_proves_the_extensions_the_gates_declare() {
+    let code = selftest_code();
+    assert!(
+        code.contains("CONSUMER_EXTENSIONS"),
+        "{SELFTEST} no longer reads `CONSUMER_EXTENSIONS` out of `design_tokens.rs`, so the set \
+         of file types it makes oxlint prove is whatever the tree happens to hold. A type \
+         declared in scope with no file of it yet — `tsx`, on the day #611 landed — is then \
+         proved by nothing, which is the hole that issue was filed about."
+    );
+
+    // The script's own extraction, run against the file the script names — both halves taken
+    // from the script rather than retyped. That is the whole point of running it: an expression
+    // or a path copied into this test would go on passing here while the script read nothing.
+    // What this cannot see is the extraction being neutered in the shell rather than in its
+    // arguments; the script's own `[ -n "$declared" ]` floor covers that, in `design-lint`.
+    let (program, rest) = code
+        .split_once("sed -n '")
+        .and_then(|(_, rest)| rest.split_once('\''))
+        .unwrap_or_else(|| panic!("{SELFTEST} runs no `sed -n '…'`; the extraction has moved"));
+    let source = rest
+        .split_once("\"$root/")
+        .and_then(|(_, r)| r.split_once('"'))
+        .map(|(path, _)| path.to_string())
+        .unwrap_or_else(|| {
+            panic!("{SELFTEST} passes `sed` no `\"$root/…\"` file; the extraction has moved")
+        });
+    assert!(
+        repo_root().join(&source).is_file(),
+        "{SELFTEST} reads `CONSUMER_EXTENSIONS` out of `{source}`, which is not a file. A `sed` \
+         over a path that does not exist reads nothing, exits zero under `-n`, and leaves the \
+         declared set empty — the script probes whatever the tree holds and says nothing about \
+         it."
+    );
+    let out = std::process::Command::new("sed")
+        .arg("-n")
+        .arg(program)
+        .arg(repo_root().join(&source))
+        .output()
+        .unwrap_or_else(|e| panic!("sed did not run: {e}"));
+    let declared = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !declared.trim().is_empty(),
+        "{SELFTEST}'s expression `{program}` reads nothing out of `{source}`, so the \
+         declared set it unions in is empty and the script probes only what the tree holds. \
+         Nothing fails when that happens except the script's own floor assertion, and that \
+         runs in `design-lint`, not here."
+    );
+    // `tsx` specifically, because it is the member that discovery cannot supply: no `.tsx` file
+    // exists in this tree. If one is added this assertion keeps passing and stops being the
+    // interesting one — the derivation is still what covers the member after it.
+    assert!(
+        declared.contains("tsx"),
+        "{SELFTEST}'s expression `{program}` reads `{}` out of `CONSUMER_EXTENSIONS`, and `tsx` \
+         is not in it. That is the one extension in scope with no file of its type in the tree, \
+         so it is the one the union exists for.",
+        declared.trim()
     );
 }

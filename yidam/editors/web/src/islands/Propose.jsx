@@ -23,8 +23,9 @@
  * (`capability-not-supported`, `propose-refused`) is frozen by the contract, so a person can
  * search for it and find the same words the MCP client would have been given.
  *
- * `.jsx` rather than `.tsx` for the reason `NodeTable.jsx` gives: the design-token consumer
- * scan reads `jsx` and not `tsx` (#611), and every colour here is a class from `app.css`.
+ * `.jsx` for the reason `NodeTable.jsx` gives, which #611 retired: the design-token consumer
+ * scan reads `tsx` too now, so this file is `.jsx` by history rather than by constraint. Every
+ * colour here is a class from `app.css`.
  */
 
 import React, { useState } from 'react'

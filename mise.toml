@@ -413,13 +413,20 @@ depends = ["deny", "machete"]
 # rejects outright, so the config had never been loadable either. A surface with no consumer,
 # and the consumer would have failed on contact.
 #
-# It lints JS and JSX, which is what oxlint reads. The palette's other two consumers are CSS
+# It lints every file type oxlint reads — `ts`, `tsx`, `js`, `jsx`, `mjs`, `astro`, and not
+# `.cjs`, which `design-lint-selftest.sh` discovers from the tree and proves one by one rather
+# than taking on trust (#611). The palette's other two consumers are CSS
 # files it cannot parse, and they are covered from the other side: they now hold no colours
 # at all, only `var(--…)` into the one bundle, and `design_tokens.rs` asserts that no surface
 # outside yidam/design/ declares a raw hex.
 
 [tasks.design-lint]
-description = "Design-system adherence: components reached through index.js, on a lint proved against a file that breaks it."
+# The description used to read "no raw hex, no raw px, no off-system fonts, declared props
+# only" — four rules #467 deleted, because oxlint does not implement `no-restricted-syntax` and
+# every one of them was inert. Those four are enforced, in `design_tokens.rs` and
+# `design_system.rs`; none of them is enforced *here*. A task describing rules it does not run
+# is the same claim a dead rule key makes.
+description = "Design-system adherence: the component import boundary wherever it can be crossed, on a lint proved against a file that breaks it."
 tools = { "npm:oxlint" = "1.42.0" }
 # `--deny-warnings`, because a lint that only warns in CI is a lint that is off. The rules
 # themselves moved from `warn` to `error` in #465 for the same reason; this covers oxlint's
@@ -437,8 +444,45 @@ tools = { "npm:oxlint" = "1.42.0" }
 # so forbade nothing on any file from the initial sync until #881 removed it: a lint can be
 # invoked, loadable, spelled right and still enforce nothing. So the self-test now requires
 # every rule to fire on a fixture built to break it.
+#
+# ── two invocations, because they answer two questions (#611) ──────────────
+#
+# The first is the design system's own tree, with oxlint's default rules included — that is
+# what `--deny-warnings` is for above, and it was already worth having on the day the lint
+# first ran.
+#
+# The second is every *consumer*, which until #611 was outside the lint entirely: the path was
+# `yidam/design`, so the one rule that survived #467 — don't reach past `index.js` into a
+# component's internals — could never fire on the only code in a position to do it. There is no
+# roster of consumer directories here, and deliberately: the path is the repository, so a
+# surface written next year is covered by existing. Measured at 0 findings over 243 files, and
+# the walk does read `.astro` and `.tsx` — checked by planting a deep import in each and
+# watching this go red, not by reading oxlint's documentation.
+#
+# That second path also changes an argument #881 made and should be re-read rather than
+# inherited. `react/forbid-elements` was removed partly because "`design-lint` lints
+# `yidam/design` and nothing else, and that is the one directory where the rule must never
+# apply" — a `<button>` in `Button.jsx` is the component, not a violation. Under a repo-wide
+# path that reason no longer holds for consumers, where a raw `<button>` is exactly what the
+# system's `Button` exists to replace. Removing the rule was still right; the reason has
+# expired, and #888 asks the question again with the scope it now has.
+#
+# `-A correctness` on that pass, so the adherence config enforces adherence and nothing else.
+# Correctness has one home in this repository, the root `.oxlintrc.json` that three packages
+# extend, and it makes decisions this config does not know about: run repo-wide with oxlint's
+# defaults on, this pass reports `const { home, ...v }` as an unused binding — the exact idiom
+# `ignoreRestSiblings` exempts there on purpose. Two configs answering one question differently
+# is how an exemption gets argued about instead of decided. The flag does not touch the rule
+# this config names; `design-lint-selftest.sh` proves that by running it under the flag.
+#
+# The `--ignore-pattern` is the self-test's fixture, which breaks the rule on purpose and would
+# otherwise make this pass permanently red. On the command line rather than in the config's
+# `ignorePatterns`, because the self-test points this same config *at* that directory — an
+# ignore inside the config would make the proof read a file it had been told to skip, and pass
+# by finding nothing.
 run = [
   "oxlint --config yidam/design/_adherence.oxlintrc.json --deny-warnings yidam/design",
+  "oxlint --config yidam/design/_adherence.oxlintrc.json -A correctness --deny-warnings --ignore-pattern 'yidam/tests/design-lint-selftest/**' .",
   "bash scripts/design-lint-selftest.sh",
 ]
 

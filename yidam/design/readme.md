@@ -265,6 +265,11 @@ import { StatusMeter, CoverageBar } from '../path/to/yidam/design/index.js';
 written and there was no `index.js` to point at, and the rule was disabled everywhere by an
 `overrides` block besides. The quality pages (#467) are the system's first consumer.
 
+A third half, and the last one that mattered: the task ran that config over `yidam/design` only,
+so the rule against reaching in could not fire on any code in a position to reach. #611 pointed
+it at the repository. A deep import from a consumer is now an error where it is written, in any
+of `ts`, `tsx`, `js`, `jsx`, `mjs` or `astro`.
+
 Tokens come separately and are plain CSS:
 
 ```css
