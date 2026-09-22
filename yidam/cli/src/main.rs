@@ -793,12 +793,15 @@ enum Command {
     /// what it wrote — plus a receipt naming the input commit and every digest — as
     /// one operational commit on the current branch.
     ///
-    /// A run authors operational commits and nothing else: a capability declaring an
-    /// epistemic verb does not load, so no run can author a node, re-tag a claim, or
-    /// decide a question is answered. The step is invoked in a scratch tree and never
-    /// in your checkout, so a run is safe mid-edit — and because the index is not
-    /// touched either, your working tree is one commit behind afterwards. The report
-    /// says so and names the command that syncs it.
+    /// The declared verb decides where the commit goes. An operational verb advances the
+    /// branch you invoked the run from; an epistemic one lands on `propose/<head>` and
+    /// leaves your branch where it was, for a person to merge or delete. There is no way
+    /// for a manifest or a policy to say otherwise, so no run advances the current branch
+    /// with an epistemic commit.
+    ///
+    /// The step is invoked in a scratch tree and never in your checkout, so a run is safe
+    /// mid-edit — and because the index is not touched either, your working tree is one
+    /// commit behind afterwards. The report says so and names the command that syncs it.
     ///
     /// One step per invocation. Dependency order, freshness and --dry-run are #472.
     ///

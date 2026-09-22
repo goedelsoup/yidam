@@ -700,12 +700,19 @@ what `reads` resolves to and nothing else from the repository, so it cannot depe
 did not declare; and a step that writes outside `writes` is refused, with nothing committed.
 Both are decidable before the step runs rather than after it has produced a tree.
 
-**A run authors operational commits and nothing else.** A capability declaring an epistemic
-verb does not load. This is not a policy your repository can override, and the reason is that a
-repository which could write that permission for itself could license its own runs to author
-`establish:` on its own baseline — the safety argument would become a config value. A run may
-not author a node, may not resolve, and may not decide a question is answered. Those are acts a
-person performs, and the commit vocabulary already drew that line.
+**The verb decides where a run's commit goes, and nothing else does.** An operational verb —
+`compute`, `extract`, `refresh`, `reconcile` — advances the branch you invoked the run from. An
+epistemic verb — `establish`, `revise`, `resolve` — lands on `propose/<head>` instead, and your
+branch does not move. Both declare; what declaring an epistemic one buys is a destination, not a
+permission. So a run *can* open a question about a number, and the proposal branch is where to
+look for what it produced: merge it to accept it, delete it to reject it. Nothing merges itself.
+
+**There is no path, and no config value, by which a run advances the current branch with an
+epistemic commit.** There is no route to declare in the manifest and no policy key to set, and
+the reason is that a repository which could write that permission for itself could license its
+own runs to author `establish:` on its own baseline — the safety argument would become a config
+value. Deciding that a question is answered stays an act a person performs, and the commit
+vocabulary already drew that line.
 
 **Credentials are named, never carried.** A capability declares which secret it needs by name;
 the value arrives from the environment. A committed file is not a place for a secret — the same
