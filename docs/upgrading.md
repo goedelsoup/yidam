@@ -70,6 +70,37 @@ is a legitimate shape for a pusher. So a 403 on `GetVectors` is a printed note, 
 refusal. A push also now reports the other corpora it found in the index, with a row count
 each. `--dry-run` is the read-only way to ask.
 
+### `yidam migrate findings` lifts the questions an earlier `propose` wrote
+
+A finding is a record under the node's `yidam:` key. It used to be an English sentence appended
+to `description:`. It was found again by grepping the prose for its opening words. Paragraphs an
+earlier release wrote are still recognised and still closed. **Nothing was stranded, and nothing
+here is urgent.** This is the one-time lift (#728).
+
+```
+yidam migrate --dry-run findings   # what it would do
+yidam migrate findings             # do it
+```
+
+**Two numbers move, and only for a corpus that runs it.** The `[open]` claim counts **drop**. A
+carried question stops being counted among the claims the corpus makes. That is the whole point
+of the record. `open-questions` does **not** change: the record is still an open question on the
+node.
+
+A corpus publishing a claim tally in a generated block will see that tally fall. Roughly by the
+number of questions `propose` has open. Re-run `yidam corpus-index` after the lift.
+
+**A paragraph you reworded stays prose.** The lift matches the marker, the check in brackets and
+the fixed framing sentence exactly. A sentence you rewrote is yours, and this will not guess where
+the tool's words ended. Those are counted in the report and left alone, `[open]` tag included. So
+a reworded paragraph keeps counting as a claim until you decide otherwise.
+
+**A catalog entry with no frontmatter is refused rather than lifted.** Removing the paragraph
+there would leave nowhere findable to put the record. The run reports the file and writes
+nothing at all.
+
+The migration is idempotent and writes a record under `.yidam/migrations/`.
+
 ### A `retrieve` result says whether its text is all of it
 
 **MCP contract 0.22.0 → 0.23.0.** Every entry of `results` carries `truncated`, a boolean

@@ -78,6 +78,13 @@ pub enum Operation {
     /// hundreds of files under one commit subject, with a record of what it refused. See
     /// [`crate::cmd::migrate_references`].
     References,
+    /// Every paragraph an earlier `propose` spliced into prose becomes a `yidam:` record.
+    ///
+    /// The one-time lift #712 left behind. Like [`Self::References`] it migrates *data* rather
+    /// than the ontology over it, and for the same reason it belongs here: a mechanical rewrite
+    /// across every node under one commit subject, with a record of what it refused. See
+    /// [`crate::cmd::migrate_findings`].
+    Findings,
 }
 
 impl Operation {
@@ -89,6 +96,7 @@ impl Operation {
             Self::PropertyRetype { .. } => "property-retype",
             Self::EdgeRetarget { .. } => "edge-retarget",
             Self::References => "references",
+            Self::Findings => "findings",
         }
     }
 
@@ -114,6 +122,9 @@ impl Operation {
             // what `record_path` slugs, so it must not begin with the operation's own name —
             // `references-references-out-of-evidence-tags.yml` is a filename a corpus keeps.
             Self::References => "evidence tags into the reference field".to_string(),
+            // Replaced once planned, for the reason above, and a stable form that does not
+            // begin with the operation's own name for the same one.
+            Self::Findings => "legacy propose paragraphs into records".to_string(),
         }
     }
 }
@@ -157,6 +168,15 @@ pub struct MigrateReport {
     /// `reference-not-in-the-grammar`'s question, not this one.
     #[serde(skip_serializing_if = "is_zero")]
     pub prose_details: usize,
+    /// Findings lifted out of legacy `propose` paragraphs. Empty for every other operation.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub findings: Vec<super::migrate_findings::Lifted>,
+    /// Paragraphs an author has reworded past recognition.
+    ///
+    /// A count and not a list, for the reason [`Self::prose_details`] gives: those sentences are
+    /// somebody's prose now, and listing them would read as work to do.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub prose_findings: usize,
     /// Why this cannot proceed. Non-empty means nothing was touched.
     pub blocked: Vec<String>,
     /// Where the migration record was written, once applied.
@@ -190,6 +210,8 @@ impl MigrateReport {
             unhandled: vec![],
             lifted: vec![],
             prose_details: 0,
+            findings: vec![],
+            prose_findings: 0,
             blocked: vec![],
             record: String::new(),
             commit_subject: String::new(),
@@ -290,6 +312,10 @@ pub(crate) fn plan(root: &Path, corpus: &Path, op: &Operation) -> MigrateReport 
             super::migrate_references::plan(root, corpus, &mut report);
             report.summary = super::migrate_references::summary(&report);
         }
+        Operation::Findings => {
+            super::migrate_findings::plan(root, corpus, &mut report);
+            report.summary = super::migrate_findings::summary(&report);
+        }
     }
     if report.blocked.is_empty() {
         // A reference lift's unit of work is a reference and not an edit: only the tags it
@@ -300,6 +326,19 @@ pub(crate) fn plan(root: &Path, corpus: &Path, op: &Operation) -> MigrateReport 
                 "reference",
                 report
                     .lifted
+                    .iter()
+                    .map(|l| l.node.as_str())
+                    .collect::<BTreeSet<_>>()
+                    .len(),
+            )
+        } else if matches!(op, Operation::Findings) {
+            // A findings lift makes no edits at all: its unit is a paragraph replaced by a
+            // record, and counting edits would report that it did nothing.
+            (
+                report.findings.len(),
+                "finding",
+                report
+                    .findings
                     .iter()
                     .map(|l| l.node.as_str())
                     .collect::<BTreeSet<_>>()
@@ -840,6 +879,20 @@ fn apply(root: &Path, corpus: &Path, op: &Operation, report: &mut MigrateReport)
             .collect();
         return write_record(root, op, report, files.into_iter().collect());
     }
+    // A findings lift removes a paragraph from a block scalar *and* writes a record elsewhere in
+    // the document. That is a whole-file rewrite rather than a smaller edit, which is why it did
+    // not fit in #712 — and the same escape the reference lift takes above.
+    if matches!(op, Operation::Findings) {
+        if report.findings.is_empty() {
+            return Ok(());
+        }
+        super::migrate_findings::apply(root, corpus, report)?;
+        if !report.blocked.is_empty() {
+            return Ok(());
+        }
+        let files: BTreeSet<String> = report.findings.iter().map(|l| l.node.clone()).collect();
+        return write_record(root, op, report, files.into_iter().collect());
+    }
     let mut by_file: BTreeMap<&str, Vec<&Edit>> = Default::default();
     for e in &report.edits {
         by_file.entry(&e.file).or_default().push(e);
@@ -947,6 +1000,9 @@ pub(crate) fn render_migrate(r: &MigrateReport) -> String {
     }
     if matches!(r.operation, "references") {
         return render_references(r);
+    }
+    if matches!(r.operation, "findings") {
+        return render_findings(r);
     }
     let mut out = format!(
         "{} {}\n{} edit(s) across {} file(s)\n",
@@ -1057,6 +1113,58 @@ fn render_references(r: &MigrateReport) -> String {
         for b in &r.blocked {
             let _ = writeln!(out, "  {b}");
         }
+    }
+    if !r.record.is_empty() {
+        let _ = write!(out, "\nrecord: {}", r.record);
+    }
+    let _ = write!(out, "\ncommit: {}", r.commit_subject);
+    out.trim_end().to_string()
+}
+
+/// A findings lift, by node rather than by finding.
+///
+/// One line per node, as [`render_references`] does and for the same reason: a reader deciding
+/// whether to apply this is asking which nodes change and what question moves on each.
+fn render_findings(r: &MigrateReport) -> String {
+    if r.findings.is_empty() {
+        // Not "would migrate 0": this ran, and the corpus holding no legacy paragraph is the
+        // answer rather than the absence of one.
+        let mut out =
+            "Nothing to lift — no node carries a paragraph an earlier `propose` wrote.".to_string();
+        if r.prose_findings > 0 {
+            let _ = write!(
+                out,
+                "\n{} paragraph(s) reworded past recognition, left as prose.",
+                r.prose_findings
+            );
+        }
+        return out;
+    }
+    let mut by_node: BTreeMap<&str, Vec<&str>> = Default::default();
+    for l in &r.findings {
+        by_node.entry(&l.node).or_default().push(&l.check);
+    }
+    let mut out = format!(
+        "{} {}\n{} finding(s) across {} node(s)\n",
+        if r.applied {
+            "Migrated"
+        } else {
+            "Would migrate"
+        },
+        r.summary,
+        r.findings.len(),
+        by_node.len(),
+    );
+    for (node, checks) in &by_node {
+        let _ = writeln!(out, "  {node}  {}", checks.join(", "));
+    }
+    if r.prose_findings > 0 {
+        let _ = write!(
+            out,
+            "\n{} paragraph(s) reworded past recognition and left as prose. Those sentences are \
+             the author's now, and this migration will not guess where its own words ended.\n",
+            r.prose_findings
+        );
     }
     if !r.record.is_empty() {
         let _ = write!(out, "\nrecord: {}", r.record);

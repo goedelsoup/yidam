@@ -956,6 +956,17 @@ enum MigrateCommand {
     /// collapses the tag to `[verified]`. Where the reference sits inside a sentence the
     /// sentence is left exactly as written. Idempotent; run it with `--dry-run` first.
     References,
+    /// Lift every paragraph an earlier `propose` spliced into prose into a `yidam:` record
+    ///
+    /// Before #712 a finding was an English sentence appended to `description:`, identified on
+    /// the way back out by grepping for its own opening words. It is a record now. This is the
+    /// one-time lift of the paragraphs a released binary already wrote: the check and the
+    /// finding's words become a record under the node's own key, and the paragraph goes.
+    ///
+    /// A paragraph an author has reworded past recognition is left exactly as written — it is
+    /// their prose now, and this will not guess where the tool's sentence ended. Idempotent;
+    /// run it with `--dry-run` first.
+    Findings,
     /// Point a declared relationship at a different class, at both ends
     Edge {
         /// The class that declares it
@@ -984,6 +995,7 @@ impl From<MigrateCommand> for yidam::MigrateOperation {
                 new_type,
             },
             MigrateCommand::References => Self::References,
+            MigrateCommand::Findings => Self::Findings,
             MigrateCommand::Edge {
                 class,
                 relationship,

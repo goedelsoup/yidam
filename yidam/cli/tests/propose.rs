@@ -373,3 +373,135 @@ fn a_declared_threshold_drafts_a_withdrawal() {
         "took more than it meant to: {listed}"
     );
 }
+
+/// The lift, and the property #728 says to watch: **a lifted record still closes.**
+///
+/// The reconstructed `detail` is what the record's id is a digest of, and the generator wrote
+/// the detail through `trim_end_matches('.')` — so an id recovered from a paragraph need not
+/// equal the one a fresh run computes for the same live finding. That would be fatal if `close:`
+/// matched on the id. It matches on `(check, node)`, and this is the test that says so from the
+/// outside rather than from a comment: open the question as a released binary wrote it, lift it,
+/// answer the finding, and require that the question is retired and the node is as it was.
+#[test]
+fn a_lifted_record_closes_on_the_next_run() {
+    let dir = fixture();
+    let root = dir.path();
+    let path = root.join(".yidam/corpus/concept/lonely.yml");
+    let before = std::fs::read_to_string(&path).unwrap();
+
+    // ── a paragraph as a released binary wrote one ──────────────────────────
+    //
+    // Written literally, not drafted by this binary: the machinery that composed these is gone
+    // (#712), and there is no version of this tree that can produce one to migrate.
+    let head = git(root, &["rev-parse", "--short", "HEAD"]);
+    let legacy = before.replace(
+        "properties:",
+        &format!(
+            "\n  Opened by `yidam propose` at {head} [orphan-in] — nothing links to this \
+             node. What follows from\n  that is unresolved here: `yidam propose` carries \
+             findings into the corpus and does not\n  answer them. [open]\nproperties:"
+        ),
+    );
+    std::fs::write(&path, &legacy).unwrap();
+    commit(root, "establish: a question an earlier release opened");
+
+    // ── the lift ────────────────────────────────────────────────────────────
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(root)
+        .args(["migrate", "findings"])
+        .output()
+        .unwrap();
+    let text =
+        String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{text}");
+    assert!(text.contains("Migrated"), "{text}");
+    assert!(text.contains("orphan-in"), "{text}");
+
+    let lifted = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        !lifted.contains("Opened by `yidam propose` at"),
+        "the paragraph survived the lift:\n{lifted}"
+    );
+    assert!(lifted.contains("check: orphan-in"), "{lifted}");
+    // The first of the two numbers #728 says move: the carried question stops being counted
+    // among the claims the corpus makes.
+    assert!(!lifted.contains("[open]"), "{lifted}");
+    commit(root, "migrate: the paragraph into a record");
+
+    // The second: it is still an open question on the node.
+    let questions = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(root)
+        .args(["open-questions", "--format", "json"])
+        .output()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&questions.stdout).unwrap();
+    let nodes: Vec<&str> = json["open_questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|q| q["node"].as_str())
+        .collect();
+    assert!(
+        nodes.contains(&".yidam/corpus/concept/lonely.yml"),
+        "the lifted question is invisible to `open-questions`: {nodes:?}"
+    );
+
+    // ── somebody answers the finding ────────────────────────────────────────
+    node(
+        root,
+        "concept",
+        "cited",
+        "A gage points at this one. [verified]",
+        &["./lonely.yml"],
+    );
+    commit(root, "establish: cited refines lonely");
+
+    // ── and the lifted record is retired, leaving the node as it was ────────
+    let run = propose(root, &[]);
+    assert!(run.ok, "{}\n{}", run.stdout, run.stderr);
+    assert!(run.stdout.contains("close: lonely"), "{}", run.stdout);
+    let b = branch(root);
+    assert_eq!(
+        git(
+            root,
+            &["show", &format!("{b}:.yidam/corpus/concept/lonely.yml")]
+        ),
+        before.trim_end(),
+        "closing the lifted question did not restore the node"
+    );
+}
+
+/// A paragraph reworded past recognition is the author's prose, and the lift leaves it there.
+#[test]
+fn a_reworded_paragraph_is_left_where_it_stands() {
+    let dir = fixture();
+    let root = dir.path();
+    let path = root.join(".yidam/corpus/concept/lonely.yml");
+    let before = std::fs::read_to_string(&path).unwrap();
+    let head = git(root, &["rev-parse", "--short", "HEAD"]);
+    let reworded = before.replace(
+        "properties:",
+        &format!(
+            "\n  Opened by `yidam propose` at {head} [orphan-in] — nothing links to this \
+             node. I have\n  looked and I think that is right. [open]\nproperties:"
+        ),
+    );
+    std::fs::write(&path, &reworded).unwrap();
+    commit(root, "establish: a question somebody answered in prose");
+
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(root)
+        .args(["migrate", "findings"])
+        .output()
+        .unwrap();
+    let text =
+        String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{text}");
+    assert!(text.contains("Nothing to lift"), "{text}");
+    assert!(text.contains("reworded past recognition"), "{text}");
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        reworded,
+        "the author's sentence was edited"
+    );
+}

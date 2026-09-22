@@ -433,8 +433,9 @@ record of what they touched.
 | `retype` | Change a declared property's type; refuses when an instance would not satisfy it |
 | `edge` | Point a declared relationship at a different class, at both ends |
 | `references` | Lift every reference written inside an evidence tag into the node's `references:` field |
+| `findings` | Lift every paragraph an earlier `propose` spliced into prose into a `yidam:` record |
 
-`references` is the one that migrates data rather than the ontology over it.
+`references` and `findings` are the two that migrate data rather than the ontology over it.
 
 A detail reading `[verified — #362]` names an issue no consumer can follow. The migration writes
 `issue/362` to the node. Where the detail was the reference and nothing else, the tag then
@@ -450,6 +451,21 @@ and `6a/6b` resolve to nothing and stay prose. Nothing is written that
 Applying it to the two corpora that write most of these tags left `yidam lint` reporting what it
 reported before. One `claim-tag-malformed` finding went away per collapsed tag. That is 535 → 399
 in one corpus and 534 → 459 in the other.
+
+`findings` is the one-time lift that `propose` left behind. Before the record, a finding was an
+English sentence appended to `description:`. It was found again by grepping the prose for its
+own opening words. The paragraph's check and the finding's words become a record under the node's
+`yidam:` key, and the paragraph goes.
+
+**A paragraph reworded past recognition stays prose.** The reconstruction is exact — the marker,
+the check in brackets, and the fixed framing sentence — or it does not happen. A sentence an
+author rewrote is theirs, and guessing where the tool's words ended would edit somebody's
+argument. The report counts those rather than listing them as work to do.
+
+Two numbers move for a corpus that runs it. The `[open]` claim counts **drop**, because a carried
+question stops being counted among the claims the corpus makes. `open-questions` does **not**
+change: the record is still an open question on the node. That asymmetry is the thing the
+paragraph could not express. It is idempotent; run it with `--dry-run` first.
 
 ### `propose` is deliberately small
 
