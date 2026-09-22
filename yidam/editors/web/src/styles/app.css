@@ -274,3 +274,69 @@ ul.questions {
   border: 1px solid var(--status-open-border);
   white-space: pre-wrap;
 }
+
+/* The draft page. Fields on the left, the buffer and its verdicts on the right, because the
+ * two are the same thing twice — what the form holds and what the overlay judges — and a
+ * reader compares them. Below a laptop width the columns stack, buffer last. */
+.node-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 2rem;
+}
+
+@media (max-width: 60rem) {
+  .node-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.node-form-fields,
+.node-form-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.node-form h3 {
+  margin: 0.75rem 0 0;
+}
+
+.node-form-side textarea {
+  font-family: var(--font-mono);
+}
+
+.claim-tags {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* One link, as a row of its own. The remove button sits under the fields rather than beside
+ * them: the fields are wide because targets are paths. */
+.link-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem 0 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* A verdict that was true of a child that has since exited. Quieter than the diagnostics it
+ * annotates and louder than `.rationale`: it is a fact about the page, not about the node. */
+.verdict-stale {
+  margin: 0.25rem 0;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.diagnostics {
+  padding-left: 1.25rem;
+}
+
+.diagnostics.stale {
+  color: var(--text-tertiary);
+}
+
+.severity.error {
+  color: var(--status-open-fg);
+  font-weight: 600;
+}

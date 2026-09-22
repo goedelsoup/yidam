@@ -327,8 +327,8 @@ most expensive thing in the document. The original said so, about this design, a
 
 That bridge is now the plan. [`Overlay`](../../yidam/cli/src/cmd/lint/mod.rs#L107) is a
 `pub struct` in the lint module, and
-[`run_checks_with`](../../yidam/cli/src/cmd/lint/mod.rs#L159) is the entry point the language
-server calls on every change ([`lsp.rs:217`](../../yidam/cli/src/cmd/lsp.rs#L217)) — but it is
+[`run_checks_with`](../../yidam/cli/src/cmd/lint/mod.rs#L190) is the entry point the language
+server calls on every change ([`lsp.rs:249`](../../yidam/cli/src/cmd/lsp.rs#L249)) — but it is
 reachable only through `serve --lsp`. `yidam lint` has no overlay flag, and the extension is no
 prior art here: it carries no LSP client and no dependencies at all, running `lint --format json`
 against the tree and building diagnostics itself.
@@ -413,6 +413,56 @@ lifecycle; class-driven node forms with the relationship rule above; claim tags 
 Still no writes to disk. This phase absorbed the reversal's cost and should be planned as the
 largest of the four, not the second-cheapest.
 
+*Landed 2026-09-22, #607.* Two routes, one page, and one CLI change. Five things it settled by
+being built:
+
+- **The overlay did not know a buffer was a node.** `run_checks_with` walked the corpus for
+  instances and unioned the overlay over *those* paths, so a buffer for a file not yet on disk
+  was seen by no check at all: its findings were exactly none, which is what a clean node's
+  are. The editors never noticed because every buffer they send is a file that exists.
+  [`Overlay::unsaved_instances`](../../yidam/cli/src/cmd/lint/mod.rs#L137) adds the buffers
+  the walker would have accepted, and the server declares it —
+  `experimental.yidam.unsavedInstances` in the `initialize` result
+  ([`lsp.rs:417`](../../yidam/cli/src/cmd/lsp.rs#L417)) — so a bridge on an older binary can say
+  *saved nodes only* rather than show a clean verdict it did not earn.
+- **The barrier is an unknown request.** `publishDiagnostics` is a notification, and a clean
+  buffer publishes nothing new, so a page cannot tell *clean* from *not judged yet*. The server
+  answers any request it does not know with `null`, and does so **after** the publishes a
+  preceding change produced —
+  [`a_request_after_a_change_is_answered_after_its_diagnostics`](../../yidam/cli/src/cmd/lsp.rs#L874)
+  pins the order. The bridge sends `$/yidam/barrier` after every `didChange` and treats the
+  reply as the verdict's edge
+  ([`overlay.ts:396`](../../yidam/editors/web/src/lib/overlay.ts#L396)). No protocol extension,
+  and nothing in the server knows the bridge exists.
+- **The three failure modes are three tests, and a budget.** One
+  [`LspClient`](../../yidam/editors/web/src/lib/lsp.ts#L165) frames `Content-Length` over
+  stdio and correlates ids; one [`OverlayBridge`](../../yidam/editors/web/src/lib/overlay.ts#L156)
+  per process supervises the child: the first page starts it, the last page's leaving shuts
+  it down politely and kills it if it will not go, and the process-exit hook kills it
+  outright. A child dying mid-session is broadcast as a `status` with the exit and its stderr
+  tail, the page marks its verdicts stale and says *verdicts stopped*, and the next change
+  restarts the child and replays every held buffer. Three starts inside a minute is a binary
+  that cannot run here, and the bridge stops trying rather than spawning a fourth
+  ([`START_BUDGET`](../../yidam/editors/web/src/lib/overlay.ts#L153)) — an `unavailable` that
+  is sticky for the process, because a loop that retries every keystroke is the leak wearing a
+  different coat.
+- **The form's relationship picker carries the tier.** Declared out-edges first with their
+  targets, then relationships the class's own instances use with the count, then what other
+  classes use, then a free-text row — every option shows why it is offered
+  ([`relationshipOffers`](../../yidam/editors/web/src/lib/form.ts#L52)). The three claim tags
+  are a closed select and insert buttons under the description; the ontology is a guide. The
+  buffer is a one-way render of the fields, and editing it detaches the form rather than
+  parsing YAML back — a second reader of a document the binary already reads was the thing
+  not to build. Empty properties are omitted so `missing-property` names them: the sandbox's
+  whole point is the verdict, and a form that filled in `""` would be hiding it.
+- **Two things it does not do, and why.** *It does not edit an existing node.* The graph
+  report carries a node's class, label, description and links, and no property values, so a
+  form opened on a saved node would render its properties blank — the read that would fill
+  them is a report change, filed rather than faked. *It does not share a child with the
+  extension.* Two editors on one corpus is two `serve --lsp` children, each with its own
+  overlay; they agree because they run the same function, and the day they disagree the
+  cause is a stale pin, which the header already shows.
+
 **Phase 3 — writes.** Gated on [RFC-0029](0029-write-tier.md)'s **build**. The decision half is
 Accepted, and its identity gate reaches this surface — see
 [§ The identity gate, answered](#the-identity-gate-answered--and-what-the-reversal-does-to-the-answer),
@@ -440,7 +490,7 @@ the phase shipped as two routes and one page. Three things it settled by being b
   does not.
 - **The method rule is the origin rule doing more work.** A `POST` from a browser page always
   carries `Origin`, so the route requires it and refuses any other method with `405`
-  ([`actRefusal`](../../yidam/editors/web/src/lib/api.ts#L95)). Building it found that Astro's own
+  ([`actRefusal`](../../yidam/editors/web/src/lib/api.ts#L96)). Building it found that Astro's own
   cross-site check had been refusing every same-origin `POST` — it compares against a `url.origin`
   it synthesises as `http://localhost` unless the host is listed — so
   [`astro.config.mjs:39`](../../yidam/editors/web/astro.config.mjs#L39) lists the loopback names.

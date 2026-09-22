@@ -122,6 +122,37 @@ impl Overlay {
             None => std::fs::read_to_string(path).unwrap_or_default(),
         }
     }
+
+    /// Instance buffers the walker cannot see: open under `corpus`, and not yet on disk.
+    ///
+    /// Every path the checks read comes from a directory walk, so a buffer for a file that
+    /// has not been saved once was read by nobody — an editor's `:e concept/new.yml` got no
+    /// verdict until the first `:w`, and the web editor's node form (#607) is a buffer that
+    /// by design is *never* written, so it got none at all. Same shape as `read`: the walk
+    /// answers for what is on disk, and the overlay answers for what is not, with the same
+    /// predicate `walk_corpus_instances` applies — under the corpus, at least a class
+    /// directory deep, `.yml`, and not a class file.
+    ///
+    /// A buffer whose file *does* exist is the walk's already and is not repeated here.
+    pub fn unsaved_instances(&self, corpus: &Path) -> Vec<PathBuf> {
+        let mut found: Vec<PathBuf> = self
+            .0
+            .keys()
+            .filter(|p| !p.exists())
+            .filter(|p| {
+                let Ok(rel) = p.strip_prefix(corpus) else {
+                    return false;
+                };
+                let name = rel.file_name().map(|n| n.to_string_lossy());
+                rel.components().count() >= 2
+                    && p.extension().is_some_and(|x| x == "yml")
+                    && name.is_some_and(|n| !n.ends_with(".ont.yml"))
+            })
+            .cloned()
+            .collect();
+        found.sort();
+        found
+    }
 }
 
 /// How `lint` was invoked.
@@ -160,7 +191,10 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     let corpus_dir = yidam_corpus_dir(root);
     let catalog_dir = yidam_catalog_dir(root);
 
-    let instance_paths = walk_corpus_instances(&corpus_dir);
+    let mut instance_paths = walk_corpus_instances(&corpus_dir);
+    // Plus the buffers that are not files yet — see `Overlay::unsaved_instances`. Empty for
+    // every caller but the language server.
+    instance_paths.extend(overlay.unsaved_instances(&corpus_dir));
     // Which disclosure decisions this repository decided for itself. Read here rather than in
     // the check, which stays pure — the same split every other check in this module keeps.
     //
@@ -950,6 +984,64 @@ mod tests {
         )
         .unwrap();
         tmp
+    }
+
+    /// A buffer for a file that is not on disk is linted as a node.
+    ///
+    /// The walk is what every check reads its paths from, so before #607 a buffer that had
+    /// never been saved was a buffer no check saw: its findings were exactly none, which is
+    /// what a clean node's are. The dangling edge here is the difference made visible — it
+    /// exists only in the overlay, and only a node the checks enumerated could have raised it.
+    #[test]
+    fn a_buffer_that_is_not_a_file_yet_is_still_a_node() {
+        let tmp = clean_repo();
+        let corpus = tmp.path().join(".yidam/corpus");
+        let unsaved = corpus.join("reach/gamma.yml");
+        assert!(!unsaved.exists());
+
+        let mut overlay = Overlay::default();
+        overlay.set(
+            unsaved.clone(),
+            "class: reach\nlabel: Gamma\ndescription: G.\nlinks:\n  - target: gone.yml\n    relationship: refines\n"
+                .to_string(),
+        );
+        assert_eq!(overlay.unsaved_instances(&corpus), vec![unsaved.clone()]);
+
+        let all = run_checks_with(tmp.path(), &Options::default(), &overlay);
+        let dangling = all.iter().find(|c| c.id == "dangling-edge").unwrap();
+        assert!(
+            dangling
+                .violations
+                .iter()
+                .any(|v| v.node.contains("reach/gamma.yml")),
+            "{:?}",
+            dangling.violations
+        );
+        // Nothing was written: the verdict is about a buffer and the tree is as it was.
+        assert!(!unsaved.exists());
+    }
+
+    /// The predicate is the walker's, not a looser one.
+    ///
+    /// A class file, a buffer outside the corpus, a `.md` beside the nodes, and a buffer at
+    /// the corpus root are each things the walk would not return, so the overlay must not
+    /// return them either — or an editor with a `README.md` open under `.yidam/corpus/`
+    /// would lint it as a node. A saved file is the walk's and is not repeated.
+    #[test]
+    fn unsaved_instances_apply_the_walkers_predicate() {
+        let tmp = clean_repo();
+        let corpus = tmp.path().join(".yidam/corpus");
+        let mut overlay = Overlay::default();
+        for p in [
+            corpus.join("new.ont.yml"),
+            corpus.join("root-level.yml"),
+            corpus.join("reach/notes.md"),
+            tmp.path().join("elsewhere/reach/x.yml"),
+            corpus.join("reach/alpha.yml"),
+        ] {
+            overlay.set(p, String::new());
+        }
+        assert!(overlay.unsaved_instances(&corpus).is_empty());
     }
 
     /// A repository that has overridden nothing reports the check and no findings.

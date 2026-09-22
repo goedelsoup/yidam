@@ -17,6 +17,7 @@
 import { session } from './session.ts'
 import { spawnReport, type ReportCommand } from './cli.ts'
 import { spawnAct, type ActTool } from './act.ts'
+import { overlay, sseEvent } from './overlay.ts'
 import { describeFailure } from './messages.ts'
 
 const JSON_HEADERS = { 'content-type': 'application/json' }
@@ -93,8 +94,19 @@ export async function reportRoute(request: Request, command: ReportCommand): Pro
  * fact is not observable, and this route adds no authenticator and claims none.
  */
 export function actRefusal(request: Request): Response | null {
+  return postRefusal(request, 'the act tier')
+}
+
+/**
+ * The same two rules for anything that changes state on the server, named for what it is.
+ *
+ * The overlay's `change` route is not a write to the corpus — nothing on this surface is,
+ * short of the act tier — but it is a `POST` that puts text into a process, and a `GET` or
+ * a cross-site page has no more business doing that than drafting a branch.
+ */
+export function postRefusal(request: Request, what: string): Response | null {
   if (request.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'the act tier is reached by POST' }), {
+    return new Response(JSON.stringify({ error: `${what} is reached by POST` }), {
       status: 405,
       headers: { ...JSON_HEADERS, allow: 'POST' },
     })
@@ -148,4 +160,83 @@ export async function actRoute(request: Request, tool: ActTool): Promise<Respons
     )
   }
   return json({ ok: false, tool, kind: result.kind, error: result.error }, 503)
+}
+
+/**
+ * `GET /api/overlay` — the verdict stream, as server-sent events.
+ *
+ * One subscription per open page, for as long as the connection lasts. The bridge sends a
+ * `status` first (carrying the client id the page will put on its changes) and a `verdict`
+ * per judged buffer after that; when the browser goes, Astro aborts the request's signal and
+ * the subscription closes with it, which is what lets the bridge stop a child nobody is
+ * listening to. Origin-checked like every read route: another site may not watch a corpus.
+ */
+export function overlayStream(request: Request): Response {
+  if (wrongOrigin(request)) {
+    return json({ error: 'cross-origin request refused' }, 403)
+  }
+  const bridge = overlay(session)
+  const encoder = new TextEncoder()
+  let close: (() => void) | null = null
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const sub = bridge.subscribe((event) => {
+        try {
+          controller.enqueue(encoder.encode(sseEvent(event)))
+        } catch {
+          // The stream is already closed; the abort below is what removes the subscriber.
+        }
+      })
+      close = () => {
+        sub.close()
+        try {
+          controller.close()
+        } catch {
+          // Closed twice is closed.
+        }
+      }
+      request.signal.addEventListener('abort', close, { once: true })
+    },
+    cancel() {
+      close?.()
+    },
+  })
+  return new Response(stream, {
+    headers: {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache',
+      connection: 'keep-alive',
+    },
+  })
+}
+
+/**
+ * `POST /api/overlay/change?client=&doc=` — one buffer's new text, judged.
+ *
+ * The body is the buffer, `text/plain`, read with `request.text()` and parsed by nobody on
+ * this side: `test/boundary.mjs` holds that this process parses JSON only where it reads the
+ * binary's own output, and a request body is the one thing that must never become such a
+ * place. The addressing rides the query string, as `dry_run` does on the act route. The
+ * answer is the bridge's — `400` for an id that is not a node, `409` for a client that did
+ * not subscribe, `503` when no server is there to judge — and the verdict itself arrives on
+ * the stream, not here.
+ */
+export async function overlayChange(request: Request): Promise<Response> {
+  const refusal = postRefusal(request, 'the overlay')
+  if (refusal !== null) return refusal
+  const params = new URL(request.url).searchParams
+  const client = params.get('client')
+  const doc = params.get('doc')
+  if (client === null || doc === null) {
+    return json({ ok: false, error: 'client and doc are required on the query string' }, 400)
+  }
+  const bridge = overlay(session)
+  // `close=1` is the page letting a buffer go — a renamed draft, a cleared form. The same
+  // route and the same method rule, because it is the same subject: which buffers this
+  // client holds.
+  const result = params.has('close')
+    ? bridge.release(client, doc)
+    : await bridge.change(client, doc, await request.text())
+  if (result.ok) return json({ ok: true, seq: result.seq })
+  return json({ ok: false, error: result.error }, result.status)
 }

@@ -28,6 +28,18 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `yidam serve --lsp` lints an unsaved buffer as a node
+
+**A buffer whose file does not exist yet is now checked (#607).** Before, no check saw it. Its
+findings were none, which is what a clean node's are. Now it is a node, if its path is one the
+corpus walker would accept.
+
+**Your editor may show new findings on a new file.** They are the findings `yidam lint` would
+report once you save. Nothing changes for a buffer whose file is on disk.
+
+**The server declares it.** The `initialize` result carries
+`experimental.yidam.unsavedInstances: true`. A client that needs this can check for it.
+
 ### `yidam lint` now derives a resolution's `independence:`
 
 **New Info finding, `resolution-independence-mismatch` (#823).** It reports a record whose
