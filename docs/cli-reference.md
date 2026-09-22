@@ -1,8 +1,10 @@
 # CLI reference
 
 Every command `yidam` carries, grouped as `yidam --help` groups them. This page is the map;
-`yidam <command> --help` is the detail. That help is generated from the same source as the
-behaviour, so it cannot disagree with the binary you have.
+`yidam <command> --help` is the detail. A gate holds the two *surfaces* equal: a command the
+binary offers and this page omits fails `cli_reference.rs`. So the roster below is the roster
+you have. It says nothing about the prose. A description here, or in a long help, is written
+by hand. It can fall behind the behaviour it describes, which is what #873 was.
 
 Two conventions run through the whole surface.
 
@@ -528,9 +530,13 @@ Both declarations are load-bearing. The step sees what `reads` resolves to and n
 cannot quietly depend on a file it did not name. A step that writes outside `writes` is refused,
 with nothing committed.
 
-A capability declaring an **epistemic** verb does not load at all. A run authors operational
-commits, and that rule is in the binary with no override path. A corpus that could write it into
-its own policy could license its runs to author `establish:` on its baseline.
+**The verb decides the destination.** An operational verb advances the current branch. An
+**epistemic** verb — `establish`, `revise`, `resolve` — loads and runs just the same. But its
+commit lands on `propose/<head>`, and the branch does not move. A person merges that branch to
+accept it, or deletes it to reject it. So a run may open a question and may not decide one.
+
+There is no route field and no policy key. A corpus that could write that permission for
+itself could license its own runs to author `establish:` on its baseline.
 
 It writes git objects and one ref. The working tree and the index are untouched, so it is safe to
 run mid-edit. It therefore leaves your checkout one commit behind. The report says so, and names
