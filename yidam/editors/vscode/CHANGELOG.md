@@ -7,6 +7,51 @@ The extension and the `yidam` CLI version independently (VERSIONING.md, Layer 4)
 they negotiate on is neither version but the report contract, `format_version` — so an
 entry that changes which contract this build understands says so explicitly.
 
+## 0.3.0
+
+Report contract: still **1**. Every field this build reads that 0.2.0 did not is optional,
+and a `yidam` that omits it renders as 0.2.0 did. Where a row needs a binary newer than the
+one a repository pins, the entry says which.
+
+- **An expired baseline entry is visible, and the status bar stops ticking over it.** The
+  Lint row in Health reads `N new · N inherited · N expired · N stale`, and each expired
+  entry is a child row — `<check> — out of time after N commit(s)` — that opens the node. A
+  gate failing only on an expired entry used to show a red row reading `0 new · 2 inherited`
+  with no children and nothing anywhere saying why. Those rows offer no Bless, and the Lint
+  row withholds its own while any entry is expired: `--bless` carries `since` forward rather
+  than restamping, so blessing cannot clear one. The repair is the node, or a longer
+  `expire_after` in `.yidam/lint-baseline.yml`. Needs `yidam` 0.3.0 or later.
+
+- **A finding that gates renders as an error.** `missing-property` on a property the class
+  declares `required: true` escalates to `error` in the CLI; the Problems panel was reading
+  the check's declared severity and filing it as a warning. It now reads the finding's own,
+  and falls back to the check's where a binary omits it.
+
+- **`yidam: New node` marks the properties the class requires.** A required property is
+  scaffolded `prop: ""   # <type>, required`; an optional one as before. Needs `yidam`
+  0.10.0 or later for the flag; against an older binary the scaffold is unchanged, because
+  an absent flag is not a statement that the property is optional.
+
+- **Refresh refreshes a report that is still running.** `yidam: Refresh` pressed mid-run
+  handed back the run it had just been told to drop, and cached that answer until the next
+  save or checkout. The `yidam.lint.showBaselined` toggle was swallowed the same way. Both
+  now take effect on the next result.
+
+- **An open edge is its own row in Open questions.** A link tagged `claim_tag: open` is
+  listed under the node that wrote it, with `relationship → target` beside the label where
+  a node's own question shows its path; the row opens the node, because that is the file
+  the edge is written in. Needs `yidam` 0.13.0 or later. Against that binary a corpus that
+  wrote the bracketed form on links — `claim_tag: "[open]"` — sees a node's claim counts
+  drop: the edge's tag stops being counted as the node's prose claim, and belongs to the
+  edge.
+
+- **`used-by: []` reads as drift, not silence.** A catalog entry declaring an empty
+  `used-by` while nodes cite it now shows a drift object naming the citers it omits, where
+  it showed `null` — the state an absent key still shows. Needs `yidam` 0.13.0 or later.
+
+- **A new icon**, the project's own mark rather than the second one the extension had been
+  shipping. Nothing else in the listing changes.
+
 ## 0.2.0
 
 - **A node's sources, under the node.** The Corpus view had no surface for the provenance
