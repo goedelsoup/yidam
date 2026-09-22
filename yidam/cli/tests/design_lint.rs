@@ -142,6 +142,39 @@ fn the_import_boundary_is_configured_to_match_the_imports_this_tree_has() {
     );
 }
 
+/// The plugin list is not trimmed to the rules that happen to name it.
+///
+/// `react` is in `plugins` and no rule in this config is a react rule — #881 removed the one
+/// that was, `react/forbid-elements`, which had sat at `"forbid": []` since the initial
+/// design-tool sync and so forbade no element on any file. The obvious tidy-up is to drop
+/// `react` from the list next to it. That would be a silent loss of 18 rules: a `plugins` key
+/// replaces oxlint's default list rather than adding to it, and the react plugin's own
+/// correctness rules are carrying the JSX in `yidam/design/components/` whether or not this
+/// config names one of them by hand. Measured on the pinned linter: 74 rules with `react`
+/// present, 56 without.
+///
+/// The same argument holds for `import`, which no rule here names either.
+#[test]
+fn the_plugin_list_is_not_trimmed_to_the_rules_that_name_it() {
+    let cfg = config();
+    let plugins: Vec<&str> = cfg["plugins"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{CONFIG} declares no `plugins` list"))
+        .iter()
+        .filter_map(|p| p.as_str())
+        .collect();
+    for required in ["react", "import"] {
+        assert!(
+            plugins.contains(&required),
+            "`{required}` is gone from the `plugins` list in {CONFIG}. A `plugins` key \
+             replaces oxlint's defaults rather than extending them, so dropping one removes \
+             every rule it contributes — 18 of them for `react` on the pinned version. If it \
+             was dropped because no rule here names it, that is exactly the reasoning the \
+             comment on this test exists to answer."
+        );
+    }
+}
+
 /// Every rule is an error.
 ///
 /// A lint that only warns in CI is a lint that is off — and the task passes
@@ -253,6 +286,18 @@ fn the_lint_is_proved_against_a_file_that_breaks_it() {
         "{script} no longer spikes the config with a rule that cannot exist. Without that \
          probe, nothing notices if `--print-config` stops telling an implemented rule from \
          an invented one — which is exactly how `--rules` rotted undetected (#877)."
+    );
+
+    // The strongest of the three, and the last to arrive: resolving is not enforcing. #881's
+    // `react/forbid-elements` resolved, was an error, and was configured to forbid nothing,
+    // so it passed every check this file had while catching nothing on any file. The script
+    // now requires each rule to report on the fixture by name.
+    assert!(
+        selftest.contains("did not fire"),
+        "{script} no longer requires every rule to FIRE on the fixture. Resolving only says \
+         the linter knows the name; a rule can resolve, be an error, and still enforce \
+         nothing — by an `overrides` block (#467) or by being configured against nothing at \
+         all (#881). Both defects lived in this config and both passed every weaker check."
     );
 
     let fixture_dir = repo_root().join("yidam/tests/design-lint-selftest");

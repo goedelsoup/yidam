@@ -108,4 +108,57 @@ An unknown rule key is accepted and ignored. Whatever those rules were for is no
 checked, and every other job touching the design system is green because of it."
 fi
 
-echo "the adherence lint reports on $fixture and names only rules oxlint resolves"
+# ── 3. every rule it names actually fires ────────────────────────────────────
+#
+# Resolving is not enforcing. A rule can be implemented, spelled correctly, and still catch
+# nothing — switched off by an `overrides` block, or configured against nothing at all. Both
+# have happened to this config: `no-restricted-imports` spent its life disabled everywhere by
+# an override meant to exempt one file (#467), and `react/forbid-elements` sat at
+# `"forbid": []` from the initial design-tool sync until #881, forbidding no element on any
+# file, forever. Every check above passed throughout, and so did the lint.
+#
+# So the fixture is held to its name: it breaks EVERY rule, and each one is required to say
+# so. This is the property `scripts/lint-selftest.sh` already requires of the shared config —
+# implemented *and* switched on — and the reason it could not be required here before is that
+# one of the two rules could not fire by construction.
+#
+# `-f json` rather than the default renderer: the diagnostic format is chosen automatically
+# when it is not stated, and #877 is what happens when a check parses whichever output the
+# linter felt like producing. Captured whole before it is parsed, because piping one oxlint
+# run straight into a matcher has been observed to lose the output here — and losing it fails
+# open, which is the one direction a self-test must never fail.
+report=$(oxlint --config "$config" "$fixture" -f json 2>/dev/null || true)
+
+# An unparseable report is its own failure, not an empty one. Left to fall through it would
+# read as "every rule was silent" and print a message naming rules that are working — which
+# is the whole of #877, reproduced in the check written to replace it.
+if ! fired=$(printf '%s' "$report" | node -e '
+  let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+    const diags = JSON.parse(s).diagnostics;
+    if (!Array.isArray(diags)) throw new TypeError("no diagnostics array in the report");
+    // `code` reads `eslint(no-restricted-imports)` — the plugin, then the rule it ran.
+    const names = diags.map((d) => (/\(([^)]+)\)/.exec(d.code ?? "") ?? [])[1]).filter(Boolean);
+    process.stdout.write([...new Set(names)].join("\n"));
+  });
+' 2>/dev/null); then
+  fail "oxlint's \`-f json\` report could not be read, so which rules fired is unknown.
+This is not the same as no rule firing, and it must not be reported as one. Run:
+  oxlint --config $config $fixture -f json
+If the shape of that output has changed, this check needs to learn the new shape — not to be
+deleted, and not to be believed when it says a working rule was silent."
+fi
+
+silent=$(comm -23 <(printf '%s\n' "$configured" | sort -u) <(printf '%s\n' "$fired" | sort -u) | tr '\n' ' ')
+silent=${silent% }
+
+if [ -n "$silent" ]; then
+  fail "these rules resolve but did not fire on $fixture: $silent
+The fixture is called breaks-every-rule because that is its job. A rule that reports nothing
+on it is enforcing nothing anywhere — implemented and spelled right and switched off, which
+is how \`no-restricted-imports\` spent its life (#467) and how \`react/forbid-elements\` spent
+its own (#881). Either the rule stopped applying, or the fixture stopped breaking it. Run:
+  oxlint --config $config $fixture
+Whichever it is, do not fix it by deleting the rule until you know which."
+fi
+
+echo "the adherence lint fires every rule it names on $fixture, and names only rules oxlint resolves"
