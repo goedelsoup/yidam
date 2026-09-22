@@ -69,7 +69,16 @@ The first two are implemented — a band that drops between two scored snapshots
 with the rationale the judge gave for it. Comparison is refused across bootstrap protocol
 versions
 (see [VERSIONING.md](../../VERSIONING.md), Layer 3) rather than reported as a change in the
-model.
+model. A comparison that *is* made says what it looked at, because "no regressions" reads the
+same whether every band agreed or the quality half was never in play.
+
+**The refusal is right, and it is also how this gate goes quiet.** After a protocol bump every
+fresh run stamps the new version, so every `diff` against a baseline recorded under the old
+one takes the refusal branch: the whole regression comparison is unavailable and nothing goes
+red, because a refusal reads like a considered answer. That is the state protocol 0.3.0 → 0.4.0
+left this in. `every_baseline_is_comparable_under_the_current_protocol` now fails while any
+committed baseline is behind `PROTOCOL_VERSION`, so the inertness has to be dealt with rather
+than noticed.
 
 ## The committed baseline
 
@@ -92,6 +101,29 @@ prelude echoed back through tool results.
 
 Re-recording is a judgement, not a refresh. A baseline updated without a stated reason is a
 baseline that follows the code rather than holding it to anything.
+
+### Carrying a baseline across a protocol bump
+
+Re-running the scenario is the thorough answer to a bump and costs a bootstrap plus a judge
+call. `harness rebaseline --result <dir> --reason <why>` is the answer for the case where the
+recorded verdicts are demonstrably already what the new protocol produces. It needs no model,
+and it refuses unless both hold:
+
+1. The checks recomputed under the new protocol return exactly the recorded verdicts. The
+   corpus never changes, so this says the S-half of the snapshot is already the new
+   protocol's.
+2. The recorded bands are the criteria `rubric.md` states now. Adding a Q criterion — which
+   0.2.0 → 0.3.0 did — leaves a snapshot one band short of the instrument, and comparing those
+   would report an absence as a result. Re-score with `harness judge` instead; it reads the
+   captured result and needs no bootstrap re-run.
+
+Neither is sufficient, which is why `--reason` is required rather than optional. Identical
+verdicts on *this* corpus do not prove the checks are the same function: a check that got
+**stricter** can agree on a baseline that passes under both and still turn a candidate's
+honest pass into a fail — a moved check reported as a regression, exactly what the refusal
+exists to prevent. A check that got **wider** cannot. Deciding which happened means reading a
+diff, and the argument is written into the snapshot as `revalidated.reason`, beside the
+verdicts it licensed, rather than into a commit message the next reader will not find.
 
 ## Cargo workspace
 

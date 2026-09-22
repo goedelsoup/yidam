@@ -1,5 +1,10 @@
 {
-  "protocol_version": "0.3.0",
+  "protocol_version": "0.4.0",
+  "revalidated": {
+    "from": "0.3.0",
+    "to": "0.4.0",
+    "reason": "0.3.0 → 0.4.0 changed S4 alone (7120cea), and changed it by widening: the verbs accepted after the root commit went from consume/vendor to that set plus establish, implement and regen. Nothing 0.3.0's S4 accepted does 0.4.0 reject, so a history that passed cannot start failing because the check moved — a pass→fail across this boundary is the model. The other six checks are byte-identical, and rubric.md's Q set is unchanged at Q1–Q8, which is what the recorded bands were scored against."
+  },
   "run": {
     "model_requested": "claude-sonnet-4-6",
     "model_resolved": "claude-sonnet-4-6",

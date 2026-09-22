@@ -123,18 +123,35 @@ The protocol version is a `const` in the harness crate:
 pub const PROTOCOL_VERSION: &str = "0.4.0";
 ```
 
-Every result snapshot records the protocol version it was taken under. Regression
-comparisons are only valid between snapshots taken at the same protocol version;
-the harness rejects cross-version diffs with an explicit error rather than silently
-producing misleading output.
+Every result snapshot records the protocol version its verdicts are valid for. Regression
+comparisons are only valid between snapshots at the same protocol version; the harness
+rejects cross-version diffs with an explicit error rather than silently producing misleading
+output. See *How a repo records it* below for what a bump therefore costs every existing
+baseline.
 
 **Tags:** `bootstrap/v{major}.{minor}.{patch}` (e.g. `bootstrap/v0.1.0`).
 
 **How a repo records it.** Not in `.yidam.toml` — that file has no `bootstrap` field, and
 this document described one for several releases that nothing wrote and nothing read. The
 protocol version travels with the artifact it qualifies: **every result snapshot records the
-`PROTOCOL_VERSION` it was taken under**, which is what lets the harness refuse a cross-version
-diff. Re-baselining after a bump is a harness run whose new snapshots carry the new version.
+`PROTOCOL_VERSION` its verdicts are valid for**, which is what lets the harness refuse a
+cross-version diff.
+
+**A bump leaves every existing baseline uncomparable, and that is a gate going inert rather
+than red.** After a bump, a fresh run stamps the new version and `harness diff` refuses
+against any baseline recorded under the old one — so the regression comparison the rubric's
+thresholds exist to make is simply unavailable, while nothing anywhere fails. Two ways back,
+and `every_baseline_is_comparable_under_the_current_protocol` fails until one of them is
+taken:
+
+- **Re-run** the scenario under the new protocol. Thorough, and costs a bootstrap plus a
+  judge call.
+- **Revalidate** with `harness rebaseline --result <dir> --reason <why>`, which needs no
+  model. It refuses unless the recorded verdicts are exactly what the new protocol's checks
+  produce for that corpus and the recorded bands are the criteria `rubric.md` states now.
+  Both are necessary and neither is sufficient — a check that got *stricter* can agree on a
+  baseline and still turn a candidate's honest pass into a fail — so the caller supplies the
+  argument that the verdicts carry, and it is stored in the snapshot as `revalidated.reason`.
 
 **Semver meaning for this layer:**
 
