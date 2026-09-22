@@ -29,8 +29,8 @@
 // The old tags carry that in their configs and cannot be fixed at their source; it is fixed
 // here, for every version at once.
 
-import { existsSync, mkdirSync, cpSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, sep } from 'node:path';
+import { mkdirSync, cpSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { ROOT, ROOT_SLOT } from '../src/versions.mjs';
 

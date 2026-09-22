@@ -1,0 +1,55 @@
+// The shared linter contract. Three packages extend this file and nothing else does.
+//
+// It exists because the decision had already been made once — `yidam/editors/vscode`
+// has linted since the eslint→oxlint swap — and the two Astro packages simply never
+// inherited it (#690). Writing the rules here rather than copying them into three
+// places is what stops the three from drifting into three different linters.
+//
+// `categories.correctness` is oxlint's default set, ~71 rules, stated explicitly and
+// raised to `error`. Warnings are not stated anywhere as acceptable: a lint that only
+// warns in CI is a lint that is off, which is the same reason `design-lint` passes
+// `--deny-warnings`.
+//
+// `plugins` names the default trio (typescript, unicorn, oxc) alongside the four this
+// repository actually needs, because a `plugins` key replaces the default list rather
+// than adding to it — leaving the first three out would quietly shrink the linter.
+//
+// `react-hooks` earns its place on one file: `yidam/editors/web/src/islands/NodeTable.jsx`
+// is the only JSX here, and `rules-of-hooks` is NOT enabled by `--react-plugin` or by the
+// `correctness` category. It has to be named, or the one surface it covers is uncovered.
+//
+// `ignoreRestSiblings` exempts one idiom and no more: `const { drop: _x, ...rest } = o`
+// is how a key gets omitted, and the binding it names is unused by construction. The
+// broader `varsIgnorePattern: "^_"` would have covered it too, and was not taken — a
+// genuinely dead variable is still dead when someone prefixes it with an underscore.
+//
+// `no-console` is an error here and switched off per-package for the directories whose
+// output *is* the result — CLI entry points, build scripts, test runners. That exception
+// is made in each package's own file, so the list of programs allowed to print stays
+// beside the programs.
+{
+  "plugins": [
+    "typescript",
+    "unicorn",
+    "oxc",
+    "import",
+    "promise",
+    "node",
+    "react",
+    "react-hooks"
+  ],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "typescript/no-unused-vars": [
+      "error",
+      { "argsIgnorePattern": "^_", "ignoreRestSiblings": true }
+    ],
+    "eslint/no-console": "error",
+    "eslint/eqeqeq": "error",
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "error"
+  },
+  "ignorePatterns": ["**/node_modules/**", "**/dist/**", "**/out/**", "**/.astro/**"]
+}

@@ -218,7 +218,9 @@ console.log('and against the tags this repository actually has…');
       .split('\n')
       .map((t) => t.trim())
       .filter(Boolean);
-  } catch (e) {
+  } catch {
+    // No tags reachable — a shallow clone or a fresh repository. The check below
+    // reports that as a failure of its own; swallowing the error here is not hiding it.
     real = [];
   }
   check(

@@ -215,6 +215,11 @@ jobs:
       # disagree — and the workflow step was what kept #646 invisible, since CI was the
       # only place the packages were ever populated before a task ran.
       - run: mise run ci-editor-web
+      # The lint gate's own gate (#690). Here rather than in a job of its own because it is
+      # a second or two and this job is the one whose green the new lint produces — and it
+      # spans all three linted packages, since what it grades is the shared root config they
+      # share rather than anything specific to this one.
+      - run: mise run lint-selftest
       # No `manifest`, for the reason the extension gives one job up: node's JUnit reporter
       # writes no `<system-out>`, so a runtime skip would be invisible to the census however
       # it were counted. This package has no environment-gated suite, and every test in it is

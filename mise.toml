@@ -736,15 +736,51 @@ run = [
 # First real run: 12 errors. Nine were `@types/node` missing, so `node:fs` and `process.cwd`
 # were unresolved — a tooling gap, not code. The other three were a genuine type defect in
 # `cli.ts`'s `ReportResult` failure arm.
+# ── linting (#690) ───────────────────────────────────────────────────────────
+#
+# `lint` after `check` and before `build`, because the two catch different things and the
+# cheaper one should not wait on a bundle. `tsc` cannot see an unused import in `.astro`
+# frontmatter, a floating promise in `bin/`, or a conditionally-called hook in
+# `src/islands/NodeTable.jsx` — the one JSX file here, which until now was checked by
+# nothing at all.
+#
+# Rules come from the repository-root `.oxlintrc.json`, which this package extends along
+# with the extension and the docs site. The extension had linted since the eslint→oxlint
+# swap and these two never inherited it; the root file is that one decision written down
+# once rather than three times.
+#
+# First real run: one finding here (a rest-omit binding, exempted by `ignoreRestSiblings`
+# rather than silenced) and seven on the docs site, five of them dead imports in the
+# assembler. `--deny-warnings` is in the npm script for the reason `design-lint` passes it:
+# a lint that only warns in CI is a lint that is off.
+
 [tasks.ci-editor-web]
-description = "CI for the web editor surface: type-check, build, RFC-0016 boundary gates, and unit tests."
+description = "CI for the web editor surface: type-check, lint, build, RFC-0016 boundary gates, and unit tests."
 dir = "yidam/editors/web"
 run = [
   "\"$MISE_PROJECT_ROOT/scripts/npm-ensure.sh\" .",
   "npm run check",
+  "npm run lint",
   "npm run build",
   "npm run test",
 ]
+
+# The lint gate's own gate (#690), after `design-lint-selftest.sh` and for its reason: a
+# linter that reports nothing is indistinguishable from a codebase with nothing wrong with
+# it, and the adherence config sat in exactly that state from the day it was written.
+#
+# Two silences here. A rule the shared config names but oxlint does not implement is accepted
+# at load and ignored at run. A file type the walker never reaches is never read. This proves
+# every rule fires on a fixture that breaks it, and that a planted `debugger` is reported in
+# every extension each package actually contains — discovered from the tree rather than
+# listed, because a hardcoded list stops covering a new extension without ever going red.
+#
+# `npm:oxlint` so the task runs without any package installed. Where a package *is* installed
+# the script prefers its own binary, so what gets graded is the one `npm run lint` will use.
+[tasks.lint-selftest]
+description = "Prove the shared lint contract fires on every rule it names and reads every file type it covers."
+tools = { "npm:oxlint" = "1.85.0" }
+run = "bash scripts/lint-selftest.sh"
 
 # The packaging gate. Not in `ci-vscode`: it needs `out/` built and it runs vsce, which
 # is a minute this repository's PR loop should not spend on every editor change. The
@@ -984,6 +1020,26 @@ run = "npm run --prefix yidam/web/docs test"
 description = "Type-check the docs site against the strict config it declares."
 depends = ["docs-install"]
 run = "npm run --prefix yidam/web/docs check"
+
+# The linter, wired the same way and for the same reason (#690). `astro build` bundles
+# without linting and `test` runs node scripts, so nothing here read a line of this package
+# for anything but types until now.
+#
+# `scripts/` and `test/` are deliberately IN scope. They are the prose and anchor checkers
+# — gates themselves — and a bug in a checker is worse than a bug in what it checks. The
+# only concession is `no-console`, switched off for those two directories in the package's
+# own `.oxlintrc.json`, because their output is the verdict.
+#
+# First run: seven findings, five of them imports in `scripts/assemble.mjs` that nothing
+# used. Three of those five also appear in the file's prose, which is why a grep would have
+# called them live — the linter reads the code and the comments separately.
+#
+# Beside `docs-check` rather than inside `docs-build`, for the reason that one is separate:
+# docs.yml builds once per released version, and grading *this* tree is a thing to do once.
+[tasks.docs-lint]
+description = "Lint the docs site: its pages, its build scripts, and the checkers that gate it."
+depends = ["docs-install"]
+run = "npm run --prefix yidam/web/docs lint"
 
 [tasks.docs-build]
 description = "Build the docs site to yidam/web/docs/dist/."

@@ -1,0 +1,16 @@
+// The web editor surface (RFC-0030, #606). Rules come from the repository's shared
+// contract; this file carries only what is true of this package and not of the others.
+//
+// `no-console` off in `bin/` and `test/`, and only there. `bin/yidam-edit.mjs` is a CLI
+// whose output is the result — a launcher that cannot say which port it bound has not
+// launched anything — and node's test runner reports through stdout. `src/` keeps the
+// rule: nothing rendered into the browser should be printing to a console.
+{
+  "extends": ["../../../.oxlintrc.json"],
+  "overrides": [
+    {
+      "files": ["bin/**/*.mjs", "test/**/*.mjs"],
+      "rules": { "eslint/no-console": "off" }
+    }
+  ]
+}
