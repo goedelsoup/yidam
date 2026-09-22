@@ -405,6 +405,16 @@ impl Server {
                 "referencesProvider": true,
                 "hoverProvider": true,
                 "renameProvider": {"prepareProvider": true},
+                // What this server does beyond the standard, declared where the standard
+                // says to declare it, so a client can read it rather than guess from a
+                // version number.
+                //
+                // `unsavedInstances`: a buffer for a file not yet on disk is linted as a
+                // node (`Overlay::unsaved_instances`, #607). Before it, an unsaved buffer got
+                // no diagnostics at all — indistinguishable, from the client's side, from a
+                // clean one. The web editor's node form is a buffer that is never saved, so
+                // it reads this before promising a verdict, and says so when it is absent.
+                "experimental": {"yidam": {"unsavedInstances": true}},
             },
             "serverInfo": {"name": "yidam", "version": env!("CARGO_PKG_VERSION")},
         })
@@ -824,6 +834,69 @@ mod tests {
         assert_eq!(caps["renameProvider"]["prepareProvider"], true);
         // Full sync, because that is what the didChange arm implements.
         assert_eq!(caps["textDocumentSync"]["change"], 1);
+        // The unsaved-buffer promise, declared — the test below is what makes it true.
+        assert_eq!(caps["experimental"]["yidam"]["unsavedInstances"], true);
+    }
+
+    /// A buffer that is not a file yet gets a verdict — the capability above, exercised
+    /// over the wire. The web editor's node form is exactly this: a node authored in a
+    /// buffer that nothing writes, judged before it exists.
+    #[test]
+    fn a_node_that_exists_only_as_a_buffer_is_reported() {
+        let (_t, root) = fixture();
+        assert!(!root.join(".yidam/corpus/concept/new.yml").exists());
+        let broken = "class: concept\nlabel: New\ndescription: Not saved.\nlinks:\n  - target: ../concept/gone.yml\n    relationship: relates-to\n";
+        let out = exchange(&root, vec![open(&root, "concept/new.yml", broken)]);
+        let mine = out
+            .iter()
+            .filter(|m| m["method"] == "textDocument/publishDiagnostics")
+            .find(|m| m["params"]["uri"] == uri(&root, "concept/new.yml"))
+            .expect("diagnostics for a buffer with no file behind it");
+        let diagnostics = mine["params"]["diagnostics"].as_array().unwrap();
+        assert!(
+            diagnostics.iter().any(|d| d["code"] == "dangling-edge"),
+            "{diagnostics:#?}"
+        );
+        assert!(!root.join(".yidam/corpus/concept/new.yml").exists());
+    }
+
+    /// A request sent after a change is answered after that change's diagnostics.
+    ///
+    /// The server is one loop reading one message at a time, and `publish` flushes before
+    /// `handle` returns — so whatever follows a `didChange` on the wire is answered only once
+    /// every `publishDiagnostics` that change produced has been written. The web editor's
+    /// bridge (#607) leans on that: a `publishDiagnostics` for a clean buffer that had no
+    /// findings before is never sent, so "no diagnostics yet" and "clean" look identical
+    /// until something after the change is answered. It sends a request it knows this server
+    /// will answer — the `id.is_some()` arm replies `null` to any method it does not know —
+    /// and treats the reply as the barrier. This pins the ordering that makes that sound.
+    #[test]
+    fn a_request_after_a_change_is_answered_after_its_diagnostics() {
+        let (_t, root) = fixture();
+        let broken = "class: concept\nlabel: A\ndescription: d\nlinks:\n  - target: ../concept/gone.yml\n    relationship: r\n";
+        let out = exchange(
+            &root,
+            vec![
+                open(&root, "concept/a.yml", broken),
+                json!({"jsonrpc": "2.0", "id": 7, "method": "$/yidam/barrier", "params": {}}),
+            ],
+        );
+        let barrier = out
+            .iter()
+            .position(|m| m["id"] == 7)
+            .expect("an unknown request with an id is answered");
+        assert_eq!(out[barrier]["result"], Value::Null);
+        let published = out
+            .iter()
+            .position(|m| {
+                m["method"] == "textDocument/publishDiagnostics"
+                    && m["params"]["uri"] == uri(&root, "concept/a.yml")
+            })
+            .expect("diagnostics for the open file");
+        assert!(
+            published < barrier,
+            "diagnostics at {published} arrived after the barrier at {barrier}"
+        );
     }
 
     /// The point of the overlay: findings about the buffer, not about the file.
