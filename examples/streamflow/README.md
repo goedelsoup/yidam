@@ -73,8 +73,10 @@ published figures it excluded and the rule it excluded them under. It is a weak 
 and the only auditable trace of selection that exists.
 
 **A goal set that says what this corpus cannot show.**
-[`bench/goals.yml`](.yidam/bench/goals.yml) is the fixed input to `yidam bench`: seven
-questions with their complete expected answers, committed before either arm was ever run.
+[`bench/goals.yml`](.yidam/bench/goals.yml) is the fixed input to `yidam bench`: eight
+questions with their complete expected answers, seven of them committed before either arm
+was ever run and the eighth carrying `added_after:`, which says which change it was written
+for and makes `bench` mark it rather than print it in the same column as the rest.
 Two of the seven are there to lose. One asks something retrieval cannot express, one asks
 something the ontology has no vocabulary for, and the file names both rather than reporting
 five wins. It also states, in its own header, that a run over eight nodes is a regression

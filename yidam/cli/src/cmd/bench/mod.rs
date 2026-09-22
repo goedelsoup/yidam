@@ -95,6 +95,20 @@ pub struct Goal {
     pub expect: Vec<String>,
     #[serde(default)]
     pub why: String,
+    /// Where this goal came from, when it was not pre-registered — the change that made it
+    /// answerable, as `#717`.
+    ///
+    /// The goal set's first integrity rule is that the goals are fixed before any result is
+    /// visible, because a goal set chosen after seeing the results measures the chooser. A
+    /// goal written afterwards is not thereby worthless — it is a real measurement,
+    /// differently sourced — but a reader of the *report* has to be able to discount it, and
+    /// before this field the distinction lived in a YAML comment that `bench` could not see.
+    ///
+    /// Absent means pre-registered, which is every goal written before the field existed. The
+    /// reason absence cannot mean *added later* is the one `required:` and `prose:` record: a
+    /// corpus written before the field could not have said.
+    #[serde(default)]
+    pub added_after: Option<String>,
 }
 
 impl Goal {
@@ -161,6 +175,18 @@ pub fn parse_goals(text: &str) -> Result<GoalSet> {
             bail!(
                 "goal `{}` has no flat query and no `flat_omitted_because` — an arm omitted \
                  without a stated reason reads as an arm that lost",
+                goal.id
+            );
+        }
+        if goal
+            .added_after
+            .as_deref()
+            .is_some_and(|s| s.trim().is_empty())
+        {
+            bail!(
+                "goal `{}` declares `added_after` with nothing in it — the field exists to \
+                 name what the goal was written for, and an empty one marks the goal \
+                 post-hoc while withholding the only fact that lets a reader weigh it",
                 goal.id
             );
         }
@@ -364,6 +390,9 @@ pub struct GoalReport {
     pub why: String,
     pub expect: Vec<String>,
     pub counts_toward_ratio: bool,
+    /// The goal set's own admission that this goal was not pre-registered, carried through
+    /// for the same reason `why` is: the report must not be able to disagree with the file.
+    pub added_after: Option<String>,
     pub flat: ArmReport,
     pub full_scan: ArmReport,
     pub anchored: ArmReport,
@@ -374,6 +403,10 @@ pub struct Summary {
     /// Goals both arms could express, and which therefore carry the comparison.
     pub compared: usize,
     pub reported_only: usize,
+    /// Goals carrying `added_after`. Counted rather than excluded: a post-hoc goal is
+    /// comparable, unlike an unanchorable one, so dropping it from the mean would hide a
+    /// real measurement. What it needs is to be visible, not gone.
+    pub added_after: usize,
     pub flat_mean_precision: Option<f64>,
     pub flat_mean_recall: Option<f64>,
     pub full_scan_mean_precision: Option<f64>,
@@ -584,6 +617,7 @@ fn summarize(goals: &[GoalReport]) -> Summary {
     Summary {
         compared: compared.len(),
         reported_only: goals.len() - compared.len(),
+        added_after: goals.iter().filter(|g| g.added_after.is_some()).count(),
         flat_mean_precision: mean(&collect(|g| &g.flat, |a| a.precision)),
         flat_mean_recall: mean(&collect(|g| &g.flat, |a| a.recall)),
         full_scan_mean_precision: mean(&collect(|g| &g.full_scan, |a| a.precision)),
@@ -650,6 +684,7 @@ pub fn run(root: &std::path::Path, budget: usize) -> Result<BenchReport> {
                 hops: goal.hops,
                 why: goal.why.clone(),
                 counts_toward_ratio: goal.counts_toward_ratio(),
+                added_after: goal.added_after.clone(),
                 expect,
                 flat,
                 full_scan,
@@ -734,11 +769,18 @@ pub fn render(report: &BenchReport) -> String {
     for goal in &report.goals {
         let _ = writeln!(
             out,
-            "  {}{}",
+            "  {}{}{}",
             goal.id,
             match goal.counts_toward_ratio {
                 true => String::new(),
                 false => "  (reported, not compared)".to_string(),
+            },
+            // Marked rather than dropped. A post-hoc goal is not incomparable the way an
+            // unanchorable one is — it is comparable and differently sourced — so its
+            // numbers stay in the mean and the row says where it came from.
+            match &goal.added_after {
+                Some(source) => format!("  (added after {})", one_line(source)),
+                None => String::new(),
             }
         );
         out.push_str(&render_arm(&goal.flat));
@@ -747,9 +789,16 @@ pub fn render(report: &BenchReport) -> String {
     }
     let s = &report.summary;
     let _ = write!(out,
-        "\n{} goal(s) compared, {} reported only\n  flat       mean precision {}  mean recall {}\n  full-scan  mean precision {}  mean recall {}\n  anchored   mean precision {}  mean recall {}\n",
+        "\n{} goal(s) compared, {} reported only{}\n  flat       mean precision {}  mean recall {}\n  full-scan  mean precision {}  mean recall {}\n  anchored   mean precision {}  mean recall {}\n",
         s.compared,
         s.reported_only,
+        // Absent from the line when no goal carries it, so a pre-registered goal set reads
+        // exactly as it did before the field existed — the shape every committed goal set
+        // written before it has.
+        match s.added_after {
+            0 => String::new(),
+            n => format!(", {n} added after the fact"),
+        },
         pct(s.flat_mean_precision),
         pct(s.flat_mean_recall),
         pct(s.full_scan_mean_precision),
@@ -849,6 +898,40 @@ goals:
         );
         let set = parse_goals(&text).unwrap();
         assert!(!set.goals[0].counts_toward_ratio());
+    }
+
+    /// Every goal committed before the field existed, and every goal written under rule 1
+    /// after it, says nothing — so absence has to mean pre-registered and cost nothing.
+    #[test]
+    fn a_goal_that_says_nothing_about_its_provenance_is_pre_registered() {
+        let set = parse_goals(MINIMAL).unwrap();
+        assert_eq!(set.goals[0].added_after, None);
+    }
+
+    /// A post-hoc goal is comparable — it is differently *sourced*, not differently
+    /// expressible — so marking it must not take it out of the mean the way `flat: null`
+    /// does.
+    #[test]
+    fn a_goal_added_after_the_fact_still_counts_toward_the_ratio() {
+        let text = MINIMAL.replace(
+            "    flat: which gage\n",
+            "    flat: which gage\n    added_after: '#717'\n",
+        );
+        let set = parse_goals(&text).unwrap();
+        assert_eq!(set.goals[0].added_after.as_deref(), Some("#717"));
+        assert!(set.goals[0].counts_toward_ratio());
+    }
+
+    /// The same rule the omitted arms are held to: the mark without the source names a goal
+    /// as post-hoc and withholds the one fact that would let a reader weigh it.
+    #[test]
+    fn a_goal_marked_post_hoc_must_say_what_it_was_added_for() {
+        let text = MINIMAL.replace(
+            "    flat: which gage\n",
+            "    flat: which gage\n    added_after: ''\n",
+        );
+        let err = parse_goals(&text).unwrap_err().to_string();
+        assert!(err.contains("`added_after` with nothing in it"), "{err}");
     }
 
     // ── identity ──────────────────────────────────────────────────────────────
@@ -1018,6 +1101,7 @@ goals:
             why: String::new(),
             expect: vec!["a/one.yml".to_string()],
             counts_toward_ratio: counts,
+            added_after: None,
             flat: ArmReport {
                 arm: "flat",
                 ran: flat_precision.is_some(),
@@ -1067,44 +1151,86 @@ goals:
         );
     }
 
-    #[test]
-    fn the_text_report_states_the_standing_and_the_ceiling() {
-        let report = BenchReport {
+    /// The shape every render test needs, summarized from the goals rather than asserted
+    /// alongside them, so a test cannot claim a count the goals do not support.
+    fn bench_report(goals: Vec<GoalReport>) -> BenchReport {
+        let shape = CorpusShape {
+            nodes: 8,
+            classes: 3,
+            smallest_class: "gage".to_string(),
+            smallest_class_size: 2,
+            narrowing_ceiling: 4.0,
+            ceiling_reaches_claim: false,
+        };
+        BenchReport {
             goal_set: "test".to_string(),
             standing: "regression-guard",
-            standing_reason: standing_reason(&CorpusShape {
-                nodes: 8,
-                classes: 3,
-                smallest_class: "gage".to_string(),
-                smallest_class_size: 2,
-                narrowing_ceiling: 4.0,
-                ceiling_reaches_claim: false,
-            }),
+            standing_reason: standing_reason(&shape),
             budget: 5,
-            corpus: CorpusShape {
-                nodes: 8,
-                classes: 3,
-                smallest_class: "gage".to_string(),
-                smallest_class_size: 2,
-                narrowing_ceiling: 4.0,
-                ceiling_reaches_claim: false,
-            },
-            goals: vec![goal_report("one", true, Some(1.0))],
-            summary: Summary {
-                compared: 1,
-                reported_only: 0,
-                flat_mean_precision: Some(1.0),
-                flat_mean_recall: Some(1.0),
-                full_scan_mean_precision: Some(1.0),
-                full_scan_mean_recall: Some(1.0),
-                anchored_mean_precision: None,
-                anchored_mean_recall: None,
-            },
-        };
+            summary: summarize(&goals),
+            corpus: shape,
+            goals,
+        }
+    }
+
+    #[test]
+    fn the_text_report_states_the_standing_and_the_ceiling() {
+        let report = bench_report(vec![goal_report("one", true, Some(1.0))]);
         let text = render(&report);
         assert!(text.contains("ceiling 4.0x"), "{text}");
         assert!(text.contains("regression guard"), "{text}");
         assert!(text.contains("budget k=5"), "{text}");
         assert!(text.contains("not run"), "{text}");
+    }
+
+    // ── provenance ────────────────────────────────────────────────────────────
+
+    /// The field costs a pre-registered goal set nothing. Every goal set committed before it
+    /// existed carries no `added_after:`, and its report has to read exactly as it did —
+    /// otherwise the field taxes the honest case to label the dishonest one.
+    #[test]
+    fn a_pre_registered_goal_set_renders_as_it_did_before_the_field_existed() {
+        let text = render(&bench_report(vec![
+            goal_report("one", true, Some(1.0)),
+            goal_report("two", false, Some(0.0)),
+        ]));
+        assert!(!text.contains("added after"), "{text}");
+        assert!(
+            text.contains("\n1 goal(s) compared, 1 reported only\n"),
+            "{text}"
+        );
+    }
+
+    /// The gap #854 names: the goal set said in a comment that one goal was written after
+    /// the results, and the report printed it in the same column as the six that were not.
+    /// A reader of the output could not tell them apart; only a reader of the file could.
+    #[test]
+    fn a_goal_added_after_the_fact_is_marked_in_the_table_and_counted_in_the_summary() {
+        let mut post_hoc = goal_report("two", true, Some(1.0));
+        post_hoc.added_after = Some("#717".to_string());
+        let report = bench_report(vec![goal_report("one", true, Some(1.0)), post_hoc]);
+        assert_eq!(report.summary.added_after, 1);
+
+        let text = render(&report);
+        assert!(text.contains("two  (added after #717)"), "{text}");
+        // The row that was pre-registered stays unmarked, or the mark distinguishes nothing.
+        assert!(text.contains("\n  one\n"), "{text}");
+        assert!(
+            text.contains("\n2 goal(s) compared, 0 reported only, 1 added after the fact\n"),
+            "{text}"
+        );
+    }
+
+    /// Provenance and comparability are two facts, and a goal can carry both. The marks are
+    /// printed side by side rather than one shadowing the other.
+    #[test]
+    fn a_goal_can_be_both_reported_only_and_added_after_the_fact() {
+        let mut goal = goal_report("both", false, Some(0.0));
+        goal.added_after = Some("#717".to_string());
+        let text = render(&bench_report(vec![goal]));
+        assert!(
+            text.contains("both  (reported, not compared)  (added after #717)"),
+            "{text}"
+        );
     }
 }

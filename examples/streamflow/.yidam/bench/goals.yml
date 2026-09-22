@@ -9,7 +9,10 @@
 # 1. **The goals are fixed before any result is visible.** This file is committed on its
 #    own, ahead of the harness and both arms. Neither arm has been run against it — the
 #    executor (#261) does not exist yet and the flat arm needs an index this build has
-#    not made. A goal set chosen after seeing the results measures the chooser.
+#    not made. A goal set chosen after seeing the results measures the chooser. A goal
+#    that cannot meet this — one written for a change that made it answerable — says so
+#    in `added_after:`, which `bench` marks in the row and counts in the summary, so the
+#    report cannot present it as pre-registered. Absent means pre-registered.
 #
 # 2. **`expect` is exhaustive, not a floor.** It is the complete set of nodes a correct
 #    answer contains, so recall is computable and an arm cannot score well by returning
@@ -169,12 +172,16 @@ goals:
   # after seeing results measures the chooser, so the honest thing is not to omit it —
   # the property-shaped query was outside this goal set by construction, which is exactly
   # why nothing here could see the miss — but to say when it arrived and let a reader
-  # discount it. Anything added later gets the same treatment, below this line.
+  # discount it. Anything added later carries `added_after:` and gets the same treatment.
   #
-  # This section is a comment and not a field on the goal, which means `bench` cannot
-  # report the distinction and a reader has to open the file to find it. That is a gap
-  # and it is filed as #854, not forgotten.
+  # `added_after` is the field (#854) and this comment is the argument. The field is what
+  # `bench` reads: it marks the row and states the count in the summary, so the report and
+  # this file cannot disagree about which goals were pre-registered. It does not remove the
+  # goal from the mean — a post-hoc goal is comparable, unlike one carrying `flat: null`,
+  # and dropping it would hide a real measurement rather than qualify it. Position in the
+  # file is not the marker, so reordering these goals costs nothing.
   - id: the-units-discharge-is-published-in
+    added_after: '#717'
     question: Which stations publish discharge in cubic feet per second?
     kind: traversal
     hops: 0
