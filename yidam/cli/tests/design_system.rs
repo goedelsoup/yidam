@@ -153,9 +153,8 @@ fn every_component_declares_its_props_and_says_what_it_is_for() {
 ///
 /// This was 40 selectors in `_adherence.oxlintrc.json`, each transcribing a component's
 /// `.d.ts` into an esquery regex, and every one of them was inert: oxlint does not implement
-/// `no-restricted-syntax` — the rule is absent from `oxlint --rules` — and an unknown rule
-/// key is accepted at load and ignored at run. Forty transcriptions of a file that was right
-/// there, enforcing nothing.
+/// `no-restricted-syntax`, and an unknown rule key is accepted at load and ignored at run.
+/// Forty transcriptions of a file that was right there, enforcing nothing.
 ///
 /// So this reads the `.d.ts` instead. Both sides are derived: the declared props from the
 /// type file, the passed props from every JSX and Astro usage in the repository. A component
