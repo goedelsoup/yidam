@@ -37,7 +37,9 @@
 //! new way to assert the refusal will slip through; the sentence this exists for is the one
 //! that was actually written, three times, and
 //! [`the_predicate_catches_the_claim_and_spares_the_history`] keeps all three in the
-//! population.
+//! population. That self-test is also why [`DEFINITION_SITE`] is the one path the scan skips:
+//! this file quotes the claim in order to match it, and a scan that read its own definition
+//! could never pass.
 
 mod common;
 
@@ -137,11 +139,25 @@ fn the_binary_loads_an_epistemic_verb_and_routes_it_to_a_proposal() {
 
 // ── the documents ─────────────────────────────────────────────────────────────
 
+/// This file, which is the one place the claim appears as a quotation rather than an assertion.
+///
+/// `REFUSALS` *is* the sentence, spelled out; the module doc quotes it to say what the scan is
+/// for; and [`the_predicate_catches_the_claim_and_spares_the_history`] holds all three reported
+/// wordings on purpose, so that the predicate cannot go quiet. A scan that read its own
+/// definition would report every one of them and could never pass.
+const DEFINITION_SITE: &str = "yidam/cli/tests/run_route_claims.rs";
+
 /// Every authored document that could carry the claim, plus the help text that ships.
 ///
 /// Discovered rather than listed, for the reason `cli_reference.rs` gives: a roster of three
 /// paths would stop covering a fourth site without ever going red, and a fourth site is exactly
 /// what this defect was.
+///
+/// Reading `git ls-files` rather than walking the tree has a trap worth naming, because this
+/// file fell into it: an uncommitted file is not listed, so the scan passed locally while the
+/// gate was untracked and failed the moment it was committed. The `docs.len()` floor below is
+/// what catches the general form of that — a listing that returns nothing reads exactly like a
+/// repository with nothing to say.
 fn authored_prose() -> Vec<(String, String)> {
     let root = repo_root();
     let out = Command::new("git")
@@ -152,6 +168,7 @@ fn authored_prose() -> Vec<(String, String)> {
     let mut docs: Vec<(String, String)> = String::from_utf8_lossy(&out.stdout)
         .lines()
         .filter(|p| !p.starts_with("yidam/tests/results/"))
+        .filter(|p| *p != DEFINITION_SITE)
         .filter_map(|p| {
             let text = std::fs::read_to_string(root.join(p)).ok()?;
             Some((p.to_string(), text))

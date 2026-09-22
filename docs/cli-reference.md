@@ -1,10 +1,10 @@
 # CLI reference
 
 Every command `yidam` carries, grouped as `yidam --help` groups them. This page is the map;
-`yidam <command> --help` is the detail. A gate holds the two *surfaces* equal — a command the
-binary offers and this page omits fails `cli_reference.rs` — so the roster below is the roster
-you have. It says nothing about the prose: a description here or in a long help is written by
-hand and can fall behind the behaviour it describes, which is what #873 was.
+`yidam <command> --help` is the detail. A gate holds the two *surfaces* equal: a command the
+binary offers and this page omits fails `cli_reference.rs`. So the roster below is the roster
+you have. It says nothing about the prose. A description here, or in a long help, is written
+by hand. It can fall behind the behaviour it describes, which is what #873 was.
 
 Two conventions run through the whole surface.
 
@@ -531,11 +531,12 @@ cannot quietly depend on a file it did not name. A step that writes outside `wri
 with nothing committed.
 
 **The verb decides the destination.** An operational verb advances the current branch. An
-**epistemic** verb — `establish`, `revise`, `resolve` — loads and runs just the same, but its
-commit lands on `propose/<head>` and the branch does not move; a person merges that branch to
-accept it or deletes it to reject it. So a run may open a question and may not decide one. There
-is no route field and no policy key, because a corpus that could write that permission into its
-own policy could license its runs to author `establish:` on its baseline.
+**epistemic** verb — `establish`, `revise`, `resolve` — loads and runs just the same. But its
+commit lands on `propose/<head>`, and the branch does not move. A person merges that branch to
+accept it, or deletes it to reject it. So a run may open a question and may not decide one.
+
+There is no route field and no policy key. A corpus that could write that permission for
+itself could license its own runs to author `establish:` on its baseline.
 
 It writes git objects and one ref. The working tree and the index are untouched, so it is safe to
 run mid-edit. It therefore leaves your checkout one commit behind. The report says so, and names
