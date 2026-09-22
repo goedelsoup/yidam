@@ -255,6 +255,12 @@ pub fn list_keys(session: &Session, idx: &RemoteIndex) -> Result<Vec<String>, Fa
         // A page holds at most `MAX_LIST_PAGE`; an index at AWS's 2-billion ceiling would be
         // two million round trips. Nothing stops that here — listing an index is proportional
         // to the index — but the constant is named so the cost is visible at the call site.
+        //
+        // Measured rather than feared (RFC-0033 §8.4, #836): every derived corpus in one
+        // index is four round trips, and `ListVectors` has no prefix parameter, so a push
+        // cannot list only its own keys. The lever, when an index needs one, is
+        // `segmentCount`/`segmentIndex` — up to sixteen workers over disjoint segments —
+        // which divides the wall clock and not the round trips.
         let _ = MAX_LIST_PAGE;
     }
     Ok(keys)
