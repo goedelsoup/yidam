@@ -321,6 +321,74 @@ impl EmbedConfig {
     }
 }
 
+/// Why two contracts are not the same vector space, or `None` when they are.
+///
+/// **Document against document, with no embedder in the room.** [`verify`] answers the other
+/// form of this question — *is this consumer in the index's space* — and needs a vector a
+/// consumer produced. This one is asked by `yidam index-push`, which loads no model and has
+/// no vector to offer: what it holds is the contract its own index carries and the contract
+/// the remote index already carries, and comparing those is enough to catch the case that
+/// matters.
+///
+/// **The case that matters is one vector index holding two spaces.** A vector index's
+/// dimension is fixed at creation, so two corpora with *different* dimensions cannot share one
+/// — that is refused by the service and by `response::disagreement` before it. Two corpora
+/// with the same dimension and different models can, and eleven of the thirty models
+/// `fastembed` offers produce a dimension some other model also produces (RFC-0033 §8.1). The
+/// index carries exactly one witness, so the second push would overwrite the first's contract
+/// and a query spanning both would rank one corpus's rows against the other's space — with
+/// scores in the range a correct ranking has. It is #536's failure, arriving from inside an
+/// index rather than from a binary upgrade.
+///
+/// The fields compared are the ones that decide what a vector *is*: the model, the weights
+/// file, the pooling, the normalization and the dimension. `fastembed_model_enum` is not among
+/// them — it names the Rust reference implementation's variant, so a consumer in another
+/// language would differ on it while embedding identically — and neither is `format_version`,
+/// which is the document's own shape. Where both documents carry a witness the probe vectors
+/// are compared too, under the tolerance the *existing* index declared, because that is the
+/// one check that cannot be satisfied by two documents agreeing about the wrong weights.
+pub fn space_disagreement(existing: &EmbedConfig, ours: &EmbedConfig) -> Option<String> {
+    let mut differs = Vec::new();
+    let mut field = |name: &str, a: &str, b: &str| {
+        if a != b {
+            differs.push(format!("{name} {a} vs {b}"));
+        }
+    };
+    field("model", &existing.model_id, &ours.model_id);
+    field("weights", &existing.model_file, &ours.model_file);
+    field("pooling", &existing.pooling, &ours.pooling);
+    field(
+        "normalize",
+        &existing.normalize.to_string(),
+        &ours.normalize.to_string(),
+    );
+    field(
+        "dimension",
+        &existing.embedding_dim.to_string(),
+        &ours.embedding_dim.to_string(),
+    );
+
+    if let (Some(a), Some(b)) = (&existing.verification, &ours.verification) {
+        // Only where the two witnessed the *same* sentence. A probe that differs is not a
+        // disagreement about the space; it is two documents answering different questions,
+        // and comparing them would manufacture a conflict out of a format change.
+        if a.probe == b.probe {
+            let compared = a.prefix.len().min(b.prefix.len());
+            let drift = (0..compared)
+                .map(|i| (a.prefix[i] - b.prefix[i]).abs())
+                .fold(0.0f32, f32::max);
+            if compared > 0 && drift > a.tolerance {
+                differs.push(format!(
+                    "the witness probe embeds {drift:e} apart, against a declared tolerance of {:e}",
+                    a.tolerance
+                ));
+            }
+        }
+    }
+
+    (!differs.is_empty()).then(|| differs.join("; "))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -332,6 +400,95 @@ mod tests {
             "onnx/model_quantized.onnx",
             "AllMiniLML6V2Q",
         )
+    }
+
+    // ── one index, one vector space ───────────────────────────────────────────
+
+    /// Two indexes built the same way agree, witness and all.
+    #[test]
+    fn the_same_contract_is_the_same_space() {
+        let a = sample().with_verification(&[0.1, 0.2, 0.3]);
+        assert_eq!(space_disagreement(&a, &a.clone()), None);
+        // And without a witness on either side, which is every index built before the block
+        // existed: the declared settings are what there is to compare, and they agree.
+        assert_eq!(space_disagreement(&sample(), &sample()), None);
+    }
+
+    /// A different model at the same dimension is the case that matters.
+    ///
+    /// **The dimension would not have caught it.** Eleven of `fastembed`'s thirty models
+    /// produce a dimension another model also produces (RFC-0033 §8.1), and a vector index
+    /// fixes its dimension at creation — so two corpora in one index, one ranked in the
+    /// other's space, is a state the service itself would accept.
+    #[test]
+    fn another_model_at_the_same_dimension_is_another_space() {
+        let ours = EmbedConfig::for_fastembed_model(
+            "BAAI/bge-small-en-v1.5",
+            384,
+            "onnx/model.onnx",
+            "BGESmallENV15",
+        );
+        let why = space_disagreement(&sample(), &ours).expect("two models, one dimension");
+        assert!(why.contains("model"), "{why}");
+        assert!(why.contains("bge-small-en-v1.5"), "{why}");
+    }
+
+    /// The quantized-versus-fp32 case: one model, one dimension, different weights.
+    ///
+    /// The drift `index-verify` exists for — ~1e-3 per element, far outside retrieval-safe
+    /// tolerance and nowhere near far enough to look broken.
+    #[test]
+    fn the_same_model_with_other_weights_is_another_space() {
+        let fp32 = EmbedConfig::for_fastembed_model(
+            "Xenova/all-MiniLM-L6-v2",
+            384,
+            "onnx/model.onnx",
+            "AllMiniLML6V2",
+        );
+        let why = space_disagreement(&sample(), &fp32).expect("two weights files");
+        assert!(why.contains("weights"), "{why}");
+    }
+
+    /// Two documents that declare the same settings and embed the probe differently disagree.
+    ///
+    /// This is the check the declared fields cannot make: a contract can be copied correctly
+    /// and still describe a runtime that produces other numbers, which is #536's whole
+    /// subject. The tolerance applied is the *existing* index's, because it is the one being
+    /// written into.
+    #[test]
+    fn a_witness_that_embeds_the_probe_differently_is_another_space() {
+        let theirs = sample().with_verification(&[0.1, 0.2, 0.3]);
+        let ours = sample().with_verification(&[0.1, 0.9, 0.3]);
+        let why = space_disagreement(&theirs, &ours).expect("the probe embeds differently");
+        assert!(why.contains("witness probe"), "{why}");
+
+        // Float noise is not a disagreement: the declared tolerance is what decides.
+        let near = sample().with_verification(&[0.1, 0.2 + 1e-7, 0.3]);
+        assert_eq!(space_disagreement(&theirs, &near), None);
+    }
+
+    /// A witness of a *different sentence* is not compared at all.
+    ///
+    /// Two documents answering different questions are not two answers to one, and comparing
+    /// them would manufacture a conflict out of a format change.
+    #[test]
+    fn witnesses_of_different_probes_are_not_compared() {
+        let mut theirs = sample().with_verification(&[0.1, 0.2, 0.3]);
+        theirs.verification.as_mut().unwrap().probe = "another sentence".to_string();
+        let ours = sample().with_verification(&[0.9, 0.9, 0.9]);
+        assert_eq!(space_disagreement(&theirs, &ours), None);
+    }
+
+    /// `class_source` is not a claim about the space, and a difference in it is not a refusal.
+    ///
+    /// It rides on this document for distribution rather than because it is an embedding
+    /// setting (see the field's own note), and a push refused over it would be a push refused
+    /// over how a row's `class` was derived — which changes no vector.
+    #[test]
+    fn a_claim_about_class_metadata_is_not_a_claim_about_the_space() {
+        let mut theirs = sample();
+        theirs.class_source = Some(CLASS_SOURCE_PARENT_DIRECTORY.to_string());
+        assert_eq!(space_disagreement(&theirs, &sample()), None);
     }
 
     #[test]

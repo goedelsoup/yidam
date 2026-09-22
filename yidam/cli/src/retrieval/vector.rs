@@ -123,6 +123,10 @@ pub(crate) fn search(
             // ceiling in `.yidam/index/` to cut against — so this backend answers `false`
             // about every row it will ever hold.
             truncated: false,
+            // Nor is this one. One index directory holds one corpus, so every row a local
+            // scan can return is this repository's own — which is what `None` says. Spanning
+            // corpora is a property of a shared *bucket*, and this backend has none to share.
+            corpus: None,
         })
         .collect();
 

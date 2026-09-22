@@ -305,6 +305,7 @@ the read-only overview.
 |---|---|
 | `graph` | The corpus graph: nodes, resolved edges, and the classes that license them |
 | `neighbors <node>` | One node's neighbourhood — the traversal `serve --mcp` performs. `--depth` |
+| `retrieve <words>` | Semantic search over corpus nodes — the retrieval `serve --mcp` performs. `--k`, `--class`, `--corpora` |
 | `query <query>` | A typed path over the resolved graph |
 | `pack <query>` | A query's full answer filled to a token budget, with an account of what did not fit |
 | `estimate <query>` | What a query would cost before you run it |
@@ -321,6 +322,41 @@ the read-only overview.
 | `migrate <sub>` * | Change an ontology and every instance that adopted it, as one event. `--dry-run` |
 | `propose` * | Draft findings as proposed epistemic commits on a `propose/<head>` branch |
 | `run <step>` * | Invoke a capability declared in `.yidam/capabilities.toml` and commit what it produced, with a receipt |
+
+### Retrieval, and the corpora it can reach
+
+`retrieve` takes words, not a query expression. Reach for it before you know the corpus well
+enough to write one. It is the same call `serve --mcp` answers, dispatched by tool name. What
+it prints is what an agent sees.
+
+Without a vector index it degrades to keyword search and says so. With one it ranks by cosine
+similarity.
+
+`--corpora` reaches the other corpora sharing the vector index `[index.remote]` names. This
+corpus is always searched, and the named ones are added to it. Every result says which corpus
+it came from: a `yidam://<corpus>/node/<class>/<name>` identifier, and a `corpus` field beside
+it. A row from another corpus **cannot be opened**. Its text is all you get. That is why a row
+the index had to cut says so.
+
+```sh
+yidam retrieve 'school funding' --corpora ohio-budget,allen-county
+```
+
+A corpus is named either by a nickname this repository declares or by its genesis hash:
+
+```toml
+[index.remote.corpora]
+ohio-budget = "3f2a9c4d1b70"
+```
+
+The nickname is this repository's own. Nothing outside this file knows it, which is why a
+result carries the hash. `yidam index-push --dry-run` lists the corpora an index holds, with a
+row count each. It writes nothing, and it is where the hashes come from.
+
+Only a shared remote index can answer a span. A local `.yidam/index/` is one corpus by
+construction. So a `--corpora` against one is not an error. It is not silently honoured
+either. The local index answers, and the report reads `scope local`. That is what tells you
+your request did not take effect.
 
 ### The query language
 
@@ -527,6 +563,17 @@ written into.
 `index-push` is a mirror. It writes every row the local index holds, and deletes the ones this
 corpus no longer has. A node removed from the corpus stops being findable. It never touches a
 record that is not this corpus's.
+
+Several corpora may share one index. A push reports the ones it found there — `shares:
+<corpus> (<n> row(s))` — from the listing it already reads. With `--dry-run` that is a
+read-only way to ask an index who is in it. It is how a `[index.remote.corpora]` table gets
+written.
+
+**One index holds one vector space.** An index carries a single embedding contract, and every
+push overwrites it. So a push into an index built with different embedding settings is refused.
+Two spaces in one index would let a spanning query rank one corpus's rows against the
+other's. The scores would be in the range a correct ranking has. Where the contract cannot be
+read at all — a write-only credential, a throttle — the push says so and proceeds.
 
 It needs `vector-read`, not `index`. Decoding an index wants no protoc, so the machine that
 pushes need not be the one that built.

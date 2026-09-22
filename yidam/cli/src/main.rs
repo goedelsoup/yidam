@@ -353,6 +353,31 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// Semantic search over corpus nodes — the retrieval `serve --mcp` performs, in a shell
+    ///
+    /// Degrades to keyword search, saying why, when there is no index or this build cannot
+    /// read one. `--corpora` reaches the other corpora sharing the vector index
+    /// `[index.remote]` names; every result says which corpus it came from.
+    Retrieve {
+        /// What to search for, in words
+        query: String,
+        /// Number of results
+        #[arg(long, default_value_t = 5)]
+        k: usize,
+        /// Restrict results to one class. A class this corpus does not declare is rejected
+        /// rather than searched
+        #[arg(long)]
+        class: Option<String>,
+        /// Also search these corpora, by a name `[index.remote.corpora]` declares or by a
+        /// genesis hash. Only a shared remote index can answer one; `yidam index-push
+        /// --dry-run` lists the corpora an index holds
+        #[arg(long, value_delimiter = ',', value_name = "NAME")]
+        corpora: Vec<String>,
+        /// Output format. `json` emits the machine-readable report contract
+        /// (RFC-0016); `text` is unchanged and remains the default.
+        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
+        format: yidam::Format,
+    },
     /// Execute a typed path over the resolved graph — `reach -measured-by-> gage`
     Query {
         /// The query. Whitespace around a hop is required: `-rel->` and `<-rel-` are single
@@ -1117,6 +1142,21 @@ fn main() -> Result<()> {
                 _ => yidam::QueryScope::Now,
             },
             format,
+        ),
+        Command::Retrieve {
+            query,
+            k,
+            class,
+            corpora,
+            format,
+        } => yidam::retrieve(
+            &query,
+            yidam::RetrieveOptions {
+                k,
+                class,
+                corpora,
+                format,
+            },
         ),
         Command::Pack {
             query,

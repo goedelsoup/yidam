@@ -435,6 +435,16 @@ const NO_REPORT: &[(&str, &str)] = &[
          private on the machines that do — exercised against materialized examples in \
          `cohort.rs`, which asserts the envelope and that the report names no repository",
     ),
+    (
+        "retrieve",
+        "emits the MCP contract's own `retrieve` response shape — one shape for one answer, \
+         dispatched through the same `tools::call` an agent reaches. Declaring it a second time \
+         in report.schema.json would be a second freeze of one shape, under names \
+         (`results`, `scope`, `rejected`, `absence`) that `query`, `pack` and `estimate` also \
+         emit and that this contract deliberately does not declare. Where it IS checked: \
+         `prelude/sdks/parity/mcp/cases/retrieve/` pins the fields and their values for every \
+         server, and `tests/retrieve_cli.rs` holds this command's own rendering of them",
+    ),
     ("query", "requires a query expression"),
     ("pack", "requires a query expression"),
     ("estimate", "requires a query expression"),

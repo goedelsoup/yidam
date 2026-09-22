@@ -11,6 +11,7 @@
 - **Not yet verified against a live service.** §8 says exactly which claims that leaves standing and which test discharges each.
 - **Amended 2026-09-20 (#834).** §8's Bedrock row was settled against the documentation and came back false; §8.1 records what that kills, what survives, and what is still unasked. §4.2 and the phase list are corrected to match.
 - **Amended 2026-09-20 (#837).** §4.5's class push-down is no longer deferred. The premise it was deferred on is stated more precisely — it is about two *derivations*, never about data drift — and discharged: one derivation, and a `class_source` claim an index earns by checking its own records. Open question 3 is answered. `embed.config.json` gains one optional key and `format_version` does not move, which is what that document already says an additive field does; an index without the key is read exactly as it was before, so nothing on disk has to be rebuilt.
+- **Amended 2026-09-21 (#835).** Phase 3 is built: §4.8 is the spanning filter, the rendering of a foreign node's reference, and the invariant that makes a shared index safe to read across. Three things it decided that this document did not: *every corpus in the index* is **not** offered, because it can only be written as a negative predicate whose semantics nobody here has measured; a push into an index whose witness disagrees is **refused**, because one index carries one contract and the second push would overwrite the first; and a foreign row's `id` is RFC-0032's absolute identifier rather than a handle, because there is no node here to resolve. The MCP contract goes to **0.24.0** in all three copies, and `retrieve` gains a terminal route.
 - **Amended 2026-09-21 (#848).** §8's last row is settled, and it needed no account: §8.3 records the composed-`text` distribution over 3,246 rows in sixteen derived corpora. The answer is *not* "comfortable" — one row in 3,246 is cut, and the largest row that is not cut clears the ceiling by 597 bytes. The same pass found `MAX_FILTERABLE_METADATA_BYTES` declared and never read; it is enforced now, and §8.3 records the headroom that had made the hole latent.
 
 ## Summary
@@ -63,7 +64,10 @@ Both are named now because they decide two irreversible choices in §4, not beca
 being built here:
 
 - **Many corpora, one index.** Eighteen derived corpora, each with its own file, cannot be
-  asked *"which of these already says something about X"*.
+  asked *"which of these already says something about X"*. **Built (#835), and §4.8 is what it
+  cost: a filter, a rendering, and one refusal on the push side.** The key prefix is what made
+  it that rather than a re-push of eighteen corpora, which is the whole of why it was decided
+  here for a phase that did not exist.
 - **Consumers that are not yidam.** Bedrock Knowledge Bases and OpenSearch read an S3 vector
   index. A file in a vault is legible to nothing but this crate.
 
@@ -254,6 +258,105 @@ provenance nobody can state.
 What happens instead is what already happens when there is no index at all — keyword search,
 under a reason that says why.
 
+### 4.8 — Many corpora, one index
+
+The storage worked from the first push. What did not exist was the *question*, and asking it
+turned out to be three separate decisions.
+
+**The filter is positive, and the set is named.** `corpus = <genesis>` becomes
+`corpus $in [<genesis>, …]` — still a positive predicate, so the witness (§4.4) fails it by
+construction, which is the same mechanism and not a second one. `retrieval::Corpora` is what
+carries the set, ungated, and both the pushed JSON and the local predicate read it: the
+equivalence test in `s3vectors::filter` now runs over a matrix that includes rows of a corpus
+that was *not* asked for, which is a row a `Filter` alone cannot express.
+
+**There is no "every corpus in this index", and that is a decision.** It would have to be
+written `$nin: ["__yidam_meta"]`, and §4.4 already refused a negative predicate for the reason
+that applies here unchanged: what S3 Vectors does with `$nin` against a vector lacking the key
+is not documented, and a wrong guess leaks an internal record into somebody's results. So a
+caller names the corpora it is asking about. Where the names come from is the listing a push
+already reads: `index-push` reports the other corpora in the index with a row count each, so
+`--dry-run` is a read-only way to ask an index who is in it. A corpus that wants to write those
+down declares `[index.remote.corpora]`, which is a nickname table — RFC-0032 §4.5's argument,
+one level down, and unique within the file that declares it.
+
+**The serving corpus is always in the set.** A span *widens*; it cannot substitute. Every other
+answer `retrieve` gives is about the corpus it was started in — `absence.instances` counts that
+corpus's nodes, `get_node` reads its files — so a call that could replace it would make those
+answers about something else. A caller that wants only the neighbours filters on the `corpus`
+field, which is what that field is for.
+
+**A foreign row is named by the grammar, and it is an identifier rather than a handle.**
+`retrieve` resolved every row's `id` through `find_node`, which knows one repository, and has
+no answer at all for a row out of another corpus's half of the index: there is no file here.
+RFC-0032 is what such a thing is written in, so the id is `yidam://<corpus>/node/<class>/<name>`
+— rendered by `paths::reference_of_path`, which is the one derivation from a path to a
+reference and is now also what `yidam migrate references` uses. The authority is the genesis
+hash and never the nickname: a result whose identity changed with the reader's configuration
+would not be an identity, which is the correction the RDF export already made for its subjects
+(RFC-0032 §2, P3).
+
+`get_node` cannot fetch such an id, and the contract says so rather than implying otherwise.
+That is a true statement about a corpus this server does not hold. The case where it *could*
+be resolved — the foreign corpus is also installed under `.yidam/tonpa/` — is left alone: a
+manifest has carried `genesis_hash` since #781, so the join is available, and nothing has met a
+repository in that position. It is a smaller question than #476, which owns it.
+
+**`corpus` and not `origin`, because one word for both would be a lie about followability.**
+`retrieve`'s keyword arm already reports `origin` for an installed dependency, whose nodes this
+process read and whose ids resolve. A corpus sharing a vector index is not installed and not
+readable. Spelling both as `origin` would tell a client it could fetch something it cannot.
+
+**And `text` is all a reader of a foreign row gets**, which settles the third question the
+issue raised. Nothing new is sent; what changes is what it means. A local row's `text` is a
+convenience beside a node the caller can open, and a foreign row's is the whole of what anyone
+will ever see of that node. So the `truncated` flag #853 added matters more on a spanning call
+than on any local one — a cut that went unsaid would be the entire record, halved, with nothing
+saying which half.
+
+#### One index, one vector space
+
+A shared index has **one** witness record, and every push overwrites it. That was unremarkable
+while an index held one corpus. It is the mechanism by which a shared index goes wrong: two
+corpora of the same dimension and different models can both be pushed, the second overwrites
+the first's contract, and a spanning query then ranks one corpus's rows in the other's space —
+plausibly, with scores in the range a correct ranking has. §8.1's failure, arriving from inside
+an index rather than through a consumer. *The dimension would catch it* is false: eleven of the
+thirty `fastembed` models offers produce a dimension another one also produces.
+
+So `index-push` fetches the existing witness and **refuses** a push whose contract disagrees.
+`embed_config::space_disagreement` is the comparison — document against document, with no
+embedder in the room, because a push loads no model — over the fields that decide what a vector
+is, plus the witness probe where both documents carry one.
+
+**Evidence, not fail-closed, and the asymmetry is argued.** A witness that *disagrees* refuses.
+A witness that could not be *read* is a printed note and the push proceeds. The reason is IAM
+rather than optimism: a push needs `ListVectors`, `PutVectors` and `DeleteVectors`, and a
+write-only credential is a legitimate shape for one — so treating a 403 on `GetVectors` as a
+refusal would break pushes that have nothing wrong with them, on a check that exists to protect
+a *reader*.
+
+**What that leaves standing.** This makes a mixed-space index detectable at the moment it would
+be created, by any pusher that can read the index it is writing to. It is not a proof about an
+index nobody could read. The thing that would be one is a witness per corpus rather than per
+index — `__yidam__/<corpus>/embed-config`, fetched for each corpus a query names and excluded
+with a reason where it disagrees — and that is a change to both the push and the read path,
+with a cost on every spanning call, for a hazard nothing has met. It is named here so that
+whoever meets one knows what the answer looks like.
+
+`ops::witness_agreement` is where the rule lives, and not in `cmd/index_push.rs`: that command
+is behind two features, so a decision written inside it would be one no pull request compiles.
+It takes the fetch's outcome as an argument, which is the split this module's own design note
+prescribes.
+
+#### An anchored step still cannot span
+
+`query`'s similarity anchor passes `Corpora::own` even where the index holds several corpora.
+Its residual is *"and this path resolves to a node this repository owns"*, so a foreign row
+could only ever be fetched and discarded — and the MCP contract already refuses the same thing
+for dependencies, under `anchor-across`, for the reason that a ranking entering someone else's
+corpus is a ranking nothing here can walk from.
+
 ## Configuration
 
 ```toml
@@ -262,6 +365,11 @@ kind   = "s3-vectors"
 bucket = "yidam-corpora"
 index  = "yidam-main"
 region = "us-east-1"
+
+# The other corpora sharing that index, by a name this repository chose for each (#835).
+# Optional: a query may name a corpus by its genesis hash directly.
+[index.remote.corpora]
+ohio-budget = "3f2a9c4d1b70"
 ```
 
 `deny_unknown_fields`, so `regoin` is refused rather than silently leaving the region unset.
@@ -314,8 +422,12 @@ recorded one, and why `transport.rs` is kept thin enough to check by eye.
 What that left standing, and what settled each. **Four of these rows were settled against a live
 index on 2026-09-20** — §8.2 records that run and its numbers — a fifth was settled against the
 documentation (§8.1), and the last was settled on 2026-09-21 by measurement over the derived
-corpora, with no account involved at all (§8.3). **Every row is closed, and two of the six came
-back false.**
+corpora, with no account involved at all (§8.3). **Six rows were closed and two of them came
+back false.** #835 added two more (2026-09-21) and **both are open**: they need the account the
+six were settled with. Neither is load-bearing for a *wrong* answer — a `$in` the service
+rejected is a failed query rather than a bad ranking, and a witness that cannot be read is
+already the "could not check" arm of §4.8 — but until this file is run against an index, the
+spanning query has never been made.
 
 | Claim | Settled by |
 |---|---|
@@ -324,6 +436,8 @@ back false.**
 | ~~The mirror's delete reaches the service~~ | **Settled live on 2026-09-20, and true.** A key dropped from the local set stops coming back from `QueryVectors`. Deleting the delete loop from `apply_mirror` makes the live test fail and every recorded-transport test still pass, which is the gap this row existed for |
 | ~~`GetIndex`'s response shape~~ | **Settled live on 2026-09-20, and true.** `/index/dimension` and `/index/distanceMetric` are where `response::disagreement` reads them. The served body carries four fields the unit fixture does not (`vectorBucketName`, `indexArn`, `creationTime`, `encryptionConfiguration`); neither pointer moved |
 | ~~A hand-populated index is consumable by Bedrock Knowledge Bases~~ | **Settled against the documentation on 2026-09-20, and false as stated** — see §8.1. A knowledge base embeds the *query* with a model it owns, and yidam's vectors are not in that model's space. §4.2's key set survives, but for the route §8.1 names rather than this one |
+| A spanning query's `$in` on `corpus` is accepted and applied (#835) | **Not settled.** Every query this crate has ever sent filtered `corpus` with `$eq`, and the class filter's `$in` arm was never exercised live either — so what is open is the *operator*, not the idea. `tests/s3vectors_live.rs::a_query_can_ask_across_two_corpora_in_one_index` is written and has not been run: it puts a row in each of two corpora, asks each way, and fails if the foreign row — deliberately the **nearer** vector — comes back from a single-corpus query |
+| A stored witness refuses a push from another space (#835) | **Not settled.** `witness_agreement` is unit-tested against a `Fetched` this crate built; `a_push_into_another_vector_space_is_refused_against_a_stored_witness` writes the witness through `PutVectors` and reads it back through `GetVectors`, which is where a contract that serialises but does not survive the service's own metadata would hide |
 | ~~The 40 KB metadata ceiling is comfortable for real corpora~~ | **Measured on 2026-09-21 over sixteen derived corpora, and false as stated** — see §8.3. One row in 3,246 is cut, so truncation is not routine; but the largest row that is *not* cut sits **597 bytes** under the ceiling, which is not what "comfortable" claims. Measured by running the functions that compose the text — `yidam embed --dry-run` — over corpora nothing was written into |
 
 ### 8.1 — The Bedrock premise, tested and false
@@ -539,20 +653,28 @@ assertion and a test — which is what this is — rather than for a redesign, a
    knowledge base embeds the query with Titan or Cohere regardless. The route that would make
    them useful — building the index in Bedrock's vector space — is a second embedding backend,
    not a metadata change, and is tracked separately.
-3. **Many corpora, one index.** Keys are already prefixed and `corpus` is already filterable, so
-   this is a filter and a way to render a foreign corpus's node reference (RFC-0032), not a
-   re-push.
+3. ~~**Many corpora, one index.**~~ **Built (#835): §4.8.** It was a filter and a rendering, as
+   this line predicted, and it was also one thing this line did not see — an index carries a
+   single embedding contract, so *one index, one vector space* had to become an invariant the
+   push enforces before spanning one was safe to read. It also gave `retrieve` a terminal
+   route, because a spanning question needs somebody able to ask it.
 4. **Scale.** Drop the assumption that `k` is small and a corpus fits in memory. Measure first.
 
 ## Open questions
 
-1. **Is the ambient credential fallback right?** The argument in §5 is that one index crosses no
+1. **Should a shared index be able to say who is in it?** #835 answers *"which corpora does
+   this index hold"* out of a full `ListVectors` sweep, which is the listing a push already
+   makes and is proportional to the index. A reserved roster record would answer it in one
+   `GetVectors`, and would also be where a per-corpus embedding contract went (§4.8). Neither
+   is worth writing for eighteen corpora and one index; both become worth it at a scale
+   nothing here has met, and phase 4 is where that gets measured rather than assumed.
+2. **Is the ambient credential fallback right?** The argument in §5 is that one index crosses no
    boundary. A corpus whose vectors are meant for a narrower audience than its shell is the case
    that would falsify it, and nothing has met one yet.
-2. **Should `indexed_commit` be answerable for a remote index?** It is `None` today, because
+3. **Should `indexed_commit` be answerable for a remote index?** It is `None` today, because
    reading it would cost a round trip at startup on a path that may never search. The commit is
    on every record's metadata; a phase that wanted the answer could put it on the witness.
-3. ~~**What should an anchored step do about class push-down?**~~ **Answered by #837: it
+4. ~~**What should an anchored step do about class push-down?**~~ **Answered by #837: it
    pushes.** The premise was tighter than it looked — a class is a function of a path and a row
    carries its path, so only a derivation that differed *between binaries* can produce a
    disagreement, and an index can be asked about that once rather than trusted about it per

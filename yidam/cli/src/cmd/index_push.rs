@@ -128,6 +128,20 @@ pub fn index_push(dry_run: bool, create: bool) -> Result<()> {
     println!("  corpus:  {corpus} at {commit}");
     report_plan(&plan, truncated);
 
+    // Checked before anything is written, and after the plan so that a `--dry-run` reports it
+    // too: the whole point of a dry run is to find out what a push would do, and refusing is
+    // something it would do.
+    //
+    // The fetch is here and the decision is in `ops`, which is ungated: this command is behind
+    // two features, so a rule written inside it would be one no pull request compiles — the
+    // split `s3vectors`' own module doc prescribes, and the reason `ops` takes the call as an
+    // argument at all.
+    match ops::witness_agreement(ops::fetch_witness(&session, &remote), contract) {
+        Err(why) => bail!("{why}"),
+        Ok(Some(note)) => println!("  note:    {note}"),
+        Ok(None) => {}
+    }
+
     if dry_run {
         // The canonical request, because it is the only artifact of a signing bug a person can
         // inspect — `vault push --dry-run` prints the same thing for the same reason.
@@ -213,6 +227,12 @@ fn report_plan(plan: &MirrorPlan, truncated: usize) {
             "  leave:   {} record(s) that are not this corpus's",
             plan.untouched
         );
+    }
+    // The roster, from the listing the plan already read. This is where the ids for a
+    // `[index.remote.corpora]` table come from: a `--dry-run` asks the index who is in it and
+    // writes nothing, which is the read-only way to find out (#835).
+    for (id, rows) in &plan.others {
+        println!("  shares:  {id} ({rows} row(s))");
     }
     if truncated > 0 {
         println!(

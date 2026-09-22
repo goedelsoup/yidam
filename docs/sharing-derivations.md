@@ -208,10 +208,13 @@ carries an `origin` field: the package name for a foreign node, and `null` for a
 is local" from "this server is old and never said."
 
 **Vector retrieval does not.** `yidam embed` reads `.yidam/corpus/` and `.yidam/catalog/`
-and nothing else, so an index holds this repository's own nodes; and a vector result carries
-neither `id` nor `origin`, only `path`, `class`, `label`, `text` and `score`. On a composed
-corpus, `degraded: true` is therefore the **more complete** search — the one arm that sees
-the whole of what is installed.
+and nothing else, so an index holds this repository's own nodes, and a vector result carries
+no `origin` at all. On a composed corpus, `degraded: true` is therefore the **more complete**
+search — the one arm that sees the whole of what is installed.
+
+It carries an `id`, and this page said otherwise for three contract versions. That was fixed
+in #425. The vector arm resolves each row through the same `find_node` `get_node` uses. What
+it does not carry is `origin`. That is the claim that still holds.
 
 That is a gap, not a rule. Everything else in this section is an argued boundary — a
 foreign node may be read and never cited — and that boundary holds under either retrieval
@@ -224,6 +227,13 @@ change's own opening line was that `tonpa` fetched a corpus and *nothing* read i
 and left the last. So until the embedding step learns about `.yidam/tonpa/`, a
 dependency-aware agent should know which arm it is talking to. The handshake's
 `retrieve.vector` says, before the first query.
+
+**A shared vector index is a different reach, and it is not this one.** Several corpora may
+push to one remote index, and `retrieve`'s `corpora` argument searches across them (#835).
+That is not dependency spanning. A corpus sharing an index is not installed here. Its rows
+carry a `corpus` field and an identifier, and `get_node` can fetch neither. Two reaches, two
+sets of fields. The gap above is unchanged: the embedding step still does not read
+`.yidam/tonpa/`.
 
 **Foreign ids are qualified.** A dependency's node is `pkg::class/name`, and `get_node`
 accepts that form. An id a client is shown and cannot then fetch is a worse affordance than

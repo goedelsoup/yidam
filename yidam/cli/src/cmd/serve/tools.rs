@@ -366,7 +366,36 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
             Vec::new(),
             Some(rejection.to_json()),
             None,
+            false,
         ));
+    }
+
+    // The same argument one field over. A corpus named by a nickname this repository never
+    // declared, or by something that is not a genesis hash, cannot be searched — and the
+    // answer would come back a plausible `results: []` about the corpora that *were*
+    // recognised. Resolved in every build, for the reason `ServerState::corpus_aliases`
+    // gives: whether a name is a name does not depend on how this binary was compiled.
+    let named: &[Value] = args["corpora"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let mut across = Vec::with_capacity(named.len());
+    for name in named {
+        let Some(name) = name.as_str() else {
+            return Err("corpora must be an array of strings".to_string());
+        };
+        match state.corpus_aliases.id_of(name) {
+            Some(id) => across.push(id),
+            None => {
+                return Ok(body(
+                    state.retrieval.degraded_reason(),
+                    Vec::new(),
+                    Some(super::absence::unknown_corpus(state, name).to_json()),
+                    None,
+                    false,
+                ))
+            }
+        }
     }
 
     #[cfg(feature = "vector-read")]
@@ -376,6 +405,8 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
         // search rather than after, so `k` counts rows the caller asked for either way. There
         // is no residual here; `retrieve` returns what the index holds.
         let filter = crate::retrieval::Filter::class(class_filter);
+        #[cfg_attr(not(feature = "s3-vectors"), allow(unused_mut))]
+        let mut spanned = false;
         let searched = match &state.retrieval {
             Retrieval::Vector(index) => Some(crate::retrieval::vector::search(
                 index,
@@ -385,13 +416,23 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
                 |_| true,
             )?),
             #[cfg(feature = "s3-vectors")]
-            Retrieval::Remote(remote) => Some(crate::retrieval::remote::search(
-                remote,
-                query,
-                k,
-                &filter,
-                |_| true,
-            )?),
+            Retrieval::Remote(remote) => {
+                // This corpus and the ones named, which is the only place a search can reach
+                // past the repository it was asked in (#835). A local index holds one corpus
+                // by construction, so the arm above cannot span whatever it was asked — and
+                // reports `local`, exactly as `query --across` does against a repository with
+                // no dependencies installed.
+                let corpora = remote.corpora(&across);
+                spanned = corpora.is_across();
+                Some(crate::retrieval::remote::search(
+                    remote,
+                    query,
+                    k,
+                    &corpora,
+                    &filter,
+                    |_| true,
+                )?)
+            }
             _ => None,
         };
 
@@ -426,7 +467,7 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
             let absent = results
                 .is_empty()
                 .then(|| super::absence::diagnose(state, query, class_filter, true).to_json());
-            return Ok(body(None, results, None, absent));
+            return Ok(body(None, results, None, absent, spanned));
         }
     }
     Ok(keyword_retrieve(
@@ -443,7 +484,12 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
 /// A named function rather than a closure in the loop because the shape is what the contract
 /// freezes, and a test has to be able to hold one row against another without standing up a
 /// remote index — which is the one thing no test in this repository can do.
-#[cfg(feature = "vector-read")]
+///
+/// **Ungated, though only a `vector-read` build calls it.** It is a function of a
+/// [`crate::retrieval::Hit`], which is ungated for this reason exactly: the build CI compiles
+/// on a pull request is the light one, and the foreign-row branch — the whole of #835's
+/// rendering — would otherwise live in the build nothing checks until main.
+#[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
 fn vector_result(state: &ServerState, r: &crate::retrieval::Hit) -> Value {
     json!({
         // Present on both arms now. `retrieve` finds and `get_node` reads, and the handle
@@ -462,11 +508,27 @@ fn vector_result(state: &ServerState, r: &crate::retrieval::Hit) -> Value {
         // so they answer from one function rather than from two that agree today. It already
         // tolerates this exact path form — the tolerance #425 notes was doing the work by
         // accident, now load-bearing on purpose and asserted below.
-        "id": find_node(state, &r.path).map(|n| n.qualified_id()),
+        //
+        // **A row from another corpus is named by the grammar, not by this resolver** (#835).
+        // `find_node` knows one repository, which is the right answer for a local row and no
+        // answer at all for a row that came out of a shared vector index: there is no file
+        // here to resolve and no node to return. RFC-0032 is what such a thing is written in,
+        // so the id is `yidam://<corpus>/node/<class>/<name>`, rendered by the one renderer,
+        // and it is an **identifier rather than a handle** — `get_node` cannot fetch it,
+        // because the corpus it names is not installed here. That is what `corpus` below is
+        // for: a client can see which rows are followable without parsing anything.
+        "id": match &r.corpus {
+            Some(corpus) => foreign_reference(corpus, &r.path),
+            None => find_node(state, &r.path).map(|n| n.qualified_id()),
+        },
         "path": r.path,
-        // No `origin` here, and that asymmetry is deliberate and documented: `yidam embed`
-        // gathers this repository only, so its absence says the search never looked outside
-        // this corpus.
+        // Which corpus in a shared vector index this row came from, null for this one.
+        //
+        // Not `origin`, which this tool's keyword arm already uses for an installed
+        // dependency: those nodes were read off this disk and `get_node` returns them. A
+        // corpus sharing an index is not installed, and one word for both would say a row is
+        // fetchable when it is not.
+        "corpus": r.corpus,
         "class": r.class,
         "label": r.label,
         "text": r.text,
@@ -483,6 +545,23 @@ fn vector_result(state: &ServerState, r: &crate::retrieval::Hit) -> Value {
     })
 }
 
+/// A row from another corpus, named in the grammar RFC-0032 specifies.
+///
+/// `None` where the path names nothing the grammar has a kind for. That is a real case and it
+/// is left null rather than guessed at: a corpus may index a file this repository's layout
+/// says nothing about, and a reference invented for it would be an identifier nobody could
+/// resolve — the per-surface improvisation RFC-0032 §1 diagnoses, reintroduced here.
+///
+/// The authority is the corpus's genesis hash and not the nickname the caller may have used
+/// to ask. A nickname is chosen by whichever repository declared it (§4.5), so an identifier
+/// built on one would name a different thing depending on who was reading.
+#[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
+fn foreign_reference(corpus: &str, path: &str) -> Option<String> {
+    crate::paths::reference_of_path(Some(corpus), std::path::Path::new(path))
+        .as_ref()
+        .map(yidam_core::uri::render_reference)
+}
+
 /// The `retrieve` response, around whichever path produced the results.
 ///
 /// One function for both arms. The two halves of the `degraded` convention used to live in
@@ -494,9 +573,16 @@ fn body(
     results: Vec<Value>,
     rejected: Option<Value>,
     absence: Option<Value>,
+    across: bool,
 ) -> Value {
     json!({
         "degraded": reason.is_some(),
+        // WHAT HAPPENED, NOT WHAT WAS ASKED — `query`'s rule for the same word, and the same
+        // reason. A call naming other corpora against a server with no shared index reads
+        // `local`, which is not an error and must not be reported as one: it is what a
+        // caller needs in order to tell "nothing there said anything" from "nothing was
+        // asked". Only a remote index can make it `across`.
+        "scope": if across { "across" } else { "local" },
         // *Why* degraded, not just that it is. The bare boolean made two different
         // repositories look identical: one that never built an index, and one whose index
         // this binary cannot read. Both are keyword search; only one is fixed by indexing.
@@ -567,6 +653,11 @@ fn keyword_retrieve(
                 // a consumer testing for the key must not have to distinguish "local" from "an
                 // older server that never said".
                 "origin": n.origin,
+                // Always null on this path, and it is an answer rather than a filler. Keyword
+                // search reads the nodes this process loaded — this repository's and its
+                // installed dependencies' — and a corpus that merely shares a vector index is
+                // neither. Only `vector_result` can say otherwise.
+                "corpus": Value::Null,
                 "class": n.class,
                 "label": n.label,
                 "text": n.description,
@@ -583,7 +674,9 @@ fn keyword_retrieve(
     let absent = results
         .is_empty()
         .then(|| super::absence::diagnose(state, query, class_filter, false).to_json());
-    body(reason, results, None, absent)
+    // Never `across`: this path reads nodes out of memory, and a corpus sharing a vector
+    // index has none here to read.
+    body(reason, results, None, absent, false)
 }
 
 /// A typed path over the graph — #263's half of hybrid anchoring that an agent can reach.
@@ -1201,6 +1294,87 @@ mod tests {
         assert_eq!(fetched["id"], id);
     }
 
+    // ── a row from another corpus ─────────────────────────────────────────────
+
+    fn hit(path: &str, corpus: Option<&str>) -> crate::retrieval::Hit {
+        crate::retrieval::Hit {
+            path: path.to_string(),
+            class: "concept".to_string(),
+            label: "A".to_string(),
+            text: "some text".to_string(),
+            score: 0.5,
+            truncated: false,
+            corpus: corpus.map(str::to_string),
+        }
+    }
+
+    /// A row out of another corpus's half of a shared index is named by the grammar.
+    ///
+    /// **This is the one branch #835 added to the rendered result, and it is asserted against
+    /// a hand-built [`crate::retrieval::Hit`] rather than end to end.** Producing one for real
+    /// needs a vector bucket, which no test here can reach; the renderer is a pure function of
+    /// the row, so the row is what the test supplies.
+    #[test]
+    fn a_row_from_another_corpus_is_identified_and_not_resolved_locally() {
+        let state = test_state();
+        let foreign = vector_result(
+            &state,
+            &hit(".yidam/corpus/concept/levy.yml", Some("3f2a9c4d1b70")),
+        );
+        assert_eq!(foreign["corpus"], "3f2a9c4d1b70");
+        assert_eq!(
+            foreign["id"], "yidam://3f2a9c4d1b70/node/concept/levy",
+            "a foreign row must be named in the grammar, not resolved through this repository"
+        );
+        // And the local resolver is not consulted for it: the fixture holds no such node, and
+        // a renderer that had gone through `find_node` would have emitted null.
+        assert!(find_node(&state, ".yidam/corpus/concept/levy.yml").is_none());
+    }
+
+    /// A local row is unchanged: `corpus` is null and the id is the one `get_node` takes.
+    ///
+    /// The pair is the assertion. A renderer that always went through the grammar would break
+    /// #425's round trip, and one that never did would leave a foreign row anonymous — and
+    /// each of those passes one of these two tests.
+    #[test]
+    fn a_local_row_keeps_the_id_get_node_resolves() {
+        let state = test_state();
+        let id = state.nodes.first().expect("a node").id.clone();
+        let local = vector_result(&state, &hit(&format!(".yidam/corpus/{id}.yml"), None));
+        assert_eq!(local["corpus"], Value::Null);
+        assert_eq!(local["id"], id);
+    }
+
+    /// A foreign path the layout gives no kind is null rather than a guessed identifier.
+    #[test]
+    fn a_foreign_row_the_grammar_cannot_name_carries_no_id() {
+        let state = test_state();
+        let odd = vector_result(&state, &hit("some/other/layout.txt", Some("3f2a9c4d1b70")));
+        assert_eq!(odd["id"], Value::Null);
+        assert_eq!(odd["corpus"], "3f2a9c4d1b70");
+    }
+
+    /// A foreign catalog source renders as a `catalog` reference, not as a node.
+    ///
+    /// The shape RFC-0032 §2's P3 resolution found 55 of in two corpora, minted as nodes with
+    /// relative segments inside them. It is also the row most likely to be truncated (§8.3),
+    /// which is the other half of what a reader of a foreign row is entitled to know.
+    #[test]
+    fn a_foreign_catalog_source_is_a_catalog_reference() {
+        let state = test_state();
+        let mut row = hit(
+            ".yidam/catalog/ohio-lobbying-register.md",
+            Some("3f2a9c4d1b70"),
+        );
+        row.truncated = true;
+        let rendered = vector_result(&state, &row);
+        assert_eq!(
+            rendered["id"],
+            "yidam://3f2a9c4d1b70/catalog/ohio-lobbying-register"
+        );
+        assert_eq!(rendered["truncated"], true);
+    }
+
     /// `&mut`, because `call` is: RFC-0029's write tier reloads the snapshot behind one
     /// dispatch arm. Every call in this module is a read tool and none of them reaches it.
     fn call_ok(state: &mut ServerState, name: &str, args: Value) -> Value {
@@ -1355,21 +1529,25 @@ mod tests {
     /// stand one up. The transport half of the round trip — that the flag the push writes is
     /// the flag the decoder reads — is `s3vectors::ops`'s
     /// `a_row_the_push_had_to_cut_comes_back_saying_so`.
-    #[cfg(feature = "vector-read")]
+    ///
+    /// **Ungated since #835**, with [`vector_result`] itself: it is a function of a `Hit`, so
+    /// gating the test put it in the build no pull request compiles — which is where this one
+    /// was found broken by an unrelated field being added to the struct.
     #[test]
     fn a_cut_row_renders_differently_from_a_whole_one() {
         let state = test_state();
-        let hit = |truncated: bool| crate::retrieval::Hit {
+        let row = |truncated: bool| crate::retrieval::Hit {
             path: ".yidam/catalog/a-long-source.md".to_string(),
             class: "source".to_string(),
             label: "A long source".to_string(),
             text: "half of it".to_string(),
             score: 0.5,
             truncated,
+            corpus: None,
         };
 
-        let whole = vector_result(&state, &hit(false));
-        let cut = vector_result(&state, &hit(true));
+        let whole = vector_result(&state, &row(false));
+        let cut = vector_result(&state, &row(true));
 
         assert_ne!(whole, cut, "a cut row rendered exactly like a whole one");
         assert_eq!(cut["truncated"], true);
