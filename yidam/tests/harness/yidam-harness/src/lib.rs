@@ -187,13 +187,63 @@ pub fn diff(baseline: PathBuf, candidate: PathBuf) -> Result<()> {
     let cand = snapshot::load(&candidate)?;
     let regressions = diff::compare(&base, &cand)?;
     if regressions.is_empty() {
-        println!("no regressions");
+        println!("no regressions — {}", diff::scope(&base, &cand));
     } else {
         for r in &regressions {
             println!("REGRESSION: {r}");
         }
         std::process::exit(1);
     }
+    Ok(())
+}
+
+/// Carry a committed baseline forward to the current protocol version.
+///
+/// A baseline recorded under an older protocol is not comparable to anything a current
+/// harness produces: `diff` refuses across versions, so the regression gate goes inert the
+/// moment the protocol bumps and stays that way until someone notices. Re-running the
+/// scenario is the thorough answer and costs a bootstrap plus a judge call; this is the
+/// answer for the case where the recorded verdicts are demonstrably already what the current
+/// protocol produces. [`snapshot::revalidate`] states what it checks and what it cannot, and
+/// `reason` is where the part it cannot check gets written down.
+pub fn rebaseline(result: PathBuf, reason: String) -> Result<()> {
+    let recorded = snapshot::load(&result)?;
+    let fresh = check::run_all(&result)?;
+    let template = find_template_root()?;
+    let rubric = rubric::load(&template.join(RUBRIC))?;
+
+    let carried = snapshot::revalidate(
+        &recorded,
+        &fresh,
+        &rubric.quality_ids(),
+        PROTOCOL_VERSION,
+        &reason,
+    )?;
+    snapshot::save(&result, &carried)?;
+
+    println!(
+        "{}: protocol {} → {}",
+        result.display(),
+        carried
+            .revalidated
+            .as_ref()
+            .map(|r| r.from.as_str())
+            .unwrap_or("unversioned"),
+        PROTOCOL_VERSION
+    );
+    println!(
+        "  {}/{} structural verdicts recomputed and unchanged",
+        fresh.total(),
+        fresh.total()
+    );
+    match carried.scored_ids().as_slice() {
+        [] => println!("  no judge score recorded; nothing to hold to the rubric"),
+        ids => println!(
+            "  bands {} are the criteria rubric.md states",
+            ids.join(", ")
+        ),
+    }
+    println!("  reason: {}", reason.trim());
     Ok(())
 }
 

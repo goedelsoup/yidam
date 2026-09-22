@@ -13,6 +13,7 @@
 - **Amended 2026-09-20 (#837).** §4.5's class push-down is no longer deferred. The premise it was deferred on is stated more precisely — it is about two *derivations*, never about data drift — and discharged: one derivation, and a `class_source` claim an index earns by checking its own records. Open question 3 is answered. `embed.config.json` gains one optional key and `format_version` does not move, which is what that document already says an additive field does; an index without the key is read exactly as it was before, so nothing on disk has to be rebuilt.
 - **Amended 2026-09-21 (#835).** Phase 3 is built: §4.8 is the spanning filter, the rendering of a foreign node's reference, and the invariant that makes a shared index safe to read across. Three things it decided that this document did not: *every corpus in the index* is **not** offered, because it can only be written as a negative predicate whose semantics nobody here has measured; a push into an index whose witness disagrees is **refused**, because one index carries one contract and the second push would overwrite the first; and a foreign row's `id` is RFC-0032's absolute identifier rather than a handle, because there is no node here to resolve. The MCP contract goes to **0.24.0** in all three copies, and `retrieve` gains a terminal route.
 - **Amended 2026-09-21 (#848).** §8's last row is settled, and it needed no account: §8.3 records the composed-`text` distribution over 3,246 rows in sixteen derived corpora. The answer is *not* "comfortable" — one row in 3,246 is cut, and the largest row that is not cut clears the ceiling by 597 bytes. The same pass found `MAX_FILTERABLE_METADATA_BYTES` declared and never read; it is enforced now, and §8.3 records the headroom that had made the hole latent.
+- **Amended 2026-09-22 (#836).** Phase 4 is measured and closed without building anything: §8.4. The largest corpus scans in under a millisecond and none of the eighteen has built an index at all; the bound that binds first is the push's `ListVectors` sweep, which the API reference confirms has no prefix filter, and it is four round trips for every measured corpus in one index. Two levers are named and left unbuilt. Open question 1 is answered the same way.
 
 ## Summary
 
@@ -644,6 +645,118 @@ corpus has yet written a long one. That is an argument for an
 assertion and a test — which is what this is — rather than for a redesign, and re-running
 `yidam embed --dry-run` is how anyone would find out that the headroom had started closing.
 
+### 8.4 — Scale, measured, and not near
+
+Phase 4's premise was that some corpus has outgrown the in-memory scan. Measured on
+**2026-09-22**, and it has not — the read path is two orders of magnitude short of the remote
+floor, and the write path is four round trips for every measured corpus at once — so this
+section is the phase's result rather than its design. Every figure below is one a reader can
+re-derive: the population from `git ls-files` and §8.3's table, the timings from a twenty-line
+harness this section describes, the service's limits from its own reference.
+
+**1 — No derived corpus has an index at all.** Eighteen repositories carry a `.yidam/`; sixteen
+have nodes (§8.3 gives the two exclusions). **None of the eighteen has an `index/corpus.arrow`.**
+Two have a `.yidam/embeddings/` from an earlier `yidam embed`, two have a `bundle.yiz`, one —
+the non-vendoring consumer — has a `.yidam/index/` holding nothing but a LanceDB manifest stub
+dated 2026-08-20, and none declares `[index.remote]`. The scan this phase worried about
+outgrowing has never been run against a derived corpus, because nothing has built the thing it
+would scan. This is §2's zero-adoption finding read from the other end: the retrieval layer's
+three obstacles are still standing in every corpus that could measure them.
+
+**2 — The largest corpus is 864 rows and under 5 MB resident.** §8.3's census a day earlier
+stands: 3,246 rows across the sixteen, the largest `allen-county-ohio` at 864 (695 nodes, 169
+sources) and the next `ohio-budget` at 797; today's `git ls-files` count of tracked nodes is
+2,768 against §8.3's 2,759, so the whole population moved by nine nodes in a day. A row in
+memory is a 384-float vector (1,536 bytes) plus its `path`, `class`, `label` and `text`; the
+largest corpus's mean text is 3,792 bytes (`yidam embed --dry-run` today: 3,276,879 bytes over
+864 rows) and the population's is 2,846 (§8.3's totals), so a row is ~5.5 KB there and ~4.5 KB
+on average — **4.8 MB for the largest corpus and ~15 MB for all sixteen in one process**.
+Maturity does not predict size: the largest corpus is also the most committed (1,545 commits),
+but the second largest has 84, and the two with the next most commits (`matt-huffman` 848,
+`ohio-education-funding` 796) are 185 and 181 rows.
+
+**3 — The scan at 1×, 10×, 100× and 1,000× the largest corpus.** The body of
+`retrieval::vector::search` after the query is embedded — filter on class, build a `Hit` cloning
+the four strings, dot product, then `response::finish` — was copied into a standalone release
+build and run over synthetic rows of the measured shape (384 dimensions, L2-normalised, 3,800
+bytes of text, six classes), `k = 5`, no class filter, best of 50/50/10/3 repetitions, Apple M2.
+
+| rows | resident | scan as written | scan scoring first, cloning `k` |
+|---:|---:|---:|---:|
+| 864 (1×) | 4.8 MB | **0.69 ms** | 0.24 ms |
+| 8,640 (10×) | 48 MB | 8.5 ms | 2.1 ms |
+| 86,400 (100×) | 476 MB | 102 ms | 29 ms |
+| 864,000 (1,000×) | 4.8 GB | 4,822 ms | 460 ms |
+
+The issue that opened this phase said "microseconds"; it is **under a millisecond**, and the
+difference is not the dot products. The scan as written clones every admitted row's `text` into
+a `Hit` *before* `finish` cuts to `k`, so a query over the largest corpus copies ~3.3 MB of
+prose to return five rows, and at 1,000× the copying is 90% of the time and goes superlinear as
+the allocator thrashes. Scoring first and cloning only the `k` survivors is the lever if one is
+ever needed — 3× at 1× and 10× at 1,000× — and it is **recorded here rather than built**,
+because at every size a corpus has reached it would save a fraction of a millisecond on a path
+whose model load the code already describes as taking seconds.
+
+**4 — The remote path is slower than the local scan at every size measured, and the argument
+for it was never speed.** The service's own statement, quoted from the S3 Vectors user guide
+(2026-09-22): *"subsecond latency for infrequent queries and as low as 100 milliseconds for
+more frequent queries."* The local scan reaches 100 ms at roughly **85,000 rows as written** and
+roughly 300,000 scoring first — a hundred to three hundred and fifty times the largest corpus.
+What a corpus that size would actually run out of is memory, not time: 476 MB at 100×, 4.8 GB at
+1,000×, and the point at which a laptop cannot hold the scan is ~1.5 million rows, which is
+**450× the entire measured population combined**. Scale is a memory argument, and no corpus has
+made it.
+
+**5 — The bound that binds first is the push's listing, and it is verified to have no
+shortcut.** `ops::list_keys` reads every key in the index at 1,000 a round trip, and
+`plan_mirror` calls it on every push. Checked against the `ListVectors` API reference on
+2026-09-22: its request accepts `indexArn`, `indexName`, `vectorBucketName`, `maxResults`
+(1–1,000, default 500), `nextToken`, `returnData`, `returnMetadata`, and `segmentCount` (1–16)
+with `segmentIndex` (0–15) — **there is no key-prefix parameter**, so a push cannot list only
+its own corpus and the cost is proportional to the index, as the code's comment says. The
+reference adds one bound the code does not name: a page also stops at **1 MB processed**, which
+at this crate's keys — genesis prefix plus path, a mean of 65 bytes and a maximum of 95 in the
+largest corpus — is never below the 1,000-key cap. The arithmetic:
+
+| index | keys | round trips per push |
+|---|---:|---:|
+| the largest corpus | 864 | 1 |
+| all sixteen corpora in one index (§4.8) | 3,246 | 4 |
+| 100× the largest corpus | 86,400 | 87 |
+| one million rows | 1,000,000 | 1,000 |
+| the service ceiling | 2,000,000,000 | 2,000,000 |
+
+At the service's own sub-second figure, a push into the whole measured population is a few
+seconds of listing and a push into a million-row index is on the order of ten minutes. **The
+lever is `segmentCount`**: up to sixteen workers listing disjoint segments in parallel, which
+divides the wall clock by up to sixteen and the round trips by nothing. It is not built, for the
+same reason as the scan's lever — the index that needs it is three hundred times larger than
+any that exists.
+
+**6 — `OVERFETCH` and the `topK` clamp bind at a `k` nobody asks for.** `ops::query` always
+requests `8k` rows (`top_k_request(k, true)` — the residual is assumed, not detected), so the
+default `k = 5` is one 100-row page and `k = 12` is the last value that stays inside one. The
+clamp at 10,000 binds at `k > 1,250`, and `retrieve` puts no ceiling on `k` — so a caller who
+asked for two thousand rows would make a hundred round trips and receive two thousand. Every
+default this crate ships is 5 (`retrieve`, in the shell and over MCP; `bench`'s flat arm) or 1
+(an anchored step's `anchor_k`). Left as it is: the figure is honest about being headroom,
+the read path pages when it is short, and nothing has measured a residual's rejection rate to
+replace it with.
+
+**What this does not settle**, so that a reader does not take it as settled: the per-query cost
+of embedding the query itself was not timed here — an attempt to build the largest corpus's
+index with a full-feature binary ran twenty minutes on a memory-starved machine and was stopped
+rather than reported — and it is the one figure that would say whether even the local scan is
+worth a millisecond of attention. And §8.3's census is a day older than the rest; the nine-node
+drift is the whole of what a day moved.
+
+**The result.** No corpus is within two orders of magnitude of a size where the in-memory scan
+costs more than the remote path's floor, and a push into every measured corpus at once lists the
+index in four round trips. Two levers are named — score-then-clone on the scan, `segmentCount` on
+the listing — and neither is built. The phase closes with these numbers and re-opens when
+`yidam embed --dry-run` over a real corpus reports rows in the tens of thousands, or when a
+shared index's `--dry-run` roster reports keys in the hundreds of thousands.
+
 ## Phases
 
 1. **This.** One corpus, one remote index: push, query, verify, report.
@@ -658,7 +771,12 @@ assertion and a test — which is what this is — rather than for a redesign, a
    single embedding contract, so *one index, one vector space* had to become an invariant the
    push enforces before spanning one was safe to read. It also gave `retrieve` a terminal
    route, because a spanning question needs somebody able to ask it.
-4. **Scale.** Drop the assumption that `k` is small and a corpus fits in memory. Measure first.
+4. ~~**Scale.** Drop the assumption that `k` is small and a corpus fits in memory. Measure
+   first.~~ **Measured (#836): §8.4, and nothing is near.** The largest corpus is 864 rows,
+   scanned in under a millisecond; the scan reaches the remote path's 100 ms floor at a hundred
+   times that, and a push's listing is still under a hundred round trips there. No derived corpus
+   has built an index at all. The two levers — score-then-clone on the scan, `segmentCount` on
+   the listing — are named there and not built.
 
 ## Open questions
 
@@ -667,7 +785,9 @@ assertion and a test — which is what this is — rather than for a redesign, a
    makes and is proportional to the index. A reserved roster record would answer it in one
    `GetVectors`, and would also be where a per-corpus embedding contract went (§4.8). Neither
    is worth writing for eighteen corpora and one index; both become worth it at a scale
-   nothing here has met, and phase 4 is where that gets measured rather than assumed.
+   nothing here has met. **§8.4 measured it:** the sweep over every measured corpus in one
+   index is four round trips, and the API has no prefix parameter that would let a roster be
+   read any other way short of a reserved record. Still not worth writing.
 2. **Is the ambient credential fallback right?** The argument in §5 is that one index crosses no
    boundary. A corpus whose vectors are meant for a narrower audience than its shell is the case
    that would falsify it, and nothing has met one yet.

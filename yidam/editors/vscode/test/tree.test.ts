@@ -141,6 +141,38 @@ test('no open questions is a stated answer, not an empty box', () => {
   assert.equal(tree[0].icon, 'check')
 })
 
+// #857: an open edge is its own entry under the node that wrote it, so one path can carry
+// several. VS Code refuses a view with two items of one id, so the ids must not be the path.
+test('a node question and its open edges are distinct rows, and a repeated triple still is', () => {
+  const node = '.yidam/corpus/gauge/ohio-river.yml'
+  const tree = openQuestionsTree({
+    ...ENVELOPE,
+    open_questions: [
+      { node, label: '?Which datum', scope: 'node' },
+      { node, label: '?Which datum', scope: 'edge', relationship: 'refines', target: 'a.yml' },
+      { node, label: '?Which datum', scope: 'edge', relationship: 'refines', target: 'b.yml' },
+      { node, label: '?Which datum', scope: 'edge', relationship: 'refines', target: 'b.yml' },
+    ],
+  })
+  assert.equal(tree.length, 4)
+  assert.equal(new Set(tree.map((n) => n.id)).size, 4)
+  assert.equal(tree[0].description, node)
+  assert.equal(tree[1].description, 'refines → a.yml')
+  // Every row still opens the file the edge is written in.
+  assert.deepEqual(
+    tree.map((n) => n.file),
+    [node, node, node, node],
+  )
+})
+
+// A binary older than the field sends no `scope`; that is a node question, as it always was.
+test('an entry without a scope is a node question with the path beside it', () => {
+  const node = '.yidam/corpus/gauge/ohio-river.yml'
+  const tree = openQuestionsTree({ ...ENVELOPE, open_questions: [{ node, label: '?Which datum' }] })
+  assert.equal(tree.length, 1)
+  assert.equal(tree[0].description, node)
+})
+
 // ── provenance ──────────────────────────────────────────────────────────────
 
 const CATALOG: CatalogAuditReport = {
@@ -394,7 +426,7 @@ test('a node with no label is matched by the filename the view shows for it', ()
 
 test('open questions narrow on their own labels and paths', () => {
   const tree = openQuestionsTree(OPEN_ONE, parseFilter('datum')!)
-  assert.deepEqual(ids(tree), ['open:.yidam/corpus/gauge/ohio-river.yml'])
+  assert.deepEqual(ids(tree), ['open:node:.yidam/corpus/gauge/ohio-river.yml'])
 })
 
 /**
@@ -405,7 +437,7 @@ test('open questions narrow on their own labels and paths', () => {
 test('class: narrows open questions only when the index is in hand', () => {
   const f = parseFilter('class:gauge')!
   assert.deepEqual(ids(openQuestionsTree(OPEN_ONE, f, INDEX)), [
-    'open:.yidam/corpus/gauge/ohio-river.yml',
+    'open:node:.yidam/corpus/gauge/ohio-river.yml',
   ])
   assert.deepEqual(openQuestionsTree(OPEN_ONE, f), [], 'no index, so nothing states a class')
 })

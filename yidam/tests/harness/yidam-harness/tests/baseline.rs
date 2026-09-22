@@ -15,7 +15,7 @@
 
 use std::path::{Path, PathBuf};
 
-use yidam_harness::{check, snapshot};
+use yidam_harness::{check, snapshot, PROTOCOL_VERSION};
 
 fn results_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../results")
@@ -80,6 +80,9 @@ fn no_baseline_has_drifted() {
 
 /// A baseline whose provenance is missing cannot be compared to a later run: `harness diff`
 /// refuses to compare across protocol versions, and needs each side to say which it is.
+///
+/// Recording *a* version is necessary and was, for a while, all that was asked. See
+/// `every_baseline_is_comparable_under_the_current_protocol` for the other half.
 #[test]
 fn every_baseline_records_what_produced_it() {
     for dir in baselines() {
@@ -108,4 +111,45 @@ fn every_baseline_records_what_produced_it() {
             run.permission_denials.join(", ")
         );
     }
+}
+
+/// A baseline at an older protocol is a gate that cannot run.
+///
+/// `diff` refuses across protocol versions, and a fresh run always stamps `PROTOCOL_VERSION`.
+/// So the moment the protocol bumps, every `diff` against a baseline recorded under the
+/// previous one takes the refusal branch: the comparison the thresholds in `rubric.md` exist
+/// to make is unavailable, and nothing anywhere goes red — the refusal reads like a
+/// considered answer, because it is one, to a question nobody realised had stopped being
+/// asked.
+///
+/// That is exactly what happened at 0.3.0 → 0.4.0. `every_baseline_records_what_produced_it`
+/// above asserted the version was *present*, which it was — and the gate was inert from the
+/// bump on 2026-08-27 until somebody ran `harness diff` by hand ten days later.
+///
+/// The way out is not always a re-run. When the recorded verdicts are already what the
+/// current checks produce, `harness rebaseline --result <dir> --reason <why>` carries the
+/// snapshot forward and records the argument for doing so.
+#[test]
+fn every_baseline_is_comparable_under_the_current_protocol() {
+    let stale: Vec<String> = baselines()
+        .into_iter()
+        .filter_map(|dir| {
+            let snap = snapshot::load(&dir).ok()?;
+            let recorded = snap.protocol_version.clone();
+            (recorded.as_deref() != Some(PROTOCOL_VERSION))
+                .then(|| format!("{} is recorded at {}", dir.display(), snap.version_label()))
+        })
+        .collect();
+
+    assert!(
+        stale.is_empty(),
+        "these baselines cannot be compared against anything this harness produces, because \
+         `diff` refuses across protocol versions and a fresh run stamps {PROTOCOL_VERSION}:\n\n  \
+         {}\n\n\
+         The regression gate is inert for them, and inert is not red. Either re-run the \
+         scenario under the current protocol, or — if the recorded verdicts are already what \
+         the current checks produce — carry it forward with `harness rebaseline --result <dir> \
+         --reason <why>`.",
+        stale.join("\n  ")
+    );
 }

@@ -60,6 +60,20 @@ enum Command {
         #[arg(long, default_value = yidam_harness::judge::DEFAULT_JUDGE_MODEL)]
         model: String,
     },
+    /// Carry a committed baseline forward to the current protocol version, without re-running
+    /// it. Refuses unless the recorded verdicts are what the current checks produce and the
+    /// recorded bands are the criteria the rubric states.
+    Rebaseline {
+        /// Path to the result directory
+        #[arg(long)]
+        result: std::path::PathBuf,
+
+        /// Why the recorded verdicts still mean under the current protocol what they meant
+        /// under the recorded one. Required: the checks agreeing on this corpus is necessary
+        /// and not sufficient, and this is the part no check can supply.
+        #[arg(long)]
+        reason: String,
+    },
     /// Compare two result snapshots and report regressions
     Diff {
         /// Path to the baseline result
@@ -92,6 +106,7 @@ fn main() -> Result<()> {
             scenario,
             model,
         } => yidam_harness::judge_result(result, scenario, model),
+        Command::Rebaseline { result, reason } => yidam_harness::rebaseline(result, reason),
         Command::Diff {
             baseline,
             candidate,

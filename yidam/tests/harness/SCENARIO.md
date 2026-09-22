@@ -139,7 +139,10 @@ are already committed one directory up and say nothing about what the agent did.
 
 `structural.json` records `protocol_version`, and `harness diff` refuses to compare two
 snapshots that do not share one: when an S-check changes meaning, a pass→fail transition
-across that boundary describes the check, not the model.
+across that boundary describes the check, not the model. A bump therefore takes every
+committed baseline out of the comparison until it is re-run or carried forward — see
+[HARNESS.md](../HARNESS.md#carrying-a-baseline-across-a-protocol-bump), and
+`revalidated` beside `protocol_version` when it was carried.
 
 It also records a **run record** read back off the transcript — the model requested and the
 model the session resolved to, session id, turn count, duration, cost, and the tool calls the
