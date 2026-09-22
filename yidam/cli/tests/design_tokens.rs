@@ -131,7 +131,37 @@ fn source_tokens() -> BTreeMap<String, String> {
 /// roster it once used for that was the fourth copy of the palette and #465 deleted it. So a
 /// `var(--ink-90)` in a component resolved to nothing, rendered unstyled, and passed both
 /// gates. A discovered set that discovers the wrong file types is a roster with extra steps.
-const CONSUMER_EXTENSIONS: &[&str] = &["css", "astro", "jsx"];
+///
+/// `ts` and `tsx` arrived with #611, before anything stood in the hole they left. A React
+/// island written in TypeScript could spell a colour freely and nothing here opened it — and
+/// the web editor's islands are `.jsx` today *because two of their own comments say this list
+/// reads `jsx` and not `tsx`*. That is the roster again wearing a convention: the constraint
+/// lived in prose, enforced by whoever remembered it, and the extension of the next island is
+/// not something this gate should have an opinion about.
+///
+/// `ts` as well as `tsx`, because CSS does not need JSX around it. The extension's webview
+/// stylesheet is a template literal in `yidam/editors/vscode/src/neighborhood.ts` spending
+/// twenty token references, nine of them the palette's, and no gate in this repository had
+/// ever read it. See [`HOST_PREFIXES`] for what reading it costs.
+const CONSUMER_EXTENSIONS: &[&str] = &["astro", "css", "jsx", "ts", "tsx"];
+
+/// Token families the *host* declares, which a consumer may reference and this repository
+/// cannot.
+///
+/// One family, and it arrived with `ts` in [`CONSUMER_EXTENSIONS`]. A webview is loaded by VS
+/// Code, which injects a custom property per theme colour into the document it serves, so
+/// `neighborhood.ts` legitimately spends `--space-4` from the palette and
+/// `--vscode-editor-background` from the editor. Eleven of the latter. Without this the
+/// dangling check would be right about the mechanism — nothing here declares them — and wrong
+/// about the failure, since they resolve at run time in the only place that file is ever
+/// loaded.
+///
+/// A prefix rather than a roster of names, because the set is VS Code's and moves with their
+/// releases. It stays one narrow prefix because the exemption is the dangerous kind: every
+/// `--vscode-…` is now unread here, a typo inside that family resolves to nothing in silence,
+/// and a token *this* repository declares must never be given a host's prefix. #591 owns the
+/// larger question of whether that surface should be spending the palette at all.
+const HOST_PREFIXES: &[&str] = &["--vscode-"];
 
 /// Surfaces outside the design system that consume its tokens — discovered, not listed.
 ///
@@ -308,6 +338,11 @@ fn system_surfaces() -> Vec<(String, String)> {
 /// The other direction, and the one that fails on a rename: `var(--ink-900)` against a
 /// palette that no longer declares `--ink-900` resolves to nothing, and CSS says nothing
 /// about it. The page renders unstyled and the build stays green.
+///
+/// Two exemptions, and they are not the same kind. A *local* declaration is checked in the
+/// file that makes it, so nothing is taken on trust. A [`HOST_PREFIXES`] family is taken
+/// entirely on trust — the declaration is somewhere this repository cannot read — which is
+/// why that list is one prefix long and why adding to it is a decision rather than a fix.
 #[test]
 fn every_token_a_consumer_uses_is_declared_at_the_source() {
     let source = source_tokens();
@@ -326,7 +361,8 @@ fn every_token_a_consumer_uses_is_declared_at_the_source() {
                     .collect();
                 // A consumer may define and use its own local variables (Starlight's `--sl-*`).
                 let local = declarations(&text).contains_key(&name);
-                if !local && !source.contains_key(&name) {
+                let host = HOST_PREFIXES.iter().any(|p| name.starts_with(p));
+                if !local && !host && !source.contains_key(&name) {
                     dangling.push(format!("  {rel}:{}: var({name})", i + 1));
                 }
                 rest = &after[name.len()..];

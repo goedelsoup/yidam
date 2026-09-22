@@ -278,7 +278,14 @@ fn declared_props(component: &str) -> BTreeSet<String> {
     out
 }
 
-/// Every `.jsx` and `.astro` in the repository — the places a component can be used.
+/// Every `.jsx`, `.tsx` and `.astro` in the repository — the places a component can be used.
+///
+/// `.tsx` arrived with #611, which found the same hole in three gates at once: this scan, the
+/// token scan in `design_tokens.rs`, and the adherence lint's path. A TypeScript island could
+/// pass `<Input list=…>` — a prop the component does not declare, dropped in silence by React
+/// — and no gate here opened the file. Nothing in this repository is `.tsx` today, so the
+/// coverage was proved by planting one and watching this go red rather than by observing it
+/// catch something.
 fn jsx_surfaces() -> Vec<(String, String)> {
     let mut out = Vec::new();
     for entry in WalkDir::new(repo_root())
@@ -291,7 +298,7 @@ fn jsx_surfaces() -> Vec<(String, String)> {
     {
         let path = entry.path();
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        if !entry.file_type().is_file() || !(ext == "jsx" || ext == "astro") {
+        if !entry.file_type().is_file() || !matches!(ext, "jsx" | "tsx" | "astro") {
             continue;
         }
         let rel = path
