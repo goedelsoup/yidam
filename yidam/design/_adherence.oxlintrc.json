@@ -8,12 +8,6 @@
     "index.js"
   ],
   "rules": {
-    "react/forbid-elements": [
-      "error",
-      {
-        "forbid": []
-      }
-    ],
     "no-restricted-imports": [
       "error",
       {

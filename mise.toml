@@ -419,17 +419,24 @@ depends = ["deny", "machete"]
 # outside yidam/design/ declares a raw hex.
 
 [tasks.design-lint]
-description = "Design-system adherence: no raw hex, no raw px, no off-system fonts, declared props only."
+description = "Design-system adherence: components reached through index.js, on a lint proved against a file that breaks it."
 tools = { "npm:oxlint" = "1.42.0" }
 # `--deny-warnings`, because a lint that only warns in CI is a lint that is off. The rules
 # themselves moved from `warn` to `error` in #465 for the same reason; this covers oxlint's
 # own defaults, one of which was already firing on a stray escape in `Avatar.jsx`.
 #
-# The self-test is not decoration. Every custom rule this config carried was inert: 47
-# `no-restricted-syntax` selectors named a rule oxlint does not implement, and the one rule it
-# does implement was switched off everywhere by an `overrides` block. The job ran, read 40
-# files, and reported nothing — on a tree with 21 hand-written hex colours in it. A lint is
-# only checked by running it against something that should fail.
+# The description says what this enforces now, which is less than it once advertised: the hex,
+# px, font and prop rules named here until #467 were 47 `no-restricted-syntax` selectors
+# naming a rule oxlint does not implement, and they are now derived checks in
+# `design_system.rs`. What is left is the import boundary.
+#
+# The self-test is not decoration. Every custom rule this config carried was inert: those 47
+# selectors, and the one rule oxlint does implement switched off everywhere by an `overrides`
+# block. The job ran, read 40 files, and reported nothing — on a tree with 21 hand-written hex
+# colours in it. The second rule, `react/forbid-elements`, was configured `"forbid": []` and
+# so forbade nothing on any file from the initial sync until #881 removed it: a lint can be
+# invoked, loadable, spelled right and still enforce nothing. So the self-test now requires
+# every rule to fire on a fixture built to break it.
 run = [
   "oxlint --config yidam/design/_adherence.oxlintrc.json --deny-warnings yidam/design",
   "bash scripts/design-lint-selftest.sh",
