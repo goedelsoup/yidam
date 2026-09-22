@@ -343,6 +343,7 @@ mod tests {
     fn scored(band: crate::quality::Band) -> crate::snapshot::Snapshot {
         crate::snapshot::Snapshot {
             protocol_version: Some(crate::PROTOCOL_VERSION.to_string()),
+            revalidated: None,
             run: None,
             quality: Some(crate::quality::QualityReport {
                 criteria: vec![crate::quality::CriterionVerdict {
