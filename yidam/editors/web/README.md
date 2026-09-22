@@ -147,10 +147,12 @@ So the escape rule is two rules, and [`test/boundary.mjs`](test/boundary.mjs) st
 `components/<group>/**`, which the design system's own adherence lint has forbidden since
 before it had a consumer.
 
-Every colour in `app.css` and in the island is a `var(--…)` and none is a literal. That keeps
-this surface inside `design_tokens.rs`'s scan: its extension list is `css`, `astro`, `jsx`, and
-`tsx` is not on it, which is why the island is `.jsx`. #611 is still open — that choice covers
-this surface and not the next one.
+Every colour in `app.css` and in the island is a `var(--…)` and none is a literal, and
+`design_tokens.rs`'s scan holds that. Its extension list was `css`, `astro` and `jsx`, which is
+why the islands here are `.jsx` — a constraint that lived in their own comments. #611 closed
+that: the list is `astro`, `css`, `jsx`, `ts`, `tsx`, the prop scan reads `.tsx`, and
+`design-lint` walks the repository rather than `yidam/design`. The islands stay `.jsx` by
+history, and the next one is free to be either.
 
 ## The hydration spike, and its answer
 

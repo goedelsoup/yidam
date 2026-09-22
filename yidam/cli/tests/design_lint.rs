@@ -85,6 +85,19 @@ fn design_lint_task() -> String {
         .to_string()
 }
 
+const SELFTEST: &str = "scripts/design-lint-selftest.sh";
+
+/// The self-test script with whole-line comments stripped, for the same reason
+/// [`design_lint_task`] strips them: that script is two-thirds prose, and every string these
+/// assertions look for is discussed in it before it is used.
+fn selftest_code() -> String {
+    read(SELFTEST)
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// One oxlint invocation in the task: its flags, and the paths it lints.
 struct Invocation {
     flags: Vec<String>,
@@ -457,7 +470,7 @@ fn the_lint_reaches_every_consumer_and_not_by_a_roster() {
 /// proof exists and that the task performs it; the proof itself lives in the script.
 #[test]
 fn the_lint_is_proved_against_a_file_that_breaks_it() {
-    let script = "scripts/design-lint-selftest.sh";
+    let script = SELFTEST;
     let selftest = read(script);
     assert!(
         selftest.contains("--print-config"),
@@ -525,5 +538,83 @@ fn the_lint_is_proved_against_a_file_that_breaks_it() {
         task.contains(script),
         "the `design-lint` task no longer runs {script}, so the lint is back to being \
          checked only by reading it"
+    );
+}
+
+/// What the gates declare in scope is what oxlint is made to prove it can read.
+///
+/// The last silence #611 left. `scripts/design-lint-selftest.sh` discovers file types from the
+/// tree, which proves a type the moment a file of it exists — one commit *after* the surface
+/// whose coverage was the point. `tsx` is that case: three gates put it in scope and this tree
+/// holds no `.tsx` file, so discovery alone would have proved every type except the one the
+/// issue was about.
+///
+/// The repair was not to hardcode `tsx` in the script. That is the roster a fourth time, and it
+/// covers `tsx` while going quiet for whatever comes next; the script unions in
+/// `CONSUMER_EXTENSIONS` instead, read out of the gate that declares it. So an extension cannot
+/// enter the token gate's scope without this script demanding oxlint prove it can read that
+/// type — and if oxlint cannot, the script says so rather than the type being covered by nobody.
+///
+/// Both halves of that derivation are checked here, because either can fail silently: the union
+/// can be deleted, and the `sed` that reads the const can stop matching if the const is
+/// reformatted. The second is checked by running the script's own expression rather than a
+/// second copy of it — a guard comparing two hardcoded copies is the defect #831 found.
+#[test]
+fn the_selftest_proves_the_extensions_the_gates_declare() {
+    let code = selftest_code();
+    assert!(
+        code.contains("CONSUMER_EXTENSIONS"),
+        "{SELFTEST} no longer reads `CONSUMER_EXTENSIONS` out of `design_tokens.rs`, so the set \
+         of file types it makes oxlint prove is whatever the tree happens to hold. A type \
+         declared in scope with no file of it yet — `tsx`, on the day #611 landed — is then \
+         proved by nothing, which is the hole that issue was filed about."
+    );
+
+    // The script's own extraction, run against the file the script names — both halves taken
+    // from the script rather than retyped. That is the whole point of running it: an expression
+    // or a path copied into this test would go on passing here while the script read nothing.
+    // What this cannot see is the extraction being neutered in the shell rather than in its
+    // arguments; the script's own `[ -n "$declared" ]` floor covers that, in `design-lint`.
+    let (program, rest) = code
+        .split_once("sed -n '")
+        .and_then(|(_, rest)| rest.split_once('\''))
+        .unwrap_or_else(|| panic!("{SELFTEST} runs no `sed -n '…'`; the extraction has moved"));
+    let source = rest
+        .split_once("\"$root/")
+        .and_then(|(_, r)| r.split_once('"'))
+        .map(|(path, _)| path.to_string())
+        .unwrap_or_else(|| {
+            panic!("{SELFTEST} passes `sed` no `\"$root/…\"` file; the extraction has moved")
+        });
+    assert!(
+        repo_root().join(&source).is_file(),
+        "{SELFTEST} reads `CONSUMER_EXTENSIONS` out of `{source}`, which is not a file. A `sed` \
+         over a path that does not exist reads nothing, exits zero under `-n`, and leaves the \
+         declared set empty — the script probes whatever the tree holds and says nothing about \
+         it."
+    );
+    let out = std::process::Command::new("sed")
+        .arg("-n")
+        .arg(program)
+        .arg(repo_root().join(&source))
+        .output()
+        .unwrap_or_else(|e| panic!("sed did not run: {e}"));
+    let declared = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !declared.trim().is_empty(),
+        "{SELFTEST}'s expression `{program}` reads nothing out of `{source}`, so the \
+         declared set it unions in is empty and the script probes only what the tree holds. \
+         Nothing fails when that happens except the script's own floor assertion, and that \
+         runs in `design-lint`, not here."
+    );
+    // `tsx` specifically, because it is the member that discovery cannot supply: no `.tsx` file
+    // exists in this tree. If one is added this assertion keeps passing and stops being the
+    // interesting one — the derivation is still what covers the member after it.
+    assert!(
+        declared.contains("tsx"),
+        "{SELFTEST}'s expression `{program}` reads `{}` out of `CONSUMER_EXTENSIONS`, and `tsx` \
+         is not in it. That is the one extension in scope with no file of its type in the tree, \
+         so it is the one the union exists for.",
+        declared.trim()
     );
 }

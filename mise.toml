@@ -413,7 +413,9 @@ depends = ["deny", "machete"]
 # rejects outright, so the config had never been loadable either. A surface with no consumer,
 # and the consumer would have failed on contact.
 #
-# It lints JS and JSX, which is what oxlint reads. The palette's other two consumers are CSS
+# It lints every file type oxlint reads — `ts`, `tsx`, `js`, `jsx`, `mjs`, `astro`, and not
+# `.cjs`, which `design-lint-selftest.sh` discovers from the tree and proves one by one rather
+# than taking on trust (#611). The palette's other two consumers are CSS
 # files it cannot parse, and they are covered from the other side: they now hold no colours
 # at all, only `var(--…)` into the one bundle, and `design_tokens.rs` asserts that no surface
 # outside yidam/design/ declares a raw hex.

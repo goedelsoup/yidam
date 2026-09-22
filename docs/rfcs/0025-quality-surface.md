@@ -311,7 +311,23 @@ Beyond that, each phase golden-fixtures its output where output is a contract:
 2. **Which surfaces are inside the adherence lint?** P4 discovers consumers by token reference,
    which is correct for CSS and JSX and says nothing about the VS Code extension, whose colors come
    from the editor's own theme API. Is a webview in scope? It renders in this repository's design
-   language and cannot use its tokens directly.
+   language and cannot use its tokens directly. Moved to **#591**, which owns the answer.
+
+   **Narrowed 2026-09-22 by #611, not answered.** The premise that the webview "cannot use its
+   tokens directly" was false as written, and the measurement is the useful part: the extension's
+   webview stylesheet — a template literal in
+   [`neighborhood.ts`](../../yidam/editors/vscode/src/neighborhood.ts) — spends twenty token
+   references, **nine of them this repository's palette** and eleven the editor's `--vscode-*`
+   family. It uses both. So the surface is no longer invisible: `ts` entered
+   `CONSUMER_EXTENSIONS`, and a raw hex or a dangling `var(--…)` there now fails
+   `design_tokens.rs`, which was proved by planting each. The `--vscode-*` family is exempted by
+   `HOST_PREFIXES`, on the record and for the stated reason — VS Code injects those, and this
+   repository cannot declare them.
+
+   What is left for #591 is the decision, which no scan can make: whether that webview *should* be
+   spending the palette rather than the theme API. Being read by a gate is not the same as being
+   right, and the exemption has a cost worth deciding against — every `--vscode-…` is now unread
+   here, so a typo inside that family resolves to nothing in silence.
 3. ~~**What happens to a version's docs when its tag is yanked?**~~ **Settled in #466: dropped
    entirely.** A yanked release is a retracted release, documentation included, and its URLs 404.
    The argument against — that a yanked crate is still downloadable by anything that already

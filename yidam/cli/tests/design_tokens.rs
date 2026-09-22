@@ -134,10 +134,10 @@ fn source_tokens() -> BTreeMap<String, String> {
 ///
 /// `ts` and `tsx` arrived with #611, before anything stood in the hole they left. A React
 /// island written in TypeScript could spell a colour freely and nothing here opened it — and
-/// the web editor's islands are `.jsx` today *because two of their own comments say this list
-/// reads `jsx` and not `tsx`*. That is the roster again wearing a convention: the constraint
-/// lived in prose, enforced by whoever remembered it, and the extension of the next island is
-/// not something this gate should have an opinion about.
+/// the web editor's islands were `.jsx` *because two of their own comments said this list read
+/// `jsx` and not `tsx`*. That is the roster again wearing a convention: the constraint lived in
+/// prose, enforced by whoever remembered it, and the extension of the next island is not
+/// something this gate should have an opinion about. Both comments now say so.
 ///
 /// `ts` as well as `tsx`, because CSS does not need JSX around it. The extension's webview
 /// stylesheet is a template literal in `yidam/editors/vscode/src/neighborhood.ts` spending

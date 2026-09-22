@@ -30,10 +30,11 @@
  * corpus — it decides what is on their screen, which is the definition of an affordance and
  * is why no gate in `test/boundary.mjs` has anything to say about this file.
  *
- * `.jsx` rather than `.tsx`, deliberately: `design_tokens.rs`'s consumer scan reads `css`,
- * `astro` and `jsx`, and `tsx` is not on the list (#611). Every colour here is a `var(--…)`
- * or a class from `app.css`, and writing this as `.tsx` would put it outside the gate that
- * holds that.
+ * `.jsx`, and no longer for a reason about the gates. This file was written `.jsx` because
+ * `design_tokens.rs`'s consumer scan read `css`, `astro` and `jsx` — a constraint that lived
+ * in this comment and was enforced by whoever remembered it. #611 put `ts` and `tsx` in scope
+ * there and in the prop scan, so the extension of the next island is free again: every colour
+ * here is a `var(--…)` or a class from `app.css`, and that is held wherever it is written.
  */
 
 import React, { useMemo, useState } from 'react'

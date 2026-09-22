@@ -680,21 +680,48 @@ does not propose to move it.
   [§ Where the sources live](#where-the-sources-live-and-what-ships). A shared module would be a
   fourth Layer 4 artifact unless it stays private, and a copy needs a parity test. Phase 1 carries
   a copy plus that test; the extraction is a decision this RFC does not force.
-- **`tsx` is not in the design gate's scope.** The consumer scan discovers surfaces by file
-  extension, and says so — [`design_tokens.rs:134-140`](../../yidam/cli/tests/design_tokens.rs#L134-L140):
+- ~~**`tsx` is not in the design gate's scope.**~~ **Settled 2026-09-22 (#611): the gates read
+  TypeScript, and the lint reaches its consumers.** The consumer scan discovers surfaces by file
+  extension, and says so — [`design_tokens.rs:168-170`](../../yidam/cli/tests/design_tokens.rs#L168-L170):
   *"A consumer is any file of a [`CONSUMER_EXTENSIONS`] type outside `yidam/design/` that
   references a token the system declares. The next UI kit is covered the moment it uses the
   palette, which is the point: a roster here would stop covering whatever came next."*
-  `CONSUMER_EXTENSIONS` is `css`, `astro`, `jsx`. So this surface is covered for free if its
-  islands are `.jsx`, and invisible to the raw-colour check if they are `.tsx` — #591's webview
-  blind spot arriving a third time, and it should be closed by choosing one before the first
-  island is written, not after. Lean: extend the list, since the next surface will have the
-  same question.
-  **Chosen 2026-09-06, in the narrow direction only.** Phase 1's one island —
-  [`src/islands/NodeTable.jsx`](../../yidam/editors/web/src/islands/NodeTable.jsx) — is `.jsx`,
-  so it is inside the raw-colour gate today. That settles this surface and settles nothing
-  else: the list is still three extensions long and the next `.tsx` island anywhere is still
-  invisible to it. #611 keeps the general question.
+  The list was `css`, `astro`, `jsx`, so this surface was covered for free if its islands were
+  `.jsx` and invisible to the raw-colour check if they were `.tsx` — #591's webview blind spot
+  arriving a third time. **Chosen 2026-09-06, in the narrow direction only:** Phase 1's island
+  is `.jsx`, which settled this surface and nothing else.
+
+  That narrow choice was the wrong shape, and the reason is visible in the code it produced.
+  [`NodeTable.jsx`](../../yidam/editors/web/src/islands/NodeTable.jsx) and
+  [`Propose.jsx`](../../yidam/editors/web/src/islands/Propose.jsx) each carried a comment saying
+  the island is `.jsx` *because the gate reads `jsx` and not `tsx`* — a constraint living in
+  prose, enforced by whoever remembered it. That is the roster this RFC quoted the gate warning
+  about, wearing a convention.
+
+  So the list was extended, in three places rather than the two the issue named:
+
+  - `CONSUMER_EXTENSIONS` is now `astro`, `css`, `jsx`, `ts`, `tsx`. `ts` as well as `tsx`,
+    because CSS does not need JSX around it: the extension's webview stylesheet is a template
+    literal in `neighborhood.ts` spending twenty token references, nine of them the palette's,
+    which no gate in this repository had ever read.
+  - `design_system.rs`'s prop scan reads `.tsx` — the third gate, which the issue did not name
+    and which had the same hole: a TS island could pass a prop the component does not declare
+    and React would drop it in silence.
+  - `design-lint` lints the repository, not `yidam/design`. Its one live rule forbids reaching
+    past `index.js` into a component's internals, and every file in a position to do that was
+    outside the path it was given — a rule that was live, fixture-proved, and unreachable.
+
+  Two things that came with `ts` and are worth reading as part of the settlement. `HOST_PREFIXES`
+  exempts `--vscode-*`, which VS Code injects into a webview and this repository cannot declare;
+  the exemption is taken on trust, so it is one prefix long and every `--vscode-…` is now unread
+  here. And the repository-wide lint pass suppresses oxlint's default category, because
+  correctness has one home in the root `.oxlintrc.json` that three packages extend — run with
+  defaults on, that pass contradicts an exemption those packages make on purpose.
+
+  **What this does not settle is #591**, which keeps the question it was filed for: the webview
+  is now inside the *scan* — a raw hex or a dangling token in it fails a gate, which was proved
+  by planting both — and nothing here decides whether that surface should be spending the
+  palette rather than the editor's theme API.
 - ~~**The design system's React components have never been hydrated.**~~ **Answered 2026-09-06:
   they survive.** No `client:*` directive appeared on any quality page —
   [`astro.config.mjs:247-251`](../../yidam/web/docs/astro.config.mjs#L247-L251): *"this is a

@@ -202,15 +202,30 @@ exts=$(git -C "$root" ls-files \
          | grep -E '^(ts|tsx|js|jsx|mjs|cjs|astro)$' || true)
 [ -n "$exts" ] || fail "no lintable file type found in the tree at all; this walk is wrong"
 
-# `tsx` whether the tree holds one or not, and it does not. It is the type #611 put in scope
-# across three gates, and a discovered set proves a type the moment a file of it exists —
-# which is one commit *after* the island whose coverage was the point. The one addition to a
-# discovered set in this script, for the one type declared in scope with nothing in it yet.
-case "$exts" in
-  *tsx*) ;;
-  *) exts="$exts
-tsx" ;;
-esac
+# A discovered set proves a type the moment a file of it exists — which is one commit *after*
+# the surface whose coverage was the point. `tsx` is the case: #611 put it in scope across three
+# gates and this tree holds no `.tsx` file, so discovery alone would have proved every type but
+# the one the issue was about.
+#
+# So the declared set is unioned in, read out of the gate that declares it rather than retyped
+# here. Retyping it is the roster again: `tsx` hardcoded in this script covers `tsx` and goes
+# quiet for whatever the next extension is. Read this way, an extension cannot enter the token
+# gate's scope without this script demanding oxlint prove it — and if oxlint cannot read that
+# type, the failure below says so instead of the type being covered by nobody.
+#
+# `css` is dropped because oxlint does not parse CSS at all, so a probe would prove nothing
+# about it. The CSS consumers are covered from the other side, by `design_tokens.rs` itself,
+# which reads them directly.
+declared=$(sed -n 's/^const CONSUMER_EXTENSIONS[^=]*= *&\[\(.*\)\];$/\1/p' \
+             "$root/yidam/cli/tests/design_tokens.rs" \
+             | tr -d '"' | tr ',' '\n' | tr -d ' ' | grep -v '^$' | grep -vx css)
+[ -n "$declared" ] || fail "could not read \`CONSUMER_EXTENSIONS\` out of
+yidam/cli/tests/design_tokens.rs. That const is what the token gate declares in scope, and this
+script unions it into the types it makes oxlint prove — silently probing a smaller set if the
+read fails, which is the shape of defect #611 was filed about. Check the const's spelling:
+  grep -n CONSUMER_EXTENSIONS yidam/cli/tests/design_tokens.rs"
+
+exts=$(printf '%s\n%s\n' "$exts" "$declared" | grep -v '^$' | sort -u)
 
 for ext in $exts; do
   case "$ext" in
