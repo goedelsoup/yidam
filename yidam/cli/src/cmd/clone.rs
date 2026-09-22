@@ -37,6 +37,12 @@ use super::copy::copy_dir_excluding_top;
 /// them. Step 3 still replaces the directory: in existing-repo mode there was never a clone
 /// to exclude from, and the workflows being replaced there are the target's own.
 ///
+/// `.oxlintrc.json` is the linter contract for three npm packages, all of which live under
+/// `yidam/` — which the bootstrap skill deletes. Excluding it leaves no dangling `extends`
+/// behind, because the configs that extend it do not survive genesis either. A derived
+/// repository has no `package.json` and no TypeScript at all; the file would configure a
+/// linter for nothing.
+///
 /// What is deliberately absent: `BOOTSTRAP.md` and `VERSIONING.md`. Both are yidam's, both
 /// are read during bootstrap — the first is the entry prompt that starts it — and the vendor
 /// step in step 8 deletes them once they have been used. Shipping a file the protocol
@@ -45,6 +51,7 @@ pub const NOT_INHERITED: &[&str] = &[
     ".claude-plugin",
     ".config",
     ".github",
+    ".oxlintrc.json",
     ".vscode",
     "deny.toml",
     "docs",
