@@ -262,3 +262,97 @@ fn every_workspace_commits_its_lockfile() {
          {missing:?}"
     );
 }
+
+/// An action whose ref *is* the pin is not a dependency dependabot may bump.
+///
+/// `dtolnay/rust-toolchain` publishes no version tags. `@1.88.0` is not a version of the
+/// action — it is the compiler, and dependabot's `actions` group reads it as a number to
+/// raise. #629 arrived with three steps rewritten to `@1.120.0`, a Rust that does not exist,
+/// and the cross-compile job 404ed on the tarball.
+///
+/// The 404 is not the failure this guards. Two of those three steps were in `release.yml` and
+/// `publish-crates.yml`, so a semver bump on that ref proposes a silent change to which
+/// compiler builds the published artifact —
+/// [`every_workflow_toolchain_is_the_pin_or_carries_its_reason`] is the only reason that was a
+/// red gate rather than a release nobody chose the compiler for. That test catches the
+/// proposal; the `ignore` in `.github/dependabot.yml` is what stops it being made again every
+/// Monday, and #629 reverted three steps and left the proposal free to return.
+///
+/// **Discovered from the workflows, not a name written here.** Any action carrying the pin as
+/// its ref has the same problem, so the set is every `uses:` whose ref is `mise.toml`'s
+/// version. Swap `dtolnay/rust-toolchain` for another such action and the rule follows it.
+#[test]
+fn every_action_pinned_to_the_toolchain_is_ignored_by_dependabot() {
+    let pin = mise_pin();
+
+    // Actions whose ref is the toolchain version itself.
+    let mut carriers: BTreeSet<String> = BTreeSet::new();
+    for f in files_named(".github", |p| p.extension().is_some_and(|e| e == "yml")) {
+        for line in read(&f).lines() {
+            let Some((_, spec)) = line.split_once("uses:") else {
+                continue;
+            };
+            let Some((action, reference)) = spec.trim().rsplit_once('@') else {
+                continue;
+            };
+            if reference.trim() == pin {
+                carriers.insert(action.trim().to_string());
+            }
+        }
+    }
+    assert!(
+        !carriers.is_empty(),
+        "no workflow pins an action to `{pin}`. Either the release path went back to a \
+         channel — which is what the rest of this file is about — or this test is reading the \
+         wrong tree."
+    );
+
+    // The `ignore` list of every github-actions entry in dependabot.yml, and whether each
+    // entry is a whole-dependency ignore or a version-range one.
+    let config: serde_yaml::Value =
+        serde_yaml::from_str(&read(&repo_root().join(".github/dependabot.yml")))
+            .expect(".github/dependabot.yml is not parseable YAML");
+    let updates = config["updates"]
+        .as_sequence()
+        .expect("dependabot.yml declares no `updates`");
+    let mut ecosystems = 0;
+    // name → whether the ignore names `update-types`, i.e. leaves some bumps proposable.
+    let mut ignored: Vec<(String, bool)> = Vec::new();
+    for entry in updates {
+        if entry["package-ecosystem"].as_str() != Some("github-actions") {
+            continue;
+        }
+        ecosystems += 1;
+        let empty = Vec::new();
+        for rule in entry["ignore"].as_sequence().unwrap_or(&empty) {
+            if let Some(name) = rule["dependency-name"].as_str() {
+                ignored.push((name.to_string(), !rule["update-types"].is_null()));
+            }
+        }
+    }
+    assert!(
+        ecosystems >= 1,
+        "dependabot.yml has no `github-actions` entry, so nothing proposes action updates at \
+         all and this test is asserting against an ecosystem that is not configured"
+    );
+
+    for action in &carriers {
+        let rule = ignored.iter().find(|(name, _)| name == action);
+        let Some((_, narrowed)) = rule else {
+            panic!(
+                "a workflow pins `{action}@{pin}` and `.github/dependabot.yml` does not \
+                 ignore `{action}` under `github-actions`. That ref is the compiler, not a \
+                 version of the action, so the `actions` group will propose a Rust release \
+                 that does not exist — and the two steps it rewrites in release.yml and \
+                 publish-crates.yml decide which compiler builds what ships."
+            );
+        };
+        assert!(
+            !narrowed,
+            "`{action}` is ignored under `github-actions` only for some `update-types`. There \
+             is no version of that ref dependabot can propose that means what it thinks it \
+             means — a minor or patch bump names a Rust that does not exist exactly as a major \
+             one does. Ignore the dependency whole."
+        );
+    }
+}
