@@ -99,6 +99,12 @@ before it, a quoted span after it introduced by a colon or dash, a blockquote wh
 line carries it, and a fenced block whose tag names the target's language. Pointing that
 machinery at the 13,557 corpus-node links would have needed no convention and no new field.
 
+> **A fifth form landed in #899**: a blockquote the citation introduces, which is the fenced
+> form's twin for prose. The measurement below was taken under the four above and is not
+> re-run here. It would move the numbers the way the table already points — the failing rows
+> are an ambient blockquote read as transcription, and a fifth blockquote shape adds
+> candidates to exactly that population, not to the 26 real ones.
+
 It was run over them, under exactly those rules. **222 of the 12,506 links inside the lint walk
 carry something the detector reads as a quotation, producing 237 candidate quotes. 26 of the 237
 are text that is actually in the cited node.** Split by the form the quote was written in:
