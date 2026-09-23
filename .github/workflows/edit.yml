@@ -130,7 +130,15 @@ jobs:
           # `--provenance` is deliberately absent. It needs `id-token: write` and a trusted
           # publisher configured on npm for a package that does not exist yet; it can be
           # added once there is something to configure it against.
-          npm publish dist/yidam-edit.tgz --access public
+          #
+          # `./dist/...` and not `dist/...`. npm does not read its argument as a path first
+          # and a package name second — it parses it, and `npm-package-arg` calls a bare
+          # `a/b` a **GitHub shorthand** before it ever asks the filesystem. `edit/v0.1.0`
+          # therefore packed a correct tarball, downloaded it into `dist/`, and then ran
+          # `git ls-remote ssh://git@github.com/dist/yidam-edit.tgz.git`, which failed on a
+          # missing deploy key: a publish that never looked at the file sitting next to it.
+          # A leading `./` is what makes the spec a file spec, and it is the whole fix.
+          npm publish ./dist/yidam-edit.tgz --access public
 
       # #231's sentence: a channel with a publisher and no check is an artifact that builds
       # while nobody has asked whether it can be obtained. The standing check is
