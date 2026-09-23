@@ -24,7 +24,8 @@
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
-use walkdir::WalkDir;
+
+mod common;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -147,7 +148,7 @@ fn naming_reports_changes_nothing_that_compiles() {
     let src = repo_root().join("yidam/cli/src");
     let mut gated = Vec::new();
     let mut scanned = 0;
-    for entry in WalkDir::new(&src).into_iter().filter_map(Result::ok) {
+    for entry in common::repo_walk(&src) {
         if !entry.file_type().is_file() || entry.path().extension() != Some("rs".as_ref()) {
             continue;
         }
@@ -345,14 +346,9 @@ fn nothing_restates_what_the_default_set_is() {
 
     let mut offenders = Vec::new();
     let mut scanned = 0;
-    for entry in WalkDir::new(&root)
-        .into_iter()
-        .filter_entry(|e| {
-            let name = e.file_name().to_string_lossy();
-            e.depth() == 0 || !(name.starts_with('.') || name == "target" || name == "node_modules")
-        })
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_file())
+    for entry in
+        common::repo_walk_keeping(&root, |e| !e.file_name().to_string_lossy().starts_with('.'))
+            .filter(|e| e.file_type().is_file())
     {
         let name = entry.file_name().to_string_lossy().to_lowercase();
         if !["md", "mdx", "sh", "toml", "yml", "yaml", "rs"]
@@ -536,14 +532,9 @@ fn a_recorded_version_names_no_feature_outside_the_default_set() {
     let mut offenders: Vec<String> = Vec::new();
     let mut transcripts = 0;
 
-    for entry in WalkDir::new(&root)
-        .into_iter()
-        .filter_entry(|e| {
-            let name = e.file_name().to_string_lossy();
-            e.depth() == 0 || !(name.starts_with('.') || name == "target" || name == "node_modules")
-        })
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_file())
+    for entry in
+        common::repo_walk_keeping(&root, |e| !e.file_name().to_string_lossy().starts_with('.'))
+            .filter(|e| e.file_type().is_file())
     {
         let name = entry.file_name().to_string_lossy().to_lowercase();
         if !name.ends_with(".md") && !name.ends_with(".mdx") {

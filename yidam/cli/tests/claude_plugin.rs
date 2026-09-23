@@ -24,7 +24,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use walkdir::WalkDir;
+mod common;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -53,11 +53,8 @@ const MARKETPLACE: &str = ".claude-plugin/marketplace.json";
 /// finding one here would be a finding rather than a skill.
 fn skills(plugin: &Path) -> Vec<(String, String)> {
     let dir = plugin.join("skills");
-    let mut found: Vec<(String, String)> = WalkDir::new(&dir)
-        .min_depth(1)
-        .max_depth(1)
-        .into_iter()
-        .filter_map(Result::ok)
+    let mut found: Vec<(String, String)> = common::repo_walk(&dir)
+        .filter(|e| e.depth() == 1)
         .filter(|e| e.file_type().is_dir())
         .map(|e| {
             let name = e.file_name().to_string_lossy().into_owned();
@@ -270,11 +267,8 @@ fn every_skill_declares_the_name_of_its_own_directory() {
 /// a decision to write down, and this is where it gets made.
 #[test]
 fn no_plugin_skill_shares_a_name_with_a_prelude_skill() {
-    let prelude: BTreeSet<String> = WalkDir::new(repo_root().join("yidam/prelude/skills"))
-        .min_depth(1)
-        .max_depth(1)
-        .into_iter()
-        .filter_map(Result::ok)
+    let prelude: BTreeSet<String> = common::repo_walk(&repo_root().join("yidam/prelude/skills"))
+        .filter(|e| e.depth() == 1)
         .filter(|e| e.file_type().is_file())
         .filter_map(|e| {
             e.path()
@@ -452,11 +446,7 @@ fn the_launcher_prescribes_commands_that_exist() {
     };
 
     for (name, dir) in marketplace_plugins() {
-        for entry in WalkDir::new(dir.join("scripts"))
-            .into_iter()
-            .filter_map(Result::ok)
-            .filter(|e| e.file_type().is_file())
-        {
+        for entry in common::repo_walk(&dir.join("scripts")).filter(|e| e.file_type().is_file()) {
             let text = std::fs::read_to_string(entry.path()).expect("a script is readable");
             for line in text.lines().map(str::trim) {
                 if let Some(install) = line.strip_prefix("\"    ") {

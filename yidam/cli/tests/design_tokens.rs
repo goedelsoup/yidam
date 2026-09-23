@@ -17,7 +17,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
-use walkdir::WalkDir;
+
+mod common;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -177,14 +178,7 @@ const HOST_PREFIXES: &[&str] = &["--vscode-"];
 fn consumer_stylesheets() -> Vec<(String, String)> {
     let declared = source_tokens();
     let mut out = Vec::new();
-    for entry in WalkDir::new(repo_root())
-        .into_iter()
-        .filter_entry(|e| {
-            let n = e.file_name().to_string_lossy();
-            n != "node_modules" && n != "target" && n != ".git" && n != "dist" && n != ".claude"
-        })
-        .filter_map(Result::ok)
-    {
+    for entry in common::repo_walk(&repo_root()) {
         let path = entry.path();
         let is_consumer_type = path
             .extension()
@@ -304,7 +298,7 @@ fn no_surface_declares_a_raw_colour() {
 fn system_surfaces() -> Vec<(String, String)> {
     let mut out = Vec::new();
     let root = repo_root().join(DESIGN);
-    for entry in WalkDir::new(&root).into_iter().filter_map(Result::ok) {
+    for entry in common::repo_walk(&root) {
         let path = entry.path();
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
         if !entry.file_type().is_file() || !CONSUMER_EXTENSIONS.contains(&ext) {

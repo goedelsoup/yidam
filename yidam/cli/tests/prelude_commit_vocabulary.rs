@@ -13,7 +13,8 @@
 
 use std::path::{Path, PathBuf};
 
-use walkdir::WalkDir;
+mod common;
+
 use yidam_core::git::is_recognized_verb;
 
 /// Walk authored files, skipping everything a build or a package manager put there.
@@ -31,20 +32,11 @@ use yidam_core::git::is_recognized_verb;
 /// A name list is what this was first, and it missed `.venv` — the biggest of them by two
 /// orders of magnitude.
 fn authored_files(target: &Path) -> impl Iterator<Item = walkdir::DirEntry> {
-    WalkDir::new(target)
-        .into_iter()
-        .filter_entry(|e| {
-            let name = e.file_name().to_string_lossy();
-            let generated = name.starts_with('.')
-                || name == "node_modules"
-                || name == "target"
-                || name.ends_with(".egg-info")
-                || name == "__pycache__";
-            // Only prune directories: a dotfile is authored and is worth scanning.
-            !(generated && e.file_type().is_dir())
-        })
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_file())
+    // Only prune dot-*directories*: a dotfile is authored and is worth scanning.
+    common::repo_walk_keeping(target, |e| {
+        !(e.file_type().is_dir() && e.file_name().to_string_lossy().starts_with('.'))
+    })
+    .filter(|e| e.file_type().is_file())
 }
 
 fn repo_root() -> PathBuf {

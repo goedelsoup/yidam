@@ -11,7 +11,8 @@
 //! fourth line to the README is the diff that looks completely fine.
 
 use std::path::PathBuf;
-use walkdir::WalkDir;
+
+mod common;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -34,25 +35,20 @@ fn read(rel: &str) -> String {
 /// repository at other commits, pinning other releases — from being graded as documentation.
 fn documented_files() -> Vec<String> {
     let root = repo_root().canonicalize().expect("repo root is readable");
-    let mut docs: Vec<String> = WalkDir::new(&root)
-        .into_iter()
-        .filter_entry(|e| {
-            let name = e.file_name().to_string_lossy();
-            e.depth() == 0 || !(name.starts_with('.') || name == "target" || name == "node_modules")
-        })
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_file())
-        .filter(|e| {
-            let name = e.file_name().to_string_lossy().to_lowercase();
-            name.ends_with(".md") || name.ends_with(".mdx")
-        })
-        .filter_map(|e| {
-            e.path()
-                .strip_prefix(&root)
-                .ok()
-                .map(|r| r.to_string_lossy().into_owned())
-        })
-        .collect();
+    let mut docs: Vec<String> =
+        common::repo_walk_keeping(&root, |e| !e.file_name().to_string_lossy().starts_with('.'))
+            .filter(|e| e.file_type().is_file())
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy().to_lowercase();
+                name.ends_with(".md") || name.ends_with(".mdx")
+            })
+            .filter_map(|e| {
+                e.path()
+                    .strip_prefix(&root)
+                    .ok()
+                    .map(|r| r.to_string_lossy().into_owned())
+            })
+            .collect();
     docs.sort();
     assert!(
         docs.contains(&"README.md".to_string()),

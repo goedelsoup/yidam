@@ -13,6 +13,8 @@
 
 use std::path::PathBuf;
 
+mod common;
+
 fn repo_root() -> PathBuf {
     // CARGO_MANIFEST_DIR = yidam/cli/
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -193,43 +195,33 @@ fn every_client_understands_the_contract_the_cli_speaks() {
 ///
 /// Walks rather than lists, and matches on the declaration rather than on a filename, so a
 /// client that puts it somewhere other than `handshake.ts` is still covered. `node_modules`
-/// and build output are skipped: a stale copy of this project's own module inside a
-/// dependency tree would answer for the source, and `dist/` is the source compiled.
+/// and build output are skipped — a stale copy of this project's own module inside a
+/// dependency tree would answer for the source, and `dist/` is the source compiled — by
+/// [`common::repo_walk`], which reads that set from `.gitignore` rather than naming it here.
 fn format_version_consumers() -> Vec<(String, String)> {
-    fn walk(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<(String, String)>) {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = entry.file_name().to_string_lossy().to_string();
-            if path.is_dir() {
-                if matches!(name.as_str(), "node_modules" | "dist" | ".astro") {
-                    continue;
-                }
-                walk(&path, root, out);
-            } else if name.ends_with(".ts") {
-                let Ok(text) = std::fs::read_to_string(&path) else {
-                    continue;
-                };
-                if let Some(v) = text
-                    .split("export const SUPPORTED_FORMAT_VERSION = '")
-                    .nth(1)
-                    .and_then(|t| t.split('\'').next())
-                {
-                    let rel = path
-                        .strip_prefix(root)
-                        .unwrap_or(&path)
-                        .to_string_lossy()
-                        .to_string();
-                    out.push((rel, v.to_string()));
-                }
-            }
-        }
-    }
     let root = repo_root();
     let mut out = Vec::new();
-    walk(&root.join("yidam/editors"), &root, &mut out);
+    for entry in common::repo_walk(&root.join("yidam/editors")) {
+        let path = entry.path();
+        if !entry.file_type().is_file() || !path.to_string_lossy().ends_with(".ts") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        if let Some(v) = text
+            .split("export const SUPPORTED_FORMAT_VERSION = '")
+            .nth(1)
+            .and_then(|t| t.split('\'').next())
+        {
+            let rel = path
+                .strip_prefix(&root)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .to_string();
+            out.push((rel, v.to_string()));
+        }
+    }
     out.sort();
     out
 }

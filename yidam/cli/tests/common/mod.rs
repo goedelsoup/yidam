@@ -538,3 +538,163 @@ impl Example {
         )
     }
 }
+
+// ── walking the repository ────────────────────────────────────────────────────
+//
+// Every guard below that discovers its inputs by walking the working tree has to answer the
+// same question first: which directories here are not authored? Seven of them answered it
+// separately, with seven hand-written name lists, and the lists disagreed — `dist` in three,
+// `.claude` in three, `results` in one, `.astro` in one, and `dist-*` in none of them.
+//
+// #900 is what that costs. `yidam/web/docs/test/quality-render.mjs` builds into
+// `dist-quality-test` and removes it when the block ends, so an interrupted `npm test` leaves
+// a Starlight build behind. `.gitignore` has declared `dist-*/` since #467, so `git status`
+// shows nothing; the cargo scanners' lists said `dist` and not `dist-*`, so three
+// `design_tokens` assertions failed on hundreds of Starlight's own compiled custom
+// properties, during a gate that has nothing to do with the docs, naming files the developer
+// did not write in a directory they cannot see.
+//
+// So the rule is git's, read from git, rather than a name list that has to be remembered
+// twice. A build directory that `.gitignore` already covers is covered here the day it is
+// added, and the next `dist-`-prefixed name needs no edit in this file.
+
+/// The repository root, from `start`, as git computes it.
+///
+/// `start` may be a file — `prescribing_targets` walks `mise.yidam.toml` as one of its
+/// targets, and `WalkDir` is happy to yield a single file — so git is run in the nearest
+/// directory rather than in `start` itself.
+fn git_toplevel(start: &Path) -> PathBuf {
+    let anchor = if start.is_dir() {
+        start
+    } else {
+        start.parent().unwrap_or(start)
+    };
+    let out = Command::new("git")
+        .current_dir(anchor)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .unwrap_or_else(|e| panic!("git rev-parse in {}: {e}", start.display()));
+    assert!(
+        out.status.success(),
+        "{} is not inside a git repository, so nothing here can tell authored files from \
+         build output: {}",
+        start.display(),
+        String::from_utf8_lossy(&out.stderr).trim()
+    );
+    let top = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim().to_string());
+    top.canonicalize()
+        .unwrap_or_else(|e| panic!("{} is unreadable: {e}", top.display()))
+}
+
+/// Every path under `top` that git ignores, relative to `top` and without a trailing slash.
+///
+/// `--directory` collapses a wholly-ignored directory to its own name, so the set stays at
+/// 147 entries here rather than the 258,307 individual files inside them — and pruning at the
+/// directory is what keeps the walk from descending into `target/` at all. An ignored *file*
+/// inside a tracked directory (`yidam/tests/results/**/transcript.jsonl`) is listed
+/// individually by the same call, which is why [`repo_walk_keeping`] checks files against
+/// this set too and not only directories.
+fn git_ignored(top: &Path) -> BTreeSet<String> {
+    let out = Command::new("git")
+        .current_dir(top)
+        .args([
+            "ls-files",
+            "-z",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--directory",
+            "--no-empty-directory",
+        ])
+        .output()
+        .unwrap_or_else(|e| panic!("git ls-files in {}: {e}", top.display()));
+    // A failure here must not degrade to "ignore nothing": that is the state #900 reports,
+    // and it is silent.
+    assert!(
+        out.status.success(),
+        "git could not list ignored paths in {}, so this walk would scan build output: {}",
+        top.display(),
+        String::from_utf8_lossy(&out.stderr).trim()
+    );
+    String::from_utf8_lossy(&out.stdout)
+        .split('\0')
+        .filter(|s| !s.is_empty())
+        .map(|s| s.trim_end_matches('/').to_string())
+        .collect()
+}
+
+/// A walk of the tree under `start` with everything git ignores pruned away.
+///
+/// `start` may be any directory inside the repository; the ignore rules are always read at
+/// the repository root, because that is where they are written.
+pub fn repo_walk(start: &Path) -> impl Iterator<Item = walkdir::DirEntry> {
+    repo_walk_keeping(start, |_| true)
+}
+
+/// The same walk, with an additional predicate for directories a caller excludes for reasons
+/// of its own.
+///
+/// The split is deliberate. `keep` is for *semantic* exclusions — `parity_implementations`
+/// does not consider `yidam/tests/results/` an implementation, and `install_channels` does
+/// not consider a dot-directory documentation — which are judgements about what the guard is
+/// asking, and belong with the question. Build output is not a judgement, and is not passed
+/// here by anyone.
+pub fn repo_walk_keeping<F>(start: &Path, keep: F) -> impl Iterator<Item = walkdir::DirEntry>
+where
+    F: Fn(&walkdir::DirEntry) -> bool,
+{
+    // Loud rather than empty. `WalkDir` on a path that does not exist yields one error and
+    // then nothing, so a caller that filters errors away sees an empty walk and passes —
+    // which is how a guard stops guarding without going red. A walk root that is not there
+    // is a defect in the caller or a moved directory, and either is worth a panic.
+    let canonical = start.canonicalize().unwrap_or_else(|e| {
+        panic!(
+            "cannot walk {}: {e}. A walk root that does not exist would otherwise scan \
+             nothing and pass.",
+            start.display()
+        )
+    });
+    let top = git_toplevel(&canonical);
+    let ignored = git_ignored(&top);
+
+    // Where the walk begins, as a repo-relative prefix, so an entry's path can be named the
+    // way `.gitignore` names it.
+    //
+    // Computed once from the canonical form and then applied to paths the walk builds from
+    // `start` **as the caller gave it**, rather than canonicalizing the walk root. Every
+    // caller here roots at `repo_root()`, which is `CARGO_MANIFEST_DIR/../..` — not a
+    // canonical path — and then strips that same prefix off each entry to get the name it
+    // reports. Handing walkdir the canonical root instead silently broke that strip: the
+    // paths came back absolute, `rel.starts_with(DESIGN)` matched nothing, and
+    // `system_surfaces` returned zero. The `only 0 …; the walk is looking at the wrong tree`
+    // assertion is the only reason that was a failure and not a pass over an empty set.
+    let prefix = canonical
+        .strip_prefix(&top)
+        .unwrap_or_else(|_| panic!("{} is not inside {}", canonical.display(), top.display()))
+        .to_path_buf();
+    let start = start.to_path_buf();
+
+    walkdir::WalkDir::new(start.clone())
+        .into_iter()
+        .filter_entry(move |e| {
+            if e.depth() == 0 {
+                return true;
+            }
+            // By name and not by path: a `.git` at any depth is a repository, never
+            // authored content, and the ignore list does not mention the one at the root.
+            if e.file_name() == ".git" {
+                return false;
+            }
+            // Cannot fail — walkdir builds every path by joining onto the root above.
+            let under = e
+                .path()
+                .strip_prefix(&start)
+                .expect("walkdir yields paths under its own root");
+            let rel = prefix.join(under).to_string_lossy().replace('\\', "/");
+            if ignored.contains(&rel) {
+                return false;
+            }
+            keep(e)
+        })
+        .filter_map(Result::ok)
+}

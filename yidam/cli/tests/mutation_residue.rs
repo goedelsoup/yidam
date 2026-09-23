@@ -27,7 +27,8 @@
 //! mutation it makes, and this looks for it.
 
 use std::path::PathBuf;
-use walkdir::WalkDir;
+
+mod common;
 
 /// The comment `cargo-mutants` injects beside every change it makes.
 ///
@@ -48,14 +49,7 @@ fn no_source_file_is_holding_a_mutant() {
     let mut residue = Vec::new();
     let mut scanned = 0usize;
 
-    for entry in WalkDir::new(repo_root())
-        .into_iter()
-        .filter_entry(|e| {
-            let n = e.file_name().to_string_lossy();
-            n != "target" && n != "node_modules" && n != ".git" && n != ".claude"
-        })
-        .filter_map(Result::ok)
-    {
+    for entry in common::repo_walk(&repo_root()) {
         let path = entry.path();
         if !entry.file_type().is_file() || path.extension().is_none_or(|e| e != "rs") {
             continue;

@@ -682,7 +682,7 @@ does not propose to move it.
   a copy plus that test; the extraction is a decision this RFC does not force.
 - ~~**`tsx` is not in the design gate's scope.**~~ **Settled 2026-09-22 (#611): the gates read
   TypeScript, and the lint reaches its consumers.** The consumer scan discovers surfaces by file
-  extension, and says so — [`design_tokens.rs:168-170`](../../yidam/cli/tests/design_tokens.rs#L168-L170):
+  extension, and says so — [`design_tokens.rs:169-171`](../../yidam/cli/tests/design_tokens.rs#L169-L171):
   *"A consumer is any file of a [`CONSUMER_EXTENSIONS`] type outside `yidam/design/` that
   references a token the system declares. The next UI kit is covered the moment it uses the
   palette, which is the point: a roster here would stop covering whatever came next."*
