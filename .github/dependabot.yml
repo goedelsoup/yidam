@@ -111,6 +111,26 @@ updates:
     directory: /
     schedule: { interval: weekly, day: monday }
     open-pull-requests-limit: 2
+    # **`dtolnay/rust-toolchain` carries no version tags.** The ref *is* the toolchain it
+    # installs, so `@1.88.0` is not a version of the action — it is the compiler. Read as a
+    # version, it bumps: #629 arrived with three steps rewritten to `@1.120.0`, and the
+    # cross-compile job died before it compiled anything — *could not download nonexistent
+    # rust version 1.120.0-x86_64-unknown-linux-gnu*.
+    #
+    # The 404 is not the failure that matters. Two of those three steps were in `release.yml`
+    # and `publish-crates.yml`, so what a bump on this ref actually proposes is a silent
+    # change to which compiler builds the published artifact. `toolchain_pins.rs` is why that
+    # was a red gate rather than a release nobody chose the compiler for.
+    #
+    # Whole-dependency rather than major-only, because there is no version of this ref that
+    # means what dependabot thinks it means. The toolchain moves when `mise.toml` moves, and
+    # `every_workflow_toolchain_is_the_pin_or_carries_its_reason` holds the workflows to it —
+    # the pin has a maintainer, and it is not this ecosystem. The cost accepted is that a
+    # genuine change to the action's implementation is no longer proposed; it is a thin
+    # wrapper around `rustup`, and the failure mode closed here is a silent change to what
+    # ships.
+    ignore:
+      - dependency-name: dtolnay/rust-toolchain
     groups:
       actions:
         patterns: ["*"]
