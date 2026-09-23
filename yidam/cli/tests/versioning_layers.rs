@@ -674,9 +674,16 @@ fn the_registries_layer_4_names_are_delivered_and_checked() {
         // argument, not a bare `npm publish`: `npm publish` alone would be satisfied by a
         // workflow that repacks from source, and what has to exist is the step that uploads
         // the tarball `check-package.mjs` graded and ran.
+        //
+        // The `./` is load-bearing and this row is why it took a tag to find out: written
+        // without it, this assertion held the broken spelling in place, because npm reads a
+        // bare `dist/yidam-edit.tgz` as the GitHub repository `dist/yidam-edit.tgz` and
+        // resolves it with `git ls-remote`. Spelling the argument out here is worth it — but
+        // the property that it is a *path* belongs in `edit_publish.rs`, which derives it
+        // rather than quoting it.
         (
             "npm",
-            "npm publish dist/yidam-edit.tgz",
+            "npm publish ./dist/yidam-edit.tgz",
             "registry.npmjs.org",
         ),
     ];
