@@ -405,6 +405,54 @@ not a citation, and nothing turns one into a finding.
 reason the external form does: a citation is not a relationship and must never enter a
 traversal.
 
+## When your corpus disagrees with the one it cites
+
+Every example above is a node leaning on a foreign span. The other case is a node that has read
+one and thinks it is wrong, and until this section existed nothing said where it goes.
+
+**It goes in the same place, in the same form.** A disagreement is a taking like any other — you
+cannot contradict a sentence you have not read — so it is a local node, in this corpus's terms,
+tagged at this corpus's standard, carrying a `cites:` block whose `span` is the verbatim sentence
+it contradicts, at the pin it was read at, with `tag` recording the standing the producer held it
+at. No new field and no new object: quoting what you disagree with is the whole of the form.
+
+**Nothing resolves it, and that is the answer rather than a gap.** Two corpora may contradict
+each other permanently, and both records stand. There is no forum between them and one would be
+wrong to build: a settlement reaching the other corpus would bind a sangha that never seated it —
+its electors did not register here, filed no positions, and read no tips — which is what Article I
+forbids, pointed sideways. `CONSTITUTION.md` Article V says a resolution may synthesize only what
+a participating `ma/*` position held, and across this boundary there are no participating
+positions at all. A corpus is accountable for its own nodes to its own electors. Two honest
+records that disagree are two independent inquiries, which is the normal condition and not a
+defect in the model.
+
+This is the peer case, and it is worth reading against the other one. A disagreement with the
+**prelude** that constitutes you does have a forum — an issue upstream, decided there, arriving by
+re-vendor; see [upstream.md](upstream.md). That works because the relation is constitutive, there
+is a delivery channel, and one party has standing over both ends. A peer corpus gives you none of
+the three, and no mechanism manufactures the third.
+
+**What the record buys is that the contradiction cannot go silent.** That is the failure worth
+fearing here — your corpus going on denying a sentence the other side has since rewritten,
+withdrawn or demoted — and every form of it is already reported. `external-citation-span-drift`
+fires when the sentence is no longer there. `external-citation-pin-moved` reports when the bundle
+moved. `tag` records what they held, so a demotion is visible. And the repair is the one the
+agreement case already states: never re-quote. The far side changed its mind, and the question is
+whether your claim survives it — which for a disagreement may be that they conceded.
+
+**Nothing marks a citation as a contradiction**, and a reader cannot tell one from the other by
+looking at the block. That is deliberate for now rather than overlooked. The field that would say
+so — `rests-on` against `contradicts` — is worth having only because span drift reads in opposite
+directions for the two, and across every derived corpus measured on 2026-09-22 there are **2,770
+instance nodes and not one `cites:` block**. Adding a field to a family with no subjects is how
+this layer has shipped surfaces nobody uses. Build it the day a real citation disagrees, for that
+reason.
+
+> **Settled 2026-09-22.** *No forum* is the answer and not a reading of the current count: what is
+> missing across this boundary is a party with standing over both corpora, and scale does not
+> produce one. The occasion that would re-open it is a concrete one — **the first corpus that
+> cites another, disagrees with it, and finds that both sides want it settled and cannot.**
+
 ## The safeguards were built against carelessness, not against interest
 
 Worth stating plainly, because it is the finding that generalizes furthest and the one
