@@ -1997,6 +1997,15 @@ const UNREACHED: &[(&str, &str)] = &[
     ("tolerance", "`index-verify` only — see `index`"),
     ("verdict", "`index-verify` only — see `index`"),
     (
+        "phases[].type",
+        "carried only by a ref whose phase record `yidam phase start` wrote, and the three \
+         refs this fixture holds are branches created at HEAD by `stage.toml` \u{2014} giving one a \
+         record would mean running a writing command against the fixture twenty other goldens \
+         read. RFC-0028 \u{a7}3 records that this is the state of every repository that exists: 60 \
+         `phase/*` refs across the eighteen corpora A0 measured, none of them typed. Covered \
+         end to end in `phase_record.rs`, which builds its own corpus and asserts both arms",
+    ),
+    (
         "kuten.findings",
         "giving the fixture a kuten would move the other goldens; the held arm is covered by \
          kuten_cluster.rs against the six shapes that defined the profile (see stage.toml)",

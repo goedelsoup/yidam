@@ -46,6 +46,37 @@ is looking for, and a `grep` returning zero lines reports none of it.
 [Reading the corpus](guidelines/reading-the-corpus.md) is the surface. The input state a phase
 declares is what those commands answered.
 
+## The commands
+
+The discipline below is what a phase *is*; `yidam phase` is what holds it. Three acts, and a
+phase run by hand is still a phase — `git switch -c phase/<name>` remains this document's flow
+and nothing here refuses it.
+
+```
+yidam phase start outcome-axis --type Investigation
+git switch phase/outcome-axis
+yidam phase run
+yidam phase settle
+```
+
+`start` opens the branch and commits the **input state** the anatomy table above names: the
+baseline commit, the digests of the manifest and the config, and the revision of the kuten the
+declared type was checked against. It lands at `.yidam/phases/<name>.yml`, on the phase's own
+branch, so a phase somebody else opened is as legible from a fresh clone as one you opened
+yourself.
+
+`run` invokes the capability manifest's plan, recording the plan before the first step and each
+step as it completes. A step already recorded is not re-invoked, so a run killed partway
+completes rather than restarts — and until every step is recorded, `yidam phases` reads the
+phase as **interrupted** rather than active. That is the state nothing could say before: a
+phase whose run died and a phase opened this morning were the same row.
+
+`settle` checks the phase produced outputs and drafts the merge subject. **It does not merge**,
+and that is a limit rather than an omission — see the next section.
+
+A phase without a record is listed exactly as it always was, with its state read from the ref
+and the table saying how many rows are an inference.
+
 ## Phase discipline
 
 - **One phase, one branch — `phase/<name>`.** Open a branch when a phase begins; settle its
@@ -73,6 +104,11 @@ declares is what those commands answered.
 
   An authored merge subject is checked against the vocabulary like any other commit; a
   git-generated one is exempt. See [GRAPH.md](GRAPH.md), "Commit vocabulary".
+
+  `yidam phase settle` drafts that subject and prints those three lines. **A person runs them.**
+  `phase:` is an epistemic verb, and a tool that authored one would be claiming the synthesis
+  the merge exists to record. `yidam due` states the same limit of this clock: *a person —
+  merging a phase, or abandoning it, is not a mechanical consequence of a finding.*
 
   **If you settle through a pull request, check which merge button your repository uses.**
   *Rebase and merge* and *Squash and merge* both write a single-parent commit onto the baseline

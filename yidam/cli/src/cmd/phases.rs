@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::path::Path;
 
+use crate::cmd::phase::record::{self, Record};
 use crate::paths::repo_root;
 
 /// One row of the `yidam phases` table: an inquiry ref backed by a `ma/*`, `rigpa/*` or
@@ -13,12 +14,70 @@ use crate::paths::repo_root;
 #[derive(serde::Serialize)]
 pub(crate) struct PhaseRow {
     pub name: String,
-    /// `active`, `settled`, or `position`.
+    /// One of [`crate::git::REF_STATES`], decided by [`state_of`] from two ranked sources.
     pub state: String,
+    /// The type declared at `yidam phase start`, where the ref carries a phase record.
+    /// `None` for every phase opened by hand and for every phase that predates the record —
+    /// which is all of them in every repository today, and forever in the eighteen A0
+    /// measured. A column that filled this in from somewhere would be inventing it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<String>,
+    /// Which evidence decided `state`: `record` or `ref`. Reported rather than left implicit,
+    /// because the two answer different questions and a reader comparing rows needs to know
+    /// which they are reading — an inferred `active` is *this ref has not landed*, and a
+    /// recorded one is *this phase's plan completed*.
+    pub source: &'static str,
     pub ref_name: String,
     pub owner: String,
     pub started: String,
     pub commits: usize,
+}
+
+impl PhaseRow {
+    /// Whether this row is bounded work that has not landed.
+    ///
+    /// **The predicate, and the reason it is one rather than a comparison at each call site.**
+    /// `cmd/cycle.rs` and `cmd/due.rs` both filtered on `state == "active"`, which was the
+    /// whole of "in flight" while `active` was the only unsettled state a row could carry.
+    /// Adding `interrupted` would have made both of them silently drop the phases most in
+    /// need of reporting — a run that stopped partway is more in flight than one nobody
+    /// touched today, and `due`'s phase clock exists to ask how long that has been true.
+    pub fn is_in_flight(&self) -> bool {
+        matches!(self.state.as_str(), "active" | "interrupted")
+    }
+}
+
+/// What a ref is, from the two sources RFC-0028 §3 ranks rather than collapses.
+///
+/// > `RefKind` answers *what is this ref*; the run record answers *what happened in this run*.
+/// > Collapsing them recreates #272's actual defect — two surfaces free to disagree — one
+/// > level up.
+///
+/// So: **one classifier, two evidence sources, ranked.** `ref_state` is asked first and its
+/// answer stands wherever it is about the baseline — `position`, `settled`, `rewritten`. Those
+/// are facts a record cannot hold: a record is committed on the phase's own branch, strictly
+/// before the merge that settles it, so it could only claim settlement by predicting one.
+///
+/// The record is authoritative for exactly the case the ref cannot see. `active` from ref
+/// shape means *this ref has commits the baseline lacks*, which is true of a phase whose run
+/// died halfway through and of one opened this morning. Where a record exists it separates
+/// them, and `source` says which reading the row is.
+///
+/// Where none exists the answer stays ref-derived, and that arm is not a fallback to be
+/// removed later. RFC-0028 §3: *"refs without run records exist forever"* — every phase in
+/// every existing repository, and every phase a person opens with `git switch -c`, which is
+/// `PHASES.md`'s own documented flow.
+fn state_of(
+    root: &Path,
+    phase: &crate::git::PhaseRef,
+    base: Option<&str>,
+    record: Option<&Record>,
+) -> (String, &'static str) {
+    let inferred = crate::git::ref_state(root, phase, base);
+    match record {
+        Some(rec) if inferred == "active" => (rec.state().to_string(), "record"),
+        _ => (inferred.to_string(), "ref"),
+    }
 }
 
 fn git_stdout(root: &Path, args: &[&str]) -> Option<String> {
@@ -57,11 +116,7 @@ pub(crate) fn collect_phases(root: &Path) -> Result<Vec<PhaseRow>> {
     for phase in &phases {
         // The ref to read is not the phase's name when the phase lives only on a remote.
         let ref_name = phase.git_ref.as_str();
-        let slug = phase
-            .name
-            .split_once('/')
-            .map(|(_, s)| s)
-            .unwrap_or(&phase.name);
+        let slug = record::slug_of(&phase.name);
 
         let owner = git_stdout(root, &["log", "-1", "--format=%an", ref_name])
             .unwrap_or_else(|| "unknown".to_string());
@@ -98,9 +153,16 @@ pub(crate) fn collect_phases(root: &Path) -> Result<Vec<PhaseRow>> {
             }
         };
 
+        // Read once and used twice: the record decides `state` and carries `type`, and two
+        // `git show` invocations for one file is the kind of thing a table of twenty-six refs
+        // notices.
+        let record = record::read_at(root, ref_name, slug);
+        let (state, source) = state_of(root, phase, base.as_deref(), record.as_ref());
         rows.push(PhaseRow {
             name: humanize(slug),
-            state: crate::git::ref_state(root, phase, base.as_deref()).to_string(),
+            state,
+            r#type: record.map(|rec| rec.r#type),
+            source,
             ref_name: ref_name.to_string(),
             owner,
             started,
@@ -116,12 +178,19 @@ pub(crate) fn render_phases(rows: &[PhaseRow]) -> String {
         return "No inquiry refs (no ma/*, rigpa/* or phase/* branches).".to_string();
     }
 
-    let headers = ["Phase", "State", "Ref", "Owner", "Started", "Commits"];
-    let cells: Vec<[String; 6]> = rows
+    const N: usize = 7;
+    let headers = [
+        "Phase", "Type", "State", "Ref", "Owner", "Started", "Commits",
+    ];
+    let cells: Vec<[String; N]> = rows
         .iter()
         .map(|r| {
             [
                 r.name.clone(),
+                // Em dash rather than an empty cell: a blank reads as a value that failed to
+                // render, and this is the ordinary state of every phase that predates the
+                // record.
+                r.r#type.clone().unwrap_or_else(|| "\u{2014}".to_string()),
                 r.state.clone(),
                 r.ref_name.clone(),
                 r.owner.clone(),
@@ -131,7 +200,7 @@ pub(crate) fn render_phases(rows: &[PhaseRow]) -> String {
         })
         .collect();
 
-    let widths: Vec<usize> = (0..6)
+    let widths: Vec<usize> = (0..N)
         .map(|i| {
             cells
                 .iter()
@@ -143,7 +212,7 @@ pub(crate) fn render_phases(rows: &[PhaseRow]) -> String {
         .collect();
 
     let mut lines = Vec::with_capacity(rows.len() + 2);
-    let fmt_row = |cols: [&str; 6]| -> String {
+    let fmt_row = |cols: [&str; N]| -> String {
         cols.iter()
             .enumerate()
             .map(|(i, c)| format!("{c:<width$}", width = widths[i]))
@@ -162,7 +231,24 @@ pub(crate) fn render_phases(rows: &[PhaseRow]) -> String {
             .join("   "),
     );
     for c in &cells {
-        lines.push(fmt_row([&c[0], &c[1], &c[2], &c[3], &c[4], &c[5]]));
+        lines.push(fmt_row([&c[0], &c[1], &c[2], &c[3], &c[4], &c[5], &c[6]]));
+    }
+
+    // Said once, at the foot, rather than in a column. Every phase in every repository today
+    // is ref-inferred (RFC-0028 §3), so a per-row marker would mark every row and tell a
+    // reader nothing; what is worth saying is how many rows are an inference and what writes
+    // the evidence instead.
+    let inferred = rows
+        .iter()
+        .filter(|r| r.source == "ref" && r.is_in_flight())
+        .count();
+    if inferred > 0 {
+        lines.push(String::new());
+        lines.push(format!(
+            "{inferred} in-flight row(s) carry no phase record, so their state is inferred \
+             from the ref.\n`yidam phase start` snapshots what a phase begins from; \
+             `yidam phase run` records its steps."
+        ));
     }
     lines.join("\n")
 }
@@ -321,6 +407,8 @@ mod tests {
             PhaseRow {
                 name: "Substrate survey".into(),
                 state: "position".into(),
+                r#type: None,
+                source: "ref",
                 ref_name: "ma/substrate".into(),
                 owner: "goedelsoup".into(),
                 started: "2026-06-20".into(),
@@ -329,6 +417,8 @@ mod tests {
             PhaseRow {
                 name: "Glacial review".into(),
                 state: "settled".into(),
+                r#type: Some("Synthesis".into()),
+                source: "ref",
                 ref_name: "rigpa/glacial".into(),
                 owner: "goedelsoup".into(),
                 started: "2026-06-28".into(),

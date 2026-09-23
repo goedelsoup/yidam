@@ -267,7 +267,7 @@ fn in_flight(root: &Path) -> Vec<InFlight> {
     crate::cmd::phases::collect_phases(root)
         .unwrap_or_default()
         .into_iter()
-        .filter(|r| r.state == "active")
+        .filter(|r| r.is_in_flight())
         .map(|r| InFlight {
             name: r.name,
             ref_name: r.ref_name,

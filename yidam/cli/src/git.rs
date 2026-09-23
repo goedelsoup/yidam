@@ -447,7 +447,7 @@ pub struct PhaseTally {
     pub positions: usize,
 }
 
-/// Every value [`ref_state`] can return.
+/// Every value a phase row's `state` can carry — **not** every value [`ref_state`] returns.
 ///
 /// The roster exists because `report.schema.json` declares `state` as a **closed enum**, and
 /// nothing compared the two. Adding `rewritten` widened a vocabulary a validating consumer would
@@ -455,7 +455,25 @@ pub struct PhaseTally {
 /// state, so the enum was never exercised. A state the code can emit and the schema does not name
 /// is a rejected report; one the schema names and the code cannot emit is a branch nobody can
 /// take. `report_goldens.rs` reads this and compares both ways.
-pub const REF_STATES: [&str; 4] = ["active", "settled", "rewritten", "position"];
+///
+/// `interrupted` is the one member this function cannot produce, and the gap is the shape of
+/// RFC-0028 §3 rather than an oversight. A ref's namespace and its relation to the baseline
+/// say what a ref *is*; only a phase record says a run resolved a plan and did not finish it.
+/// [`crate::cmd::phases::state_of`] ranks the two and emits from both, so the roster a
+/// validating consumer is held to is the union — and it is named here, beside the four, so
+/// the one test that compares it to the schema keeps reading one list.
+pub const REF_STATES: [&str; 5] = ["active", "interrupted", "settled", "rewritten", "position"];
+
+/// The subset of [`REF_STATES`] that [`ref_state`] itself can return.
+///
+/// Named rather than left implicit because the roster above stopped having one producer. A
+/// test asserting *the fixture reaches every state on the roster* was true while there was one
+/// source and became a false premise the moment there were two — and the failure it then
+/// reports is "your fixture is incomplete", which is not what went wrong. Splitting them keeps
+/// both halves closed: this is what a ref's shape can say, and
+/// [`tests::every_state_on_the_roster_has_a_producer`] is what stops a member existing that
+/// nothing emits.
+pub const REF_DERIVED_STATES: [&str; 4] = ["active", "settled", "rewritten", "position"];
 
 /// What a ref currently is, in one word: `active`, `settled`, `rewritten`, or `position`.
 ///
@@ -775,12 +793,70 @@ mod tests {
             }
         }
         seen.sort_unstable();
-        let mut all = REF_STATES;
+        let mut all = REF_DERIVED_STATES;
         all.sort_unstable();
         assert_eq!(
             seen, all,
-            "the fixture must reach every state on the roster, or this proves nothing about the \
-             ones it misses"
+            "the fixture must reach every state ref shape can say, or this proves nothing about \
+             the ones it misses"
+        );
+    }
+
+    /// **Every member of the roster is something some code path emits.**
+    ///
+    /// `REF_STATES` is what `report.schema.json` is held to, and it stopped being what one
+    /// function returns: `interrupted` comes from the phase record, which knows a run resolved
+    /// a plan and did not finish it, and no ref's shape can say that. The schema comparison
+    /// alone therefore no longer closes the loop — it would agree with a roster naming a state
+    /// nothing produces, which is the *"branch nobody can take"* half of the rule
+    /// [`REF_STATES`] documents.
+    ///
+    /// Two producers, and the assertion is over sets, so a member with no producer and a
+    /// producer emitting something unlisted are both failures rather than coincidences.
+    #[test]
+    fn every_state_on_the_roster_has_a_producer() {
+        use crate::cmd::phase::record::{Input, Record, Step};
+
+        let mut record = Record::opened(
+            "outcome-axis",
+            "Investigation",
+            Input {
+                commit: "a".repeat(40),
+                manifest_sha256: String::new(),
+                config_sha256: String::new(),
+                kuten: None,
+                kuten_revision: None,
+            },
+        );
+        let mut emitted: Vec<&str> = REF_DERIVED_STATES.to_vec();
+        emitted.push(record.state());
+        record.plan = Some(vec!["low-flow".into(), "travel-tier".into()]);
+        emitted.push(record.state());
+        for step in ["low-flow", "travel-tier"] {
+            record.completed.push(Step {
+                step: step.into(),
+                outcome: "ran".into(),
+                commit: None,
+            });
+        }
+        emitted.push(record.state());
+        emitted.sort_unstable();
+        emitted.dedup();
+
+        let mut roster = REF_STATES;
+        roster.sort_unstable();
+        assert_eq!(
+            emitted, roster,
+            "REF_STATES and the states its two producers emit disagree. A member nothing emits \
+             is a branch nobody can take; a state emitted and not listed is a report a \
+             validating consumer rejects."
+        );
+
+        // And the split is a partition rather than an overlap, which is what makes
+        // `every_state_ref_state_returns_is_on_the_roster` a complete check of its half.
+        assert!(
+            REF_DERIVED_STATES.iter().all(|s| REF_STATES.contains(s)),
+            "a ref-derived state is missing from the roster the schema is held to"
         );
     }
 

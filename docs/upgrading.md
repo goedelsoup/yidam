@@ -28,6 +28,29 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `yidam phases` grew two columns and a fifth state
+
+**`phases` rows carry `type` and `source`, and `state` can now be `interrupted` (#473).** A
+phase gained a record: `.yidam/phases/<name>.yml`, written by the new `yidam phase start`.
+Where a ref carries one, it decides whether the phase is running or stopped partway. Ref shape
+cannot see that difference, which is why the value is new rather than a renaming.
+
+**`report.schema.json` declares `state` as a closed enum.** A validating consumer that pinned
+the four-member list will reject a report carrying `interrupted`. Widen it. The five members
+are `active`, `interrupted`, `settled`, `rewritten` and `position`, and `git::REF_STATES` is
+the roster both sides are held to.
+
+**Nothing in your repository has to change, and no phase you already have is affected.** Every
+existing `phase/*` ref carries no record, reads exactly as it did, and is marked `source: ref`.
+RFC-0028 §3 keeps that arm permanently rather than as a migration window. `type` is *absent* on
+those rows, never blank. There is no default phase-type list, and a consumer must render the
+absence rather than supply one.
+
+**If you consume `cycle`'s `in_flight` or `due`'s phase clock, they now include interrupted
+phases.** Both filtered on `state == "active"`, which was the whole of *in flight* while
+`active` was the only unsettled state. A run that stopped partway is more in flight than one
+nobody touched today, so it counts.
+
 ### `yidam run` is a plan, and the domain-computer indexes gained a column
 
 **`yidam crates-index` and `yidam packages-index` write a third column (#472).** It names the

@@ -215,6 +215,16 @@ Three things follow that are worth writing down because somebody will want each 
 
 #### `phase settle` prepares; it does not merge
 
+*Built 2026-09-23 (#473), with `phase start` and `phase run` beside it.* The surface is three
+verbs: `start` snapshots the input state §1 specifies and commits it to `.yidam/phases/<name>.yml`
+on the phase's own branch, `run` records the plan before the first step and each step as it
+completes, and `settle` validates and drafts. The record is committed as `scaffold:` —
+operational, so the invariant below is untouched rather than argued around, and the one verb this
+layer might have wanted is the one only a person writes. RFC-0028 §3 makes the composition call
+the record is ranked under. `phase_record.rs`'s
+`settle_authors_no_commit_and_moves_no_ref` asserts the limit this section states, over the whole
+object graph rather than over the branch.
+
 `phase:` is an **epistemic** verb. So `yidam phase settle` must not author the `--no-ff` merge —
 doing so would breach the invariant on the layer's second surface.
 

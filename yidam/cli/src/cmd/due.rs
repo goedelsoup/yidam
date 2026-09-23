@@ -518,7 +518,7 @@ fn clock_phases(root: &Path, after: Option<u32>, today: i64) -> Clock {
     const Q: &str = "How long has a bounded inquiry been in flight?";
     let rows = crate::cmd::phases::collect_phases(root).unwrap_or_default();
     let active: Vec<&crate::cmd::phases::PhaseRow> =
-        rows.iter().filter(|r| r.state == "active").collect();
+        rows.iter().filter(|r| r.is_in_flight()).collect();
 
     let Some(after) = after else {
         return Clock::new(

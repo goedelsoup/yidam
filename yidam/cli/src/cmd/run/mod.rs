@@ -137,7 +137,10 @@ pub enum Outcome {
 }
 
 impl Outcome {
-    fn tag(self) -> &'static str {
+    /// The word the report prints, and the one `cmd/phase`'s record carries — so a step this
+    /// says `ran` and a phase record saying `ran` are two records of one event rather than
+    /// two vocabularies that happen to agree today.
+    pub(crate) fn tag(self) -> &'static str {
         match self {
             Self::Ran => "ran",
             Self::Skipped => "skipped",
