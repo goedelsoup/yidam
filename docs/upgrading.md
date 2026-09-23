@@ -28,6 +28,30 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `yidam policy --format json` now emits the report contract, and one key was renamed
+
+**All four `policy` subcommands gained the report envelope (#893).** `check`, `eval`, `gate`
+and `test` printed their fields with no envelope around them. RFC-0024 named its dependency as
+*"RFC-0001 (the report contract `policy check --format json` emits on)"*, so this is the
+contract arriving, not changing.
+
+**The addition is safe to ignore.** The envelope carries the report flattened, so every key
+these commands already emitted keeps its name and its place. A consumer reading `.ok`,
+`.allow`, `.deny` or `.tests` needs no change. What it gains is `format_version`, `yidam` and
+`root`.
+
+**One rename, and it is breaking: `policy test`'s `passed` is now `passing`.** It was a count.
+This contract gives `passed` exactly one meaning: the gate verdict, a boolean, in
+`graph-check`, `regen --check`, `index-verify` and `doctor`. One key cannot carry two types for
+two commands. If you read `.passed` from `policy test`, read `.passing`. Nothing else moved:
+`.failed` and `.changed_by_override` are unchanged, and `tests[].passed` is a different,
+nested key that was always a boolean.
+
+**Why none of this was caught before.** `report_goldens.rs` requires every `--format`-bearing
+command to have its fields checked. It found those commands by scanning top-level `--help`, and
+clap does not print a group's children's flags. So `policy`'s four — and `kuten check`, and
+`phase`'s three — were never in its population. The scan now descends.
+
 ### `yidam phases` grew two columns and a fifth state
 
 **`phases` rows carry `type` and `source`, and `state` can now be `interrupted` (#473).** A

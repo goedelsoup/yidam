@@ -964,10 +964,17 @@ evaluated in-process — there is no daemon, no sidecar, and no network.
 |---|---|
 | `policy check` | Compile every rule; report each decision and whether it is inherited or this repository's own. Exits nonzero if a rule names a builtin this build does not carry |
 | `policy eval --decision <name>` | Ask one decision about one situation. Reads the input as JSON from `--input <file>` or stdin; `--explain` names the rule that fired |
+| `policy gate <name>` | Ask a decision about *this repository* and exit nonzero if it refuses. The form a workflow calls |
 | `policy test` | Run every `test_*` rule in every `*_test.rego` |
 
-None of these needs a repository. The default policy is compiled in. Somebody working out why a
-push was refused can ask without a checkout.
+`check`, `eval` and `test` need no repository. The default policy is compiled in. Somebody
+working out why a push was refused can ask without a checkout. `gate` is the exception. It builds
+its input from the working tree, and there is nothing to answer about without one.
+
+`--format json` emits the report contract on all four. It did not until #893 — the fields
+arrived with no envelope around them, against RFC-0024's own stated dependency on RFC-0001.
+If you read `policy test`'s `passed`, it is now `passing`. This contract reserves `passed`
+for a gate verdict, which is a boolean.
 
 ### The decisions
 

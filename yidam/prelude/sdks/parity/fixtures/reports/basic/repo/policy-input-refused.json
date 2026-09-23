@@ -1,0 +1,8 @@
+{
+  "repo": {
+    "is_private": false,
+    "private_paths": [
+      { "path": ".yidam/private/field-notes.md", "holds_content": true }
+    ]
+  }
+}

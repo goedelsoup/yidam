@@ -1,0 +1,17 @@
+  ok       test_a_placeholder_directory_is_not_material
+  ok       test_private_repository_permits_declared_material
+  ok       test_public_repository_refuses_declared_material
+  ok       test_a_placeholder_directory_does_not_refuse
+  ok       test_a_private_path_containing_a_source_refuses
+  ok       test_a_private_path_inside_a_source_refuses
+  ok       test_every_overlapping_path_is_named
+  ok       test_no_overlap_permits
+  ok       test_a_name_prefix_is_not_a_directory_prefix
+  ok       test_a_placeholder_flag_does_not_license_a_record
+  ok       test_a_private_path_beats_a_licence
+  ok       test_an_explicit_licence_permits
+  ok       test_an_explicit_refusal_is_a_licence_and_not_an_omission
+  ok       test_silence_is_not_a_licence
+  ok       test_the_declared_path_itself_is_covered
+
+15 passed, 0 failed, 0 changed by an override

@@ -418,6 +418,13 @@ Beyond it:
   `http.send` and asserts the evaluation errors. It is a claim about a feature set, which is
   exactly the kind that rots silently when somebody enables a feature to fix something else.
 - Goldens for `policy check` and `policy eval --format json`, beside `tests/goldens/query/`.
+  ~~Shipped~~ — **landed 2026-09-23 (#893), not with this RFC.** What shipped emitted the
+  fields with no envelope around them, against this RFC's own stated dependency on RFC-0001,
+  and no golden existed to say so. The cause was one level out: `report_goldens.rs` found the
+  commands it guards by scanning top-level `--help`, and clap does not print a group's
+  children's flags, so all four of these were outside its population. The goldens now exist
+  for `check`, `eval` (both arms), `gate` and `test`; the scan descends; and `policy test`'s
+  `passed` became `passing`, because this contract reserves that name for a gate verdict.
 
 ## What this does not touch
 

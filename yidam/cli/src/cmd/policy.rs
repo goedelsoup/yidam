@@ -16,6 +16,30 @@
 //! and `eval` reads its input from a file or stdin. That is deliberate: a person working out
 //! why a push was refused should be able to ask the question without a checkout, and a person
 //! writing a rule should be able to try it before committing it.
+//!
+//! # `--format json` is the report contract, and was not
+//!
+//! RFC-0024 names its dependency as *"RFC-0001 (the report contract `policy check --format
+//! json` emits on)"*, and its definition of done asked for goldens of `check` and `eval`.
+//! Neither shipped. All three JSON arms here printed `serde_json::to_string_pretty` directly,
+//! so a consumer got the fields and none of the envelope — no `format_version`, no `yidam`
+//! block, no `root` — while `--format`'s own help said *the machine-readable contract in this
+//! module*.
+//!
+//! **Nothing caught it for as long as it was true**, and that is the part worth recording.
+//! `report_goldens.rs` requires every `--format`-bearing command to have its fields checked,
+//! and it discovered those commands by scanning top-level `--help`. clap does not print a
+//! group's children's flags, so these four were never in its population (#893). The roster
+//! was fixed first; this is what the fix found.
+//!
+//! The repair is additive. [`crate::report::Envelope`] carries the report `#[serde(flatten)]`,
+//! so every key these arms already emitted keeps its place and its spelling — `tests/policy.rs`
+//! reads `v["ok"]` and `v["failed"]` and was not touched. What a consumer gains is the three
+//! envelope fields it should have had since RFC-0024.
+//!
+//! `root` is `.` outside a repository rather than absent, which is what [`run`] already
+//! resolves for the compiled-in default. A report that named no root would be the one shape a
+//! consumer cannot act on.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -134,7 +158,7 @@ fn gate(
 
     let mut policies = Policies::load(root)?;
     let verdict = policies.decide(decision, &doc)?;
-    render(decision, &verdict, true, format)?;
+    render(root, decision, &verdict, true, format)?;
     if !verdict.allow {
         anyhow::bail!(
             "{decision} refused. The rule is `.yidam/policy/` or the default this binary \
@@ -174,7 +198,7 @@ fn check(root: &Path, format: Format) -> Result<()> {
                 .collect::<Vec<_>>(),
             "ok": disallowed.is_empty(),
         });
-        println!("{}", serde_json::to_string_pretty(&out)?);
+        return crate::report::emit(root, out);
     } else {
         println!("Decisions");
         for (decision, origin) in policies.origins() {
@@ -240,10 +264,16 @@ fn eval(
 
     let mut policies = Policies::load(root)?;
     let verdict = policies.decide(decision, &json)?;
-    render(decision, &verdict, explain, format)
+    render(root, decision, &verdict, explain, format)
 }
 
-fn render(decision: &str, verdict: &Decision, explain: bool, format: Format) -> Result<()> {
+fn render(
+    root: &Path,
+    decision: &str,
+    verdict: &Decision,
+    explain: bool,
+    format: Format,
+) -> Result<()> {
     if format.is_json() {
         let out = serde_json::json!({
             "decision": decision,
@@ -252,8 +282,7 @@ fn render(decision: &str, verdict: &Decision, explain: bool, format: Format) -> 
                 .map(|d| serde_json::json!({"rule": d.rule, "msg": d.msg}))
                 .collect::<Vec<_>>(),
         });
-        println!("{}", serde_json::to_string_pretty(&out)?);
-        return Ok(());
+        return crate::report::emit(root, out);
     }
 
     if verdict.allow {
@@ -296,11 +325,17 @@ fn test(root: &Path, format: Format) -> Result<()> {
                 "covers": t.covers,
                 "overridden": t.overridden,
             })).collect::<Vec<_>>(),
-            "passed": results.iter().filter(|t| t.passed).count(),
+            // `passing`, not `passed`. The report contract gives `passed` one meaning —
+            // **the gate verdict**, a boolean, in `graph-check`, `regen --check`,
+            // `index-verify` and `doctor` — and a count under that name is the same key
+            // carrying two types for two commands. Nothing said so while this arm emitted no
+            // envelope and no golden read it (#893). `failed` stays: `doctor` already
+            // declares it as a count of failing checks, which is exactly this.
+            "passing": results.iter().filter(|t| t.passed).count(),
             "failed": failed.len(),
             "changed_by_override": changed.len(),
         });
-        println!("{}", serde_json::to_string_pretty(&out)?);
+        return crate::report::emit(root, out);
     } else if results.is_empty() {
         println!(
             "No policy tests. A rule nobody has written a case for is a rule nobody has checked."

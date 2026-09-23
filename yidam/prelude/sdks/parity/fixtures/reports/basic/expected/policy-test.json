@@ -1,0 +1,121 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "changed_by_override": 0,
+  "failed": 0,
+  "passing": 15,
+  "tests": [
+    {
+      "covers": "disclose/at_rest",
+      "detail": null,
+      "overridden": false,
+      "passed": true,
+      "rule": "data.yidam.disclose.at_rest_test.test_a_placeholder_directory_is_not_material"
+    },
+    {
+      "covers": "disclose/at_rest",
+      "detail": null,
+      "overridden": false,
+      "passed": true,
+      "rule": "data.yidam.disclose.at_rest_test.test_private_repository_permits_declared_material"
+    },
+    {
+      "covers": "disclose/at_rest",
+      "detail": null,
+      "overridden": false,
+      "passed": true,
+      "rule": "data.yidam.disclose.at_rest_test.test_public_repository_refuses_declared_material"
+    },
+    {
+      "covers": "disclose/derived",
+      "detail": null,
+      "overridden": false,
+      "passed": true,
+      "rule": "data.yidam.disclose.derived_test.test_a_placeholder_directory_does_not_refuse"
+    },
+    {
+      "covers": "disclose/derived",
+      "detail": null,
+      "overridden": false,
+      "passed": true,
+      "rule": "data.yidam.disclose.derived_test.test_a_private_path_containing_a_source_refuses"
+    },
+    {
+      "covers": "disclose/derived",
+      "detail": null,
+      "overridden": false,
+      "passed": true,
+      "rule": "data.yidam.disclose.derived_test.test_a_private_path_inside_a_source_refuses"
+    },
+    {
+      "covers": "disclose/derived",
+      "detail": null,
+      "overridden": false,
+      "passed": true,
+      "rule": "data.yidam.disclose.derived_test.test_every_overlapping_path_is_named"
+    },
+    {
+      "covers": "disclose/derived",
+      "detail": null,
+      "overridden": false,
+      "passed": true,
+      "rule": "data.yidam.disclose.derived_test.test_no_overlap_permits"
+    },
+    {
+      "covers": "disclose/record",
+      "detail": null,
+      "overridden": false,
+      "passed": true,
+      "rule": "data.yidam.disclose.record_test.test_a_name_prefix_is_not_a_directory_prefix"
+    },
+    {
+      "covers": "disclose/record",
+      "detail": null,
+      "overridden": false,
+      "passed": true,
+      "rule": "data.yidam.disclose.record_test.test_a_placeholder_flag_does_not_license_a_record"
+    },
+    {
+      "covers": "disclose/record",
+      "detail": null,
+      "overridden": false,
+      "passed": true,
+      "rule": "data.yidam.disclose.record_test.test_a_private_path_beats_a_licence"
+    },
+    {
+      "covers": "disclose/record",
+      "detail": null,
+      "overridden": false,
+      "passed": true,
+      "rule": "data.yidam.disclose.record_test.test_an_explicit_licence_permits"
+    },
+    {
+      "covers": "disclose/record",
+      "detail": null,
+      "overridden": false,
+      "passed": true,
+      "rule": "data.yidam.disclose.record_test.test_an_explicit_refusal_is_a_licence_and_not_an_omission"
+    },
+    {
+      "covers": "disclose/record",
+      "detail": null,
+      "overridden": false,
+      "passed": true,
+      "rule": "data.yidam.disclose.record_test.test_silence_is_not_a_licence"
+    },
+    {
+      "covers": "disclose/record",
+      "detail": null,
+      "overridden": false,
+      "passed": true,
+      "rule": "data.yidam.disclose.record_test.test_the_declared_path_itself_is_covered"
+    }
+  ]
+}

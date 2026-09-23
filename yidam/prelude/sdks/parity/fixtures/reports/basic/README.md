@@ -7,6 +7,15 @@ Phase 0 contract.
 entries, and a sangha. `stage.toml` says how it becomes a git repository. `expected/` holds
 the exact output of each report in each format.
 
+**`repo/policy-input.json` is not corpus.** It is the decision document the `policy-eval`
+golden passes to `--input`, and it sits at the repository root rather than under `.yidam/`
+precisely so that no corpus walk sees it — `lint`, `corpus-index`, `graph-check` and
+`status` all read `.yidam/`, and a stray document there would move every one of their
+goldens. RFC-0024's definition of done asked for this golden and it did not ship; #893 is
+why nothing noticed. Adding it moved `log`, `log-epistemic` and `replay`, whose rows print
+short shas and whose shas are a function of the genesis tree — **the counts in all three are
+unchanged**, and that is the whole of the drift.
+
 It is deliberately **not** a corpus that trips every check. A fixture where everything
 fails cannot show that a passing check passes, and one carrying sixteen findings produces a
 golden nobody reads.

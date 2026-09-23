@@ -291,7 +291,7 @@
     },
     "failed": {
       "type": "integer",
-      "description": "`doctor` only. Checks that are wrong now. The only ones that affect the exit code without `--strict`."
+      "description": "`doctor` and `policy test`. For `policy test`, test rules that did not hold against a rule nobody overrode — `changed_by_override` holds the ones a corpus changed deliberately. For `doctor`, checks that are wrong now. The only ones that affect the exit code without `--strict`."
     },
     "warned": {
       "type": "integer",
@@ -2490,6 +2490,142 @@
           "description": "Why this half is short, in words. Non-null in three different cases \u2014 no decision record, a record naming a profile this repository does not hold, and a record or profile that did not parse \u2014 and they are different facts rather than one absence."
         }
       }
+    },
+    "decisions": {
+      "type": "array",
+      "description": "`policy check` only. Every decision the compiled rule set answers, and where its rule came from. The set is what `policy eval --decision` and `policy gate` accept, so a caller that named one wrong can correct without a second call — the reason `check_subject` carries the closed vocabulary in the MCP contract.",
+      "items": {
+        "type": "object",
+        "required": [
+          "decision",
+          "origin",
+          "source"
+        ],
+        "properties": {
+          "decision": {
+            "type": "string",
+            "description": "`family/name`, as `--decision` spells it."
+          },
+          "origin": {
+            "enum": [
+              "local",
+              "inherited"
+            ],
+            "description": "`local` where `.yidam/policy/` overrides the rule, `inherited` where the compiled-in default answers. RFC-0024's premise is that a corpus may override a built-in guard by package name, so which of the two answered is the first thing a reader needs."
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The overriding file's path, relative to the corpus root. **Null iff `origin` is `inherited`** — a rule nobody overrode has no file to name, and reporting the binary's own path would be a location nobody can open."
+          }
+        }
+      }
+    },
+    "disallowed_builtins": {
+      "type": "array",
+      "description": "`policy check` only. Rego builtins a committed policy calls that this build does not carry. Empty is the healthy case and is emitted rather than omitted, because absent and empty are the two answers a consumer must not have to tell apart. A non-empty list makes `ok` false.",
+      "items": {
+        "type": "object",
+        "required": [
+          "policy",
+          "call"
+        ],
+        "properties": {
+          "policy": {
+            "type": "string",
+            "description": "The policy package naming the builtin."
+          },
+          "call": {
+            "type": "string",
+            "description": "The builtin as called, e.g. `http.send`."
+          }
+        }
+      }
+    },
+    "ok": {
+      "type": "boolean",
+      "description": "`policy check` only. Whether every rule compiled and named only builtins this build carries. **Not a verdict about the repository** — that is `policy gate`'s `allow`, and `check` exits zero whatever it finds. NOT `passed`, which this contract gives one meaning across `graph-check`, `regen --check`, `index-verify` and `doctor`."
+    },
+    "decision": {
+      "type": "string",
+      "description": "`policy eval` and `policy gate`. The decision that was asked, echoed as `family/name`, so a verdict read out of a log says which question produced it."
+    },
+    "allow": {
+      "type": "boolean",
+      "description": "`policy eval` and `policy gate`. The verdict. `gate` additionally exits nonzero when this is false; `eval` never does — it answers a question rather than enforcing one, which is RFC-0024's division and the reason somebody can ask why a push was refused without reproducing the refusal."
+    },
+    "deny": {
+      "type": "array",
+      "description": "`policy eval` and `policy gate`. Every deny rule that fired, with its message. Empty when `allow` is true. Always the explained form in JSON, whatever `--explain` says: that flag shapes the text rendering, and a machine reader that had to ask twice for the rule names would be the surface RFC-0024 wrote `eval` to remove.",
+      "items": {
+        "type": "object",
+        "required": [
+          "rule",
+          "msg"
+        ],
+        "properties": {
+          "rule": {
+            "type": "string",
+            "description": "The Rego rule that fired, fully qualified."
+          },
+          "msg": {
+            "type": "string",
+            "description": "What it says, as the rule wrote it. Carried verbatim — never reworded here."
+          }
+        }
+      }
+    },
+    "tests": {
+      "type": "array",
+      "description": "`policy test` only. Every `test_*` rule in every `*_test.rego`, in the order they ran. A rule evaluating to `Undefined` is reported as a failure and never as a skip: a body that did not hold asserted nothing, and counting that as a pass is how a suite comes to cover less than it claims.",
+      "items": {
+        "type": "object",
+        "required": [
+          "rule",
+          "passed",
+          "detail",
+          "covers",
+          "overridden"
+        ],
+        "properties": {
+          "rule": {
+            "type": "string",
+            "description": "The test rule, fully qualified."
+          },
+          "passed": {
+            "type": "boolean",
+            "description": "Whether it held. Nested, and unrelated to the envelope-level `passed` this contract reserves for a gate verdict."
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it did not hold. Null on a pass."
+          },
+          "covers": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The `family/name` decision this test exercises, or null where the rule names none. A decision no test covers is a rule nobody has checked."
+          },
+          "overridden": {
+            "type": "boolean",
+            "description": "Whether `.yidam/policy/` replaced the rule under test. A failure with this true is counted in `changed_by_override` rather than in `failed`: the corpus changed the rule on purpose, and reporting that as a broken test would make every intentional override look like a defect."
+          }
+        }
+      }
+    },
+    "passing": {
+      "type": "integer",
+      "description": "`policy test` only. Tests that held. **NOT `passed`**, and the name is the whole of the reason: this contract gives `passed` one meaning — the gate verdict, a boolean — so a count under that name would be one key carrying two types for two commands. It emitted `passed` until #893, which nothing caught because the command emitted no envelope and no golden read it."
+    },
+    "changed_by_override": {
+      "type": "integer",
+      "description": "`policy test` only. Tests that failed against a rule `.yidam/policy/` replaced. A strict subset of the failures and **not** part of `failed`, so the two never double-count: `failed` is what is broken, this is what the corpus changed on purpose."
     }
   }
 }

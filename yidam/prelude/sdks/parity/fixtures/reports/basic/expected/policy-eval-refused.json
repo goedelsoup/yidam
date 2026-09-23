@@ -1,0 +1,19 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "allow": false,
+  "decision": "disclose/at_rest",
+  "deny": [
+    {
+      "msg": "`.yidam/private/field-notes.md` is declared private in `.yidam/private-paths` and this repository is public",
+      "rule": "private-material-in-public-repo"
+    }
+  ]
+}
