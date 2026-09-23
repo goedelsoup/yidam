@@ -34,6 +34,13 @@ updates:
     # features)` on main, which is the one job PR CI never runs, so it was invisible until
     # after the merge and stayed red across two more commits.
     #
+    # **The mechanism is `dependency_holds.rs`, not this entry.** The parity fixture now
+    # records the runtime that produced its eight reference dimensions
+    # (`reference = { runtime = "fastembed", version = "4.9.1" }`), and
+    # `every_parity_reference_runtime_is_the_major_the_lockfile_resolves` compares that major
+    # against the lock on every pull request. So the bump is red wherever it comes from, and
+    # this `ignore` is only here to stop it being proposed weekly (#904).
+    #
     # Major only. Patch and minor releases within 4 are wanted, and are the releases that
     # will carry the fix this hold is waiting for.
     # **arrow must match lancedb's transitive dependency**, which `Cargo.toml` states one line
@@ -44,6 +51,11 @@ updates:
     #
     # A major arrow bump is only ever correct alongside a lancedb release that took the same
     # one, so it is not a thing to propose on its own.
+    #
+    # `every_arrow_this_workspace_declares_is_the_one_lancedb_resolves` is what holds it, and
+    # it reads the lockfile rather than this file: cargo writes a bare `"arrow-array"` in a
+    # dependency list while one version is in the graph and `"arrow-array 54.0.0"` once there
+    # are two, so the disagreement is visible where the two sides actually meet (#904).
     ignore:
       - dependency-name: fastembed
         update-types: [version-update:semver-major]
@@ -81,6 +93,11 @@ updates:
     # bumped it to 1.138 against a floor of 1.90 — green on every PR, because `ci (vscode)`
     # packaged nothing, and red on the first `editor/v*` tag. Raising it is the decision to
     # drop every VS Code older than the new types, which is a floor change and not a bump.
+    #
+    # `the_extension_types_name_the_floor_the_extension_declares` compares the two minors on
+    # every pull request, and also holds the range to a tilde — under a caret `npm install`
+    # floats the types past the floor with no bump to review at all, which this entry could
+    # never have stopped (#904).
     ignore:
       - dependency-name: "@types/vscode"
   - package-ecosystem: npm

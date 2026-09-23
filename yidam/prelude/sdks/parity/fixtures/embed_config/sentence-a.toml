@@ -27,6 +27,18 @@ prefix = [
   0.03820032,
   -0.011892687,
 ]
+# The runtime that produced `prefix`, so the reference is a measurement with a
+# provenance rather than eight anonymous floats.
+#
+# It is load-bearing. fastembed 6 answers this sentence ~3e-4 differently — one
+# `ort` rc.12 to rc.13 bump, which skips the bundled ONNX Runtime ahead four
+# versions — and transformers.js agrees with 4.9.1 and not with 6. A major bump
+# on the reference moves it out of the space the other two runtimes share, and
+# the only green suite from there is one that re-records these numbers to the
+# outlier. #536 holds that open; `dependency_holds.rs` asserts that the runtime
+# the workspace resolves still has this major, so taking the bump is a red gate
+# rather than a fixture nobody noticed was re-recorded.
+reference = { runtime = "fastembed", version = "4.9.1" }
 
 # sentence-transformers cannot load the quantized ONNX export; it runs the
 # original fp32 PyTorch weights (sentence-transformers/all-MiniLM-L6-v2).
