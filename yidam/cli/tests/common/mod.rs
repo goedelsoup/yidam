@@ -152,7 +152,16 @@ const fn row(src: &'static str, dst: Option<&'static str>) -> Install {
 pub const KEPT_AT_ROOT: &[&str] = &["LICENSE", "mise.yidam.toml"];
 
 /// Directories bootstrap creates empty.
-pub const CREATED_EMPTY: &[&str] = &[".yidam/decisions", ".yidam/embeddings", ".yidam/index"];
+///
+/// **One, and step 3's tree listing is the authority**: `.yidam/decisions/` — "new, empty;
+/// written to in steps 2 and 5". `.yidam/embeddings/` and `.yidam/index/` were also here, and
+/// were a fiction twice over. Bootstrap creates neither, and git carries no empty directory,
+/// so no clone could have received them however genesis behaved. The cost was not cosmetic:
+/// `yidam status` decided a committed cell by stat-ing `.yidam/index/`, and against a fixture
+/// where that directory exists from genesis the cell reads `present` before anything is built
+/// and `present` after — so the test that should have caught #895 watched a value that could
+/// not vary.
+pub const CREATED_EMPTY: &[&str] = &[".yidam/decisions"];
 
 /// Paths a derived repository holds regardless of what any [`MAPPING`] row produces.
 ///
@@ -168,8 +177,6 @@ pub const ALWAYS_PRESENT: &[&str] = &[
     ".yidam.toml",
     ".yidam",
     ".yidam/decisions",
-    ".yidam/embeddings",
-    ".yidam/index",
     ".yidam/private-paths",
 ];
 

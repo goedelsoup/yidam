@@ -293,6 +293,12 @@ fetched machine wanted different numbers. Pushing a phase branch also reddened t
 open pull request. The counts moved to `yidam phases` and `yidam status --format json`, which are
 reports rather than committed content.
 
+Build artifacts broke the same rule, and for two releases nobody noticed. `yidam status` reported
+whether `.yidam/index/` existed. `index-status` and `bundle-status` reported what those artifacts
+held. None of it is in a commit. So the gate passed or failed on what a machine had built. CI has
+neither artifact and never saw it. The three blocks now hold a pointer. The measurements stay in
+the commands: `index-status`, `bundle-status`, `doctor` and `due`.
+
 Depth is the other half. `genesis` reads the repository's first commit, which a shallow clone does
 not have. Git names the boundary commit a root instead. `yidam regen` refuses in a shallow clone
 rather than writing that date. Check out with `fetch-depth: 0`, or run `git fetch --unshallow`.
