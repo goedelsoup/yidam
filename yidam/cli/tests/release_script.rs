@@ -210,6 +210,59 @@ fn the_cli_release_checks_that_the_tap_token_exists() {
     );
 }
 
+/// The `edit` release must ask whether npm's credential exists.
+///
+/// The same argument as the tap check above, with the stakes one step higher: npm is the
+/// `edit` layer's only channel — `edit.yml` creates no GitHub release, because the package
+/// *is* the artifact. A missing token there is not "every channel but one", it is the tag
+/// delivering nothing while the packed tarball, the green package job and the tag itself all
+/// say a release happened.
+///
+/// `edit/v0.1.0` is why this exists. The precondition was written, worked, and ran only for
+/// `cli` — a layer-shaped hole in a check whose argument never had anything to do with which
+/// layer was being tagged.
+///
+/// **Comments are stripped before this looks.** The block below is prose-heavy on purpose,
+/// and a test that greps the file is answered by its own explanation (the same failure as
+/// a job name satisfying a guard). What is asserted is the code.
+#[test]
+fn the_edit_release_checks_that_the_npm_token_exists() {
+    let script = read("release.sh");
+    let code: String = script
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // The guard has to be reached on the layer it is about. A check under the wrong `if` is
+    // the bug this test exists for, spelled a second way — so this reads the bodies of the
+    // edit-layer conditionals rather than the file, and there is more than one of them.
+    let blocks: Vec<&str> = code
+        .split(r#"if [ "$LAYER" = "edit" ]; then"#)
+        .skip(1)
+        .map(|rest| rest.split_once("\nfi").map(|(b, _)| b).unwrap_or(rest))
+        .collect();
+    assert!(
+        !blocks.is_empty(),
+        "release.sh no longer guards anything on the edit layer"
+    );
+    let guard = blocks.join("\n");
+    assert!(
+        guard.contains("NPM_TOKEN"),
+        "release.sh asks about no npm credential when tagging `edit`. Without it the tag          packs a tarball, uploads it, and fails at the publish — with npm serving nothing          and the version spent"
+    );
+    assert!(
+        guard.contains("npm-token-missing"),
+        "release.sh must name the missing-token refusal, so the message says which token to          create rather than reporting a red job from inside a release that cannot be undone"
+    );
+    // Secrets are listable only with admin. "Not there" and "you cannot see" want opposite
+    // responses, and collapsing them is how a precondition becomes one people skip.
+    assert!(
+        guard.contains("npm-token-unknown"),
+        "release.sh must distinguish an absent npm token from one it is not allowed to see"
+    );
+}
+
 /// A `cli/v*` tag must require tap.yml at HEAD, not only release.yml.
 ///
 /// release.yml calls the tap by path, and a local `uses:` resolves at the caller's ref. A

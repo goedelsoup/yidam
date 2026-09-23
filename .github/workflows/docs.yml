@@ -347,6 +347,19 @@ jobs:
             --out site \
             --versions versions.json
 
+      # What this assembly is, written into the tree it describes.
+      #
+      # The deploy below reports success from the API's acknowledgement, which is a claim
+      # about a request and not about what the site serves — and those two came apart at
+      # `cli/v0.14.0` (see the deploy step). A file the reader can fetch is the only thing
+      # that answers "is the live site this build?", and the check after the deploy asks it.
+      - name: Stamp the assembly
+        run: |
+          set -euo pipefail
+          printf '{"run_id":"%s","sha":"%s","ref":"%s"}\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_SHA" "$GITHUB_REF" > site/deployed.json
+          cat site/deployed.json
+
       - name: Upload the site
         uses: actions/upload-pages-artifact@v5
         with:
@@ -366,6 +379,59 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # ── the deployment's identity is not the commit ──────────────────────────
+      #
+      # `actions/deploy-pages` sends `pages_build_version: process.env.GITHUB_SHA` and
+      # nothing else identifies the deployment. Pages treats that value as the deployment's
+      # id — and a second deployment of an id already live is accepted, acknowledged, and
+      # serves nothing new.
+      #
+      # That is exactly a release. A tag is cut on the current `main`, so `cli/v0.14.0` and
+      # the push that became it carry the *same sha*; main's build ran first, thirty minutes
+      # before the tag existed, and resolved `v0.13` as the latest release. The tag's build
+      # was correct — `versions: main, v0.14 (latest), v0.13, v0.12`, and `./v0.14/` was in
+      # the uploaded artifact — the deploy step said "Reported success!", and the site went
+      # on serving the earlier tree with `/yidam/v0.14/` a 404. The trigger added for #535
+      # fires; its deploy was a no-op. `workflow_dispatch` has the same defect and the same
+      # cause, which makes the "redeploy without a commit" note at the top of this file a
+      # thing that quietly did not work.
+      #
+      # The assembled tree is a function of the commit *and the tag set*, so the run is the
+      # smallest thing that identifies it. Overriding `GITHUB_SHA` for this step is the only
+      # way in: the action exposes no input for the build version.
+      #
+      # If Pages ever refuses a build version that is not a bare sha, this step fails at the
+      # request rather than after it — loudly, before the check below — and the fix is to
+      # send a value it accepts, never to go back to sending the sha alone.
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+        env:
+          GITHUB_SHA: ${{ github.sha }}-${{ github.run_id }}
+
+      # The deploy step reports what the API said. This asks the site.
+      #
+      # Tags only, and that is a budget rather than a principle: a push to main always
+      # carries a sha Pages has not seen, so the collision above cannot happen there, and
+      # Pages fronts the site with a ten-minute cache that a query string does not reliably
+      # bust. A release is the one moment the answer is worth waiting for — it is when a
+      # reader arrives from the announcement, and it is the case that broke.
+      - name: The deployed site is this build
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          url="${{ steps.deployment.outputs.page_url }}deployed.json"
+          for _ in $(seq 1 40); do
+            got=$(curl -fsS "$url?r=$RANDOM" 2>/dev/null | jq -r '.run_id // ""' || true)
+            [ "$got" = "$GITHUB_RUN_ID" ] && break
+            sleep 20
+          done
+          echo "$url serves run '$got'; this run is '$GITHUB_RUN_ID'"
+          [ "$got" = "$GITHUB_RUN_ID" ] || {
+            echo "::error::The deploy reported success and the site does not serve this"
+            echo "::error::build. A deployment whose build version is already live is"
+            echo "::error::accepted and changes nothing; that is how cli/v0.14.0 published"
+            echo "::error::a version list the site never served. Check the GITHUB_SHA"
+            echo "::error::override on the deploy step above."
+            exit 1
+          }

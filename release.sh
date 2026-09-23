@@ -292,7 +292,7 @@ if [ "$LAYER" = "edit" ]; then
   fi
 fi
 
-# ── the tap's credential, asked about before the tag rather than after ───────
+# ── a publishing credential, asked about before the tag rather than after ────
 #
 # `cli/v*` pushes a rendered formula to goedelsoup/homebrew-tap. That is a second
 # repository, and it needs a PAT this repository's GITHUB_TOKEN cannot stand in
@@ -308,28 +308,52 @@ fi
 # exists, and only with admin on the repository. Being unable to ask is refused
 # rather than assumed, for the same reason an unreachable crates.io is: a check
 # that guesses when it cannot see is a check people learn to skip.
-if [ "$LAYER" = "cli" ]; then
+# One implementation, because the argument is one argument. Each caller passes its
+# own refusal names so they stay greppable words in this file rather than strings
+# this function assembles.
+require_secret() {
+  local secret=$1 missing=$2 unknown=$3 remedy=$4
   if ! command -v gh >/dev/null 2>&1; then
-    refuse tap-token-unknown "gh is not installed, so whether HOMEBREW_TAP_TOKEN exists cannot be checked"
-  else
-    # `-i` prints the status line even when the request fails, which is what
-    # separates "the secret is not there" from "you cannot see whether it is".
-    resp=$(gh api -i "repos/{owner}/{repo}/actions/secrets/HOMEBREW_TAP_TOKEN" 2>&1 || true)
-    # One awk rather than `sed | head`: `set -o pipefail` is on, and a reader that
-    # exits early on a producer still writing is a way for this check to abort the
-    # script over its own plumbing.
-    status=$(printf '%s\n' "$resp" | awk '/^HTTP\// { print $2; exit }')
-    case "$status" in
-      200)
-        printf 'HOMEBREW_TAP_TOKEN is set.\n' ;;
-      404)
-        refuse tap-token-missing "HOMEBREW_TAP_TOKEN is not set on this repository, so the release would ship every channel but the tap. Create a fine-grained PAT with Contents: read and write on goedelsoup/homebrew-tap and add it under that name" ;;
-      401|403)
-        refuse tap-token-unknown "GitHub answered $status; listing a repository's secrets needs admin, so whether HOMEBREW_TAP_TOKEN exists cannot be confirmed" ;;
-      *)
-        refuse tap-token-unknown "could not ask GitHub whether HOMEBREW_TAP_TOKEN exists${status:+ (HTTP $status)}" ;;
-    esac
+    refuse "$unknown" "gh is not installed, so whether $secret exists cannot be checked"
+    return
   fi
+  # `-i` prints the status line even when the request fails, which is what
+  # separates "the secret is not there" from "you cannot see whether it is".
+  local resp status
+  resp=$(gh api -i "repos/{owner}/{repo}/actions/secrets/$secret" 2>&1 || true)
+  # One awk rather than `sed | head`: `set -o pipefail` is on, and a reader that
+  # exits early on a producer still writing is a way for this check to abort the
+  # script over its own plumbing.
+  status=$(printf '%s\n' "$resp" | awk '/^HTTP\// { print $2; exit }')
+  case "$status" in
+    200)
+      printf '%s is set.\n' "$secret" ;;
+    404)
+      refuse "$missing" "$secret is not set on this repository, so $remedy" ;;
+    401|403)
+      refuse "$unknown" "GitHub answered $status; listing a repository's secrets needs admin, so whether $secret exists cannot be confirmed" ;;
+    *)
+      refuse "$unknown" "could not ask GitHub whether $secret exists${status:+ (HTTP $status)}" ;;
+  esac
+}
+
+if [ "$LAYER" = "cli" ]; then
+  require_secret HOMEBREW_TAP_TOKEN tap-token-missing tap-token-unknown \
+    "the release would ship every channel but the tap. Create a fine-grained PAT with Contents: read and write on goedelsoup/homebrew-tap and add it under that name"
+fi
+
+# npm is the `edit` layer's only channel — `edit.yml` creates no GitHub release,
+# because the package *is* the artifact. So a missing NPM_TOKEN is not "every
+# channel but one" as it is above; it is the release publishing nothing at all
+# while the tag, the packed tarball and the green package job all say otherwise.
+#
+# `edit/v0.1.0` is why this is here. The token was absent from the repository at
+# the moment the tag was pushed, and the check that would have said so ran only
+# for `cli` — a layer-shaped hole in a precondition whose argument never had
+# anything to do with which layer was being tagged.
+if [ "$LAYER" = "edit" ]; then
+  require_secret NPM_TOKEN npm-token-missing npm-token-unknown \
+    "the tag would pack a tarball, upload it as an artifact, and fail at the publish — with npm serving nothing and the version spent. Create an npm automation token with publish rights on the @goedelsoup scope and add it under that name"
 fi
 
 # ── signing ──────────────────────────────────────────────────────────────────
