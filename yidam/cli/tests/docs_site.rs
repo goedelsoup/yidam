@@ -264,3 +264,111 @@ fn the_docs_workflow_fires_on_the_tags_its_version_list_is_built_from() {
          and SDK tag that rewrites the site with identical content."
     );
 }
+
+/// A Pages deployment must be identified by more than the commit it was built from.
+///
+/// `actions/deploy-pages` sends `pages_build_version: process.env.GITHUB_SHA` and nothing
+/// else. Pages treats that string as the deployment's id, and re-deploying an id already
+/// live is accepted, acknowledged, and serves nothing new.
+///
+/// A release is precisely that case. The tag is cut on the current `main`, so the tag and
+/// the push that became it carry the same sha — and main's build ran first, before the tag
+/// existed, with the *previous* release resolved as latest. At `cli/v0.14.0` the tag's build
+/// was correct (`v0.14 (latest)`, `./v0.14/` in the uploaded artifact), the deploy reported
+/// success, and the site kept serving the earlier tree with `/yidam/v0.14/` a 404. The #535
+/// trigger fired; its deploy was a no-op. `workflow_dispatch` — this file's documented way
+/// to redeploy without a commit — has the same defect for the same reason.
+///
+/// The assembled tree is a function of the commit *and the tag set*, so the run is the
+/// smallest thing that identifies it.
+#[test]
+fn the_pages_deployment_is_identified_by_more_than_the_commit() {
+    let workflow: serde_yaml::Value =
+        serde_yaml::from_str(&read(".github/workflows/docs.yml")).expect("docs.yml parses");
+    let steps = workflow["jobs"]["deploy"]["steps"]
+        .as_sequence()
+        .expect("docs.yml has a deploy job with steps");
+    let deploy = steps
+        .iter()
+        .find(|s| {
+            s["uses"]
+                .as_str()
+                .is_some_and(|u| u.starts_with("actions/deploy-pages"))
+        })
+        .expect("docs.yml deploys with actions/deploy-pages");
+
+    let version = deploy["env"]["GITHUB_SHA"].as_str().unwrap_or_else(|| {
+        panic!(
+            "the deploy step sends the bare commit as its build version. The action reads \
+             GITHUB_SHA and exposes no input, so a tag that shares main's sha deploys an id \
+             Pages already serves — accepted, and a no-op."
+        )
+    });
+    assert!(
+        version.contains("github.run_id") || version.contains("github.run_number"),
+        "the deploy step's build version is `{version}`. It has to differ between two \
+         deploys of the same commit — a release tag and the push it was cut from, or a \
+         `workflow_dispatch` redeploy — and only the run distinguishes those."
+    );
+}
+
+/// What the deploy claims and what the site serves are checked against each other.
+///
+/// The defect above was silent for exactly one reason: "Reported success!" describes the
+/// API's answer to a request, not the bytes a reader receives. The assembly writes a stamp
+/// into the tree it describes and a step after the deploy fetches it back, so the two are
+/// separate claims that have to agree.
+#[test]
+fn the_deploy_is_checked_against_the_site_it_claims_to_have_published() {
+    let text = read(".github/workflows/docs.yml");
+    let workflow: serde_yaml::Value = serde_yaml::from_str(&text).expect("docs.yml parses");
+
+    let scripts = |job: &str| -> Vec<String> {
+        workflow["jobs"][job]["steps"]
+            .as_sequence()
+            .unwrap_or_else(|| panic!("docs.yml has a {job} job with steps"))
+            .iter()
+            .filter_map(|s| s["run"].as_str())
+            .flat_map(|s| s.lines())
+            .map(str::trim)
+            .filter(|l| !l.starts_with('#'))
+            .map(str::to_string)
+            .collect()
+    };
+
+    let written = scripts("assemble");
+    let stamp = written
+        .iter()
+        .find_map(|l| l.split_once("> site/").map(|(_, f)| f.trim().to_string()))
+        .expect(
+            "the assemble job writes no stamp into `site/`. Without one there is nothing a \
+             reader can fetch that says which build the site is, and a deploy that changed \
+             nothing looks exactly like one that worked",
+        );
+
+    // The *same step* that fetches the stamp has to be the one that fails, which is why
+    // this reads whole scripts rather than the job's lines: an `exit 1` somewhere else in
+    // the job would satisfy a flatter assertion while the stamp went unchecked.
+    let checker = workflow["jobs"]["deploy"]["steps"]
+        .as_sequence()
+        .expect("docs.yml has a deploy job with steps")
+        .iter()
+        .filter_map(|s| s["run"].as_str())
+        .find(|s| {
+            s.lines()
+                .map(str::trim)
+                .any(|l| !l.starts_with('#') && l.contains(&stamp))
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "the assembly writes `site/{stamp}` and the deploy job never fetches it. A \
+                 stamp nothing reads is a file, not a check"
+            )
+        });
+    assert!(
+        checker.contains("GITHUB_RUN_ID") && checker.contains("exit 1"),
+        "the deploy job fetches `{stamp}` and does not fail when it names another run. \
+         Serving the previous build is the failure; reporting it as success is what made it \
+         cost a release"
+    );
+}
