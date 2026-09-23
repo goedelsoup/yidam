@@ -45,8 +45,20 @@ const EXCLUDE_FILES: &[&str] = &[".mise.local.toml", ".DS_Store"];
 const CACHEDIR_TAG: &str = "CACHEDIR.TAG";
 const CACHEDIR_SIGNATURE: &str = "Signature: 8a477f597d28d172789f06886806bc55";
 
+/// `dist-*` as well as `dist`, for the same reason the list holds `dist` at all.
+///
+/// The names above are conventions, and a convention that admits a suffix admits it here
+/// too. `yidam/web/docs/test/quality-render.mjs` builds into `dist-quality-test`,
+/// `dist-quality-series` and two timezone variants, and removes them when its block ends —
+/// so an interrupted `npm test` leaves four Starlight builds in the tree `clone` copies.
+/// `.gitignore:55` has said `dist-*/` since #467; this said `dist`, which is #900's defect
+/// one file over. No `CACHEDIR.TAG` saves it: a site build is not a cache and does not
+/// write one.
 pub(crate) fn excluded_dir(name: &str) -> bool {
-    EXCLUDE_DIRS.contains(&name) || name.ends_with(".lance") || name.ends_with(".egg-info")
+    EXCLUDE_DIRS.contains(&name)
+        || name.starts_with("dist-")
+        || name.ends_with(".lance")
+        || name.ends_with(".egg-info")
 }
 
 /// True when the directory declares itself a cache, per the tagging specification.
@@ -231,6 +243,38 @@ mod tests {
         assert!(
             dst.join("mise.toml").exists(),
             "and the template itself still has to ship"
+        );
+    }
+
+    /// #900: `dist-quality-test` is what an interrupted docs run leaves behind, and
+    /// `.gitignore` has covered it since #467 while this list said only `dist`.
+    #[test]
+    fn a_suffixed_build_directory_is_dropped_like_the_bare_one() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let src = tmp.path().join("src");
+        let dst = tmp.path().join("dst");
+        std::fs::create_dir_all(src.join("web/docs/dist-quality-test/_astro")).unwrap();
+        std::fs::write(
+            src.join("web/docs/dist-quality-test/_astro/common.css"),
+            "a{color:var(--sl-color-text-accent)}",
+        )
+        .unwrap();
+        std::fs::create_dir_all(src.join("web/docs/dist")).unwrap();
+        std::fs::write(src.join("web/docs/dist/index.html"), "<html>").unwrap();
+        // A directory whose name merely begins the same way is not build output.
+        std::fs::create_dir_all(src.join("web/distribution")).unwrap();
+        std::fs::write(src.join("web/distribution/notes.md"), "authored").unwrap();
+
+        copy_dir(&src, &dst).unwrap();
+
+        assert!(
+            !dst.join("web/docs/dist-quality-test").exists(),
+            "an interrupted docs run now ships into every derived repository"
+        );
+        assert!(!dst.join("web/docs/dist").exists());
+        assert!(
+            dst.join("web/distribution/notes.md").exists(),
+            "the prefix is `dist-`, not `dist`; `distribution/` is authored"
         );
     }
 
