@@ -948,6 +948,13 @@ What makes such a report actionable, in rough order of value:
 Do not send corpus content. A finding is about the template; the domain material that
 exposed it usually should not leave the repository, and often may not.
 
+**Everything above is the shape of a defect** — a rule that is wrong everywhere, which one
+repository is enough to demonstrate. A rule that is right in general and wrong *here*, because
+it collides with a fact about this domain, is a different report asking for a different repair,
+and it goes through the same channel in a different form. [upstream.md](upstream.md) has that
+form, what an yidam-level change is, and what a report from here is worth once several
+derivations have made the same one.
+
 ---
 
 ## `samudaya/` (transient — present only before and during bootstrap)

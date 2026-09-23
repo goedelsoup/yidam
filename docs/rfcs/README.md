@@ -66,6 +66,7 @@ re-deriving it.
 | [0033](0033-remote-vector-index.md) | I28 | A vector index a corpus is queried out of, not one it carries | Draft |
 | [0034](0034-local-citation.md) | I29 | A claim resting on a node beside it (`cites:` without a package) | Draft |
 | [0035](0035-class-extent.md) | I30 | What a class is meant to span, and what a hole in it is worth (`coverage:`) | Draft |
+| [0036](0036-yidam-level-change.md) | G6 | An yidam-level change, and the two shapes a derivation's report takes | Accepted |
 
 ## Reading order
 

@@ -767,7 +767,7 @@ nothing could recover which commits changed what was known and which merely move
 A verb outside this list is not a richer description, it is an unclassifiable one.
 
 Reach for the closest verb rather than inventing one. If a commit genuinely does not fit —
-that is a gap in the vocabulary, which is an yidam-level change, not a local one.
+that is a gap in the vocabulary, which is an [yidam-level change](guidelines/upstream.md), not a local one.
 
 **A step that produces a commit names its verb, in the step.** Any instruction — in a
 protocol, a skill, a convention, a README — that tells a reader to commit something must
