@@ -37,8 +37,6 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use walkdir::WalkDir;
-
 mod common;
 
 use common::{install_of, repo_root, ALWAYS_PRESENT, COLLECTIVE, DOMAIN_SELECTED, MAPPING};
@@ -100,20 +98,8 @@ fn installed_tree(root: &Path, conditions: &BTreeSet<&str>) -> BTreeSet<String> 
         if e.when.is_some_and(|w| !conditions.contains(w)) {
             continue;
         }
-        for entry in WalkDir::new(root.join(e.src))
-            .into_iter()
-            .filter_map(Result::ok)
-        {
+        for entry in common::repo_walk(&root.join(e.src)) {
             if !entry.file_type().is_file() {
-                continue;
-            }
-            let s = entry.path().to_string_lossy();
-            if s.contains("/node_modules/")
-                || s.contains("/.venv/")
-                || s.contains("/target/")
-                || s.contains("/__pycache__/")
-                || s.contains("/.pytest_cache/")
-            {
                 continue;
             }
             let Ok(rel) = entry.path().strip_prefix(root) else {
@@ -256,19 +242,12 @@ fn every_template_link_resolves_in_the_installed_layout() {
         if e.dst.is_none() {
             continue; // consumed; its links go nowhere because it goes nowhere
         }
-        for entry in WalkDir::new(root.join(e.src))
-            .into_iter()
-            .filter_map(Result::ok)
-        {
+        for entry in common::repo_walk(&root.join(e.src)) {
             if !entry.file_type().is_file() {
                 continue;
             }
             let path = entry.path();
             if path.extension().is_none_or(|x| x != "md") {
-                continue;
-            }
-            let s = path.to_string_lossy();
-            if s.contains("/node_modules/") || s.contains("/.venv/") || s.contains("/target/") {
                 continue;
             }
             let Ok(rel) = path.strip_prefix(&root) else {

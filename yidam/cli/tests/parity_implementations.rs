@@ -26,7 +26,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use walkdir::WalkDir;
+mod common;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -121,27 +121,17 @@ fn defines(line: &str, name: &str, ext: &str) -> bool {
 /// magnitude. `yidam/tests/results/` is evaluation output: derived repositories captured as
 /// they were, and a duplicate in one of those is a finding about that run, not about this tree.
 fn authored_sources(root: &Path) -> Vec<PathBuf> {
-    WalkDir::new(root)
-        .into_iter()
-        .filter_entry(|e| {
-            let name = e.file_name().to_string_lossy();
-            let generated = name.starts_with('.')
-                || name == "node_modules"
-                || name == "target"
-                || name == "dist"
-                || name == "results"
-                || name == "__pycache__"
-                || name.ends_with(".egg-info");
-            !(generated && e.file_type().is_dir())
-        })
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_file())
-        .map(|e| e.path().to_owned())
-        .filter(|p| {
-            p.extension()
-                .is_some_and(|x| x == "rs" || x == "ts" || x == "py")
-        })
-        .collect()
+    common::repo_walk_keeping(root, |e| {
+        let name = e.file_name().to_string_lossy();
+        !(e.file_type().is_dir() && (name.starts_with('.') || name == "results"))
+    })
+    .filter(|e| e.file_type().is_file())
+    .map(|e| e.path().to_owned())
+    .filter(|p| {
+        p.extension()
+            .is_some_and(|x| x == "rs" || x == "ts" || x == "py")
+    })
+    .collect()
 }
 
 /// Every definition of every parity function, by repo-relative path.
