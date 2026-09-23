@@ -46,7 +46,11 @@ synthesized. Keeping both is what makes the record auditable by someone who was 
 
 ## What a position file holds
 
-No fixed schema — this is argument, and a form would flatten it. In practice:
+No fixed schema — this is argument, and a form would flatten it. That is a statement about
+the *case*, and it is why the one structured artifact in this protocol is a different file:
+[commitments/](../commitments/README.md) is an **index** of what a seat holds and has
+withdrawn, and an index can have a shape because it is not making the argument. In practice
+a position file carries:
 
 - A heading naming the elector, their branch, and what this position contests
 - What the elector concedes, stated first and without hedging. A position that concedes
@@ -65,6 +69,15 @@ Positions are permanent. A superseded position is not deleted or edited into agr
 is the record of what was held, and the next resolution's record links back to it. An
 elector who changes their mind writes a new position for the new question and says in it
 which earlier ground of theirs did not survive.
+
+**That last sentence had no artifact and no check for the whole of this template's early
+life, and an unenforceable norm is hard to tell from an absent one.** Measured on 2026-09-22
+in the repository that has run this protocol: of 71 positions, 17 link another elector's and
+4 link one of the author's own. The loop makes electors read each other and they do; reading
+*themselves* across time is the direction nothing supported. A seat now keeps that index on
+its own branch — see [commitments/](../commitments/README.md) — and
+`elector-commitment-vanished` is what makes a ground that leaves without being withdrawn
+visible.
 
 Within a single resolution the loop is different from supersession. An elector answering a
 round they have now read extends their *own* position file with `revise:` on their own

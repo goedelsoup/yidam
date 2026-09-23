@@ -40,6 +40,35 @@ report once you save. Nothing changes for a buffer whose file is on disk.
 **The server declares it.** The `initialize` result carries
 `experimental.yidam.unsavedInstances: true`. A client that needs this can check for it.
 
+### A seat can say what it holds, and `yidam lint` reads it across the seat's own history
+
+**Four new findings about `ma/*` branches (#294).** A seat may now keep
+`.yidam/sangha/commitments/<elector>.md` on its own branch. It carries two sections, `## What
+this seat holds` and `## What this seat has withdrawn`. Each item links the position that
+argued it. The file is never transported onto the baseline.
+
+**One new Info finding fires whether or not you adopt it.**
+`elector-commitments-absent` reports a seat that has filed a position and carries no
+commitments file. A repository with three such seats gains three Info findings and nothing
+else. Your exit code does not change. The other three are silent until a commitments file
+exists.
+
+**Two of the other three gate, and only over a file you wrote.**
+`elector-commitments-malformed` is an Error when the file does not carry both headings. A file
+with no headings parses to two empty sections, which would turn the next check off.
+`elector-commitment-vanished` is an Error when a ground disappears. A position named under
+`holds` at one commit, and in neither section at a later one, is the finding. Deleting the file
+counts, because it takes the grounds it held with it. `elector-position-unindexed` is Info and
+reports one of the seat's own positions that neither section names.
+
+**The item's identity is the position it links, never its prose.** Reword an item freely. What
+must not disappear is the link. Moving it to `## What this seat has withdrawn` is always the
+answer. Withdrawing a ground is the act the loop exists to produce, and is never reported.
+
+**The commitments file is read from the branch, so a thin clone reports less rather than
+differently.** A checkout without the `ma/*` commits sees no seats at all, like
+`resolution-independence-mismatch`. Fetch the elector branches to get the real answer in CI.
+
 ### `yidam lint` now derives a resolution's `independence:`
 
 **New Info finding, `resolution-independence-mismatch` (#823).** It reports a record whose
