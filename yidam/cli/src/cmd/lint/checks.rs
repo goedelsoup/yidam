@@ -4498,22 +4498,37 @@ mod tests {
         );
     }
 
-    /// Every `*.ont.yml` under `dir`, skipping the directories no corpus lives in.
+    /// Every `*.ont.yml` this repository **ships**, from git.
+    ///
+    /// Was a directory walk pruned by a four-name list — `.git`, `target`, `node_modules`,
+    /// `dist` — and that list is the #900 defect: it is written twice, here and in
+    /// `.gitignore`, and the copies disagree. It reached
+    /// `.local/ext-fixture/.yidam/corpus/{concept,gauge}.ont.yml` — a whole staged foreign
+    /// repository, git-ignored, which `copy.rs` already refuses to clone for exactly this
+    /// reason — so a test whose name says *in this repository* was grading two class files
+    /// this repository does not have.
+    ///
+    /// `ls-files` rather than a pruned walk, because "ships" is a question about the tree
+    /// git tracks, and asking git is the only form of the answer that cannot drift from it.
+    /// An uncommitted new corpus is covered too: `ls-files` reads the index, not HEAD.
     fn collect_ont_files(dir: &Path, out: &mut Vec<PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for e in entries.flatten() {
-            let p = e.path();
-            let name = e.file_name().to_string_lossy().to_string();
-            if p.is_dir() {
-                if !matches!(name.as_str(), ".git" | "target" | "node_modules" | "dist") {
-                    collect_ont_files(&p, out);
-                }
-            } else if name.ends_with(".ont.yml") {
-                out.push(p);
-            }
-        }
+        let output = std::process::Command::new("git")
+            .current_dir(dir)
+            .args(["ls-files", "-z", "--", "*.ont.yml"])
+            .output()
+            .expect("git ls-files");
+        assert!(
+            output.status.success(),
+            "git could not list class files under {} — without it this test grades whatever \
+             the working directory happens to contain",
+            dir.display()
+        );
+        out.extend(
+            String::from_utf8_lossy(&output.stdout)
+                .split('\0')
+                .filter(|s| !s.is_empty())
+                .map(|s| dir.join(s)),
+        );
     }
 
     // ── class-claim-uncounted (#603) ──────────────────────────────────────────
