@@ -464,6 +464,15 @@ default~~ (#575).
 > `.yidam/` recording one. The enforcing consumer stays where this section already puts it —
 > #473's `phase start`, validating a declared type against the vendored list.
 
+> **Built 2026-09-23 (#473).** Everything this section decides is now structure. `phase start`
+> writes `.yidam/phases/<slug>.yml` carrying the type and a snapshot of `{commit,
+> manifest_sha256, config_sha256, kuten, kuten_revision}`; `cmd/phases.rs` ranks the record
+> over `RefKind` exactly as specified below — the record decides only where ref shape says
+> `active`, and `PhaseRow.source` reports which evidence answered. The new state is
+> `interrupted`, which no ref shape can produce. The type half is **not** enforced against a
+> default: a repository holding no kuten records the declared type and validates it against
+> nothing, which is Erratum 1's conclusion carried into the enforcing consumer.
+
 **The run record stores a phase's declared type and an input snapshot that names the kuten
 revision.** #473 (as restated) gives `phase start` a snapshot — the sha, the manifest digest,
 and **the kuten revision**, with the declared type validated against the vendored kuten's list
@@ -503,7 +512,7 @@ makes the architectural call it deferred. The argument for feeding rather than r
 3. **The two sources answer different questions, and the shipped code says so.**
    `ref_state` is documented as *"the single classifier. `yidam status` counts these and
    `yidam phases` prints them, and they must not be able to disagree"*
-   ([`git.rs:462-463`](../../yidam/cli/src/git.rs#L462-L463)). `RefKind` answers *what is
+   ([`git.rs:480-481`](../../yidam/cli/src/git.rs#L480-L481)). `RefKind` answers *what is
    this ref*; the run record answers *what happened in this run*. Collapsing them recreates
    #272's actual defect — two surfaces free to disagree — one level up.
 

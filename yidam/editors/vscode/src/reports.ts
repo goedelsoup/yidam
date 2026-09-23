@@ -197,15 +197,33 @@ export interface PhasesReport extends Envelope {
     started: string
     commits: number
     /**
-     * `active`, `settled`, `rewritten`, or `position` — `git::REF_STATES`, which
-     * `report.schema.json` declares as a closed enum. `rewritten` was added by #773 and this
-     * comment did not follow it for two releases; the type is `string` so nothing broke, which
-     * is exactly why nothing said so.
+     * `active`, `interrupted`, `settled`, `rewritten`, or `position` — `git::REF_STATES`,
+     * which `report.schema.json` declares as a closed enum. `rewritten` was added by #773 and
+     * this comment did not follow it for two releases; the type is `string` so nothing broke,
+     * which is exactly why nothing said so. `interrupted` was added by #473 and means a phase
+     * run resolved a plan whose steps did not all complete — read `source` to learn whether
+     * that could have been known here.
      *
      * Optional because a pinned binary older than the field omits it, and a view that renders
      * `undefined` is worse than one that renders nothing.
      */
     state?: string
+    /**
+     * `record` or `ref` — which evidence decided `state`. RFC-0028 §3 ranks the two rather
+     * than collapsing them: the ref's namespace answers *what is this ref*, and the phase
+     * record answers *what happened in this run*. A row marked `ref` is an inference from
+     * branch shape, which is every phase in every repository that predates `yidam phase
+     * start`.
+     *
+     * Optional for `state`'s reason: a pinned binary older than the field omits it.
+     */
+    source?: string
+    /**
+     * The phase type the ref's record declares. Absent — never blank — where the ref carries
+     * no record, which a view must render as unknown rather than filling in a default: there
+     * is no default list, by RFC-0028 Erratum 1.
+     */
+    type?: string
   }[]
 }
 

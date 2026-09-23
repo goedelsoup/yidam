@@ -849,6 +849,7 @@
         "required": [
           "name",
           "state",
+          "source",
           "ref_name",
           "owner",
           "started",
@@ -861,11 +862,23 @@
           "state": {
             "enum": [
               "active",
+              "interrupted",
               "settled",
               "rewritten",
               "position"
             ],
-            "description": "A column rather than a filter: a table listing settled evolutions beside standing positions and calling the lot `active phases` is what this replaced. The enum is closed and is checked against `git::REF_STATES` both ways: a state the code can emit and this does not name is a report a validating consumer rejects, and one named here that the code cannot emit is a branch nobody can take. The only copy, since #660 \u2014 an envelope-level `state` stood beside it from 42354da, and no report has ever emitted one."
+            "description": "A column rather than a filter: a table listing settled evolutions beside standing positions and calling the lot `active phases` is what this replaced. The enum is closed and is checked against `git::REF_STATES` both ways: a state the code can emit and this does not name is a report a validating consumer rejects, and one named here that the code cannot emit is a branch nobody can take. The only copy, since #660 \u2014 an envelope-level `state` stood beside it from 42354da, and no report has ever emitted one. `interrupted` is the one member no ref shape can produce: it means a phase run resolved a plan and its steps did not all complete, which only the phase record knows. Read `source` to learn which evidence decided the value."
+          },
+          "type": {
+            "type": "string",
+            "description": "`phases` only. The phase type declared at `yidam phase start`, carried by the ref's phase record. ABSENT, never empty or null, where the ref carries no record \u2014 which is every phase opened by hand, every phase predating the record, and all 60 `phase/*` refs across the eighteen corpora A0 measured. A consumer MUST NOT supply a default: RFC-0028 Erratum 1 records that a four-element fallback list is the artefact that section exists to prevent."
+          },
+          "source": {
+            "enum": [
+              "record",
+              "ref"
+            ],
+            "description": "`phases` only. Which evidence decided `state`. RFC-0028 \u00a73 ranks two sources rather than collapsing them \u2014 `RefKind` answers WHAT IS THIS REF and the phase record answers WHAT HAPPENED IN THIS RUN, and collapsing them recreates #272's defect one level up. `ref` where no record exists, and wherever the answer is about the baseline: `position`, `settled` and `rewritten` are facts a record committed on the phase's own branch cannot hold. `record` only where ref shape says `active` and a record refines it."
           },
           "ref_name": {
             "type": "string",

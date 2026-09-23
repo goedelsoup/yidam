@@ -1,5 +1,5 @@
-Phase              State      Ref                      Owner     Started      Commits
-────────────────   ────────   ──────────────────────   ───────   ──────────   ───────
-Hydrologist        position   ma/hydrologist           Fixture   2026-01-01   0
-Low flow survey    settled    phase/low-flow-survey    Fixture   2026-01-01   0
-Tailwater regime   settled    rigpa/tailwater-regime   Fixture   2026-01-01   0
+Phase              Type   State      Ref                      Owner     Started      Commits
+────────────────   ────   ────────   ──────────────────────   ───────   ──────────   ───────
+Hydrologist        —      position   ma/hydrologist           Fixture   2026-01-01   0
+Low flow survey    —      settled    phase/low-flow-survey    Fixture   2026-01-01   0
+Tailwater regime   —      settled    rigpa/tailwater-regime   Fixture   2026-01-01   0

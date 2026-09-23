@@ -314,7 +314,7 @@ the read-only overview.
 | `diff <range>` | Node and edge changes between two git refs |
 | `check-diff [range]` | What a code diff names that the ontology does not ([RFC-0021](rfcs/0021-diff-alignment.md)). Defaults to the merge-base with `main` — this branch's work |
 | `log [range]` | Commit history classified as testimony or pipeline work. `--epistemic`, `--operational` |
-| `phases` | Active inquiry phases — `ma/*` and `rigpa/*` branches. Each row's `State` is `active`, `settled`, `rewritten` or `position` |
+| `phases` | Active inquiry phases — `ma/*`, `rigpa/*` and `phase/*` branches. `State` is `active`, `interrupted`, `settled`, `rewritten` or `position`. `Source` says which evidence decided it |
 | `replay` | Corpus health reconstructed across the repository's whole history. `--every` |
 | `cohort <repo>…` | What a set of derived repositories says about the prelude they inherited: per norm, how many kept it. `--paths` |
 | `decisions-log` * | Decision records in `.yidam/decisions/`, newest first. Writes the `<!-- REGEN: yidam decisions-log -->` block where that directory has a README carrying one *(no flags)* |
@@ -324,6 +324,7 @@ the read-only overview.
 | `migrate <sub>` * | Change an ontology and every instance that adopted it, as one event. `--dry-run` |
 | `propose` * | Draft findings as proposed epistemic commits on a `propose/<head>` branch |
 | `run [step]` * | Invoke the stale capabilities declared in `.yidam/capabilities.toml`, in dependency order, and commit what each produced with a receipt. Named with a step, runs that step and everything it declares it comes `after`; with nothing, the whole manifest. `--dry-run` plans and writes nothing |
+| `phase <sub>` * | `start` opens a phase and snapshots what it begins from. `run` invokes its plan, recording each step. `settle` checks it produced outputs and drafts the merge — a person runs it |
 
 ### Retrieval, and the corpora it can reach
 
@@ -545,6 +546,59 @@ at all.
 
 One step per invocation: dependency order, freshness and `--dry-run` are not built yet.
 [RFC-0026](rfcs/0026-orchestrator-layer.md) has the argument for what a run may author.
+
+### A phase carries what it began from, and says so after an interruption
+
+[PHASES.md](../yidam/prelude/PHASES.md) specifies a phase as a branch, a declared input state,
+a body of agent work and a `--no-ff` merge. Nothing in a repository held any of it. `yidam
+phases` read a phase's state off its ref's namespace, so *active* meant *a ref matching a
+glob*. A phase whose run died halfway through looked exactly like one opened this morning.
+
+```
+yidam phase start outcome-axis --type Investigation
+git switch phase/outcome-axis
+yidam phase run
+yidam phase settle
+```
+
+**`start`** opens `phase/<name>` and commits the snapshot to `.yidam/phases/<name>.yml`. The
+snapshot is the baseline commit, the digests of `.yidam/capabilities.toml` and
+`.yidam/config.toml`, and the kuten revision. The declared `--type` is checked against the phase types the **vendored** kuten
+declares. A repository holding no kuten records the type and validates it against nothing.
+There is no default list, and inventing one would put a phase-type roster in this binary
+([RFC-0028 §3](rfcs/0028-kuten-layer.md)).
+
+The record is committed rather than written to the working tree, and that is what makes it
+useful. `yidam phases` reads remote-tracking refs. A record living only on disk would answer
+for the one branch you are standing on. The commit's verb is `scaffold:` — operational, so the
+pipeline advanced and no understanding changed.
+
+**`run`** resolves the manifest's plan and writes it to the record *before* the first step is
+invoked. Each step's completion is committed as it happens. That order is the whole design. A
+record that learned its plan on the way through could say which steps ran, and never which did
+not. A step already recorded is not re-entered, so a run killed partway completes rather than
+restarts.
+
+Until every step of the resolved plan is recorded, the phase reads `interrupted`. That is true
+in `yidam phases`, in `yidam status` and in `yidam due`'s phase clock. The state has no ref
+shape — only the record knows it.
+
+**`settle`** checks the phase produced outputs and drafts the merge subject. **It authors
+nothing.** `phase:` is an epistemic verb, and [RFC-0026 §2](rfcs/0026-orchestrator-layer.md)
+holds that nothing merges itself. `due` reached the same limit first, of this very clock: *a
+person.* *Merging a phase, or abandoning it, is not a mechanical consequence of a finding.* So
+`settle` validates and hands back the three commands to run.
+
+Like `run` and `propose`, all three write git objects and one ref. They touch neither the
+working tree nor the index, so they are safe mid-edit. They therefore leave your checkout
+behind the branch. `git reset --hard HEAD` or a path-scoped `git restore` syncs it.
+
+**A phase opened by hand is not broken.** `git switch -c phase/<name>` is PHASES.md's own
+documented flow, and every phase in every repository predates this record. Those rows are still
+listed, and their state is still read from the ref. The table says how many rows are an
+inference. RFC-0028 §3 ranks the two sources rather than replacing one with the other. The ref
+answers *what is this ref*; the record answers *what happened in this run*. Only the ref can say
+whether a phase has landed on the baseline.
 
 ## Index and embeddings
 

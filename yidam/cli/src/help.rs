@@ -150,6 +150,10 @@ pub const GROUPS: &[Group] = &[
             // reason `propose` carries it: a run does write to the repository, and its long
             // help says which part and what it leaves alone.
             w("run"),
+            // Beside `run` and `propose`, the other two that write history. `phase` writes a
+            // `scaffold:` commit per act and is the surface `phases` reads, so the pair sits
+            // together: one opens and records the unit of inquiry, the other lists it.
+            w("phase"),
             r("log"),
             r("phases"),
             r("replay"),

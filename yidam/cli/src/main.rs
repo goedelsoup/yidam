@@ -634,6 +634,20 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
+    /// Open, run and settle a phase — the unit of bounded inquiry
+    ///
+    /// `prelude/PHASES.md` has specified a phase as a branch, a declared input state, a body
+    /// of agent work and a `--no-ff` merge since before anything could hold one. `start`
+    /// snapshots what the phase begins from, `run` records its steps as they complete so an
+    /// interrupted phase is legible, and `settle` checks it produced outputs and drafts the
+    /// merge. Nothing here merges anything: `phase:` is an epistemic verb and a person writes
+    /// it.
+    ///
+    /// See docs/rfcs/0026-orchestrator-layer.md and docs/rfcs/0028-kuten-layer.md §3.
+    Phase {
+        #[command(subcommand)]
+        sub: yidam::PhaseCommand,
+    },
     /// Show active inquiry phases (ma/* and rigpa/* branches)
     Phases {
         /// Output format. `json` emits the machine-readable report contract
@@ -1286,6 +1300,7 @@ fn main() -> Result<()> {
             };
             yidam::log(range, filter, format)
         }
+        Command::Phase { sub } => yidam::run_phase(sub),
         Command::Phases { format } => yidam::phases(format),
         Command::Replay { every, format } => yidam::replay(format, every),
         // Neither transport is gated any more, and that is the point: an agent surface
