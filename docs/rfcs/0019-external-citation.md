@@ -220,6 +220,23 @@ update — which matters because `tonpa update` is `--features tonpa` and CI is 
 > corpus the citation was written in — on the argument that unreachability is what the zero
 > measures. That RFC names its own falsifier for the argument.
 
+> **Settled 2026-09-22 (#296).** This family also covers the case it never gave an example of:
+> a node that has read a foreign span and **disagrees** with it. A disagreement is a taking —
+> you cannot contradict a sentence you have not read — so it is recorded as an ordinary local
+> node citing the verbatim span it contradicts, and `external-citation-span-drift` is what keeps
+> the contradiction from going silent when the far side rewrites that sentence. E8 asked whether
+> two corpora that cite each other need a forum to settle between them, and the answer on the
+> record is **no**: nothing resolves it, both records stand, and a settlement crossing the
+> boundary would bind a sangha that never seated it. The rule is written in
+> [`prelude/guidelines/agent-conduct.md`](../../yidam/prelude/guidelines/agent-conduct.md), which
+> also carries the occasion that would re-open it.
+>
+> One field is named there and deliberately not built: a `stance:` on a citation entry —
+> `rests-on` against `contradicts` — because span drift reads in opposite directions for the two
+> and the block cannot currently say which. The re-measurement behind declining it is this note
+> one line up, re-run on 2026-09-22 over eighteen repositories and **2,770 instance nodes**: the
+> figure is still zero.
+
 **A missing package and a missing node are one check with two messages, not two checks.**
 #266 asks for them not to be collapsed, and they are not: the finding names which it is and
 what the repair is. They are one *check id* because the baseline ratchet keys on
