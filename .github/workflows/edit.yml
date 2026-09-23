@@ -92,7 +92,7 @@ jobs:
     # what makes it usable as a pre-tag check, exactly as in release.yml and editor.yml.
     if: startsWith(github.ref, 'refs/tags/edit/v')
     steps:
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
