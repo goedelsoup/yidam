@@ -148,12 +148,31 @@ impl ScopeAudit {
 /// Whether the record's own `What remains open` names this node.
 ///
 /// The one exception the constitution licenses is an open-question node standing for a
-/// tension that could not be resolved, and it is held by no elector by construction. Nothing
-/// in the corpus model *marks* such a node — there is no class for it and no field — so the
-/// only thing that can license it is the document that declares the tension unresolved.
-/// Tying the exception to the record is not a workaround for a missing marker: it is the
-/// correct place, because what makes the node legal is the resolution saying the question is
-/// still open.
+/// tension that could not be resolved, and it is held by no elector by construction. The only
+/// thing that can license it is the document that declares the tension unresolved, which is
+/// why this reads the record and not the node.
+///
+/// # There *is* a marker now, and it deliberately does not license anything
+///
+/// This docstring used to say that nothing in the corpus model marks such a node — no class,
+/// no field — and offer that as the reason the exception is tied to the record. RFC-0037
+/// (#569) made the first half false: `GRAPH.md` declares the marker, a `label` beginning with
+/// `?`, and `PROTOCOL.md` step 5 tells a resolution to write it.
+///
+/// The conclusion survives the premise, which is the useful part. A marker says *this node is
+/// an open question*; it cannot say *and this record is why that was allowed*, because it is
+/// written by the same commit it would be licensing. Reading it here would let a resolution
+/// except itself by titling a node well. So [`crate::claims::is_question_node`] is not
+/// consulted, and this function is unchanged.
+///
+/// # The exception has never fired
+///
+/// In the one repository that has run this protocol, **30 resolution records carry a
+/// `What remains open` section and none of them names a corpus node in it.** Two name a
+/// `.yml` at all, and neither is an instance: one is a CI workflow, the other a
+/// `.yidam/decisions/` node. That agrees with the module docs above from the other side — 0 of
+/// the 4 introduced nodes are named there — and it is why the marker could not be built *for*
+/// this check. A gate whose licensing clause has no subject has nothing to be tuned against.
 ///
 /// Matched on the node id and on the bare stem, generously and on purpose. This can only ever
 /// withdraw an error, and at the severity that gates, a finding suppressed by a record that

@@ -100,7 +100,7 @@ pub fn status(format: crate::report::Format) -> Result<()> {
             let inst = crate::parse::parse_instance(&text);
             let label = inst.label.unwrap_or_default();
             let class = inst.class.unwrap_or_default();
-            crate::claims::is_open_question(&label, &text, fields.for_class(&class))
+            crate::claims::has_open_claim(&label, &text, fields.for_class(&class))
         })
         .count();
 

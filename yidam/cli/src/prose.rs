@@ -7,7 +7,7 @@
 //! every check reading the parsed node saw a fraction of what the node says.
 //!
 //! That is not a tidiness complaint, because two families of check disagreed as a result. The
-//! byte scanners — [`crate::claims::count_in_node`], [`crate::claims::is_open_question`] —
+//! byte scanners — [`crate::claims::count_in_node`], [`crate::claims::has_open_claim`] —
 //! take the file's whole text and always saw all of it. The field readers took
 //! `description` alone. On one corpus the two answer **118 lines against 21** (#674), and the
 //! same release told it its nodes were sprawling and that they were not.

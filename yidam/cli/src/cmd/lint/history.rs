@@ -543,7 +543,7 @@ pub fn uncited_age(root: &Path) -> HashMap<String, Age> {
 /// Whether a node's content at one commit reads as an open question.
 ///
 /// The live predicate, applied to a past revision. `status` and `open-questions` ask
-/// [`crate::claims::is_open_question`] the same way over the working tree; asking it
+/// [`crate::claims::has_open_claim`] the same way over the working tree; asking it
 /// differently here would produce an age for a condition the present-tense reports do not
 /// agree is holding.
 fn is_open(path: &str, content: &str, fields: &crate::claims::ClaimFields) -> bool {
@@ -552,7 +552,7 @@ fn is_open(path: &str, content: &str, fields: &crate::claims::ClaimFields) -> bo
     // The declared class, then the directory. `ClaimFields` is keyed by what a class calls
     // itself, and a node that names no class still lives in one.
     let class = inst.class.unwrap_or_else(|| class_of(path).to_string());
-    crate::claims::is_open_question(&label, content, fields.for_class(&class))
+    crate::claims::has_open_claim(&label, content, fields.for_class(&class))
 }
 
 /// For every node that is an open question at HEAD, how long it has been one.

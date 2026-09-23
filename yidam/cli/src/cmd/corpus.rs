@@ -107,7 +107,7 @@ pub(crate) fn render_open_questions(root: &Path, corpus: &Path) -> String {
         let label = inst.label.clone().unwrap_or_default();
         let class = inst.class.clone().unwrap_or_default();
         let rel = path.strip_prefix(root).unwrap_or(path);
-        if crate::claims::is_open_question(&label, &text, fields.for_class(&class)) {
+        if crate::claims::has_open_claim(&label, &text, fields.for_class(&class)) {
             items.push(format!("- [{label}]({})", slash_path(rel)));
         }
         // An edge tagged `open` is a question in its own right (#857), and it is listed as
@@ -476,7 +476,7 @@ pub(crate) fn open_questions_data(root: &Path, corpus: &Path) -> OpenQuestionsRe
         let label = inst.label.clone().unwrap_or_default();
         let class = inst.class.clone().unwrap_or_default();
         let rel = path.strip_prefix(root).unwrap_or(path);
-        if crate::claims::is_open_question(&label, &text, fields.for_class(&class)) {
+        if crate::claims::has_open_claim(&label, &text, fields.for_class(&class)) {
             open_questions.push(OpenQuestion {
                 node: slash_path(rel),
                 label: label.clone(),

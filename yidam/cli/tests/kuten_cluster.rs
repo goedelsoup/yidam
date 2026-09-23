@@ -367,7 +367,7 @@ fn the_containment_guard_catches_a_member_outside_its_band() {
 /// RFC-0028 §5's example rule counts `open:` commits, and it does not survive its own
 /// population: two of the six — bitlocker and hermetic-ch — have written **zero** while
 /// holding open questions in the corpus. So the rule reads corpus state through
-/// `claims::is_open_question`, and this is the assertion that it recognizes the six.
+/// `claims::has_open_claim`, and this is the assertion that it recognizes the six.
 ///
 /// The counts in the six fixtures are not invented. Running this repository's own
 /// `kuten::measure` over the six repositories on 2026-09-06, read-only, gave 14 / 26 / 13 /

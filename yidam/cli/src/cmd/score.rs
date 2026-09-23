@@ -265,7 +265,7 @@ fn measure(
             rel: n.rel.clone(),
             landed: !orphaned.contains(&n.rel),
             // The open-question predicate, and not a fourth spelling of it.
-            open_question: crate::claims::is_open_question(
+            open_question: crate::claims::has_open_claim(
                 n.inst.label.as_deref().unwrap_or_default(),
                 &n.text,
                 fields.for_class(&class_of(n)),

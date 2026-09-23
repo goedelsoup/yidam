@@ -10,7 +10,7 @@
 #
 # `open_questions` is the one number here that was measured against the six repositories
 # themselves rather than against A0's published ranges. Running this repository's own
-# `kuten::measure` — the shared `is_open_question` predicate — over the six on 2026-09-06 gave
+# `kuten::measure` — the shared `has_open_claim` predicate — over the six on 2026-09-06 gave
 # 14, 26, 13, 51, 115 and 436 open questions against 73, 82, 122, 157, 247 and 1,278 authored
 # commits: **every one of the six holds open questions**, at 11% to 47% of its commit count.
 # The six fixtures carry counts drawn from that measured range rather than invented for it,

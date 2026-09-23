@@ -15,7 +15,7 @@
 > The record format carries the field ([`PROTOCOL.md:201`](../../sadhana/sangha/PROTOCOL.md#L201)),
 > mirrored in [`information-architecture.md:113`](../information-architecture.md#L113), with the
 > Article II / III reconciliation stated beside it as this RFC argued it:
-> "It is a record, not a rank" ([`PROTOCOL.md:320`](../../sadhana/sangha/PROTOCOL.md#L320)).
+> "It is a record, not a rank" ([`PROTOCOL.md:322`](../../sadhana/sangha/PROTOCOL.md#L322)).
 >
 > Two checks hold the field to the registry, and their split is the settlement's shape.
 > `resolution-elector-unregistered` (Error) fires on "a `ma/*` branch the record names, as a tip
@@ -149,7 +149,7 @@ required going forward; existing resolutions are unaffected (none exist — `ele
 - **Co-synthesis.** Should `synthesized-by` be a list, so a jointly authored resolution names all its
   authors? Lean: yes — a list, singular being the common case. Joint authorship is real and cheap to
   represent. *Decided as leaned (#565): list-or-scalar —
-  "one seat, or a list where a synthesis was genuinely joint" ([`PROTOCOL.md:319-320`](../../sadhana/sangha/PROTOCOL.md#L319-L320))
+  "one seat, or a list where a synthesis was genuinely joint" ([`PROTOCOL.md:321-322`](../../sadhana/sangha/PROTOCOL.md#L321-L322))
   — and a dropped seat is one of the mutations the tests hold, since downstream it reads exactly
   like a record that never named one.*
 - **Caller vs. executor.** The caller (who named the branch and notified) and the executor may

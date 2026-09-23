@@ -360,7 +360,7 @@ mod tests {
         let text = legacy("orphan-in", "nothing links to this node");
         let out = plan_file("corpus/gage/canyon.yml", &text).out.unwrap();
         let fields: Vec<String> = vec![];
-        assert!(crate::claims::is_open_question("Canyon", &out, &fields));
+        assert!(crate::claims::has_open_claim("Canyon", &out, &fields));
     }
 
     #[test]

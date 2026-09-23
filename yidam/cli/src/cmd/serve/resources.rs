@@ -103,8 +103,8 @@ fn text_contents(uri: &str, text: String) -> Value {
 /// corpus whose tags are structured was under-reported by the MCP server and by
 /// `open-questions` in exactly the same way — which is the kind of agreement that looks like
 /// correctness.
-pub(crate) fn is_open_question(state: &ServerState, node: &super::Node) -> bool {
-    crate::claims::is_open_question(
+pub(crate) fn has_open_claim(state: &ServerState, node: &super::Node) -> bool {
+    crate::claims::has_open_claim(
         &node.label,
         &node.content,
         state.claim_fields.for_class(&node.class),
@@ -208,7 +208,7 @@ fn graph_summary(state: &ServerState) -> String {
     let open = state
         .nodes
         .iter()
-        .filter(|n| is_open_question(state, n))
+        .filter(|n| has_open_claim(state, n))
         .count();
     // The open **edges**, which `open_questions` now lists beside the node ones (#857). A
     // summary that stopped at the nodes would tell an agent a smaller number than the tool it

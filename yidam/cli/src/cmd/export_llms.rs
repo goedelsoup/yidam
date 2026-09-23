@@ -177,9 +177,9 @@ fn sorted_nodes(model: &DomainModel, root: &Path) -> Vec<NodeView> {
 pub(crate) fn order(nodes: &mut [NodeView], fields: &crate::claims::ClaimFields) {
     nodes.sort_by(|a, b| {
         let open_a =
-            crate::claims::is_open_question(&a.label, &a.content, fields.for_class(&a.class));
+            crate::claims::has_open_claim(&a.label, &a.content, fields.for_class(&a.class));
         let open_b =
-            crate::claims::is_open_question(&b.label, &b.content, fields.for_class(&b.class));
+            crate::claims::has_open_claim(&b.label, &b.content, fields.for_class(&b.class));
         open_b
             .cmp(&open_a)
             .then_with(|| b.links.len().cmp(&a.links.len()))

@@ -1508,11 +1508,37 @@ fn count_bracketed_structural(text: &str, fields: &[String]) -> ClaimCounts {
     counts
 }
 
-/// **The** open-question predicate.
+/// **The** open-claim predicate: does this node carry a claim nobody has closed?
 ///
 /// One function, because it was three: inlined at three call sites in `cmd/` and again in
 /// the MCP server, each spelling `label.starts_with('?') || text.contains("[open]")` for
 /// itself. RFC-0006 names the copies, and a fourth is where the next divergence goes.
+///
+/// # It was called `is_open_question`, and that was the wrong name
+///
+/// Renamed by RFC-0037 (#569) on a measurement. Over the 16 corpora in 18 derived
+/// repositories — 2,770 tracked instance nodes — this predicate matches **1,665, or 60.1%**.
+/// Per corpus that runs **0% to 92.0%**, and the floor is a ten-node prototype: the fifteen
+/// corpora past that size run 17.3% to 92.0%. Sixty percent of a corpus is not a set of
+/// questions; it is the ordinary state of a corpus that tags its evidence, and the tags are
+/// the point. What the four arms measure is *a claim's standing inside a node*, and three of
+/// them say nothing whatever about what the node **is**. One corpus declares a `type: claim`
+/// property called `attestation_standing`, and its `technique/blast-beat.yml` — labelled
+/// *"Blast Beat"* — reads `open`, because how well the technique is attested is genuinely
+/// unsettled. That is the field working exactly as designed, on a node that is not a
+/// question.
+///
+/// The old name asserted the other thing, and four surfaces called it believing the other
+/// thing. Only **31 of the 1,665 — 1.9%** are instances of a class named for a question at
+/// all, and three corpora have built such a class (`question` twice, `inquiry` once); read
+/// against just those three, where the class exists to be used, it is **4.9%**. Either
+/// reading is wrong by more than a factor of twenty as a statement about node identity.
+/// [`is_question_node`] is that statement, and it is a different function with a different
+/// population.
+///
+/// The arms, the command, the report field and the MCP tool are all still called
+/// `open_questions`: nothing about the computation changed here, so contract 0.24.0 does not
+/// bump. Only this symbol moved, and only so that a caller has to choose.
 ///
 /// # Three arms, and the contract says so
 ///
@@ -1534,8 +1560,11 @@ fn count_bracketed_structural(text: &str, fields: &[String]) -> ClaimCounts {
 /// authors it (#857). So the `links:` block is masked out of the prose arm below, where a
 /// bracketed `claim_tag: "[open]"` used to be read as an `[open]` in the node's own sentences.
 /// [`edge_claims`] is where that standing is answered for, and the surfaces call both.
-pub fn is_open_question(label: &str, text: &str, fields: &[String]) -> bool {
-    label.trim_start().starts_with('?')
+pub fn has_open_claim(label: &str, text: &str, fields: &[String]) -> bool {
+    // Delegated, not respelled. Splitting the name must not split the rule: two copies of
+    // `starts_with('?')` is what RFC-0006 removed, and re-creating one inside the function
+    // that was renamed for clarity would be the same defect wearing the repair's clothes.
+    is_question_node(label)
         // Masked, for the same reason the counter is: a node explaining what `[open]` means
         // is not thereby an open question.
         || count_tag(&crate::markdown::mask_fenced(&mask_links(text)), OPEN) > 0
@@ -1551,6 +1580,39 @@ pub fn is_open_question(label: &str, text: &str, fields: &[String]) -> bool {
         || crate::findings::parse(text)
             .iter()
             .any(|f| f.standing.trim() == "open")
+}
+
+/// Whether the node **is** a question the corpus has not closed, rather than a node that
+/// happens to carry an open claim.
+///
+/// One arm: a label beginning `?`. It is [`has_open_claim`]'s first arm and the only one of
+/// the four that is a statement about the node's identity — the other three read a claim's
+/// standing, and a node may hold twenty open claims without being a question itself.
+///
+/// # The convention, and where it is written down
+///
+/// `GRAPH.md` declares it and `PROTOCOL.md` step 5 tells a resolution to write it. Before
+/// RFC-0037 neither did: the rule lived in `docs/information-architecture.md`, in the frozen
+/// contract's prose, and in this function — which is how a downstream re-implementer came to
+/// discover it by being silently under-reported (RFC-0001).
+///
+/// # No surface asks it yet, and that is on purpose
+///
+/// [`has_open_claim`] calls this for its first arm, so the `?` rule has exactly one spelling
+/// in the tree — but **no surface calls it to answer the narrow question**, and none should
+/// yet. RFC-0037 ratifies the convention and deliberately gates nothing on it, because it is
+/// written on **10 nodes of 2,770, in 2 of 16 corpora** — a reader's convention, not a
+/// writer's contract, and holding fourteen corpora to a rule nobody told them about is how a
+/// permanently non-empty report gets built. The name exists so the concept has one, and so
+/// the next surface that wants *is this a question* does not reach for [`has_open_claim`] the
+/// way four already did.
+///
+/// The condition that gives it a caller: `?`-prefixed labels adopted beyond the two corpora
+/// that had them at ratification. RFC-0037 sets that falsifier at a quarter — if this is
+/// still at 10 nodes then, the convention was declared and not adopted, and nothing should
+/// gate on it then either.
+pub fn is_question_node(label: &str) -> bool {
+    label.trim_start().starts_with('?')
 }
 
 /// Past-tense transitive reporting verbs. A tag that is the object of one is being reported,
@@ -2042,9 +2104,9 @@ mod tests {
     #[test]
     fn a_node_naming_open_in_code_is_not_an_open_question() {
         let text = "class: c\ndescription: The `[open]` tag marks an unanswered claim.\n";
-        assert!(!is_open_question("Evidence tags", text, &[]));
+        assert!(!has_open_claim("Evidence tags", text, &[]));
         // And the used form still is.
-        assert!(is_open_question(
+        assert!(has_open_claim(
             "Evidence tags",
             "description: Unresolved. [open]\n",
             &[]
@@ -2655,6 +2717,77 @@ mod tests {
             "the guidelines and the served tags have come apart: {defined:?}"
         );
     }
+
+    // ── is_question_node ──────────────────────────────────────────────────────
+
+    /// The narrow predicate reads the label and nothing else.
+    ///
+    /// Leading whitespace is skipped because the label's *own content* may begin with it —
+    /// `label: " ? Whether …"` is a reader's slip, not a different node, and a block scalar
+    /// can introduce the space without anyone typing it. It is emphatically **not** skipped
+    /// to tolerate the unquoted spelling: that one never reaches here, because it does not
+    /// parse. The test below is what holds that distinction.
+    #[test]
+    fn a_question_node_is_one_whose_label_begins_with_a_question_mark() {
+        assert!(is_question_node(
+            "? Whether the money and the vote are connected"
+        ));
+        assert!(is_question_node(
+            "  ? Leading space is not a different node"
+        ));
+        assert!(!is_question_node(
+            "Whether the money and the vote are connected?"
+        ));
+        assert!(!is_question_node(""));
+    }
+
+    /// The marker only survives if the label is quoted, and this is the test that says so.
+    ///
+    /// A bare `?` followed by a space is YAML's explicit-key indicator: the unquoted spelling
+    /// does not parse, and [`yidam_core::corpus::parse_instance`] is
+    /// `from_str(..).unwrap_or_default()`, so what a reader gets back is not an error but an
+    /// **empty instance** — no label, no class, no properties. `lint` does catch it as
+    /// `malformed-yaml`, and every report that runs before lint does not: the node is listed
+    /// with a blank label and the `?` is gone.
+    ///
+    /// So the two spellings are asserted together. GRAPH.md shows the quoted form, and this
+    /// pins the reason it has to.
+    #[test]
+    fn the_marker_survives_a_quoted_label_and_is_lost_without_the_quotes() {
+        const LABEL: &str = "? Whether the 1987 gage relocation broke the rating curve";
+
+        let quoted = format!("class: reach\nlabel: \"{LABEL}\"\n");
+        let inst = crate::parse::parse_instance(&quoted);
+        assert_eq!(inst.label.as_deref(), Some(LABEL));
+        assert!(is_question_node(inst.label.as_deref().unwrap_or_default()));
+
+        let bare = format!("class: reach\nlabel: {LABEL}\n");
+        let inst = crate::parse::parse_instance(&bare);
+        assert_eq!(
+            inst.label, None,
+            "the bare `?` must be the parse failure this test documents, not a parsed label"
+        );
+        assert_eq!(
+            inst.class, None,
+            "the whole instance is lost, not just the label"
+        );
+        assert!(!is_question_node(inst.label.as_deref().unwrap_or_default()));
+    }
+
+    /// The converse, and the reason the `?` arm is delegated rather than respelled: a question
+    /// node with no tag anywhere is still found by the broad predicate, through this one.
+    #[test]
+    fn a_question_node_with_no_tag_is_still_found_by_the_broad_predicate() {
+        let node = "class: inquiry\nlabel: \"? Which urban truths survive being made playable\"\n";
+        assert!(is_question_node(
+            "? Which urban truths survive being made playable"
+        ));
+        assert!(has_open_claim(
+            "? Which urban truths survive being made playable",
+            node,
+            &[]
+        ));
+    }
 }
 
 #[cfg(test)]
@@ -2685,7 +2818,7 @@ mod structural_tests {
 
         let node = "class: lead\nlabel: A lead\nproperties:\n  claim_tag: open\n";
         assert_eq!(count_in_source(node).open, 0, "the text scan sees nothing");
-        assert!(is_open_question("A lead", node, fields.for_class("lead")));
+        assert!(has_open_claim("A lead", node, fields.for_class("lead")));
         assert_eq!(count_in_node(node, fields.for_class("lead")).open, 1);
     }
 
@@ -2736,11 +2869,7 @@ mod structural_tests {
         );
 
         let node = "class: lead\nlabel: A measure\nproperties:\n  status: open\n";
-        assert!(!is_open_question(
-            "A measure",
-            node,
-            fields.for_class("lead")
-        ));
+        assert!(!has_open_claim("A measure", node, fields.for_class("lead")));
         assert_eq!(count_in_node(node, fields.for_class("lead")).open, 0);
     }
 
@@ -2758,9 +2887,9 @@ mod structural_tests {
     #[test]
     fn a_prose_corpus_is_unaffected() {
         let node = "class: lead\nlabel: A lead\ndescription: Unresolved. [open]\n";
-        assert!(is_open_question("A lead", node, &[]));
+        assert!(has_open_claim("A lead", node, &[]));
         assert_eq!(count_in_node(node, &[]), count_in_source(node));
-        assert!(is_open_question("? A question", "class: lead\n", &[]));
+        assert!(has_open_claim("? A question", "class: lead\n", &[]));
     }
 
     /// Both spellings, so nobody reshapes their data a second time.
@@ -2770,10 +2899,7 @@ mod structural_tests {
         let f = ClaimFields::load(&corpus);
         for value in ["open", "\"[open]\"", " open "] {
             let node = format!("class: lead\nlabel: L\nproperties:\n  claim_tag: {value}\n");
-            assert!(
-                is_open_question("L", &node, f.for_class("lead")),
-                "{value:?}"
-            );
+            assert!(has_open_claim("L", &node, f.for_class("lead")), "{value:?}");
         }
     }
 
@@ -2794,7 +2920,7 @@ mod structural_tests {
         let (_t, corpus) = corpus_with(TYPED);
         let f = ClaimFields::load(&corpus);
         let node = "class: lead\nlabel: L\nproperties:\n  evidence:\n    - claim_tag: open\n";
-        assert!(is_open_question("L", node, f.for_class("lead")));
+        assert!(has_open_claim("L", node, f.for_class("lead")));
     }
 
     /// The class name comes from the filename when the field is absent, matching every other
@@ -2805,6 +2931,53 @@ mod structural_tests {
             "label: Lead\nproperties:\n  - name: claim_tag\n    type: claim\n    description: x\n",
         );
         assert_eq!(ClaimFields::load(&corpus).for_class("lead"), ["claim_tag"]);
+    }
+
+    /// **The distinction the rename exists for.** A node stuffed with open claims — in prose,
+    /// in a declared field, and in a carried finding — is not thereby a question, and the two
+    /// predicates must disagree about it. Measured downstream at 60.1% against 0.36%: if this
+    /// test ever passes with one predicate standing in for the other, the twenty-fold error
+    /// RFC-0037 documents is back.
+    ///
+    /// The shape is taken from a real node rather than invented. One corpus declares
+    /// `attestation_standing` as a `type: claim` property, and its `technique/blast-beat.yml`
+    /// reads `open` there — how well the technique is attested is unsettled, and the node is
+    /// still a technique. The carried finding is the one arm no corpus exercises: **0 of 2,770
+    /// nodes** across sixteen corpora carry one, so this fixture is the only place it is read
+    /// alongside the other three.
+    #[test]
+    fn a_node_full_of_open_claims_is_not_a_question_node() {
+        let (_t, corpus) = corpus_with(
+            "class: technique\nlabel: Technique\nproperties:\n  \
+             - name: attestation_standing\n    type: claim\n    description: How attested.\n",
+        );
+        let fields = ClaimFields::load(&corpus);
+        let node = "class: technique\nlabel: Blast Beat\nproperties:\n  \
+                    attestation_standing: open\ndescription: |\n  \
+                    Who played it first is [open].\nyidam:\n  findings:\n    \
+                    - id: 7f3a1c94b2e1\n      check: orphan-in\n      opened_at: 4f2a1c9\n      \
+                    detail: 'nothing links to this node'\n      standing: open\n";
+
+        // All three non-label arms, so a regression in any one of them still leaves the test
+        // asserting the distinction rather than silently resting on the survivors.
+        assert!(
+            count_structural(node, fields.for_class("technique")).open > 0,
+            "the declared field is read"
+        );
+        assert!(
+            crate::findings::parse(node)
+                .iter()
+                .any(|f| f.standing == "open"),
+            "the carried finding is read — the arm no real corpus supplies"
+        );
+        assert!(
+            has_open_claim("Blast Beat", node, fields.for_class("technique")),
+            "so it carries an open claim"
+        );
+        assert!(
+            !is_question_node("Blast Beat"),
+            "and it is still a technique, not a question"
+        );
     }
 }
 
@@ -2907,7 +3080,7 @@ links:
     /// in its own right instead, which is the whole point of asking the edge.
     #[test]
     fn an_open_edge_does_not_make_its_node_an_open_question() {
-        assert!(!is_open_question("Aldermanic clerk", NODE, &[]));
+        assert!(!has_open_claim("Aldermanic clerk", NODE, &[]));
         assert_eq!(count_in_edges(NODE).open, 1);
     }
 

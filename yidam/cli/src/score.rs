@@ -160,7 +160,7 @@ pub struct NodeFact {
     pub rel: String,
     /// Whether anything points at it, through `orphan-in`'s own resolution.
     pub landed: bool,
-    /// Whether it is an open question, through `claims::is_open_question`.
+    /// Whether it is an open question, through `claims::has_open_claim`.
     pub open_question: bool,
 }
 
