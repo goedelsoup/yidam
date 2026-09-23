@@ -2,7 +2,7 @@
 
 use serde_json::{json, Value};
 
-use super::resources::is_open_question;
+use super::resources::has_open_claim;
 #[cfg(feature = "vector-read")]
 use super::Retrieval;
 use super::ServerState;
@@ -936,7 +936,7 @@ fn open_questions(state: &ServerState) -> Value {
     let mut questions: Vec<Value> = Vec::new();
     for n in &state.nodes {
         let path = format!(".yidam/corpus/{}.yml", n.id);
-        if is_open_question(state, n) {
+        if has_open_claim(state, n) {
             questions.push(json!({
                 "id": n.id,
                 "label": n.label,

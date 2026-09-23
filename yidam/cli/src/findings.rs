@@ -415,9 +415,9 @@ mod tests {
     #[test]
     fn a_carried_finding_is_still_an_open_question_on_the_node() {
         let text = add(NODE, &open("orphan-in", "nothing links to this node")).unwrap();
-        assert!(crate::claims::is_open_question("Canyon", &text, &[]));
+        assert!(crate::claims::has_open_claim("Canyon", &text, &[]));
         assert!(
-            !crate::claims::is_open_question("Canyon", NODE, &[]),
+            !crate::claims::has_open_claim("Canyon", NODE, &[]),
             "and the node without one is not"
         );
     }

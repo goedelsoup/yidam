@@ -49,6 +49,48 @@ Corpus nodes represent derived knowledge; catalog nodes represent its provenance
 from a corpus node to a catalog node reads as "this concept draws on this source." Catalog
 nodes do not contain derived knowledge — only enough to locate and characterize the source.
 
+### An open question is marked in its label
+
+The table's last column ends with *open question*, and a corpus holding one should be
+readable as holding one. **A node whose `label` begins with `?` is a question the corpus has
+not closed:**
+
+```yaml
+class: reach
+label: "? Whether the 1987 gage relocation broke the rating curve"
+```
+
+**Quote the label.** A bare `?` followed by a space is YAML's explicit-key indicator, so the
+unquoted form is not a node with a funny title — it does not parse, and `serde_yaml` and npm
+`yaml` refuse it at the same column. `yidam lint` reports it as `malformed-yaml`, which is an
+error and gates; what it does *not* do is reach every reader first, and a report run over an
+unparseable node shows it with an **empty label and no properties** rather than announcing the
+problem. Every instance in every corpus that uses this marker quotes it, and a declaration
+that showed the bare form would be handing out the one spelling that silently loses the
+marker.
+
+The marker is on the label and not the path — the filename stays a slug, and the `?` is what
+a reader sees in every index, link and report the label renders into. `yidam open-questions`
+has read it for as long as the report has existed; it is written down here because no
+document had ever said so, and a convention only the tool knows is not a convention.
+
+**Nothing gates on it.** No lint reports its absence, no class may require it, and a corpus
+that never writes a `?` is well-formed. It exists so that a question is legible standing
+alone — outside whatever record opened it, and to a reader who has not read that record — and
+a corpus that keeps its open questions another way is not thereby wrong. Adoption is
+accordingly thin, and is the reason this is a declaration rather than a rule: **10 nodes, in
+2 of 16 derived corpora.**
+
+**It is not the `[open]` evidence tag, and that difference is the whole of why it is worth
+writing down.** `[open]` is the standing of a claim *inside* a node — this sentence is
+unsettled — and it says nothing about what the node is. **1,665 of those same 2,770 nodes,
+60.1%, carry an open claim somewhere**, which is what a corpus that tags its evidence looks
+like rather than a corpus made of questions. One corpus declares a claim property named
+`attestation_standing`; its `technique` node titled *Blast Beat* reads `open` there, because
+how well the technique is attested is genuinely unsettled. That is the field working exactly
+as designed, on a node that is plainly not a question. The tag says a claim is unsettled. The
+`?` says the node **is** the question.
+
 ## Edges
 
 Edges are explicit markdown references: `[label](path)`. An agent reading the graph can
@@ -332,7 +374,7 @@ existed — nothing changes for them.
 | `missing-description` | reports a node with prose in **no** declared field. A node carrying a `summary` and no `description` has said something |
 | `yidam embed` | embeds all the prose. A node whose substance is in `summary` was retrievable by its title and by nothing it says |
 
-The claim counter is unchanged, and that is the point: `count_in_node` and `is_open_question`
+The claim counter is unchanged, and that is the point: `count_in_node` and `has_open_claim`
 always read the whole file, so they always saw every prose field. What this closes is the gap
 between them and the field readers, which is where the two numbers came from.
 
@@ -679,7 +721,7 @@ in understanding. Put the scope in the subject instead — `vendor: yidam prelud
 | `scope` | A sweep widened or bounded — names what the wider net caught |
 | `synthesize` | Nodes linked or merged across inquiry threads (a Synthesis phase) |
 | `withdraw` | A claim retracted — say what replaces it, or that nothing does |
-| `open` | A question opened |
+| `open` | An elector's position opened, or a question put in play — see below, the two are not the same act |
 | `close` | A question resolved |
 | `transport` | An elector's position carried onto the baseline, verbatim — *collective mode only* |
 | `resolve` | A resolution event settled — *collective mode only* |
@@ -688,6 +730,21 @@ in understanding. Put the scope in the subject instead — `vendor: yidam prelud
 | `phase` | A phase settled — names the phase and what it produced |
 | `genesis` | The root commit of an empty-repo bootstrap |
 | `overlay` | The root graph commit of an existing-repo bootstrap |
+
+`open` covers two acts and the second is not a slip. Measured across eighteen derived
+repositories: of 57 `open:` commits, **41 touch no corpus node at all, and all 41 are in the one
+repository that has run the sangha protocol** — 40 of them writing a `sangha/positions/*.md`.
+There, opening is opening a *position*, the first move of a deliberation, and that is the verb's
+majority use by a wide margin. The other 16 are spread across six repositories and do touch a
+corpus node.
+
+The old gloss here led with *a question opened*, and the measurement does not support leading
+with it: **not one of the ten `?`-marked question nodes in any corpus was introduced by an
+`open:` commit.** They arrive under `establish` (7), `assess` (2) and `genesis` (1). Opening a
+question and marking a node as one are, in practice, unrelated acts, and a corpus should not be
+told to expect the verb where the corpora do not use it. Both senses are still the same shape at
+different scales — something has been put in play and not settled — and `close` answers for
+either.
 
 `scope` is the verb for the act that precedes a finding: the search was widened from one
 instrument to every instrument on the thread, from one member to the whole commission, and

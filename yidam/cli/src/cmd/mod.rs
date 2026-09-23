@@ -140,5 +140,5 @@ pub use vocabulary::{vocabulary, COMMIT_KINDS};
 pub use web::bundle_status;
 
 // `has_open_claim` lived here and was a `text.contains("[open]")`. It is
-// `claims::is_open_question` now — one predicate, reading structure as well as prose. See
+// `claims::has_open_claim` now — one predicate, reading structure as well as prose. See
 // `claims.rs` for what a text-only scan cost a consumer: 2 open questions found out of 26.

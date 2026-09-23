@@ -248,15 +248,17 @@ after one pass. The loop is not a quota.
 
 5. **Open tensions** — Any genuine disagreement that cannot be synthesized without
    choosing one elector's position over another must become an open-question node
-   in the corpus. Title the node as the question. Do not silently collapse divergent
-   positions into a single claim.
+   in the corpus. Title the node as the question, and **mark it: a label beginning with
+   `?`**, quoted, as `GRAPH.md` declares. Do not silently collapse divergent positions into
+   a single claim.
 
    An open-question node is the one thing Article V lets a resolution introduce that no
    elector held, and **it is licensed by this record and nothing else** — name the node under
-   `What remains open` below. Nothing in the corpus model marks such a node; there is no class
-   for it and no field. Tying the exception to the record is not a workaround for the missing
-   marker but the right place for it, because what makes the node legal is the resolution
-   saying the question is still open.
+   `What remains open` below. The `?` does not license it and is not checked here: it makes
+   the node legible to a reader who never opens this record, which is a different job from
+   making it legal. What makes it legal is the resolution saying the question is still open,
+   so the record stays the authority and the marker stays a courtesy to whoever reads the
+   corpus next.
 
 6. **Commit** — Create the `rigpa/<evolution>` branch and commit the synthesis with the
    `resolve:` verb. The commit message must include:

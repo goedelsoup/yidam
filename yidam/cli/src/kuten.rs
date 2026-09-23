@@ -569,7 +569,7 @@ pub struct Measurement {
     /// 15 open-tagged corpus files. A rule that reports divergence against two of its own
     /// defining members is what §9 calls a wrong extraction.
     ///
-    /// Counted with [`crate::claims::is_open_question`], which is the predicate
+    /// Counted with [`crate::claims::has_open_claim`], which is the predicate
     /// `yidam open-questions`, `due` and the MCP server already share. A second notion of
     /// what an open question is would be a second answer to a settled question.
     #[serde(default)]
@@ -1071,7 +1071,7 @@ pub(crate) fn settles_a_phase(verb: &str) -> bool {
 ///
 /// The corpus half walks the instances once and asks two questions of each: how long it is,
 /// and whether it is an open question. The second goes through
-/// [`crate::claims::is_open_question`] — **the** open-question predicate, already shared by
+/// [`crate::claims::has_open_claim`] — **the** open-question predicate, already shared by
 /// `yidam open-questions`, `due`, `lint --history` and the MCP server, and frozen in
 /// `sdks/parity/mcp/tools.json`. A count of open questions computed any other way here would
 /// be a fifth answer to a question that has exactly one.
@@ -1092,7 +1092,7 @@ pub fn measure(root: &Path) -> Measurement {
         let inst = crate::parse::parse_instance(&text);
         let label = inst.label.unwrap_or_default();
         let class = inst.class.unwrap_or_default();
-        if crate::claims::is_open_question(&label, &text, fields.for_class(&class)) {
+        if crate::claims::has_open_claim(&label, &text, fields.for_class(&class)) {
             open_questions += 1;
         }
     }
