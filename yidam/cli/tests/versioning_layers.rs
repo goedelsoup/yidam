@@ -359,6 +359,50 @@ fn the_mcp_contract_states_one_version() {
         "mcp/README.md's example capability block does not show contract {declared:?} — \
          an implementer copying it would conform to a version that no longer exists"
     );
+
+    // Four. `docs/mcp-server.md` shows the `initialize` handshake a client receives, and it
+    // went stale silently across eleven bumps (0.13.0 while the server sent 0.24.0) because
+    // this test held the two files beside it and not the prose (#906). Only the fenced
+    // `json` blocks are held: the sentence two lines under the example says `corpus`
+    // arrived at 0.13.0, and that is history, which stays.
+    let doc = std::fs::read_to_string(repo_root().join("docs/mcp-server.md")).unwrap();
+    let shown: Vec<&str> = fenced_json_blocks(&doc)
+        .into_iter()
+        .flat_map(|block| block.lines())
+        .filter_map(|line| {
+            line.trim()
+                .trim_start_matches('{')
+                .trim_start()
+                .strip_prefix(r#""contract":"#)
+        })
+        .map(|rest| rest.trim().trim_matches(|c| c == '"' || c == ','))
+        .collect();
+    assert!(
+        !shown.is_empty(),
+        "docs/mcp-server.md no longer shows a `contract` key in a fenced json block — \
+         the handshake example this test holds to tools.json has moved or been dropped"
+    );
+    for version in shown {
+        assert_eq!(
+            version, declared,
+            "docs/mcp-server.md's handshake example shows contract {version:?} and tools.json \
+             says {declared:?} — a reader comparing the documented handshake against the one \
+             the server sends finds them disagreeing on the first key"
+        );
+    }
+}
+
+/// The bodies of the ```` ```json ```` fences in a Markdown document, in order.
+fn fenced_json_blocks(doc: &str) -> Vec<&str> {
+    let mut blocks = Vec::new();
+    let mut rest = doc;
+    while let Some(start) = rest.find("```json\n") {
+        let body = &rest[start + "```json\n".len()..];
+        let end = body.find("\n```").expect("a ```json fence is closed");
+        blocks.push(&body[..end]);
+        rest = &body[end + 4..];
+    }
+    blocks
 }
 
 /// Four layers, numbered without a gap.
