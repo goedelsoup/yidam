@@ -28,6 +28,8 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+## cli/v0.14.0
+
 ### `yidam lint` reads a quote set off in a blockquote
 
 **A citation that shows its passage under the link is now held to it (#899).** The house
