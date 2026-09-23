@@ -24,7 +24,7 @@ The prelude is not subject to resolution. Its identity model, graph encoding, co
 and directory conventions are the ground on which the sangha operates. A resolution that
 contradicts the prelude is invalid and must not produce a `rigpa/*` commit.
 
-If the prelude itself must evolve, that is an yidam-level change — not a sangha resolution.
+If the prelude itself must evolve, that is an [yidam-level change](guidelines/upstream.md) — not a sangha resolution.
 
 ## Article II — Epistemic Equality
 

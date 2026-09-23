@@ -40,13 +40,18 @@ negotiable from inside the repo:
 - [Reading the corpus](.yidam/.vendor/prelude/guidelines/reading-the-corpus.md) — the retrieval
   half of the loop, and why `grep` cannot answer what you are asking
 - [Directory conventions](.yidam/.vendor/prelude/guidelines/directories.md) — what belongs where
+- [Upstream](.yidam/.vendor/prelude/guidelines/upstream.md) — what an yidam-level change is, and
+  how to send a defect or a misfit back to the template that constitutes this repository
 - [Phases](.yidam/.vendor/prelude/PHASES.md) — how a unit of inquiry is bounded and committed
 - [Constitution](.yidam/.vendor/prelude/CONSTITUTION.md) — binding on every resolution event
   *(collective governance only; dormant in a single-elector repository)*
 
 Files under `.yidam/.vendor/` are read-only. A defect in the prelude is fixed by re-vendoring
 against a newer yidam release (`mise run yidam-vendor-update`), never by editing in place —
-an edit there is silently discarded on the next update.
+an edit there is silently discarded on the next update. A newer release only *has* the fix
+because somebody filed it: nothing upstream can see this repository, so a defect you work around
+here is one no other derivation ever learns about. Send it back —
+[upstream.md](.yidam/.vendor/prelude/guidelines/upstream.md) has the two shapes a report takes.
 
 ## Conduct norms
 

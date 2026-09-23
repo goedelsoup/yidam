@@ -166,6 +166,7 @@ const sidebar = [
       { slug: 'rfcs/0033-remote-vector-index', label: '0033 · A remote vector index' },
       { slug: 'rfcs/0034-local-citation', label: '0034 · A claim resting on a node beside it' },
       { slug: 'rfcs/0035-class-extent', label: '0035 · What a class is meant to span' },
+      { slug: 'rfcs/0036-yidam-level-change', label: '0036 · An yidam-level change' },
     ],
   },
   {
