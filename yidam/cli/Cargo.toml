@@ -185,13 +185,23 @@ yidam-core = { path = "../prelude/sdks/rust", version = "0.7.0" }
 #
 # Revisit when transformers.js ships an ONNX Runtime that answers the way rc.13 does; the two
 # move back into one space then, and the fixture moves once, deliberately, for both.
+#
+# None of the above is the mechanism — it is the argument, and it was already here the time a
+# bump took this to 6. The fixture records the runtime that produced its reference dimensions,
+# and `every_parity_reference_runtime_is_the_major_the_lockfile_resolves` compares that major
+# against Cargo.lock on every pull request (#904). Moving this major means moving the fixture
+# and both other runtimes in the same change.
 fastembed = { version = "4", optional = true }
 lancedb = { version = "0.15", optional = true }
 futures = { version = "0.3", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
 # Arrow decodes the vector index (model::index_rows); shared by `index` and
 # `export-sqlite`. Versions must match lancedb's transitive dependency — update
-# together if bumping either.
+# together if bumping either. That sentence asked a person to remember and a bump
+# moved arrow to 54 against lancedb 0.15 anyway, which pins 53: two arrow majors in
+# one binary, and `IntoArrow` unsatisfied where `index_build` hands lancedb a
+# `RecordBatchIterator`. `every_arrow_this_workspace_declares_is_the_one_lancedb_resolves`
+# in tests/dependency_holds.rs now compares them in the lockfile (#904).
 arrow-array = { version = "53", optional = true }
 arrow-schema = { version = "53", optional = true }
 arrow-ipc = { version = "53", optional = true }
