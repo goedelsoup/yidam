@@ -1,0 +1,14 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "allow": true,
+  "decision": "disclose/at_rest",
+  "deny": []
+}

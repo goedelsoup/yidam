@@ -348,6 +348,47 @@ const COMMANDS: &[(&str, &[&str])] = &[
     // other twenty goldens — and is covered by `kuten_cluster.rs` against the six shapes
     // that defined the profile.
     ("kuten-check", &["kuten", "check"]),
+    // `policy`'s four, none of which any golden covered before #893 — the roster could not
+    // see a subcommand, so nothing required them. RFC-0024 named its dependency as *"RFC-0001
+    // (the report contract `policy check --format json` emits on)"* and asked for these
+    // goldens in its definition of done; what shipped emitted the fields with no envelope
+    // around them, and these are the goldens that would have said so.
+    //
+    // All four answer from the compiled-in default: the fixture has no `.yidam/policy/`, which
+    // is the arm every repository is in and the one worth pinning. Same division `kuten-check`
+    // makes above.
+    ("policy-check", &["policy", "check"]),
+    ("policy-test", &["policy", "test"]),
+    // `gate` builds its own input from the working tree, so it needs no document — and it
+    // renders through the same `render()` as `eval`, which is why the pair below pins one
+    // shape from both directions rather than twice from one.
+    ("policy-gate", &["policy", "gate", "disclose/at_rest"]),
+    (
+        "policy-eval",
+        &[
+            "policy",
+            "eval",
+            "--decision",
+            "disclose/at_rest",
+            "--input",
+            "policy-input.json",
+        ],
+    ),
+    // The refused arm, which is the one RFC-0024 wrote `eval` for: *a person working out why a
+    // push was refused should be able to ask the question without a checkout.* A contract that
+    // pinned only the allowing shape would declare `deny[].rule` and `deny[].msg` and reach
+    // neither, which is the inert declaration `UNREACHED` exists to keep out.
+    (
+        "policy-eval-refused",
+        &[
+            "policy",
+            "eval",
+            "--decision",
+            "disclose/at_rest",
+            "--input",
+            "policy-input-refused.json",
+        ],
+    ),
     // `--dry-run` on both, for the reason stated on LIVE below: these are the first two
     // commands under `cmd/` besides `propose` that write commits, and they run against the
     // same staged fixture every other golden reads. A writer would corrupt it for whatever
@@ -430,6 +471,24 @@ const NO_REPORT: &[(&str, &str)] = &[
          envelope and the report's own fields",
     ),
     (
+        "phase start",
+        "opens a branch and lands a `scaffold:` commit carrying the phase record — the fixture \
+         every golden here reads must not be mutated by one of them. Exercised end to end \
+         against a corpus built for it in `phase_record.rs`, which asserts the envelope and \
+         each report's own fields",
+    ),
+    (
+        "phase run",
+        "invokes the capability manifest and commits, for `run`'s reason and `phase start`'s \
+         — and there is no phase to run in a fixture no phase was started in",
+    ),
+    (
+        "phase settle",
+        "reads a phase record, which only `phase start` writes. It authors nothing, so the \
+         objection is not that it writes: it has nothing to answer about here. Covered in \
+         `phase_record.rs` beside the two above",
+    ),
+    (
         "cohort",
         "requires paths to derived repositories, which no fixture here holds and which are \
          private on the machines that do — exercised against materialized examples in \
@@ -450,23 +509,50 @@ const NO_REPORT: &[(&str, &str)] = &[
     ("estimate", "requires a query expression"),
 ];
 
-/// Every subcommand whose own `--help` offers `--format`.
-///
-/// Asked of the built binary rather than of the source, for `cli_reference.rs`'s reason: it
-/// is the same question a consumer asks, answered the same way, and it survives a refactor of
-/// how the clap enum is spelled. The match is on an option line named exactly `--format` —
-/// `bundle` mentions the word in its description and has no such flag.
-fn reporting_commands() -> BTreeSet<String> {
-    let help = |args: &[&str]| -> String {
-        let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
-            .args(args)
-            .output()
-            .expect("running --help");
-        String::from_utf8_lossy(&out.stdout).to_string()
-    };
+fn help(args: &[&str]) -> String {
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .args(args)
+        .arg("--help")
+        .output()
+        .expect("running --help");
+    String::from_utf8_lossy(&out.stdout).to_string()
+}
 
-    let mut names = BTreeSet::new();
-    for line in help(&["--help"]).lines() {
+/// Whether this command's own help offers `--format`.
+///
+/// The match is on an option line named exactly `--format` — `bundle` mentions the word in
+/// its description and has no such flag.
+fn advertises_format(args: &[&str]) -> bool {
+    help(args).lines().any(|l| {
+        let t = l.trim_start();
+        l.starts_with(' ') && (t.starts_with("--format ") || t.contains(", --format "))
+    })
+}
+
+/// Subcommand names under `args`, or none where it is not a group.
+///
+/// Two parsers rather than one, because the two help screens are not the same document.
+/// `yidam --help` is [`yidam::help`]'s own template — grouped, with the `{subcommands}` slot
+/// replaced — and has no `Commands:` heading at all; a group's help is clap's, and does. A
+/// single parser would have to be loose enough to match both, and loose is how this scan
+/// ends up returning the empty set that satisfies every question asked of it.
+fn children(group: &[&str]) -> Vec<String> {
+    let text = help(group);
+    let mut out = Vec::new();
+    let mut inside = group.is_empty();
+    for line in text.lines() {
+        if line.starts_with("Commands:") {
+            inside = true;
+            continue;
+        }
+        if !inside {
+            continue;
+        }
+        // A group's block ends at the first line that is not an entry; the top level has no
+        // block and is read whole, its headings being flush left.
+        if !group.is_empty() && !line.starts_with("  ") && !line.trim().is_empty() {
+            break;
+        }
         let Some(rest) = line.strip_prefix("  ") else {
             continue;
         };
@@ -480,34 +566,196 @@ fn reporting_commands() -> BTreeSet<String> {
         {
             continue;
         }
-        names.insert(name.to_string());
+        out.push(name.to_string());
     }
+    out
+}
+
+/// Every command whose own `--help` offers `--format`, **including under a subcommand group**.
+///
+/// Asked of the built binary rather than of the source, for `cli_reference.rs`'s reason: it
+/// is the same question a consumer asks, answered the same way, and it survives a refactor of
+/// how the clap enum is spelled.
+///
+/// # Why it descends, which it did not
+///
+/// This read the top level only, and clap does not print a group's children's flags. So a
+/// group whose children emit the contract was outside the population entirely — and
+/// `NO_REPORT`'s own staleness check, which requires every exemption to still be in the
+/// population, made *declaring* such a command impossible rather than merely unnecessary.
+/// Eight were outside it when this was written (#893): `kuten check`, `policy`'s four, and
+/// `phase`'s three. `policy`'s four had been emitting `--format json` with no report envelope
+/// at all since RFC-0024, against that RFC's own stated dependency, and nothing was red.
+///
+/// # A group that carries the flag itself is one command, not six
+///
+/// `migrate` declares `--format` on the parent, where it governs all six subcommands. So a
+/// group advertising the flag is a member at its own path and its children are not asked:
+/// there is one flag and one report shape, and six members would demand six registrations for
+/// one thing. A group that does not carry it — `kuten`, `phase`, `policy` — is not itself a
+/// member, and each child is asked separately.
+///
+/// Members are the argv path, space-joined: `lint`, `migrate`, `policy check`.
+fn reporting_commands() -> BTreeSet<String> {
+    let tops = children(&[]);
     assert!(
-        names.len() > 20,
+        tops.len() > 20,
         "parsed only {} command(s) from --help — the output shape changed and this is no \
-         longer reading it: {names:?}",
-        names.len()
+         longer reading it: {tops:?}",
+        tops.len()
     );
 
-    let reporting: BTreeSet<String> = names
-        .into_iter()
-        .filter(|name| {
-            help(&[name, "--help"]).lines().any(|l| {
-                let t = l.trim_start();
-                l.starts_with(' ') && (t.starts_with("--format ") || t.contains(", --format "))
-            })
-        })
-        .collect();
-    // The floor that keeps this from passing by finding nothing. A scan that returns an empty
-    // set satisfies every "is it covered?" question asked of it, which is how a guard goes
-    // green while covering none of its subject.
+    let mut reporting = BTreeSet::new();
+    let mut groups = 0usize;
+    for top in &tops {
+        if advertises_format(&[top]) {
+            reporting.insert(top.clone());
+            continue;
+        }
+        let kids = children(&[top]);
+        if kids.is_empty() {
+            continue;
+        }
+        groups += 1;
+        for kid in kids {
+            if advertises_format(&[top, &kid]) {
+                reporting.insert(format!("{top} {kid}"));
+            }
+        }
+    }
+
+    // Two floors, because one of them was the hole. The first is the original: a scan that
+    // returns an empty set satisfies every "is it covered?" question asked of it, which is how
+    // a guard goes green while covering none of its subject. The second says the descent
+    // happened at all — this file's whole population would still look healthy at 35 members
+    // with every group unread, which is exactly what it looked like before #893.
     assert!(
-        reporting.len() > 15,
+        reporting.len() > 40,
         "only {} command(s) advertise `--format` — the help layout changed and this filter is \
          no longer matching it: {reporting:?}",
         reporting.len()
     );
+    assert!(
+        groups >= 4 && reporting.iter().filter(|c| c.contains(' ')).count() >= 8,
+        "the descent found {groups} group(s) and {} subcommand(s) — it has stopped reading \
+         `Commands:` blocks, and every command under a group is silently unchecked again",
+        reporting.iter().filter(|c| c.contains(' ')).count()
+    );
     reporting
+}
+
+/// The command path an invocation names, as [`reporting_commands`] spells it.
+///
+/// `COMMANDS` and `LIVE` hold whole argv lines — `["neighbors", "concept/tailwater.yml",
+/// "--depth", "2"]` — and only their leading words are the command. Which leading words is not
+/// something to infer from the shape of the rest: `["kuten", "check"]` is two and
+/// `["diff", "HEAD~1..HEAD"]` is one, and a rule reading "drop anything that looks like an
+/// argument" would have to know that a subcommand and a positional are spelled the same way.
+///
+/// So it asks the population instead. The longest prefix the population names wins, which is
+/// decidable rather than guessed, and a deeper group would surface as an uncovered command
+/// rather than key silently onto its parent.
+fn path_of(args: &[&str], population: &BTreeSet<String>) -> String {
+    if args.len() >= 2 {
+        let two = format!("{} {}", args[0], args[1]);
+        if population.contains(&two) {
+            return two;
+        }
+    }
+    args[0].to_string()
+}
+
+/// Commands in `population` that none of the three rosters covers.
+///
+/// Extracted from the test so it can be **run against a roster with a hole punched in it**.
+/// A guard nobody has watched fail is a guard nobody knows the shape of, and this one had a
+/// hole for as long as it existed (#893) precisely because every input it was ever given was
+/// one that passed. See [`the_roster_goes_red_when_a_command_loses_its_coverage`].
+fn uncovered_against(
+    population: &BTreeSet<String>,
+    commands: &[(&str, &[&str])],
+    live_cmds: &[(&str, &[&str])],
+    exemptions: &[(&str, &str)],
+) -> Vec<String> {
+    let golden: BTreeSet<String> = commands
+        .iter()
+        .map(|(_, args)| path_of(args, population))
+        .collect();
+    let live: BTreeSet<String> = live_cmds
+        .iter()
+        .map(|(_, args)| path_of(args, population))
+        .collect();
+    let exempt: BTreeSet<&str> = exemptions.iter().map(|(name, _)| *name).collect();
+
+    population
+        .iter()
+        .filter(|name| {
+            let n = name.as_str();
+            !golden.contains(n) && !live.contains(n) && !exempt.contains(n)
+        })
+        .cloned()
+        .collect()
+}
+
+/// **The guard, watched failing.** #893's definition of done asks for exactly this.
+///
+/// Take the real rosters, remove one command's coverage, and the check must name it. Run
+/// against three shapes, because the three rosters are reached by different code: a golden
+/// keyed on a two-word path (`kuten check`, the one the issue names — deleting its entry was
+/// green before the descent landed, because `kuten` was not in the population at all), a
+/// golden keyed on one word, and an exemption.
+///
+/// This is the test that would have caught #893 itself. The population is the input it
+/// mutates, so a scan that stopped descending would leave `kuten check` absent from the
+/// population and the first case would fail with *"the population no longer holds it"* rather
+/// than passing quietly.
+#[test]
+fn the_roster_goes_red_when_a_command_loses_its_coverage() {
+    let population = reporting_commands();
+    assert!(
+        uncovered_against(&population, COMMANDS, LIVE, NO_REPORT).is_empty(),
+        "the unmutated rosters must cover everything, or this test proves nothing about the \
+         mutations below"
+    );
+
+    for victim in ["kuten check", "lint"] {
+        assert!(
+            population.contains(victim),
+            "the population no longer holds `{victim}`, so removing its golden proves nothing \
+             — the scan has stopped finding it"
+        );
+        let holed: Vec<(&str, &[&str])> = COMMANDS
+            .iter()
+            .filter(|(_, args)| path_of(args, &population) != victim)
+            .copied()
+            .collect();
+        assert!(
+            holed.len() < COMMANDS.len(),
+            "no COMMANDS entry names `{victim}`, so nothing was removed"
+        );
+        let found = uncovered_against(&population, &holed, LIVE, NO_REPORT);
+        assert_eq!(
+            found,
+            vec![victim.to_string()],
+            "deleting `{victim}`'s golden left the roster green"
+        );
+    }
+
+    // And an exemption is load-bearing the same way: `run` is covered by nothing else.
+    let holed: Vec<(&str, &str)> = NO_REPORT
+        .iter()
+        .filter(|(name, _)| *name != "run")
+        .copied()
+        .collect();
+    assert!(
+        holed.len() < NO_REPORT.len(),
+        "no NO_REPORT entry names `run`"
+    );
+    assert_eq!(
+        uncovered_against(&population, COMMANDS, LIVE, &holed),
+        vec!["run".to_string()],
+        "deleting `run`'s exemption left the roster green"
+    );
 }
 
 /// Every command that emits the report contract has its fields checked somewhere.
@@ -518,17 +766,8 @@ fn reporting_commands() -> BTreeSet<String> {
 /// being told nothing about `failed`, `warned`, or the whole of `propose`. Nothing was red.
 #[test]
 fn every_reporting_command_has_its_fields_checked() {
-    let golden: BTreeSet<&str> = COMMANDS.iter().map(|(_, args)| args[0]).collect();
-    let live: BTreeSet<&str> = LIVE.iter().map(|(_, args)| args[0]).collect();
-    let exempt: BTreeSet<&str> = NO_REPORT.iter().map(|(name, _)| *name).collect();
-
-    let mut uncovered = Vec::new();
-    for name in reporting_commands() {
-        let n = name.as_str();
-        if !golden.contains(n) && !live.contains(n) && !exempt.contains(n) {
-            uncovered.push(name);
-        }
-    }
+    let population = reporting_commands();
+    let uncovered = uncovered_against(&population, COMMANDS, LIVE, NO_REPORT);
     assert!(
         uncovered.is_empty(),
         "these commands emit `--format json` and nothing checks their fields against \
@@ -545,11 +784,10 @@ fn every_reporting_command_has_its_fields_checked() {
     // light build for the honest-looking wrong reason — the command is absent, not stale —
     // and the fix is `help.rs`'s: a companion list licensing the absence, not a weakening of
     // this check.
-    let real = reporting_commands();
     let stale: Vec<&str> = NO_REPORT
         .iter()
         .map(|(name, _)| *name)
-        .filter(|n| !real.contains(*n))
+        .filter(|n| !population.contains(*n))
         .collect();
     assert!(
         stale.is_empty(),
@@ -1996,6 +2234,15 @@ const UNREACHED: &[(&str, &str)] = &[
     ("runtime", "`index-verify` only — see `index`"),
     ("tolerance", "`index-verify` only — see `index`"),
     ("verdict", "`index-verify` only — see `index`"),
+    (
+        "disallowed_builtins",
+        "`policy check`'s unhealthy arm needs a committed `.yidam/policy/` calling a builtin \
+         this build does not carry. The fixture has none on purpose — `policy-check`'s golden \
+         pins the inherited arm, which is the one every repository is in — and adding one \
+         would flip every row's `origin` to `local` and rewrite that golden to reach two \
+         declarations. The empty list itself IS reached, so the healthy case is pinned; what \
+         is not is a member of it",
+    ),
     (
         "phases[].type",
         "carried only by a ref whose phase record `yidam phase start` wrote, and the three \

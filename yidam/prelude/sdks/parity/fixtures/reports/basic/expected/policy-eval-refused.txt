@@ -1,0 +1,2 @@
+refuse disclose/at_rest
+  `.yidam/private/field-notes.md` is declared private in `.yidam/private-paths` and this repository is public
