@@ -22,7 +22,8 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::process::Command;
-use walkdir::WalkDir;
+
+mod common;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -290,10 +291,7 @@ fn locked_is_passed_against_the_workspaces_that_have_a_lock() {
 /// Every workflow and composite action in `.github/`, discovered.
 fn workflow_and_action_files() -> Vec<String> {
     let mut out = Vec::new();
-    for entry in WalkDir::new(repo_root().join(".github"))
-        .into_iter()
-        .filter_map(Result::ok)
-    {
+    for entry in common::repo_walk(&repo_root().join(".github")) {
         let path = entry.path();
         if entry.file_type().is_file() && path.extension().is_some_and(|e| e == "yml") {
             out.push(
@@ -381,10 +379,11 @@ fn a_skip_is_announced_through_the_helper_and_not_in_its_own_words() {
     let mut using_helper = 0;
 
     for tree in ["yidam/cli/tests", "yidam/tests/harness"] {
-        for entry in WalkDir::new(repo_root().join(tree))
-            .into_iter()
-            .filter_map(Result::ok)
-        {
+        // `yidam/tests/harness` is its own cargo package, so on any machine that has built
+        // it this walk used to descend 566 MB of `target/` and read the generated `.rs`
+        // files a build script left there. None of them happened to carry a skip-print, so
+        // it never reddened — the same latent shape as #900, one tree over.
+        for entry in common::repo_walk(&repo_root().join(tree)) {
             let path = entry.path();
             if !entry.file_type().is_file() || path.extension() != Some("rs".as_ref()) {
                 continue;

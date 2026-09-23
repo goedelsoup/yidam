@@ -8,8 +8,11 @@
 //! gate that has nothing to do with the docs, naming files the developer did not write in a
 //! directory they cannot see. The natural reading is "my change broke the design-token gate".
 //!
-//! Ten walks carried eight different answers to the same question. This file asserts there is
-//! now one, in [`common::repo_walk`], which reads it from git.
+//! Twenty-two walk sites across thirteen files carried nine different answers to the same
+//! question, and two of them were not scanning too much but answering wrong: a `#[cfg(test)]`
+//! walk in `lint/checks.rs` graded two class files out of a gitignored foreign checkout, and
+//! `yidam clone` copied `dist-quality-*` debris into every derived repository. This file
+//! asserts there is now one answer, in [`common::repo_walk`], which reads it from git.
 //!
 //! What it does **not** cover: a walk of a temporary directory. Those are the other half of
 //! the `WalkDir` calls in this suite — a materialized derived repo, a fixture corpus, a vault
@@ -218,5 +221,84 @@ fn the_walk_agrees_with_gitignore() {
         "an interrupted `npm test` leaves `dist-quality-*` behind — `.gitignore:55` says \
          `dist-*/` and the walk reached into it anyway. That is #900 exactly: hundreds of \
          Starlight's own custom properties graded as if this repository had written them."
+    );
+}
+
+/// A walk of this repository, written the way the guard can see it.
+fn walks_the_repo(line: &str) -> bool {
+    line.contains("WalkDir::new(") && line.contains("repo_root()")
+}
+
+/// A test that walks *this repository* does it through the shared walker.
+///
+/// [`only_the_shared_helper_prunes_a_walk_of_this_repository`] asks whether a walk carries
+/// its own exclusion list. That is the defect #900 reported, but it is not the whole shape:
+/// a walk can reach build output by carrying no list at all, and a walk can carry one whose
+/// name is too ordinary to put in [`BUILD_DIR_NAMES`]. `toolchain_pins.rs` was both — it
+/// filtered on `target`, which is also what half this crate calls a function parameter, so
+/// the name check could never have been widened to see it.
+///
+/// The rule is deliberately literal: `WalkDir::new(…)` and `repo_root()` on one line. It
+/// cannot see a root that arrived through a variable, and it does not try — a rule that
+/// guessed would have to guess about `src/`, where `repo_root()` means the *corpus* being
+/// operated on and a hand-rolled walk is correct. Scoped to `tests/` for exactly that
+/// reason. Measured when written: one offender, no false positives.
+#[test]
+fn a_test_that_walks_this_repository_uses_the_shared_walker() {
+    // The rule, before it is pointed at anything real. Two substrings are easy to mistype
+    // and a mistyped pair matches nothing, which reads exactly like a clean repository.
+    assert!(
+        walks_the_repo("    WalkDir::new(repo_root().join(dir))"),
+        "the rule does not match the shape it was written for"
+    );
+    assert!(
+        !walks_the_repo("    common::repo_walk(&repo_root().join(dir))"),
+        "the rule matches the fix it is asking for"
+    );
+    assert!(
+        !walks_the_repo("    WalkDir::new(tmp.path())"),
+        "the rule matches a tempdir walk, which is not its business"
+    );
+
+    let mut offenders = Vec::new();
+    let mut scanned = 0usize;
+    let mut saw_a_walk = 0usize;
+
+    for (path, text) in suite_sources() {
+        if !path.starts_with("tests/") || path == "tests/repo_walks.rs" {
+            continue;
+        }
+        scanned += 1;
+        for (i, line) in code_of(&text).lines().enumerate() {
+            if line.contains("WalkDir::new(") {
+                saw_a_walk += 1;
+            }
+            if walks_the_repo(line) {
+                offenders.push(format!("{path}:{}: {}", i + 1, line.trim()));
+            }
+        }
+    }
+
+    // A clean tree and a scan that read nothing produce the same empty `offenders`, so the
+    // absence of findings is only evidence once the scan is known to have looked. The floor
+    // is on files, and the second count is the one that matters: `WalkDir` is still the
+    // right tool for a tempdir, so those lines exist and must be visible from here. If they
+    // are not, the walk, the path prefix or `code_of` is broken and this proves nothing.
+    assert!(
+        scanned > 75,
+        "only {scanned} test sources reached the rule; this suite has many more, so an          empty finding list says nothing"
+    );
+    assert!(
+        saw_a_walk > 0,
+        "no `WalkDir::new(` anywhere in {scanned} test sources. The tempdir walks are still          written that way, so the scan is reading the wrong text — not a clean repository"
+    );
+
+    assert!(
+        offenders.is_empty(),
+        "these walk this repository without the shared walker:\n  {}\n\nA bare `WalkDir` \
+         descends whatever a build left behind — `target/`, `dist-quality-*`, `.venv` — \
+         and reads it as though this repository had authored it. Use \
+         `common::repo_walk`.",
+        offenders.join("\n  ")
     );
 }

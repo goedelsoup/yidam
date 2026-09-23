@@ -16,7 +16,8 @@
 //! does not try.
 
 use std::path::PathBuf;
-use walkdir::WalkDir;
+
+mod common;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -76,7 +77,7 @@ fn without_test_items(src: &str) -> String {
 fn census() -> Vec<(String, usize)> {
     let src = repo_root().join("yidam/cli/src");
     let mut out = Vec::new();
-    for entry in WalkDir::new(&src).into_iter().filter_map(Result::ok) {
+    for entry in common::repo_walk(&src) {
         let path = entry.path();
         if !entry.file_type().is_file() || path.extension() != Some("rs".as_ref()) {
             continue;

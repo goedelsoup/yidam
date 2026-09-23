@@ -643,9 +643,17 @@ pub fn repo_walk_keeping<F>(start: &Path, keep: F) -> impl Iterator<Item = walkd
 where
     F: Fn(&walkdir::DirEntry) -> bool,
 {
-    let canonical = start
-        .canonicalize()
-        .unwrap_or_else(|e| panic!("{} is unreadable: {e}", start.display()));
+    // Loud rather than empty. `WalkDir` on a path that does not exist yields one error and
+    // then nothing, so a caller that filters errors away sees an empty walk and passes —
+    // which is how a guard stops guarding without going red. A walk root that is not there
+    // is a defect in the caller or a moved directory, and either is worth a panic.
+    let canonical = start.canonicalize().unwrap_or_else(|e| {
+        panic!(
+            "cannot walk {}: {e}. A walk root that does not exist would otherwise scan \
+             nothing and pass.",
+            start.display()
+        )
+    });
     let top = git_toplevel(&canonical);
     let ignored = git_ignored(&top);
 

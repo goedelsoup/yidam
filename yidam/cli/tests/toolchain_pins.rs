@@ -20,7 +20,8 @@
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
-use walkdir::WalkDir;
+
+mod common;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -50,13 +51,12 @@ fn mise_pin() -> String {
 
 /// Files under a directory with one of the given names or extensions.
 fn files_named(dir: &str, matches: impl Fn(&std::path::Path) -> bool) -> Vec<PathBuf> {
-    WalkDir::new(repo_root().join(dir))
-        .into_iter()
-        .filter_map(Result::ok)
+    // A vendored dependency's manifest is not this repository's pin to keep. That used to
+    // be a hand-written `target` filter here — a ninth copy of the list #900 is about, and
+    // one that hid from the guard because `target` is also an ordinary parameter name.
+    common::repo_walk(&repo_root().join(dir))
         .filter(|e| e.file_type().is_file())
         .map(|e| e.path().to_path_buf())
-        // A vendored dependency's manifest is not this repository's pin to keep.
-        .filter(|p| !p.components().any(|c| c.as_os_str() == "target"))
         .filter(|p| matches(p))
         .collect()
 }
