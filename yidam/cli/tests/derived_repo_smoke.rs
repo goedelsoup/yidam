@@ -663,10 +663,10 @@ fn the_local_gate_runs_what_ci_gates_on() {
 //   A REGEN block held by `--check` must be a function of what every checkout of that commit has
 //   in common.
 //
-// Its two halves are the refs a checkout happens to hold and how much history it fetched, and one
-// test below holds each. Neither could be a unit test over a generator: the failure is a property
-// of a whole repository under two different fetches, which is exactly what this file already
-// builds.
+// Its three halves are the refs a checkout happens to hold, how much history it fetched, and what
+// it has built, and one test below holds each. None could be a unit test over a generator: the
+// failure is a property of a whole repository under two different fetches or two different build
+// states, which is exactly what this file already builds.
 
 /// Read a git command's output, for the fixtures below that need a hash back.
 fn git_out(dir: &Path, args: &[&str]) -> String {
@@ -754,6 +754,106 @@ fn the_gate_survives_a_phase_ref_appearing() {
         "two refs appeared, no commit was made, and the gate on the committed block went red. \
          A REGEN block must not read anything outside the tree:\n{}",
         text(&after)
+    );
+}
+
+/// Half three: a build artifact appearing must not move a gated block either.
+///
+/// **The same shape as half one, found two releases later and from the other direction (#895).**
+/// Three generators decided what to write by stat-ing a path nothing commits — `status` rendered
+/// `index present` / `index not initialized`, `index-status` rendered a build date and a
+/// stale-node count, `bundle-status` rendered a byte size. Measured on the reporting corpus, same
+/// tree and same commit: `mv .yidam/index /tmp` took `regen --check` from exit 1 to exit 0. CI has
+/// no index and never saw it, so the gate was red for exactly the contributors who had adopted
+/// `--features index` — which that corpus's own decision record had invited them to do.
+///
+/// **Discovered rather than listed.** The artifacts are placed and the whole gate is re-run, so a
+/// block the scaffold grows tomorrow is covered tomorrow. A test naming the three known blocks
+/// would stop covering the fourth without ever going red — and half one's sibling defect is what
+/// a list like that already missed once. The precondition below is what keeps the discovery
+/// honest: it asserts the scaffold really does ship blocks about these artifacts, so a fixture
+/// that had quietly lost them could not pass this vacuously.
+///
+/// The second assertion is the other repair. `*.lance/` alone left `meta.json` and
+/// `embed.config.json` tracked, so a `git add -A` after an index build staged half an index — and
+/// `index-build` writes `indexed_commit` as the *current* HEAD, so committing it advanced HEAD
+/// past that by one, and the commit that recorded "up-to-date" was itself what made it stale.
+#[test]
+fn the_gate_survives_an_index_and_a_bundle_being_built() {
+    let repo = Derived::bootstrap();
+    let root = repo.path();
+
+    // The scaffold has to ship blocks about these artifacts, or nothing below is varied.
+    let scaffolded: Vec<&str> = ["index-status", "bundle-status"]
+        .into_iter()
+        .filter(|generator| {
+            let marker = format!("<!-- REGEN: yidam {generator}");
+            walkdir::WalkDir::new(root)
+                .into_iter()
+                .filter_map(Result::ok)
+                .filter(|e| {
+                    e.file_type().is_file() && e.path().extension().is_some_and(|x| x == "md")
+                })
+                .any(|e| std::fs::read_to_string(e.path()).is_ok_and(|text| text.contains(&marker)))
+        })
+        .collect();
+    assert_eq!(
+        scaffolded,
+        vec!["index-status", "bundle-status"],
+        "a bootstrapped repository no longer carries a block about the index or the bundle, \
+         so this test is watching nothing. Found: {scaffolded:?}"
+    );
+
+    let before = repo.yidam(&["regen", "--check"]);
+    assert!(
+        before.status.success(),
+        "the fixture does not pass its own gate before anything is varied, so nothing below \
+         measures the variation:\n{}",
+        text(&before)
+    );
+
+    // Neither artifact exists yet — and that has to be asserted, not assumed. `CREATED_EMPTY`
+    // in the fixture helper used to create `.yidam/index/` at genesis, on the strength of a
+    // comment rather than of bootstrap's step 3. Against that fixture the old `status` cell
+    // read `present` on both sides of the variation below, so the whole test passed with the
+    // defect #895 reports still in the binary. A precondition that names the state being
+    // varied is the only thing that would have said so.
+    for artifact in [".yidam/index", ".yidam/bundle.yiz"] {
+        assert!(
+            !root.join(artifact).exists(),
+            "a bootstrapped repository already has `{artifact}`, so building one below varies \
+             nothing and every assertion after it holds vacuously"
+        );
+    }
+
+    // What `--features index` and `yidam export --format bundle` leave behind. Written rather
+    // than built: compiling the index feature here would make this test cost twenty minutes to
+    // assert something about a directory's existence.
+    std::fs::create_dir_all(root.join(".yidam/index")).expect("index dir");
+    std::fs::write(
+        root.join(".yidam/index/meta.json"),
+        r#"{"generated_at":1780000000,"model_name":"bge-small-en-v1.5",
+            "embedding_dim":384,"node_count":1,"indexed_commit":"deadbeef"}"#,
+    )
+    .expect("meta.json");
+    std::fs::write(root.join(".yidam/index/embed.config.json"), "{}").expect("embed config");
+    std::fs::write(root.join(".yidam/bundle.yiz"), b"not really a bundle").expect("bundle");
+
+    let after = repo.yidam(&["regen", "--check"]);
+    assert!(
+        after.status.success(),
+        "an index and a bundle were built, no commit was made, and the gate on the committed \
+         blocks went red. A REGEN block must not read anything outside the tree:\n{}",
+        text(&after)
+    );
+
+    // And neither artifact is something `git add -A` would stage.
+    let staged = git_out(root, &["status", "--porcelain"]);
+    assert_eq!(
+        staged, "",
+        "building an index and a bundle left the working tree dirty, so `git add -A` would \
+         commit a build artifact — and a committed index can never agree with the HEAD it \
+         records. Fix it in `sadhana/root/gitignore`."
     );
 }
 

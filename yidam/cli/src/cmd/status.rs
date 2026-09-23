@@ -65,6 +65,21 @@ struct StatusReport {
 /// `yidam phases` is where the live view belongs — being current is the point there rather than a
 /// hazard — and `status --format json` keeps all four counts for anything reading them.
 ///
+/// **Index freshness broke the same rule and was not noticed for two releases (#895).** The cell
+/// read `index present` or `index not initialized` from a stat of `.yidam/index/`, which is a
+/// build artifact of `--features index` and is in no commit. So the gate's verdict was a fact
+/// about the machine: measured on one derived corpus, same tree and same commit, moving the
+/// index directory aside took `regen --check` from exit 1 to exit 0. CI never has an index and
+/// so never saw the failure, and the contributors who did were exactly the ones who had adopted
+/// the feature the repository invited them to adopt.
+///
+/// Both horns of the repair are closed rather than one. Git-ignoring the index — what the
+/// reporting corpus did by hand, and what the scaffolded `.gitignore` now does — makes *absent*
+/// the only committed answer, but a block asserting absence is still wrong on the machine
+/// holding one. So the assertion leaves the block: `index_present` stays in `--format json`,
+/// [`crate::cmd::index_status`] writes a block that does not depend on the tree, and
+/// `yidam doctor` and `yidam due` answer freshness where being current is the point.
+///
 /// The other half of that contract is depth, and it is not answered here: `genesis` reads the
 /// repository's first commit, which a shallow clone does not have. [`crate::git::is_shallow`] is
 /// why that now reports `unknown` instead of a date it invented, and
@@ -122,13 +137,6 @@ pub fn status(format: crate::report::Format) -> Result<()> {
     .filter(|a| a.overdue_days().is_some())
     .count();
 
-    let index_path = root.join(".yidam").join("index");
-    let index_freshness = if index_path.exists() {
-        "present"
-    } else {
-        "not initialized"
-    };
-
     let genesis = genesis_date(&root);
 
     let sources_cell = match catalog_expired {
@@ -145,7 +153,7 @@ pub fn status(format: crate::report::Format) -> Result<()> {
     };
     let content = format!(
         "**{node_count} nodes** · {open_count} open · {sources_cell} · \
-         claims {} · {edges_cell}index {index_freshness} · genesis {genesis}",
+         claims {} · {edges_cell}genesis {genesis}",
         claims.cell()
     );
 
@@ -155,6 +163,9 @@ pub fn status(format: crate::report::Format) -> Result<()> {
         // computed and discarded would still make the text path's behaviour depend on which
         // refs a checkout happens to hold, the moment anyone renders it again.
         let phases = phase_tally(&root);
+        // Read only here, for the same reason as `phases` above: a stat of `.yidam/index/`
+        // answers about one machine, and the block is committed. See [`status`].
+        let index_present = yidam_index_dir(&root).exists();
         return crate::report::emit(
             &root,
             StatusReport {
@@ -168,7 +179,7 @@ pub fn status(format: crate::report::Format) -> Result<()> {
                 edge_claims_verified: edge_claims.verified,
                 edge_claims_inference: edge_claims.inference,
                 edge_claims_open: edge_claims.open,
-                index_present: index_path.exists(),
+                index_present,
                 active_phases: phases.active,
                 settled_phases: phases.settled,
                 rewritten_phases: phases.rewritten,
@@ -267,6 +278,29 @@ pub(crate) fn render_index_status(r: &IndexStatusReport, now: u64) -> String {
     }
 }
 
+/// What the committed block holds — and it is not [`render_index_status`].
+///
+/// Every field that render carries is a fact about one working tree: whether the directory
+/// exists, when the binary that built it ran, how many corpus files have been touched since.
+/// None of it is in any commit, and `yidam regen --check` gates this block. Writing the live
+/// verdict here made the gate's exit code a property of the machine running it (#895) — green
+/// in CI, which never has an index, and red on a contributor who had built one.
+///
+/// So the block says the one thing about the index that *is* true of every checkout: that this
+/// is not where the answer lives. A constant rather than a removal, because a removal leaves a
+/// block behind in every corpus that already has one — refreshed by nothing and checked by
+/// nothing, which is the state #831 exists to have ended. `yidam regen` rewrites this one in
+/// place, so a corpus upgrades by running the command the gate already prescribes.
+///
+/// The live verdict is not lost. It goes to stdout below, to `--format json`, and to the two
+/// commands whose whole business is the current machine — `yidam doctor`'s `index` check and
+/// `yidam due`'s index row, both of which call [`index_status_data`] rather than re-deriving it.
+const COMMITTED_INDEX_BLOCK: &str =
+    "_The vector index is a build artifact and is in no commit — whether one exists, and how \
+     stale it is, is a fact about a working tree rather than about this revision. Run \
+     `yidam index-status` for this machine's answer, or `yidam doctor` for it alongside the \
+     rest._";
+
 pub fn index_status(format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
     let data = index_status_data(&root);
@@ -278,15 +312,20 @@ pub fn index_status(format: crate::report::Format) -> Result<()> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or_else(|_| data.built_at.unwrap_or(0));
-    let content = render_index_status(&data, now);
+    // Live to the terminal, where being current is the point. `emit` is suppressed under
+    // `--check`, so the measured verdict reaches no gated artifact.
+    crate::regen::emit(&render_index_status(&data, now));
 
-    crate::regen::emit(&content);
     let corpus = yidam_corpus_dir(&root);
-    update_file_regen(&corpus.join("README.md"), "yidam index-status", &content)?;
+    update_file_regen(
+        &corpus.join("README.md"),
+        "yidam index-status",
+        COMMITTED_INDEX_BLOCK,
+    )?;
     update_file_regen(
         &root.join("crates").join("README.md"),
         "yidam index-status",
-        &content,
+        COMMITTED_INDEX_BLOCK,
     )
 }
 

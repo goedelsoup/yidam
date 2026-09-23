@@ -71,6 +71,19 @@ dist/
 # LanceDB — the vector index `yidam index-build` writes.
 *.lance/
 
+# The whole index directory, not only the LanceDB tables inside it. `*.lance/` above left
+# `meta.json` and `embed.config.json` tracked, so a `git add -A` after an index build put half
+# an index in the commit — and `index-build` writes `indexed_commit` as the *current* HEAD,
+# before the commit recording it exists. Committing therefore advanced HEAD past
+# `indexed_commit` by one every time, and the commit that said "up-to-date" was itself the
+# change that made it stale. `index.yml` already states the intent this enforces: nothing keeps
+# the index in git, and `.yidam/index.lock` is the only part that travels (#895).
+.yidam/index/
+
+# `yidam export --format bundle` output. Built by `release.yml` and attached to the release as
+# `bundle.yiz`; consumers fetch it from there, never from the tree.
+.yidam/bundle.yiz
+
 # mise
 .mise.local.toml
 

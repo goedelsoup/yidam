@@ -84,6 +84,40 @@ is invoked in a tree holding exactly what `reads` resolves to, so `run = ["sh",
 ".yidam/capabilities/x.sh"]` needs `.yidam/capabilities/**` in its `reads`. Such a manifest never
 worked; it failed at invocation with `sh: no such file or directory`. Now it says which
 declaration is missing.
+### Committed REGEN blocks no longer report build artifacts
+
+**Three gated blocks stopped asserting things no commit carries (#895).** The rule is the one
+`cli/v0.12.0` states below. A committed, gated block may only report what every checkout of that
+commit agrees on.
+
+**`yidam status` drops its index cell.** The block no longer renders `index present` or `index not
+initialized`. **`yidam index-status` and `yidam bundle-status` now write a pointer.** Their blocks
+say where the answer lives instead of answering.
+
+*Why.* The vector index and the bundle are build artifacts. Neither is in any commit. The blocks
+stat-ed them anyway, so `yidam regen --check` answered about the machine.
+
+Measured on one derived corpus, same tree and same commit: moving `.yidam/index/` aside flipped
+the gate. Exit 1 became exit 0. CI has no index and so never saw the failure. It landed on the
+contributors who had adopted `--features index`.
+
+*What to do.* Run `yidam regen` once and commit the result as a `regen:` commit. If you move a
+local index aside before `mise run ci`, you can stop.
+
+*Where the measurements went.* `yidam index-status` and `yidam bundle-status` still print them.
+`yidam doctor`'s `index` check and `yidam due`'s index row still report freshness. `yidam status
+--format json` still carries `index_present`. Nothing reading a report loses a field.
+
+**The scaffolded `.gitignore` now ignores `.yidam/index/` and `.yidam/bundle.yiz`.** Only
+`*.lance/` was ignored before, so `meta.json` and `embed.config.json` stayed tracked.
+
+*Why that matters.* `yidam index-build` writes `indexed_commit` as the current HEAD. Committing
+the index then advances HEAD past it by one. The commit writing "up-to-date" was itself the change
+that made it stale.
+
+*What to do.* A new repository gets both rules at genesis. An existing one can copy them from
+`sadhana/root/gitignore`. If an index is already committed, `git rm -r --cached .yidam/index`
+untracks it.
 
 ### `yidam serve --lsp` lints an unsaved buffer as a node
 
