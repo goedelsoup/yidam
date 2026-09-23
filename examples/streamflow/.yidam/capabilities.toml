@@ -1,19 +1,37 @@
 # What may run in this corpus, what it may read, and what it may write.
 #
-# One entry, and that is the whole of it. `travel-tier` computes how far each node's
-# assertions may travel — the rule `guidelines/agent-conduct.md` states and says must be
-# computed rather than declared — and `yidam run travel-tier` lands the result as a
-# `compute:` commit with a receipt.
+# Two entries forming one pipeline. `travel-tier` computes how far each node's assertions may
+# travel — the rule `guidelines/agent-conduct.md` states and says must be computed rather than
+# declared. `disclosure-envelope` reads that answer and partitions the corpus by where each
+# node may go, which is the question an operator asks before publishing anything.
+#
+# The second declares `after = ["travel-tier"]`, and that is load-bearing in the same way
+# `reads` and `writes` are. Its declared `reads` resolve to a file that exists only because the
+# first step committed it, so `yidam run disclosure-envelope` against a corpus where
+# `travel-tier` has not run lands `travel-tier` first and then reads what it wrote. A run that
+# ignored the declaration would invoke the second step against a tree with no input in it.
 #
 # `reads` and `writes` are load-bearing rather than documentation. The step is invoked in a
 # scratch tree holding exactly what `reads` resolves to at HEAD, so it cannot quietly depend
 # on a file it did not name; and a step that wrote outside `writes` is refused with nothing
 # committed.
 #
+# Both declare `.yidam/capabilities/**`, which is why each can find the script it is told to
+# run: the step stands in that scratch tree and nowhere else, so its own implementation is a
+# file it has to be given. That is not a formality to satisfy — reading the script there is
+# what puts it in the input state, so editing a calculator makes its step stale and re-runs
+# it. A capability that left it out is refused by name rather than failing in the shell.
+#
 # Why the result is a file and not a property on the nodes: `decisions/base-flow-index-
 # carries-its-method.yml` settled that here already. A derived quantity carries its method
 # and never becomes a class property, because a property on a node reads as a fact about the
 # subject when it is a fact about a calculation.
+
+# Neither declares `ageing_days`. Both are functions of what they read — every number in each
+# is derived from bytes already committed — so an unchanged input state computes an unchanged
+# answer, and a cadence would re-invoke them to produce the file that is already there. The key
+# is for a capability that reads a world this repository does not hold; a connector against
+# USGS NWIS would declare one, and neither of these is that.
 
 [capability.travel-tier]
 kind   = "calculator"
@@ -21,3 +39,11 @@ run    = ["sh", ".yidam/capabilities/travel-tier.sh"]
 reads  = [".yidam/corpus/**", ".yidam/capabilities/**"]
 writes = [".yidam/computed/**"]
 verb   = "compute"
+
+[capability.disclosure-envelope]
+kind   = "calculator"
+run    = ["sh", ".yidam/capabilities/disclosure-envelope.sh"]
+reads  = [".yidam/computed/travel-tier.yml", ".yidam/capabilities/**"]
+writes = [".yidam/computed/**"]
+verb   = "compute"
+after  = ["travel-tier"]

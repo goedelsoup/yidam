@@ -98,6 +98,31 @@ pub fn materialize(root: &Path, commit: &str, cap: &Capability) -> Result<Inputs
         );
     }
 
+    // A step's own implementation is a file it depends on, so it is a file it must declare.
+    //
+    // The process stands in the scratch tree, so a relative `run` argument resolves there and
+    // nowhere else — which is the isolation the whole arrangement exists for, and which makes
+    // an undeclared script a certain failure rather than a risk. Left to the invocation it
+    // surfaces as `sh: no such file or directory` and exit 127, blaming the shell for a
+    // declaration the manifest is missing.
+    //
+    // Decided by what is tracked rather than by what looks like a path: a token is checked
+    // only when the commit itself holds a file by that name, so `cargo`, `-p` and `sh` are not
+    // candidates and no rule about which arguments are paths has to be invented.
+    let tracked: Vec<&str> = listed.split('\0').filter(|p| !p.is_empty()).collect();
+    for arg in &cap.run {
+        if tracked.contains(&arg.as_str()) && !wanted.iter().any(|w| w == arg) {
+            bail!(
+                "`{arg}` is in this repository and is not in this capability's `reads` ({}).\n  \
+                 A step is invoked in a tree holding exactly what it declares, so it would \
+                 stand in a directory that does not contain the file it was told to run.\n  \
+                 Declare it: a step's own implementation is an input, and reading it there is \
+                 also what makes editing it change the input state.",
+                cap.reads.join(", ")
+            );
+        }
+    }
+
     let dir = Scratch::new("in")?;
     // `--prefix` wants a trailing separator, and the paths arrive on stdin so that a corpus
     // with more files than an argv can hold is not a different case.

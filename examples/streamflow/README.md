@@ -42,6 +42,7 @@ a fabricated record, and this one is meant to be copied.
   bench/goals.yml
   capabilities.toml
   capabilities/travel-tier.sh
+  capabilities/disclosure-envelope.sh
 ```
 
 ## What each piece is here to demonstrate
@@ -84,7 +85,7 @@ guard and not evidence for anything — the corpus is below the arithmetic floor
 the benchmark is about.
 
 **A calculator, and the commit it authors.**
-[`capabilities.toml`](.yidam/capabilities.toml) declares one: `travel-tier` computes how far
+[`capabilities.toml`](.yidam/capabilities.toml) declares two. `travel-tier` computes how far
 each node's assertions may travel — the minimum claim tag over the node and the transitive
 closure of its outgoing links. The prelude's own conduct guideline states that rule and states
 that it must be *computed rather than declared*, because a declared tier drifts the moment a
@@ -102,6 +103,18 @@ eight are downgraded**: they declare `[inference]` and rest on a chain reaching
 `concept/base-flow-separation`, which is `[open]`. Nothing in this corpus may leave it. That is
 the corpus telling the truth about itself, and no declared tier would have said so.
 
+**A second step, and why it cannot run first.** `disclosure-envelope` reads
+`.yidam/computed/travel-tier.yml` and partitions the corpus by where each node may go — the
+question an operator asks with the first answer in hand. It declares
+`after = ["travel-tier"]`, and that declaration is load-bearing rather than descriptive: its
+`reads` name a file that exists only because the first step committed it, so a run that ignored
+the ordering would invoke it against a tree with no input in it.
+
+So `yidam run disclosure-envelope` against this corpus lands `travel-tier` first and then reads
+what it wrote. Both capabilities also declare `.yidam/capabilities/**`, because a step stands in
+a tree holding exactly what it declares and its own script is a file it depends on — which is
+also what makes editing a calculator change the input state and re-run its step.
+
 ## Running the gates
 
 ```sh
@@ -111,12 +124,13 @@ yidam graph-check     # 8 instances across 3 classes — all clean
 yidam lint            # 0 finding(s), no errors
 yidam open-questions  # four live questions
 
-yidam run travel-tier # one compute: commit, plus a receipt in .yidam/runs/
+yidam run --dry-run   # the plan, in dependency order, writing nothing
+yidam run             # two compute: commits, each with a receipt in .yidam/runs/
 ```
 
-`run` writes commits and leaves the checkout alone, so after it the working tree is one commit
-behind — the report names the `git restore` that syncs it. Run it twice and the second says
-nothing changed and writes nothing.
+`run` writes commits and leaves the checkout alone, so after it the working tree is behind HEAD
+— the report names the `git restore` that syncs it. Run it twice and the second skips both
+steps as fresh, naming the reason, and writes nothing.
 
 See [docs/quickstart.md](../../docs/quickstart.md) for the loop this is really for: watch the
 gate pass, break it, watch it fail, repair it.

@@ -26,6 +26,20 @@ single connector source, invoke the connector inline rather than deferring.
 - Bridges corpus and the semantic index (e.g., LanceDB)
 - Distinct from calculators: outputs optimized for retrieval quality, not domain correctness
 
+## Declaring one, so something can run it
+
+The three kinds above are a vocabulary until a repository declares which of them it has.
+`.yidam/capabilities.toml` is where it does. An entry names the kind, how to invoke it, what it
+reads, what it writes, and the verb a run of it authors. `yidam run` invokes the stale ones in
+dependency order, committing what each produced with a receipt.
+
+Declaring is also what makes a crate visible as a capability. `yidam crates-index` and
+`yidam packages-index` name the capability that runs each crate. An undeclared crate gets an em
+dash: a directory with a Cargo manifest is a scaffold until something can invoke it.
+
+See [capabilities and runs](../yidam/prelude/guidelines/directories.md) for the fields, and
+[RFC-0026](rfcs/0026-orchestrator-layer.md) for what a run may author and why.
+
 ## The index layer
 
 A vector index over corpus embeddings enables semantic retrieval. The index is not the

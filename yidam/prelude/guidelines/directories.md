@@ -690,15 +690,61 @@ run    = ["sh", ".yidam/capabilities/travel-tier.sh"]
 reads  = [".yidam/corpus/**", ".yidam/capabilities/**"]
 writes = [".yidam/computed/**"]
 verb   = "compute"
+
+[capability.disclosure-envelope]
+kind   = "calculator"
+run    = ["sh", ".yidam/capabilities/disclosure-envelope.sh"]
+reads  = [".yidam/computed/travel-tier.yml", ".yidam/capabilities/**"]
+writes = [".yidam/computed/**"]
+verb   = "compute"
+after  = ["travel-tier"]       # optional
 ```
 
 `yidam run travel-tier` then checks the declared `reads` out of `HEAD` into a scratch
 directory, invokes the step there, and lands what it wrote — plus a receipt — as one commit.
+`yidam run` with no step runs the whole manifest; `yidam run --dry-run` resolves the plan,
+reports what is stale and why, and writes nothing.
 
 **`reads` and `writes` are load-bearing rather than documentation.** The step is given exactly
 what `reads` resolves to and nothing else from the repository, so it cannot depend on a file it
 did not declare; and a step that writes outside `writes` is refused, with nothing committed.
 Both are decidable before the step runs rather than after it has produced a tree.
+
+A consequence worth knowing before you meet it: because the step stands in that scratch tree
+and nowhere else, **a capability must declare its own implementation**. Both entries above read
+`.yidam/capabilities/**` for that reason. It is not a formality — reading the script there is
+what puts it in the input state, so editing a calculator is what makes its step stale.
+
+### `after` — what must be up to date first
+
+`after` names steps this one waits for. It is resolved rather than advisory: a run plans the
+transitive closure, orders it so every dependency precedes what declares it, and invokes each
+stale step against the commit the one before it landed. So `disclosure-envelope` above reads a
+file that exists only because `travel-tier` committed it, and `yidam run disclosure-envelope`
+against a repository where `travel-tier` has never run does the right thing.
+
+A cycle is refused with the cycle named, and nothing runs. A step may not come `after` one that
+declares an **epistemic** verb: what that step writes lands on a proposal branch and is not in
+the tree a dependent would read, so waiting for it would mean waiting for a person to merge.
+
+### `ageing_days` — when an unchanged input state is not enough
+
+A step is **stale** when what it reads, or what it declares, is not what its committed receipt
+was computed from. That is an equality check rather than a guess, and for a calculator it is
+the whole answer: an unchanged corpus computes an unchanged result, so a fresh step is skipped
+rather than invoked.
+
+It is not the whole answer for something that reads a world this repository does not hold. A
+connector's input state can sit unchanged across a year in which everything it describes moved.
+`ageing_days = 30` says *re-run this if it has not run in thirty days, however little moved* —
+the same distinction a source's TTL draws, where an expiry does not claim the upstream changed,
+only that nobody has looked. The age is measured from the commit that last carried the receipt.
+
+**Declare the interval; never expect one.** There is no default and no interval compiled into
+the binary, for the reason every interval in yidam is declared: a number in the tool is one
+repository's judgement arriving in another that never agreed to it. A capability with no
+`ageing_days` is decided by its input state alone, which is right for anything that is a
+function of what it reads.
 
 **The verb decides where a run's commit goes, and nothing else does.** An operational verb —
 `compute`, `extract`, `refresh`, `reconcile` — advances the branch you invoked the run from. An
@@ -727,9 +773,13 @@ series is the git history of that file, which is where a repository's series of 
 already lives.
 
 A receipt carries **no timestamp**. The commit it lands in has a committer date, which is the
-real one. That also makes a receipt a pure function of its input state, which is what lets a
-re-run over an unchanged corpus write no commit at all rather than an empty one per
-invocation.
+real one — and it is what an `ageing_days` interval is measured against. That also makes a
+receipt a pure function of its input state, which is what lets a re-run over an unchanged
+corpus write no commit at all rather than an empty one per invocation.
+
+A step re-run under an ageing rule whose answer had not moved is the one case that does commit
+without changing an output: the receipt names a new input commit, and that commit is the record
+that somebody looked. The report says so in those words rather than reporting a file as written.
 
 **Where the output goes is your decision and it is a real one.** A computed quantity is a fact
 about a calculation, and a class property is read as a fact about the subject. Writing a

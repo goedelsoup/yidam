@@ -273,8 +273,8 @@ That is their purpose, and it is why every one carries a `*`.
 | `index-status` * | Whether the vector index is present, and how stale against the corpus |
 | `agents-index` * | The domain agents in `.yidam/agents/` *(no flags)* |
 | `skills-index` * | The domain skills in `.yidam/skills/` *(no flags)* |
-| `crates-index` * | The domain-computer crates in `crates/` *(no flags)* |
-| `packages-index` * | The domain-computer packages in `packages/` *(no flags)* |
+| `crates-index` * | The domain-computer crates in `crates/`, each with the capability that runs it *(no flags)* |
+| `packages-index` * | The domain-computer packages in `packages/`, each with the capability that runs it *(no flags)* |
 | `bundle-status` * | Freshness of `.yidam/bundle.yiz` against the corpus it was built from *(no flags)* |
 
 Three more generators are filed by what they report, not by the fact that they generate:
@@ -323,7 +323,7 @@ the read-only overview.
 | `rename <old> <new>` * | Rename a node, rewriting every edge into it. `--dry-run` |
 | `migrate <sub>` * | Change an ontology and every instance that adopted it, as one event. `--dry-run` |
 | `propose` * | Draft findings as proposed epistemic commits on a `propose/<head>` branch |
-| `run <step>` * | Invoke a capability declared in `.yidam/capabilities.toml` and commit what it produced, with a receipt |
+| `run [step]` * | Invoke the stale capabilities declared in `.yidam/capabilities.toml`, in dependency order, and commit what each produced with a receipt. Named with a step, runs that step and everything it declares it comes `after`; with nothing, the whole manifest. `--dry-run` plans and writes nothing |
 
 ### Retrieval, and the corpora it can reach
 

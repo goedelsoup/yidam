@@ -15,13 +15,22 @@
 //!
 //! # Unknown fields are refused
 //!
-//! `deny_unknown_fields`, and the reason is not tidiness. The generalisation in #472 adds
-//! declared dependencies and an ageing rule to this file. A binary that silently ignored an
-//! `after = [...]` it did not implement would run a dependent step before the step it
-//! depends on and report success — the failure would be in the corpus, not in the exit code.
-//! Refusing to parse says which field and which binary, which is recoverable.
+//! `deny_unknown_fields`, and the reason is not tidiness. #472 added the declared dependencies
+//! and the ageing rule this file now carries. A binary that silently ignored an `after = [...]`
+//! it did not implement would run a dependent step before the step it depends on and report
+//! success — the failure would be in the corpus, not in the exit code. Refusing to parse says
+//! which field and which binary, which is recoverable.
+//!
+//! # The whole file is validated, not the entry being asked for
+//!
+//! [`Manifest::parse`] checks every declaration and then the graph they form, so a manifest
+//! holding a cycle or a dangling `after` does not load **at all** — not even to run a step that
+//! is nowhere near the defect. The alternative, checking a step's own closure when it is asked
+//! for, would let a corpus carry a broken manifest indefinitely as long as nobody ran the step
+//! that touched the broken part, which is the shape of a gate that is green because it is not
+//! looking.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
@@ -113,6 +122,30 @@ pub struct Capability {
     pub writes: Vec<String>,
     /// The commit verb a run of this capability authors.
     pub verb: String,
+    /// Steps that must be up to date before this one is invoked.
+    ///
+    /// Named `after` rather than `depends_on` because that is what it means operationally:
+    /// this step is invoked after those, against the commit they landed. A dependency here is
+    /// not advisory — [`Manifest::plan`] resolves the transitive closure and the executor runs
+    /// it, so a step declaring one is never invoked against an upstream that had not run.
+    #[serde(default)]
+    pub after: Vec<String>,
+    /// How many days this step's result stands before it is re-run, however little moved.
+    ///
+    /// **The interval is declared here and is never compiled in.** That is
+    /// [`crate::config::LintConfig::escalate_after`]'s argument, which `cmd/due.rs` repeats for
+    /// all four of its clocks: a number in the binary is one corpus's judgement arriving in
+    /// another that never agreed to it. Absent by default, and a step with no ageing rule is
+    /// decided by its input state alone.
+    ///
+    /// What it is *for* is the case an input state cannot see. A calculator is a function of
+    /// what it reads, so an unchanged corpus computes an unchanged answer and re-running it
+    /// says nothing. A connector reads a world that is not in the repository, and its input
+    /// state can sit unchanged across a year in which everything it describes moved. This is
+    /// the catalog clock's distinction exactly — *"An expiry does not claim the upstream
+    /// changed. It claims nobody has looked."*
+    #[serde(default)]
+    pub ageing_days: Option<u32>,
 }
 
 impl Capability {
@@ -157,21 +190,132 @@ impl Manifest {
         for (name, cap) in &m.capability {
             validate(name, cap, registers)?;
         }
+        m.check_graph()?;
         Ok(m)
     }
 
     pub fn get<'a>(&'a self, step: &str) -> Result<&'a Capability> {
-        self.capability.get(step).ok_or_else(|| {
-            let declared: Vec<&str> = self.capability.keys().map(String::as_str).collect();
-            if declared.is_empty() {
-                anyhow::anyhow!("{MANIFEST} declares no capabilities, so `{step}` is not one")
-            } else {
-                anyhow::anyhow!(
-                    "no capability named `{step}` — {MANIFEST} declares: {}",
-                    declared.join(", ")
-                )
+        self.capability.get(step).ok_or_else(|| self.no_such(step))
+    }
+
+    /// What to say about a step this manifest does not declare.
+    ///
+    /// One sentence for two callers — [`Self::get`] and [`Self::plan`] — because the second
+    /// reaches it through an `after` naming nothing, and a reader who mistyped a dependency
+    /// needs exactly what a reader who mistyped an argument needs: the list.
+    fn no_such(&self, step: &str) -> anyhow::Error {
+        let declared: Vec<&str> = self.capability.keys().map(String::as_str).collect();
+        if declared.is_empty() {
+            anyhow::anyhow!("{MANIFEST} declares no capabilities, so `{step}` is not one")
+        } else {
+            anyhow::anyhow!(
+                "no capability named `{step}` — {MANIFEST} declares: {}",
+                declared.join(", ")
+            )
+        }
+    }
+
+    /// The steps to run, every dependency before the step that declares it.
+    ///
+    /// `Some(step)` plans that step's transitive `after` closure and nothing else; `None` plans
+    /// the whole manifest. A step is in the plan exactly once however many dependents name it.
+    ///
+    /// **The order is total, not merely valid.** Independent steps are visited in the
+    /// manifest's own key order, which `BTreeMap` makes the file's alphabetical order rather
+    /// than its line order — so the same manifest plans the same sequence on every machine and
+    /// in every process. A planner that was free between independent steps would make a run's
+    /// commit sequence unreproducible, and the input state exists to make a run's result an
+    /// equality check.
+    pub fn plan(&self, step: Option<&str>) -> Result<Vec<&str>> {
+        let roots: Vec<&str> = match step {
+            Some(s) => vec![self.key(s)?],
+            None => self.capability.keys().map(String::as_str).collect(),
+        };
+        let mut order = Vec::new();
+        let mut done = BTreeSet::new();
+        let mut path = Vec::new();
+        for root in roots {
+            self.visit(root, &mut order, &mut done, &mut path)?;
+        }
+        Ok(order)
+    }
+
+    /// The manifest's own copy of a step's name, so a plan borrows from the map rather than
+    /// from the argument that asked for it.
+    fn key(&self, step: &str) -> Result<&str> {
+        match self.capability.get_key_value(step) {
+            Some((name, _)) => Ok(name.as_str()),
+            None => Err(self.no_such(step)),
+        }
+    }
+
+    /// Depth-first, dependencies first, with the stack kept so a cycle can be named.
+    ///
+    /// `path` is the chain currently being resolved and `done` is everything already ordered.
+    /// Meeting a step that is on `path` is a cycle; meeting one in `done` is a diamond, which
+    /// is ordinary and is why the two sets are not one.
+    fn visit<'a>(
+        &'a self,
+        step: &'a str,
+        order: &mut Vec<&'a str>,
+        done: &mut BTreeSet<&'a str>,
+        path: &mut Vec<&'a str>,
+    ) -> Result<()> {
+        if done.contains(step) {
+            return Ok(());
+        }
+        if let Some(at) = path.iter().position(|s| *s == step) {
+            let cycle: Vec<&str> = path[at..]
+                .iter()
+                .copied()
+                .chain(std::iter::once(step))
+                .collect();
+            bail!(
+                "`after` forms a cycle, so there is no order to run these in:\n  {}\n  \
+                 Every step in it waits for one that is waiting for it.",
+                cycle.join(" → ")
+            );
+        }
+        let cap = self.get(step)?;
+        path.push(step);
+        for dep in &cap.after {
+            self.visit(self.key(dep)?, order, done, path)?;
+        }
+        path.pop();
+        done.insert(step);
+        order.push(step);
+        Ok(())
+    }
+
+    /// Every rule about the graph the declarations form, rather than about one of them.
+    ///
+    /// Checked over the whole manifest at load — see the module doc. The cycle check is
+    /// [`Self::plan`] itself rather than a second traversal agreeing with it: a manifest that
+    /// loaded and then could not be planned would be a file this module called valid and the
+    /// executor could not use.
+    fn check_graph(&self) -> Result<()> {
+        for (name, cap) in &self.capability {
+            for dep in &cap.after {
+                let upstream = self.capability.get(dep).ok_or_else(|| self.no_such(dep))?;
+                // The rule that is not about the graph's shape but about what a run lands.
+                // An epistemic step's output goes to `propose/<head>` and the branch does not
+                // move, so it is not in the tree a dependent would be materialized from — and
+                // waiting for it would mean waiting for a person to merge, which is an act no
+                // plan can contain.
+                if upstream.route() == Route::Proposal {
+                    bail!(
+                        "capability `{name}` declares `after = [\"{dep}\"]`, and `{dep}` \
+                         authors `{}`, which is epistemic.\n  \
+                         An epistemic run lands on `propose/<head>` and leaves the branch where \
+                         it was, so what `{dep}` writes is not in the tree `{name}` would be \
+                         materialized from. A step cannot wait for output a run does not land, \
+                         and nothing merges itself.",
+                        upstream.verb
+                    );
+                }
             }
-        })
+        }
+        self.plan(None).map(|_| ())
     }
 }
 
@@ -258,6 +402,8 @@ pub(crate) fn literal_prefix(glob: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write as _;
+
     use super::*;
 
     const CALC: &str = r#"
@@ -309,6 +455,8 @@ verb   = "compute"
             reads: vec![],
             writes: vec![".yidam/computed/**".into()],
             verb: verb.to_string(),
+            after: vec![],
+            ageing_days: None,
         };
         for verb in yidam_core::git::OPERATIONAL_VERBS {
             assert_eq!(cap(verb).route(), Route::Branch, "{verb}");
@@ -379,15 +527,31 @@ verb   = "compute"
         }
     }
 
-    /// #472 adds fields to this file. An old binary must say so rather than ignore them.
+    /// A field this binary does not implement is refused rather than ignored.
+    ///
+    /// Written against `after` until #472 implemented it, which is the point the test was
+    /// making: the field it names is whatever the *next* generalisation will add, and the
+    /// property is that a corpus declaring one gets a refusal naming the field rather than a
+    /// run that silently did something else. `ageing_hours` is the plausible near-miss for the
+    /// key that now exists, which is the shape a reader actually mistypes.
     #[test]
     fn an_unknown_field_is_refused_rather_than_ignored() {
-        let text = format!("{CALC}after  = [\"upstream\"]\n");
-        // `{:#}` rather than `{}`: serde names the field in the *source* of the error, and
-        // the outer context is this module's own sentence — which is identical for every
-        // malformed manifest, so a bare `to_string` would assert nothing about this one.
-        let err = format!("{:#}", Manifest::parse(&text, &corpus_only()).unwrap_err());
-        assert!(err.contains("after"), "{err}");
+        for field in [
+            "ageing_hours  = 3",
+            "needs  = [\"upstream\"]",
+            "retries  = 2",
+        ] {
+            let text = format!("{CALC}{field}\n");
+            // `{:#}` rather than `{}`: serde names the field in the *source* of the error, and
+            // the outer context is this module's own sentence — which is identical for every
+            // malformed manifest, so a bare `to_string` would assert nothing about this one.
+            let err = format!("{:#}", Manifest::parse(&text, &corpus_only()).unwrap_err());
+            let name = field.split_whitespace().next().unwrap();
+            assert!(
+                err.contains(name),
+                "`{field}` was accepted or misreported: {err}"
+            );
+        }
     }
 
     #[test]
@@ -395,6 +559,200 @@ verb   = "compute"
         let m = Manifest::parse(CALC, &corpus_only()).unwrap();
         let err = m.get("nope").unwrap_err().to_string();
         assert!(err.contains("low-flow"), "{err}");
+    }
+
+    // ── the graph the declarations form ───────────────────────────────────────
+
+    /// A manifest of `name -> after`, with everything else held constant.
+    ///
+    /// Built rather than written out so the tests below differ in the one thing they are
+    /// about. A declaration's other fields have their own tests above and none of them
+    /// participate in an order.
+    fn graph(steps: &[(&str, &[&str])]) -> String {
+        let mut text = String::new();
+        for (name, after) in steps {
+            let deps: Vec<String> = after.iter().map(|d| format!("\"{d}\"")).collect();
+            let _ = write!(
+                text,
+                "[capability.{name}]\nkind   = \"calculator\"\nrun    = [\"true\"]\n\
+                 reads  = [\".yidam/corpus/**\"]\nwrites = [\".yidam/computed/**\"]\n\
+                 verb   = \"compute\"\nafter  = [{}]\n\n",
+                deps.join(", ")
+            );
+        }
+        text
+    }
+
+    fn plan_of(text: &str, step: Option<&str>) -> Vec<String> {
+        Manifest::parse(text, &corpus_only())
+            .unwrap()
+            .plan(step)
+            .unwrap()
+            .into_iter()
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// The whole manifest, with every dependency ahead of what declares it.
+    ///
+    /// Asserted as a property over the result rather than as one expected sequence: the
+    /// contract is *dependencies first*, and a literal expectation would also be pinning the
+    /// tie-break between independent steps, which [`the_order_is_the_same_on_every_run`] is
+    /// the test for.
+    #[test]
+    fn a_plan_puts_every_dependency_before_the_step_that_declares_it() {
+        let text = graph(&[
+            ("envelope", &["tier"]),
+            ("tier", &["gather"]),
+            ("gather", &[]),
+            ("unrelated", &[]),
+        ]);
+        let order = plan_of(&text, None);
+        assert_eq!(order.len(), 4, "{order:?}");
+        let at = |s: &str| order.iter().position(|o| o == s).unwrap();
+        assert!(at("gather") < at("tier"), "{order:?}");
+        assert!(at("tier") < at("envelope"), "{order:?}");
+    }
+
+    /// Asking for one step plans its closure and nothing beside it.
+    #[test]
+    fn planning_one_step_plans_what_it_waits_for_and_nothing_else() {
+        let text = graph(&[
+            ("envelope", &["tier"]),
+            ("tier", &["gather"]),
+            ("gather", &[]),
+            ("unrelated", &[]),
+        ]);
+        assert_eq!(plan_of(&text, Some("tier")), ["gather", "tier"]);
+        assert_eq!(plan_of(&text, Some("gather")), ["gather"]);
+        assert_eq!(
+            plan_of(&text, Some("envelope")),
+            ["gather", "tier", "envelope"]
+        );
+    }
+
+    /// A step two dependents both wait for is in the plan once, not twice.
+    ///
+    /// The diamond is what separates *visited* from *ordered* in [`Manifest::visit`]. Run
+    /// twice, `gather` would land two commits for one act and the second would be the no-op
+    /// path reporting that nothing happened — a run that has to be explained rather than read.
+    #[test]
+    fn a_step_two_dependents_share_is_planned_once() {
+        let text = graph(&[
+            ("left", &["gather"]),
+            ("right", &["gather"]),
+            ("gather", &[]),
+        ]);
+        let order = plan_of(&text, None);
+        assert_eq!(
+            order.iter().filter(|s| *s == "gather").count(),
+            1,
+            "{order:?}"
+        );
+        assert_eq!(order.len(), 3, "{order:?}");
+    }
+
+    /// Independent steps are ordered by the manifest's keys, so two runs plan one sequence.
+    #[test]
+    fn the_order_is_the_same_on_every_run() {
+        let text = graph(&[("c", &[]), ("a", &[]), ("b", &["a"])]);
+        assert_eq!(plan_of(&text, None), ["a", "b", "c"]);
+        for _ in 0..8 {
+            assert_eq!(plan_of(&text, None), ["a", "b", "c"]);
+        }
+    }
+
+    /// The definition of done's second bullet: refused, and the cycle is named.
+    #[test]
+    fn a_cycle_is_refused_and_the_cycle_is_named() {
+        let text = graph(&[("a", &["c"]), ("b", &["a"]), ("c", &["b"])]);
+        let err = Manifest::parse(&text, &corpus_only())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("cycle"), "{err}");
+        for step in ["a", "b", "c"] {
+            assert!(
+                err.contains(step),
+                "the cycle does not name `{step}`: {err}"
+            );
+        }
+        assert!(
+            err.contains('→'),
+            "the cycle is not shown as a chain: {err}"
+        );
+    }
+
+    /// A step waiting for itself is a cycle of one and is named as one.
+    #[test]
+    fn a_step_that_waits_for_itself_is_refused() {
+        let err = Manifest::parse(&graph(&[("a", &["a"])]), &corpus_only())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("cycle") && err.contains("a → a"), "{err}");
+    }
+
+    /// An `after` naming nothing is refused at load, with the declared set named.
+    ///
+    /// At load rather than when the step is reached, which is the module doc's rule: a corpus
+    /// whose manifest names a step that does not exist has a broken manifest whether or not
+    /// anybody ran the part that is broken.
+    #[test]
+    fn an_after_naming_no_capability_is_refused_at_load() {
+        let err = Manifest::parse(&graph(&[("a", &["ghost"])]), &corpus_only())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("ghost"), "{err}");
+        assert!(err.contains('a'), "the declared set is not named: {err}");
+    }
+
+    /// A step cannot wait for one whose output never lands on the branch it would read.
+    ///
+    /// The rule is about the route and therefore about the verb, so it is asserted over the
+    /// whole epistemic family rather than over `establish`: a family member added tomorrow is
+    /// covered the day it is added.
+    #[test]
+    fn a_step_cannot_wait_for_one_whose_commit_goes_to_a_proposal() {
+        for verb in yidam_core::git::EPISTEMIC_VERBS {
+            let text = format!(
+                "[capability.downstream]\nkind   = \"calculator\"\nrun    = [\"true\"]\n\
+                 reads  = [\".yidam/computed/**\"]\nwrites = [\".yidam/computed/**\"]\n\
+                 verb   = \"compute\"\nafter  = [\"upstream\"]\n\n\
+                 [capability.upstream]\nkind   = \"calculator\"\nrun    = [\"true\"]\n\
+                 reads  = [\".yidam/corpus/**\"]\nwrites = [\".yidam/computed/**\"]\n\
+                 verb   = \"{verb}\"\n"
+            );
+            let err = Manifest::parse(&text, &corpus_only())
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains("epistemic") && err.contains("upstream"),
+                "`after` a `{verb}` step was accepted or misreported: {err}"
+            );
+        }
+    }
+
+    /// And the same shape with an operational upstream loads, so the test above is about the
+    /// family and not about the manifest it happens to be written against.
+    #[test]
+    fn the_same_declaration_with_an_operational_upstream_loads() {
+        let text = "[capability.downstream]\nkind   = \"calculator\"\nrun    = [\"true\"]\n\
+                    reads  = [\".yidam/computed/**\"]\nwrites = [\".yidam/computed/**\"]\n\
+                    verb   = \"compute\"\nafter  = [\"upstream\"]\n\n\
+                    [capability.upstream]\nkind   = \"calculator\"\nrun    = [\"true\"]\n\
+                    reads  = [\".yidam/corpus/**\"]\nwrites = [\".yidam/computed/**\"]\n\
+                    verb   = \"compute\"\n";
+        assert_eq!(plan_of(text, None), ["upstream", "downstream"]);
+    }
+
+    /// The ageing rule parses, is absent by default, and is never a number in this binary.
+    #[test]
+    fn ageing_is_declared_per_capability_and_absent_by_default() {
+        let m = Manifest::parse(CALC, &corpus_only()).unwrap();
+        assert_eq!(m.get("low-flow").unwrap().ageing_days, None);
+
+        let text = format!("{CALC}ageing_days = 30\n");
+        let m = Manifest::parse(&text, &corpus_only()).unwrap();
+        assert_eq!(m.get("low-flow").unwrap().ageing_days, Some(30));
     }
 
     #[test]

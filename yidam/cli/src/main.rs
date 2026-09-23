@@ -786,29 +786,42 @@ enum Command {
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
         format: yidam::Format,
     },
-    /// Invoke a declared capability and commit what it produced
+    /// Invoke the declared capabilities that are stale and commit what they produced
     ///
-    /// Reads `.yidam/capabilities.toml`, materializes the named step's declared
-    /// `reads` out of HEAD into a scratch directory, invokes it there, and lands
-    /// what it wrote — plus a receipt naming the input commit and every digest — as
-    /// one operational commit on the current branch.
+    /// Reads `.yidam/capabilities.toml`, resolves the steps into dependency order, and
+    /// for each one that is stale materializes its declared `reads` out of HEAD into a
+    /// scratch directory, invokes it there, and lands what it wrote — plus a receipt
+    /// naming the input commit and every digest — as one operational commit.
+    ///
+    /// Named with a step, it runs that step and everything the step declares it comes
+    /// `after`, so a step is never invoked against an upstream that had not run. Named
+    /// with nothing, it runs the whole manifest.
+    ///
+    /// A step whose input state matches its committed receipt is skipped rather than
+    /// invoked, and the report says which and why. A capability that reads something the
+    /// repository does not hold declares `ageing_days` and is re-run on that cadence; the
+    /// interval is declared per capability and is never compiled into this binary.
     ///
     /// The declared verb decides where the commit goes. An operational verb advances the
     /// branch you invoked the run from; an epistemic one lands on `propose/<head>` and
     /// leaves your branch where it was, for a person to merge or delete. There is no way
     /// for a manifest or a policy to say otherwise, so no run advances the current branch
-    /// with an epistemic commit.
+    /// with an epistemic commit. A step may not come `after` an epistemic one, because
+    /// what that step writes is not on the branch a dependent would read.
     ///
     /// The step is invoked in a scratch tree and never in your checkout, so a run is safe
-    /// mid-edit — and because the index is not touched either, your working tree is one
-    /// commit behind afterwards. The report says so and names the command that syncs it.
-    ///
-    /// One step per invocation. Dependency order, freshness and --dry-run are #472.
+    /// mid-edit — and because the index is not touched either, your working tree is
+    /// behind HEAD afterwards. The report says so and names the command that syncs it.
     ///
     /// See docs/rfcs/0026-orchestrator-layer.md for what a run may author and why.
     Run {
-        /// The capability to invoke, as named in .yidam/capabilities.toml
-        step: String,
+        /// The capability to invoke, as named in .yidam/capabilities.toml, with
+        /// everything it declares it runs `after`. Omit it to run the whole manifest
+        step: Option<String>,
+        /// Resolve the plan and report what is stale, invoking nothing and writing
+        /// nothing — no commit, no ref, no receipt
+        #[arg(long)]
+        dry_run: bool,
         /// Output format. `json` emits the machine-readable report contract
         /// (RFC-0016); `text` is unchanged and remains the default.
         #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
@@ -1101,7 +1114,11 @@ fn main() -> Result<()> {
             paths,
             format,
         } => yidam::cohort(&repos, yidam::CohortOptions { format, paths }),
-        Command::Run { step, format } => yidam::run_capability(&step, yidam::RunOptions { format }),
+        Command::Run {
+            step,
+            dry_run,
+            format,
+        } => yidam::run_capability(step.as_deref(), yidam::RunOptions { format, dry_run }),
         Command::Propose {
             dry_run,
             force,
