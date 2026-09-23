@@ -117,7 +117,9 @@ impl Receipt {
     ///
     /// Takes the declaration whole rather than field by field: every field of it is part of
     /// the identity, so a signature that enumerated them would have to be revisited — and
-    /// silently could not be — each time #472 adds one.
+    /// silently could not be — each time a field is added. #472 added two, `after` and
+    /// `ageing_days`, and neither needed a line here: both were in the input state the day
+    /// they parsed, which is the property this signature exists for.
     pub fn input_state(
         cap: &Capability,
         manifest_sha256: &str,
@@ -178,6 +180,8 @@ mod tests {
             reads: vec![".yidam/corpus/**".into()],
             writes: vec![".yidam/computed/**".into()],
             verb: "compute".into(),
+            after: vec![],
+            ageing_days: None,
         }
     }
 

@@ -40,6 +40,20 @@
 > the declaration flows. It is specified and deliberately **not built** — no capability in any
 > corpus runs a model today, and §4.1.6 says what would have to be true first.
 
+> **Amended 2026-09-22 — the manifest is a plan, and `crates-index` can tell a crate that
+> implements something from one that does not.** #471 shipped one step per invocation, which was
+> the vertical slice and said so. #472 generalised it: `after` declares what a step waits for,
+> and a run resolves the transitive closure, orders it so every dependency precedes what declares
+> it, and invokes each stale step against the commit the one before it landed — a cycle is
+> refused with the cycle named, and nothing runs. Freshness is the input state §1 already
+> specified, now read *before* a step is invoked rather than after, so a fresh step is skipped
+> rather than run and discarded; `ageing_days` is §6's declared interval for the case an input
+> state cannot see, and it is per capability because that is where the catalog's TTL already
+> lives. `--dry-run` resolves the plan and writes nothing. And §4's `writes` refusal now has a
+> companion that is the same argument about `reads`: a step is invoked in a tree holding exactly
+> what it declares, so a capability that did not declare its own implementation is refused by
+> name rather than failing in a shell. The index column is below.
+
 > **Noted 2026-09-04.** Open question 2 — does a write-capable MCP tool live in the existing tier
 > or a new one — is answered by [RFC-0029](0029-write-tier.md): the same tier mechanism, with an
 > opt-in declaration and an identity gate (declarable only where a git author identity exists).
@@ -249,7 +263,7 @@ say.**
 ### 4 — The manifest
 
 `.yidam/capabilities.toml`. Per entry: `name`, `kind` (`connector` | `calculator`), how to invoke
-it, `reads`, `writes`, the verb it authors, and how it ages.
+it, `reads`, `writes`, the verb it authors, what it waits for, and how it ages.
 
 ```toml
 [capability.low-flow]
@@ -258,11 +272,26 @@ run    = ["cargo", "run", "-p", "lowflow", "--"]
 reads  = [".yidam/corpus/gage/**"]
 writes = [".yidam/corpus/reach/**"]
 verb   = "compute"
+after  = ["gather-gages"]   # optional — what must be up to date first
+ageing_days = 30            # optional — see §6
 ```
 
 `writes` is load-bearing rather than documentation. It is what lets the executor refuse a step that
 wrote outside its declaration, and what makes the operational/epistemic classification decidable
 **before** the step runs rather than after it has already produced a tree.
+
+`reads` is load-bearing on the same terms and in a way worth stating, because it has a consequence
+a first reader meets as a puzzle: the step is invoked in a tree holding exactly what `reads`
+resolves to, so **a capability must declare its own implementation**. The executor refuses a `run`
+argument that names a tracked file the declaration does not cover, rather than leaving it to a
+shell to report a missing file. Declaring it is also what puts the implementation in the input
+state, so editing a calculator is what makes its step stale.
+
+`after` is resolved and not advisory. A run plans the transitive closure and orders it, so a step
+is never invoked against an upstream that had not run — and a step may not come `after` one
+declaring an epistemic verb, because what that step writes lands on a proposal branch and is not
+in the tree a dependent would be materialized from. Waiting for it would mean waiting for a person
+to merge, which is not a thing a plan can contain.
 
 Credentials are **named, never carried**. `vault/mod.rs` states the rule this inherits: a committed
 file is not a place for a secret. A capability declares which secret it needs by name; the value
@@ -474,6 +503,43 @@ adds no interval type, no scheduler, and no second notion of "stale".
 
 `due` gains the column it was always missing: what would discharge this clock, and whether anything
 can.
+
+**Two readings, and the second is declared.** A step is stale when what it reads, or what it
+declares, is not what its committed receipt was computed from — §1's input state, asked before the
+step is invoked rather than after, so a fresh step is skipped rather than run and thrown away. For
+anything that is a function of its declared inputs that is the whole answer.
+
+It is not the whole answer for a connector, whose input state can sit unchanged across a year in
+which everything it describes moved. `ageing_days` is that case, and it is the catalog clock's
+distinction exactly — *"An expiry does not claim the upstream changed. It claims nobody has
+looked."* It is declared **per capability** rather than as a `[due]` key for the same reason a
+source's TTL is declared on the source: reading it from a second place would be a second place to
+set one number. The age is measured from the commit that last carried the receipt, which is the
+clock the receipt deliberately does not hold.
+
+A step re-run under an ageing rule whose answer had not moved still lands a commit, and that is
+the intent rather than an oversight: the receipt names a new input commit, and that commit is the
+record that somebody looked. The report distinguishes it from a step whose output changed, because
+those are different events and only one of them is a change to the corpus.
+
+### 6.1 — A directory is not a capability
+
+`crates-index` and `packages-index` reported on directories, so a crate implementing a connector
+and a crate implementing nothing produced the same row — the first of the three symptoms in the
+Problem section, and the one that survives longest because a table of directories looks like a
+table of capabilities. Each row now names the capability that runs it and its kind, read from the
+manifest, and an em dash where nothing declares it.
+
+**The correspondence is declared, never inferred.** A capability claims a package by naming it in
+`run` — the package name as a token, which is `cargo run -p <name>`'s own spelling, or a path at
+or under its directory. Nothing guesses from a crate's name or its shape. #460's failure table has
+that as *"a gather aligns schemas by name"*, and the answer is the same one: correspondence is
+declared per thing, never inferred from resemblance.
+
+The guard on this is discovery in both directions and carries no list: every declared capability
+resolves to a file the repository tracks, and every implementation beside one is declared. Even
+the directory implementations live in is discovered — it is wherever declarations point — so a
+corpus that keeps its calculators somewhere else is covered by the same two assertions.
 
 ## What this does not do
 

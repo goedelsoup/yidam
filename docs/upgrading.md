@@ -28,6 +28,40 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `yidam run` is a plan, and the domain-computer indexes gained a column
+
+**`yidam crates-index` and `yidam packages-index` write a third column (#472).** It names the
+capability that runs that crate, read from `.yidam/capabilities.toml`. A crate nothing declares
+gets an em dash. Before, that crate and one implementing a connector produced the same row.
+
+**Your `regen --check` will report those blocks stale until you re-run them.** Nothing about
+your repository changed; the generator's output did. `yidam regen` rewrites both and the gate
+goes green again. This is the only thing here that turns a passing gate red.
+
+**A fresh step is now skipped rather than invoked.** `yidam run <step>` compares the step's
+input state to its committed receipt *before* invoking it, and runs nothing where they match.
+It used to invoke every time and discard the result when the bytes came back identical. So a calculator's side effects stop happening on a run with
+nothing to recompute. A log it appends to, say, or a request it makes. Declare `ageing_days = <n>` on the capability to re-run it on a
+cadence regardless. That is what the key is for.
+
+**`yidam run <step>` now also runs what the step declares it comes `after`.** `after` is new,
+so nothing you have declared can be affected — a manifest carrying it did not parse before.
+`yidam run` with no step argument runs the whole manifest, and `--dry-run` resolves the plan
+and writes nothing.
+
+**`yidam run --format json` changed shape.** It emitted one step's fields at the top level:
+`step`, `verb`, `route`, `committed`. It now emits `steps`, an array of those, beside
+`requested`, `dry_run`, `ran`, `skipped` and `committed`. A consumer reading the old shape must
+move down one level. The envelope's `format_version` is unchanged, and deliberately: `run`'s own
+fields were never in the frozen contract. `report.schema.json` declares the envelope, not this
+command's body.
+
+**A capability that does not declare its own implementation is now refused by name.** The step
+is invoked in a tree holding exactly what `reads` resolves to, so `run = ["sh",
+".yidam/capabilities/x.sh"]` needs `.yidam/capabilities/**` in its `reads`. Such a manifest never
+worked; it failed at invocation with `sh: no such file or directory`. Now it says which
+declaration is missing.
+
 ### `yidam serve --lsp` lints an unsaved buffer as a node
 
 **A buffer whose file does not exist yet is now checked (#607).** Before, no check saw it. Its

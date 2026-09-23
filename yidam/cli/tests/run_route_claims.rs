@@ -69,20 +69,41 @@ fn observe() -> (Observed, String) {
         .first()
         .expect("the epistemic family is non-empty");
 
+    // A capability nothing else declares itself `after`. The manifest refuses a step that
+    // waits for an epistemic one — what a proposal branch holds is not in the tree a dependent
+    // would read — so mutating an upstream would make this probe observe `Refused` for a
+    // reason that is the dependency rule rather than the route.
     let Some((example, step)) = examples().into_iter().find_map(|name| {
         let e = Example::materialize(&name);
         let text = std::fs::read_to_string(e.path().join(".yidam/capabilities.toml")).ok()?;
         let m: toml::Value = toml::from_str(&text).ok()?;
-        let step = m.get("capability")?.as_table()?.keys().next()?.clone();
+        let caps = m.get("capability")?.as_table()?;
+        let waited_for: Vec<&str> = caps
+            .values()
+            .filter_map(|c| c.get("after")?.as_array())
+            .flat_map(|a| a.iter().filter_map(toml::Value::as_str))
+            .collect();
+        let step = caps
+            .keys()
+            .find(|k| !waited_for.contains(&k.as_str()))?
+            .clone();
         Some((name, step))
     }) else {
-        panic!("no example declares a capability, so this file asserts nothing");
+        panic!("no example declares a terminal capability, so this file asserts nothing");
     };
 
     let e = Example::materialize(&example);
     let manifest = e.path().join(".yidam/capabilities.toml");
     let before = std::fs::read_to_string(&manifest).unwrap();
-    let after = before.replace("verb   = \"compute\"", &format!("verb   = \"{verb}\""));
+
+    // That step's own table, and nothing past it. A `replace` over the file would move every
+    // capability's verb at once, which is the pair the manifest refuses.
+    let head = format!("[capability.{step}]");
+    let at = before.find(&head).expect("the step is declared");
+    let rest = &before[at + head.len()..];
+    let end = at + head.len() + rest.find("\n[").unwrap_or(rest.len());
+    let table = before[at..end].replace("verb   = \"compute\"", &format!("verb   = \"{verb}\""));
+    let after = format!("{}{table}{}", &before[..at], &before[end..]);
     assert_ne!(
         before,
         after,
@@ -100,6 +121,38 @@ fn observe() -> (Observed, String) {
             .expect("git rev-parse runs");
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     };
+    // Settle the corpus under the edited manifest before measuring anything.
+    //
+    // The edit changes the manifest digest, which is in every capability's input state, so it
+    // makes every step stale — including the operational ones this probe is not about. Left
+    // unsettled, the measured run would bring a dependency up to date and advance the branch,
+    // and the guard below would report the invariant broken by a commit that is exactly what
+    // the invariant permits.
+    //
+    // A refusal at load stops this run too, which is the answer this probe is asking for.
+    let (out, err, code) = e.run(&["run"]);
+    if code != 0 {
+        return (Observed::Refused, format!("{out}{err}"));
+    }
+    // Settling ran the epistemic step as well and its result is committed on a proposal
+    // branch, so the next run would find it fresh. Deleting that branch is what a person does
+    // to reject a proposal, and it is what leaves the step owed for the run below.
+    let refs = Command::new("git")
+        .current_dir(e.path())
+        .args(["for-each-ref", "--format=%(refname)", "refs/heads/propose/"])
+        .output()
+        .expect("git for-each-ref runs");
+    for name in String::from_utf8_lossy(&refs.stdout)
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+    {
+        Command::new("git")
+            .current_dir(e.path())
+            .args(["update-ref", "-d", name])
+            .status()
+            .expect("git update-ref runs");
+    }
+
     let start = head(&e.path());
     let (out, err, code) = e.run(&["run", &step]);
     let transcript = format!("{out}{err}");
