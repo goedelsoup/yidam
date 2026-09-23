@@ -28,6 +28,25 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `yidam lint` reads a quote set off in a blockquote
+
+**A citation that shows its passage under the link is now held to it (#899).** The house
+writes a quote two ways: inline, or set off below the citation.
+
+The set-off fence has been read since #758. The blockquote had not. So a citation carrying
+its evidence on the page was scored as carrying none.
+
+**What changes for you.** A citation of that shape may now report `slid-line-citation`
+instead of `unverified-line-citation`. That is Error, and under the baseline ratchet.
+
+The finding is not new rot. The quote was already wrong about the lines; nothing read it.
+Re-point the citation, or `yidam lint --bless` if the debt is inherited. The finding names
+the range the passage moved to, so the repair is a transcription.
+
+The rule is adjacency, as it is for a fence. Everything between the link and the `>` must be
+punctuation. It must contain the colon or dash that introduces it. An aside that follows a
+full stop is not adopted.
+
 ### `yidam policy --format json` now emits the report contract, and one key was renamed
 
 **All four `policy` subcommands gained the report envelope (#893).** `check`, `eval`, `gate`

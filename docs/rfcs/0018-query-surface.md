@@ -76,7 +76,7 @@ each relationship may land on
 ([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L2051), Error).
 
 `unlicensed-edge`'s own rationale states the gap in as many words
-([`checks.rs:1739`](../../yidam/cli/src/cmd/lint/checks.rs#L1739)):
+([`checks.rs:1994-1995`](../../yidam/cli/src/cmd/lint/checks.rs#L1994-L1995)):
 
 > a relationship in no declaration is worth seeing, because **a traversal that walks by
 > relationship will not find it**
@@ -522,6 +522,15 @@ exit.
 > it decidable: a label that restates the coordinate anchors nothing, so all four sat at
 > `unverified-line-citation` (Info), where the gate reports a citation rather than deciding
 > it. With the symbol there, `citation-label-not-cited` reads them, and a slide fails.
+>
+> **#899 found the same gap from the other side, in this document.** The `checks.rs`
+> citation under *E1 typed the graph and no traversal reads the types* was not missing an
+> anchor at all — it set `unlicensed-edge`'s own rationale underneath itself in a
+> blockquote, which is how the house quotes prose. `quotes_beside` read the paragraph and
+> stopped at the blank line before the block, so a citation carrying its evidence on the
+> page was scored as carrying none. It was **255 lines** off, landing inside an unrelated
+> violation push, with every gate green. The blockquote is read now, on the same adjacency
+> rule the fenced form already used.
 
 Exit **2** is not available and must not be borrowed. Its only site is `main.rs:614`, inside the
 clap pre-dispatch arm for `InvalidSubcommand | ErrorKind::UnknownArgument`

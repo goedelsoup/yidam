@@ -8,7 +8,7 @@
 //!
 //! So the gate lives here, in the suite that already holds this repository's prose to its
 //! own claims (`walkthrough_transcripts`, `docs_site`). Four of the five checks are
-//! asserted empty:
+//! asserted empty, and the fifth is counted:
 //!
 //! - **dead**: every cited range exists and holds text;
 //! - **slid**: every citation written in the quoting house style still quotes what the
@@ -18,17 +18,22 @@
 //! - **stated twice**: where the label names the range as well as the fragment, the two
 //!   copies agree.
 //!
-//! The remaining one — a citation with neither anchor — is Info by design and not gated
-//! on. It is still by far the largest group: 108 of this repository's 180 line citations,
-//! checked for existence and nothing else. 135 carry no quote and 27 of those are held by
-//! their label instead, which is the whole of what the documents themselves make
-//! decidable; the rest label a line number, and a line number that agrees with itself
-//! anchors nothing.
+//! The remaining one — a citation with neither anchor — is Info by design and is still not
+//! asserted empty, because the remedy is a judgement about the document. Its **count** is
+//! gated instead (#899). It is by far the largest group: 109 of this repository's 229 line
+//! citations, checked for existence and nothing else. 176 carry no quote and 67 of those
+//! are held by their label instead, which is the whole of what the documents themselves
+//! make decidable; 105 of the remaining 109 label a line number, and a line number that
+//! agrees with itself anchors nothing.
 //!
-//! Three of the 45 that do carry a quote carry it in a fenced block the document introduces
-//! rather than in quotation marks, and were counted in the paragraph above until #758 —
-//! `is_boundary` ends a paragraph at a fence, so the most explicit way of writing a quote
-//! down was the one form nothing read.
+//! Six of the 53 that do carry a quote set it off under the citation instead of writing it
+//! in quotation marks — three in a fenced block (#758), three in a blockquote (#899) — and
+//! every one of them was counted in the paragraph above until somebody measured the
+//! population. A blank line ends the paragraph a quote is looked for in, so for as long as
+//! the extractor read only inline quotes, the two most explicit ways of writing a quote
+//! down were the two forms nothing checked. Both were found the same way and both were
+//! found holding rot: three of the four fenced ones had slid (#723, #758, #760), and two of
+//! the three blockquoted ones had, one of them by 255 lines onto unrelated code.
 //!
 //! When this goes red after an innocent edit, the edit moved a cited passage: re-point
 //! the citation at the passage's new lines. **The finding names them** when the passage
@@ -128,6 +133,53 @@ fn the_two_house_label_forms_are_both_still_read() {
         anchored < quoteless.len(),
         "every quoteless citation reads as symbol-labelled — a label that restates the line \
          number is being taken for a claim about the target"
+    );
+}
+
+/// How many citations nothing can check, and the only number in this file that is allowed
+/// to move (#899).
+///
+/// Lower it when a repair earns it. Never raise it.
+const UNANCHORED: usize = 109;
+
+/// The residue, counted — and the count held to a number somebody has to edit.
+///
+/// `unverified-line-citation` is Info and gates on nothing, for a reason its own rationale
+/// makes and this test does not disturb: the remedy is a judgement about the document —
+/// quote the passage, label the symbol, widen to a stable range, drop the fragment — and a
+/// gate cannot make that judgement. What a gate *can* do is refuse to let the population
+/// grow while nobody is looking, which is the whole of the finding in #899: six citations
+/// of `GRAPH.md` were stale on `main`, one of them by 27 lines for months, and every one of
+/// them was in this group and therefore silent from the day it was written.
+///
+/// **Exact, not a ceiling.** The same argument `.yidam/lint-baseline.yml` carries for a
+/// derived corpus: a number permitted to be too high drifts, and a ratchet that has drifted
+/// silently permits re-introduction of whatever it over-counts. So a repair reddens this
+/// test too, and the repair for *that* is one line.
+///
+/// **Two branches can each be green and the merge red**, because this is a count rather
+/// than a list: two PRs that each retire one citation both pass at `UNANCHORED - 1`, and the
+/// merged tree sits at `UNANCHORED - 2`. Nothing runs on the merge result until CI does.
+/// That is the ratchet working — the number is wrong on `main` and says so — not a reason
+/// to loosen it.
+#[test]
+fn the_unanchored_population_does_not_grow() {
+    let cites = yidam::collect_line_citations(&repo_root());
+    let check = yidam::unverified_line_citation(&cites);
+    let n = check.violations.len();
+    assert_eq!(
+        n,
+        UNANCHORED,
+        "{} citations of {} carry neither a quote nor a symbol label, and this file says \
+         {UNANCHORED}.\n\
+         More than that: a citation was added that nothing can check. Anchor it — quote the \
+         passage beside the link, or label the symbol the lines declare — rather than \
+         raising the number.\n\
+         Fewer: a repair landed. Lower `UNANCHORED` to {n}.\n\
+         The population:\n{}",
+        n,
+        cites.len(),
+        render(&check.violations)
     );
 }
 

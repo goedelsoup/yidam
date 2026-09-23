@@ -28,14 +28,14 @@
 //!
 //! A fifth check stands outside that partition because it never opens the target file.
 //! The house style states the range twice — `[`file.rs:12-19`](../file.rs#L12-L19)` — and
-//! **`citation-range-stated-twice`** holds the two copies to each other. 150 of the 180
+//! **`citation-range-stated-twice`** holds the two copies to each other. 158 of the 229
 //! line citations this repository's own gate can see write both; nothing had ever read
 //! the left-hand one, so half a repair would have shipped silently (#622).
 //!
 //! # The anchor, and why the label is one
 //!
-//! A quote is the strong anchor and most citations do not carry one: 135 of this
-//! repository's 180 line citations quote nothing, and for as long as that was the whole
+//! A quote is the strong anchor and most citations do not carry one: 176 of this
+//! repository's 229 line citations quote nothing, and for as long as that was the whole
 //! story every one of them was checked for existence and nothing else. A range that slides
 //! onto lines that are neither blank nor quoted is invisible to the two enforcing halves
 //! at once — it exists, so it is not dead; nothing quotes it, so nothing can say it slid.
@@ -47,8 +47,8 @@
 //! and the coordinate in the fragment, so the label is a claim about the target that a
 //! check can decide. It is read only where nothing quotes the passage, because a quote is
 //! better evidence and should decide alone. See [`label_symbols`] for what counts, and what
-//! deliberately does not — 108 of the 135 label a line number rather than a symbol, and a
-//! label that restates the coordinate anchors nothing.
+//! deliberately does not — 105 of the 109 citations no label holds restate the line number
+//! instead, and a label that restates the coordinate anchors nothing.
 //!
 //! # Naming the repair
 //!
@@ -79,20 +79,32 @@
 //! - immediately after it, introduced by a colon or dash: `([cite]): "…"`;
 //! - as the body of a blockquote whose attribution line carries the link: `> — [cite]`;
 //! - as a fenced block the citation introduces, where the fence's tag names the cited
-//!   file's language: ``([cite]):`` and then ```` ```rust ```` (#758).
+//!   file's language: ``([cite]):`` and then ```` ```rust ```` (#758);
+//! - as a blockquote the citation introduces: `([cite]):` and then `> the quoted words`
+//!   (#899).
 //!
 //! Adjacency is what makes the pairing trustworthy. An early version adopted the nearest
 //! quoted span in the paragraph and promptly paired one citation's quote with its
 //! neighbour's link; requiring the gap between quote and link to be pure punctuation
 //! removed every mispairing in the measured population without losing a real quote.
 //!
-//! The fenced form was invisible for as long as the other three were readable, because
-//! `is_boundary` ends a paragraph at a fence — so a document that had written its quote
-//! down in the most explicit way available fell to `unverified-line-citation`, checked for
-//! existence and nothing else. Four citations under `docs/` were in that shape and three of
-//! them had already rotted, one of them arriving by a merge of two branches that were each
-//! green (#723, #758, #760). The tag is what separates a transcription from a rendering;
-//! see [`fence_names`], which is also why the fourth is still not read.
+//! The last two are the *set-off* forms — the passage is introduced and then shown — and
+//! each was invisible for as long as the inline three were readable, because `is_boundary`
+//! ends the paragraph at the blank line before the block. A document that had written its
+//! quote down in the most explicit way available fell to `unverified-line-citation`,
+//! checked for existence and nothing else.
+//!
+//! Four citations under `docs/` wrote a fence that way and three of them had already
+//! rotted, one arriving by a merge of two branches that were each green (#723, #758,
+//! #760). The tag is what separates a transcription from a rendering; see [`fence_names`],
+//! which is also why the fourth is still not read.
+//!
+//! Four more wrote a blockquote, which is what the house reaches for when the passage is
+//! prose rather than code, and two of those had rotted — one by **255 lines**, onto code
+//! with nothing to do with the sentence citing it, with every gate green (#899). A
+//! blockquote carries no tag, so adjacency is the whole of the rule there; the fourth is
+//! out of the set because it says something in words before its quote, which is the
+//! decision the fence case had already made.
 //!
 //! # How a quote is compared
 //!
@@ -523,34 +535,67 @@ fn quotes_beside(
         }
     }
 
-    // A fenced block the citation introduces: `([cite]):` and then the passage, shown
-    // rather than quoted inline. `is_boundary` ends the paragraph at the fence, so this is
-    // the one quote candidate that has to be looked for past it.
-    //
-    // Adjacency is the same rule the branch above uses and for the same reason: everything
-    // between the link and the fence must be punctuation, and it must contain the colon or
-    // dash that introduces it. A paragraph that says something in words before its fence is
-    // introducing an example, not quoting the lines it cited — RFC-0031 cites
+    // The two set-off forms: a passage the citation introduces and then *shows*, rather
+    // than quoting inline. `is_boundary` ends the paragraph at the blank line before it, so
+    // these are the quote candidates that have to be looked for past a boundary — which is
+    // exactly how each of them came to be unread until somebody counted (#758, #899).
+    let mut set_off = hi + 1;
+    while set_off < lines.len() && lines[set_off].trim().is_empty() {
+        set_off += 1;
+    }
+    // Adjacency is the same rule the inline branch above uses and for the same reason:
+    // everything between the link and the block must be punctuation, and it must contain
+    // the colon or dash that introduces it. A paragraph that says something in words before
+    // its block is introducing an example, not quoting the lines it cited — RFC-0031 cites
     // `starts_a_block` and then shows the *input* that defeated it, which under a looser
     // rule would be read as a quotation of the function.
-    let mut fence = hi + 1;
-    while fence < lines.len() && lines[fence].trim().is_empty() {
-        fence += 1;
-    }
-    if let Some(info) = lines.get(fence).and_then(|l| fence_info(l)) {
-        if fence_names(info, target) {
-            let gap: Vec<&str> = std::iter::once(line.get(end_col..).unwrap_or(""))
-                .chain(lines[line_idx + 1..fence].iter().map(String::as_str))
-                .collect();
-            let gap = gap.join("\n");
-            if gap.chars().all(is_gap_char) && gap.contains([':', '—', '–']) {
-                if let Some(body) = fence_body(lines, fence) {
+    let introduced = {
+        let gap: Vec<&str> = std::iter::once(line.get(end_col..).unwrap_or(""))
+            .chain(lines[line_idx + 1..set_off].iter().map(String::as_str))
+            .collect();
+        let gap = gap.join("\n");
+        gap.chars().all(is_gap_char) && gap.contains([':', '—', '–'])
+    };
+
+    match lines.get(set_off) {
+        // A fenced block: the tag is what separates a transcription from a rendering.
+        Some(l) if fence_info(l).is_some() => {
+            let names = fence_info(l).is_some_and(|info| fence_names(info, target));
+            if introduced && names {
+                if let Some(body) = fence_body(lines, set_off) {
                     if !body.trim().is_empty() {
                         out.push(body);
                     }
                 }
             }
         }
+        // A blockquote the citation introduces. The fenced form's twin, and the one the
+        // house reaches for when the passage is prose rather than code.
+        //
+        // A blockquote carries no tag, so `fence_names` has no analogue and adjacency is
+        // the whole of the rule. That is enough because it already draws the line the tag
+        // draws: the house sets a *rendering* in a tagged fence and never in a blockquote,
+        // and an aside follows a sentence that ended in a full stop — which is not a gap
+        // character, by the same decision that keeps `"…". The next sentence ([cite])` from
+        // being read as a quote.
+        //
+        // The link's own line being a blockquote is the attribution form handled at the top
+        // of this function, and a second blockquote under an aside is two asides.
+        Some(l) if is_blockquote(l) && !is_blockquote(line) && introduced => {
+            let mut end = set_off;
+            while end < lines.len() && is_blockquote(&lines[end]) {
+                end += 1;
+            }
+            let q = lines[set_off..end]
+                .iter()
+                .map(|l| strip_blockquote(l))
+                .collect::<Vec<_>>()
+                .join(" ");
+            if !q.trim().is_empty() {
+                out.push(q);
+            }
+        }
+        _ => {}
     }
 
     out
@@ -824,14 +869,18 @@ pub fn slid_line_citation(citations: &[LineCitation]) -> Check {
          hold text, and the text is now something else. Twelve citations rotted that way \
          at once, silently, and two came to point at words written long after the \
          arguments that cite them. Where the document quotes the passage it cites — the \
-         house style — the quote decides. That includes a fenced block the citation \
-         introduces, where the fence's tag names the cited file's language: the paragraph \
-         ends at the fence, so for as long as this read only inline quotes, the most \
-         explicit way of writing a quote down was the one form nothing checked, and three \
-         citations rotted inside it (#758). A `text` fence is a rendering rather than a \
-         transcription and is still not read — a format string's `{}` has become a value, \
-         and holding the file to the words it printed would report a drift no repair can \
-         clear. Matched on words, in order, elisions honoured, \
+         house style — the quote decides. That includes the two forms where the passage is \
+         introduced and then *shown*: a fenced block whose tag names the cited file's \
+         language, and a blockquote. The paragraph ends at the blank line before either, so \
+         for as long as this read only inline quotes, the most explicit ways of writing a \
+         quote down were the forms nothing checked — three citations rotted inside the \
+         fence (#758) and two inside the blockquote, one of them by 255 lines (#899). A \
+         `text` fence is a rendering rather than a transcription and is still not read — a \
+         format string's `{}` has become a value, and holding the file to the words it \
+         printed would report a drift no repair can clear. A blockquote has no tag to say \
+         so, and needs none: the house sets a rendering in a fence, and an aside is \
+         separated from the citation above it by a full stop rather than the introducing \
+         colon this requires. Matched on words, in order, elisions honoured, \
          so wrapping, emphasis and comment markers cannot manufacture a drift. Where the \
          passage is still in the file and in exactly one place, the finding names the \
          range it moved to: the same matching that found the drift decides it, and \
@@ -867,7 +916,7 @@ pub fn citation_label_not_cited(citations: &[LineCitation]) -> Check {
         "citation-label-not-cited",
         "A citation's label names something its lines do not say",
         Severity::Error,
-        "The strong anchor is a quote, and 135 of this repository's 180 line citations \
+        "The strong anchor is a quote, and 176 of this repository's 229 line citations \
          carry none. Each of those was checked for existence and nothing else, which \
          leaves the whole of the interesting failure uncovered: a range that slides onto \
          lines that are neither blank nor quoted is invisible to `dead-line-citation` and \
@@ -879,7 +928,7 @@ pub fn citation_label_not_cited(citations: &[LineCitation]) -> Check {
          target's content that a check can decide. Read only where nothing quotes the \
          passage — a quote is better evidence and decides alone — and only where the label \
          names a symbol rather than restating the line number, which is the other house \
-         form and 108 of the 135. Matched on words exactly as a quote is, so wrapping, \
+         form and 109 of the 176. Matched on words exactly as a quote is, so wrapping, \
          emphasis and an argument list cannot manufacture a drift, and any one `::` segment \
          is enough. Error, under the baseline ratchet like every other citation defect a \
          person here can fix: this is a latch on a population that is already correct, not \
@@ -920,7 +969,9 @@ pub fn unverified_line_citation(citations: &[LineCitation]) -> Check {
          severity stays Info, because the remedy — quote the passage, label the symbol, \
          widen to a stable range, or drop the fragment — is a judgement about the document \
          and not a defect in the corpus. Never gates, never baselined. The count is the \
-         thing to watch: it is how much of the citation surface is taken on trust.",
+         thing to watch: it is how much of the citation surface is taken on trust — and \
+         this repository does watch it, holding the number to a constant a person has to \
+         edit down, because a population nobody counts is one that grows (#899).",
         violations,
     )
 }
@@ -948,7 +999,7 @@ pub fn citation_range_stated_twice(citations: &[LineCitation]) -> Check {
         "A citation's label and its link name different lines",
         Severity::Error,
         "The house style states the cited range twice — `[`file.rs:12-19`](../file.rs#L12-L19)` \
-         — and 150 of the 180 line citations in this repository write both copies. Until \
+         — and 158 of the 229 line citations in this repository write both copies. Until \
          #622 nothing read the left-hand one, so the two could disagree indefinitely: the \
          scan sees the fragment, and the label is what a reader's eye lands on. The failure \
          this forecloses is half a repair. A citation that slid is fixed by editing a \
@@ -1287,6 +1338,111 @@ if class.edges.is_empty() { continue; }
 if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic { continue; }
 ";
         let (_tmp, c) = cite_named("t.rs", GUARD, doc);
+        assert!(c[0].quotes.is_empty(), "{:?}", c[0].quotes);
+    }
+
+    // ── The introduced blockquote (#899) ────────────────────────────────────
+
+    /// The fenced form's twin, and what the house writes when the passage is prose. Held
+    /// out of the checked set by the same boundary for the same reason, and found the same
+    /// way — by counting the population rather than by reading the extractor.
+    #[test]
+    fn a_blockquote_the_citation_introduces_is_a_quote() {
+        let doc = "\
+The model says it once, about a search
+([`target.md:2`](../target.md#L2)):
+
+> The graph does not merely contain knowledge — it holds the life of the knowing.
+";
+        let (_tmp, c) = cite(TARGET, doc);
+        assert_eq!(c[0].quotes.len(), 1, "{:?}", c[0].quotes);
+        assert!(slid_line_citation(&c).passed());
+        // And it is no longer in the group that is taken on trust.
+        assert!(unverified_line_citation(&c).passed());
+    }
+
+    /// The failure this exists for. RFC-0018 cited `checks.rs:1739` and set the sentence it
+    /// was arguing from underneath in a blockquote; the passage was at 1994 and the
+    /// citation had landed inside an unrelated violation push, 255 lines away, with every
+    /// gate green. The quote was on the page the whole time.
+    #[test]
+    fn a_blockquoted_passage_that_slid_is_reported_with_its_new_range() {
+        let shifted = format!("a new line, added later\n{TARGET}");
+        let doc = "\
+The rationale states the gap in as many words
+([`target.md:2`](../target.md#L2)):
+
+> The graph does not merely contain knowledge — it holds the life of the knowing.
+";
+        let (_tmp, c) = cite(&shifted, doc);
+        let check = slid_line_citation(&c);
+        assert_eq!(check.violations.len(), 1);
+        assert!(
+            check.violations[0]
+                .detail
+                .contains("the passage is now at L3"),
+            "{}",
+            check.violations[0].detail
+        );
+    }
+
+    /// A blockquote spanning several lines is one quote, and its markers are its own voice
+    /// exactly as a fence's indentation is.
+    #[test]
+    fn a_wrapped_blockquote_is_read_as_one_passage() {
+        let doc = "\
+Stated in full ([`target.md:2`](../target.md#L2)):
+
+> The graph does not merely contain knowledge
+> — it holds the life of the knowing.
+";
+        let (_tmp, c) = cite(TARGET, doc);
+        assert_eq!(c[0].quotes.len(), 1, "{:?}", c[0].quotes);
+        assert!(slid_line_citation(&c).passed());
+    }
+
+    /// Adjacency, on the side the blockquote is on — and the measured case that made the
+    /// rule worth stating. RFC-0030 cites a line, finishes its sentence, and only then sets
+    /// off a passage; the words in the gap are what say the blockquote is the next thought
+    /// rather than the cited one.
+    #[test]
+    fn a_blockquote_introduced_in_words_is_not_adopted() {
+        let doc = "\
+The constraint holds ([`target.md:2`](../target.md#L2)). That page is opened
+over `file://` and settles it:
+
+> Something else entirely, which this citation never claimed.
+";
+        let (_tmp, c) = cite(TARGET, doc);
+        assert!(c[0].quotes.is_empty(), "{:?}", c[0].quotes);
+    }
+
+    /// An aside under a paragraph that happens to end in a citation is not a quotation of
+    /// it. The full stop is what says so, by the same decision that keeps `([cite]). "Term"
+    /// is…` out — see [`is_gap_char`].
+    #[test]
+    fn an_aside_under_a_citation_is_not_a_quote() {
+        let doc = "\
+The rule is stated in one line ([`target.md:2`](../target.md#L2)).
+
+> **Landed later**, and this aside explains where it went afterwards.
+";
+        let (_tmp, c) = cite(TARGET, doc);
+        assert!(c[0].quotes.is_empty(), "{:?}", c[0].quotes);
+        assert_eq!(unverified_line_citation(&c).violations.len(), 1);
+    }
+
+    /// A citation inside an aside is the attribution form's business, and a second aside
+    /// below is not the first one's evidence.
+    #[test]
+    fn a_blockquote_under_a_blockquote_is_two_asides() {
+        let doc = "\
+> **Landed later**, and this aside explains where. The type is
+> [`target.md:2`](../target.md#L2) and the rest moved on:
+
+> The graph does not merely contain knowledge — it holds the life of the knowing.
+";
+        let (_tmp, c) = cite(TARGET, doc);
         assert!(c[0].quotes.is_empty(), "{:?}", c[0].quotes);
     }
 

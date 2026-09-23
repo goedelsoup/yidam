@@ -696,8 +696,9 @@ The slot has two halves and only one can be built:
   `.ont.yml` with the ontology lineage, deliberately filed outside this epic (#572, scope
   decision 5). The slot's schema **reserves** `kind: coverage` as a named, unimplemented value —
   naming the state rather than leaving a blank to be invented twice — and the only prose the
-  model has about coverage today is one unenforceable sentence about the `scope` verb
-  ([`GRAPH.md:518-519`](../../yidam/prelude/GRAPH.md#L518-L519)).
+  model has about coverage today is one unenforceable sentence about the `scope` verb:
+  *"a negative result about coverage is the only durable record that the coverage was checked"*
+  ([`GRAPH.md:753-754`](../../yidam/prelude/GRAPH.md#L753-L754)).
 
 **#578 is unscheduled, on the record.** No track in the current iteration carries it. Two
 conditions would schedule it, either sufficing: a second series-completing corpus appears at a
@@ -765,7 +766,7 @@ by that file's own comments.
 
 | Prohibited | Because | Instead |
 |---|---|---|
-| Add a commit verb | The closed vocabulary ([`GRAPH.md:485-486`](../../yidam/prelude/GRAPH.md#L485-L486)) is what makes `log --epistemic` decidable, and `classify_commit` is a parity function pinned by fixtures in three SDKs | Declare a **subset** and gloss it. A needed-and-absent verb is evidence for #292, not a patch |
+| Add a commit verb | The *"closed vocabulary of leading verbs"* ([`GRAPH.md:700-701`](../../yidam/prelude/GRAPH.md#L700-L701)) is what makes `log --epistemic` decidable, and `classify_commit` is a parity function pinned by fixtures in three SDKs | Declare a **subset** and gloss it. A needed-and-absent verb is evidence for #292, not a patch |
 | Add or alter a claim standing | Article V reads the standings as a total order when it licenses lowering a claim at resolution ([`CONSTITUTION.md:72-76`](../../yidam/prelude/CONSTITUTION.md#L72-L76)) | Nothing. This is constitutional |
 | Contradict Articles I–VI | Article I — the prelude is not subject to resolution, and a kuten is vendored prelude | A domain extension appended at genesis, which the constitution already provides for |
 | Change the graph encoding | Files are nodes, links are edges, commits are events. This is the premise, not a policy | Nothing |
