@@ -43,6 +43,11 @@ writes theirs to [`positions/`](positions/README.md) before the resolution reads
 without that file the reasoning survives only until the merge base swallows the divergence,
 which leaves Articles III and IV with nothing to be satisfied by.
 
+Nor is it where their *standing* lives. A branch tip is where the seat is now; it does not say
+what the seat was holding before this act, which for an agent elector is the difference between
+a position and a random walk. That is [`commitments/`](commitments/README.md), and it stays on
+the branch.
+
 ## Resolution
 
 Resolution is the act of synthesizing `ma/*` positions into a new `rigpa/<evolution>`.
@@ -77,3 +82,6 @@ Files here are protocol documents only — not knowledge:
 - `PROTOCOL.md` — the resolution algorithm for this repo's sangha (varies by domain)
 - `resolutions/` — records of past resolution events: what was resolved, from which tips, what remained open
 - `electors.md` — the current recognized participants: agents and humans with `ma/*` branches
+- `commitments/` — per seat, on that seat's own branch: what it currently holds, what it has
+  withdrawn, and which of its own positions argued each. Never transported; see
+  [commitments/](commitments/README.md)

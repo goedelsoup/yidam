@@ -575,6 +575,45 @@
       "violations": []
     },
     {
+      "id": "elector-commitments-absent",
+      "title": "Elector branch carries no commitments file",
+      "severity": "info",
+      "rationale": "A seat that has argued something is standing on it, and between two acts of the same seat nothing in this repository said what. Info rather than Error because adopting the file is a decision a sangha makes once and an unadopted convention is not a defect — a corpus mid-adoption would otherwise be told its every seat is in violation. It fires only for a seat that has actually filed a position: a branch opened this morning has nothing to index yet, and reporting it would train people to ignore the check before it ever had a subject.",
+      "escalation_eligible": false,
+      "violations": [
+        {
+          "node": "ma/hydrologist",
+          "detail": "has filed 1 position(s) and its branch tip carries no `.yidam/sangha/commitments/hydrologist.md`",
+          "severity": "info",
+          "in_baseline": false
+        }
+      ]
+    },
+    {
+      "id": "elector-commitments-malformed",
+      "title": "Commitments file does not carry both required sections",
+      "severity": "error",
+      "rationale": "This gates because otherwise the file disarms the rest. A commitments file with no headings parses to two empty sections, empty sections lose nothing, and every vanished ground would read as clean — a seat could turn `elector-commitment-vanished` off by writing a worse file. The two headings are the whole of the required shape, and nothing below them is prescribed: order, grouping, and how much of the argument is restated are the elector's, because an index of positions is structural where a position is argument.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "elector-position-unindexed",
+      "title": "A seat's own position appears in neither section of its commitments",
+      "severity": "info",
+      "rationale": "The earliest visible symptom of a seat losing its thread, and the cheapest to answer: either the position argued a ground the seat still holds, or it argued one the seat has since retired, and saying which is one line. Info because a third answer is legitimate and common — the position argued something about procedure, or about another seat, and is no ground of this seat's at all. A check that cannot tell those apart must not gate, and this one cannot: which of a seat's positions carry commitments is exactly the judgement Article V's commentary leaves with the elector.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "elector-commitment-vanished",
+      "title": "A ground left a seat's commitments without being withdrawn",
+      "severity": "error",
+      "rationale": "Article III forbids a resolution silently discarding a tension it could not resolve. This is the same rule read across one elector instead of across several: a ground may be held, and it may be withdrawn — which is the interesting case and the one the loop was built to produce — and it may not stop existing. Reversing a commitment is not the violation and is never reported; leaving no trace of the reversal is. Deleting the file is reported here rather than as the file going absent, because a deletion that takes held grounds with it is precisely the silent discard, and routing it to the Info check would make removing the file the cheapest way past the Error one.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
       "id": "broken-prose-link",
       "title": "A markdown link in prose does not resolve",
       "severity": "error",

@@ -55,6 +55,32 @@ anything — it has said its commits are unverifiable, which is the state every 
 until somebody decides otherwise. Recording any of this grants a seat nothing; Article II
 governs weight and Article III governs record, and `electors.md` says so at the top.
 
+### What a seat carries between acts
+
+A registration says what a seat *is*. It does not say what the seat currently **holds**, and
+between two acts of the same seat nothing did.
+
+`CONSTITUTION.md` Article VI licenses an elector's branch to diverge freely from `rigpa/*`, and
+that licence presumes a standing position the elector carries forward. A human elector carries one.
+An agent elector is a seat whose occupant arrives with no memory of having sat there before, and a
+`ma/*` branch maintained by a succession of cold instances is a random walk that looks like
+deliberation — while satisfying every constitutional check this repository has, because Article V
+decides what a *resolution* may synthesize from the tips in front of it and nothing reads one seat
+across time.
+
+So a seat keeps **[`commitments/<elector>.md`](commitments/README.md) on its own branch**: two
+sections, `## What this seat holds` and `## What this seat has withdrawn`, each item linking the
+position that argued it. It is an index and not an argument, which is why it has a shape where a
+position does not, and why it is **not transported** — there is nothing in it for another elector
+to answer, and a resolution that reached for it would be synthesizing from something no elector
+filed as a position.
+
+The link is the item's identity. Wording may be revised at any time; a position that was named
+under `holds` may move to `withdrawn`, and may not quietly stop being named at all.
+`elector-commitment-vanished` gates on exactly that and on nothing more — whether the withdrawal
+*engaged* the argument it reverses is a judgement, and Article V's commentary leaves that kind with
+the elector rather than with a checker.
+
 ## Calling a resolution
 
 Any elector may call a resolution by:
@@ -141,6 +167,11 @@ after one pass. The loop is not a quota.
    another links to it. This step is not optional and it is not ceremony; see
    [positions/](positions/README.md) for why the branch tip alone cannot stand in for it.
 
+   **If this position changes a ground the seat was standing on, update
+   [`commitments/<elector>.md`](commitments/README.md) in the same commit** — move the item to
+   `## What this seat has withdrawn` and link the position that retired it. The commitments file
+   stays on the branch; only the position is transported in step 2.
+
 2. **Transport** — Carry each new position onto the baseline, **unmodified**:
 
    ```
@@ -183,6 +214,10 @@ after one pass. The loop is not a quota.
    Identify where positions agree, where they diverge, and where one has no position. An
    elector with something to say — a concession, a refutation, a ground of their own they
    are withdrawing — returns to step 1 and the round runs again.
+
+   Read your own commitments file before you answer. It is the only thing in this repository
+   that tells a cold occupant of this seat what the seat was arguing before it arrived, and the
+   concessions this loop is built to produce are the ones that land in it.
 
    **This is the step the protocol used to lack, and it is where the work happens.** In the
    repository that first ran it, the loop produced commits no single pass could:

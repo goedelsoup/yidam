@@ -9,6 +9,7 @@ pub(crate) mod attest;
 pub(crate) mod baseline;
 pub(crate) mod checks;
 pub(crate) mod citations;
+pub(crate) mod commitments;
 pub(crate) mod commits;
 pub(crate) mod edge_claims;
 pub(crate) mod history;
@@ -343,6 +344,13 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     // refs are the one thing they cannot be handed off disk.
     let standings = lineage::standings(root, &sangha.resolutions);
 
+    // What each seat's own branch says it is standing on (#294). Read from the branch and not
+    // from the baseline, because a commitments file is never transported — it is an index of one
+    // seat's own grounds, and a resolution that could reach for it would be synthesizing from
+    // something no elector filed as a position. The git reading happens here for the same reason
+    // the two above do: the checks stay pure over what was read.
+    let commitments = commitments::read(root);
+
     // ── Prose links ─────────────────────────────────────────────────────────────
     //
     // Authored markdown, and what counts as authored is declared rather than hard-coded:
@@ -490,6 +498,8 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         edge_claims::checks(&nodes, &universal, &claim_fields);
     let [scope_unheld, scope_unverifiable] = scope::checks(&scope_audits);
     let [baseline_unmet, baseline_undeclared, holds_unadopted] = lineage::checks(&standings);
+    let [commitments_absent, commitments_malformed, position_unindexed, commitment_vanished] =
+        commitments::checks(&commitments);
 
     // ── this list is complete, and the compiler is what says so (#680) ────────────
     //
@@ -562,6 +572,10 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         baseline_unmet,
         baseline_undeclared,
         holds_unadopted,
+        commitments_absent,
+        commitments_malformed,
+        position_unindexed,
+        commitment_vanished,
         checks::broken_prose_link(&prose_links),
         line_citations::dead_line_citation(&line_citations),
         line_citations::slid_line_citation(&line_citations),

@@ -34,3 +34,6 @@ WARN [resolution-scope-unverifiable] Resolution's scope fidelity could not be de
 
 INFO [elector-baseline-undeclared] Elector branch does not say which evolution it is measured against — 1 finding(s)
   ma/hydrologist: no `Baseline:` trailer — it holds every settlement, through `tailwater-regime`
+
+INFO [elector-commitments-absent] Elector branch carries no commitments file — 1 finding(s)
+  ma/hydrologist: has filed 1 position(s) and its branch tip carries no `.yidam/sangha/commitments/hydrologist.md`

@@ -206,7 +206,7 @@ fn declared_evolution(message: &str) -> Option<String> {
     })
 }
 
-fn git(root: &Path, args: &[&str]) -> String {
+pub(crate) fn git(root: &Path, args: &[&str]) -> String {
     std::process::Command::new("git")
         .current_dir(root)
         .args(args)

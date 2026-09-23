@@ -354,9 +354,9 @@ most expensive thing in the document. The original said so, about this design, a
 > rather than from a Node process that would have to bridge stdio LSP to a WebSocket to get the
 > same answer.
 
-That bridge is now the plan. [`Overlay`](../../yidam/cli/src/cmd/lint/mod.rs#L107) is a
+That bridge is now the plan. [`Overlay`](../../yidam/cli/src/cmd/lint/mod.rs#L108) is a
 `pub struct` in the lint module, and
-[`run_checks_with`](../../yidam/cli/src/cmd/lint/mod.rs#L190) is the entry point the language
+[`run_checks_with`](../../yidam/cli/src/cmd/lint/mod.rs#L191) is the entry point the language
 server calls on every change ([`lsp.rs:249`](../../yidam/cli/src/cmd/lsp.rs#L249)) — but it is
 reachable only through `serve --lsp`. `yidam lint` has no overlay flag, and the extension is no
 prior art here: it carries no LSP client and no dependencies at all, running `lint --format json`
@@ -449,7 +449,7 @@ being built:
   instances and unioned the overlay over *those* paths, so a buffer for a file not yet on disk
   was seen by no check at all: its findings were exactly none, which is what a clean node's
   are. The editors never noticed because every buffer they send is a file that exists.
-  [`Overlay::unsaved_instances`](../../yidam/cli/src/cmd/lint/mod.rs#L137) adds the buffers
+  [`Overlay::unsaved_instances`](../../yidam/cli/src/cmd/lint/mod.rs#L138) adds the buffers
   the walker would have accepted, and the server declares it —
   `experimental.yidam.unsavedInstances` in the `initialize` result
   ([`lsp.rs:417`](../../yidam/cli/src/cmd/lsp.rs#L417)) — so a bridge on an older binary can say
