@@ -257,12 +257,13 @@ pub fn index_verify(
         report.index = format!("[index.remote] {}", config.model_id);
     }
     let passed = report.passed;
-    if format.is_json() {
-        crate::report::emit(root.as_deref().unwrap_or(&index), report)?;
-    } else {
-        println!("{}", render_verify(&report));
-    }
-    crate::report::verdict(passed)
+    crate::report::gate(
+        root.as_deref().unwrap_or(&index),
+        format,
+        report,
+        passed,
+        |r| println!("{}", render_verify(r)),
+    )
 }
 
 #[cfg(test)]

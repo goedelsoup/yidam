@@ -61,36 +61,65 @@ fn command() -> clap::Command {
         .after_help(help::render(&subcommands))
 }
 
+/// `--format`, declared once for the thirty-two commands that take it (#927).
+///
+/// The flag is one contract — RFC-0016's report envelope, or the prose this CLI has always
+/// printed — and it was written out thirty-two times, which is thirty-two chances for the
+/// spelling, the default, or the sentence describing it to drift apart. They had already
+/// begun to: three copies described the same flag in three different wordings.
+///
+/// `#[command(flatten)]` puts the declaration in one place and leaves `<command> --help`
+/// unchanged, which matters more than the line count. `report_goldens.rs` builds its roster
+/// by scanning each subcommand's help for a `--format` line; a refactor that moved the flag
+/// out of that output would empty the roster without failing anything.
+///
+/// Two commands keep their own declaration because they say something the shared sentence
+/// cannot: `pack`, whose `text` is the artefact rather than a rendering of it, and `replay`,
+/// whose `json` carries rows the prose summarises. A flattened struct has no per-command
+/// override, and inventing one to absorb two exceptions would cost more than the exceptions.
+#[derive(clap::Args, Debug, Clone, Copy)]
+struct FormatArg {
+    /// Output format. `json` emits the machine-readable report contract
+    /// (RFC-0016); `text` is unchanged and remains the default.
+    //
+    // `long` and `value_name` are spelled out because the field is not called `format`:
+    // clap derives both from the field name, and `format.format` at thirty-two call sites
+    // is the duplication this struct exists to remove said once more. A `///` here would
+    // be a second paragraph of help, which promotes the whole thing to clap's long form and
+    // prints this note to every reader of `yidam <command> --help`.
+    #[arg(
+        long = "format",
+        value_name = "FORMAT",
+        value_enum,
+        default_value_t = yidam::Format::Text
+    )]
+    value: yidam::Format,
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Repository overview: nodes, open questions, catalog, index freshness, phases.
     ///
     /// Writes the `<!-- REGEN: yidam status -->` block in the repository's README.
     Status {
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// List the corpus's unresolved questions, newest first.
     ///
     /// Writes the `<!-- REGEN: yidam open-questions -->` block in the repository's README.
     #[command(name = "open-questions")]
     OpenQuestions {
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Index every corpus node by class, with its label and link count.
     ///
     /// Writes the `<!-- REGEN: yidam corpus-index -->` block in the repository's README.
     #[command(name = "corpus-index")]
     CorpusIndex {
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Check an embedding provider against an index's reproducibility contract
     #[command(name = "index-verify")]
@@ -113,30 +142,24 @@ enum Command {
         /// unchanged.
         #[arg(long, conflicts_with = "index")]
         remote: bool,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Report whether the vector index is present, and how stale it is against the corpus.
     ///
     /// Writes the `<!-- REGEN: yidam index-status -->` block in the repository's README.
     #[command(name = "index-status")]
     IndexStatus {
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Audit catalog sources: which are cited by the corpus, and which are not.
     ///
     /// Writes the `<!-- REGEN: yidam catalog-audit -->` block in the repository's README.
     #[command(name = "catalog-audit")]
     CatalogAudit {
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Follow a catalog entry's declared address and record what came back.
     ///
@@ -167,10 +190,8 @@ enum Command {
         /// Resolve every address and report what would be fetched. Writes nothing.
         #[arg(long)]
         dry_run: bool,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Bring a catalog entry's `used-by` list back into agreement with the citations.
     ///
@@ -188,10 +209,8 @@ enum Command {
         /// Report the substitution and write nothing.
         #[arg(long)]
         dry_run: bool,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Index the domain agents in `.yidam/agents/`.
     ///
@@ -238,10 +257,8 @@ enum Command {
         /// Treat warnings as failures. For a CI job that wants the strictest reading.
         #[arg(long)]
         strict: bool,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// What is due? The four clocks, read together, on a schedule.
     ///
@@ -261,10 +278,8 @@ enum Command {
         /// Exit nonzero when a clock is due. For a cron or CI job that wants a signal.
         #[arg(long)]
         strict: bool,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Where is this repository in its loop, and what is the next act?
     ///
@@ -289,20 +304,16 @@ enum Command {
         /// signal off the whole loop rather than off one of its halves.
         #[arg(long)]
         strict: bool,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Refresh every REGEN block in one pass.
     Regen {
         /// Report which blocks are stale and write nothing. Exits nonzero when any is.
         #[arg(long)]
         check: bool,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Rename a corpus node, rewriting every edge into it
     Rename {
@@ -313,10 +324,8 @@ enum Command {
         /// Print the plan and change nothing
         #[arg(long)]
         dry_run: bool,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Change an ontology and every instance that adopted it, as one event
     ///
@@ -333,10 +342,8 @@ enum Command {
         /// Print the plan and change nothing
         #[arg(long)]
         dry_run: bool,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Measure the committed goal set: anchored traversal against flat retrieval
     Bench {
@@ -348,10 +355,8 @@ enum Command {
         /// excluded by argument
         #[arg(long)]
         scaling: bool,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Semantic search over corpus nodes — the retrieval `serve --mcp` performs, in a shell
     ///
@@ -373,10 +378,8 @@ enum Command {
         /// --dry-run` lists the corpora an index holds
         #[arg(long, value_delimiter = ',', value_name = "NAME")]
         corpora: Vec<String>,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Execute a typed path over the resolved graph — `reach -measured-by-> gage`
     Query {
@@ -407,10 +410,8 @@ enum Command {
         /// from, and no hop crosses a corpus boundary
         #[arg(long, conflicts_with_all = ["at", "between"])]
         across: bool,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Build a context pack for one goal — a query's full answer, filled to a token budget,
     /// with an account of what did not fit
@@ -448,16 +449,13 @@ enum Command {
         /// How many entry nodes a `class~"…"` anchor opens on
         #[arg(long, default_value_t = yidam::QUERY_DEFAULT_ANCHOR_K)]
         anchor_k: usize,
-        /// Output format. `json` emits the machine-readable report contract (RFC-0016)
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Report the corpus graph: nodes, resolved edges, and the classes that license them
     Graph {
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Show the neighbourhood of one node — the traversal `serve --mcp` performs
     Neighbors {
@@ -466,20 +464,16 @@ enum Command {
         /// Maximum hops (default 1)
         #[arg(long, default_value_t = 1)]
         depth: usize,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// The graph gate CI runs: orphans, broken links, missing labels.
     ///
     /// Read-only. Exits nonzero when the graph does not hold together.
     #[command(name = "graph-check")]
     GraphCheck {
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// List the decision records in `.yidam/decisions/`, newest first.
     ///
@@ -494,10 +488,8 @@ enum Command {
     Diff {
         /// Git range, e.g. `main..HEAD`, `HEAD~5`, `abc123..def456`
         range: String,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Ask what a code diff names that the ontology does not (RFC-0021).
     ///
@@ -518,10 +510,8 @@ enum Command {
         /// Git range, e.g. `main..HEAD`, `HEAD~5`, `abc123..def456`. Defaults to the
         /// merge-base with `main` (or `master`) — this branch's worth of work.
         range: Option<String>,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Bundle ontology, corpus, skills, decisions, and vector index into .yidam/bundle.yiz
     /// (backwards-compatible alias for `export --format bundle`)
@@ -629,10 +619,8 @@ enum Command {
         operational: bool,
         /// Git range, e.g. `main..HEAD`, `HEAD~20`. Defaults to the current ref's history.
         range: Option<String>,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Open, run and settle a phase — the unit of bounded inquiry
     ///
@@ -650,10 +638,8 @@ enum Command {
     },
     /// Show active inquiry phases (ma/* and rigpa/* branches)
     Phases {
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Reconstruct corpus health across the repository's whole history
     ///
@@ -741,10 +727,8 @@ enum Command {
         /// `mise run yidam-vendor-update`
         #[arg(long, conflicts_with = "bless")]
         init_baseline: bool,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Emit JSON Schema for the corpus shapes into .yidam/schemas/
     Schema {
@@ -761,10 +745,8 @@ enum Command {
         /// checks a committed one — but before the commit exists
         #[arg(long, value_name = "SUBJECT")]
         check: Option<String>,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Read a set of derived repositories and report what they say about the prelude
     ///
@@ -795,10 +777,8 @@ enum Command {
         /// Print each repository's path beside its letter
         #[arg(long)]
         paths: bool,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Invoke the declared capabilities that are stale and commit what they produced
     ///
@@ -836,10 +816,8 @@ enum Command {
         /// nothing — no commit, no ref, no receipt
         #[arg(long)]
         dry_run: bool,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Draft findings as proposed epistemic commits on a `propose/<head>` branch
     ///
@@ -863,17 +841,13 @@ enum Command {
         /// Replace an existing propose/<head> branch rather than refusing it
         #[arg(long)]
         force: bool,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Report the sangha: electors, positions, and settled resolutions
     Sangha {
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is unchanged and remains the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
     /// Manage bundle dependencies in .yidam/tonpa/
     #[cfg(feature = "tonpa")]
@@ -951,10 +925,8 @@ enum Command {
         /// Also print the questions a person answers and nothing scores
         #[arg(long)]
         brief: bool,
-        /// Output format. `json` emits the machine-readable report contract
-        /// (RFC-0016); `text` is the default.
-        #[arg(long, value_enum, default_value_t = yidam::Format::Text)]
-        format: yidam::Format,
+        #[command(flatten)]
+        format: FormatArg,
     },
 }
 
@@ -1101,18 +1073,18 @@ fn run() -> Result<()> {
     // for a repository that pins its own is the failure that reads as success.
     yidam::warn_if_shadowed();
     match cli.command {
-        Command::Status { format } => yidam::status(format),
-        Command::OpenQuestions { format } => yidam::open_questions(format),
-        Command::CorpusIndex { format } => yidam::corpus_index(format),
+        Command::Status { format } => yidam::status(format.value),
+        Command::OpenQuestions { format } => yidam::open_questions(format.value),
+        Command::CorpusIndex { format } => yidam::corpus_index(format.value),
         Command::IndexVerify {
             index,
             provider,
             runtime,
             remote,
             format,
-        } => yidam::index_verify(index, provider, runtime, remote, format),
-        Command::IndexStatus { format } => yidam::index_status(format),
-        Command::CatalogAudit { format } => yidam::catalog_audit(format),
+        } => yidam::index_verify(index, provider, runtime, remote, format.value),
+        Command::IndexStatus { format } => yidam::index_status(format.value),
+        Command::CatalogAudit { format } => yidam::catalog_audit(format.value),
         Command::CatalogFetch {
             entry,
             location,
@@ -1129,7 +1101,7 @@ fn run() -> Result<()> {
                 location,
                 bind,
                 dry_run,
-                format,
+                format: format.value,
             })
         }
         Command::CatalogReconcile {
@@ -1139,7 +1111,7 @@ fn run() -> Result<()> {
         } => yidam::catalog_reconcile(&yidam::ReconcileOptions {
             entry,
             dry_run,
-            format,
+            format: format.value,
         }),
         Command::AgentsIndex => yidam::agents_index(),
         Command::SkillsIndex => yidam::skills_index(),
@@ -1147,20 +1119,32 @@ fn run() -> Result<()> {
         Command::PackagesIndex => yidam::packages_index(),
         Command::BundleStatus => yidam::bundle_status(),
         Command::VaultStatus => yidam::vault_status(true),
-        Command::Doctor { strict, format } => yidam::doctor(strict, format),
-        Command::Due { strict, format } => yidam::due(strict, format),
-        Command::Cycle { strict, format } => yidam::cycle(strict, format),
-        Command::Regen { check, format } => yidam::regen(check, format),
+        Command::Doctor { strict, format } => yidam::doctor(strict, format.value),
+        Command::Due { strict, format } => yidam::due(strict, format.value),
+        Command::Cycle { strict, format } => yidam::cycle(strict, format.value),
+        Command::Regen { check, format } => yidam::regen(check, format.value),
         Command::Cohort {
             repos,
             paths,
             format,
-        } => yidam::cohort(&repos, yidam::CohortOptions { format, paths }),
+        } => yidam::cohort(
+            &repos,
+            yidam::CohortOptions {
+                format: format.value,
+                paths,
+            },
+        ),
         Command::Run {
             step,
             dry_run,
             format,
-        } => yidam::run_capability(step.as_deref(), yidam::RunOptions { format, dry_run }),
+        } => yidam::run_capability(
+            step.as_deref(),
+            yidam::RunOptions {
+                format: format.value,
+                dry_run,
+            },
+        ),
         Command::Propose {
             dry_run,
             force,
@@ -1168,19 +1152,19 @@ fn run() -> Result<()> {
         } => yidam::propose(yidam::ProposeOptions {
             dry_run,
             force,
-            format,
+            format: format.value,
         }),
         Command::Rename {
             old,
             new,
             dry_run,
             format,
-        } => yidam::rename(&old, &new, dry_run, format),
+        } => yidam::rename(&old, &new, dry_run, format.value),
         Command::Bench {
             budget,
             scaling,
             format,
-        } => yidam::bench(budget, scaling, format),
+        } => yidam::bench(budget, scaling, format.value),
         Command::Query {
             query,
             select,
@@ -1203,7 +1187,7 @@ fn run() -> Result<()> {
                 (_, _, true) => yidam::QueryScope::Across,
                 _ => yidam::QueryScope::Now,
             },
-            format,
+            format.value,
         ),
         Command::Retrieve {
             query,
@@ -1217,7 +1201,7 @@ fn run() -> Result<()> {
                 k,
                 class,
                 corpora,
-                format,
+                format: format.value,
             },
         ),
         Command::Pack {
@@ -1233,17 +1217,17 @@ fn run() -> Result<()> {
             budget,
             anchor_k,
             format,
-        } => yidam::estimate(&query, select, limit, budget, anchor_k, format),
-        Command::Graph { format } => yidam::graph(format),
+        } => yidam::estimate(&query, select, limit, budget, anchor_k, format.value),
+        Command::Graph { format } => yidam::graph(format.value),
         Command::Neighbors {
             node,
             depth,
             format,
-        } => yidam::neighbors(&node, depth, format),
-        Command::GraphCheck { format } => yidam::graph_check(format),
+        } => yidam::neighbors(&node, depth, format.value),
+        Command::GraphCheck { format } => yidam::graph_check(format.value),
         Command::DecisionsLog => yidam::decisions_log(),
-        Command::Diff { range, format } => yidam::diff_corpus(&range, format),
-        Command::CheckDiff { range, format } => yidam::check_diff(range, format),
+        Command::Diff { range, format } => yidam::diff_corpus(&range, format.value),
+        Command::CheckDiff { range, format } => yidam::check_diff(range, format.value),
         Command::Bundle => yidam::bundle(),
         Command::Export {
             root,
@@ -1326,10 +1310,10 @@ fn run() -> Result<()> {
                 (_, true) => yidam::LogFilter::Operational,
                 _ => yidam::LogFilter::All,
             };
-            yidam::log(range, filter, format)
+            yidam::log(range, filter, format.value)
         }
         Command::Phase { sub } => yidam::run_phase(sub),
-        Command::Phases { format } => yidam::phases(format),
+        Command::Phases { format } => yidam::phases(format.value),
         Command::Replay { every, format } => yidam::replay(format, every),
         // Neither transport is gated any more, and that is the point: an agent surface
         // only the ML build carried was one almost nobody could reach. MCP's *semantic*
@@ -1379,17 +1363,17 @@ fn run() -> Result<()> {
             range,
             bless,
             init_baseline,
-            format,
+            format: format.value,
         }),
         Command::Migrate {
             operation,
             dry_run,
             format,
-        } => yidam::migrate(operation.into(), dry_run, format),
+        } => yidam::migrate(operation.into(), dry_run, format.value),
         Command::Schema { settings } => yidam::schema(settings),
         Command::SamudayaAudit => yidam::samudaya_audit(),
-        Command::Sangha { format } => yidam::sangha(format),
-        Command::Vocabulary { check, format } => yidam::vocabulary(check, format),
+        Command::Sangha { format } => yidam::sangha(format.value),
+        Command::Vocabulary { check, format } => yidam::vocabulary(check, format.value),
         #[cfg(feature = "tonpa")]
         Command::Tonpa { sub } => block_on(yidam::tonpa::run(sub)),
         // Not `block_on`: every vault operation this build has is synchronous, and the
@@ -1403,6 +1387,6 @@ fn run() -> Result<()> {
             range,
             brief,
             format,
-        } => yidam::run_score(&range, format, brief),
+        } => yidam::run_score(&range, format.value, brief),
     }
 }

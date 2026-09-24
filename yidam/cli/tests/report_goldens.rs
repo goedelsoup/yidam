@@ -2387,3 +2387,76 @@ fn every_declaration_is_reached_by_something() {
          Delete the entry: an exemption that no longer applies reads as a reason not to try."
     );
 }
+
+// ── the flag that selects the format ──────────────────────────────────────────
+
+/// Every command declares `--format` through the shared `FormatArg`, except two that say
+/// something the shared sentence cannot (#927).
+///
+/// The flag was written out thirty-four times, and three of those copies had already drifted
+/// into three different wordings of the same sentence — which is what a duplicated
+/// declaration costs before it costs anything else. A change to the contract that reaches
+/// thirty-two sites and misses two is indistinguishable, from the outside, from one that
+/// meant to leave two alone.
+///
+/// **Set equality, not a count.** A floor ("at least thirty flatten") is cleared by a
+/// scanner that has stopped matching, and a ceiling on the exceptions rots the moment a
+/// thirty-fifth command arrives. The exceptions are named, so a new bespoke declaration is
+/// red on the way in and a stale exemption is red on the way out.
+#[test]
+fn only_the_two_named_commands_declare_their_own_format_flag() {
+    // `pack`'s `text` is the artefact rather than a rendering of it, and `replay`'s `json`
+    // carries rows its prose summarises. A flattened struct has no per-command help, and
+    // inventing one to absorb two exceptions would cost more than the exceptions.
+    const BESPOKE: [&str; 2] = ["Pack", "Replay"];
+
+    let src =
+        std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/main.rs"))
+            .expect("src/main.rs");
+
+    // Comments stripped first. A rule about what the code declares is otherwise satisfied by
+    // prose quoting the declaration — this file's own doc comment above would count.
+    let code: Vec<&str> = src
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("//"))
+        .collect();
+
+    // The enclosing variant of each declaration, discovered by walking down from the last
+    // variant header seen. `FormatArg`'s own declaration sits at four-space indent inside a
+    // struct and never follows a variant header, so it is not one of these.
+    let mut found: BTreeSet<String> = BTreeSet::new();
+    let mut flattened = 0usize;
+    let mut variant = String::new();
+    for line in &code {
+        if let Some(name) = line
+            .strip_prefix("    ")
+            .and_then(|l| l.strip_suffix(" {"))
+            .filter(|n| n.chars().next().is_some_and(char::is_uppercase))
+            .filter(|n| n.chars().all(|c| c.is_alphanumeric()))
+        {
+            variant = name.to_string();
+        }
+        if line.contains("format: FormatArg") {
+            flattened += 1;
+        }
+        if line.contains("default_value_t = yidam::Format::Text") && !variant.is_empty() {
+            found.insert(variant.clone());
+        }
+    }
+
+    assert!(
+        flattened > 25,
+        "only {flattened} command(s) flatten `FormatArg` — either the shared declaration is \
+         gone, or this scan has stopped matching the field and is asserting about nothing"
+    );
+    assert_eq!(
+        found,
+        BESPOKE
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<BTreeSet<_>>(),
+        "the commands declaring their own `--format` are not the two that have a reason to. \
+         A new one belongs in `FormatArg`; a name that has left this set belongs out of \
+         BESPOKE, because an exemption nothing needs reads as a reason not to share."
+    );
+}

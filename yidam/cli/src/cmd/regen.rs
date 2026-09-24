@@ -175,12 +175,13 @@ fn report_check(stale: Vec<crate::regen::Stale>, format: crate::report::Format) 
         stale,
     };
     let passed = report.passed;
-    if format.is_json() {
-        crate::report::emit(&crate::paths::repo_root()?, report)?;
-    } else {
-        println!("{}", render_regen_check(&report));
-    }
-    crate::report::verdict(passed)
+    // `repo_root` is resolved for both formats now, where the JSON arm used to reach it
+    // alone. It cannot fail here for the first time: `regen` resolves it before calling
+    // this. `cohort` and `bench --scaling` are the sites where that is *not* true — both
+    // run outside a repository today — and they keep their own branch because of it.
+    crate::report::gate(&crate::paths::repo_root()?, format, report, passed, |r| {
+        println!("{}", render_regen_check(r))
+    })
 }
 
 #[cfg(test)]

@@ -501,11 +501,7 @@ pub(crate) fn render_sangha(r: &SanghaReport) -> String {
 pub fn sangha(format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
     let data = sangha_data(&root);
-    if format.is_json() {
-        return crate::report::emit(&root, data);
-    }
-    println!("{}", render_sangha(&data));
-    Ok(())
+    crate::report::finish(&root, format, data, |r| println!("{}", render_sangha(r)))
 }
 
 #[cfg(test)]

@@ -389,12 +389,9 @@ pub fn rename(old: &str, new: &str, dry_run: bool, format: crate::report::Format
     }
 
     let blocked = !report.blocked.is_empty();
-    if format.is_json() {
-        crate::report::emit(&root, report)?;
-    } else {
-        println!("{}", render_rename(&report));
-    }
-    crate::report::verdict(!blocked)
+    crate::report::gate(&root, format, report, !blocked, |r| {
+        println!("{}", render_rename(r))
+    })
 }
 
 #[cfg(test)]

@@ -506,10 +506,10 @@ unproductive the report says so rather than shrugging:
 
 A rejected query **emits its report and exits 1**. That is the shape four commands already
 have — `doctor`
-([`crate::report::verdict`](../../yidam/cli/src/cmd/doctor.rs#L1534)), `regen`
-([`crate::report::verdict`](../../yidam/cli/src/cmd/regen.rs#L183)), `rename`
-([`crate::report::verdict`](../../yidam/cli/src/cmd/rename.rs#L397)) and `index-verify`
-([`crate::report::verdict`](../../yidam/cli/src/cmd/index_verify.rs#L265)) all print, then
+([`crate::report::gate`](../../yidam/cli/src/cmd/doctor.rs#L1529)), `regen`
+([`crate::report::gate`](../../yidam/cli/src/cmd/regen.rs#L182)), `rename`
+([`crate::report::gate`](../../yidam/cli/src/cmd/rename.rs#L392)) and `index-verify`
+([`crate::report::gate`](../../yidam/cli/src/cmd/index_verify.rs#L260)) all print, then
 fail.
 
 > **Corrected in #706, and labelled rather than re-pointed.** Two of these four had slid:
@@ -517,6 +517,12 @@ fail.
 > plausible-looking code with nothing to do with the exit path this sentence argues from.
 > The other two had not. A reader had no way to tell which was which, and re-pointing four
 > numbers would have left the next edit above them free to move them again.
+>
+> **#927 moved all four anyway, and the labels are why that was safe.** The epilogue they
+> cite is now `report::gate` — the format branch and the verdict in one call — so each label
+> changed with its coordinate, and the gate read the new symbol at the new line. A slide
+> would have been a label pointing at code that no longer says it; this was a rename, and it
+> failed loudly until both halves moved together.
 >
 > Each now carries the call as its label instead of its own coordinate, which is what makes
 > it decidable: a label that restates the coordinate anchors nothing, so all four sat at
@@ -551,7 +557,7 @@ The one `Err` that is not ordinary is
 [`report::GateFailed`](../../yidam/cli/src/report.rs#L173), the sentinel #926 introduced so
 that the library could stop calling `std::process::exit` from inside a published crate. It
 carries no message, and `main.rs` prints nothing for it
-([`fn main`](../../yidam/cli/src/main.rs#L1069-L1076)) — so the report emitted above it is
+([`fn main`](../../yidam/cli/src/main.rs#L1041-L1048)) — so the report emitted above it is
 still the only thing on the stream, which is the whole property this section is arranged
 around. The exit code did not move; the call to `exit` did.
 

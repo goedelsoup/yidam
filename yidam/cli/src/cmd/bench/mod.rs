@@ -821,11 +821,7 @@ pub fn bench(budget: usize, scaling: bool, format: crate::report::Format) -> Res
     }
     let root = repo_root()?;
     let report = run(&root, budget)?;
-    if format.is_json() {
-        return crate::report::emit(&root, report);
-    }
-    println!("{}", render(&report));
-    Ok(())
+    crate::report::finish(&root, format, report, |r| println!("{}", render(r)))
 }
 
 #[cfg(test)]

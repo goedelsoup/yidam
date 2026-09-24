@@ -221,11 +221,9 @@ fn verdict(c: &ClassRow) -> String {
 pub fn replay(format: crate::report::Format, every: usize) -> Result<()> {
     let root = repo_root()?;
     let rows = collect(&root);
-    if format.is_json() {
-        return crate::report::emit(&root, ReplayReport { replay: &rows });
-    }
-    print!("{}", render(&rows, every));
-    Ok(())
+    crate::report::finish(&root, format, ReplayReport { replay: &rows }, |r| {
+        print!("{}", render(r.replay, every))
+    })
 }
 
 #[cfg(test)]

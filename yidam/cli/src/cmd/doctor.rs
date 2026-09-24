@@ -1526,12 +1526,9 @@ pub fn doctor(strict: bool, format: crate::report::Format) -> Result<()> {
     let report = DoctorReport::new(checks, strict);
     let passed = report.passed;
 
-    if format.is_json() {
-        crate::report::emit(&root, report)?;
-    } else {
-        println!("{}", render(&report, &root));
-    }
-    crate::report::verdict(passed)
+    crate::report::gate(&root, format, report, passed, |r| {
+        println!("{}", render(r, &root))
+    })
 }
 
 // ── .yidam.toml ───────────────────────────────────────────────────────────────

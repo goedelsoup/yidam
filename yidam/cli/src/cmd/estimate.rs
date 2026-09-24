@@ -377,12 +377,9 @@ pub fn estimate(
     };
     let estimate = run(&root, text, &opts);
     let rejected = estimate.rejected.is_some();
-    if format.is_json() {
-        crate::report::emit(&root, estimate)?;
-    } else {
-        println!("{}", render(&estimate));
-    }
-    crate::report::verdict(!rejected)
+    crate::report::gate(&root, format, estimate, !rejected, |e| {
+        println!("{}", render(e))
+    })
 }
 
 #[cfg(test)]
