@@ -229,29 +229,41 @@ from the one `##` section that names all three. Each clause was forced by a wron
   file put those 8,824 words inside a figure that claims to be the per-session read and inflated it
   by 36%.
 
-### What it measures, after the worked example
+### What it measures
 
-`agent-conduct.md` is split. `GRAPH.md` and `directories.md` follow against the proven form.
+All three files are split. Every row below is measured.
 
 | | before | after | change |
 |---|---|---|---|
 | `agent-conduct.md` (in the read) | 4,723 | 2,998 | −36.5% |
+| `GRAPH.md` (in the read) | 8,283 | 5,401 | −34.8% |
+| `directories.md` (in the read) | 9,375 | 7,295 | −22.2% |
 | `agent-conduct.md` + its evidence | 4,723 | 5,399 | +14.3% — nothing deleted |
-| `AGENTS.md` route | 24,019 | 22,294 | −7.2% |
-| `sadhana/root/AGENTS.md` route | 29,326 | 27,601 | −5.9% |
+| `GRAPH.md` + its evidence | 8,283 | 8,818 | +6.5% — nothing deleted |
+| `directories.md` + its evidence | 9,375 | 10,961 | +16.9% — nothing deleted |
+| `AGENTS.md` route | 24,019 | **17,332** | −27.8% |
+| `sadhana/root/AGENTS.md` route | 29,326 | **22,639** | −22.8% |
 
-**The near-3,000-word target in `#933` is not reachable, and the reason is measurable.** The
-normative content of `agent-conduct.md` alone — every rule sentence and normative example, with
-every essay removed — is 2,998 words, in the *smallest* of the three files. At the same ratio
-`GRAPH.md` lands near 5,260 and `directories.md` near 5,953, putting the route near **15,800**: a
-34% reduction, not an 88% one. Reaching 3,000 would mean deleting rules, which is a different
-decision from this one and should not arrive disguised as a formatting change.
+**The near-3,000-word target in `#933` is not reachable, and the reason is now measured rather
+than projected.** 17,332 words is a 27.8% reduction, not an 88% one, and what is left is rule:
+every rule sentence and normative example of three files, with every essay moved out. Reaching
+3,000 would mean deleting rules, which is a different decision from this one and should not arrive
+disguised as a formatting change.
 
-The projection is a projection. `directories.md` may well cut further than `agent-conduct.md` did,
-because its rules are short ("`crates/` holds X") where its essays are long; `agent-conduct.md` is
-the densest of the three in normative content per word, so 36.5% is plausibly the *floor* of the
-three ratios rather than the average. The honest claim available today is the measured row, and the
-rest is held open below.
+**The projection was wrong in a way worth recording.** It put `GRAPH.md` near 5,260 (actual 5,401,
+within 3%) and `directories.md` near 5,953 (actual 7,295, 22% over), on the reasoning that
+`directories.md` would cut *further* than `agent-conduct.md` because its rules are short where its
+essays are long. It cut the least of the three. The half of that reasoning that was wrong is the
+premise that a short rule means a small file: `directories.md` is 20 directory sections of
+reference — what belongs where, the catalog frontmatter shape, the capability manifest shape, the
+authorship table — and reference is rule, so no amount of splitting retires it. So 36.5% was the
+**ceiling** of the three ratios and not the floor, and the thing that predicts a file's ratio is
+how much of it is *argument*, not how long its rule sentences are.
+
+That also names the only remaining move toward 3,000, and it is not this one: a read scoped to the
+occasion, where an agent about to write a node is handed the node conventions and not the vault
+routing table. The ceiling constants are set to the measurement with no slack, so that change will
+be measured against these numbers.
 
 ## What this does not touch
 
@@ -287,16 +299,73 @@ citations, both naming **L42** for the canonical `[inference]` spelling, and the
 on a blank line. `dead-line-citation` caught both, which is the gate from #899 doing exactly what
 it was built for — nothing here had to be discovered by hand.
 
-Two things that generalize to `GRAPH.md` and `directories.md`:
+Two things that showed up again on the second pass:
 
-- **Re-pointing the fragment is half a repair.** `0013-node-model-close.md` cited the line with a
-  label that only restated the coordinate, so it sat in the `unverified-line-citation` residue —
+- **Re-pointing the fragment is half a repair.** `0013-node-model-close.md` cited
+  `agent-conduct.md` with a label that only restated the coordinate, so it sat in the `unverified-line-citation` residue —
   checked for existence and nothing else. Re-pointing it to L49 would have made it green and left
   it able to slide again silently. It was repaired by *quoting the passage* instead, which is what
   moved it out of that population and dropped the ratchet from 109 to 108.
-- **The next step is twelve times this.** `GRAPH.md` carries 10 inbound line citations and
-  `directories.md` 2, across seven RFCs. Whoever splits them should expect to repair all twelve
-  and should quote each passage while doing it, for the reason above.
+- **The gate names the new lines, so the repair is transcription.** Splitting `GRAPH.md` and
+  `directories.md` left 14 inbound `#L` targets across seven RFCs wrong, plus one bare in-prose
+  coordinate. Five had slid with their quote still beside them; eight pointed past the end of the
+  shortened file; the gate located the moved passage for all but three of the thirteen.
+
+The residue is where a split rots silently. Thirteen of the fourteen were anchored — by a quote
+(five), a blockquote, or a symbol label (`extract`, `refresh`, `compute`, `reconcile`) — and every
+one of the thirteen was reported. The fourteenth, `0013`'s citation of `directories.md`, was not,
+and it is the only one that was **already wrong before the split**: it named L150-L151 while the
+passage it quoted sat at L393, off by 243 lines, and a citation in the residue is checked for
+existence alone, so nothing said so. The split moved the passage again and `dead-line-citation`
+still could not fire — post-split L150 is blank but L151 is not, and a range is dead only when it
+is entirely blank. It was found by enumerating the inbound citations by hand.
+
+Anchoring it took three attempts, and the two failures are the finding. Matching the quote's *case*
+to the source changed nothing. Moving the comma outside the quotation marks changed nothing. The
+rule is **adjacency** — everything between the quoted span and the link must be punctuation:
+
+> the last quoted span, separated from it by punctuation alone
+> — [`line_citations.rs:515`](../../yidam/cli/src/cmd/lint/line_citations.rs#L515), in
+> `quotes_beside`
+
+The citation read `— "One concept per file; one file per concept", decompose past a screen
+([cite])`, with four words of prose between the quote and the link. Reordering the clause so the
+quote closes against the link anchored it, and dropped the ratchet from 108 to 107. The residue is
+not a judgement about how well a citation is written: this one had quoted its passage in the house
+style the whole time and was still unchecked.
+
+One citation had to be split rather than re-pointed, which is the form's cost showing up in
+`docs/`. `0020-proposal-surface.md` blockquoted three sentences of `GRAPH.md` on `transport`, and
+the split put the first in the rules file and the justification in `GRAPH.evidence.md`. There is
+no single range to point at any more, so it now cites both — the rule from `GRAPH.md:612`, the
+Article V reasoning from `GRAPH.evidence.md:337-339`. A document quoting a rule *and* its
+reasoning as one passage is exactly what this form separates, and the repair is to cite the two
+halves.
+
+### A consumer can quote a sentence without citing a line
+
+`ci` went red on a check that names no line at all. `yidam cohort` scores a corpus against a list
+of norms, and `every_norm_quotes_the_document_it_names` asserts each norm's `statement` is still a
+sentence of the prelude document it names — a whitespace-collapsed substring, so a reflow cannot
+break it. One norm broke:
+
+> `commit-vocabulary` quotes a sentence that is not in GRAPH.md:
+> An open vocabulary decays into one verb per commit
+
+The sentence had not been reworded. It had moved to `GRAPH.evidence.md`, because it is a
+justification: it says *why* the verb list is closed, and a corpus cannot be scored against it.
+What the norm actually measures is that every authored commit leads with a verb in the list, and
+`GRAPH.md` still states that as a rule, so the repair was to quote the rule.
+
+This is the split classifying the norm list. Four norms quote the prelude; the two naming
+`directories.md` were quoting rules and were untouched, and the one that broke was the one scoring
+a corpus against a piece of reasoning. Nothing had said so before the rules and the evidence were
+in different files.
+
+Two other consumers read `GRAPH.md` mechanically — the vendor-update and staleness tasks in
+`mise.yidam.toml`, and the VS Code vocabulary provider — and all of them extract the verb table by
+matching ``| `verb` |`` rows. The table is a rule and stayed put; extracting it from the file before
+and after the split yields the same 32 verbs, and no VS Code test reads the real prelude at all.
 
 ## Alternatives considered
 
@@ -319,18 +388,36 @@ Two things that generalize to `GRAPH.md` and `directories.md`:
 
 ## Open questions
 
-- **Does the form survive `GRAPH.md`?** `agent-conduct.md` is a list of behavioral rules and splits
-  cleanly. "The class contract" at 3,856 words is a *specification*, where the rule and the
-  reasoning are more entangled — a paragraph explaining why a field exists is often also the
-  statement of what it does. If the form does not hold there, the finding is about the form and
-  should come back here rather than being worked around in the file.
-- **Is 36.5% the floor or the average of the three ratios?** Held open deliberately; the answer is
-  two more measurements, not an argument.
+- ~~**Does the form survive `GRAPH.md`?**~~ **Answered: yes, and the limit found is a different
+  one.** "The class contract" was flagged here as the likely failure, on the reasoning that in a
+  specification a paragraph explaining why a field exists is often also the statement of what it
+  does. It came apart without loss — the entanglement was in fewer places than expected, and every
+  rule sentence separated.
+
+
+  The real limit is the *length* of an argument, not the kind of document it is in. Four arguments
+  in `GRAPH.md` were a single clause: `edge-target-class` at 20 words, `description-always-in-the-set`
+  at 21, `no-baseline-no-ratchet` at 19, `the-scope-verb` at 15. A section of its own costs a
+  heading, a `[why]` link and a connective sentence to carry twenty words, and padding them to
+  clear the 25-word evidence floor would be precisely the dishonesty that floor exists to catch.
+  All four were inlined into the rules file instead. **The form holds for a paragraph and is not
+  worth its scaffolding below about a sentence** — recorded in the gate's own module docs, where
+  the next person to split a file will read it.
+- ~~**Is 36.5% the floor or the average of the three ratios?**~~ **Answered: the ceiling.** 34.8%
+  for `GRAPH.md`, 22.2% for `directories.md`. See the measured table above for why the reasoning
+  behind the projection was wrong.
 - **Does the evidence file get read when it should be?** The failure mode this form introduces is a
   rule applied without the hard case its evidence settles. Nothing here detects that, and the only
   instrument that would is the same one `#726` used for the retrieval surface: counting what agents
   actually open across derived-repository sessions. Worth re-running a quarter after this ships,
   with the prediction stated now — **if the evidence files are opened zero times in the next
   measurement window, this form failed and the reasoning should come back inline.**
-- **`.yidam/tonpa/` in `directories.md`.** To be fixed when that file is split, not before; noted
-  here so it is not lost with the measurement that found it.
+- ~~**`.yidam/tonpa/` in `directories.md`.**~~ **Added with the split.** The directory now has a
+  section: the manifest at `.yidam/tonpa.toml`, fetched bundles unpacked under
+  `.yidam/tonpa/<name>/`, the committed pin at `.yidam/tonpa/tonpa.lock`, and the fetched-versus-path
+  distinction. One thing it deliberately does **not** settle: whether `.yidam/tonpa/` should be
+  committed. `sadhana/root/gitignore` does not name it, and no derived repository surveyed declares
+  a dependency at all — no `.yidam/tonpa.toml` exists anywhere — so nothing has ever been unpacked
+  there and the question has never been met. The section records the omission and both defensible
+  answers rather than prescribing one from the template side, on the ground that the first
+  repository to install a dependency is the one that will have the evidence.

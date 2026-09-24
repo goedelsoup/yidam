@@ -99,7 +99,8 @@ pub const NORMS: &[Norm] = &[
     Norm {
         id: "commit-vocabulary",
         document: "GRAPH.md",
-        statement: "An open vocabulary decays into one verb per commit",
+        statement: "Every commit's subject line begins `<verb>: `. The verb determines the \
+                    commit's type. This list is closed",
         reads: "every authored commit leads with a verb in the closed list, counted whole \
                 rather than register-scoped",
     },

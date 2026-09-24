@@ -21,7 +21,7 @@ free because the detection it enforces already exists.
 ## Problem
 
 The hazard is documented with no operational remedy:
-[`directories.md:394-395`](../../yidam/prelude/guidelines/directories.md#L394-L395) — "renaming a node
+[`directories.md:340-341`](../../yidam/prelude/guidelines/directories.md#L340-L341) — "renaming a node
 severs edges, so choose well"; [`information-architecture.md:27`](../information-architecture.md#L27) —
 "renaming severs edges." Edges are path-based (`links[].target` on an instance; `[label](path)` in
 Markdown), so renaming `a/old.yml` → `a/new.yml` silently invalidates every inbound
@@ -62,7 +62,7 @@ outgoing links") — orphans forbid a node with *no* edge; this forbids an edge 
   `old`, and rewrites it to `new`;
 - is committed as an **operational** event — a rename is infrastructure, and operational commits are
   *"legitimate provenance records but are not epistemic events"*
-  ([`GRAPH.md:691-693`](../../yidam/prelude/GRAPH.md#L691-L693)) — with a message naming the count, e.g.
+  ([`GRAPH.md:558-559`](../../yidam/prelude/GRAPH.md#L558-L559)) — with a message naming the count, e.g.
   `migrate: concept/old.yml → concept/new.yml (7 inbound links rewritten)`.
 
   **`migrate`, not `rename`.** This RFC said `rename:` until the command was built, and `rename` is
