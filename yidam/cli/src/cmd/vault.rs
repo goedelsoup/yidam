@@ -537,10 +537,7 @@ fn pull(only: Option<&str>) -> Result<()> {
         "{total} {}; {fetched} fetched; {held} already cached; {absent} unavailable",
         scope(only)
     );
-    if absent > 0 {
-        std::process::exit(1);
-    }
-    Ok(())
+    crate::report::verdict(absent == 0)
 }
 
 fn status(remote: bool, only: Option<&str>) -> Result<()> {
@@ -1465,10 +1462,7 @@ fn pull_derived(picked: &[vault::Derived], only: Option<&str>) -> Result<()> {
         );
     }
 
-    if missing > 0 {
-        std::process::exit(1);
-    }
-    Ok(())
+    crate::report::verdict(missing == 0)
 }
 
 /// A byte count a person can read, from a number rather than a path.

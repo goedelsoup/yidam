@@ -145,6 +145,58 @@ pub fn emit<T: Serialize>(root: &std::path::Path, report: T) -> anyhow::Result<(
     Ok(())
 }
 
+/// A gate that ran, reported its verdict, and failed (#926).
+///
+/// The thirteen commands that gate used to call `std::process::exit(1)` from inside this
+/// library, which meant a caller that was not `main.rs` did not get its process back. The
+/// verdict now travels as an error and the binary owns the exit, so the library's contract
+/// is the one every other Rust library has: it returns.
+///
+/// It carries no message, and that is the point. The report is the description of what
+/// failed — it has already been printed, in the format the caller asked for — so `main.rs`
+/// exits 1 without writing anything further. An `anyhow::Error` that printed
+/// `Error: gate failed` above a JSON report would be the binary answering a second time,
+/// on the wrong stream, in a format no consumer parses.
+///
+/// A caller embedding this library distinguishes it from a real failure by downcasting:
+///
+/// ```no_run
+/// # fn run() -> anyhow::Result<()> { Ok(()) }
+/// match run() {
+///     Ok(()) => println!("passed"),
+///     Err(e) if e.downcast_ref::<yidam::report::GateFailed>().is_some() => println!("failed"),
+///     Err(e) => return Err(e),
+/// }
+/// # Ok::<(), anyhow::Error>(())
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GateFailed;
+
+impl std::fmt::Display for GateFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Reached only by a caller that chose to print it; `main.rs` does not.
+        f.write_str("gate failed")
+    }
+}
+
+impl std::error::Error for GateFailed {}
+
+/// `Ok(())` when a gate passed, [`GateFailed`] when it did not.
+///
+/// The epilogue of every gating command, so that the verdict-to-error translation exists
+/// once rather than thirteen times. See [`GateFailed`] for why it is an error at all.
+///
+/// `pub(crate)`, where [`GateFailed`] is public: a caller embedding this crate has to be able
+/// to *recognise* a failed gate, which means naming the type. It has no use for the helper
+/// that builds one — that is this crate's own epilogue, and #927 is where it grows a body.
+pub(crate) fn verdict(passed: bool) -> anyhow::Result<()> {
+    if passed {
+        Ok(())
+    } else {
+        Err(GateFailed.into())
+    }
+}
+
 /// Where a violation sits in its file. Best-effort, output-only.
 ///
 /// **Never part of a violation's identity.** The baseline compares on `(check id, node)`
@@ -191,6 +243,27 @@ mod tests {
         // Flattened, not nested under `report`.
         assert_eq!(v["answer"], 42);
         assert!(v.get("report").is_none());
+    }
+
+    #[test]
+    fn a_verdict_is_ok_when_the_gate_passed_and_an_error_when_it_did_not() {
+        assert!(verdict(true).is_ok());
+        let e = verdict(false).unwrap_err();
+        assert!(e.downcast_ref::<GateFailed>().is_some());
+    }
+
+    #[test]
+    fn a_gate_failure_is_still_recognisable_under_a_context_layer() {
+        // `main.rs` decides whether to print by downcasting, and two of the thirteen sites
+        // (`vault::pull`, `vault::pull_derived`) return through a caller that could grow a
+        // `.context(..)` at any time. If anyhow stopped carrying the concrete type through
+        // its context chain, the binary would silently start printing `Error: gate failed`
+        // above every JSON report — visible only to whoever was parsing the stream.
+        use anyhow::Context;
+        let wrapped = verdict(false)
+            .context("while pulling the vault")
+            .unwrap_err();
+        assert!(wrapped.downcast_ref::<GateFailed>().is_some());
     }
 
     #[test]

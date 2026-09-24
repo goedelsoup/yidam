@@ -461,10 +461,7 @@ pub fn pack(
     } else {
         println!("{}", render(&report));
     }
-    if rejected {
-        std::process::exit(1);
-    }
-    Ok(())
+    crate::report::verdict(!rejected)
 }
 
 #[cfg(test)]

@@ -382,10 +382,7 @@ pub fn estimate(
     } else {
         println!("{}", render(&estimate));
     }
-    if rejected {
-        std::process::exit(1);
-    }
-    Ok(())
+    crate::report::verdict(!rejected)
 }
 
 #[cfg(test)]

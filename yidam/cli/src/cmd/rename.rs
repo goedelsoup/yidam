@@ -394,10 +394,7 @@ pub fn rename(old: &str, new: &str, dry_run: bool, format: crate::report::Format
     } else {
         println!("{}", render_rename(&report));
     }
-    if blocked {
-        std::process::exit(1);
-    }
-    Ok(())
+    crate::report::verdict(!blocked)
 }
 
 #[cfg(test)]

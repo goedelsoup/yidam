@@ -506,11 +506,11 @@ unproductive the report says so rather than shrugging:
 
 A rejected query **emits its report and exits 1**. That is the shape four commands already
 have — `doctor`
-([`std::process::exit(1)`](../../yidam/cli/src/cmd/doctor.rs#L1535)), `regen`
-([`std::process::exit(1)`](../../yidam/cli/src/cmd/regen.rs#L184)), `rename`
-([`std::process::exit(1)`](../../yidam/cli/src/cmd/rename.rs#L398)) and `index-verify`
-([`std::process::exit(1)`](../../yidam/cli/src/cmd/index_verify.rs#L266)) all print, then
-exit.
+([`crate::report::verdict`](../../yidam/cli/src/cmd/doctor.rs#L1534)), `regen`
+([`crate::report::verdict`](../../yidam/cli/src/cmd/regen.rs#L183)), `rename`
+([`crate::report::verdict`](../../yidam/cli/src/cmd/rename.rs#L397)) and `index-verify`
+([`crate::report::verdict`](../../yidam/cli/src/cmd/index_verify.rs#L265)) all print, then
+fail.
 
 > **Corrected in #706, and labelled rather than re-pointed.** Two of these four had slid:
 > `doctor.rs:602` was 862 lines off and landed inside the check roster, which is
@@ -531,14 +531,29 @@ exit.
 > page was scored as carrying none. It was **255 lines** off, landing inside an unrelated
 > violation push, with every gate green. The blockquote is read now, on the same adjacency
 > rule the fenced form already used.
+>
+> **#926 moved the call the labels name, and the gate said so.** All four sites read
+> `std::process::exit(1)` until the library stopped exiting; they now read
+> `crate::report::verdict(..)`, which returns `report::GateFailed` for `main.rs` to turn into
+> exit 1. `citation-label-not-cited` failed on all four the moment the code changed — which
+> is the labelled form working as #706 intended. A coordinate-only citation would have slid
+> onto whatever four lines took their place and stayed green.
 
 Exit **2** is not available and must not be borrowed. Its only site is `main.rs:614`, inside the
 clap pre-dispatch arm for `InvalidSubcommand | ErrorKind::UnknownArgument`
 ([`main.rs:604-617`](../../yidam/cli/src/main.rs#L604-L617)) — reached *before*
 `match cli.command`, so no command body can produce it — and
-`tests/binary_pin.rs:140` pins it as the unrecognized-subcommand code. Returning `Err` from a
-command body exits 1 with `Error: {:?}` prose and no envelope at all, which would make every
-rejection this section specifies invisible to a JSON consumer.
+`tests/binary_pin.rs:140` pins it as the unrecognized-subcommand code. Returning an ordinary
+`Err` from a command body exits 1 with `Error: {:?}` prose and no envelope at all, which would
+make every rejection this section specifies invisible to a JSON consumer.
+
+The one `Err` that is not ordinary is
+[`report::GateFailed`](../../yidam/cli/src/report.rs#L173), the sentinel #926 introduced so
+that the library could stop calling `std::process::exit` from inside a published crate. It
+carries no message, and `main.rs` prints nothing for it
+([`fn main`](../../yidam/cli/src/main.rs#L1069-L1076)) — so the report emitted above it is
+still the only thing on the stream, which is the whole property this section is arranged
+around. The exit code did not move; the call to `exit` did.
 
 A query that runs and matches nothing exits **0**. `query` still gates on nothing: exit 1 here
 says the *query* was wrong, never that the corpus is. It appears in `--help` without the `*`

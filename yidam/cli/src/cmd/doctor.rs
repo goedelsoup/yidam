@@ -1531,10 +1531,7 @@ pub fn doctor(strict: bool, format: crate::report::Format) -> Result<()> {
     } else {
         println!("{}", render(&report, &root));
     }
-    if !passed {
-        std::process::exit(1);
-    }
-    Ok(())
+    crate::report::verdict(passed)
 }
 
 // ── .yidam.toml ───────────────────────────────────────────────────────────────
