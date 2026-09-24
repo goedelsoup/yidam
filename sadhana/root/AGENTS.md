@@ -33,6 +33,8 @@ vendored profile, which is discarded on the next re-vendor.
 Read the vendored prelude. It is the model this repository runs on, and it is not
 negotiable from inside the repo:
 
+- [Glossary](.yidam/.vendor/prelude/GLOSSARY.md) — *rigpa*, *ma*, *samudaya*, *sadhana*,
+  *kuten*, *tonpa*, *sangha*; the shortest file here and the one every other assumes
 - [Identity](.yidam/.vendor/prelude/IDENTITY.md) — what this kind of repository is
 - [Graph model](.yidam/.vendor/prelude/GRAPH.md) — how git encodes knowledge
 - [Agent conduct](.yidam/.vendor/prelude/guidelines/agent-conduct.md) — behavioral norms,

@@ -40,6 +40,8 @@ contribution, not housekeeping.
 
 Read the prelude before taking substantive action:
 
+- [Glossary](yidam/prelude/GLOSSARY.md) — *rigpa*, *ma*, *samudaya*, *sadhana*, *kuten*,
+  *tonpa*, *sangha*; the shortest file here and the one the others assume
 - [Identity](yidam/prelude/IDENTITY.md) — what yidam-derived repos are
 - [Graph model](yidam/prelude/GRAPH.md) — how git encodes knowledge
 - [Agent conduct](yidam/prelude/guidelines/agent-conduct.md) — full behavioral norms

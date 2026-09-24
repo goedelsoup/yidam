@@ -5,7 +5,10 @@ before taking any action, establishing the cognitive and structural model for th
 
 It contains:
 
-- **[Scripture](SCRIPTURE.md)** — narrative orientation to the system's vocabulary and purpose; read this first
+- **[Glossary](GLOSSARY.md)** — the borrowed vocabulary every other file here uses without
+  explaining; read this first
+- **[Scripture](SCRIPTURE.md)** — narrative orientation to the system's vocabulary and purpose,
+  and the argument for each borrowed word the glossary only glosses
 - **[Identity](IDENTITY.md)** — what this kind of repository is and how to inhabit it
 - **[Graph model](GRAPH.md)** — how the git history encodes knowledge
 - **[Constitution](CONSTITUTION.md)** — the invariant constraints governing sangha resolutions
