@@ -147,7 +147,7 @@ fn the_two_house_label_forms_are_both_still_read() {
 /// passage rather than only re-pointing the fragment, which is what moves it out of this
 /// population — a citation re-pointed and left unquoted would have slid again on the next edit
 /// to that file and this number would not have noticed.
-const UNANCHORED: usize = 108;
+const UNANCHORED: usize = 107;
 
 /// The residue, counted — and the count held to a number somebody has to edit.
 ///

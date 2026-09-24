@@ -33,10 +33,18 @@
 //!
 //! # Scope
 //!
-//! `agent-conduct.md` is the worked example and the only file split so far. `GRAPH.md` and
-//! `directories.md` follow against the proven form; the checks here are written over
-//! *discovered* pairs, so they begin holding each one the day it is split, with no list here to
-//! remember to update.
+//! All three files are split: `agent-conduct.md` as the worked example, then `GRAPH.md` and
+//! `directories.md` against the proven form. The checks here are written over *discovered*
+//! pairs, so a fourth split comes under them the day it lands, with no list here to remember to
+//! update.
+//!
+//! Two things the second pass established that the first could not. A **specification** splits
+//! as cleanly as an essay — `GRAPH.md`'s class contract was the case the RFC flagged as the
+//! likely limit, and its rule sentences came apart without loss. The real limit is length, not
+//! kind: where an argument is a single *clause* rather than a paragraph, a section of its own
+//! costs a heading, a link and a connective sentence to carry twenty words, so four of those
+//! were inlined into the rules file instead. The form holds for a paragraph and is not worth its
+//! scaffolding below about a sentence.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -55,12 +63,23 @@ const EVIDENCE_SUFFIX: &str = ".evidence.md";
 /// deleted, which is the failure the floor above is aimed at and this check localizes.
 const MIN_EVIDENCE_WORDS: usize = 25;
 
-/// Ceilings on the recurring read, by route, in words.
+/// Ceilings on the recurring read, by route, in words: **the measured post-split figure, with no
+/// slack.**
 ///
-/// A ratchet: measured at 24,019 and 29,326 before the split (#954), and these leave the
-/// headroom the remaining two files need to come down through. Lower them as `GRAPH.md` and
-/// `directories.md` split.
-const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 24_100), ("sadhana/root/AGENTS.md", 29_400)];
+/// A ratchet. 24,019 and 29,326 before the split; 17,332 and 22,639 with all three files split,
+/// which is 6,687 words out of both routes. Set to the measurement rather than above it for the
+/// same reason the floor is: slack is the room a regression needs, and here the regression is an
+/// essay growing back into a rules file.
+///
+/// **The form does not reach #933's ~3,000 on its own, and the remaining weight says why.**
+/// `directories.md` is the largest file left on the read at 7,295 words, and what is left in it
+/// after the essays moved is reference — what belongs in each of twenty directories, the catalog
+/// frontmatter shape, the capability manifest shape, the authorship table. That is rule, not
+/// essay, so no further splitting retires it. Getting under 3,000 needs a different move: a read
+/// scoped to the occasion, where an agent about to write a node is handed the node conventions
+/// and not the vault routing table. That is a separate change to how a route is written, and
+/// this ceiling is what will hold it honest.
+const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 17_332), ("sadhana/root/AGENTS.md", 22_639)];
 
 /// Floors on a split pair's combined word count: **the measured post-split total, with no
 /// slack.**
@@ -80,7 +99,11 @@ const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 24_100), ("sadhana/root/A
 ///
 /// A pair absent from this list is not exempt — [`every_pair_has_a_floor`] fails until somebody
 /// records one.
-const PAIR_FLOOR: &[(&str, usize)] = &[("yidam/prelude/guidelines/agent-conduct.md", 5_399)];
+const PAIR_FLOOR: &[(&str, usize)] = &[
+    ("yidam/prelude/guidelines/agent-conduct.md", 5_399),
+    ("yidam/prelude/GRAPH.md", 8_818),
+    ("yidam/prelude/guidelines/directories.md", 10_961),
+];
 
 fn read(rel: &str) -> String {
     let p = repo_root().join(rel);
