@@ -15,10 +15,16 @@
 //!
 //! Exit 2 is not available and is not borrowed: its only site is clap's pre-dispatch arm for
 //! an unrecognised subcommand, which `tests/binary_pin.rs` pins. A rejection therefore
-//! **emits its report and then exits 1**, the shape `doctor`, `regen`, `rename` and
-//! `index-verify` already have — returning `Err` instead would print `Error: {:?}` with no
-//! envelope, and every rejection this surface specifies would be invisible to a JSON
-//! consumer.
+//! **emits its report and then fails**, the shape `doctor`, `regen`, `rename` and
+//! `index-verify` already have — propagating an ordinary `Err` instead would print
+//! `Error: {:?}` with no envelope, and every rejection this surface specifies would be
+//! invisible to a JSON consumer.
+//!
+//! The failure travels as [`crate::report::GateFailed`], which `main.rs` turns into exit 1
+//! having printed nothing (#926). That is not the `Err` the paragraph above rules out: the
+//! report has already been emitted, and the sentinel carries no message precisely so that
+//! nothing lands on stderr above it. Until #926 this was a `std::process::exit(1)` called
+//! from inside a published library.
 
 pub mod absence;
 pub mod anchor;
@@ -1188,11 +1194,11 @@ pub fn query(
 
     let report = match scope {
         Scope::Between(range) => return series(&root, &range, text, &opts, format),
-        // **Emitted, not returned as `Err`.** `run_at` fails on a revision that is not one,
-        // and propagating that printed `Error: …` on stderr with an empty stdout at exit 1 —
+        // **Emitted, not propagated.** `run_at` fails on a revision that is not one, and
+        // propagating that printed `Error: …` on stderr with an empty stdout at exit 1 —
         // indistinguishable, to a `--format json` consumer, from a crash or a truncated pipe.
         // This module's docstring states the rule in as many words: a rejection emits its
-        // report and *then* exits 1, or every rejection it specifies is invisible.
+        // report and *then* fails, or every rejection it specifies is invisible.
         Scope::At(rev) => run_at(&root, &rev, text, &opts)
             .unwrap_or_else(|e| rejected_report(text, history_unreadable(e), None)),
         Scope::Across => run_across(&root, text, &opts),
@@ -1204,10 +1210,7 @@ pub fn query(
     } else {
         println!("{}", render(&report));
     }
-    if rejected {
-        std::process::exit(1);
-    }
-    Ok(())
+    crate::report::verdict(!rejected)
 }
 
 /// `--between`: the series, or the one refusal that applies to every row of it.
@@ -1237,10 +1240,7 @@ fn series(
     } else {
         println!("{}", render_series(&report));
     }
-    if rejected {
-        std::process::exit(1);
-    }
-    Ok(())
+    crate::report::verdict(!rejected)
 }
 
 #[cfg(test)]

@@ -1058,7 +1058,24 @@ fn block_on<F: std::future::Future<Output = Result<()>>>(fut: F) -> Result<()> {
     yidam::runtime::block_on_local(fut)
 }
 
-fn main() -> Result<()> {
+/// The binary's exit code, and the only place this program calls [`std::process::exit`]
+/// for a failure (#926).
+///
+/// A gate that ran and failed is not described here: [`yidam::report::GateFailed`] carries
+/// no message because the report already printed one, in the format the caller asked for.
+/// Writing `Error: gate failed` above a JSON envelope would put a second, unparseable answer
+/// on stderr. Everything else gets what `fn main() -> Result<()>` used to print — anyhow's
+/// `Error: {:?}`, then exit 1 — so no exit code and no message moved.
+fn main() {
+    if let Err(e) = run() {
+        if e.downcast_ref::<yidam::report::GateFailed>().is_none() {
+            eprintln!("Error: {e:?}");
+        }
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<()> {
     let cli = match command()
         .try_get_matches()
         .and_then(|m| Cli::from_arg_matches(&m))

@@ -180,10 +180,7 @@ fn report_check(stale: Vec<crate::regen::Stale>, format: crate::report::Format) 
     } else {
         println!("{}", render_regen_check(&report));
     }
-    if !passed {
-        std::process::exit(1);
-    }
-    Ok(())
+    crate::report::verdict(passed)
 }
 
 #[cfg(test)]

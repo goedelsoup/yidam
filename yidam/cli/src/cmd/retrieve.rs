@@ -59,11 +59,12 @@ pub fn retrieve(query: &str, opts: Options) -> Result<()> {
         .and_then(|t| serde_json::from_str(t).ok())
         .ok_or_else(|| anyhow::anyhow!("the retrieve envelope carried no JSON payload"))?;
 
-    // **Emitted, then exited.** A rejection is an answer and not a crash, so it is rendered
+    // **Emitted, then failed.** A rejection is an answer and not a crash, so it is rendered
     // in whichever format was asked for — `cmd::query` states the rule in as many words: a
-    // rejection that left as `Err` would print `Error: …` on stderr with an empty stdout,
-    // which a `--format json` consumer cannot tell from a truncated pipe. It still exits
-    // nonzero, because at a shell a misspelled `--class` or `--corpora` should fail a script;
+    // rejection propagated as an ordinary `Err` would print `Error: …` on stderr with an
+    // empty stdout, which a `--format json` consumer cannot tell from a truncated pipe. It
+    // still exits nonzero — as `report::GateFailed`, which prints nothing above the report
+    // — because at a shell a misspelled `--class` or `--corpora` should fail a script;
     // the MCP tool must *not* set `isError` for the same state, and that asymmetry is the
     // contract's (`rejected` is an answer to a client) meeting the shell's (a wrong argument
     // is an error to a caller).
@@ -73,10 +74,7 @@ pub fn retrieve(query: &str, opts: Options) -> Result<()> {
     } else {
         print!("{}", render(query, &payload, &state.corpus_aliases));
     }
-    if rejected {
-        std::process::exit(1);
-    }
-    Ok(())
+    crate::report::verdict(!rejected)
 }
 
 /// The human rendering.

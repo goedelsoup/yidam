@@ -262,10 +262,7 @@ pub fn index_verify(
     } else {
         println!("{}", render_verify(&report));
     }
-    if !passed {
-        std::process::exit(1);
-    }
-    Ok(())
+    crate::report::verdict(passed)
 }
 
 #[cfg(test)]
