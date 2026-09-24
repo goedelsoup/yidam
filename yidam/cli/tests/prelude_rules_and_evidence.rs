@@ -1,0 +1,398 @@
+//! A rule is separable from the essay that justifies it, and the split has to be held by
+//! something that can tell *shorter* from *thinner* (#954).
+//!
+//! # What was measured
+//!
+//! The recurring read an agent is told to perform before substantive action was **24,019
+//! words** in this repository and **29,326** in a derived one, of which `GRAPH.md`,
+//! `directories.md` and `agent-conduct.md` were 22,381. Measuring per `##` section found the
+//! weight was not spread across the three files: **six sections of forty-two carried 51% of
+//! it.** The bold-lead sentence turned out to be a latent rule marker already — it appears
+//! only in sections that grew an essay, and every section under ~250 words has none — so the
+//! form below is discovered from the house style rather than imposed on it.
+//!
+//! # Why a word-count ceiling cannot be the whole gate
+//!
+//! #933 asked for the recurring read to land near 3,000 words *without losing the reasoning*,
+//! and a ceiling alone rewards exactly the outcome it rules out: the cheapest way past it is
+//! to delete the essays. So the ceiling is paired with a **floor on each split pair**. The
+//! read must shrink; the rules and their evidence together may not. Shortening by moving prose
+//! passes; shortening by deleting it fails, and fails naming the section that went missing.
+//!
+//! Both numbers are ratchets. Lowering the floor is a deliberate edit to a constant here, which
+//! is the point — deleting reasoning should be a decision somebody records, not a side effect
+//! of a tidy-up.
+//!
+//! # Per item, never per total
+//!
+//! A total is cleared by a scanner that looks at nothing, so every assertion below names the
+//! item that failed: the rule whose `[why]` link dangles, the evidence section nothing reaches,
+//! the section that was emptied. [`the_scan_sees_the_known_routes`] holds the discovery itself
+//! against the two routes that are known to exist, because a route scan that silently returns
+//! nothing would clear every other check in this file.
+//!
+//! # Scope
+//!
+//! `agent-conduct.md` is the worked example and the only file split so far. `GRAPH.md` and
+//! `directories.md` follow against the proven form; the checks here are written over
+//! *discovered* pairs, so they begin holding each one the day it is split, with no list here to
+//! remember to update.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
+
+mod common;
+
+use common::{repo_root, tracked_under};
+
+/// The suffix that marks an evidence file, and the thing that makes a pair discoverable.
+const EVIDENCE_SUFFIX: &str = ".evidence.md";
+
+/// Words below which an evidence section is not carrying an argument.
+///
+/// Deliberately low. This is not a quality bar — nothing here can judge an argument — it is the
+/// line between a section that says something and a heading left behind after its prose was
+/// deleted, which is the failure the floor above is aimed at and this check localizes.
+const MIN_EVIDENCE_WORDS: usize = 25;
+
+/// Ceilings on the recurring read, by route, in words.
+///
+/// A ratchet: measured at 24,019 and 29,326 before the split (#954), and these leave the
+/// headroom the remaining two files need to come down through. Lower them as `GRAPH.md` and
+/// `directories.md` split.
+const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 24_100), ("sadhana/root/AGENTS.md", 29_400)];
+
+/// Floors on a split pair's combined word count.
+///
+/// The other half of the discriminator. `agent-conduct.md` and its evidence were 4,723 words as
+/// one file and are 5,399 as two; the floor is the pre-split figure, so the pair may be tidied
+/// but not thinned. A pair absent from this list is not exempt — [`every_pair_has_a_floor`]
+/// fails until somebody records one.
+const PAIR_FLOOR: &[(&str, usize)] = &[("yidam/prelude/guidelines/agent-conduct.md", 4_723)];
+
+fn read(rel: &str) -> String {
+    let p = repo_root().join(rel);
+    std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{} is unreadable ({e})", p.display()))
+}
+
+fn words(s: &str) -> usize {
+    s.split_whitespace().count()
+}
+
+// ── discovery ─────────────────────────────────────────────────────────────────
+
+/// Every rules/evidence pair in the prelude, as `(rules path, evidence path)`.
+///
+/// Discovered from the tracked set by suffix, never listed: the whole point of the form is that
+/// splitting another file brings it under these checks without editing them.
+fn pairs() -> Vec<(String, String)> {
+    let mut found = Vec::new();
+    for path in tracked_under(&repo_root(), "yidam/prelude/") {
+        if let Some(stem) = path.strip_suffix(EVIDENCE_SUFFIX) {
+            found.push((format!("{stem}.md"), path.clone()));
+        }
+    }
+    found.sort();
+    found
+}
+
+/// The recurring-read routes, discovered rather than named.
+///
+/// A route is tracked markdown outside `docs/` that markdown-*links* all three of
+/// `IDENTITY.md`, `GRAPH.md` and `agent-conduct.md`. Each clause earns its place:
+///
+/// - **Links, not mentions.** An RFC discussing the model names these files in prose;
+///   `docs/rfcs/0028-kuten-layer.md` is picked up by a mention rule and is not a route.
+/// - **Outside `docs/`.** The prose *about* the template is not the prose an agent is told to
+///   read before acting.
+/// - **All three.** `IDENTITY.md` + `GRAPH.md` alone also matches `yidam/README.md`,
+///   `sadhana/root/README.md`, `yidam/prelude/README.md` and two kuten profiles — orientation
+///   documents that link the model without prescribing the conduct read. Requiring
+///   `agent-conduct.md` is what separates a route from a pointer, and it is why the ceiling
+///   measures two files rather than seven.
+fn routes() -> BTreeSet<String> {
+    let mut found = BTreeSet::new();
+    for path in tracked_under(&repo_root(), ".") {
+        if !path.ends_with(".md") || path.starts_with("docs/") {
+            continue;
+        }
+        let body = read(&path);
+        let links_to = |name: &str| {
+            body.match_indices(name).any(|(at, _)| {
+                body[..at]
+                    .rfind("](")
+                    .is_some_and(|open| !body[open..at].contains(')'))
+            })
+        };
+        if links_to("IDENTITY.md") && links_to("GRAPH.md") && links_to("agent-conduct.md") {
+            found.insert(path);
+        }
+    }
+    found
+}
+
+/// The `##` section of a route that prescribes the read: the one that links all three of
+/// `IDENTITY.md`, `GRAPH.md` and `agent-conduct.md`.
+///
+/// Scoping to a section rather than reading the whole file is not tidiness. `AGENTS.md` links
+/// `yidam/prelude/skills/bootstrap.md` from its *first* section, addressed to an agent
+/// bootstrapping a fresh clone — a different occasion, and 8,824 words of it. Counting the file's
+/// every link put bootstrap inside a figure that claims to be the per-session read and inflated
+/// it by 36%. The section is found the same way the route is, so the two cannot disagree.
+fn prescribing_section(route: &str) -> String {
+    let body = read(route);
+    let mut best = String::new();
+    let mut current = String::new();
+    let flush = |sec: &str, best: &mut String| {
+        let links_all = ["IDENTITY.md", "GRAPH.md", "agent-conduct.md"]
+            .iter()
+            .all(|n| sec.contains(n));
+        if links_all && sec.len() > best.len() {
+            *best = sec.to_string();
+        }
+    };
+    for line in body.lines() {
+        if line.starts_with("## ") {
+            flush(&current, &mut best);
+            current.clear();
+        }
+        current.push_str(line);
+        current.push('\n');
+    }
+    flush(&current, &mut best);
+    assert!(
+        !best.is_empty(),
+        "{route} was discovered as a route but no single `##` section of it links all three of \
+         IDENTITY.md, GRAPH.md and agent-conduct.md — the read list is spread across sections \
+         and this measurement would be guessing at its extent"
+    );
+    best
+}
+
+/// Every prelude file a route's read list names, resolved against the route's own directory.
+///
+/// This is what makes the ceiling a measurement rather than a restatement: adding a file to a
+/// route's read list moves the number, and so does growing a file already on it.
+fn route_cost(route: &str) -> (usize, Vec<(String, usize)>) {
+    let mut total = words(&read(route));
+    let mut parts = vec![(route.to_string(), total)];
+    let body = prescribing_section(route);
+    let mut seen = BTreeSet::new();
+    for (at, _) in body.match_indices("](") {
+        let rest = &body[at + 2..];
+        let Some(end) = rest.find(')') else { continue };
+        let target = rest[..end].split('#').next().unwrap_or("");
+        if !target.ends_with(".md") || target.starts_with("http") {
+            continue;
+        }
+        // Routes are written for where they install, so a derived route's
+        // `.yidam/.vendor/prelude/x` is this tree's `yidam/prelude/x`.
+        let rel = match target.split_once(".yidam/.vendor/prelude/") {
+            Some((_, tail)) => format!("yidam/prelude/{tail}"),
+            None => {
+                let dir = PathBuf::from(route)
+                    .parent()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let joined = if dir.is_empty() {
+                    target.to_string()
+                } else {
+                    format!("{dir}/{target}")
+                };
+                match joined.split_once("yidam/prelude/") {
+                    Some((_, tail)) => format!("yidam/prelude/{tail}"),
+                    None => continue,
+                }
+            }
+        };
+        if !repo_root().join(&rel).is_file() || !seen.insert(rel.clone()) {
+            continue;
+        }
+        let w = words(&read(&rel));
+        total += w;
+        parts.push((rel, w));
+    }
+    (total, parts)
+}
+
+/// `## slug` headings of an evidence file, with the words under each.
+fn evidence_sections(rel: &str) -> BTreeMap<String, usize> {
+    let body = read(rel);
+    let mut sections = BTreeMap::new();
+    let mut current: Option<String> = None;
+    let mut count = 0usize;
+    for line in body.lines() {
+        if let Some(slug) = line.strip_prefix("## ") {
+            if let Some(prev) = current.take() {
+                sections.insert(prev, count);
+            }
+            current = Some(slug.trim().to_string());
+            count = 0;
+        } else if current.is_some() {
+            count += words(line);
+        }
+    }
+    if let Some(prev) = current {
+        sections.insert(prev, count);
+    }
+    sections
+}
+
+/// Every `#slug` a rules file points into its own evidence file.
+fn why_links(rules: &str, evidence: &str) -> Vec<String> {
+    let body = read(rules);
+    let file = evidence.rsplit('/').next().unwrap_or(evidence);
+    let needle = format!("]({file}#");
+    body.match_indices(&needle)
+        .filter_map(|(at, _)| {
+            let rest = &body[at + needle.len()..];
+            rest.find(')').map(|end| rest[..end].to_string())
+        })
+        .collect()
+}
+
+// ── the checks ────────────────────────────────────────────────────────────────
+
+#[test]
+fn a_pair_is_discovered_and_both_halves_exist() {
+    let pairs = pairs();
+    assert!(
+        !pairs.is_empty(),
+        "no `*{EVIDENCE_SUFFIX}` file found under yidam/prelude/ — either the split was \
+         reverted or this scan is looking at nothing, and every other check in this file \
+         passes vacuously either way"
+    );
+    for (rules, evidence) in &pairs {
+        assert!(
+            repo_root().join(rules).is_file(),
+            "{evidence} has no rules file beside it: expected {rules}. An evidence file \
+             nothing points at is prose no reader will reach."
+        );
+    }
+}
+
+#[test]
+fn every_why_link_resolves_to_a_section() {
+    for (rules, evidence) in pairs() {
+        let sections = evidence_sections(&evidence);
+        let links = why_links(&rules, &evidence);
+        assert!(
+            !links.is_empty(),
+            "{rules} points into {evidence} zero times — the rules were separated from their \
+             evidence and nothing connects them back"
+        );
+        for slug in links {
+            assert!(
+                sections.contains_key(&slug),
+                "{rules} links `#{slug}` and {evidence} has no `## {slug}`. Either the \
+                 section was renamed and the rule not repointed, or the reasoning was deleted \
+                 and the rule left behind pointing at nothing."
+            );
+        }
+    }
+}
+
+#[test]
+fn every_evidence_section_is_reached_by_a_rule() {
+    for (rules, evidence) in pairs() {
+        let links: BTreeSet<String> = why_links(&rules, &evidence).into_iter().collect();
+        for slug in evidence_sections(&evidence).keys() {
+            assert!(
+                links.contains(slug),
+                "{evidence} has `## {slug}` and no rule in {rules} links it. Evidence a \
+                 reader cannot get to from a rule is the failure this split was supposed to \
+                 prevent, arriving from the other direction."
+            );
+        }
+    }
+}
+
+#[test]
+fn every_evidence_section_carries_an_argument() {
+    for (_, evidence) in pairs() {
+        for (slug, count) in evidence_sections(&evidence) {
+            assert!(
+                count >= MIN_EVIDENCE_WORDS,
+                "{evidence} `## {slug}` is {count} words, under the {MIN_EVIDENCE_WORDS}-word \
+                 floor. A heading whose prose was deleted still resolves every link pointing \
+                 at it; this is the check that notices."
+            );
+        }
+    }
+}
+
+#[test]
+fn the_scan_sees_the_known_routes() {
+    let found = routes();
+    // Not the whole expected set — a *lower bound*, so a new route is not a failure while a
+    // scan that stops seeing these two is. Without this, `routes()` returning empty would
+    // leave `the_recurring_read_stays_under_its_ceiling` asserting nothing at all.
+    for known in ["AGENTS.md", "sadhana/root/AGENTS.md"] {
+        assert!(
+            found.contains(known),
+            "route discovery did not find {known}. Found: {found:?}. The scan is broken, or \
+             that route stopped prescribing the conduct read."
+        );
+    }
+}
+
+#[test]
+fn every_route_has_a_ceiling() {
+    let ceilings: BTreeMap<&str, usize> = READ_CEILING.iter().copied().collect();
+    for route in routes() {
+        assert!(
+            ceilings.contains_key(route.as_str()),
+            "{route} prescribes the conduct read and has no entry in READ_CEILING. A new \
+             recurring read is a cost somebody should have to write down."
+        );
+    }
+}
+
+#[test]
+fn the_recurring_read_stays_under_its_ceiling() {
+    for (route, ceiling) in READ_CEILING {
+        let (total, parts) = route_cost(route);
+        assert!(
+            total <= *ceiling,
+            "the recurring read at {route} is {total} words, over its {ceiling}-word \
+             ceiling.\n{}",
+            parts
+                .iter()
+                .map(|(p, w)| format!("  {w:>7}  {p}\n"))
+                .collect::<String>()
+        );
+    }
+}
+
+#[test]
+fn every_pair_has_a_floor() {
+    let floors: BTreeMap<&str, usize> = PAIR_FLOOR.iter().copied().collect();
+    for (rules, _) in pairs() {
+        assert!(
+            floors.contains_key(rules.as_str()),
+            "{rules} was split and has no entry in PAIR_FLOOR. Without one the pair may be \
+             thinned to nothing and every other check here still passes."
+        );
+    }
+}
+
+#[test]
+fn a_split_pair_does_not_shrink() {
+    let floors: BTreeMap<&str, usize> = PAIR_FLOOR.iter().copied().collect();
+    for (rules, evidence) in pairs() {
+        let Some(floor) = floors.get(rules.as_str()) else {
+            continue; // reported by `every_pair_has_a_floor`
+        };
+        let rules_words = words(&read(&rules));
+        let evidence_words = words(&read(&evidence));
+        let total = rules_words + evidence_words;
+        assert!(
+            total >= *floor,
+            "{rules} ({rules_words}) + {evidence} ({evidence_words}) = {total} words, under \
+             the {floor}-word floor this pair was split at. The read is allowed to get \
+             shorter; the reasoning is not allowed to get thinner. If prose was genuinely \
+             retired rather than moved, lower the floor in PAIR_FLOOR and say why in the \
+             commit."
+        );
+    }
+}
