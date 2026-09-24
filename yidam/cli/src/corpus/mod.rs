@@ -9,11 +9,18 @@
 //! had to spell a corpus type as `cmd::lint::checks::Node`.
 //!
 //! `lint` is now a consumer like the others. Nothing here knows a check exists.
+//!
+//! [`Corpus`] (#925) is the value those records make up: one repository's nodes, classes,
+//! sources and the graph between them, read once and handed to whichever command asked.
+//! Before it there was only a walk, called from twenty-five sites, and each caller
+//! reassembled from paths whatever part of a corpus it needed.
 
 pub(crate) mod class;
+pub(crate) mod edges;
 pub(crate) mod load;
 pub(crate) mod node;
 pub(crate) mod overlay;
+pub(crate) mod read;
 pub(crate) mod source;
 
 // Glob rather than a name list, and for once that is the explicit form. Each file below
@@ -22,9 +29,11 @@ pub(crate) mod source;
 // and would emit an unused-import warning (a denied lint here) for every name the non-test
 // build happens not to mention.
 pub(crate) use class::*;
+pub(crate) use edges::*;
 pub(crate) use load::*;
 pub(crate) use node::*;
 pub(crate) use overlay::*;
+pub(crate) use read::*;
 pub(crate) use source::*;
 
 /// A YAML document read into `T`, and the reason if it could not be.

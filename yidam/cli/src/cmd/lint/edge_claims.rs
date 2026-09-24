@@ -104,9 +104,8 @@
 //! decision what it is worth. A link that resolves to nothing is `dangling-edge`'s finding and
 //! is not reported twice here.
 
-use super::checks::{instance_links, nodes_by_path};
 use super::model::{Check, Severity, Violation};
-use crate::corpus::Node;
+use crate::corpus::{Edges, Node};
 use crate::universal::Universal;
 
 /// The check ids, named once — a filter keyed on a literal would drift from the id the
@@ -231,16 +230,17 @@ fn edge_address(link: &crate::parse::CorpusLink) -> String {
 #[must_use]
 pub fn checks(
     nodes: &[Node],
+    edges: &Edges,
     universal: &Universal,
     fields: &crate::claims::ClaimFields,
 ) -> [Check; 3] {
-    let by_path = nodes_by_path(nodes);
     let required = universal.edge_claims_required();
     let mut untagged = Vec::new();
     let mut unsourced = Vec::new();
     let mut unheld = Vec::new();
-    for n in nodes {
-        for (link, far) in instance_links(n, &by_path) {
+    for (i, n) in nodes.iter().enumerate() {
+        for (edge, t) in edges.instance_links(i) {
+            let (link, far) = (edge.written_as(n), &nodes[t]);
             let rel = link.relationship.as_deref().unwrap_or_default();
             let structural = universal.is_structural_relationship(rel);
             let standing = standing_of(link.claim_tag.as_ref());
@@ -455,8 +455,12 @@ mod tests {
                 .into_iter()
                 .map(|c| (c.to_string(), declared.clone())),
         );
-        let [untagged, unsourced, unheld] =
-            checks(&nodes, &Universal::parse(universal), &claim_fields);
+        let [untagged, unsourced, unheld] = checks(
+            &nodes,
+            &crate::corpus::Edges::build(&nodes),
+            &Universal::parse(universal),
+            &claim_fields,
+        );
         let details =
             |c: Check| -> Vec<String> { c.violations.into_iter().map(|v| v.detail).collect() };
         (details(untagged), details(unsourced), details(unheld))

@@ -27,7 +27,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use super::checks::normalize;
+use crate::corpus::resolve_target;
 
 /// One corpus file changing in one commit.
 struct Change {
@@ -75,12 +75,15 @@ fn targets_of(path: &str, content: &str) -> HashSet<String> {
         // would lose every date after it.
         Err(_) => return HashSet::new(),
     };
-    let dir = Path::new(path).parent().unwrap_or(Path::new(""));
     inst.links
         .unwrap_or_default()
         .iter()
         .filter_map(|l| l.target.as_ref())
-        .map(|t| normalize(&dir.join(t)).to_string_lossy().replace('\\', "/"))
+        .map(|t| {
+            resolve_target(Path::new(path), t)
+                .to_string_lossy()
+                .replace('\\', "/")
+        })
         .collect()
 }
 

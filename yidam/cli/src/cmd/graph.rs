@@ -24,10 +24,10 @@
 
 use anyhow::Result;
 use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use crate::paths::{repo_root, yidam_corpus_dir};
-use crate::walk::{walk_corpus_instances, walk_ont_files};
+use crate::corpus::{resolve_target, Corpus};
+use crate::paths::repo_root;
 
 /// A class definition as the ontology writes it.
 ///
@@ -206,62 +206,58 @@ pub(crate) fn walk_neighbors(
     found
 }
 
-/// Resolve `.` and `..` without touching the filesystem.
-///
-/// The same walk `lint::checks::normalize` performs. Duplicated rather than shared because
-/// that one is private to a module whose surface is checks; if a third caller appears, move
-/// it rather than copying it again.
-fn normalize(p: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for c in p.components() {
-        match c {
-            std::path::Component::ParentDir => {
-                out.pop();
-            }
-            std::path::Component::CurDir => {}
-            other => out.push(other),
-        }
-    }
-    out
-}
-
 fn slash(p: &Path) -> String {
     p.to_string_lossy().replace('\\', "/")
 }
 
-pub(crate) fn graph_data(root: &Path, corpus: &Path) -> GraphReport {
-    let nodes = walk_corpus_instances(corpus)
+/// The whole corpus as a graph, for a consumer that will not re-derive it.
+///
+/// Reads the nodes from the [`Corpus`] it is handed rather than walking and parsing its own
+/// (#925) — this module was one of the five that wrote out its own `read_to_string`,
+/// `parse_instance` and `inst.class` by hand. The link half stays here: it is *wider* than
+/// [`crate::corpus::Edges`], which is the gate's reading, and the two are different answers
+/// to different questions — see [`GraphLink::exists`].
+pub(crate) fn graph_data(read: &Corpus) -> GraphReport {
+    let root = read.root();
+    let corpus = read.dir();
+    let nodes = read
+        .nodes()
         .iter()
-        .map(|path| {
-            let text = std::fs::read_to_string(path).unwrap_or_default();
-            let inst = crate::parse::parse_instance(&text);
+        .map(|n| {
+            let path = &n.path;
             let dir = path.parent().unwrap_or(path);
-            let links = inst
+            let links = n
+                .inst
                 .links
-                .unwrap_or_default()
-                .into_iter()
+                .iter()
+                .flatten()
                 .map(|l| {
-                    let target = l.target.unwrap_or_default();
-                    let absolute = normalize(&dir.join(&target));
+                    let target = l.target.clone().unwrap_or_default();
+                    let absolute = resolve_target(path, &target);
                     GraphLink {
                         exists: !target.is_empty() && dir.join(&target).is_file(),
                         resolved: absolute.strip_prefix(corpus).map(slash).unwrap_or_default(),
                         target,
-                        relationship: l.relationship.unwrap_or_default(),
+                        relationship: l.relationship.clone().unwrap_or_default(),
                     }
                 })
                 .collect();
             GraphNode {
                 node: slash(path.strip_prefix(corpus).unwrap_or(path)),
-                class: inst.class.unwrap_or_default(),
-                label: inst.label.unwrap_or_default(),
-                description: inst.description.unwrap_or_default(),
+                class: n.inst.class.clone().unwrap_or_default(),
+                label: n.inst.label.clone().unwrap_or_default(),
+                description: n.inst.description.clone().unwrap_or_default(),
                 links,
             }
         })
         .collect();
 
-    let classes = walk_ont_files(corpus)
+    // Still parsed here, and not taken from [`Corpus::classes`]: this report carries the
+    // ontology's *own* property and edge records (`OntProperty`, `OntEdge`) and a consumer
+    // reads fields that [`crate::corpus::Class`] does not keep. The paths come from the one
+    // read, so the walk is not repeated.
+    let classes = read
+        .ont_paths()
         .iter()
         .map(|path| {
             let text = std::fs::read_to_string(path).unwrap_or_default();
@@ -427,7 +423,7 @@ pub(crate) fn render_neighbors(r: &NeighborsReport) -> String {
 /// Report the neighbourhood of one node.
 pub fn neighbors(id: &str, depth: usize, format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
-    let graph = graph_data(&root, &yidam_corpus_dir(&root));
+    let graph = graph_data(&Corpus::open(&root));
     let data = neighbors_data(&graph, id, depth);
     if format.is_json() {
         return crate::report::emit(&root, data);
@@ -478,7 +474,7 @@ pub(crate) fn render_graph(r: &GraphReport) -> String {
 /// Report the corpus graph: nodes, resolved edges, and the classes that license them.
 pub fn graph(format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
-    let data = graph_data(&root, &yidam_corpus_dir(&root));
+    let data = graph_data(&Corpus::open(&root));
     if format.is_json() {
         return crate::report::emit(&root, data);
     }
@@ -488,6 +484,8 @@ pub fn graph(format: crate::report::Format) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
     use tempfile::TempDir;
 
@@ -515,7 +513,7 @@ mod tests {
         );
         write(&corpus.join("gauge/g.yml"), "class: gauge\nlabel: G\n");
 
-        let r = graph_data(&root, &corpus);
+        let r = graph_data(&Corpus::open(&root));
         let a = r.nodes.iter().find(|n| n.node == "concept/a.yml").unwrap();
         assert_eq!(a.links[0].resolved, "gauge/g.yml");
         assert!(a.links[0].exists);
@@ -530,7 +528,7 @@ mod tests {
             &corpus.join("concept/a.yml"),
             "class: concept\nlabel: A\nlinks:\n  - target: ../gauge/gone.yml\n    relationship: reads\n",
         );
-        let r = graph_data(&root, &corpus);
+        let r = graph_data(&Corpus::open(&root));
         let link = &r.nodes[0].links[0];
         assert!(!link.exists);
         // Resolved anyway: a consumer offering "create this node" needs to know where it
@@ -548,7 +546,7 @@ mod tests {
             &corpus.join("concept/a.yml"),
             "class: concept\nlabel: A\nlinks:\n  - target: ../gauge\n    relationship: reads\n",
         );
-        assert!(!graph_data(&root, &corpus).nodes[0].links[0].exists);
+        assert!(!graph_data(&Corpus::open(&root)).nodes[0].links[0].exists);
     }
 
     #[test]
@@ -561,7 +559,7 @@ mod tests {
              edges:\n  - relationship: reads\n    target: gauge\n    direction: out\n    \
              description: The concept reads a gauge.\n",
         );
-        let r = graph_data(&root, &corpus);
+        let r = graph_data(&Corpus::open(&root));
         let c = &r.classes[0];
         assert_eq!(c.class, "concept");
         assert_eq!(c.properties[0].name, "datum");
@@ -583,7 +581,7 @@ mod tests {
              description: The one that gates.\n\
              \x20 - name: datum\n    type: string\n    description: The one that does not.\n",
         );
-        let r = graph_data(&root, &corpus);
+        let r = graph_data(&Corpus::open(&root));
         let props = &r.classes[0].properties;
         assert!(
             props[0].required,
@@ -615,13 +613,13 @@ mod tests {
     fn a_class_without_a_class_field_is_named_by_its_file() {
         let (_t, root, corpus) = corpus();
         write(&corpus.join("gauge.ont.yml"), "label: Gauge\n");
-        assert_eq!(graph_data(&root, &corpus).classes[0].class, "gauge");
+        assert_eq!(graph_data(&Corpus::open(&root)).classes[0].class, "gauge");
     }
 
     #[test]
     fn the_corpus_root_is_reported_so_nobody_has_to_hardcode_it() {
-        let (_t, root, corpus) = corpus();
-        assert_eq!(graph_data(&root, &corpus).corpus_dir, ".yidam/corpus");
+        let (_t, root, _corpus) = corpus();
+        assert_eq!(graph_data(&Corpus::open(&root)).corpus_dir, ".yidam/corpus");
     }
 
     fn edge(from: &str, to: &str, rel: &str) -> (String, String, String) {
@@ -679,7 +677,7 @@ mod tests {
             &corpus.join("concept.ont.yml"),
             "class: concept\nlabel: Concept\n",
         );
-        let g = graph_data(&root, &corpus);
+        let g = graph_data(&Corpus::open(&root));
         let r = neighbors_data(&g, "concept/a", 1);
         assert_eq!(r.node, "concept/a.yml", "a bare id resolves");
         assert_eq!(r.neighbors.len(), 1);
@@ -689,8 +687,8 @@ mod tests {
 
     #[test]
     fn an_unknown_node_is_an_empty_report_rather_than_an_error() {
-        let (_t, root, corpus) = corpus();
-        let g = graph_data(&root, &corpus);
+        let (_t, root, _corpus) = corpus();
+        let g = graph_data(&Corpus::open(&root));
         let r = neighbors_data(&g, "nowhere/at-all", 1);
         assert!(r.node.is_empty());
         assert!(render_neighbors(&r).contains("not found"));
@@ -698,7 +696,7 @@ mod tests {
 
     #[test]
     fn an_empty_corpus_says_so() {
-        let (_t, root, corpus) = corpus();
-        assert!(render_graph(&graph_data(&root, &corpus)).contains("Empty corpus"));
+        let (_t, root, _corpus) = corpus();
+        assert!(render_graph(&graph_data(&Corpus::open(&root))).contains("Empty corpus"));
     }
 }

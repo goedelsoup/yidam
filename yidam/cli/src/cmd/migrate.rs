@@ -46,7 +46,8 @@ use std::path::{Path, PathBuf};
 use crate::paths::{repo_root, yidam_corpus_dir};
 use crate::walk::{walk_corpus_instances, walk_ont_files};
 
-use super::rename::{normalize, target_on, Edit, Unhandled};
+use super::rename::{target_on, Edit, Unhandled};
+use crate::corpus::resolve_target;
 
 /// Which migration to perform.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -468,8 +469,7 @@ fn plan_class_rename(root: &Path, corpus: &Path, old: &str, new: &str, report: &
             let Some((_, _, value)) = target_on(line) else {
                 continue;
             };
-            let dir = Path::new(&id).parent().unwrap_or(Path::new(""));
-            let resolved = slash(&normalize(&dir.join(&value)));
+            let resolved = slash(&resolve_target(Path::new(&id), &value));
             // What moves is the *class directory*, and every instance sits at exactly
             // `<class>/<file>` — so a rename preserves every instance's depth. A link
             // therefore changes when its TARGET moved, and never merely because its owner
@@ -710,8 +710,7 @@ fn plan_edge_retarget(
             let Some(target) = link.target.as_deref() else {
                 continue;
             };
-            let dir = Path::new(&id).parent().unwrap_or(Path::new(""));
-            let resolved = slash(&normalize(&dir.join(target)));
+            let resolved = slash(&resolve_target(Path::new(&id), target));
             let lands_in = resolved.split('/').next().unwrap_or_default();
             if lands_in == new_target {
                 continue;

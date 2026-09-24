@@ -504,7 +504,7 @@ fn load_citations(root: &Path, nodes: &[Node]) -> std::collections::HashMap<Stri
                 .unwrap_or(&p)
                 .to_string_lossy()
                 .replace('\\', "/");
-            (rel, crate::cmd::lint::checks::normalize(&p))
+            (rel, crate::corpus::normalize(&p))
         })
         .collect();
     if sources.is_empty() {

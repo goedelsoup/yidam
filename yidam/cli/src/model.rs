@@ -302,8 +302,11 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
     // where the instances sit at `corpus/<class>/<file>` (see `cmd::bundle`). One directory
     // up and over. It was root-relative here too, so the bundle's index was dead the same
     // way the README's was, one layer further from anyone who would notice.
-    let corpus_index = render_corpus_index("../corpus/", &corpus_dir);
-    let (graph_check, _) = render_graph_check(root, &corpus_dir);
+    // One reading of the corpus for both renderings, where each used to walk and parse the
+    // tree for itself. See [`crate::corpus::Corpus`].
+    let read = crate::corpus::Corpus::open(root);
+    let corpus_index = render_corpus_index("../corpus/", &read);
+    let (graph_check, _) = render_graph_check(&read);
     let decisions_log = render_decisions_log(&decisions_dir);
     let skills_index = render_skills_index(&skills_dir);
 

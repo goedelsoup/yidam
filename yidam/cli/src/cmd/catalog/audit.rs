@@ -28,15 +28,16 @@
 //! when it says *"no corpus node draws on this source"*. The wording was precise; the
 //! single unlabelled column beside it was not.
 
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 use anyhow::Result;
 
+use crate::corpus::Corpus;
 use crate::parse::parse_frontmatter;
 use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir};
 use crate::regen::update_file_regen;
-use crate::walk::{walk_corpus_instances, walk_md_files};
+use crate::walk::walk_md_files;
 
 /// Who draws on one catalog entry, by repo-relative path.
 ///
@@ -148,13 +149,13 @@ struct CatalogReport {
 ///
 /// Keyed by every link target, not only catalog entries. Filtering to the catalog would mean
 /// deciding here what a catalog path looks like, and the caller already holds the entries.
-pub(super) fn draws_on(root: &Path, corpus: &Path) -> HashMap<PathBuf, Cited> {
-    // What counts as a node comes from the one function that answers that, rather than from
-    // a filter written again here. The duplicated *walk* is the whole of this defect.
-    let instances: HashSet<PathBuf> = walk_corpus_instances(corpus)
-        .iter()
-        .map(|p| crate::cmd::lint::checks::normalize(p))
-        .collect();
+pub(super) fn draws_on(read: &Corpus) -> HashMap<PathBuf, Cited> {
+    let root = read.root();
+    let corpus = read.dir();
+    // Membership is the corpus's own answer (#925) rather than a walk repeated here and a
+    // predicate written beside it. The walk below is wider on purpose — a `README.md` in the
+    // corpus directory cites the catalog too, and it is not a node.
+    let graph = read.edges();
 
     let mut out: HashMap<PathBuf, Cited> = HashMap::new();
     for entry in walkdir::WalkDir::new(corpus)
@@ -168,7 +169,7 @@ pub(super) fn draws_on(root: &Path, corpus: &Path) -> HashMap<PathBuf, Cited> {
         }
         let text = std::fs::read_to_string(path).unwrap_or_default();
         let rel = path.strip_prefix(root).unwrap_or(path).to_string_lossy();
-        let is_node = instances.contains(&crate::cmd::lint::checks::normalize(path));
+        let is_node = graph.holds(path);
         for target in crate::cmd::lint::checks::linked_paths(path, &rel, &text) {
             let c = out.entry(target).or_default();
             if is_node {
@@ -242,7 +243,7 @@ pub fn catalog_audit(format: crate::report::Format) -> Result<()> {
     } else {
         let corpus = yidam_corpus_dir(&root);
         let draws = if corpus.exists() {
-            draws_on(&root, &corpus)
+            draws_on(&Corpus::open(&root))
         } else {
             HashMap::new()
         };
@@ -270,7 +271,7 @@ pub fn catalog_audit(format: crate::report::Format) -> Result<()> {
             // its slug. `lint` had the same defect in its own copy of this count; both now
             // ask one function. See [`crate::cmd::lint::checks::linked_paths`].
             let cited = draws
-                .get(&crate::cmd::lint::checks::normalize(path))
+                .get(&crate::corpus::normalize(path))
                 .cloned()
                 .unwrap_or_default();
             let counts = cited.counts();
@@ -366,6 +367,7 @@ mod artifact_cell_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     fn corpus(root: &Path) -> PathBuf {
         let c = root.join(".yidam/corpus");
@@ -382,9 +384,8 @@ mod tests {
     }
 
     fn cited(root: &Path) -> Cited {
-        let c = root.join(".yidam/corpus");
-        draws_on(root, &c)
-            .get(&crate::cmd::lint::checks::normalize(
+        draws_on(&Corpus::open(root))
+            .get(&crate::corpus::normalize(
                 &root.join(".yidam/catalog/source.md"),
             ))
             .cloned()

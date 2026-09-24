@@ -219,7 +219,7 @@ impl Server {
 
     fn graph(&mut self) -> &GraphReport {
         if self.graph.is_none() {
-            self.graph = Some(graph_data(&self.root, &self.corpus));
+            self.graph = Some(graph_data(&crate::corpus::Corpus::open(&self.root)));
         }
         self.graph.as_ref().expect("just built")
     }
@@ -238,8 +238,7 @@ impl Server {
         if character < start || character > end {
             return None;
         }
-        let dir = Path::new(&id).parent().unwrap_or(Path::new(""));
-        let resolved = rename::normalize(&dir.join(&value))
+        let resolved = crate::corpus::resolve_target(Path::new(&id), &value)
             .to_string_lossy()
             .replace('\\', "/");
         (!resolved.is_empty()).then_some((resolved, start, end))

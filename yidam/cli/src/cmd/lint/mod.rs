@@ -92,10 +92,8 @@ pub(crate) fn commit_verb_severity() -> Severity {
 }
 
 use crate::corpus::Overlay;
-use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir};
-use crate::walk::{
-    walk_corpus_instances, walk_linkable_files, walk_md_files, walk_ont_files, walk_rust_files,
-};
+use crate::paths::repo_root;
+use crate::walk::{walk_linkable_files, walk_md_files, walk_rust_files};
 
 /// How `lint` was invoked.
 #[derive(Debug, Clone, Default)]
@@ -130,13 +128,18 @@ pub fn run_checks(root: &Path, opts: &Options) -> Vec<Check> {
 
 /// Every check, reading through `overlay` rather than straight from disk.
 pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Check> {
-    let corpus_dir = yidam_corpus_dir(root);
-    let catalog_dir = yidam_catalog_dir(root);
-
-    let mut instance_paths = walk_corpus_instances(&corpus_dir);
-    // Plus the buffers that are not files yet — see `Overlay::unsaved_instances`. Empty for
-    // every caller but the language server.
-    instance_paths.extend(overlay.unsaved_instances(&corpus_dir));
+    // One read of the corpus for the whole run (#925). Nodes, classes, sources and the
+    // resolved graph come from here and are loaded at most once each, where this function
+    // used to run three walks and three loaders of its own and every edge-reading check
+    // re-derived the graph from the node list it was handed.
+    //
+    // The overlay is cloned in rather than passed per loader: the buffers the language
+    // server holds are a property of *this corpus*, and the unsaved-instance step that used
+    // to be written out here is now [`Corpus::instance_paths`]'s, which is why no surface
+    // reading a corpus can forget it again.
+    let read = crate::corpus::Corpus::open_with(root, overlay.clone());
+    let corpus_dir = read.dir().to_path_buf();
+    let catalog_dir = read.catalog_dir().to_path_buf();
     // Which disclosure decisions this repository decided for itself. Read here rather than in
     // the check, which stays pure — the same split every other check in this module keeps.
     //
@@ -160,34 +163,25 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         })
         .unwrap_or_default();
 
-    let nodes = crate::corpus::load_nodes(root, &instance_paths, overlay);
-
-    let ont_paths = walk_ont_files(&corpus_dir);
-    let classes = crate::corpus::load_classes(root, &ont_paths, overlay);
+    let nodes = read.nodes();
+    let edges = read.edges();
+    let classes = read.classes();
     // Read through the overlay like every class, so the editor lints an unsaved
     // `universal.yml` against the buffer rather than against the file on disk.
     let universal =
         crate::universal::Universal::parse(&overlay.read(&crate::universal::Universal::path(root)));
-    let defined: HashSet<String> = ont_paths
-        .iter()
-        .filter_map(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .and_then(|n| n.strip_suffix(".ont.yml"))
-                .map(str::to_string)
-        })
-        .collect();
+    let defined: HashSet<String> = read.defined_classes().map(str::to_string).collect();
 
     // What this repository depends on and can actually read. Off disk, in the light build:
     // `--features tonpa` buys the network, and derived-repo CI downloads a binary rather than
     // compiling one — so a citation check behind that feature would never run where it counts.
     let deps = citations::installed(root);
 
-    let catalog_paths = walk_md_files(&catalog_dir);
-    let sources = crate::corpus::load_sources(root, &catalog_paths, overlay);
+    let catalog_paths = read.catalog_paths();
+    let sources = read.sources();
     // `Node` carries the text `load_nodes` already read, so nothing here re-reads the corpus
     // to hand the same bytes to a check a second time.
-    let cites = checks::citations(&sources, &nodes);
+    let cites = checks::citations(sources, nodes);
     // The `type: claim` properties each class declared, so the structural arm of the claim
     // reader sees anything at all. Loaded once and shared: it walks the ontology.
     let claim_fields = crate::claims::ClaimFields::load(&corpus_dir);
@@ -215,7 +209,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     // resolved once here rather than inside the check, so the one wall-clock report in the
     // tool has a single place its clock enters.
     let catalog_ages = ttl::ages(
-        &sources,
+        sources,
         &ttl::committed_dates(root, &catalog_dir),
         crate::config::load_yidam_config(root)
             .map(|c| c.catalog.ttl_days)
@@ -419,24 +413,24 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
 
     // Nodes and classes both: a malformed evidence tag is a defect of prose, and a class file
     // carries prose. Bound here rather than inline because the view borrows from both.
-    let tag_prose = checks::prose_views(&nodes, &classes);
+    let tag_prose = checks::prose_views(nodes, classes);
 
     // One walk of the citations, four readings of it — the same predicate `check_citation`
     // answers from over MCP (#357). Destructured here rather than pushed after the vec, so
     // the four keep their place in the report's order.
-    let [unresolved, span_drift, pin_moved, unpinned] = citations::checks(&nodes, &deps);
+    let [unresolved, span_drift, pin_moved, unpinned] = citations::checks(nodes, &deps);
     // The other direction of the same join: a node resting on a verbatim span of another
     // node in this corpus (RFC-0034). No dependency, no network, no pin — which is why it
     // is the arm every corpus can actually use, and the external four have never had a
     // subject in any measured corpus.
     let [local_unresolved, local_span_drift, local_tag_drift, local_untagged] =
-        local_citations::checks(&nodes, &claim_fields);
+        local_citations::checks(nodes, &claim_fields);
     // The graph's own half of the same discipline (#587): an edge is a claim written as
     // structure, and these are the checks that ask it what it rests on. The third compares
     // that standing to the ones its own endpoints declare (#858), which is why the claim
     // fields go in — a node's standing is a property its class declared `type: claim`.
     let [edge_untagged, edge_verified_unsourced, edge_standing_unheld] =
-        edge_claims::checks(&nodes, &universal, &claim_fields);
+        edge_claims::checks(nodes, edges, &universal, &claim_fields);
     let [scope_unheld, scope_unverifiable] = scope::checks(&scope_audits);
     let [baseline_unmet, baseline_undeclared, holds_unadopted] = lineage::checks(&standings);
     let [commitments_absent, commitments_malformed, position_unindexed, commitment_vanished] =
@@ -459,18 +453,18 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     let mut all = vec![
         // First, because it is the finding that says whether the rest of the report is about
         // the corpus or about what serde made of a file it could not read.
-        checks::malformed_yaml(&nodes, &classes),
-        checks::missing_class(&nodes),
-        checks::unknown_class(&nodes, &defined),
-        checks::orphan_out(&nodes),
-        checks::dangling_edge(&nodes),
-        checks::undeclared_property(&nodes, &classes, &universal),
-        checks::missing_property(&nodes, &classes),
-        checks::node_too_long(&nodes, &classes, &prose_fields),
-        checks::property_type(&nodes, &classes, &universal),
-        checks::unimplemented_class(&classes, &types),
-        checks::unlicensed_edge(&nodes, &classes),
-        checks::edge_target_class(&nodes, &classes),
+        checks::malformed_yaml(nodes, classes),
+        checks::missing_class(nodes),
+        checks::unknown_class(nodes, &defined),
+        checks::orphan_out(nodes),
+        checks::dangling_edge(nodes, edges),
+        checks::undeclared_property(nodes, classes, &universal),
+        checks::missing_property(nodes, classes),
+        checks::node_too_long(nodes, classes, &prose_fields),
+        checks::property_type(nodes, classes, &universal),
+        checks::unimplemented_class(classes, &types),
+        checks::unlicensed_edge(nodes, edges, classes),
+        checks::edge_target_class(nodes, edges, classes),
         edge_untagged,
         edge_verified_unsourced,
         edge_standing_unheld,
@@ -482,26 +476,26 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         local_span_drift,
         local_tag_drift,
         local_untagged,
-        checks::verified_unsourced(&nodes, &sources, &claim_fields),
-        checks::catalog_expired(&catalog_ages, &sources, &cites),
-        checks::catalog_unobtained_but_cited(&sources, &cites),
-        checks::name_not_a_slug(&nodes, &classes),
-        checks::reference_not_in_the_grammar(&nodes),
-        checks::missing_label(&nodes),
-        checks::missing_description(&nodes, &prose_fields),
+        checks::verified_unsourced(nodes, sources, &claim_fields),
+        checks::catalog_expired(&catalog_ages, sources, &cites),
+        checks::catalog_unobtained_but_cited(sources, &cites),
+        checks::name_not_a_slug(nodes, classes),
+        checks::reference_not_in_the_grammar(nodes),
+        checks::missing_label(nodes),
+        checks::missing_description(nodes, &prose_fields),
         checks::claim_tag_malformed(&tag_prose),
-        checks::catalog_used_by_drift(&sources, &cites),
-        checks::catalog_location_malformed(&sources),
-        checks::catalog_artifact_malformed(&sources),
-        checks::catalog_artifact_unroutable(&sources, &declared_vaults),
+        checks::catalog_used_by_drift(sources, &cites),
+        checks::catalog_location_malformed(sources),
+        checks::catalog_artifact_malformed(sources),
+        checks::catalog_artifact_unroutable(sources, &declared_vaults),
         checks::malformed_table(&prose),
         checks::malformed_regen_block(&regen_files),
-        orphan_in_dated(root, &nodes, &classes),
-        checks::catalog_uncited(&sources, &cites),
-        checks::class_asserts_purpose(&classes),
-        checks::class_claim_uncounted(&classes),
-        checks::foundational_field_misspelled(&classes),
-        checks::foundational_type_malformed(&classes),
+        orphan_in_dated(root, nodes, edges, classes),
+        checks::catalog_uncited(sources, &cites),
+        checks::class_asserts_purpose(classes),
+        checks::class_claim_uncounted(classes),
+        checks::foundational_field_misspelled(classes),
+        checks::foundational_type_malformed(classes),
         checks::resolution_annotation_malformed(&annotations),
         checks::resolution_annotation_decides(&annotations),
         checks::resolution_elector_unregistered(&sangha.resolutions, &registered),
@@ -551,7 +545,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         check.escalate_after = escalate_after;
     }
 
-    suppress_unparsed(&mut all, &nodes, &classes);
+    suppress_unparsed(&mut all, nodes, classes);
     all
 }
 
@@ -646,12 +640,13 @@ fn file_of(node: &str) -> &str {
 fn orphan_in_dated(
     root: &Path,
     nodes: &[crate::corpus::Node],
+    edges: &crate::corpus::Edges,
     classes: &[crate::corpus::Class],
 ) -> Check {
     // Declared before the early return, because eligibility is a property of the check and
     // not of what this run happened to find. A corpus with no orphans still wants to be told
     // that arming `escalate_after` would reach this check and nothing else (#774).
-    let mut check = checks::orphan_in(nodes, classes).dated();
+    let mut check = checks::orphan_in(nodes, edges, classes).dated();
     if check.violations.is_empty() {
         return check;
     }

@@ -34,8 +34,9 @@
 
 use anyhow::Result;
 use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
+use crate::corpus::resolve_target;
 use crate::paths::{repo_root, yidam_corpus_dir};
 use crate::walk::{walk_corpus_instances, walk_linkable_files};
 
@@ -88,21 +89,6 @@ pub struct RenameReport {
 
 fn slash(p: &Path) -> String {
     p.to_string_lossy().replace('\\', "/")
-}
-
-/// Resolve `.` and `..` without touching the filesystem.
-pub(crate) fn normalize(p: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for c in p.components() {
-        match c {
-            std::path::Component::ParentDir => {
-                out.pop();
-            }
-            std::path::Component::CurDir => {}
-            other => out.push(other),
-        }
-    }
-    out
 }
 
 /// Accept `concept/old.yml`, `concept/old`, or a repository-relative path.
@@ -219,8 +205,7 @@ pub(crate) fn plan(root: &Path, corpus: &Path, old: &str, new: &str) -> RenameRe
             let Some((_, _, value)) = target_on(line) else {
                 continue;
             };
-            let dir = Path::new(&id).parent().unwrap_or(Path::new(""));
-            let resolved = slash(&normalize(&dir.join(&value)));
+            let resolved = slash(&resolve_target(Path::new(&id), &value));
             let (owner, target) = match moving {
                 // The mover: every target keeps its destination and gains a new origin. One of
                 // them may be the node itself, which is a self-edge and stays one.
@@ -417,6 +402,8 @@ pub fn rename(old: &str, new: &str, dry_run: bool, format: crate::report::Format
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
     use tempfile::TempDir;
 

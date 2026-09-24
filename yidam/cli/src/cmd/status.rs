@@ -1,10 +1,10 @@
 use anyhow::Result;
 use std::path::Path;
 
+use crate::corpus::Corpus;
 use crate::git::{genesis_date, phase_tally};
 use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir, yidam_index_dir};
 use crate::regen::update_file_regen;
-use crate::walk::{walk_corpus_instances, walk_md_files};
 
 #[derive(serde::Serialize)]
 struct StatusReport {
@@ -89,41 +89,37 @@ pub fn status(format: crate::report::Format) -> Result<()> {
     let corpus = yidam_corpus_dir(&root);
     let catalog = yidam_catalog_dir(&root);
 
-    let instances = walk_corpus_instances(&corpus);
-    let node_count = instances.len();
+    // One reading of the tree for all four figures. Each of the two loops below used to
+    // open every instance file and parse it again — the same bytes, twice, for one line of
+    // output. See [`crate::corpus::Corpus`].
+    let read = Corpus::open(&root);
+    let node_count = read.nodes().len();
     let fields = crate::claims::ClaimFields::load(&corpus);
 
-    let open_count = instances
-        .iter()
-        .filter(|p| {
-            let text = std::fs::read_to_string(p).unwrap_or_default();
-            let inst = crate::parse::parse_instance(&text);
-            let label = inst.label.unwrap_or_default();
-            let class = inst.class.unwrap_or_default();
-            crate::claims::has_open_claim(&label, &text, fields.for_class(&class))
-        })
-        .count();
-
+    let mut open_count = 0usize;
     // How much of the corpus is measured against how much is supposed. This is the
     // template's most-adopted convention by a wide margin and nothing reported on it.
     let mut claims = crate::claims::ClaimCounts::default();
     let mut edge_claims = crate::claims::ClaimCounts::default();
-    for p in &instances {
-        let text = std::fs::read_to_string(p).unwrap_or_default();
-        let inst = crate::parse::parse_instance(&text);
-        claims.add(crate::claims::count_in_node(
-            &text,
-            fields.for_class(inst.class.as_deref().unwrap_or_default()),
-        ));
-        edge_claims.add(crate::claims::count_in_edges(&text));
+    for node in read.nodes() {
+        let (text, inst) = (&node.text, &node.inst);
+        let class = inst.class.clone().unwrap_or_default();
+        if crate::claims::has_open_claim(
+            inst.label.as_deref().unwrap_or_default(),
+            text,
+            fields.for_class(&class),
+        ) {
+            open_count += 1;
+        }
+        claims.add(crate::claims::count_in_node(text, fields.for_class(&class)));
+        edge_claims.add(crate::claims::count_in_edges(text));
     }
 
-    let catalog_paths = walk_md_files(&catalog);
-    let catalog_entries = catalog_paths.len();
+    let catalog_entries = read.catalog_paths().len();
     // Expired source records, shown only when there are any. A corpus that declared no TTL
     // is asking nothing here, and a permanent `· 0 expired` is a number nobody can act on.
     let catalog_expired = crate::cmd::lint::ttl::ages(
-        &crate::corpus::load_sources(&root, &catalog_paths, &Default::default()),
+        read.sources(),
         &crate::cmd::lint::ttl::committed_dates(&root, &catalog),
         crate::config::load_yidam_config(&root)
             .map(|c| c.catalog.ttl_days)

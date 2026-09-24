@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 use crate::parse::CATALOG_LOCATION_KINDS;
 
 use super::model::{Check, Severity, Violation};
-use crate::corpus::{edge_views, source_classes, Class, EdgePolicy, Node, Source};
+use crate::corpus::{
+    edge_views, normalize, source_classes, Class, EdgePolicy, Edges, Node, Source,
+};
 
 /// One corpus file's prose and where it lives — all [`claim_tag_malformed`] reads.
 ///
@@ -541,21 +543,37 @@ pub fn orphan_out(nodes: &[Node]) -> Check {
     )
 }
 
-pub fn dangling_edge(nodes: &[Node]) -> Check {
+/// An edge whose target is not there.
+///
+/// Decided on the resolved graph (#925) rather than on a `dir.join(target)` written here, so
+/// this check and `orphan-in` mean the same thing by *resolves* — they used to write the
+/// join out separately, and only one of them normalized.
+///
+/// **A node the corpus holds is never dangling, whether or not it is a file.** That is the
+/// `to.is_some()` arm, and it is the difference between a gate and an editor: `serve --lsp`
+/// reads unsaved buffers as nodes, so a link to a node somebody has typed and not yet saved
+/// resolves to a path that does not exist. On disk the two arms agree — a node came from the
+/// walk — so nothing about a `lint` run changes.
+pub fn dangling_edge(nodes: &[Node], edges: &Edges) -> Check {
     let mut violations = Vec::new();
-    for n in nodes {
-        let dir = n.path.parent().unwrap_or(&n.path);
-        for link in n.inst.links.as_deref().unwrap_or(&[]) {
-            match &link.target {
-                None => violations.push(Violation::new(&n.rel, "link entry with no `target:`")),
-                Some(target) => {
-                    if !dir.join(target).exists() {
-                        violations.push(Violation::new(
-                            &n.rel,
-                            format!("target does not exist: {target}"),
-                        ));
-                    }
-                }
+    for (i, n) in nodes.iter().enumerate() {
+        // The resolved edges, in the order the file wrote them, with the targetless links
+        // skipped — which is exactly the ones reported below. Advanced by `index` rather
+        // than zipped, so the two orders cannot slide past each other.
+        let mut resolved = edges.out(i).iter().peekable();
+        for (index, link) in n.inst.links.iter().flatten().enumerate() {
+            let Some(target) = link.target.as_deref() else {
+                violations.push(Violation::new(&n.rel, "link entry with no `target:`"));
+                continue;
+            };
+            let Some(edge) = resolved.next_if(|e| e.index == index) else {
+                continue;
+            };
+            if edge.to.is_none() && !edge.resolved.exists() {
+                violations.push(Violation::new(
+                    &n.rel,
+                    format!("target does not exist: {target}"),
+                ));
             }
         }
     }
@@ -801,24 +819,16 @@ fn why_not_a_reference(entry: &str) -> Option<String> {
     Some("is not a reference the grammar can resolve".to_string())
 }
 
-pub fn orphan_in(nodes: &[Node], classes: &[Class]) -> Check {
-    let mut targeted: HashSet<PathBuf> = HashSet::new();
-    for n in nodes {
-        let dir = n.path.parent().unwrap_or(&n.path);
-        for link in n.inst.links.as_deref().unwrap_or(&[]) {
-            if let Some(t) = &link.target {
-                // Normalize so `../class/x.yml` and `class/x.yml` compare equal.
-                targeted.insert(normalize(&dir.join(t)));
-            }
-        }
-    }
+pub fn orphan_in(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Check {
     // Classes the ontology says nothing points at. Their instances are exempt: an orphan
     // there is the model holding, not the corpus failing.
     let exempt = source_classes(&edge_views(classes));
 
     let violations = nodes
         .iter()
-        .filter(|n| !targeted.contains(&normalize(&n.path)))
+        .enumerate()
+        .filter(|(i, _)| edges.incoming(*i).is_empty())
+        .map(|(_, n)| n)
         .filter(|n| !exempt.contains(&class_of(n)))
         .map(|n| Violation::new(&n.rel, "nothing links to this node"))
         .collect();
@@ -834,21 +844,6 @@ pub fn orphan_in(nodes: &[Node], classes: &[Class]) -> Check {
          authored this morning legitimately has no inbound edges yet.",
         violations,
     )
-}
-
-/// Resolve `.` and `..` without touching the filesystem.
-pub fn normalize(p: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for c in p.components() {
-        match c {
-            std::path::Component::ParentDir => {
-                out.pop();
-            }
-            std::path::Component::CurDir => {}
-            other => out.push(other),
-        }
-    }
-    out
 }
 
 // ── the class contract ────────────────────────────────────────────────────────
@@ -877,33 +872,6 @@ pub fn normalize(p: &Path) -> PathBuf {
 /// The class that governs an instance, keyed by the directory name that actually governs.
 fn classes_by_name(classes: &[Class]) -> HashMap<&str, &Class> {
     classes.iter().map(|c| (c.name.as_str(), c)).collect()
-}
-
-/// Every instance in the corpus, by its normalized path — what a link target resolves to.
-pub(crate) fn nodes_by_path(nodes: &[Node]) -> HashMap<PathBuf, &Node> {
-    nodes.iter().map(|n| (normalize(&n.path), n)).collect()
-}
-
-/// `(link, target node)` for each of `n`'s links that lands on another instance.
-///
-/// Everything else — the `instance-of` link to the class file, a citation into the catalog,
-/// an edge to a file that is not there — is not an ontology edge and is not licensed here.
-pub(crate) fn instance_links<'a>(
-    n: &'a Node,
-    by_path: &HashMap<PathBuf, &'a Node>,
-) -> Vec<(&'a crate::parse::CorpusLink, &'a Node)> {
-    let dir = n.path.parent().unwrap_or(&n.path);
-    n.inst
-        .links
-        .as_deref()
-        .unwrap_or(&[])
-        .iter()
-        .filter_map(|l| {
-            let target = l.target.as_deref()?;
-            let to = by_path.get(&normalize(&dir.join(target)))?;
-            Some((l, *to))
-        })
-        .collect()
 }
 
 /// The properties an instance actually wrote, in file order.
@@ -1403,11 +1371,10 @@ pub fn property_type(
 /// `bears-on` alone carried 16. The two derived corpora that declare no policy trip this
 /// check zero times whichever way the default falls, so the permissive reading costs
 /// nothing that the strict one was buying.
-pub fn unlicensed_edge(nodes: &[Node], classes: &[Class]) -> Check {
+pub fn unlicensed_edge(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Check {
     let by_name = classes_by_name(classes);
-    let by_path = nodes_by_path(nodes);
     let mut violations = Vec::new();
-    for n in nodes {
+    for (i, n) in nodes.iter().enumerate() {
         let Some(class) = by_name.get(class_of(n).as_str()) else {
             continue;
         };
@@ -1416,8 +1383,12 @@ pub fn unlicensed_edge(nodes: &[Node], classes: &[Class]) -> Check {
         if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic {
             continue;
         }
-        for (link, _) in instance_links(n, &by_path) {
-            let rel = link.relationship.as_deref().unwrap_or_default();
+        for (edge, _) in edges.instance_links(i) {
+            let rel = edge
+                .written_as(n)
+                .relationship
+                .as_deref()
+                .unwrap_or_default();
             if class.edges.iter().any(|e| e.relationship == rel) {
                 continue;
             }
@@ -1469,15 +1440,15 @@ pub fn unlicensed_edge(nodes: &[Node], classes: &[Class]) -> Check {
 /// This is the finding no existing check could produce. `dangling-edge` catches an edge to
 /// nothing; nothing caught an edge to the wrong thing, and an edge to the wrong thing
 /// resolves, traverses, and exports — it is simply false.
-pub fn edge_target_class(nodes: &[Node], classes: &[Class]) -> Check {
+pub fn edge_target_class(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Check {
     let by_name = classes_by_name(classes);
-    let by_path = nodes_by_path(nodes);
     let mut violations = Vec::new();
-    for n in nodes {
+    for (i, n) in nodes.iter().enumerate() {
         let Some(class) = by_name.get(class_of(n).as_str()) else {
             continue;
         };
-        for (link, to) in instance_links(n, &by_path) {
+        for (edge, t) in edges.instance_links(i) {
+            let (link, to) = (edge.written_as(n), &nodes[t]);
             let rel = link.relationship.as_deref().unwrap_or_default();
             // Several declarations may share a relationship name; any one of them licenses
             // the target. A declaration with no `target` has named no class and licenses
@@ -2539,6 +2510,15 @@ pub fn malformed_table(files: &[(String, String)]) -> Check {
 
 #[cfg(test)]
 mod tests {
+
+    /// The resolved graph for a slice of test nodes.
+    ///
+    /// The four edge-reading checks take one rather than each building a path map of their
+    /// own (#925); the driver builds it once per run, and a test builds it from exactly the
+    /// slice it hands the check.
+    fn edges_of(nodes: &[Node]) -> Edges {
+        Edges::build(nodes)
+    }
     use super::*;
 
     /// A corpus declaring no universal properties — the state every corpus starts in, and
@@ -3321,7 +3301,8 @@ mod tests {
             "corpus/other/b.yml",
             "class: c\nlinks:\n  - target: ../reach/a.yml\n",
         );
-        let c = orphan_in(&[a, b], &[]);
+        let nodes = [a, b];
+        let c = orphan_in(&nodes, &edges_of(&nodes), &[]);
         let flagged: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
         assert_eq!(
             flagged,
@@ -3362,10 +3343,8 @@ mod tests {
 
         // `person` declares only outbound edges; `recording` declares an inbound one.
         let classes = [ont("person", "out"), ont("recording", "in")];
-        let c = orphan_in(
-            &[instance("person", "harris"), instance("recording", "scum")],
-            &classes,
-        );
+        let nodes = [instance("person", "harris"), instance("recording", "scum")];
+        let c = orphan_in(&nodes, &edges_of(&nodes), &classes);
 
         let flagged: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
         assert_eq!(
@@ -3521,10 +3500,8 @@ mod tests {
             "a class that declared nothing was read as declaring nothing points at it"
         );
 
-        let c = orphan_in(
-            &[node("corpus/concept/x.yml", "class: c\nlinks: []\n")],
-            &[silent],
-        );
+        let nodes = [node("corpus/concept/x.yml", "class: c\nlinks: []\n")];
+        let c = orphan_in(&nodes, &edges_of(&nodes), &[silent]);
         assert_eq!(
             c.violations.len(),
             1,
@@ -5335,12 +5312,12 @@ edges:
         for c in [
             undeclared_property(&nodes, &classes, &NONE),
             property_type(&nodes, &classes, &NONE),
-            edge_target_class(&nodes, &classes),
+            edge_target_class(&nodes, &edges_of(&nodes), &classes),
         ] {
             assert_eq!(c.severity, Severity::Error, "{} must gate", c.id);
         }
         assert_eq!(
-            unlicensed_edge(&nodes, &classes).severity,
+            unlicensed_edge(&nodes, &edges_of(&nodes), &classes).severity,
             Severity::Warn,
             "an undeclared relationship gates only on a class that closed its vocabulary"
         );
@@ -5362,7 +5339,7 @@ edges:
                 class_from("gage", &format!("{GAGE}{policy}")),
                 class_from("concept", "properties: []\nedges: []\n"),
             ];
-            let c = unlicensed_edge(&nodes, &classes);
+            let c = unlicensed_edge(&nodes, &edges_of(&nodes), &classes);
             let gated = c.violations.iter().filter(|v| c.gates(v)).count();
             (c.violations.len(), gated)
         };
@@ -5403,7 +5380,7 @@ edges:
             "gage",
             &format!("{GAGE}edge_policy: characteristic\n"),
         )];
-        let c = edge_target_class(&nodes, &classes);
+        let c = edge_target_class(&nodes, &edges_of(&nodes), &classes);
         assert_eq!(c.violations.len(), 1, "{c:#?}");
         assert!(c.gates(&c.violations[0]), "a false edge is still false");
     }
@@ -5421,7 +5398,7 @@ edges:
             node(".yidam/corpus/reach/beta.yml", "class: reach\nlinks: []\n"),
         ];
         let classes = vec![class_from("reach", "edges: []\nedge_policy: exhaustive\n")];
-        assert!(unlicensed_edge(&nodes, &classes).passed());
+        assert!(unlicensed_edge(&nodes, &edges_of(&nodes), &classes).passed());
     }
 
     /// A policy the corpus coined is not one this check knows how to honour, and treating it
@@ -5436,7 +5413,7 @@ edges:
             class_from("gage", &format!("{GAGE}edge_policy: closed\n")),
             class_from("concept", "properties: []\nedges: []\n"),
         ];
-        let c = unlicensed_edge(&nodes, &classes);
+        let c = unlicensed_edge(&nodes, &edges_of(&nodes), &classes);
         assert_eq!(c.violations.len(), 1);
         assert!(
             !c.gates(&c.violations[0]),
@@ -5457,8 +5434,8 @@ edges:
         assert!(undeclared_property(&nodes, &silent, &NONE).passed());
         assert!(missing_property(&nodes, &silent).passed());
         assert!(property_type(&nodes, &silent, &NONE).passed());
-        assert!(unlicensed_edge(&nodes, &silent).passed());
-        assert!(edge_target_class(&nodes, &silent).passed());
+        assert!(unlicensed_edge(&nodes, &edges_of(&nodes), &silent).passed());
+        assert!(edge_target_class(&nodes, &edges_of(&nodes), &silent).passed());
     }
 
     /// Each half is read on its own: a class that declares properties and no edges has
@@ -5477,8 +5454,8 @@ edges:
             "reach",
             "properties:\n  - name: datum\n    type: string\n",
         )];
-        assert!(unlicensed_edge(&nodes, &classes).passed());
-        assert!(edge_target_class(&nodes, &classes).passed());
+        assert!(unlicensed_edge(&nodes, &edges_of(&nodes), &classes).passed());
+        assert!(edge_target_class(&nodes, &edges_of(&nodes), &classes).passed());
         assert!(undeclared_property(&nodes, &classes, &NONE).passed());
     }
 
@@ -5663,7 +5640,7 @@ edges:
         let (nodes, classes) = gage_corpus(
             "class: gage\nproperties:\n  parameter: \"00060\"\n  claim_tag: open\nlinks:\n  - target: ../concept/hydropeaking.yml\n    relationship: sourcs-from\n",
         );
-        let c = unlicensed_edge(&nodes, &classes);
+        let c = unlicensed_edge(&nodes, &edges_of(&nodes), &classes);
         assert_eq!(c.violations.len(), 1);
         assert!(c.violations[0].detail.contains("`sourcs-from`"), "{c:#?}");
     }
@@ -5676,8 +5653,8 @@ edges:
         let (nodes, classes) = gage_corpus(
             "class: gage\nproperties:\n  parameter: \"00060\"\n  claim_tag: open\nlinks:\n  - target: ../gage.ont.yml\n    relationship: instance-of\n  - target: ../../catalog/usgs.md\n    relationship: sourced-from\n",
         );
-        assert!(unlicensed_edge(&nodes, &classes).passed());
-        assert!(edge_target_class(&nodes, &classes).passed());
+        assert!(unlicensed_edge(&nodes, &edges_of(&nodes), &classes).passed());
+        assert!(edge_target_class(&nodes, &edges_of(&nodes), &classes).passed());
     }
 
     /// A broken edge is `dangling-edge`'s finding, reported once. It resolves to no node,
@@ -5687,8 +5664,8 @@ edges:
         let (nodes, classes) = gage_corpus(
             "class: gage\nproperties:\n  parameter: \"00060\"\n  claim_tag: open\nlinks:\n  - target: ../concept/gone.yml\n    relationship: sourcs-from\n",
         );
-        assert!(unlicensed_edge(&nodes, &classes).passed());
-        assert_eq!(dangling_edge(&nodes).violations.len(), 1);
+        assert!(unlicensed_edge(&nodes, &edges_of(&nodes), &classes).passed());
+        assert_eq!(dangling_edge(&nodes, &edges_of(&nodes)).violations.len(), 1);
     }
 
     /// The finding no existing check could produce. `dangling-edge` catches an edge to
@@ -5704,11 +5681,11 @@ edges:
         ];
         nodes.sort_by(|a, b| a.rel.cmp(&b.rel));
         let classes = vec![class_from("gage", GAGE)];
-        let c = edge_target_class(&nodes, &classes);
+        let c = edge_target_class(&nodes, &edges_of(&nodes), &classes);
         assert_eq!(c.violations.len(), 1, "{c:#?}");
         assert!(c.violations[0].detail.contains("a gage"), "{c:#?}");
         // …and the relationship itself is declared, so it is not also unlicensed.
-        assert!(unlicensed_edge(&nodes, &classes).passed());
+        assert!(unlicensed_edge(&nodes, &edges_of(&nodes), &classes).passed());
     }
 
     /// A declaration with no `target` has named no class, so it licenses any of them.
@@ -5725,7 +5702,7 @@ edges:
             "reach",
             "edges:\n  - relationship: relates-to\n    direction: out\n",
         )];
-        assert!(edge_target_class(&nodes, &classes).passed());
+        assert!(edge_target_class(&nodes, &edges_of(&nodes), &classes).passed());
     }
 }
 

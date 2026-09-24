@@ -29,7 +29,7 @@ Markdown), so renaming `a/old.yml` → `a/new.yml` silently invalidates every in
 
 The detection *exists but does not gate.* `graph-check` already resolves each outgoing link against
 the filesystem and reports a break
-([`corpus.rs:267-269`](../../yidam/cli/src/cmd/corpus.rs#L267-L269)):
+([`corpus.rs:255-257`](../../yidam/cli/src/cmd/corpus.rs#L255-L257)):
 
 ```rust
 let resolved = dir.join(target);

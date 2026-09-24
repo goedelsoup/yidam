@@ -238,7 +238,7 @@ fn measure(
     // exemption is only computable from the whole ontology. A second in-degree here would be
     // a second answer to a question the gate already settles.
     let orphaned: HashSet<String> =
-        crate::cmd::lint::checks::orphan_in(&after.nodes, &after.classes)
+        crate::cmd::lint::checks::orphan_in(&after.nodes, &after.edges, &after.classes)
             .violations
             .into_iter()
             .map(|v| v.node)

@@ -115,12 +115,12 @@ authoritative for terms this project minted.
 
 ### 3 — Only a struct can say *which corpus, at which revision*
 
-[`qualified_id`](../../yidam/cli/src/model.rs#L413) renders `pkg::class/name` and is the only
+[`qualified_id`](../../yidam/cli/src/model.rs#L416) renders `pkg::class/name` and is the only
 string form carrying a corpus. [`ExternalCitation`](../../yidam/prelude/sdks/rust/src/corpus.rs#L83)
 carries `package`, `node`, `commit` and `tag` — the only identifier in the system that can name a
 foreign node at a known revision, and it is four fields rather than a string, so it cannot appear
 in a resource URI, an RDF subject, a query result, or a rendered citation. Meanwhile
-[`resolve_link_target`](../../yidam/cli/src/model.rs#L430) resolves an on-disk edge from a
+[`resolve_link_target`](../../yidam/cli/src/model.rs#L433) resolves an on-disk edge from a
 relative path, which is a *fifth* convention, and unrelated to any of the above.
 
 ### 4 — Eleven forms, and the count is the argument
@@ -128,9 +128,9 @@ relative path, which is a *fifth* convention, and unrelated to any of the above.
 | Form | Built by | Corpus? | Revision? |
 |---|---|---|---|
 | `class/name` | [`corpus_nodes`](../../yidam/cli/src/model.rs#L460-L483) | — | — |
-| `pkg::class/name` | [`qualified_id`](../../yidam/cli/src/model.rs#L413) | yes | — |
+| `pkg::class/name` | [`qualified_id`](../../yidam/cli/src/model.rs#L416) | yes | — |
 | `.yidam/corpus/class/name.yml` | tolerated by [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L318) | — | — |
-| `../other-class/thing.yml` | [`resolve_link_target`](../../yidam/cli/src/model.rs#L430) | — | — |
+| `../other-class/thing.yml` | [`resolve_link_target`](../../yidam/cli/src/model.rs#L433) | — | — |
 | `yidam://corpus/class/name` | [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56) | — | — |
 | the same string as an RDF subject | [`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L135) | — | — |
 | `file:///…/class/name.yml` | [`path_to_uri`](../../yidam/cli/src/cmd/lsp.rs#L107) | n/a | — |
@@ -158,7 +158,7 @@ kind         node | crate | catalog | skill | decision | issue
 The corpus moves into the authority and the kind into the path, which is the minimal change that
 creates the slot §1 lacks. `<path>` is `<class>/<name>` for `node` and a single segment for the
 others. Every segment in a **conforming** corpus is a slug — the rule
-[`name_not_a_slug`](../../yidam/cli/src/cmd/lint/checks.rs#L652) reports against, through its
+[`name_not_a_slug`](../../yidam/cli/src/cmd/lint/checks.rs#L670) reports against, through its
 predicate [`is_slug`](../../yidam/prelude/sdks/rust/src/uri.rs#L132) — so **no percent-encoding is
 required anywhere in this grammar**, which is why there is one string form and not one per
 encoder.
@@ -297,7 +297,7 @@ Guessing would either invent a conflict on every bundle built before the field o
 
 `yidam_core::uri` parses and renders the grammar and becomes the only place an identifier is
 built or split. It retires [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L318)'s three
-tolerated spellings, [`qualified_id`](../../yidam/cli/src/model.rs#L413),
+tolerated spellings, [`qualified_id`](../../yidam/cli/src/model.rs#L416),
 [`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L135),
 [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56)'s prefix chain and
 [`graph.ts:145`](../../yidam/editors/web/src/lib/graph.ts#L145)'s route builder. It lands on the

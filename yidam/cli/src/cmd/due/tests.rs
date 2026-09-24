@@ -215,10 +215,9 @@ fn a_node_that_does_not_parse_is_still_counted() {
     );
     commit(root, "2026-01-02", "open: whether b holds");
 
-    let listed =
-        crate::cmd::corpus::open_questions_data(root, &crate::paths::yidam_corpus_dir(root))
-            .open_questions
-            .len();
+    let listed = crate::cmd::corpus::open_questions_data(&crate::corpus::Corpus::open(root))
+        .open_questions
+        .len();
     assert_eq!(listed, 1, "the fixture's node is not read as a question");
 
     config(root, "[due]\nquestions_after = 1\n");

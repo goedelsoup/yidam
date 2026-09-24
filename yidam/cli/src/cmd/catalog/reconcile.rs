@@ -42,7 +42,8 @@ use anyhow::{Context, Result};
 use super::audit::draws_on;
 use super::commit::{self, Commit};
 use super::record;
-use crate::cmd::lint::checks::{normalize, used_by_drift, UsedByDrift};
+use crate::cmd::lint::checks::{used_by_drift, UsedByDrift};
+use crate::corpus::normalize;
 use crate::parse::parse_frontmatter;
 use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir};
 use crate::walk::walk_md_files;
@@ -92,7 +93,7 @@ pub fn reconcile(opts: &ReconcileOptions) -> Result<()> {
     let catalog = yidam_catalog_dir(&root);
     let corpus = yidam_corpus_dir(&root);
     let draws = if corpus.exists() {
-        draws_on(&root, &corpus)
+        draws_on(&crate::corpus::Corpus::open(&root))
     } else {
         HashMap::new()
     };
