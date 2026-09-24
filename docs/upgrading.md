@@ -30,18 +30,17 @@ next one. The repair is to rename the heading to the tag.
 
 ### The `web-install`, `web-dev` and `web-build` tasks are gone
 
-**`packages/web/` has been deleted and its three inherited tasks removed (#942).** The
-browser shell over an exported `.yiz` bundle was closed by decision in #236 and not touched
-since; the tasks outlived it in `mise.yidam.toml`, where every derived repository inherited
-them.
+**`packages/web/` has been deleted, and its three inherited tasks with it (#942).** The
+browser shell read an exported `.yiz` bundle. #236 closed it by decision. The tasks outlived
+that decision in `mise.yidam.toml`, which every derived repository inherits.
 
 **What changes for you.** `mise run web-install`, `mise run web-dev` and `mise run web-build`
-no longer resolve. In a derived repository they already could not run — the shell was never
-part of the scaffold, so the `cd packages/web` they each began with had nowhere to land. The
-removal makes that visible at the task list rather than at the prompt.
+no longer resolve. In a derived repository they could not run anyway. Each began with `cd
+packages/web`, and the shell was never part of the scaffold. The removal makes that visible
+in the task list rather than at the prompt.
 
-Nothing replaces them here. RFC-0030 records why a rendered reader is a derived repository's
-own object rather than a template surface.
+Nothing replaces them. RFC-0030 records why a rendered reader is a derived repository's own
+object, not a template surface.
 
 ## cli/v0.14.0
 

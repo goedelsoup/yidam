@@ -57,7 +57,6 @@ pub const NOT_INHERITED: &[&str] = &[
     "docs",
     "examples",
     "install.sh",
-    "packages",
     "release.sh",
     "render-formula.sh",
     "render-manifest.sh",
