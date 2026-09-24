@@ -9,6 +9,7 @@ senses, each sense is named separately below and the docs use the qualified form
 
 | Term | Meaning |
 |------|---------|
+| **yidam** | *The chosen form* — this kind of repository, whose git history is the knowledge rather than a record kept about it. See [what yidam is](what-yidam-is.md) |
 | **corpus** | The living knowledge graph — all domain nodes and their edges |
 | **catalog** | Provenance layer — one node per external data source |
 | **node** | A single file; one concept, relation, artifact node, or open question |
@@ -43,6 +44,7 @@ senses, each sense is named separately below and the docs use the qualified form
 | **position** | One elector's current understanding, carried on their `ma/<elector>` branch. Positions are expected to diverge |
 | **rigpa** | *Clear seeing* — a settled collective understanding; a named branch `rigpa/<evolution>` |
 | **ma** | *Voice, position* — one elector's working branch `ma/<name>` |
+| **propose** | A branch `propose/<head>` of commits `yidam propose` drafted, awaiting a person. Named in plain English deliberately: unlike `ma/` and `rigpa/` it carries no standing |
 | **evolution** | One settled synthesis of positions, named and carried on a `rigpa/<evolution>` branch. The unit a position is measured against |
 | **resolution** | The act of synthesizing divergent positions into an evolution, under the constitution |
 
@@ -53,6 +55,8 @@ senses, each sense is named separately below and the docs use the qualified form
 | **prelude** | Inherited yidam infrastructure: identity, graph model, constitution, conduct norms |
 | **samudaya** | *Arising* — pre-bootstrap seed material; consumed at genesis |
 | **sadhana** | The scaffold template layer; also consumed at genesis |
+| **kuten** | *The form a practice takes* — what a corpus's work is for. A profile under `.yidam/.vendor/prelude/kuten/`, selected with its revision in `.yidam/decisions/kuten.yml`. Binds nobody |
+| **tonpa** | *The one who shows* — a corpus built by another sangha, installed under `.yidam/tonpa/` as a dependency. Cited, never edited |
 | **genesis commit** | The first commit in a derived repo; names domain, seeds ontology |
 | **phase** | A bounded unit of agent inquiry: Investigation, Extraction, Synthesis, or Assessment |
 | **derivation** | A repository bootstrapped from this template. Its corpus is its own; the prelude is inherited |

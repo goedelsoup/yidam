@@ -24,7 +24,8 @@ packages beside it are the domain computer that makes the corpus queryable.
 
 The model this repository runs on is vendored in
 [`.yidam/.vendor/prelude/`](.yidam/.vendor/prelude/) — start with
-[IDENTITY.md](.yidam/.vendor/prelude/IDENTITY.md) and
+[GLOSSARY.md](.yidam/.vendor/prelude/GLOSSARY.md), which is short and defines the vocabulary
+the rest of it assumes, then [IDENTITY.md](.yidam/.vendor/prelude/IDENTITY.md) and
 [GRAPH.md](.yidam/.vendor/prelude/GRAPH.md).
 
 ## Layout

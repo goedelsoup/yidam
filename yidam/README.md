@@ -36,7 +36,8 @@ CLI source there would produce a fork that is never rebuilt.
 
 The prelude is structured as a curriculum. An agent reads it in order before any other action:
 
-- **[SCRIPTURE.md](prelude/SCRIPTURE.md)** — narrative orientation; read first
+- **[GLOSSARY.md](prelude/GLOSSARY.md)** — the borrowed vocabulary every file below uses without explaining; read first, and the shortest file here
+- **[SCRIPTURE.md](prelude/SCRIPTURE.md)** — narrative orientation, and the argument for each word the glossary only glosses. The one file in this list bootstrap's step 1 leaves out, on length
 - **[IDENTITY.md](prelude/IDENTITY.md)** — what this kind of repository is and how to inhabit it
 - **[GRAPH.md](prelude/GRAPH.md)** — how git history encodes knowledge
 - **[CONSTITUTION.md](prelude/CONSTITUTION.md)** — invariant constraints governing sangha resolutions

@@ -80,19 +80,26 @@ Samudaya does not replace the dialogue. It seeds it.
 
 ### 1. Internalize the prelude
 
-Read these six files — and **only** these six files, in this exact order, using their
+Read these seven files — and **only** these seven files, in this exact order, using their
 exact paths. Do **not** run `ls`, `find`, or any directory enumeration of `yidam/prelude/`
 at any point during bootstrapping. Do not read any other file in `yidam/prelude/` (including
 `SCRIPTURE.md` or any file surfaced by enumeration). Do not read
 `yidam/prelude/skills/bootstrap.md` — it is the skill you are currently executing, not a
 file to internalize here.
 
-1. `yidam/prelude/IDENTITY.md` — what kind of knowledge artifact this repo is
-2. `yidam/prelude/GRAPH.md` — the graph model: nodes, edges, commit types, branch semantics
-3. `yidam/prelude/CONSTITUTION.md` — the governance rules that constrain what you may do
-4. `yidam/prelude/PHASES.md` — the named phases of inquiry
-5. `yidam/prelude/guidelines/agent-conduct.md` — specific conduct norms
-6. `yidam/prelude/guidelines/directories.md` — where things live and what belongs in each
+1. `yidam/prelude/GLOSSARY.md` — the borrowed vocabulary the other six use without explaining
+2. `yidam/prelude/IDENTITY.md` — what kind of knowledge artifact this repo is
+3. `yidam/prelude/GRAPH.md` — the graph model: nodes, edges, commit types, branch semantics
+4. `yidam/prelude/CONSTITUTION.md` — the governance rules that constrain what you may do
+5. `yidam/prelude/PHASES.md` — the named phases of inquiry
+6. `yidam/prelude/guidelines/agent-conduct.md` — specific conduct norms
+7. `yidam/prelude/guidelines/directories.md` — where things live and what belongs in each
+
+`GLOSSARY.md` is first and is deliberately the shortest: *rigpa*, *ma*, *samudaya*, *sadhana*,
+*kuten*, *tonpa* and *sangha* are each load-bearing in the six files below and defined in none
+of them. `SCRIPTURE.md` defines them too, but as continuous argument rather than a table — you
+read it through to find a word. That is why it stays out of this list and the glossary stands
+in for it here, and why the glossary links it for the reasoning it does not carry itself.
 
 Two later steps reach a named path under `yidam/prelude/` for a stated purpose, and they are
 the only exceptions: **step 2** lists `yidam/prelude/kuten/` and reads two fields out of the
@@ -110,10 +117,10 @@ judge's criteria, and each scenario's reference description of a good result. No
 teaches you anything about the domain you are bootstrapping, and the criteria you would be
 scored against are not criteria you should be optimizing toward: an agent that has read
 "seed nodes at a consistent level of abstraction" will assert consistency, which is not the
-same as achieving it. What you need in order to do the work well is in these six files and
+same as achieving it. What you need in order to do the work well is in these seven files and
 in the steps below.
 
-After reading all six, output the synthesis as a **standalone message** — do not append
+After reading all seven, output the synthesis as a **standalone message** — do not append
 questions or any other content to it. Wait for the user to acknowledge before opening the
 Step 2 dialogue. This gives the user the opportunity to correct any misread before questions
 begin.
