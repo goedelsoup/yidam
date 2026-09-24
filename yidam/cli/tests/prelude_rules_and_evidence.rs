@@ -71,6 +71,18 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// same reason the floor is: slack is the room a regression needs, and here the regression is an
 /// essay growing back into a rules file.
 ///
+/// **Raised to 17,686 and 22,993 when the glossary arrived (#957).** No-slack is what makes this
+/// number go red on a deliberate addition as readily as on a regression, so a raise has to say
+/// what it bought. Both routes rose by **exactly 354** — the 334-word `GLOSSARY.md` and the
+/// 20-word bullet that puts it on the list — and the equality across two routes with different
+/// read lists is the evidence that nothing else grew under cover of the same edit. Check that
+/// before raising this again: a raise whose delta is not attributable to a named file is a
+/// regression being waved through, which is precisely what a ratchet exists to make visible.
+///
+/// The glossary is also the one file here that reduces the *effective* read rather than adding
+/// to it — six of the files above use *rigpa*, *ma* and *tonpa* as though defined — so the
+/// trade is 354 words against the vocabulary the other 17,332 assume.
+///
 /// **The form does not reach #933's ~3,000 on its own, and the remaining weight says why.**
 /// `directories.md` is the largest file left on the read at 7,295 words, and what is left in it
 /// after the essays moved is reference — what belongs in each of twenty directories, the catalog
@@ -79,7 +91,7 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// scoped to the occasion, where an agent about to write a node is handed the node conventions
 /// and not the vault routing table. That is a separate change to how a route is written, and
 /// this ceiling is what will hold it honest.
-const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 17_332), ("sadhana/root/AGENTS.md", 22_639)];
+const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 17_686), ("sadhana/root/AGENTS.md", 22_993)];
 
 /// Floors on a split pair's combined word count: **the measured post-split total, with no
 /// slack.**
