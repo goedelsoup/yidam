@@ -62,13 +62,25 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// `directories.md` split.
 const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 24_100), ("sadhana/root/AGENTS.md", 29_400)];
 
-/// Floors on a split pair's combined word count.
+/// Floors on a split pair's combined word count: **the measured post-split total, with no
+/// slack.**
 ///
-/// The other half of the discriminator. `agent-conduct.md` and its evidence were 4,723 words as
-/// one file and are 5,399 as two; the floor is the pre-split figure, so the pair may be tidied
-/// but not thinned. A pair absent from this list is not exempt — [`every_pair_has_a_floor`]
-/// fails until somebody records one.
-const PAIR_FLOOR: &[(&str, usize)] = &[("yidam/prelude/guidelines/agent-conduct.md", 4_723)];
+/// The other half of the discriminator, and the half that was wrong first. `agent-conduct.md`
+/// was 4,723 words as one file and is 5,399 as two — headings, two file headers, and the
+/// connective sentence each moved essay needs once it is no longer sitting under the rule it
+/// explains. Setting the floor to the *pre-split* figure looks conservative and is the bug: it
+/// leaves 676 words of slack, and a mutation that trimmed every evidence section to its first
+/// two sentences deleted 531 words of reasoning and stayed green. Slack in this floor is
+/// precisely the room a thinning edit needs.
+///
+/// So the floor is the measurement, and a copy-edit that genuinely retires a word turns it red.
+/// That is the intended cost rather than friction to design around: the one outcome #933 rules
+/// out is losing the reasoning, and making its removal a recorded edit to a constant here is
+/// what "recorded" means. Re-measure, change the number, and say why in the commit.
+///
+/// A pair absent from this list is not exempt — [`every_pair_has_a_floor`] fails until somebody
+/// records one.
+const PAIR_FLOOR: &[(&str, usize)] = &[("yidam/prelude/guidelines/agent-conduct.md", 5_399)];
 
 fn read(rel: &str) -> String {
     let p = repo_root().join(rel);

@@ -168,6 +168,7 @@ const sidebar = [
       { slug: 'rfcs/0035-class-extent', label: '0035 · What a class is meant to span' },
       { slug: 'rfcs/0036-yidam-level-change', label: '0036 · An yidam-level change' },
       { slug: 'rfcs/0037-open-question-marker', label: '0037 · An open question is a node' },
+      { slug: 'rfcs/0038-rules-and-evidence', label: '0038 · A rule is separable from its essay' },
     ],
   },
   {
