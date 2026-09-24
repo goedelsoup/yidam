@@ -45,13 +45,21 @@
 //! costs a heading, a link and a connective sentence to carry twenty words, so four of those
 //! were inlined into the rules file instead. The form holds for a paragraph and is not worth its
 //! scaffolding below about a sentence.
+//!
+//! # Two occasions, two ceilings
+//!
+//! The recurring read is one occasion; a bootstrap is another, and the routes above exclude the
+//! skill on purpose. [`BOOTSTRAP_CEILING`] holds the second — the ten files between a fresh
+//! clone and a first node — because #933 set out to measure exactly that path, quoted a figure
+//! from four of its ten files, and the largest of the ten grew twice during the work that was
+//! meant to shrink it (#960).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 mod common;
 
-use common::{repo_root, tracked_under};
+use common::{repo_root, step_one_read_list, tracked_under, BOOTSTRAP_SKILL};
 
 /// The suffix that marks an evidence file, and the thing that makes a pair discoverable.
 const EVIDENCE_SUFFIX: &str = ".evidence.md";
@@ -92,6 +100,31 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// and not the vault routing table. That is a separate change to how a route is written, and
 /// this ceiling is what will hold it honest.
 const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 17_686), ("sadhana/root/AGENTS.md", 22_993)];
+
+/// Ceiling on the bootstrap path, in words: **the measured figure at `b52e031`, with no slack.**
+///
+/// The path is everything an agent reads between a fresh clone and its first node:
+/// `.claude/CLAUDE.md`, which sends it to `BOOTSTRAP.md`, which sends it to the skill, whose
+/// step 1 lists the prelude. Ten files. #933 published 14,670 words for this path from four
+/// of them, and the figure was quoted forward until #960 counted all ten: **34,142 before the
+/// split, 27,883 after** — an 18.3% cut, and a different claim.
+///
+/// This exists because the split was work whose stated purpose was to shrink this path, and
+/// `bootstrap.md` — the largest file on it at 8,918 words, 32% of the total — grew twice
+/// during it (8,642 → 8,824 → 8,918) with nothing to say so. [`READ_CEILING`] could not: the
+/// recurring read deliberately excludes the skill, because a bootstrap is a different occasion
+/// from a session. So the two ceilings measure two occasions, and a file on both is charged
+/// to both.
+///
+/// The same raise discipline as [`READ_CEILING`]: a raise has to name the file and the words.
+const BOOTSTRAP_CEILING: usize = 27_883;
+
+/// The two files a fresh clone opens before anything under `yidam/prelude/`.
+///
+/// Fixed rather than discovered, because they are the entry by construction: the harness loads
+/// `.claude/CLAUDE.md` unasked, and it names `BOOTSTRAP.md` as the next read. The chain from
+/// there is verified — [`bootstrap_path`] asserts each link before charging the next file.
+const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 
 /// Floors on a split pair's combined word count: **the measured post-split total, with no
 /// slack.**
@@ -262,6 +295,43 @@ fn route_cost(route: &str) -> (usize, Vec<(String, usize)>) {
     (total, parts)
 }
 
+/// Every file on the bootstrap path, in read order, with its words.
+///
+/// Each hop is checked before it is followed: `.claude/CLAUDE.md` has to name `BOOTSTRAP.md`,
+/// `BOOTSTRAP.md` has to link the skill, and the skill's step 1 has to list something. A path
+/// assembled from constants would still total something if a hop were rewritten to point
+/// elsewhere, and the ceiling would then be holding a route no agent walks.
+fn bootstrap_path() -> Vec<(String, usize)> {
+    let [claude_md, bootstrap_md] = ENTRY else {
+        unreachable!("ENTRY is the two files a clone opens first")
+    };
+    assert!(
+        read(claude_md).contains(&format!("`{bootstrap_md}`")),
+        "{claude_md} no longer names {bootstrap_md}; the bootstrap path starts somewhere else now"
+    );
+    assert!(
+        read(bootstrap_md).contains(&format!("]({BOOTSTRAP_SKILL})")),
+        "{bootstrap_md} no longer links {BOOTSTRAP_SKILL}; the bootstrap path goes somewhere \
+         else now"
+    );
+    let step_one = step_one_read_list();
+    assert!(
+        !step_one.is_empty(),
+        "step 1 of {BOOTSTRAP_SKILL} lists no files; the parse broke rather than the list \
+         emptying, and the ceiling would be measuring three files instead of ten"
+    );
+    ENTRY
+        .iter()
+        .map(|s| s.to_string())
+        .chain(std::iter::once(BOOTSTRAP_SKILL.to_string()))
+        .chain(step_one)
+        .map(|rel| {
+            let w = words(&read(&rel));
+            (rel, w)
+        })
+        .collect()
+}
+
 /// `## slug` headings of an evidence file, with the words under each.
 fn evidence_sections(rel: &str) -> BTreeMap<String, usize> {
     let body = read(rel);
@@ -409,6 +479,23 @@ fn the_recurring_read_stays_under_its_ceiling() {
                 .collect::<String>()
         );
     }
+}
+
+#[test]
+fn the_bootstrap_path_stays_under_its_ceiling() {
+    let parts = bootstrap_path();
+    let total: usize = parts.iter().map(|(_, w)| w).sum();
+    assert!(
+        total <= BOOTSTRAP_CEILING,
+        "the bootstrap path is {total} words, over its {BOOTSTRAP_CEILING}-word ceiling. If a \
+         file on it grew on purpose, raise the ceiling by exactly that file's delta and name it \
+         in the commit; if nothing was meant to grow, this is the regression the ceiling is \
+         for.\n{}",
+        parts
+            .iter()
+            .map(|(p, w)| format!("  {w:>7}  {p}\n"))
+            .collect::<String>()
+    );
 }
 
 #[test]
