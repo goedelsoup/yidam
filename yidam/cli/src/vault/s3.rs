@@ -1,12 +1,14 @@
 //! The S3 backend — three verbs, signed, over the `reqwest` already in the default build.
 //!
-//! # It owns its runtime
+//! # It blocks on the runtime, and does not own one
 //!
 //! [`super::Store`] is synchronous, for the reason `store.rs` gives: an async trait would put
 //! `tokio` in the signature of every caller and therefore in the ungated half of this module,
 //! spending what the split bought for operations that are one command invocation rather than
-//! a loop. So the runtime is built here and blocked on here. Nothing above this file knows
-//! there is one.
+//! a loop. So each verb is a future run to completion through [`crate::runtime::block_on`].
+//! Nothing above this file knows there is a runtime, and — since #930 — neither does this
+//! file: it once owned one in a field, and an owned runtime's `block_on` panics on a thread
+//! that is already inside another, which the HTTP server's is.
 //!
 //! # Streaming, in one direction and not the other
 //!
@@ -85,7 +87,6 @@ pub struct S3Store {
     endpoint: String,
     path_style: bool,
     creds: Credentials,
-    runtime: tokio::runtime::Runtime,
     /// A clock, injected so the signing path is exercisable at a fixed time.
     now: fn() -> u64,
 }
@@ -108,17 +109,12 @@ impl S3Store {
         // virtual-host, which is what the absent-endpoint branch gets.
         let path_style = cfg.path_style.unwrap_or(cfg.endpoint.is_some());
         let creds = super::creds::resolve(vault, |k| std::env::var(k).ok())?;
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .context("building the runtime for the S3 transport")?;
         Ok(Self {
             location,
             region,
             endpoint,
             path_style,
             creds,
-            runtime,
             now: unix_now,
         })
     }
@@ -290,7 +286,7 @@ impl Store for S3Store {
         retry::Policy::default().run(|| -> Attempt<bool> {
             let req = self.sign("HEAD", hash, EMPTY_PAYLOAD_SHA256)?;
             let client = self.client()?;
-            self.runtime.block_on(async {
+            crate::runtime::block_on(async {
                 let mut r = client.head(&req.url);
                 for (k, v) in &req.headers {
                     r = r.header(k, v);
@@ -319,7 +315,7 @@ impl Store for S3Store {
             let req = self.sign("GET", hash, EMPTY_PAYLOAD_SHA256)?;
             let client = self.client()?;
             let attempt =
-                self.runtime.block_on(async {
+                crate::runtime::block_on(async {
                     let mut r = client.get(&req.url);
                     for (k, v) in &req.headers {
                         r = r.header(k, v);
@@ -376,7 +372,7 @@ impl Store for S3Store {
             let req = self.sign("PUT", hash, hash.as_str())?;
             let client = self.client()?;
             let src = src.to_path_buf();
-            self.runtime.block_on(async move {
+            crate::runtime::block_on(async move {
                 let file = tokio::fs::File::open(&src)
                     .await
                     .with_context(|| format!("opening {}", src.display()))?;
@@ -433,10 +429,6 @@ mod tests {
                 secret_access_key: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".into(),
                 session_token: None,
             },
-            runtime: tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap(),
             // A fixed clock, so a signature is a function of its inputs and a golden can pin
             // the canonical request. 2015-08-30T12:36:00Z.
             now: || 1440938160,

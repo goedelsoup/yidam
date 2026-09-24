@@ -2,8 +2,9 @@
 //!
 //! # Why the trait is synchronous
 //!
-//! The S3 backend will be async underneath — `reqwest` is. It is still reached through a
-//! synchronous trait, and the runtime is the backend's own business.
+//! The S3 backend is async underneath — `reqwest` is. It is still reached through a
+//! synchronous trait, and the runtime is the business of `crate::runtime`, which the backend
+//! blocks on and nothing above it knows about.
 //!
 //! The alternative is an async trait, which would put `tokio` in the signature of every
 //! caller and therefore in the ungated half of this module. That half exists precisely so a
