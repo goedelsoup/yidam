@@ -169,6 +169,7 @@ const sidebar = [
       { slug: 'rfcs/0036-yidam-level-change', label: '0036 · An yidam-level change' },
       { slug: 'rfcs/0037-open-question-marker', label: '0037 · An open question is a node' },
       { slug: 'rfcs/0038-rules-and-evidence', label: '0038 · A rule is separable from its essay' },
+      { slug: 'rfcs/0039-occasion-scoped-read', label: '0039 · A read is scoped to the occasion' },
     ],
   },
   {
