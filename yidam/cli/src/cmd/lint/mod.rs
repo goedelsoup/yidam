@@ -14,6 +14,7 @@ pub(crate) mod commits;
 pub(crate) mod edge_claims;
 pub(crate) mod history;
 pub(crate) mod independence;
+pub(crate) mod input;
 pub mod json;
 pub(crate) mod line_citations;
 pub(crate) mod lineage;
@@ -93,7 +94,7 @@ pub(crate) fn commit_verb_severity() -> Severity {
 
 use crate::corpus::Overlay;
 use crate::paths::repo_root;
-use crate::walk::{walk_linkable_files, walk_md_files, walk_rust_files};
+use crate::walk::walk_linkable_files;
 
 /// How `lint` was invoked.
 #[derive(Debug, Clone, Default)]
@@ -135,401 +136,20 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     //
     // The overlay is cloned in rather than passed per loader: the buffers the language
     // server holds are a property of *this corpus*, and the unsaved-instance step that used
-    // to be written out here is now [`Corpus::instance_paths`]'s, which is why no surface
-    // reading a corpus can forget it again.
-    let read = crate::corpus::Corpus::open_with(root, overlay.clone());
-    let corpus_dir = read.dir().to_path_buf();
-    let catalog_dir = read.catalog_dir().to_path_buf();
-    // Which disclosure decisions this repository decided for itself. Read here rather than in
-    // the check, which stays pure — the same split every other check in this module keeps.
-    //
-    // A policy that does not compile is not reported as an override: it is a failure, and
-    // `yidam policy check` and `yidam doctor` are where it is reported as one. Swallowing it
-    // into an empty list here would turn a broken rule into a clean gate.
-    let policy_overrides: Vec<(String, String)> = crate::policy::Policies::load(root)
-        .map(|p| {
-            p.origins()
-                .filter_map(|(d, o)| match o {
-                    crate::policy::Origin::Local(path) => Some((
-                        d.to_string(),
-                        path.strip_prefix(root)
-                            .unwrap_or(path)
-                            .to_string_lossy()
-                            .to_string(),
-                    )),
-                    crate::policy::Origin::Inherited => None,
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let nodes = read.nodes();
-    let edges = read.edges();
-    let classes = read.classes();
-    // Read through the overlay like every class, so the editor lints an unsaved
-    // `universal.yml` against the buffer rather than against the file on disk.
-    let universal =
-        crate::universal::Universal::parse(&overlay.read(&crate::universal::Universal::path(root)));
-    let defined: HashSet<String> = read.defined_classes().map(str::to_string).collect();
-
-    // What this repository depends on and can actually read. Off disk, in the light build:
-    // `--features tonpa` buys the network, and derived-repo CI downloads a binary rather than
-    // compiling one — so a citation check behind that feature would never run where it counts.
-    let deps = citations::installed(root);
-
-    let catalog_paths = read.catalog_paths();
-    let sources = read.sources();
-    // `Node` carries the text `load_nodes` already read, so nothing here re-reads the corpus
-    // to hand the same bytes to a check a second time.
-    let cites = checks::citations(sources, nodes);
-    // The `type: claim` properties each class declared, so the structural arm of the claim
-    // reader sees anything at all. Loaded once and shared: it walks the ontology.
-    let claim_fields = crate::claims::ClaimFields::load(&corpus_dir);
-    // Built from the classes already parsed above rather than re-read from disk, and through
-    // the overlay for `universal.yml`, so the editor measures an unsaved declaration. Keyed
-    // by the `.ont.yml` stem, which is the directory an instance's class resolves to — the
-    // same keying `ClaimFields` documents.
-    let prose_fields = crate::prose::ProseFields::from_declarations(
-        universal.prose().to_vec(),
-        classes
-            .iter()
-            .map(|c| crate::prose::Declaration {
-                class: c.name.clone(),
-                keys: c.prose.clone(),
-                properties: c
-                    .properties
-                    .iter()
-                    .filter(|p| p.prose)
-                    .map(|p| p.name.clone())
-                    .collect(),
-            })
-            .collect::<Vec<_>>(),
-    );
-    // How old each source record is, and whether this corpus asked to be told. `today` is
-    // resolved once here rather than inside the check, so the one wall-clock report in the
-    // tool has a single place its clock enters.
-    let catalog_ages = ttl::ages(
-        sources,
-        &ttl::committed_dates(root, &catalog_dir),
-        crate::config::load_yidam_config(root)
-            .map(|c| c.catalog.ttl_days)
-            .unwrap_or_default(),
-        &today_iso(),
-    );
-
-    // Tables are checked wherever a reader meets one: catalog entries and the READMEs
-    // that carry REGEN blocks.
-    let mut prose: Vec<(String, String)> = Vec::new();
-    for p in catalog_paths.iter().chain(
-        [corpus_dir.join("README.md"), catalog_dir.join("README.md")]
-            .iter()
-            .filter(|p| p.exists()),
-    ) {
-        prose.push((
-            p.strip_prefix(root)
-                .unwrap_or(p)
-                .to_string_lossy()
-                .to_string(),
-            overlay.read(p),
-        ));
-    }
-
-    // Resolution records, when this repository runs a sangha at all. Collective mode is
-    // opt-in, so an absent directory is the common case and walks to nothing.
-    let resolutions_dir = crate::paths::yidam_sangha_dir(root).join("resolutions");
-    let mut annotations: Vec<checks::Annotation> = Vec::new();
-    for p in walk_md_files(&resolutions_dir) {
-        let rel = p
-            .strip_prefix(root)
-            .unwrap_or(&p)
-            .to_string_lossy()
-            .to_string();
-        annotations.extend(checks::annotations_in(&rel, &overlay.read(&p)));
-    }
-
-    // The seats the records name, and the seats the registry carries. Read through the
-    // sangha report rather than re-parsed here: a second reading of "who is an elector" is
-    // how a repository comes to be described two ways at once, and `electors.md` is a table
-    // whose column order is the kind of thing that drifts.
-    let sangha = crate::cmd::sangha::sangha_data(root);
-    let registered: Vec<String> = sangha.electors.iter().map(|e| e.branch.clone()).collect();
-
-    // RFC-0012's verification, and its condition is the registry's own declaration: a seat's
-    // tip is verified when, and only when, its row binds a key. Both are empty in a corpus
-    // that binds none — every corpus today — and neither touches git there.
-    let attestations = attest::attest(root, &sangha.electors);
-    let keys_bind_seats = attest::binds_distinct_key_per_seat(&sangha.electors);
-
-    // Article V's node and edge clauses, decided against the tips each record names. The git
-    // reading happens here, where there is a repository; the two checks that consume it are
-    // pure, which is what lets the arm that has never fired in a real corpus be tested at all.
-    // A repository with no resolutions — every corpus not running a sangha — spawns nothing.
-    let scope_audits = scope::audit(root, &sangha.resolutions);
-
-    // What `electors.md` said about each participating seat at that seat's own tip (#823).
-    // Read here and not at HEAD: a seat's row is mutable and a model upgrade is material, so
-    // HEAD would re-judge every past resolution the day somebody bumps a model. Like the
-    // scope audit, the git reading happens where there is a repository and the check stays
-    // pure. A tip this clone does not carry reads as `unrecorded`, which is already the
-    // vocabulary's word for *the registry does not say*.
-    let independence_audits = independence::audit(root, &sangha.resolutions);
-
-    // Where each elector branch stands in the settled line, and what it says about where it
-    // stands. Read here for the same reason the scope audit is: the checks stay pure, and the
-    // refs are the one thing they cannot be handed off disk.
-    let standings = lineage::standings(root, &sangha.resolutions);
-
-    // What each seat's own branch says it is standing on (#294). Read from the branch and not
-    // from the baseline, because a commitments file is never transported — it is an index of one
-    // seat's own grounds, and a resolution that could reach for it would be synthesizing from
-    // something no elector filed as a position. The git reading happens here for the same reason
-    // the two above do: the checks stay pure over what was read.
-    let commitments = commitments::read(root);
-
-    // ── Prose links ─────────────────────────────────────────────────────────────
-    //
-    // Authored markdown, and what counts as authored is declared rather than hard-coded:
-    // see [`crate::authorship`]. `.yidam/.vendor/` used to be named here as the single
-    // exception, on a rationale that generalizes — a defect in the prelude is fixed
-    // upstream and adopted by re-vendoring, so reporting one to a derived repo hands it a
-    // finding it cannot act on. It is now the built-in instance of the general mechanism,
-    // and a repository that is not a vendoring repository can say the same about a
-    // generated directory or a frozen import of its own.
-    //
-    // `docs/` is included — documentation about the repository is authored, and its links
-    // rot the same way. Not `crates/` or `web/`, whose READMEs carry illustrative targets
-    // rather than references to files that are supposed to exist.
-    // ── REGEN blocks (#524) ─────────────────────────────────────────────────────
-    //
-    // Every authored file the generators can write into. The walk is the prose-link walk
-    // plus the repository README, which `yidam status` and `yidam vault-status` write and
-    // which nothing else in this function reads. A file with no markers contributes nothing,
-    // so a walk wider than the generators' own list costs a read and cannot miss a target —
-    // which a list copied from the ten `update_file_regen` call sites would.
+    // to be written out here is now [`crate::corpus::Corpus::instance_paths`]'s, which is
+    // why no surface reading a corpus can forget it again.
+    let corpus = crate::corpus::Corpus::open_with(root, overlay.clone());
+    // Degrades to the built-ins rather than failing: an editor mid-edit must keep getting
+    // answers out of a manifest with a typo in it. `lint` proper reads it through
+    // `Authorship::load` first, where there is an error channel to report the typo on.
     let authorship = crate::authorship::Authorship::load_or_default(root);
-    let mut prose_link_paths: Vec<std::path::PathBuf> = walk_linkable_files(&root.join(".yidam"));
-    prose_link_paths.extend(walk_linkable_files(&root.join("docs")));
+    let input = input::Input::new(root, opts, overlay, &corpus, &authorship);
 
-    let mut regen_files: Vec<(String, String)> = Vec::new();
-    for p in prose_link_paths
+    let mut all: Vec<Check> = ROSTER
         .iter()
-        .chain([root.join("README.md")].iter().filter(|p| p.exists()))
-    {
-        let rel = p
-            .strip_prefix(root)
-            .unwrap_or(p)
-            .to_string_lossy()
-            .to_string();
-        // The same authorship rule the prose-link check applies: a finding in vendored
-        // prelude content is one the derived repository cannot act on.
-        if authorship
-            .covering(&rel)
-            .is_some_and(|r| !r.kind.reportable())
-        {
-            continue;
-        }
-        regen_files.push((rel, overlay.read(p)));
-    }
-
-    let mut prose_links: Vec<checks::ProseLink> = Vec::new();
-    let mut unauthored: Vec<checks::UnauthoredLink> = Vec::new();
-    for p in &prose_link_paths {
-        let rel = p
-            .strip_prefix(root)
-            .unwrap_or(p)
-            .to_string_lossy()
-            .to_string();
-        let region = authorship.covering(&rel);
-        // `excluded` is the one kind that means *do not look*; the file is not even read.
-        if region.is_some_and(|r| !r.kind.reportable()) {
-            continue;
-        }
-        let dir = p.parent().unwrap_or(root);
-        let links = checks::prose_links(&rel, dir, &overlay.read(p));
-        match region {
-            Some(region) => unauthored.extend(
-                links
-                    .into_iter()
-                    .map(|link| checks::UnauthoredLink { region, link }),
-            ),
-            None => prose_links.extend(links),
-        }
-    }
-    let stale_regions = crate::authorship::stale(root, &authorship);
-
-    // The links that also name a line, decided against the cited files — through the
-    // overlay, so the buffer someone is editing a passage out of is the one the citation
-    // is held to. Authored links only: a line citation in vendored or generated prose is
-    // somebody else's to fix, the same judgement `unauthored-prose-link` records.
-    let line_citations = line_citations::collect(root, &prose_links, &|p| overlay.read(p));
-
-    // What this corpus has declared about its own gate. Absent — the common case, and the
-    // case for every repository that has not yet argued about a number — escalates nothing.
-    //
-    // Read leniently: a malformed config must not take the checks down. The gate reports
-    // the file as its own finding elsewhere; here, degrading to "no escalation" fails in
-    // the direction of reporting rather than of failing a build on a number nobody set.
-    let config = crate::config::load_yidam_config(root).unwrap_or_default();
-    let escalate_after = config.lint.escalate_after;
-    // The vault names an artifact record is allowed to route to. Read straight from the
-    // config rather than through `vault::resolve`, deliberately: `resolve` enforces the
-    // one-vault rule, and a corpus that has declared two has a configuration problem rather
-    // than a *catalog* problem. Reporting every artifact as unroutable because a second
-    // vault exists would blame the records for something they did not do.
-    let declared_vaults: Vec<String> = config.vault.keys().cloned().collect();
-
-    // The types `crates/` defines, for the one check whose subject is the ontology and whose
-    // evidence is the code. Read through the overlay like everything else, so the editor
-    // resolves a class against the buffer somebody is deleting a struct out of.
-    //
-    // **Only when a class asked.** The walk is skipped entirely where no class declares
-    // `implemented_by:`, which is every corpus measured and every corpus that predates the
-    // field — so a repository that never opted in pays nothing for a check that would report
-    // nothing.
-    //
-    // Authorship regions are deliberately *not* consulted. Elsewhere a region says whose
-    // finding a file's contents are; here the finding's subject is a class in this
-    // repository's own ontology, and a type is evidence that it exists wherever it lives. A
-    // generated implementation is still an implementation.
-    let types = match classes.iter().any(|c| c.implemented_by.is_some()) {
-        false => checks::TypeIndex::build([]),
-        true => {
-            let paths = walk_rust_files(&root.join("crates"));
-            let texts: Vec<(String, String)> = paths
-                .iter()
-                .map(|p| {
-                    (
-                        p.strip_prefix(root)
-                            .unwrap_or(p)
-                            .to_string_lossy()
-                            .to_string(),
-                        overlay.read(p),
-                    )
-                })
-                .collect();
-            checks::TypeIndex::build(texts.iter().map(|(r, t)| (r.as_str(), t.as_str())))
-        }
-    };
-
-    // Nodes and classes both: a malformed evidence tag is a defect of prose, and a class file
-    // carries prose. Bound here rather than inline because the view borrows from both.
-    let tag_prose = checks::prose_views(nodes, classes);
-
-    // One walk of the citations, four readings of it — the same predicate `check_citation`
-    // answers from over MCP (#357). Destructured here rather than pushed after the vec, so
-    // the four keep their place in the report's order.
-    let [unresolved, span_drift, pin_moved, unpinned] = citations::checks(nodes, &deps);
-    // The other direction of the same join: a node resting on a verbatim span of another
-    // node in this corpus (RFC-0034). No dependency, no network, no pin — which is why it
-    // is the arm every corpus can actually use, and the external four have never had a
-    // subject in any measured corpus.
-    let [local_unresolved, local_span_drift, local_tag_drift, local_untagged] =
-        local_citations::checks(nodes, &claim_fields);
-    // The graph's own half of the same discipline (#587): an edge is a claim written as
-    // structure, and these are the checks that ask it what it rests on. The third compares
-    // that standing to the ones its own endpoints declare (#858), which is why the claim
-    // fields go in — a node's standing is a property its class declared `type: claim`.
-    let [edge_untagged, edge_verified_unsourced, edge_standing_unheld] =
-        edge_claims::checks(nodes, edges, &universal, &claim_fields);
-    let [scope_unheld, scope_unverifiable] = scope::checks(&scope_audits);
-    let [baseline_unmet, baseline_undeclared, holds_unadopted] = lineage::checks(&standings);
-    let [commitments_absent, commitments_malformed, position_unindexed, commitment_vanished] =
-        commitments::checks(&commitments);
-
-    // ── this list is complete, and the compiler is what says so (#680) ────────────
-    //
-    // It is hand-written, which looks like the classic hole: a `pub fn … -> Check` added to
-    // `checks.rs` and not added here would compile, pass its own unit tests, and never run,
-    // and the corpus would report clean.
-    //
-    // It cannot. `mod cmd;` is private (`lib.rs:3`), `lint` and `checks` are `pub(crate)`, and
-    // nothing re-exports them — so a check function no registry calls is unreachable from
-    // outside the crate, and `dead_code` is an **error** under `ci-cli`'s `-D warnings`. Its
-    // own unit test does not save it: the `lib` target is built without `cfg(test)`.
-    //
-    // That guarantee is a property of the privacy, not of this file, and nothing stated it
-    // until `tests/lint_registry.rs` — which asserts each link of that chain, because the day
-    // someone writes `pub use cmd::lint;` the hole opens with nothing going red.
-    let mut all = vec![
-        // First, because it is the finding that says whether the rest of the report is about
-        // the corpus or about what serde made of a file it could not read.
-        checks::malformed_yaml(nodes, classes),
-        checks::missing_class(nodes),
-        checks::unknown_class(nodes, &defined),
-        checks::orphan_out(nodes),
-        checks::dangling_edge(nodes, edges),
-        checks::undeclared_property(nodes, classes, &universal),
-        checks::missing_property(nodes, classes),
-        checks::node_too_long(nodes, classes, &prose_fields),
-        checks::property_type(nodes, classes, &universal),
-        checks::unimplemented_class(classes, &types),
-        checks::unlicensed_edge(nodes, edges, classes),
-        checks::edge_target_class(nodes, edges, classes),
-        edge_untagged,
-        edge_verified_unsourced,
-        edge_standing_unheld,
-        unresolved,
-        span_drift,
-        pin_moved,
-        unpinned,
-        local_unresolved,
-        local_span_drift,
-        local_tag_drift,
-        local_untagged,
-        checks::verified_unsourced(nodes, sources, &claim_fields),
-        checks::catalog_expired(&catalog_ages, sources, &cites),
-        checks::catalog_unobtained_but_cited(sources, &cites),
-        checks::name_not_a_slug(nodes, classes),
-        checks::reference_not_in_the_grammar(nodes),
-        checks::missing_label(nodes),
-        checks::missing_description(nodes, &prose_fields),
-        checks::claim_tag_malformed(&tag_prose),
-        checks::catalog_used_by_drift(sources, &cites),
-        checks::catalog_location_malformed(sources),
-        checks::catalog_artifact_malformed(sources),
-        checks::catalog_artifact_unroutable(sources, &declared_vaults),
-        checks::malformed_table(&prose),
-        checks::malformed_regen_block(&regen_files),
-        orphan_in_dated(root, nodes, edges, classes),
-        checks::catalog_uncited(sources, &cites),
-        checks::class_asserts_purpose(classes),
-        checks::class_claim_uncounted(classes),
-        checks::foundational_field_misspelled(classes),
-        checks::foundational_type_malformed(classes),
-        checks::resolution_annotation_malformed(&annotations),
-        checks::resolution_annotation_decides(&annotations),
-        checks::resolution_elector_unregistered(&sangha.resolutions, &registered),
-        checks::resolution_executor_unrecorded(&sangha.resolutions, keys_bind_seats),
-        independence::independence_mismatch(&independence_audits),
-        attest::elector_signature_unverified(&attestations),
-        scope_unheld,
-        scope_unverifiable,
-        baseline_unmet,
-        baseline_undeclared,
-        holds_unadopted,
-        commitments_absent,
-        commitments_malformed,
-        position_unindexed,
-        commitment_vanished,
-        checks::broken_prose_link(&prose_links),
-        line_citations::dead_line_citation(&line_citations),
-        line_citations::slid_line_citation(&line_citations),
-        line_citations::citation_label_not_cited(&line_citations),
-        line_citations::unverified_line_citation(&line_citations),
-        line_citations::citation_range_stated_twice(&line_citations),
-        checks::unauthored_prose_link(&unauthored),
-        checks::authorship_region_stale(&stale_regions),
-        checks::policy_override(&policy_overrides),
-    ];
-
-    if opts.commits {
-        let subjects = commits::read_subjects(root, opts.range.as_deref());
-        // `[object] paths`, or one register if the repository declares no object — which is
-        // every repository that has not written the key, and every one that ran this before
-        // the key existed.
-        let registers = crate::kuten::Registers::of_repo(root);
-        all.push(commits::unrecognized_verb(&subjects, &registers));
-    }
+        .filter(|e| e.asked.of(opts))
+        .map(|e| e.run(&input))
+        .collect();
 
     // The corpus's threshold, handed to every check rather than to the one that dates.
     //
@@ -541,13 +161,449 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     // would have reported itself escalation-eligible and escalated nothing, which is #774's
     // defect with the halves swapped. Eligibility is now declared once, by `Check::dated`, at
     // the point the ages are attached.
+    let escalate_after = input.escalate_after();
     for check in &mut all {
         check.escalate_after = escalate_after;
     }
 
-    suppress_unparsed(&mut all, nodes, classes);
+    suppress_unparsed(&mut all, corpus.nodes(), corpus.classes());
     all
 }
+
+/// Whether a check runs on every invocation, or only when asked for.
+///
+/// Modelled on `doctor`'s [`Asked`](crate::cmd::doctor), and deliberately *not* the same
+/// answer: doctor reports an unaskable question as `skipped`, because its report is a list of
+/// verdicts about one repository and a question that vanished cannot be told from one that was
+/// never wired in. A lint check is the other shape — its findings are compared against a
+/// baseline keyed by check id, and a check reporting zero findings because nobody asked for it
+/// would resolve every baseline entry it owns. So the entry is left out of the report
+/// entirely, which is what `--commits` has always done.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Asked {
+    /// Every run.
+    Always,
+    /// Only under `--commits`.
+    ///
+    /// The one check whose subject is not the corpus but the history that produced it. It is
+    /// opt-in because reading the log is not free and because a repository being linted
+    /// mid-rebase has a log that is nobody's statement about anything.
+    WithCommits,
+}
+
+impl Asked {
+    fn of(self, opts: &Options) -> bool {
+        match self {
+            Self::Always => true,
+            Self::WithCommits => opts.commits,
+        }
+    }
+}
+
+/// One check: the id it reports under, when it runs, and what produces it.
+struct Entry {
+    /// The id the producer stamps on its own findings. Declared here too, and held to the
+    /// producer by [`tests::the_roster_declares_the_id_each_entry_produces`] — a second
+    /// spelling of a string is a drift risk, and this is the one that pays for itself: it is
+    /// what makes the report's contents readable without running it, and what binds each of
+    /// the twenty group-indexed entries to the right element of its array.
+    id: &'static str,
+    asked: Asked,
+    run: fn(&input::Input) -> Check,
+}
+
+impl Entry {
+    /// Produce this check, and hold the producer to the id declared beside it.
+    ///
+    /// `debug_assert` rather than `assert`: a mismatch is a compile-time fact about two string
+    /// constants, so it is found by the first test run and by every developer build, and there
+    /// is nothing a released binary could usefully do about it that mislabelling one check in
+    /// a report does not do less destructively than aborting the gate.
+    fn run(&self, i: &input::Input) -> Check {
+        let check = (self.run)(i);
+        debug_assert_eq!(
+            self.id, check.id,
+            "the roster declares `{}` and its producer reports `{}` — a group-indexed entry \
+             reaching the wrong element of its array looks exactly like this",
+            self.id, check.id
+        );
+        check
+    }
+}
+
+/// Every check `lint` runs, in the order the report carries them.
+///
+/// **One list, and it is this one.** It replaced a four-hundred-line function that
+/// interleaved sixty heterogeneous calls with the readings they needed (#928); the readings
+/// are [`input::Input`]'s now, and each entry below is one expression. `doctor`'s `ROSTER` is
+/// the same shape for the same reason, and the two should stay recognisable as each other.
+///
+/// ## Why a hand-written list is not the hole it looks like (#680)
+///
+/// A `pub fn … -> Check` added to `checks.rs` and not added here would compile, pass its own
+/// unit tests, and never run — and the corpus would report clean.
+///
+/// It cannot. `mod cmd;` is private (`lib.rs:3`), `lint` and `checks` are `pub(crate)`, and
+/// nothing re-exports them — so a check function no registry calls is unreachable from
+/// outside the crate, and `dead_code` is an **error** under `ci-cli`'s `-D warnings`. Its own
+/// unit test does not save it: the `lib` target is built without `cfg(test)`.
+///
+/// That guarantee is a property of the privacy, not of this file, and nothing stated it until
+/// `tests/lint_registry.rs` — which asserts each link of that chain, because the day someone
+/// writes `pub use cmd::lint;` the hole opens with nothing going red.
+const ROSTER: &[Entry] = &[
+    // First, because it is the finding that says whether the rest of the report is about the
+    // corpus or about what serde made of a file it could not read.
+    Entry {
+        id: checks::MALFORMED_YAML,
+        asked: Asked::Always,
+        run: |i| checks::malformed_yaml(i.nodes(), i.classes()),
+    },
+    Entry {
+        id: "missing-class",
+        asked: Asked::Always,
+        run: |i| checks::missing_class(i.nodes()),
+    },
+    Entry {
+        id: "unknown-class",
+        asked: Asked::Always,
+        run: |i| checks::unknown_class(i.nodes(), i.defined()),
+    },
+    Entry {
+        id: "orphan-out",
+        asked: Asked::Always,
+        run: |i| checks::orphan_out(i.nodes()),
+    },
+    Entry {
+        id: "dangling-edge",
+        asked: Asked::Always,
+        run: |i| checks::dangling_edge(i.nodes(), i.edges()),
+    },
+    Entry {
+        id: "undeclared-property",
+        asked: Asked::Always,
+        run: |i| checks::undeclared_property(i.nodes(), i.classes(), i.universal()),
+    },
+    Entry {
+        id: "missing-property",
+        asked: Asked::Always,
+        run: |i| checks::missing_property(i.nodes(), i.classes()),
+    },
+    Entry {
+        id: "node-too-long",
+        asked: Asked::Always,
+        run: |i| checks::node_too_long(i.nodes(), i.classes(), i.prose_fields()),
+    },
+    Entry {
+        id: "property-type",
+        asked: Asked::Always,
+        run: |i| checks::property_type(i.nodes(), i.classes(), i.universal()),
+    },
+    Entry {
+        id: "unimplemented-class",
+        asked: Asked::Always,
+        run: |i| checks::unimplemented_class(i.classes(), i.types()),
+    },
+    Entry {
+        id: "unlicensed-edge",
+        asked: Asked::Always,
+        run: |i| checks::unlicensed_edge(i.nodes(), i.edges(), i.classes()),
+    },
+    Entry {
+        id: "edge-target-class",
+        asked: Asked::Always,
+        run: |i| checks::edge_target_class(i.nodes(), i.edges(), i.classes()),
+    },
+    Entry {
+        id: edge_claims::UNTAGGED,
+        asked: Asked::Always,
+        run: |i| i.edge_claim_checks()[0].clone(),
+    },
+    Entry {
+        id: edge_claims::VERIFIED_UNSOURCED,
+        asked: Asked::Always,
+        run: |i| i.edge_claim_checks()[1].clone(),
+    },
+    Entry {
+        id: edge_claims::STANDING_UNHELD,
+        asked: Asked::Always,
+        run: |i| i.edge_claim_checks()[2].clone(),
+    },
+    Entry {
+        id: citations::UNRESOLVED,
+        asked: Asked::Always,
+        run: |i| i.citation_checks()[0].clone(),
+    },
+    Entry {
+        id: citations::SPAN_DRIFT,
+        asked: Asked::Always,
+        run: |i| i.citation_checks()[1].clone(),
+    },
+    Entry {
+        id: citations::PIN_MOVED,
+        asked: Asked::Always,
+        run: |i| i.citation_checks()[2].clone(),
+    },
+    Entry {
+        id: citations::UNPINNED,
+        asked: Asked::Always,
+        run: |i| i.citation_checks()[3].clone(),
+    },
+    Entry {
+        id: local_citations::UNRESOLVED,
+        asked: Asked::Always,
+        run: |i| i.local_citation_checks()[0].clone(),
+    },
+    Entry {
+        id: local_citations::SPAN_DRIFT,
+        asked: Asked::Always,
+        run: |i| i.local_citation_checks()[1].clone(),
+    },
+    Entry {
+        id: local_citations::TAG_DRIFT,
+        asked: Asked::Always,
+        run: |i| i.local_citation_checks()[2].clone(),
+    },
+    Entry {
+        id: local_citations::UNTAGGED,
+        asked: Asked::Always,
+        run: |i| i.local_citation_checks()[3].clone(),
+    },
+    Entry {
+        id: "verified-unsourced",
+        asked: Asked::Always,
+        run: |i| checks::verified_unsourced(i.nodes(), i.sources(), i.claim_fields()),
+    },
+    Entry {
+        id: "catalog-expired",
+        asked: Asked::Always,
+        run: |i| checks::catalog_expired(i.catalog_ages(), i.sources(), i.cites()),
+    },
+    Entry {
+        id: "catalog-unobtained-but-cited",
+        asked: Asked::Always,
+        run: |i| checks::catalog_unobtained_but_cited(i.sources(), i.cites()),
+    },
+    Entry {
+        id: "name-not-a-slug",
+        asked: Asked::Always,
+        run: |i| checks::name_not_a_slug(i.nodes(), i.classes()),
+    },
+    Entry {
+        id: "reference-not-in-the-grammar",
+        asked: Asked::Always,
+        run: |i| checks::reference_not_in_the_grammar(i.nodes()),
+    },
+    Entry {
+        id: "missing-label",
+        asked: Asked::Always,
+        run: |i| checks::missing_label(i.nodes()),
+    },
+    Entry {
+        id: "missing-description",
+        asked: Asked::Always,
+        run: |i| checks::missing_description(i.nodes(), i.prose_fields()),
+    },
+    Entry {
+        id: "claim-tag-malformed",
+        asked: Asked::Always,
+        run: |i| checks::claim_tag_malformed(i.tag_prose()),
+    },
+    Entry {
+        id: "catalog-used-by-drift",
+        asked: Asked::Always,
+        run: |i| checks::catalog_used_by_drift(i.sources(), i.cites()),
+    },
+    Entry {
+        id: "catalog-location-malformed",
+        asked: Asked::Always,
+        run: |i| checks::catalog_location_malformed(i.sources()),
+    },
+    Entry {
+        id: "catalog-artifact-malformed",
+        asked: Asked::Always,
+        run: |i| checks::catalog_artifact_malformed(i.sources()),
+    },
+    Entry {
+        id: "catalog-artifact-unroutable",
+        asked: Asked::Always,
+        run: |i| checks::catalog_artifact_unroutable(i.sources(), &i.declared_vaults()),
+    },
+    Entry {
+        id: "malformed-table",
+        asked: Asked::Always,
+        run: |i| checks::malformed_table(i.tables()),
+    },
+    Entry {
+        id: "malformed-regen-block",
+        asked: Asked::Always,
+        run: |i| checks::malformed_regen_block(i.regen_files()),
+    },
+    Entry {
+        id: "orphan-in",
+        asked: Asked::Always,
+        run: orphan_in_dated,
+    },
+    Entry {
+        id: "catalog-uncited",
+        asked: Asked::Always,
+        run: |i| checks::catalog_uncited(i.sources(), i.cites()),
+    },
+    Entry {
+        id: "class-asserts-purpose",
+        asked: Asked::Always,
+        run: |i| checks::class_asserts_purpose(i.classes()),
+    },
+    Entry {
+        id: "class-claim-uncounted",
+        asked: Asked::Always,
+        run: |i| checks::class_claim_uncounted(i.classes()),
+    },
+    Entry {
+        id: "foundational-field-misspelled",
+        asked: Asked::Always,
+        run: |i| checks::foundational_field_misspelled(i.classes()),
+    },
+    Entry {
+        id: "foundational-type-malformed",
+        asked: Asked::Always,
+        run: |i| checks::foundational_type_malformed(i.classes()),
+    },
+    Entry {
+        id: "resolution-annotation-malformed",
+        asked: Asked::Always,
+        run: |i| checks::resolution_annotation_malformed(i.annotations()),
+    },
+    Entry {
+        id: "resolution-annotation-decides",
+        asked: Asked::Always,
+        run: |i| checks::resolution_annotation_decides(i.annotations()),
+    },
+    Entry {
+        id: "resolution-elector-unregistered",
+        asked: Asked::Always,
+        run: |i| checks::resolution_elector_unregistered(&i.sangha().resolutions, i.registered()),
+    },
+    Entry {
+        id: "resolution-executor-unrecorded",
+        asked: Asked::Always,
+        run: |i| {
+            checks::resolution_executor_unrecorded(&i.sangha().resolutions, i.keys_bind_seats())
+        },
+    },
+    Entry {
+        id: "resolution-independence-mismatch",
+        asked: Asked::Always,
+        run: |i| independence::independence_mismatch(i.independence_audits()),
+    },
+    Entry {
+        id: "elector-signature-unverified",
+        asked: Asked::Always,
+        run: |i| attest::elector_signature_unverified(i.attestations()),
+    },
+    Entry {
+        id: "resolution-scope-unheld",
+        asked: Asked::Always,
+        run: |i| i.scope_checks()[0].clone(),
+    },
+    Entry {
+        id: "resolution-scope-unverifiable",
+        asked: Asked::Always,
+        run: |i| i.scope_checks()[1].clone(),
+    },
+    Entry {
+        id: "elector-baseline-unmet",
+        asked: Asked::Always,
+        run: |i| i.lineage_checks()[0].clone(),
+    },
+    Entry {
+        id: "elector-baseline-undeclared",
+        asked: Asked::Always,
+        run: |i| i.lineage_checks()[1].clone(),
+    },
+    Entry {
+        id: "elector-holds-unadopted",
+        asked: Asked::Always,
+        run: |i| i.lineage_checks()[2].clone(),
+    },
+    Entry {
+        id: "elector-commitments-absent",
+        asked: Asked::Always,
+        run: |i| i.commitment_checks()[0].clone(),
+    },
+    Entry {
+        id: "elector-commitments-malformed",
+        asked: Asked::Always,
+        run: |i| i.commitment_checks()[1].clone(),
+    },
+    Entry {
+        id: "elector-position-unindexed",
+        asked: Asked::Always,
+        run: |i| i.commitment_checks()[2].clone(),
+    },
+    Entry {
+        id: "elector-commitment-vanished",
+        asked: Asked::Always,
+        run: |i| i.commitment_checks()[3].clone(),
+    },
+    Entry {
+        id: "broken-prose-link",
+        asked: Asked::Always,
+        run: |i| checks::broken_prose_link(i.prose_links()),
+    },
+    Entry {
+        id: "dead-line-citation",
+        asked: Asked::Always,
+        run: |i| line_citations::dead_line_citation(i.line_citations()),
+    },
+    Entry {
+        id: "slid-line-citation",
+        asked: Asked::Always,
+        run: |i| line_citations::slid_line_citation(i.line_citations()),
+    },
+    Entry {
+        id: "citation-label-not-cited",
+        asked: Asked::Always,
+        run: |i| line_citations::citation_label_not_cited(i.line_citations()),
+    },
+    Entry {
+        id: "unverified-line-citation",
+        asked: Asked::Always,
+        run: |i| line_citations::unverified_line_citation(i.line_citations()),
+    },
+    Entry {
+        id: "citation-range-stated-twice",
+        asked: Asked::Always,
+        run: |i| line_citations::citation_range_stated_twice(i.line_citations()),
+    },
+    Entry {
+        id: "unauthored-prose-link",
+        asked: Asked::Always,
+        run: |i| checks::unauthored_prose_link(i.unauthored()),
+    },
+    Entry {
+        id: "authorship-region-stale",
+        asked: Asked::Always,
+        run: |i| checks::authorship_region_stale(i.stale_regions()),
+    },
+    Entry {
+        id: "policy-override",
+        asked: Asked::Always,
+        run: |i| checks::policy_override(i.policy_overrides()),
+    },
+    Entry {
+        id: "unrecognized-verb",
+        asked: Asked::WithCommits,
+        run: |i| {
+            let subjects = commits::read_subjects(i.root(), i.opts().range.as_deref());
+            // `[object] paths`, or one register if the repository declares no object — which
+            // is every repository that has not written the key, and every one that ran this
+            // before the key existed.
+            let registers = crate::kuten::Registers::of_repo(i.root());
+            commits::unrecognized_verb(&subjects, &registers)
+        },
+    },
+];
 
 /// Drop every finding about a file whose bytes did not parse, except the one that says so.
 ///
@@ -637,20 +693,15 @@ fn file_of(node: &str) -> &str {
 /// distinction is actually drawn in: a node uncited for five commits is a sweep in
 /// progress, one uncited for two hundred is over-collection, and a percentage cannot tell
 /// them apart. That count is what [`Check::severity_of`] escalates on.
-fn orphan_in_dated(
-    root: &Path,
-    nodes: &[crate::corpus::Node],
-    edges: &crate::corpus::Edges,
-    classes: &[crate::corpus::Class],
-) -> Check {
+fn orphan_in_dated(i: &input::Input) -> Check {
     // Declared before the early return, because eligibility is a property of the check and
     // not of what this run happened to find. A corpus with no orphans still wants to be told
     // that arming `escalate_after` would reach this check and nothing else (#774).
-    let mut check = checks::orphan_in(nodes, edges, classes).dated();
+    let mut check = checks::orphan_in(i.nodes(), i.edges(), i.classes()).dated();
     if check.violations.is_empty() {
         return check;
     }
-    let ages = history::uncited_age(root);
+    let ages = history::uncited_age(i.root());
     for v in &mut check.violations {
         let Some(age) = ages.get(&v.node).filter(|a| a.ts > 0) else {
             continue;
@@ -1083,6 +1134,76 @@ decision := {"allow": true, "deny": []}
         let tmp = clean_repo();
         let all = run_checks(tmp.path(), &Options::default());
         assert_eq!(errors(&all), 0, "{all:#?}");
+    }
+
+    // ── #928: the roster ────────────────────────────────────────────────────────
+
+    /// **Every entry reports under the id it declares.**
+    ///
+    /// The roster names each check's id beside its producer, and the producer stamps the id
+    /// on its own findings — two spellings of one string, which is exactly the drift this
+    /// repository keeps finding. This is what makes the duplication safe, and it is not
+    /// ceremony: twenty of the sixty-eight entries reach into an array a producer returns, and
+    /// `i.lineage_checks()[1]` picking the wrong element is a silent mislabelling that
+    /// renames a baseline entry's check and resolves the one it used to own.
+    ///
+    /// Run with `commits: true` so the one conditional entry is asked for too; a roster entry
+    /// nothing exercises is a roster entry nothing holds to anything.
+    #[test]
+    fn the_roster_declares_the_id_each_entry_produces() {
+        let tmp = clean_repo();
+        let opts = Options {
+            commits: true,
+            ..Options::default()
+        };
+        let all = run_checks(tmp.path(), &opts);
+        assert_eq!(
+            all.len(),
+            ROSTER.len(),
+            "every entry runs when `--commits` is asked for"
+        );
+        let declared: Vec<&str> = ROSTER.iter().map(|e| e.id).collect();
+        let reported: Vec<&str> = all.iter().map(|c| c.id).collect();
+        assert_eq!(declared, reported);
+    }
+
+    /// Two entries under one id is a report that describes the same invariant twice and a
+    /// baseline that cannot tell which half it inherited.
+    #[test]
+    fn no_id_appears_in_the_roster_twice() {
+        let mut seen: HashSet<&str> = HashSet::new();
+        let dupes: Vec<&str> = ROSTER
+            .iter()
+            .map(|e| e.id)
+            .filter(|id| !seen.insert(id))
+            .collect();
+        assert!(dupes.is_empty(), "{dupes:?}");
+    }
+
+    /// **The conditional entry is left out, not reported empty.**
+    ///
+    /// `doctor` renders an unaskable question as `skipped`, and this is the case where lint
+    /// must not: the baseline is keyed by check id, so a commit check reporting zero findings
+    /// because nobody passed `--commits` would resolve every entry it owns and the next run
+    /// with the flag would report them all as new. See [`Asked`].
+    #[test]
+    fn the_commit_check_is_absent_without_the_flag_and_present_with_it() {
+        let tmp = clean_repo();
+        let without: Vec<&str> = run_checks(tmp.path(), &Options::default())
+            .iter()
+            .map(|c| c.id)
+            .collect();
+        assert!(!without.contains(&"unrecognized-verb"), "{without:?}");
+        assert_eq!(without.len(), ROSTER.len() - 1);
+
+        let with = run_checks(
+            tmp.path(),
+            &Options {
+                commits: true,
+                ..Options::default()
+            },
+        );
+        assert!(with.iter().any(|c| c.id == "unrecognized-verb"));
     }
 
     #[test]
@@ -1635,20 +1756,6 @@ decision := {"allow": true, "deny": []}
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
         assert!(errors(&all) > 0);
-    }
-
-    #[test]
-    fn the_commit_check_runs_only_when_asked() {
-        let tmp = clean_repo();
-        let without = run_checks(tmp.path(), &Options::default());
-        let with = run_checks(
-            tmp.path(),
-            &Options {
-                commits: true,
-                ..Default::default()
-            },
-        );
-        assert_eq!(with.len(), without.len() + 1);
     }
 
     #[test]

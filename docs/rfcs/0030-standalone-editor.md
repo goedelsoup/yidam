@@ -356,7 +356,7 @@ most expensive thing in the document. The original said so, about this design, a
 
 That bridge is now the plan. [`Overlay`](../../yidam/cli/src/corpus/overlay.rs#L15) is a
 `pub struct` in the lint module, and
-[`run_checks_with`](../../yidam/cli/src/cmd/lint/mod.rs#L130) is the entry point the language
+[`run_checks_with`](../../yidam/cli/src/cmd/lint/mod.rs#L131) is the entry point the language
 server calls on every change ([`lsp.rs:250`](../../yidam/cli/src/cmd/lsp.rs#L250)) — but it is
 reachable only through `serve --lsp`. `yidam lint` has no overlay flag, and the extension is no
 prior art here: it carries no LSP client and no dependencies at all, running `lint --format json`
