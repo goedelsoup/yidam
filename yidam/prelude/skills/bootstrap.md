@@ -14,6 +14,14 @@ with a legible genesis commit. Works in two modes:
   as a knowledge-graph overlay on the existing structure. Step 1.5 explores what is already
   present before the ontology dialogue; steps 3, 6, and 8 adapt accordingly.
 
+**How to read this file.** Every instruction below is one you can execute. The incident that
+produced an instruction, the measurement that set its number, and the failure it was built
+against are in [bootstrap.evidence.md](bootstrap.evidence.md) — one section per instruction,
+reached by the `[why]` link beside it. Read an instruction's evidence when it seems wrong for
+the repository in front of you, when you are about to deviate from it, or when you are
+changing this skill. You do not need it in order to bootstrap, and it is not one of step 1's
+seven files.
+
 ## Pre-flight
 
 Before any step, run:
@@ -95,30 +103,21 @@ file to internalize here.
 6. `yidam/prelude/guidelines/agent-conduct.md` — specific conduct norms
 7. `yidam/prelude/guidelines/directories.md` — where things live and what belongs in each
 
-`GLOSSARY.md` is first and is deliberately the shortest: *rigpa*, *ma*, *samudaya*, *sadhana*,
-*kuten*, *tonpa* and *sangha* are each load-bearing in the six files below and defined in none
-of them. `SCRIPTURE.md` defines them too, but as continuous argument rather than a table — you
-read it through to find a word. That is why it stays out of this list and the glossary stands
-in for it here, and why the glossary links it for the reasoning it does not carry itself.
+`GLOSSARY.md` is first and is deliberately the shortest: the six files below use its words
+without defining them. [why](bootstrap.evidence.md#glossary-first)
 
-Two later steps reach a named path under `yidam/prelude/` for a stated purpose, and they are
-the only exceptions: **step 2** lists `yidam/prelude/kuten/` and reads two fields out of the
-profile the user confirms, and **step 5** lists `yidam/prelude/domains/` to see what a
-calculator could call into. Each says which path it reads and which field it takes from it.
-Nothing else under `yidam/prelude/` is opened at any point. The ban above is on wandering —
-on enumerating a directory to see what turns up and reading whatever does — and a step that
-names the path and the field before it reads is not wandering. Step 5 has directed its
-listing for as long as that paragraph has forbidden one, and the unqualified ban was the half
-that was wrong.
+Three kinds of read reach a named path under `yidam/prelude/` for a stated purpose, and they
+are the only exceptions: **step 2** lists `yidam/prelude/kuten/` and reads two fields out of
+the profile the user confirms; **step 5** lists `yidam/prelude/domains/` to see what a
+calculator could call into; and a `[why]` link in this skill names one section of
+`bootstrap.evidence.md`, which you may follow when an instruction seems wrong for the
+repository in front of you and need never follow otherwise. Each names the path it reads and
+the field it takes from it. Nothing else under `yidam/prelude/` is opened at any point.
+[why](bootstrap.evidence.md#named-reads-are-not-wandering)
 
 `yidam/tests/` is deliberately absent from this list, and absent from the repository you are
-working in. It holds how the yidam template tests itself — the harness, the rubric, the
-judge's criteria, and each scenario's reference description of a good result. None of it
-teaches you anything about the domain you are bootstrapping, and the criteria you would be
-scored against are not criteria you should be optimizing toward: an agent that has read
-"seed nodes at a consistent level of abstraction" will assert consistency, which is not the
-same as achieving it. What you need in order to do the work well is in these seven files and
-in the steps below.
+working in. What you need in order to do the work well is in these seven files and in the
+steps below. [why](bootstrap.evidence.md#tests-are-not-curriculum)
 
 After reading all seven, output the synthesis as a **standalone message** — do not append
 questions or any other content to it. Wait for the user to acknowledge before opening the
@@ -219,12 +218,9 @@ confirmed above. State the computed number, not a fixed one, when you ask:
 > **How many seed instances should the initial corpus contain?** [default: `<2 × class
 > count, minimum 13>`]
 
-A flat default of 13 was measured (#583, A0) against thirteen derived repositories that
-recorded a `corpus_depth`: it was accepted twice in thirteen, and the median chosen was 26
-— double it. "Two per class, minimum 13" would have produced 24–36 for most of that
-population, which is where people actually landed. The user may give a different number or
-press enter to accept the computed default. Record it as `corpus_depth` in the decision
-record — step 6 distributes instances across classes to reach this target.
+The user may give a different number or press enter to accept the computed default. Record
+it as `corpus_depth` in the decision record — step 6 distributes instances across classes to
+reach this target. [why](bootstrap.evidence.md#seed-count-default)
 
 Finally, ask the governance question — by name, not by count:
 
@@ -240,14 +236,11 @@ Finally, ask the governance question — by name, not by count:
 > them into `rigpa/<evolution>` baselines under the constitution.
 
 A person who cannot name a second elector has answered the question: record
-`single-elector` and move on, rather than treating "one elector, or several?" as a choice
-between two modes of the same weight. Record the answer as `governance: single-elector |
+`single-elector` and move on. Record the answer as `governance: single-elector |
 collective`, with the named electors listed under `electors:`. Do not choose `collective`
-because it sounds more capable — it is a real protocol with real overhead, scaffolded now
-(step 3 creates five files for it), and a repository that names one elector but adopts it
-anyway has paid for machinery it does not use. If only one name comes up, take
-`single-elector`; the sangha can be adopted later by scaffolding `.yidam/sangha/` when a
-second elector actually appears and can be named.
+because it sounds more capable. If only one name comes up, take `single-elector`; the sangha
+can be adopted later by scaffolding `.yidam/sangha/` when a second elector actually appears
+and can be named. [why](bootstrap.evidence.md#single-elector-is-an-answer)
 
 Then write the ontology decision record, including the chosen alignment, corpus depth, and
 governance mode, before proceeding to step 3:
@@ -298,9 +291,8 @@ typing a number you remember.
 > state**, and `yidam kuten check` reports it as one and exits zero.
 
 If the listing turns up more than one profile, give each its own line — name and gloss, in
-the profile's own words — and ask which. Do not rank them and do not recommend one. A
-practice the user does not recognize as theirs is a declaration that will be diverged from on
-the first commit, and divergence is the one thing this layer exists to make legible.
+the profile's own words — and ask which. Do not rank them and do not recommend one.
+[why](bootstrap.evidence.md#do-not-rank-profiles)
 
 If the directory is absent or the listing is empty — an existing repository that was overlaid
 without the template tree — there is no profile to confirm and nothing to vendor. Say so, ask
@@ -327,9 +319,7 @@ rationale: |
 ```
 
 `kuten:` and `revision:` are the two fields a tool reads; the rest is for a person and for
-`yidam decisions-log`. The revision is recorded because a kuten is read at the vintage the
-repository holds and never at upstream's current one — and if the two ever disagree, after a
-re-vendor say, `yidam kuten` says so in `AGENTS.md` rather than quietly picking one.
+`yidam decisions-log`. [why](bootstrap.evidence.md#revision-is-copied)
 
 ### 3. Orient to and scaffold the derived-repo structure
 
@@ -377,16 +367,10 @@ web/README.md
 
 **Create on first use, not now:** `agents/`, `packages/`, and `docs/`. Their sadhana
 templates exist and are the right content — but scaffold them the day something goes in
-them, not at genesis. An empty directory with a README explaining what it would contain is
-indistinguishable from an abandoned one, which is the argument for deferral — not the count
-of what arrived. Measured across fifteen derived repositories, `packages/` stayed empty in
-14 of 15, but `agents/` received 11 domain agents across 4 repositories and `docs/` received
-53 files across 6: the deferral does not mean these directories go unused, only that they
-are created the day a repeatable need for them emerges rather than speculatively at genesis
-— the same argument `sadhana/skills/README.md` already makes for skills ("Add skills when a
-repeatable procedure emerges from inquiry — not preemptively"). Note them in step 9 instead,
-so the user knows they exist as conventions. The `yidam` CLI treats all three as optional —
-`agents-index` and `packages-index` are no-ops when the directory is absent.
+them, not at genesis. Note them in step 9 instead, so the user knows they exist as
+conventions. The `yidam` CLI treats all three as optional — `agents-index` and
+`packages-index` are no-ops when the directory is absent.
+[why](bootstrap.evidence.md#create-on-first-use)
 
 **`.yidam/sangha/` — only if `governance: collective`.** Read the governance mode recorded
 in `.yidam/decisions/ontology.yml` in step 2:
@@ -410,25 +394,15 @@ sadhana/root/gitignore            → .gitignore           (overwrites yidam's)
 sadhana/root/PRACTICE.md          → PRACTICE.md          (yidam keeps no copy)
 ```
 
-Yidam's copies of the first six files describe yidam — its harness, its CLI workspace, its
-bootstrap-mode entry check. Left in place they are wrong the moment genesis is written.
-Overwrite all six now. Do not merge yidam's content into them. `PRACTICE.md` is the one
-root file yidam keeps no copy of — the template's history is a CLI's, not a corpus's — so
-it installs new rather than overwriting; step 8.5's `yidam regen` fills its block.
+Overwrite all six now. Do not merge yidam's content into them. `PRACTICE.md` installs new
+rather than overwriting; step 8.5's `yidam regen` fills its block.
+[why](bootstrap.evidence.md#overwrite-do-not-merge)
 
 **`.github/workflows/` — replace the directory, do not overwrite files inside it.** In
 existing-repo mode the target's own workflows are there and are not this scaffold's; in
 template mode `yidam clone` now excludes `.github/` outright, so the directory arrives
 empty. Either way the instruction is the same one, and it is a replacement rather than a
-merge because yidam's own workflows each name a layout that does not survive genesis:
-`ci.yml` builds `yidam/cli` and `yidam/tests/harness`, paths step 8 deletes, so it would go
-green having compiled nothing; `release.yml` publishes the yidam CLI's binaries from a
-repository that has no CLI to publish; `docs.yml`, `editor.yml`, `install-channels.yml`,
-`publish-crates.yml`, and `tap.yml` each reference a directory or a publishing target this
-repository does not have. Naming and overwriting only two of them, as this step used to,
-leaves the rest behind — nothing here objects to correct YAML naming a path that used to
-exist, and the first push a derived repository makes to a remote is the moment one of them
-runs and fails (#589).
+merge. [why](bootstrap.evidence.md#replace-the-workflows-directory)
 
 Delete the directory entirely and replace it wholesale:
 
@@ -439,25 +413,15 @@ cp sadhana/github/workflows/*.yml .github/workflows/
 ```
 
 **Enumerate `sadhana/github/workflows/`; do not name its files in prose.** `ls
-sadhana/github/workflows/` is the source of truth for what belongs at genesis — naming files
-here is exactly the drift that left `index.yml` uninstalled for as long as it existed
-alongside `ci.yml` and `release.yml`, its own header claiming an install this step never
-performed. Whatever the directory holds when this step runs is what the derived repository
-gets, in full, and nothing of yidam's own remains beside it.
+sadhana/github/workflows/` is the source of truth for what belongs at genesis. Whatever the
+directory holds when this step runs is what the derived repository gets, in full, and
+nothing of yidam's own remains beside it. [why](bootstrap.evidence.md#enumerate-the-workflows)
 
-`gitattributes` and `gitignore` are spelled without their dots for the same reason `root/`
-and `github/` are: `ls sadhana/` is a step in this skill and a dotfile would not appear in
-it. `.gitattributes` arrives holding only comments — the rule about connector fixtures and
-line endings, which costs nothing until the first connector lands and is unrecoverable
-advice afterwards.
+`gitattributes` and `gitignore` are spelled without their dots, and install with them.
+[why](bootstrap.evidence.md#dotless-template-names)
 
-`.gitignore` is the one of the six overwrites most easily mistaken for generic, and it is not.
-Yidam's own ignores `.local/` — where *its* binary installs — and a path under
-`yidam/tests/`, which the vendor step in step 8 deletes; the rule outlives the directory it
-names by the length of the repository's life. What this file needs instead is organized
-around a hazard a derived repository has and yidam does not: both this skill and
-`PROTOCOL.md` prescribe `git add -A`, so anything that appears in the working tree without
-somebody putting it there is one prescribed command away from the corpus.
+`.gitignore` is the one of the six overwrites most easily mistaken for generic, and it is not:
+overwrite it too. [why](bootstrap.evidence.md#gitignore-is-not-generic)
 
 Each README may contain a `<!-- TEMPLATE -->` comment block marking fields that need
 domain-specific content. Fill every such block now, before proceeding. These are the only
@@ -480,10 +444,8 @@ Render each node from the confirmed sketch as a domain class definition in `.yid
 Each file defines what that class of thing is — its properties and its edge participation.
 One file per class; the filename matches the class name exactly.
 
-One class per file, and one *concept* per class. Two ideas fused into a single class —
-`site-and-region`, `event-or-interval` — cannot be linked to separately afterwards, and the
-edge that wanted only one of them has nowhere to land. If a class name needs an "and" or an
-"or", it is two classes.
+One class per file, and one *concept* per class. If a class name needs an "and" or an "or",
+it is two classes. [why](bootstrap.evidence.md#one-concept-per-class)
 
 ```yaml
 class: <name>
@@ -562,12 +524,9 @@ calculator would draw on, or `—` if none fits.
 
 This is the only point in the bootstrap where that layer is visible, and the selection has a
 consequence in step 8: **only the domains named here are vendored.** A repository that names
-none gets no `domains/` directory, which is the right outcome — fourteen of the fifteen are
-wrong for any given corpus, and a library nothing can build is indistinguishable from an
-abandoned one. Naming a domain is cheap and reversible; carrying all fifteen is neither.
-
-Do not name a domain because it sounds adjacent. The question is whether a calculator in this
-table would call a function in it.
+none gets no `domains/` directory. Do not name a domain because it sounds adjacent. The
+question is whether a calculator in this table would call a function in it.
+[why](bootstrap.evidence.md#only-named-domains-are-vendored)
 
 This step produces a report only. Do not modify any file. Wait for the user to confirm,
 modify, or discard individual items. Only what the user approves is carried into step 7.
@@ -631,15 +590,13 @@ links:
 Each instance must carry at least one outgoing link to another node. Be specific enough to
 be wrong — a vague placeholder is not an object.
 
-An edge is a claim that two things are related, and the `relationship` says how. A link to a
-README, to a directory, or to the class definition alone is a citation rather than a
-relationship: it satisfies the count and adds no knowledge. The `instance-of` link to
-`../<class>.ont.yml` is structural and does not discharge this — every instance needs at
-least one edge to another *instance*.
+An edge is a claim that two things are related, and the `relationship` says how. The
+`instance-of` link to `../<class>.ont.yml` is structural and does not discharge this — every
+instance needs at least one edge to another *instance*.
+[why](bootstrap.evidence.md#a-link-is-not-an-edge)
 
-Keep the seed set at one level of abstraction. A corpus whose nodes are three fields and one
-named specimen reads as two corpora, and the edges between the levels carry the confusion
-rather than resolving it.
+Keep the seed set at one level of abstraction.
+[why](bootstrap.evidence.md#one-level-of-abstraction)
 
 **Distribution** — allocate instances across classes to hit `corpus_depth` total, with a
 minimum of 1 per class **where the sources support one**. Give more instances to hub classes
@@ -651,23 +608,12 @@ instance with real content is worth more than several shallow stubs.
 `.ont.yml`, its directory, its README and its ACTIONS file, and it holds no instance nodes.
 Do not invent one to satisfy the minimum, and do not stop and wait — ask for the material
 once, and if it is not forthcoming, seed what the sources support and record the shortfall.
+An empty class is a gap anyone can see; a fabricated instance passes every check this
+repository runs and has to be *found* before it can be removed.
 
-The pressure to fabricate is strongest here and the reason is worth stating, because the
-`corpus_depth` you are short of is a number a user picked and the empty directory looks like
-a failure to meet it. A fabricated instance would not look like a placeholder. It would be
-well-formed, correctly typed, correctly linked, and it would pass every check this repository
-runs — `graph-check` reads structure and `edge-target-class` asks whether an edge landed on
-the right class, and neither asks whether a claim is true. It would sit among the sourced
-nodes and be lent credibility by every one of them.
-
-The asymmetry decides it. An empty class is a gap visible to everyone who opens the
-directory, it costs nothing but the seeding work to close, and it is closed correctly the
-first time someone supplies the real material. A fabricated instance has to be *found* before
-it can be removed, and until it is found the corpus asserts it.
-
-`corpus_depth` was chosen in step 2, before anyone knew what the sources covered. It is a
-target and not a quota, and it is not revised here — leave it as written, and let the record
-below say what was actually seeded and why the two numbers differ.
+`corpus_depth` is a target and not a quota, and it is not revised here — leave it as written,
+and let the record below say what was actually seeded and why the two numbers differ.
+[why](bootstrap.evidence.md#leave-the-class-empty)
 
 **Record the shortfall.** If the seeded count is short of `corpus_depth`, or any class is
 empty, write this before moving on:
@@ -690,9 +636,7 @@ rationale: |
   in particular, name any calculator approved in step 5 that now has nothing to read>
 ```
 
-The last clause is the one that is easy to leave out and matters most. A calculator whose
-inputs are all in the empty classes is a stub for a reason that has nothing to do with the
-calculator, and step 7 will not be able to tell the difference.
+Do not leave the last clause out. [why](bootstrap.evidence.md#name-the-starved-calculator)
 
 **Existing-repo mode**: instances may represent existing repository artifacts directly. Add
 a `source_path:` property pointing to the relevant existing file or directory, and link to
@@ -717,19 +661,14 @@ class directory, and every instance. Then act on what the user approved in step 
 relevant instance `.yml` files. An implied edge resolves a missing relationship between
 specific objects; it does not add new content to instances.
 
-Add only the edges you can defend. This step reads the whole corpus at once and every pair of
-instances looks like it could be related, which is the condition under which a plausible
-relationship gets written as a settled one. An edge is a claim — see
-[agent-conduct](../guidelines/agent-conduct.md), "An edge is a claim" — and the cost is
-asymmetric: a missing edge is a gap somebody finds and fills, while a wrong edge is something
-the corpus now asserts, made credible by every correct edge around it.
-
-For each edge before you write it: could you say, in one sentence, why this relationship holds
-in this domain? If yes, write it, and put that sentence in the node body. If the honest answer
-is that these two things are associated but you could not say how, use the weakest relationship
-that is true rather than the most interesting one that might be. If you cannot do either, do
-not write the edge — and if it was approved in step 5, say so in the report rather than
-quietly dropping it.
+Add only the edges you can defend. An edge is a claim — see
+[agent-conduct](../guidelines/agent-conduct.md), "An edge is a claim". For each edge before
+you write it: could you say, in one sentence, why this relationship holds in this domain? If
+yes, write it, and put that sentence in the node body. If the honest answer is that these two
+things are associated but you could not say how, use the weakest relationship that is true
+rather than the most interesting one that might be. If you cannot do either, do not write the
+edge — and if it was approved in step 5, say so in the report rather than quietly dropping
+it. [why](bootstrap.evidence.md#only-edges-you-can-defend)
 
 **Connectors** — for each approved connector not already invoked during seeding, scaffold
 a crate stub in `crates/`:
@@ -752,12 +691,10 @@ instances to produce a meaningful result, run it now and commit the output with 
 
 The stub should describe what it computes, which corpus nodes it reads, and what it returns.
 
-**Do not commit anything in this step.** The implied edges are an `establish:` — understanding
-the ontology entailed and nobody had written down — and the remaining stubs are an
-`implement:`, because a stub is structure and not a finding. Both are written in step 8,
-after the genesis commit, for the reason a root commit cannot have a parent. Step 8 states
-the whole sequence in one place; this step's job is to leave the working tree in the state
-those two commits describe.
+**Do not commit anything in this step.** The implied edges are an `establish:` and the
+remaining stubs are an `implement:`; both are written in step 8, after the genesis commit.
+This step's job is to leave the working tree in the state those two commits describe.
+[why](bootstrap.evidence.md#after-genesis-not-before)
 
 ### 8. Write the genesis commit and consume transient layers
 
@@ -781,17 +718,13 @@ and no stubs, not a deviation.
 
 **If this step is interrupted before `genesis:` is committed** — the session ends, the
 agent is stopped, anything short of the commit landing — the repository is left with a
-full corpus on disk, everything staged or ready to stage, and `HEAD` still unborn. That
-state is silent: it looks identical to a directory nobody has touched yet, right up until
-someone opens it and finds twenty files `doctor` cannot see because there is no commit to
-run it against (#579). To resume, run `yidam doctor` first — it names this state as
-"bootstrapped but never committed" — then re-enter this step at the top and write the
-commit sequence above from `genesis:` forward; nothing before this step needs to be redone,
-since steps 2–7 only wrote files and this step has not yet committed any of them.
+full corpus on disk, everything staged or ready to stage, and `HEAD` still unborn. To
+resume, run `yidam doctor` first — it names this state as "bootstrapped but never
+committed" — then re-enter this step at the top and write the commit sequence above from
+`genesis:` forward. [why](bootstrap.evidence.md#resume-from-doctor)
 
 `establish:` and `implement:` come *after* `genesis:` and not before, which is the opposite
-of the order their steps appear in. A root commit has no parent; there is nowhere to put
-them. Step 7 does the work and step 8 records it.
+of the order their steps appear in. [why](bootstrap.evidence.md#after-genesis-not-before)
 
 **Genesis commit** — stage and commit all class definitions (`.ont.yml`), seed instances,
 decision records, and the `.yidam/` directory structure as a single genesis commit. Do not
@@ -800,9 +733,8 @@ are the `implement:` commit below.
 
 The message should name the domain, summarize the class schema, and describe what seed
 objects were created and how they connect — naming at least one specific relationship, not
-just that relationships exist. This commit is the first event in the knowledge graph. It
-should read like one: a list of filenames is a diff summary, and a paragraph that would fit
-any domain is boilerplate. Neither is testimony about what the corpus now knows.
+just that relationships exist. Neither a list of filenames nor a paragraph that would fit
+any domain will do. [why](bootstrap.evidence.md#genesis-message-is-testimony)
 
 In existing-repo mode, open the message with `overlay:` instead of `genesis:` and note the
 pre-existing commit count: `overlay: <domain> — yidam applied to N-commit repository; M
@@ -860,11 +792,8 @@ into the `.yidam/` infrastructure namespace and delete the rest of the template.
 `yidam/` does not exist (typical in existing-repo mode; the vendor step only applies when
 bootstrapping from the yidam template).
 
-**Vendor exactly one directory.** `yidam/prelude/` is what a derived repo inherits. Everything
-else under `yidam/` is yidam's own machinery — the CLI source, the bootstrap test harness, the
-design notes, the docs site — and none of it is readable, runnable, or updatable from inside a
-derived repo. Carrying it produces a stale fork of the CLI that will never be rebuilt and a
-`HARNESS.md` whose links point at scenarios the repo does not have.
+**Vendor exactly one directory.** `yidam/prelude/` is what a derived repo inherits; nothing
+else under `yidam/` is. [why](bootstrap.evidence.md#vendor-exactly-one-directory)
 
 Because `yidam/` was not staged in the genesis commit (it is untracked), use filesystem
 operations and stage the result directly:
@@ -876,9 +805,9 @@ rm -rf yidam/
 ```
 
 **Then drop the domain libraries this corpus did not ask for.** `prelude/domains/` is fifteen
-domain libraries in three languages each — around 320 of the roughly 540 files just moved, and
-the majority of the bytes. Read `prelude_domains` out of `.yidam/decisions/proposals.yml`
-(step 5) and keep only what it names:
+domain libraries in three languages each, and a derived repository can build none of them.
+[why](bootstrap.evidence.md#prune-the-domains) Read `prelude_domains` out of
+`.yidam/decisions/proposals.yml` (step 5) and keep only what it names:
 
 ```
 cd .yidam/.vendor/prelude/domains
@@ -892,10 +821,6 @@ If `prelude_domains` is empty — the common case — remove the whole directory
 rm -rf .yidam/.vendor/prelude/domains
 ```
 
-The same argument as the paragraph above, applied one level down. A derived repository has no
-task that builds these, no workspace that includes them, and no CI job that runs them; the
-`domain-parity` gate that keeps them honest is yidam's and does not travel. Fifteen unbuildable
-libraries is the stale-fork outcome arriving through the one directory the vendor step allows.
 `prelude/sdks/` stays whole — the prelude's own README and `agent-conduct.md` link into it, so
 it is read from inside a derived repository even though it is not built there.
 
@@ -923,17 +848,10 @@ has. `VERSIONING.md` documents how yidam releases its own three layers. Keep `LI
 `mise.toml` includes. `.gitignore` and `.gitattributes` are already this repository's own —
 step 3 overwrote both from `sadhana/root/`.
 
-**Nothing else of yidam's is here to delete, and that is enforced rather than promised.**
-This line named two files while `yidam clone` was delivering eleven more root paths nobody
-had decided about — `install.sh`, `release.sh`, the two `render-*.sh`, `deny.toml`,
-`.config/`, `scripts/`, `.claude-plugin/`, `packages/` holding yidam's own demo shell, the
-rest of `.github/`, and a `.vscode/` whose launch config points into `yidam/editors/vscode`,
-a directory this step deletes three commands earlier. A repository a few hours old reported
-all of them (#807). They are now excluded from the copy itself, by `NOT_INHERITED` in
-`cmd/clone.rs`, and `template_root.rs` asks of **every** tracked path whether the protocol
-names it — so the next file added to the template root is asked without anyone remembering
-to ask. If a path does turn up here that this step does not name, that guard is where the
-answer belongs, not a longer `rm -f` line.
+**Nothing else of yidam's is here to delete, and that is enforced rather than promised.** If
+a path does turn up here that this step does not name, the guard in `template_root.rs` is
+where the answer belongs, not a longer `rm -f` line.
+[why](bootstrap.evidence.md#template-root-is-enforced)
 
 **Confirm the provenance pin.** `.yidam.toml` records which yidam this repo came from; `yidam
 clone` and `yidam overlay` write it. Check that it exists and carries a real commit:
@@ -968,9 +886,8 @@ protocol and must complete before step 9.
 ### 8.5. Run the gate this repository will be gated by
 
 Everything up to here was written and none of it has been checked. The repository now has a
-CI workflow, a local gate, and a CLI it can install — and no step has run any of them. That
-is not a gap in coverage; it is the difference between a repository that works and one that
-merely exists, and it is answerable in four commands.
+CI workflow, a local gate, and a CLI it can install — and no step has run any of them.
+[why](bootstrap.evidence.md#run-the-gate)
 
 **Install the binary this repository pins.** Nothing before this point required the CLI —
 step 0's audit runs only when a binary happens to be present — so it is usually not there
@@ -992,10 +909,7 @@ yidam lint                    # and read what it says
 
 `yidam regen` is the one that is easy to skip and cannot be. The scaffold installed in step 3
 carries `<!-- REGEN: ... -->` markers in seven files, and **every one of them is stale on
-arrival** — they are generated from a corpus that did not exist when the template was
-written. A bare scaffold with no nodes at all reports ten stale blocks. `.github/workflows/ci.yml`
-runs `yidam regen --check`, so until this command has been run and its output committed, the
-repository's first push fails on generated content nobody wrote.
+arrival**. [why](bootstrap.evidence.md#regen-cannot-be-skipped)
 
 Commit the refreshed blocks and the baseline together:
 
@@ -1008,11 +922,9 @@ git commit -m "regen: REGEN blocks populated on the first run of the gate"
 understanding changed. Keep it out of the genesis commit: genesis is testimony about what the
 corpus knows, and a regenerated index table is not testimony.
 
-**If `graph-check` or `lint` reports anything, fix it now.** These are findings about work
-that was written minutes ago by the agent reading this, which is the cheapest they will ever
-be to act on. A `catalog-uncited` or a `missing-property` at this point is a step-4 or step-6
-mistake still warm; the same finding six months from now is archaeology. Fix and amend the
-commit it belongs to, or write a `fix:` commit if the genesis commit has already been pushed.
+**If `graph-check` or `lint` reports anything, fix it now.** Fix and amend the commit it
+belongs to, or write a `fix:` commit if the genesis commit has already been pushed.
+[why](bootstrap.evidence.md#fix-while-warm)
 
 Do not ask the user to run any of this manually. A bootstrap that hands over a repository
 whose gate it has never run has not finished; it has stopped.

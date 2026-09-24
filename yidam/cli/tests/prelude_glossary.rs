@@ -43,36 +43,14 @@ use std::collections::BTreeSet;
 
 mod common;
 
-use common::{repo_root, tracked_under};
+use common::{repo_root, step_one_read_list, tracked_under, BOOTSTRAP_SKILL as SKILL};
 
 const GLOSSARY: &str = "yidam/prelude/GLOSSARY.md";
-const SKILL: &str = "yidam/prelude/skills/bootstrap.md";
 const GRAPH: &str = "yidam/prelude/GRAPH.md";
 
 fn read(rel: &str) -> String {
     let p = repo_root().join(rel);
     std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{} is unreadable ({e})", p.display()))
-}
-
-/// Step 1's numbered read list, in order, as repo-relative paths.
-///
-/// Parsed rather than listed, so every assertion below is about the list the agent actually
-/// follows. The section runs from its own heading to the next `###`.
-fn step_one_read_list() -> Vec<String> {
-    let text = read(SKILL);
-    let (_, after) = text
-        .split_once("### 1. Internalize the prelude")
-        .expect("step 1's heading");
-    let body = after.split("\n### ").next().unwrap_or(after);
-    body.lines()
-        .filter_map(|l| {
-            let l = l.trim();
-            // `1. \`yidam/prelude/IDENTITY.md\` — …`, and nothing else in the step is numbered.
-            let (n, rest) = l.split_once(". `")?;
-            n.parse::<usize>().ok()?;
-            Some(rest.split('`').next()?.to_string())
-        })
-        .collect()
 }
 
 /// The terms the glossary defines: the bolded cell opening each table row.

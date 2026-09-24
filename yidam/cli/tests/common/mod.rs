@@ -15,6 +15,35 @@ pub fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// The bootstrap skill, repo-relative.
+pub const BOOTSTRAP_SKILL: &str = "yidam/prelude/skills/bootstrap.md";
+
+/// Step 1's numbered read list, in order, as repo-relative paths.
+///
+/// Parsed rather than listed, so every assertion over it is about the list the agent actually
+/// follows. The section runs from its own heading to the next `###`. Shared by
+/// `prelude_glossary` (which holds the list's order and count) and
+/// `prelude_rules_and_evidence` (which charges its words to the bootstrap path), because two
+/// parsers of one list is how the two gates come to disagree about what the list says.
+pub fn step_one_read_list() -> Vec<String> {
+    let path = repo_root().join(BOOTSTRAP_SKILL);
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("{} is unreadable ({e})", path.display()));
+    let (_, after) = text
+        .split_once("### 1. Internalize the prelude")
+        .expect("step 1's heading");
+    let body = after.split("\n### ").next().unwrap_or(after);
+    body.lines()
+        .filter_map(|l| {
+            let l = l.trim();
+            // `1. \`yidam/prelude/IDENTITY.md\` — …`, and nothing else in the step is numbered.
+            let (n, rest) = l.split_once(". `")?;
+            n.parse::<usize>().ok()?;
+            Some(rest.split('`').next()?.to_string())
+        })
+        .collect()
+}
+
 // ── the example corpora ───────────────────────────────────────────────────────
 //
 // Here rather than in one suite because two of them gate examples — `example_corpus` runs
