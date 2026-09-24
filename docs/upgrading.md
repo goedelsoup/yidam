@@ -28,6 +28,42 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `yidam clone` copies what git tracks, and refuses a source that is not the template
+
+**A clone is now the tracked set of the checkout it is run from, minus `NOT_INHERITED` (#912).**
+It used to walk the working tree and subtract a list of names. A clone taken from a working
+checkout was 2,931 files and 22.7 MB. Of that, 1,436 files and 14 MB was `.claude/worktrees/`.
+It was gitignored the day that entry was written, and absent from `git ls-files` all along.
+The same hole delivered `.local`, and `dist` against `dist-*/` was #900.
+
+**What changes for you.** A derived repository created from here carries no build output, no
+install prefix and no agent scratch directories. The same clone now measures 1,433 files and
+15 MB. Nothing tracked stopped travelling: the exclusions are unchanged, and every one of them
+is a path somebody committed on purpose.
+
+**An uncommitted file in your checkout will not reach the new repository.** That is the point
+of the change, and it is the one way it can surprise you. If you were editing the template and
+cloning to test the edit, commit it first — or at least `git add` it.
+
+**`clone` now refuses a source that is not the template (#913).** It copies the directory it is
+run from, and nothing asked what that directory was. From an empty directory it wrote a target
+holding one file, `.yidam.toml`. Quickstart §3 leaves the reader in a copy of
+`examples/streamflow`. From there it copied 21 files of another domain. It printed
+`Pinned to yidam 2261d6e2` — streamflow's own genesis commit, labelled as a yidam pin. Both
+exited 0.
+
+**What changes for you.** `clone` and `overlay` are run from a checkout of yidam. An installed
+binary carries the CLI, not the template, so this is the prerequisite:
+
+```sh
+git clone https://github.com/goedelsoup/yidam && cd yidam
+yidam clone ~/my-corpus
+```
+
+The test is `yidam/prelude/` and `sadhana/`. Those are what a *derived* repository does not
+have: bootstrap vendors the prelude away and consumes the scaffold at genesis. So a derived
+repository is refused too. To move a corpus, copy the corpus.
+
 ### `yidam --help` is short, and `--help-all` is the full listing
 
 **`yidam --help` now prints thirteen commands instead of fifty-eight (#921).** It ran to ninety

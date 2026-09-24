@@ -3,11 +3,17 @@ use std::path::Path;
 
 /// Directories never copied, at any depth: version control and build output.
 ///
+/// The one caller is [`copy_dir`], which `yidam overlay` uses. `yidam clone` reads the
+/// tracked set from git instead (#912), so nothing below has to answer for the template any
+/// more — every entry here is now about the three subtrees overlay copies into an existing
+/// repository, where there is no clone to ask git about.
+///
 /// `docs` is deliberately absent. It used to be here to keep yidam's own `docs/` (the RFC
 /// set, the docs-site source) out of derived repos — but the match is by name at every
 /// depth, so it also dropped `sadhana/docs/`, the scaffold the bootstrap skill is told to
-/// read in step 3. Root-level exclusions are the caller's business now; see
-/// [`copy_dir_excluding_top`].
+/// read in step 3. Neither is under a subtree overlay copies, so the question no longer
+/// arises here at all; `cmd::clone::NOT_INHERITED` is where top-level exclusions live.
+///
 /// `.local` is this repository's install prefix, and the reason it is here is not disk
 /// space. `mise.toml` declares `[env] _.path = [".local/bin"]` and `yidam-build` writes
 /// `cargo install --root .local`, so `.local/bin/yidam` is the binary that answers in this
@@ -90,16 +96,15 @@ pub(crate) fn excluded_file(name: &str) -> bool {
         || name.ends_with(".tsbuildinfo")
 }
 
-pub(crate) fn copy_dir(src: &Path, dst: &Path) -> Result<()> {
-    copy_dir_excluding_top(src, dst, &[])
-}
-
-/// Copy `src` to `dst`, additionally skipping `top_level` entries directly under `src`.
+/// Copy `src` to `dst`, minus build output and local state.
 ///
-/// The extra exclusions apply at the first level only. `yidam clone` uses it to leave
-/// yidam's own `docs/` behind without also dropping `sadhana/docs/` — the two differ in
-/// depth, not in name.
-pub(crate) fn copy_dir_excluding_top(src: &Path, dst: &Path, top_level: &[&str]) -> Result<()> {
+/// **`yidam overlay` is the only caller.** `yidam clone` used this and no longer does: the
+/// template is the tracked set, and #912 had it read from `git ls-files` instead of walking a
+/// working tree and subtracting conventions — see `cmd::clone::tracked_paths`. Overlay copies
+/// out of the same checkout and could ask git the same question; that it still walks is #984,
+/// and until it is fixed the conventions below are what answers for the three subtrees it
+/// copies.
+pub(crate) fn copy_dir(src: &Path, dst: &Path) -> Result<()> {
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src).with_context(|| format!("reading {}", src.display()))? {
         let entry = entry?;
@@ -109,9 +114,6 @@ pub(crate) fn copy_dir_excluding_top(src: &Path, dst: &Path, top_level: &[&str])
         let dst_path = dst.join(&name);
 
         if src_path.is_symlink() {
-            continue;
-        }
-        if top_level.contains(&name_str.as_ref()) {
             continue;
         }
         if src_path.is_dir() {
@@ -133,25 +135,6 @@ pub(crate) fn copy_dir_excluding_top(src: &Path, dst: &Path, top_level: &[&str])
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn top_level_exclusion_spares_the_same_name_deeper_down() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let src = tmp.path().join("src");
-        let dst = tmp.path().join("dst");
-        std::fs::create_dir_all(src.join("docs")).unwrap();
-        std::fs::create_dir_all(src.join("sadhana/docs")).unwrap();
-        std::fs::write(src.join("docs/rfc.md"), "yidam's own").unwrap();
-        std::fs::write(src.join("sadhana/docs/README.md"), "the scaffold").unwrap();
-
-        copy_dir_excluding_top(&src, &dst, &["docs"]).unwrap();
-
-        assert!(!dst.join("docs").exists(), "root docs/ should be skipped");
-        assert!(
-            dst.join("sadhana/docs/README.md").exists(),
-            "sadhana/docs/ is what step 3 of the bootstrap skill reads — it must ship"
-        );
-    }
 
     /// The reported case: a `cargo --target-dir` output directory, which the name list
     /// misses and the tag catches. Deleting the `is_cache_dir` call fails this and passes

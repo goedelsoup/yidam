@@ -156,14 +156,18 @@ mechanical change, not a knowledge event, and the history should say so.
 
 ## 4. Make your own — the bootstrap dialogue
 
+Run this from the yidam checkout step 2 made, not from the corpus you have been reading:
+
 ```sh
+cd /path/to/yidam            # the checkout, not /tmp/streamflow
 yidam clone ~/my-corpus
 cd ~/my-corpus
 ```
 
-`clone` copies the template, pins the yidam commit it came from in `.yidam.toml`, and runs
-`git init`. It does **not** copy yidam's own `docs/` or `examples/` — a new repository starts
-with its own ontology, not another domain's nodes.
+`clone` copies the checkout it is run from. It refuses anywhere that is not the template — a
+corpus is not one, nor an empty directory. It copies what git tracks there, pins the commit it
+came from in `.yidam.toml`, and runs `git init`. It does **not** copy yidam's own `docs/` or
+`examples/` — a new repository starts with its own ontology, not another domain's nodes.
 
 Then open the repository with an agent and tell it what the domain is. It reads
 `.claude/CLAUDE.md`, finds an empty `git log`, and enters bootstrap mode — a ten-step

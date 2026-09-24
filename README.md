@@ -128,9 +128,12 @@ deriving a repository needs: `clone`, `overlay`, `tonpa` and both `serve` transp
 in the light set, as is every report and gate. A default binary serves MCP; what it does not
 serve is *semantic* retrieval, and it says so on every call.
 
-Then create a derived repository, or overlay the infrastructure onto one that already exists:
+Then create a derived repository, or overlay the infrastructure onto one that already exists.
+Both copy the template, so both are run from a checkout of it — an installed binary carries the
+CLI, not the template:
 
 ```sh
+git clone https://github.com/goedelsoup/yidam && cd yidam
 yidam clone ../my-domain          # new repo, fresh git history
 yidam overlay ../existing-repo    # existing repo, content untouched
 ```

@@ -49,9 +49,10 @@ const NOT_A_PRUNE: &[(&str, &str)] = &[
     ),
     (
         "src/cmd/copy.rs",
-        "`yidam clone` copies a tree into a destination that is not a repository, so it \
-         cannot ask git what to leave behind; it names the conventions and reads \
-         `CACHEDIR.TAG` for the rest",
+        "`yidam overlay`'s copy still walks the filesystem and subtracts conventions, which \
+         is what #912 took away from `yidam clone` — the source is a checkout and git can be \
+         asked. #984; until then the names here are what answers for \
+         the three subtrees overlay copies",
     ),
 ];
 
