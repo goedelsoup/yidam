@@ -72,8 +72,8 @@ impl Default for Options {
 /// Separated from [`run`] for the MCP server, which answers many queries against one corpus
 /// and must not re-walk `.yidam/corpus` per call. The CLI loads one and drops it.
 pub struct Graph {
-    pub nodes: Vec<crate::cmd::lint::checks::Node>,
-    pub classes: Vec<crate::cmd::lint::checks::Class>,
+    pub nodes: Vec<crate::corpus::Node>,
+    pub classes: Vec<crate::corpus::Class>,
     pub universal: crate::universal::Universal,
     /// Repo-relative, e.g. `.yidam/corpus` — the prefix node ids are stripped of.
     pub corpus_dir: String,
@@ -101,8 +101,8 @@ pub struct Graph {
 /// today and is a property of the filesystem layout rather than of this code.
 pub struct Foreign {
     pub package: String,
-    pub nodes: Vec<crate::cmd::lint::checks::Node>,
-    pub classes: Vec<crate::cmd::lint::checks::Class>,
+    pub nodes: Vec<crate::corpus::Node>,
+    pub classes: Vec<crate::corpus::Class>,
     pub universal: crate::universal::Universal,
     pub corpus_dir: String,
 }
@@ -110,14 +110,9 @@ pub struct Foreign {
 impl Graph {
     pub fn load(root: &std::path::Path) -> Self {
         let corpus_dir = yidam_corpus_dir(root);
-        let overlay = crate::cmd::lint::Overlay::default();
-        let nodes = crate::cmd::lint::checks::load_nodes(
-            root,
-            &walk_corpus_instances(&corpus_dir),
-            &overlay,
-        );
-        let classes =
-            crate::cmd::lint::checks::load_classes(root, &walk_ont_files(&corpus_dir), &overlay);
+        let overlay = crate::corpus::Overlay::default();
+        let nodes = crate::corpus::load_nodes(root, &walk_corpus_instances(&corpus_dir), &overlay);
+        let classes = crate::corpus::load_classes(root, &walk_ont_files(&corpus_dir), &overlay);
         let rel = corpus_dir
             .strip_prefix(root)
             .unwrap_or(&corpus_dir)
@@ -151,7 +146,7 @@ impl Graph {
     /// not have. `serve --mcp` is that caller: it loads the corpus once at startup and would
     /// otherwise re-read every local instance file to obtain a set of *dependencies*.
     pub fn foreign(root: &std::path::Path) -> Vec<Foreign> {
-        let overlay = crate::cmd::lint::Overlay::default();
+        let overlay = crate::corpus::Overlay::default();
         crate::deps::resolved(root)
             .into_iter()
             .map(|dep| {
@@ -162,16 +157,12 @@ impl Graph {
                 // the package name is what distinguishes them.
                 let owner = dir.parent().unwrap_or(&dir).to_path_buf();
                 Foreign {
-                    nodes: crate::cmd::lint::checks::load_nodes(
+                    nodes: crate::corpus::load_nodes(
                         &owner,
                         &walk_corpus_instances(&dir),
                         &overlay,
                     ),
-                    classes: crate::cmd::lint::checks::load_classes(
-                        &owner,
-                        &walk_ont_files(&dir),
-                        &overlay,
-                    ),
+                    classes: crate::corpus::load_classes(&owner, &walk_ont_files(&dir), &overlay),
                     universal: crate::universal::Universal::parse(
                         &std::fs::read_to_string(dir.join("universal.yml")).unwrap_or_default(),
                     ),

@@ -28,7 +28,8 @@
 //! a false number.
 
 use super::exec::id_of;
-use crate::cmd::lint::checks::{class_of, Node};
+use crate::cmd::lint::checks::class_of;
+use crate::corpus::Node;
 use crate::retrieval::Retrieval;
 
 /// One entry node, with the score that chose it.
@@ -317,7 +318,7 @@ fn keyword_entries(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cmd::lint::Overlay;
+    use crate::corpus::Overlay;
     use crate::walk::walk_corpus_instances;
 
     /// Degrading records the frozen reason AND its repair, together.
@@ -566,11 +567,7 @@ mod tests {
 
     fn nodes(dir: &std::path::Path) -> Vec<Node> {
         let corpus = dir.join(".yidam/corpus");
-        crate::cmd::lint::checks::load_nodes(
-            dir,
-            &walk_corpus_instances(&corpus),
-            &Overlay::default(),
-        )
+        crate::corpus::load_nodes(dir, &walk_corpus_instances(&corpus), &Overlay::default())
     }
 
     fn resolved(query: &str, classes: &[&str], k: usize) -> Resolved {

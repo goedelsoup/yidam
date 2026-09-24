@@ -123,7 +123,7 @@ pub fn status(format: crate::report::Format) -> Result<()> {
     // Expired source records, shown only when there are any. A corpus that declared no TTL
     // is asking nothing here, and a permanent `· 0 expired` is a number nobody can act on.
     let catalog_expired = crate::cmd::lint::ttl::ages(
-        &crate::cmd::lint::checks::load_sources(&root, &catalog_paths, &Default::default()),
+        &crate::corpus::load_sources(&root, &catalog_paths, &Default::default()),
         &crate::cmd::lint::ttl::committed_dates(&root, &catalog),
         crate::config::load_yidam_config(&root)
             .map(|c| c.catalog.ttl_days)

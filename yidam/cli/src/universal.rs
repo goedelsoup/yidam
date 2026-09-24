@@ -32,7 +32,7 @@
 //! # Not a way to stop declaring things
 //!
 //! This is deliberately *not* `property_policy: characteristic`, the property-side twin of
-//! [`crate::cmd::lint::checks::EdgePolicy`]. That corpus measured its own property
+//! [`crate::corpus::EdgePolicy`]. That corpus measured its own property
 //! vocabulary at 94% declared and its relationship vocabulary at 68%, and concluded the
 //! first was effectively closed and worth gating on. It wants `undeclared-property`; what
 //! it lacked was a way to say that two specific shapes are apparatus rather than schema.

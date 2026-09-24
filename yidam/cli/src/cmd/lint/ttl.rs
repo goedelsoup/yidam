@@ -144,7 +144,7 @@ pub fn committed_dates(root: &Path, dir: &Path) -> HashMap<String, String> {
 /// stable — the one thing a wall-clock feature must not do is make its own tests depend on
 /// the day they run.
 pub fn ages(
-    sources: &[super::checks::Source],
+    sources: &[crate::corpus::Source],
     committed: &HashMap<String, String>,
     default_ttl: Option<u32>,
     today: &str,
@@ -180,12 +180,8 @@ pub fn ages(
 mod tests {
     use super::*;
 
-    fn source(
-        rel: &str,
-        retrieved: Option<&str>,
-        ttl: Option<u32>,
-    ) -> super::super::checks::Source {
-        super::super::checks::Source {
+    fn source(rel: &str, retrieved: Option<&str>, ttl: Option<u32>) -> crate::corpus::Source {
+        crate::corpus::Source {
             rel: rel.to_string(),
             path: std::path::PathBuf::from(rel),
             obtained: true,

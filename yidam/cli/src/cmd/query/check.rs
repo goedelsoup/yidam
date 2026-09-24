@@ -24,7 +24,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::lang::{Dir, Op, Pred, Query, Step};
-use crate::cmd::lint::checks::{Class, EdgePolicy};
+use crate::corpus::{Class, EdgePolicy};
 use crate::universal::Universal;
 
 /// A note about a step that ran anyway.

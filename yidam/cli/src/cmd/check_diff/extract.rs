@@ -16,7 +16,7 @@
 use std::collections::{BTreeSet, HashSet};
 use std::sync::OnceLock;
 
-use crate::cmd::lint::checks::Class;
+use crate::corpus::Class;
 
 /// One type declaration, and where the diff introduced it.
 #[derive(Debug, Clone, PartialEq, Eq)]

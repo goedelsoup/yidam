@@ -5,6 +5,10 @@ mod cmd;
 // in the light `reports` binary — gating this on `index` made the corpus's own declaration
 // unreadable in the build most repositories actually install.
 mod config;
+/// What a corpus is made of (#924). Private, like [`cmd`]: nothing outside the crate reads
+/// a [`corpus::Node`] today, and the point of the module is which way the dependency runs —
+/// the library owns the corpus model and `lint` consumes it, rather than the reverse.
+mod corpus;
 pub mod dates;
 pub mod deps;
 pub mod embed_config;

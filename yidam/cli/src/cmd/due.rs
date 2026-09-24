@@ -331,11 +331,8 @@ fn clock_index(root: &Path, after: Option<usize>) -> Clock {
 fn clock_catalog(root: &Path, today: i64) -> Clock {
     const Q: &str = "Have any source records aged past their TTL?";
     let dir = yidam_catalog_dir(root);
-    let sources = crate::cmd::lint::checks::load_sources(
-        root,
-        &crate::walk::walk_md_files(&dir),
-        &Default::default(),
-    );
+    let sources =
+        crate::corpus::load_sources(root, &crate::walk::walk_md_files(&dir), &Default::default());
     let default_ttl = crate::config::load_yidam_config(root)
         .map(|c| c.catalog.ttl_days)
         .unwrap_or_default();

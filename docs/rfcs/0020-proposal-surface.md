@@ -83,7 +83,7 @@ each of those is a decision that leaves a trace.
 Three corrections, each measured.
 
 **(a) The ontology names a class, not a node.** `ClassEdge` carries `relationship`, `target`
-and `direction` ([`checks.rs:152-161`](../../yidam/cli/src/cmd/lint/checks.rs#L152-L161)), and
+and `direction` ([`class.rs:76-85`](../../yidam/cli/src/corpus/class.rs#L76-L85)), and
 `target` is *"the class at the other end"*. So for an orphaned node the ontology narrows the
 candidates to a set of classes, and every instance of those classes is equally licensed.
 
@@ -99,7 +99,7 @@ is authoring an edge, and an edge is a claim.
 
 **(b) In the worked example the check cannot fire at all.** `is_source_class` reads only the
 class's *own* edge list, and is true when that list is non-empty and holds no `direction: in`
-entry ([`checks.rs:183-190`](../../yidam/cli/src/cmd/lint/checks.rs#L183-L190)). Every class in
+entry ([`class.rs:107-114`](../../yidam/cli/src/corpus/class.rs#L107-L114)). Every class in
 `examples/streamflow` declares outbound edges only, so all three derive as source classes and
 every instance is exempt.
 
@@ -122,7 +122,7 @@ people what good looks like, and that has to be said here.
 
 **(c) `orphan-in` is the only check that carries an age.** `Violation::age` is `None` for every
 finding except those `orphan_in_dated` decorates
-([`orphan_in_dated`](../../yidam/cli/src/cmd/lint/mod.rs#L678-L703),
+([`orphan_in_dated`](../../yidam/cli/src/cmd/lint/mod.rs#L623-L646),
 [`model.rs:58`](../../yidam/cli/src/cmd/lint/model.rs#L58)). "Past its residence threshold" is
 therefore well-defined for exactly one check today. That is not a problem to fix here — it is a
 bound on how much of the corpus `propose` can speak about, and the command should say so rather

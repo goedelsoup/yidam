@@ -30,8 +30,8 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use super::checks::Node;
 use super::model::{Check, Severity, Violation};
+use crate::corpus::Node;
 use crate::deps::{DependencyKind, ResolvedDependency};
 use crate::parse::ExternalCitation;
 
@@ -476,7 +476,7 @@ pub(super) fn truncate(span: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cmd::lint::Overlay;
+    use crate::corpus::Overlay;
     use crate::walk::walk_corpus_instances;
 
     /// A repository with one node, and one installed dependency holding one node.
@@ -500,7 +500,7 @@ mod tests {
     }
 
     fn nodes(root: &Path) -> Vec<Node> {
-        super::super::checks::load_nodes(
+        crate::corpus::load_nodes(
             root,
             &walk_corpus_instances(&crate::paths::yidam_corpus_dir(root)),
             &Overlay::default(),
@@ -804,10 +804,10 @@ pub struct Standing {
 /// question is not what the dependency says, it is *what changed about what I was leaning on*.
 pub fn survey(root: &Path) -> Vec<Standing> {
     let corpus_dir = crate::paths::yidam_corpus_dir(root);
-    let nodes = super::checks::load_nodes(
+    let nodes = crate::corpus::load_nodes(
         root,
         &crate::walk::walk_corpus_instances(&corpus_dir),
-        &super::Overlay::default(),
+        &crate::corpus::Overlay::default(),
     );
     let deps = installed(root);
     // One `ClaimFields` per dependency, not per citation: it is a property of that corpus's

@@ -25,7 +25,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::check::Checked;
 use super::lang::{Dir, Op, Pred, Query, Step};
-use crate::cmd::lint::checks::{class_of, instance_links, Node};
+use crate::cmd::lint::checks::{class_of, instance_links};
+use crate::corpus::Node;
 
 /// What an arm of the query cost, in the units #264 compares on.
 #[derive(Debug, Default, Clone, serde::Serialize)]
