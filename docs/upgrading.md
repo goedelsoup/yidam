@@ -28,6 +28,20 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### The `web-install`, `web-dev` and `web-build` tasks are gone
+
+**`packages/web/` has been deleted, and its three inherited tasks with it (#942).** The
+browser shell read an exported `.yiz` bundle. #236 closed it by decision. The tasks outlived
+that decision in `mise.yidam.toml`, which every derived repository inherits.
+
+**What changes for you.** `mise run web-install`, `mise run web-dev` and `mise run web-build`
+no longer resolve. In a derived repository they could not run anyway. Each began with `cd
+packages/web`, and the shell was never part of the scaffold. The removal makes that visible
+in the task list rather than at the prompt.
+
+Nothing replaces them. RFC-0030 records why a rendered reader is a derived repository's own
+object, not a template surface.
+
 ## cli/v0.14.0
 
 ### `yidam lint` reads a quote set off in a blockquote
