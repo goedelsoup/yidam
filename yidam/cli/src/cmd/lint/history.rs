@@ -247,18 +247,18 @@ impl Expectation {
 /// inbound relationship may be declared from either end, so which classes are exempt is a
 /// property of the whole ontology at a commit rather than of one file in it. The replay
 /// therefore keeps the declarations and derives the answer per frame, through
-/// [`super::checks::source_classes`] — the same function the check calls, so the two cannot
+/// [`crate::corpus::source_classes`] — the same function the check calls, so the two cannot
 /// disagree about which classes are exempt.
 ///
 /// That guarantee held for *exempt* and not for *pointed at*, which the replay went on to
 /// answer for itself, direction-blind, and got wrong (#659). Both now read
-/// [`super::checks::pointed_classes`], which is where `direction:` is interpreted and the
+/// [`crate::corpus::pointed_classes`], which is where `direction:` is interpreted and the
 /// only place it is.
-fn blob_edges(content: &str) -> Vec<super::checks::ClassEdge> {
+fn blob_edges(content: &str) -> Vec<crate::corpus::ClassEdge> {
     #[derive(Default, serde::Deserialize)]
     struct Fields {
         #[serde(default)]
-        edges: Vec<super::checks::ClassEdge>,
+        edges: Vec<crate::corpus::ClassEdge>,
     }
     serde_yaml::from_str::<Fields>(content)
         .unwrap_or_default()
@@ -279,17 +279,17 @@ fn blob_edges(content: &str) -> Vec<super::checks::ClassEdge> {
 /// declared no edges of its own was read as `Cited` on the strength of it and scored against
 /// `uncited == 0` — which is precisely the state the missing entry exists to represent, and
 /// `direction: in` is not hypothetical: the reports fixture's own `concept.ont.yml` uses it.
-/// [`super::checks::pointed_classes`] is the one reading of `direction:`, and both questions
+/// [`crate::corpus::pointed_classes`] is the one reading of `direction:`, and both questions
 /// now go through it rather than being answered twice.
 fn expectations_of(
-    decls: &BTreeMap<String, Vec<super::checks::ClassEdge>>,
+    decls: &BTreeMap<String, Vec<crate::corpus::ClassEdge>>,
 ) -> HashMap<String, Expectation> {
-    let view: Vec<super::checks::EdgeView<'_>> = decls
+    let view: Vec<crate::corpus::EdgeView<'_>> = decls
         .iter()
-        .map(|(name, edges)| super::checks::EdgeView { name, edges })
+        .map(|(name, edges)| crate::corpus::EdgeView { name, edges })
         .collect();
-    let sources = super::checks::source_classes(&view);
-    let pointed = super::checks::pointed_classes(&view);
+    let sources = crate::corpus::source_classes(&view);
+    let pointed = crate::corpus::pointed_classes(&view);
     decls
         .iter()
         .filter_map(|(name, edges)| {
@@ -377,7 +377,7 @@ pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
     let mut text: HashMap<String, &str> = HashMap::new();
     // The ontology as it stands, class by class. Kept rather than reduced on the way in,
     // because the reduction reads every class at once.
-    let mut decls: BTreeMap<String, Vec<super::checks::ClassEdge>> = BTreeMap::new();
+    let mut decls: BTreeMap<String, Vec<crate::corpus::ClassEdge>> = BTreeMap::new();
     // What each class calls itself and which of its properties carry a tag. Keyed by the
     // file stem, and carrying the declared `class:` beside it, because
     // `ClaimFields::load` keys by the declared name where there is one and an instance
@@ -418,11 +418,11 @@ pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
         let cited: HashSet<&String> = out.values().flatten().collect();
         // Derived per frame rather than maintained incrementally: one class's edit can
         // change another class's exemption, so there is nothing to update in place.
-        let view: Vec<super::checks::EdgeView<'_>> = decls
+        let view: Vec<crate::corpus::EdgeView<'_>> = decls
             .iter()
-            .map(|(name, edges)| super::checks::EdgeView { name, edges })
+            .map(|(name, edges)| crate::corpus::EdgeView { name, edges })
             .collect();
-        let source_classes = super::checks::source_classes(&view);
+        let source_classes = crate::corpus::source_classes(&view);
         let expectations = expectations_of(&decls);
         let claim_fields = crate::claims::ClaimFields::from_declarations(
             claims
@@ -755,8 +755,8 @@ mod tests {
     /// three cases below differ by `direction` alone, which is the whole of what is at issue.
     fn named_from_the_gauge(
         direction: Option<&str>,
-    ) -> BTreeMap<String, Vec<super::super::checks::ClassEdge>> {
-        use super::super::checks::ClassEdge;
+    ) -> BTreeMap<String, Vec<crate::corpus::ClassEdge>> {
+        use crate::corpus::ClassEdge;
         BTreeMap::from([
             ("concept".to_string(), Vec::new()),
             (

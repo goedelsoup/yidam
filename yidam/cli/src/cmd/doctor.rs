@@ -1396,12 +1396,12 @@ fn check_corpus(root: &Path) -> Answer {
         return Answer::ok("no corpus files yet");
     }
 
-    let overlay = crate::cmd::lint::Overlay::default();
-    let unreadable = crate::cmd::lint::checks::load_nodes(root, &instances, &overlay)
+    let overlay = crate::corpus::Overlay::default();
+    let unreadable = crate::corpus::load_nodes(root, &instances, &overlay)
         .iter()
         .filter(|n| n.malformed.is_some())
         .count()
-        + crate::cmd::lint::checks::load_classes(root, &ont_files, &overlay)
+        + crate::corpus::load_classes(root, &ont_files, &overlay)
             .iter()
             .filter(|c| c.malformed.is_some())
             .count();
@@ -1426,11 +1426,8 @@ fn check_corpus(root: &Path) -> Answer {
 /// health on a question nobody put.
 fn check_catalog(root: &Path, today: i64) -> Answer {
     let dir = crate::paths::yidam_catalog_dir(root);
-    let sources = crate::cmd::lint::checks::load_sources(
-        root,
-        &crate::walk::walk_md_files(&dir),
-        &Default::default(),
-    );
+    let sources =
+        crate::corpus::load_sources(root, &crate::walk::walk_md_files(&dir), &Default::default());
     let default_ttl = crate::config::load_yidam_config(root)
         .map(|c| c.catalog.ttl_days)
         .unwrap_or_default();

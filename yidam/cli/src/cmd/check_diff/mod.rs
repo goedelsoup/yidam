@@ -49,7 +49,6 @@ use anyhow::{Context, Result};
 
 use crate::authorship::Authorship;
 use crate::cmd::check_diff::near::Nearest;
-use crate::cmd::lint;
 use crate::paths::{repo_root, require_yidam_repo, yidam_corpus_dir};
 use crate::report::Span;
 
@@ -339,10 +338,10 @@ pub fn check_diff(range: Option<String>, format: crate::report::Format) -> Resul
     let diff = read_diff(&root, &before, &after)?;
 
     let corpus_dir = yidam_corpus_dir(&root);
-    let classes = lint::checks::load_classes(
+    let classes = crate::corpus::load_classes(
         &root,
         &crate::walk::walk_ont_files(&corpus_dir),
-        &lint::Overlay::default(),
+        &crate::corpus::Overlay::default(),
     );
     // A manifest that exists and cannot be parsed is an error rather than an empty one: a
     // degraded read would silently report an imported region as though this repository had

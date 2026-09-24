@@ -34,8 +34,9 @@ use std::fmt::Write as _;
 use anyhow::Result;
 
 use crate::cmd::export_llms::{fill, fill_all, order, trailer};
-use crate::cmd::lint::checks::{class_of, Node};
+use crate::cmd::lint::checks::class_of;
 use crate::cmd::query::{self, absence, anchor, check, exec};
+use crate::corpus::Node;
 use crate::model::NodeView;
 use crate::paths::repo_root;
 

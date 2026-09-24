@@ -84,7 +84,7 @@ gating against `.yidam/lint-baseline.yml`
 ([`lint/mod.rs`](../../yidam/cli/src/cmd/lint/mod.rs), and the rationale in its module doc:
 conflating the two "produces a gate that is either permanently red or permanently ignored").
 Two distinct things fail it — a violation not in the baseline, and a baseline entry that no
-longer occurs ([`lint/mod.rs:716-750`](../../yidam/cli/src/cmd/lint/mod.rs#L716-L750)).
+longer occurs ([`lint/mod.rs:665-699`](../../yidam/cli/src/cmd/lint/mod.rs#L665-L699)).
 
 An extension that renders every finding as an Error reproduces exactly the failure the baseline
 was designed to prevent, one layer up: a Problems panel permanently full of inherited debt is a
@@ -285,7 +285,7 @@ and above all **rename** — that logic must not be in TypeScript.
 
 Add `yidam serve --lsp`, a sibling to the existing `serve --mcp`, in the light `reports` feature
 set. Note that `serve` is today gated behind the heavy `index` feature
-([`lib.rs:23`](../../yidam/cli/src/lib.rs#L23)); LSP needs none of fastembed, lancedb, or protoc
+([`lib.rs:27`](../../yidam/cli/src/lib.rs#L27)); LSP needs none of fastembed, lancedb, or protoc
 and must not inherit that gate.
 
 The prize is rename. RFC-0014 proposes `yidam rename` as an atomic operation with a dangling-edge

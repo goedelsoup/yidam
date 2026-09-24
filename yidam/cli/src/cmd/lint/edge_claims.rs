@@ -104,8 +104,9 @@
 //! decision what it is worth. A link that resolves to nothing is `dangling-edge`'s finding and
 //! is not reported twice here.
 
-use super::checks::{instance_links, nodes_by_path, Node};
+use super::checks::{instance_links, nodes_by_path};
 use super::model::{Check, Severity, Violation};
+use crate::corpus::Node;
 use crate::universal::Universal;
 
 /// The check ids, named once — a filter keyed on a literal would drift from the id the
@@ -399,7 +400,7 @@ fn edge_verified_unsourced(violations: Vec<Violation>) -> Check {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cmd::lint::Overlay;
+    use crate::corpus::Overlay;
 
     /// `class: place` with the given links, as an instance writes it.
     fn node(links: &str) -> String {
@@ -447,7 +448,7 @@ mod tests {
             std::fs::write(&path, text).unwrap();
             paths.push(path);
         }
-        let nodes = super::super::checks::load_nodes(tmp.path(), &paths, &Overlay::default());
+        let nodes = crate::corpus::load_nodes(tmp.path(), &paths, &Overlay::default());
         let declared: Vec<String> = fields.iter().map(|f| (*f).to_string()).collect();
         let claim_fields = crate::claims::ClaimFields::from_declarations(
             ["place", "concept"]

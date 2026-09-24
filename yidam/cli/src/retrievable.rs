@@ -58,14 +58,14 @@
 //!
 //! # Absent means false, and there is no universal property
 //!
-//! Absent means false, for [`crate::cmd::lint::checks::ClassProperty::required`]'s reason
+//! Absent means false, for [`crate::corpus::ClassProperty::required`]'s reason
 //! exactly: a corpus written before the field existed never had the chance to say. A class
 //! declaring nothing produces byte-identical `.yidam/embeddings/` output to before this
 //! existed, which is every corpus today.
 //!
 //! # The flag is not on `ClassProperty`
 //!
-//! [`crate::cmd::lint::checks::ClassProperty`] carries `required` and `prose` because the
+//! [`crate::corpus::ClassProperty`] carries `required` and `prose` because the
 //! checks read them off a class the linter has already parsed. Nothing in `lint` reads this
 //! one and nothing should: flagging a property changes what is retrievable and changes no
 //! report. A `retrievable` field sitting unread on the struct every check holds is an

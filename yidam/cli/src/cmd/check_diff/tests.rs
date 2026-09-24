@@ -1,7 +1,7 @@
 //! What the report says, from a diff and a vocabulary. No repository, no subprocess.
 
 use super::*;
-use crate::cmd::lint::checks::{Class, ClassEdge, ClassProperty};
+use crate::corpus::{Class, ClassEdge, ClassProperty};
 
 fn class(name: &str, properties: &[&str], edges: &[&str]) -> Class {
     Class {

@@ -35,8 +35,9 @@ use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
 use super::graph::{graph_data, GraphReport};
-use super::lint::{run_checks_with, Options, Overlay};
+use super::lint::{run_checks_with, Options};
 use super::rename;
+use crate::corpus::Overlay;
 use crate::paths::yidam_corpus_dir;
 
 /// LSP `DiagnosticSeverity`.

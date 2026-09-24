@@ -83,8 +83,8 @@ author to move prose *into*. None of them is on `CorpusInstance`, so all of them
 dropped by every consumer of the parsed node.
 
 That is not a tidiness complaint, because two families of check disagree as a result.
-[`node_too_long`](../../yidam/cli/src/cmd/lint/checks.rs#L1570) reads the parsed field — the
-comment at [`checks.rs:1423-1428`](../../yidam/cli/src/cmd/lint/checks.rs#L1423-L1428) is explicit
+[`node_too_long`](../../yidam/cli/src/cmd/lint/checks.rs#L1032) reads the parsed field — the
+comment at [`checks.rs:885-890`](../../yidam/cli/src/cmd/lint/checks.rs#L885-L890) is explicit
 that this is the intent — while [`count_in_node`](../../yidam/cli/src/claims.rs#L1471) takes the
 file's whole text. Two definitions of *the node's prose* inside one binary, and #674 measures the
 gap on a real corpus: median 118 lines read as the file, 21 read as `description`, 34 read as
@@ -99,7 +99,7 @@ coins the next prose key, and the checks that read the parsed node will not see 
 lives in four places, and the scanner that reads it takes the bytes rather than the parsed
 fields for exactly that reason — measured across 17 corpora, with two of the four fields absent
 from the struct entirely
-([`checks.rs:133-139`](../../yidam/cli/src/cmd/lint/checks.rs#L133-L139)). The instance side never
+([`class.rs:57-63`](../../yidam/cli/src/corpus/class.rs#L57-L63)). The instance side never
 got the same treatment, which is why half its checks read a field that is not all of the prose.
 
 ### 1.2 A finding is an English sentence
@@ -718,6 +718,6 @@ RFC-0030 shipping first.
 
 5. **What does Phase 3 do to `.ont.yml` itself?** A class definition is prose in four places, which
    the class scanner already reads as bytes for the reason §1.1 describes
-   ([`checks.rs:133-139`](../../yidam/cli/src/cmd/lint/checks.rs#L133-L139)). If nodes become Markdown
+   ([`class.rs:57-63`](../../yidam/cli/src/corpus/class.rs#L57-L63)). If nodes become Markdown
    and classes do not, the corpus has two formats again — for a defensible reason, since a class
    file really is mostly declaration, but it should be argued rather than inherited.

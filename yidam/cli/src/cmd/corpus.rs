@@ -2,8 +2,8 @@ use anyhow::Result;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use crate::cmd::lint::checks::{load_classes, load_nodes};
-use crate::cmd::lint::Overlay;
+use crate::corpus::Overlay;
+use crate::corpus::{load_classes, load_nodes};
 use crate::paths::{repo_root, yidam_corpus_dir};
 use crate::regen::update_file_regen;
 use crate::walk::{line_count, walk_corpus_instances, walk_ont_files};

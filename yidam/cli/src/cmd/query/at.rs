@@ -41,7 +41,7 @@
 //! The property #262 actually names: **nothing here touches the working tree.** No checkout,
 //! no stash, no temporary index. `git ls-tree` and `git cat-file` read objects; the paths on
 //! the reconstructed nodes are *keys*, joined and normalized to resolve edges, and never
-//! opened. That is why [`crate::cmd::lint::checks::Node`] carries its own text: the one
+//! opened. That is why [`crate::corpus::Node`] carries its own text: the one
 //! remaining disk read on this path — `--select body` — would otherwise have answered from
 //! whatever is checked out right now.
 //!
@@ -65,8 +65,8 @@ use std::process::Command;
 use anyhow::{bail, Context, Result};
 
 use super::Graph;
-use crate::cmd::lint::checks::{Class, Node};
 use crate::cmd::lint::history::{is_class, is_instance, read_blobs};
+use crate::corpus::{Class, Node};
 
 /// The separator after which git reads no more options. See [`resolve`] for what it prevents.
 const END_OF_OPTIONS: &str = "--end-of-options";

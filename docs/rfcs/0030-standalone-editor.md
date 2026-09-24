@@ -354,10 +354,10 @@ most expensive thing in the document. The original said so, about this design, a
 > rather than from a Node process that would have to bridge stdio LSP to a WebSocket to get the
 > same answer.
 
-That bridge is now the plan. [`Overlay`](../../yidam/cli/src/cmd/lint/mod.rs#L108) is a
+That bridge is now the plan. [`Overlay`](../../yidam/cli/src/corpus/overlay.rs#L15) is a
 `pub struct` in the lint module, and
-[`run_checks_with`](../../yidam/cli/src/cmd/lint/mod.rs#L191) is the entry point the language
-server calls on every change ([`lsp.rs:249`](../../yidam/cli/src/cmd/lsp.rs#L249)) — but it is
+[`run_checks_with`](../../yidam/cli/src/cmd/lint/mod.rs#L132) is the entry point the language
+server calls on every change ([`lsp.rs:250`](../../yidam/cli/src/cmd/lsp.rs#L250)) — but it is
 reachable only through `serve --lsp`. `yidam lint` has no overlay flag, and the extension is no
 prior art here: it carries no LSP client and no dependencies at all, running `lint --format json`
 against the tree and building diagnostics itself.
@@ -449,16 +449,16 @@ being built:
   instances and unioned the overlay over *those* paths, so a buffer for a file not yet on disk
   was seen by no check at all: its findings were exactly none, which is what a clean node's
   are. The editors never noticed because every buffer they send is a file that exists.
-  [`Overlay::unsaved_instances`](../../yidam/cli/src/cmd/lint/mod.rs#L138) adds the buffers
+  [`Overlay::unsaved_instances`](../../yidam/cli/src/corpus/overlay.rs#L45) adds the buffers
   the walker would have accepted, and the server declares it —
   `experimental.yidam.unsavedInstances` in the `initialize` result
-  ([`lsp.rs:417`](../../yidam/cli/src/cmd/lsp.rs#L417)) — so a bridge on an older binary can say
+  ([`lsp.rs:418`](../../yidam/cli/src/cmd/lsp.rs#L418)) — so a bridge on an older binary can say
   *saved nodes only* rather than show a clean verdict it did not earn.
 - **The barrier is an unknown request.** `publishDiagnostics` is a notification, and a clean
   buffer publishes nothing new, so a page cannot tell *clean* from *not judged yet*. The server
   answers any request it does not know with `null`, and does so **after** the publishes a
   preceding change produced —
-  [`a_request_after_a_change_is_answered_after_its_diagnostics`](../../yidam/cli/src/cmd/lsp.rs#L874)
+  [`a_request_after_a_change_is_answered_after_its_diagnostics`](../../yidam/cli/src/cmd/lsp.rs#L875)
   pins the order. The bridge sends `$/yidam/barrier` after every `didChange` and treats the
   reply as the verdict's edge
   ([`overlay.ts:396`](../../yidam/editors/web/src/lib/overlay.ts#L396)). No protocol extension,

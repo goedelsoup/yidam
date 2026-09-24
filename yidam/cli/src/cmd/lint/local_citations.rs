@@ -67,9 +67,9 @@
 
 use std::collections::BTreeMap;
 
-use super::checks::Node;
 use super::citations::{flatten, truncate, Finding};
 use super::model::{Check, Severity, Violation};
+use crate::corpus::Node;
 use crate::parse::ExternalCitation;
 
 /// The four check ids, named once. A filter keyed on a literal would drift from the id the
@@ -421,7 +421,7 @@ fn local_citation_untagged(violations: Vec<Violation>) -> Check {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cmd::lint::Overlay;
+    use crate::corpus::Overlay;
     use crate::walk::walk_corpus_instances;
     use std::path::Path;
 
@@ -448,7 +448,7 @@ mod tests {
     }
 
     fn nodes(root: &Path) -> Vec<Node> {
-        super::super::checks::load_nodes(
+        crate::corpus::load_nodes(
             root,
             &walk_corpus_instances(&crate::paths::yidam_corpus_dir(root)),
             &Overlay::default(),
