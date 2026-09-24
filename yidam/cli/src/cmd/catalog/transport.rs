@@ -50,12 +50,7 @@ pub fn get(url: &str, dest: &Path) -> Result<Fetched> {
     use anyhow::{bail, Context};
     use std::io::Write;
 
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("starting the async runtime for a catalog fetch")?;
-
-    runtime.block_on(async {
+    crate::runtime::block_on(async {
         let client = reqwest::Client::builder()
             // Named, and named as this command rather than as the binary. A source that
             // rate-limits or blocks automated retrieval is entitled to see what is asking,

@@ -579,3 +579,56 @@ fn a_recorded_version_names_no_feature_outside_the_default_set() {
         offenders.join("\n")
     );
 }
+
+// ── the runtime is compiled for exactly the features that pull tokio ──────────
+
+/// Whether a feature enables `tokio`, directly or through a feature it names.
+///
+/// `dep:tokio` is the direct form; `tokio/net` is the other — Cargo reads `dep/feat` as
+/// enabling the optional dependency too, which is what the note on `serve-http` relies on.
+fn pulls_tokio(name: &str, declared: &BTreeSet<String>) -> bool {
+    feature_body(name).iter().any(|entry| {
+        entry == "dep:tokio"
+            || entry.starts_with("tokio/")
+            || (declared.contains(entry) && pulls_tokio(entry, declared))
+    })
+}
+
+/// `crate::runtime` (#930) is behind a `cfg(any(…))` listing the features that pull tokio,
+/// because a feature that does not pull it has nothing to build the runtime from. That list
+/// is written by hand in `lib.rs`, so a new feature that links tokio would leave the module
+/// out of its own build — a hole no PR compiles, since every PR builds the default set. This
+/// derives the set from `[features]` and holds the attribute to it, in both directions.
+#[test]
+fn the_runtime_is_gated_on_exactly_the_features_that_pull_tokio() {
+    let declared = declared_features();
+    let expected: BTreeSet<String> = declared
+        .iter()
+        .filter(|f| !AGGREGATE.contains(&f.as_str()) && pulls_tokio(f, &declared))
+        .cloned()
+        .collect();
+    assert!(
+        expected.len() >= 3,
+        "fewer than three features pull tokio; the body parser is reading the wrong thing: \
+         {expected:?}"
+    );
+
+    let lib =
+        code_only(&std::fs::read_to_string(repo_root().join("yidam/cli/src/lib.rs")).unwrap());
+    let anchor = "pub mod runtime;";
+    let end = lib
+        .find(anchor)
+        .expect("lib.rs no longer declares `pub mod runtime` — this test reads nothing");
+    let before = &lib[..end];
+    let start = before
+        .rfind("#[cfg(any(")
+        .expect("`pub mod runtime` is not behind a `#[cfg(any(…))]`");
+    let gated = quoted(&before[start..]);
+    assert_eq!(
+        gated, expected,
+        "the `cfg` on `pub mod runtime` in lib.rs names {gated:?}; the features that pull \
+         tokio in Cargo.toml are {expected:?}. A feature that links tokio without the runtime \
+         module has nothing to block on; one in the list that does not link it fails to \
+         compile alone."
+    );
+}

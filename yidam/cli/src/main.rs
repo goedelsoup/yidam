@@ -1050,12 +1050,12 @@ impl From<MigrateCommand> for yidam::MigrateOperation {
     }
 }
 
-/// Build a Tokio runtime on demand for the async commands (`index-build`,
-/// `tonpa`). Only compiled when one of those features is on; the default
-/// `reports` build has no async work and links no runtime.
+/// Run one of the async commands (`index-build`, `tonpa`) on the crate's runtime. Only
+/// compiled when one of those features is on; the default `reports` build has no async work
+/// and links no runtime.
 #[cfg(any(feature = "index", feature = "tonpa"))]
 fn block_on<F: std::future::Future<Output = Result<()>>>(fut: F) -> Result<()> {
-    tokio::runtime::Runtime::new()?.block_on(fut)
+    yidam::runtime::block_on_local(fut)
 }
 
 fn main() -> Result<()> {
@@ -1376,7 +1376,7 @@ fn main() -> Result<()> {
         #[cfg(feature = "tonpa")]
         Command::Tonpa { sub } => block_on(yidam::tonpa::run(sub)),
         // Not `block_on`: every vault operation this build has is synchronous, and the
-        // `Store` trait is synchronous so that the transport can own a runtime without
+        // `Store` trait is synchronous so that the transport can block on the runtime without
         // putting one in the signature of the ungated half. See `vault/store.rs`.
         Command::Vault { sub } => yidam::run_vault(sub),
         Command::Policy { sub } => yidam::run_policy(sub),

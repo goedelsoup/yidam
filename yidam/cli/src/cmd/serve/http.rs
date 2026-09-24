@@ -375,12 +375,12 @@ pub(crate) fn serve(
         .parse()
         .with_context(|| format!("`{bind}:{port}` is not an address to bind"))?;
 
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_io()
-        .build()?;
+    // The crate's one runtime (#930), not a private one. The `LocalSet` runs on this thread
+    // inside its `block_on`, which is where the `Rc`s above need it to; a `retrieve` over
+    // `[index.remote]` from a connection task reaches the S3 Vectors transport, whose
+    // `block_on` knows it is inside the runtime and does not panic on it.
     let local = tokio::task::LocalSet::new();
-
-    local.block_on(&runtime, async move {
+    crate::runtime::block_on_local(local.run_until(async move {
         let state = Rc::new(RefCell::new(state));
         let allowed = Rc::new(allow_origin);
 
@@ -430,7 +430,7 @@ pub(crate) fn serve(
                 }
             });
         }
-    })
+    }))
 }
 
 #[cfg(test)]

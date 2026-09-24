@@ -1,11 +1,14 @@
 //! The one module here that performs I/O.
 //!
-//! # It owns its runtime
+//! # It blocks on the runtime, and does not own one
 //!
 //! Everything above this file is synchronous, for the reason `vault::store` gives about its
 //! own trait: an async signature would spread `tokio` into the ungated half of this module and
-//! spend what the split bought. So the runtime is built here and blocked on here, and nothing
-//! outside knows there is one.
+//! spend what the split bought. So [`Api::call`] runs its future to completion through
+//! [`crate::runtime::block_on`], and nothing outside knows there is a runtime. This client
+//! once owned one in a field, and that was the panic #930 names: the MCP server's `retrieve`
+//! over `[index.remote]` reaches this call from inside a connection task, and an owned
+//! runtime's `block_on` refuses a thread already inside another.
 //!
 //! # Deliberately thin
 //!
@@ -37,7 +40,6 @@ pub struct SignedRequest {
 pub struct Client {
     index: RemoteIndex,
     creds: Credentials,
-    runtime: tokio::runtime::Runtime,
     http: reqwest::Client,
     /// A clock, injected so the signing path is exercisable at a fixed time.
     now: fn() -> u64,
@@ -45,10 +47,6 @@ pub struct Client {
 
 impl Client {
     pub fn new(index: RemoteIndex, creds: Credentials) -> Result<Self> {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .context("building the runtime for the S3 Vectors transport")?;
         let http = reqwest::Client::builder()
             .user_agent(concat!("yidam-s3vectors/", env!("CARGO_PKG_VERSION")))
             .build()
@@ -56,7 +54,6 @@ impl Client {
         Ok(Self {
             index,
             creds,
-            runtime,
             http,
             now: unix_now,
         })
@@ -95,7 +92,7 @@ impl Api for Client {
         let signed = self
             .sign(request)
             .map_err(|e| Failure::invalid(e.to_string()))?;
-        self.runtime.block_on(async {
+        crate::runtime::block_on(async {
             let mut sent = self
                 .http
                 .post(&signed.url)

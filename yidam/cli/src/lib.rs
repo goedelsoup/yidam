@@ -50,6 +50,18 @@ pub mod s3vectors;
 pub mod vault;
 mod walk;
 
+/// The one tokio runtime (#930). Compiled for exactly the features that pull `tokio` —
+/// `tests/light_build.rs` derives that set from Cargo.toml and holds this list to it.
+#[cfg(any(
+    feature = "index",
+    feature = "tonpa",
+    feature = "vault-s3",
+    feature = "s3-vectors",
+    feature = "catalog-fetch",
+    feature = "serve-http",
+))]
+pub mod runtime;
+
 pub mod model;
 
 #[cfg(feature = "index")]
