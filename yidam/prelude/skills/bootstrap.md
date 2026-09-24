@@ -329,7 +329,7 @@ Then read each template file in `sadhana/`:
 - `sadhana/skills/README.md`
 - `sadhana/web/README.md`
 - `sadhana/root/README.md`, `sadhana/root/AGENTS.md`, `sadhana/root/CLAUDE.md`, `sadhana/root/mise.toml`,
-  `sadhana/root/gitattributes`, `sadhana/root/gitignore`
+  `sadhana/root/gitattributes`, `sadhana/root/gitignore`, `sadhana/root/PRACTICE.md`
 - every file in `sadhana/github/workflows/` — run `ls sadhana/github/workflows/` and read
   each one; do not assume a fixed list (#589)
 - `sadhana/sangha/README.md` (and PROTOCOL.md, electors.md, resolutions/, positions/) —
@@ -386,11 +386,14 @@ sadhana/root/CLAUDE.md            → .claude/CLAUDE.md    (overwrites yidam's)
 sadhana/root/mise.toml            → mise.toml            (overwrites yidam's)
 sadhana/root/gitattributes        → .gitattributes       (overwrites yidam's)
 sadhana/root/gitignore            → .gitignore           (overwrites yidam's)
+sadhana/root/PRACTICE.md          → PRACTICE.md          (yidam keeps no copy)
 ```
 
-Yidam's copies of these six files describe yidam — its harness, its CLI workspace, its
+Yidam's copies of the first six files describe yidam — its harness, its CLI workspace, its
 bootstrap-mode entry check. Left in place they are wrong the moment genesis is written.
-Overwrite all six now. Do not merge yidam's content into them.
+Overwrite all six now. Do not merge yidam's content into them. `PRACTICE.md` is the one
+root file yidam keeps no copy of — the template's history is a CLI's, not a corpus's — so
+it installs new rather than overwriting; step 8.5's `yidam regen` fills its block.
 
 **`.github/workflows/` — replace the directory, do not overwrite files inside it.** In
 existing-repo mode the target's own workflows are there and are not this scaffold's; in
@@ -427,7 +430,7 @@ it. `.gitattributes` arrives holding only comments — the rule about connector 
 line endings, which costs nothing until the first connector lands and is unrecoverable
 advice afterwards.
 
-`.gitignore` is the one of the six most easily mistaken for generic, and it is not.
+`.gitignore` is the one of the six overwrites most easily mistaken for generic, and it is not.
 Yidam's own ignores `.local/` — where *its* binary installs — and a path under
 `yidam/tests/`, which the vendor step in step 8 deletes; the rule outlives the directory it
 names by the length of the repository's life. What this file needs instead is organized

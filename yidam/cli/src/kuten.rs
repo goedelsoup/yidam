@@ -810,7 +810,7 @@ fn question_pressure_finding(pressure: &QuestionPressure, m: &Measurement) -> Fi
 /// One decimal shrinks that window by 10x rather than closing it — 0.11999 still renders
 /// "12.0%" — which is why [`Metric::read`] also names the side on divergence. Precision is the
 /// half that makes the number *useful*; the relation is the half that makes it honest.
-fn percent(v: f64) -> String {
+pub(crate) fn percent(v: f64) -> String {
     format!("{:.1}%", v * 100.0)
 }
 
@@ -1099,6 +1099,19 @@ pub fn measure(root: &Path) -> Measurement {
     lines.sort_unstable();
 
     Measurement {
+        nodes: lines.len(),
+        median_node_lines: median(&lines),
+        open_questions,
+        ..commit_measurement(&authored)
+    }
+}
+
+/// The commit half of a [`Measurement`], over subjects a caller has already reduced to its
+/// population — every authored commit for [`measure`], the authored non-`regen:` ones for
+/// `yidam practice`. The corpus half is zeroed: a history can be re-read at any commit it
+/// contains, and the working tree's corpus state cannot.
+pub(crate) fn commit_measurement(authored: &[&crate::cmd::lint::commits::Subject]) -> Measurement {
+    Measurement {
         commits: authored.len(),
         phase_commits: authored.iter().filter(|s| settles_a_phase(&s.verb)).count(),
         off_vocabulary_commits: authored
@@ -1117,9 +1130,9 @@ pub fn measure(root: &Path) -> Measurement {
                     .is_some_and(|(base, _)| yidam_core::git::is_recognized_verb(base))
             })
             .count(),
-        nodes: lines.len(),
-        median_node_lines: median(&lines),
-        open_questions,
+        nodes: 0,
+        median_node_lines: None,
+        open_questions: 0,
     }
 }
 

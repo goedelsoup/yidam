@@ -53,7 +53,7 @@ baseline is what makes that the question. — see
 
 ## The practice
 
-Four commands, and none is a gate. Each exits zero however much is owed, however far a
+Five commands, and none is a gate. Each exits zero however much is owed, however far a
 corpus has drifted, and however a contribution reads.
 
 | Command | What it answers |
@@ -61,6 +61,7 @@ corpus has drifted, and however a contribution reads.
 | `due` | What is due? Four clocks read together — index staleness, catalog TTL, unanswered questions, phases in flight. `--strict` exits nonzero on a due clock |
 | `cycle` | Where is this repository in its loop, and what is the next act? Owed, in flight, blocked, next — composed from `due`, `phases`, `lint` and `graph-check`. `--strict` exits nonzero on owed or blocked |
 | `kuten` * | What is this corpus's practice aimed at? Writes the declaration into `AGENTS.md`. `kuten check` reads the history against it; `kuten adopt <name>` declares one |
+| `practice` * | What has this corpus practiced? Writes a sampled series of its conduct into `PRACTICE.md`, each point read against the kuten that point's own tree held. Regenerated, never authored |
 | `score <range>` | How did this session's work read? One row per declared criterion, with its evidence |
 
 ### `cycle` gives the loop an object
