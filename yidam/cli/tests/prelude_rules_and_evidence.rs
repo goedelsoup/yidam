@@ -33,10 +33,10 @@
 //!
 //! # Scope
 //!
-//! All three files are split: `agent-conduct.md` as the worked example, then `GRAPH.md` and
-//! `directories.md` against the proven form. The checks here are written over *discovered*
-//! pairs, so a fourth split comes under them the day it lands, with no list here to remember to
-//! update.
+//! Four files are split: `agent-conduct.md` as the worked example, then `GRAPH.md` and
+//! `directories.md` against the proven form, then the bootstrap skill (#960). The checks here
+//! are written over *discovered* pairs, so a fifth split comes under them the day it lands, with
+//! no list here to remember to update.
 //!
 //! Two things the second pass established that the first could not. A **specification** splits
 //! as cleanly as an essay — `GRAPH.md`'s class contract was the case the RFC flagged as the
@@ -45,6 +45,15 @@
 //! costs a heading, a link and a connective sentence to carry twenty words, so four of those
 //! were inlined into the rules file instead. The form holds for a paragraph and is not worth its
 //! scaffolding below about a sentence.
+//!
+//! The skill added a third: a document that is *executed* differs from one that is consulted in
+//! that its arguments sit at the point of action — the fabrication argument where the empty
+//! class is, the edge argument where the whole corpus is in view — and a bare `[why]` there
+//! costs the agent the one sentence that was doing the work at that moment. So each moved essay
+//! leaves its punchline behind, and the rules file is 7,358 rather than the ~6,400 a clean cut
+//! would give. Two rules also share one section (`after-genesis-not-before`, stated in steps 7
+//! and 8), which [`every_evidence_section_is_reached_by_a_rule`] admits and the reverse check
+//! does not need to forbid.
 //!
 //! # Two occasions, two ceilings
 //!
@@ -116,8 +125,14 @@ const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 17_686), ("sadhana/root/A
 /// from a session. So the two ceilings measure two occasions, and a file on both is charged
 /// to both.
 ///
+/// **Lowered to 26,323 when the skill was split (#960).** One file changed: `bootstrap.md`
+/// went from 8,918 words to 7,358, and 27,883 − 1,560 is this figure exactly, so the whole
+/// delta is attributable to the one file the edit named. The 2,606-word evidence file is not
+/// on this path — it is reached by a `[why]` link, never by a step — and [`PAIR_FLOOR`] is
+/// what keeps the moved reasoning from thinning.
+///
 /// The same raise discipline as [`READ_CEILING`]: a raise has to name the file and the words.
-const BOOTSTRAP_CEILING: usize = 27_883;
+const BOOTSTRAP_CEILING: usize = 26_323;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -148,6 +163,7 @@ const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_399),
     ("yidam/prelude/GRAPH.md", 8_818),
     ("yidam/prelude/guidelines/directories.md", 10_961),
+    ("yidam/prelude/skills/bootstrap.md", 9_964),
 ];
 
 fn read(rel: &str) -> String {

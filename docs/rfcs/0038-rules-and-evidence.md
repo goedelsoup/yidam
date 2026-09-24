@@ -276,8 +276,10 @@ be measured against these numbers.
 - **What the rules say.** Every normative sentence in `agent-conduct.md` survives the split; the
   only prose changes are removals of argument that landed in the evidence file, verified by
   comparing the sentence sets of the pre- and post-split text.
-- **Bootstrap step 1's read list.** Unchanged, and the evidence file is excluded by the existing
-  prohibition rather than by a new clause.
+- **Bootstrap step 1's read list.** Unchanged, and the guideline evidence files are excluded by
+  the existing prohibition rather than by a new clause. (The skill itself was split later, under
+  #960; its own evidence file is the one exception step 1 now states, reached by a `[why]` link
+  and never by a step.)
 
 ## Migration & compatibility
 
